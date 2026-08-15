@@ -157,14 +157,25 @@ describe('ConnectPanel', () => {
     const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
 
     expect(wrapper.find('[data-testid="agent-link-timeout"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain(
-      'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
-    )
+    const cmd = wrapper.find('[data-testid="agent-link-setup-command"]').text()
+    expect(cmd).toContain('claude mcp add --transport http conf-agent')
+    expect(cmd).toContain('/agent-link/mcp')
+    expect(cmd).toContain('--header "Authorization: Bearer tok-123"')
     // The dead "Add to Cursor" button (no click handler) and the dead
     // "Use the no-install bridge instead" link (href="#") were removed —
     // the working `claude mcp add` command is the single setup path.
     expect(wrapper.find('[data-testid="agent-link-add-cursor-btn"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="agent-link-no-install-link"]').exists()).toBe(false)
+  })
+
+  it('setup command carries the session token as an Authorization header and a get_status trigger', () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'CL-TEST-1234' })
+    const cmd = wrapper.find('[data-testid="agent-link-setup-command"]').text()
+    expect(cmd).toContain('--header "Authorization: Bearer CL-TEST-1234"')
+    expect(cmd).toContain('/agent-link/mcp')
+    expect(cmd).not.toContain('zenapi.zenuml.com') // env-derived in tests, not hardcoded prod
+    expect(cmd).toContain('claude -p') // one-shot trigger provokes the handshake immediately
+    expect(cmd).toContain('get_status')
   })
 
   it('Copy prompt failure: shows "Copy failed — select the text above" on the button', async () => {

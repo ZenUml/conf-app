@@ -21,7 +21,7 @@
           </p>
 
           <details class="agent-link-panel__disclosure" data-testid="agent-link-setup-disclosure">
-            <summary>First time? Set up the connector (once)</summary>
+            <summary>Connect your agent (each session uses a fresh command)</summary>
             <SetupInstructions />
           </details>
         </div>
@@ -199,14 +199,11 @@
 import { computed, defineComponent, h, onBeforeUnmount, ref, watch } from 'vue'
 import type { AgentLinkClientState, AgentLinkThinkingState } from '@/composables/agentLink/agentLinkState'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
+import { agentLinkMcpUrl } from '@/composables/agentLink/relayUrl'
 import AgentStatusHeader from './AgentStatusHeader.vue'
 import SessionTtl from './SessionTtl.vue'
 import RailActions from './RailActions.vue'
 import SessionNotice from './SessionNotice.vue'
-
-// The MCP command from the design doc (§9 / relay host decision §14.3 —
-// zenapi.zenuml.com to avoid a new egress host / re-consent).
-const MCP_ADD_COMMAND = 'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
 
 const props = withDefaults(
   defineProps<{
@@ -250,6 +247,20 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
+// Rebuilt per session: the token rotates on every mint, and mcp.ts accepts
+// credentials ONLY as an Authorization header (or ?token=) — a command
+// without --header cannot authenticate. The trailing `claude -p` one-shot
+// makes a real MCP client connect NOW (mcp add alone only writes config;
+// the handshake would otherwise wait for the user's next session start).
+const mcpAddCommand = computed(() => {
+  const token = props.token ?? ''
+  return [
+    `claude mcp add --transport http conf-agent ${agentLinkMcpUrl()} \\`,
+    `  --header "Authorization: Bearer ${token}" \\`,
+    `&& claude -p "Using conf-agent, call get_status and report the diagram title."`,
+  ].join('\n')
+})
+
 // Shared "setup the connector" block used by both the waiting-state collapsed
 // <details> and the always-expanded timeout state, so the copy and markup only
 // exist once. The `claude mcp add` command is the single working setup path
@@ -263,7 +274,7 @@ const SetupInstructions = defineComponent({
         h(
           'pre',
           { class: 'agent-link-panel__command', 'data-testid': 'agent-link-setup-command' },
-          MCP_ADD_COMMAND
+          mcpAddCommand.value
         ),
       ])
   },

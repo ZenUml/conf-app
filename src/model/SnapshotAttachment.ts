@@ -25,6 +25,7 @@ import global from '@/model/globals';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { callRemote } from '@/utils/requestUtil';
 import { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/Attachment';
+import { isSnapshotWriteDenied, markSnapshotWriteDenied } from '@/utils/snapshot/denialMemo';
 
 const SNAPSHOT_TYPES: ReadonlyArray<DiagramType> = [
   DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
@@ -275,6 +276,12 @@ export async function fetchSnapshot(pageId: string, ccId: string): Promise<Diagr
  *
  * Either branch skips entirely when a snapshot already exists at least as
  * fresh as the current CC version.
+ *
+ * Viewer surface only, additionally: skips entirely (no fetch, no upload, no
+ * event) when this host page's app-authenticated write is already
+ * known-denied (see `src/utils/snapshot/denialMemo.ts`, #387) — every OTHER
+ * view of a permanently-denied page would otherwise re-attempt and re-403
+ * forever, which is what made `viewer_backfill` 76%+ of `snapshot_create_failed`.
  */
 export async function maybeBackfillSnapshot(opts: {
   hostPageId: string;
@@ -290,6 +297,11 @@ export async function maybeBackfillSnapshot(opts: {
     if (!opts.isDisplayMode) {
       // Editor surface: cross-page aliases only (see doc comment above).
       if (!opts.ccPageId || String(opts.ccPageId) === String(opts.hostPageId)) return;
+    } else if (isSnapshotWriteDenied(opts.hostPageId)) {
+      // Viewer surface, known-denied page (#387): stop repeat-attempting a
+      // write we already confirmed 401/403s here. Not a permission predictor —
+      // only reached after a REAL denial was already recorded (see below).
+      return;
     }
     // Viewer surface falls through unconditionally — any macro qualifies.
     const existing = await fetchSnapshot(opts.hostPageId, opts.ccId);
@@ -308,6 +320,14 @@ export async function maybeBackfillSnapshot(opts: {
     const { failure_reason, confluence_error_class } = snapshotFailureDetail(e);
     const skipReason = snapshotSkipReason(e);
     if (skipReason) {
+      if (surface === 'viewer' && skipReason === 'no_write_permission') {
+        // Memo the denial (#387) so every OTHER view of this page stops
+        // re-attempting a write we just confirmed 401/403s — see
+        // denialMemo.ts. Deliberately NOT done for page_not_published: that
+        // 404 is expected to self-heal on the very next view once the page
+        // publishes, and memoing it would defeat the new-page recovery case.
+        markSnapshotWriteDenied(opts.hostPageId);
+      }
       // Expected best-effort skip (read-only viewer / unpublished draft), not a
       // failure — record it as such so snapshot_create_failed stays a real
       // error signal while we keep visibility into the write-coverage gap.

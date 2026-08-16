@@ -248,11 +248,25 @@ const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
  * its own read only when that field is absent — which happens when this path
  * is exercised directly, outside the handler.
  */
+/**
+ * Reads custom content at most ONCE per export, and only when a caller on a
+ * failure path actually needs it. Memoised on `ctx`, so the PlantUML render and
+ * the failure event that follows it share the single read.
+ *
+ * Also sets `ctx.macroType`, which is why a failure event carries the real type
+ * while `macro_export_requested` / `macro_export_succeeded` carry `'none'` —
+ * the success path deliberately never reads (see the handler comment).
+ */
+async function ensureCustomContentParsed(ctx) {
+  if (ctx.customContentParsed === undefined) {
+    ctx.customContentParsed = await fetchCustomContentParsed(ctx.customContentId);
+    ctx.macroType = macroTypeFromParsed(ctx.customContentParsed);
+  }
+  return ctx.customContentParsed;
+}
+
 async function getDiagramData(ctx) {
-  const parsed =
-    ctx.customContentParsed !== undefined
-      ? ctx.customContentParsed
-      : await fetchCustomContentParsed(ctx.customContentId);
+  const parsed = await ensureCustomContentParsed(ctx);
   if (!parsed) return null;
   return { diagramType: parsed?.diagramType, plantUmlCode: parsed?.plantUmlCode };
 }
@@ -325,13 +339,23 @@ export const handler = async (payload) => {
   const ctx = extractExportContext(payload);
   const { pageId, customContentId, attachmentName } = ctx;
 
-  // One custom-content read per export, shared by both consumers: macro_type
-  // (#435, needed before the first event so macro_export_requested carries it)
-  // and the PlantUML server render (#434 slice 1). Reading it twice was the
-  // state these two changes landed in independently.
-  ctx.customContentParsed = await fetchCustomContentParsed(customContentId);
-  ctx.macroType = macroTypeFromParsed(ctx.customContentParsed);
-
+  // NO custom-content read on the success path. Measured on Lite production
+  // 2026-08-16: `exportMacro` runs 12,407 times/day, 40.3% of ALL Forge
+  // function invocations for the app — far more than the ~185/day of
+  // `macro_export_requested` Mixpanel records, for reasons not yet established.
+  // Reading custom content eagerly therefore added an HTTP round-trip to 40% of
+  // invocations, against a month-end compute projection already at ~94% of the
+  // free allowance.
+  //
+  // The read is now deferred to the paths that genuinely need it — the failure
+  // events and the PlantUML server render, both of which already sit behind a
+  // failed attachment lookup. `ensureCustomContentParsed` memoises it on `ctx`,
+  // so those paths still make exactly one read between them.
+  //
+  // Consequence, accepted deliberately: `macro_export_requested` and
+  // `macro_export_succeeded` carry `macro_type: 'none'`. Analysis gets the
+  // COMPOSITION of failures by type, not a per-type failure RATE — the
+  // denominator is gone. #434's sizing needs the composition, which survives.
   await trackExportEvent('macro_export_requested', joinKeyProps(ctx));
 
   try {
@@ -373,6 +397,9 @@ export const handler = async (payload) => {
       const failureReason = response.status === 401 || response.status === 403
         ? 'needs_authentication'
         : `attachments_api_${response.status}`;
+      // Failure path — resolve the type here so this event is sizeable by
+      // diagram type. The success path never reaches this and never reads.
+      await ensureCustomContentParsed(ctx);
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: failureReason,

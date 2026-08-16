@@ -212,9 +212,11 @@ describe('Forge export resolver (src/export.js)', () => {
 
     const result = await handler(payload);
 
-    // 2 asApp() calls: macro_type lookup (custom-content GET), then the
-    // attachments GET that 404s and triggers the asUser() fallback below.
-    expect(asAppRequest).toHaveBeenCalledTimes(2);
+    // 1 asApp() call: the attachments GET that 404s and triggers the asUser()
+    // fallback below. The asUser() retry then SUCCEEDS, so this is a success
+    // path and no custom-content read happens — the count dropped from 2 when
+    // that read moved off the success path.
+    expect(asAppRequest).toHaveBeenCalledTimes(1);
     expect(asUserRequest).toHaveBeenCalledTimes(1);
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
@@ -356,24 +358,30 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.client_domain).toBe('example-tenant');
   });
 
-  it('#435: carries macro_type (resolved from custom content) on macro_export_succeeded', async () => {
-    // First asApp() call = macro_type lookup (custom-content GET); second = attachments GET.
-    asAppRequest
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => '',
-        json: async () => ({ body: { raw: { value: JSON.stringify({ diagramType: 'mermaid' }) } } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => '',
-        json: async () => ({
-          results: [{ downloadLink: '/wiki/download/attachments/888/zenuml-cc-mermaid.png' }],
-          _links: { base: 'https://acme.atlassian.net' },
-        }),
-      });
+  it('reads NO custom content on the success path, so macro_type is "none" there', async () => {
+    // Measured on Lite production 2026-08-16: exportMacro runs 12,407 times/day
+    // = 40.3% of every Forge invocation for the app. An eager custom-content GET
+    // therefore added a round-trip to 40% of invocations, against a month-end
+    // compute projection already at ~94% of the free allowance. The read moved
+    // to the failure paths; the cost of that is this assertion — a successful
+    // export cannot report its diagram type.
+    //
+    // Mocked by URL, not by call order: the order is exactly what this change
+    // reverses, and an order-coupled fixture would pass for the wrong reason.
+    asAppRequest.mockImplementation(async (url: string) => {
+      if (String(url).includes('/attachments')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => '',
+          json: async () => ({
+            results: [{ downloadLink: '/wiki/download/attachments/888/zenuml-cc-mermaid.png' }],
+            _links: { base: 'https://acme.atlassian.net' },
+          }),
+        };
+      }
+      throw new Error(`unexpected asApp() call on the success path: ${url}`);
+    });
 
     const payload = {
       exportType: 'pdf',
@@ -389,31 +397,42 @@ describe('Forge export resolver (src/export.js)', () => {
 
     await handler(payload);
 
-    expect(asAppRequest).toHaveBeenCalledTimes(2);
-    expect(String(asAppRequest.mock.calls[0][0])).toContain('/custom-content/cc-mermaid');
+    // The point of the change: exactly one asApp() call, and it is the
+    // attachments lookup. No custom-content read at all.
+    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    expect(String(asAppRequest.mock.calls[0][0])).toContain('/attachments');
+    expect(
+      asAppRequest.mock.calls.filter(([u]: [string]) => String(u).includes('/custom-content/')),
+    ).toHaveLength(0);
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
       event?: string;
       properties?: { macro_type?: string };
     }>;
-    expect(rows.find((r) => r.event === 'macro_export_requested')?.properties?.macro_type).toBe('mermaid');
-    expect(rows.find((r) => r.event === 'macro_export_succeeded')?.properties?.macro_type).toBe('mermaid');
+    expect(rows.find((r) => r.event === 'macro_export_requested')?.properties?.macro_type).toBe('none');
+    expect(rows.find((r) => r.event === 'macro_export_succeeded')?.properties?.macro_type).toBe('none');
   });
 
   it('#435: carries the resolved macro_type on macro_export_failed (attachment_not_found), so type-sized failure queries work', async () => {
-    asAppRequest
-      .mockResolvedValueOnce({
+    // Mocked by URL, not call order — the failure path now reads custom content
+    // AFTER the attachments lookup, so an order-coupled fixture would hand the
+    // wrong body to each call.
+    asAppRequest.mockImplementation(async (url: string) => {
+      if (String(url).includes('/attachments')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => '',
+          json: async () => ({ results: [], _links: { base: 'https://acme.atlassian.net' } }),
+        };
+      }
+      return {
         ok: true,
         status: 200,
         text: async () => '',
         json: async () => ({ body: { raw: { value: JSON.stringify({ diagramType: 'graph' }) } } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => '',
-        json: async () => ({ results: [], _links: { base: 'https://acme.atlassian.net' } }),
-      });
+      };
+    });
 
     const payload = {
       exportType: 'pdf',
@@ -465,17 +484,23 @@ describe('Forge export resolver (src/export.js)', () => {
   });
 
   it('#435: records macro_type "none" when the custom-content lookup itself fails (page restricted, content deleted, etc.)', async () => {
-    asAppRequest
-      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '' }) // macro_type lookup 404s
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => '',
-        json: async () => ({
-          results: [{ downloadLink: '/wiki/download/attachments/892/zenuml-cc-unknown.png' }],
-          _links: { base: 'https://acme.atlassian.net' },
-        }),
-      });
+    // Mocked by URL, not call order. The attachment is FOUND here, so this is a
+    // success path — which no longer reads custom content at all. The 404 mock
+    // for that read is kept to prove it is never requested.
+    asAppRequest.mockImplementation(async (url: string) => {
+      if (String(url).includes('/attachments')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => '',
+          json: async () => ({
+            results: [{ downloadLink: '/wiki/download/attachments/892/zenuml-cc-unknown.png' }],
+            _links: { base: 'https://acme.atlassian.net' },
+          }),
+        };
+      }
+      return { ok: false, status: 404, text: async () => '' };
+    });
 
     const payload = {
       exportType: 'pdf',

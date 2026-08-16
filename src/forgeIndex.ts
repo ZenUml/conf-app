@@ -33,7 +33,7 @@ import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution } from '@/utils/viewerLoadOutcome';
-import { attributionFromCustomContent } from '@/model/DiagramAttribution';
+import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
 import type { DiagramLoadError } from '@/model/store2/types';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
@@ -394,7 +394,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // moments later, so nothing is silently dropped — it's deferred off the
     // critical path, same as the fetch itself.
     // See utils/renderCache/contentCacheStore.ts.
-    const mountSequenceViewer = async (viewerDoc: Diagram, attribution = null) => {
+    const mountSequenceViewer = async (viewerDoc: Diagram, attribution: DiagramAttribution | null = null) => {
       // #382: hold the mount until the viewport gate releases (the gate shows
       // its own shimmer placeholder while holding — index.html has no real
       // skeleton element). awaitGateBlocking also records the ACTUAL wait at
@@ -443,7 +443,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           ).catch(e => console.debug('[snapshot] backfill skipped', e));
         }
         const serialized = JSON.stringify(fresh);
-        putCachedContent(ccId, serialized);
+        putCachedContent(ccId, serialized, freshAttribution);
         if (hashContent(serialized) !== cachedHash) {
           renderPerf.markContentSource('fetch');
           // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
@@ -482,7 +482,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           } else {
             void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
           }
-          await mountSequenceViewer(viewerDoc);
+          // Attribution comes from the cache entry: this path returns without ever
+          // reaching the fetch that derives it. An entry written before the cache
+          // carried attribution mounts without a footer; the background revalidate
+          // rewrites the entry with attribution, but only re-mounts when the content
+          // hash changed — so such an entry shows its footer from the NEXT visit on.
+          await mountSequenceViewer(viewerDoc, cached.attribution ?? null);
           return; // rendered from cache — skip the live-fetch + mount path entirely
         } catch (e) {
           console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
@@ -514,7 +519,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // revalidate's hash comparison. Primed from both editor and viewer
         // loads — either is a legitimate source of "current truth" for a
         // later viewer revisit.
-        putCachedContent(customContentId, JSON.stringify(loaded.customContent.value));
+        putCachedContent(customContentId, JSON.stringify(loaded.customContent.value), diagramAttribution);
         renderPerf.markContentSource('fetch');
       }
       if (loaded.recoveredFromOrphanId && doc) {

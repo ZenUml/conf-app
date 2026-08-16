@@ -58,22 +58,47 @@ const DIAGRAM_TYPE_TO_MACRO_TYPE = {
  * and an unknown type look identical in a Mixpanel query, and #435 exists
  * because of exactly that ambiguity.
  */
-export async function resolveMacroType(customContentId) {
-  if (!customContentId) return 'none';
+/**
+ * The single custom-content read for an export invocation.
+ *
+ * Both consumers below need the SAME parsed body — `macro_type` (#435) reads
+ * `diagramType`, and the PlantUML server render (#434 slice 1) reads
+ * `diagramType` + `plantUmlCode`. They were built independently and each
+ * fetched it, which made every export issue two identical GETs. The handler
+ * now calls this once and stores the result on `ctx`; nothing here is cached
+ * across invocations, because a warm Forge container would then serve a stale
+ * body for content edited in between.
+ *
+ * Returns the parsed raw body, or null on any lookup/parse failure.
+ */
+export async function fetchCustomContentParsed(customContentId) {
+  if (!customContentId) return null;
   try {
     const response = await api
       .asApp()
       .requestConfluence(route`/wiki/api/v2/custom-content/${customContentId}?body-format=raw`);
-    if (!response.ok) return 'none';
+    if (!response.ok) {
+      console.debug(`Export: custom-content lookup ${response.status} for ${customContentId}`);
+      return null;
+    }
     const customContent = await response.json();
     const rawValue = customContent?.body?.raw?.value;
-    if (!rawValue) return 'none';
-    const parsed = JSON.parse(rawValue);
-    return DIAGRAM_TYPE_TO_MACRO_TYPE[parsed?.diagramType] ?? 'none';
+    if (!rawValue) return null;
+    return JSON.parse(rawValue);
   } catch (e) {
-    console.warn('Export: macro_type lookup failed:', e?.message);
-    return 'none';
+    console.warn(`Export: custom-content lookup failed for ${customContentId}:`, e?.message);
+    return null;
   }
+}
+
+/** Maps an already-parsed body to its macro_type, with the 'none' sentinel. */
+export function macroTypeFromParsed(parsed) {
+  return DIAGRAM_TYPE_TO_MACRO_TYPE[parsed?.diagramType] ?? 'none';
+}
+
+export async function resolveMacroType(customContentId) {
+  if (!customContentId) return 'none';
+  return macroTypeFromParsed(await fetchCustomContentParsed(customContentId));
 }
 
 export function extractExportContext(payload) {
@@ -216,28 +241,20 @@ function fallbackProps(info) {
 const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
 
 /**
- * Fetches the custom content's raw JSON body and returns { diagramType,
- * plantUmlCode }, or null on any lookup/parse failure. Read-only, mirrors the
- * pattern already used by src/asyncapi-export.js's buildAsyncApiSpecDocument.
+ * Returns the custom content's { diagramType, plantUmlCode }.
+ *
+ * Reuses the body the handler already read (`ctx.customContentParsed`) so an
+ * export issues ONE custom-content GET, not one per consumer. Falls back to
+ * its own read only when that field is absent — which happens when this path
+ * is exercised directly, outside the handler.
  */
-async function fetchCustomContentDiagramData(customContentId) {
-  try {
-    const response = await api
-      .asApp()
-      .requestConfluence(route`/wiki/api/v2/custom-content/${customContentId}?body-format=raw`);
-    if (!response.ok) {
-      console.debug(`Export: custom-content lookup ${response.status} for ${customContentId}`);
-      return null;
-    }
-    const customContent = await response.json();
-    const rawValue = customContent?.body?.raw?.value;
-    if (!rawValue) return null;
-    const parsed = JSON.parse(rawValue);
-    return { diagramType: parsed?.diagramType, plantUmlCode: parsed?.plantUmlCode };
-  } catch (e) {
-    console.warn(`Export: custom-content lookup failed for ${customContentId}:`, e?.message);
-    return null;
-  }
+async function getDiagramData(ctx) {
+  const parsed =
+    ctx.customContentParsed !== undefined
+      ? ctx.customContentParsed
+      : await fetchCustomContentParsed(ctx.customContentId);
+  if (!parsed) return null;
+  return { diagramType: parsed?.diagramType, plantUmlCode: parsed?.plantUmlCode };
 }
 
 /**
@@ -250,7 +267,7 @@ async function fetchCustomContentDiagramData(customContentId) {
  * because failures were invisible, so this path must never fail silently.
  */
 async function tryPlantUmlServerRender(ctx) {
-  const diagramData = await fetchCustomContentDiagramData(ctx.customContentId);
+  const diagramData = await getDiagramData(ctx);
   if (!diagramData || diagramData.diagramType !== 'plantuml') return null;
 
   const code = diagramData.plantUmlCode;
@@ -308,9 +325,12 @@ export const handler = async (payload) => {
   const ctx = extractExportContext(payload);
   const { pageId, customContentId, attachmentName } = ctx;
 
-  // Resolved before the first event so macro_export_requested — not just the
-  // terminal succeeded/failed events — carries macro_type (#435).
-  ctx.macroType = await resolveMacroType(customContentId);
+  // One custom-content read per export, shared by both consumers: macro_type
+  // (#435, needed before the first event so macro_export_requested carries it)
+  // and the PlantUML server render (#434 slice 1). Reading it twice was the
+  // state these two changes landed in independently.
+  ctx.customContentParsed = await fetchCustomContentParsed(customContentId);
+  ctx.macroType = macroTypeFromParsed(ctx.customContentParsed);
 
   await trackExportEvent('macro_export_requested', joinKeyProps(ctx));
 

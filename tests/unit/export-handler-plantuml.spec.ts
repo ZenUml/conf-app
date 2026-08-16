@@ -134,6 +134,15 @@ describe('Forge export resolver — PlantUML server-side render fallback (src/ex
     expect(rows.find((r) => r.event === 'macro_export_failed')).toBeUndefined();
     const succeeded = rows.find((r) => r.event === 'macro_export_succeeded');
     expect(succeeded?.properties?.render_source).toBe('server_render_plantuml');
+
+    // The macro_type resolver (#435) and this render path both need the same
+    // custom-content body. They were built independently and each fetched it,
+    // so an export issued two identical GETs; the handler now reads it once and
+    // shares it. Exactly one, asserted here so the duplication cannot return.
+    const customContentCalls = asAppRequest.mock.calls.filter(([url]: [string]) =>
+      String(url).includes('/custom-content/'),
+    );
+    expect(customContentCalls).toHaveLength(1);
   });
 
   it('leaves non-PlantUML types on the old attachment_not_found path unchanged (criterion 2)', async () => {

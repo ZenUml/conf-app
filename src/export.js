@@ -201,6 +201,106 @@ function fallbackProps(info) {
 }
 
 // ---------------------------------------------------------------------------
+// PlantUML server-side render fallback (issue #434, ADR-0004 slice 1)
+//
+// 79.2% of macro_export_failed/attachment_not_found events are macros that
+// were never opened in a browser, so the backup PNG attachment never existed
+// and never can — a browser is the only thing that has ever produced it.
+// PlantUML is the one type with a proven, dependency-light, DOM-free render
+// path: src/model/Attachment.ts:fetchPlantUmlPng already fetches a ready
+// raster straight from the public PlantUML server. This ports that same
+// logic into the Forge function so export.js can self-serve when the
+// attachment lookup comes back empty, instead of failing outright.
+// ---------------------------------------------------------------------------
+
+const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
+
+/**
+ * Fetches the custom content's raw JSON body and returns { diagramType,
+ * plantUmlCode }, or null on any lookup/parse failure. Read-only, mirrors the
+ * pattern already used by src/asyncapi-export.js's buildAsyncApiSpecDocument.
+ */
+async function fetchCustomContentDiagramData(customContentId) {
+  try {
+    const response = await api
+      .asApp()
+      .requestConfluence(route`/wiki/api/v2/custom-content/${customContentId}?body-format=raw`);
+    if (!response.ok) {
+      console.debug(`Export: custom-content lookup ${response.status} for ${customContentId}`);
+      return null;
+    }
+    const customContent = await response.json();
+    const rawValue = customContent?.body?.raw?.value;
+    if (!rawValue) return null;
+    const parsed = JSON.parse(rawValue);
+    return { diagramType: parsed?.diagramType, plantUmlCode: parsed?.plantUmlCode };
+  } catch (e) {
+    console.warn(`Export: custom-content lookup failed for ${customContentId}:`, e?.message);
+    return null;
+  }
+}
+
+/**
+ * On an empty attachment lookup, attempts a server-side PlantUML render.
+ * Returns the media ADF doc on success, or null when this macro isn't
+ * PlantUML or the server render itself fails — in which case the caller
+ * falls through to today's unchanged attachment_not_found path. A server
+ * fetch failure always records its own macro_export_failed event first
+ * (failure_reason: 'plantuml_server_render_failed') — this feature exists
+ * because failures were invisible, so this path must never fail silently.
+ */
+async function tryPlantUmlServerRender(ctx) {
+  const diagramData = await fetchCustomContentDiagramData(ctx.customContentId);
+  if (!diagramData || diagramData.diagramType !== 'plantuml') return null;
+
+  const code = diagramData.plantUmlCode;
+  if (typeof code !== 'string' || code.trim().length === 0) return null;
+
+  const { plantumlEncode } = await import('./utils/plantuml/encode');
+  const pngUrl = `${PLANTUML_PNG_SERVER}${plantumlEncode(code)}`;
+
+  try {
+    const resp = await fetch(pngUrl);
+    if (!resp.ok) {
+      console.warn(`Export: PlantUML server render failed (${resp.status}) for ${ctx.customContentId}`);
+      await trackExportEvent('macro_export_failed', {
+        ...joinKeyProps(ctx),
+        failure_reason: 'plantuml_server_render_failed',
+        plantuml_server_http_status: resp.status,
+      });
+      return null;
+    }
+    const blob = await resp.blob();
+    const contentType = (blob.type || '').toLowerCase().split(';')[0].trim();
+    if (contentType !== 'image/png') {
+      console.warn(`Export: PlantUML server returned non-PNG content-type "${contentType}" for ${ctx.customContentId}`);
+      await trackExportEvent('macro_export_failed', {
+        ...joinKeyProps(ctx),
+        failure_reason: 'plantuml_server_render_failed',
+        plantuml_server_content_type: contentType,
+      });
+      return null;
+    }
+  } catch (e) {
+    console.warn(`Export: PlantUML server render threw for ${ctx.customContentId}:`, e?.message);
+    await trackExportEvent('macro_export_failed', {
+      ...joinKeyProps(ctx),
+      failure_reason: 'plantuml_server_render_failed',
+      error_name: e?.name ?? 'UnknownError',
+      error_message: String(e?.message ?? e ?? '').slice(0, 200),
+    });
+    return null;
+  }
+
+  console.info(`Export: server-rendered PlantUML PNG for ${ctx.customContentId}`);
+  await trackExportEvent('macro_export_succeeded', {
+    ...joinKeyProps(ctx),
+    render_source: 'server_render_plantuml',
+  });
+  return createMediaDocument(pngUrl);
+}
+
+// ---------------------------------------------------------------------------
 // Export handler
 // ---------------------------------------------------------------------------
 
@@ -266,6 +366,13 @@ export const handler = async (payload) => {
 
     if (!attachmentsData?.results?.length) {
       console.debug(`Export: ${attachmentName} not found on page ${pageId}`);
+
+      // issue #434 slice 1: no attachment exists (79.2% of these are macros
+      // never opened in a browser, so one never will). PlantUML is the one
+      // type with a DOM-free server render — try it before failing.
+      const plantUmlRender = await tryPlantUmlServerRender(ctx);
+      if (plantUmlRender) return plantUmlRender;
+
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: 'attachment_not_found',

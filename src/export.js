@@ -1,5 +1,61 @@
 
 import api, { route } from '@forge/api';
+import { kvs } from '@forge/kvs';
+
+// ---------------------------------------------------------------------------
+// "Not found" cache — Forge KVS with short TTL
+//
+// 93% of exportMacro invocations on lite-prod log "diagram image not yet
+// generated" (the user clicked Export PDF on a page whose ZenUML PNG hasn't
+// been uploaded as a Confluence attachment yet). When this happens we
+// briefly cache the negative verdict per (cloudId, pageId, customContentId)
+// so subsequent invocations for the same key bail before touching the
+// Confluence REST API or Mixpanel.
+//
+// Trade-off: if the user generates the PNG (by opening the page) and tries
+// to export again WITHIN the TTL window, they'll still see the "not yet
+// generated" error message. 60s is short enough that this is a minor wait.
+//
+// Kill switch: set Forge variable EXPORT_404_CACHE_ENABLED=false
+// (per app, per env) to disable cache reads AND writes. Default behaviour
+// (unset / any other value) leaves the cache active.
+// ---------------------------------------------------------------------------
+
+const EXPORT_404_CACHE_TTL_SECONDS = 60;
+
+function exportNotFoundCacheKey(cloudId, pageId, customContentId) {
+  return `export:nf:${cloudId}:${pageId}:${customContentId}`;
+}
+
+function isExport404CacheEnabled() {
+  return process.env.EXPORT_404_CACHE_ENABLED !== 'false';
+}
+
+/** Returns true if the (page, attachment) is cached as "not generated". KVS failures fall through to false. */
+async function isCachedNotFound(cloudId, pageId, customContentId) {
+  if (!isExport404CacheEnabled()) return false;
+  try {
+    const value = await kvs.get(exportNotFoundCacheKey(cloudId, pageId, customContentId));
+    return value !== undefined;
+  } catch (e) {
+    console.warn('Export: KVS get failed, falling through:', e?.message);
+    return false;
+  }
+}
+
+/** Writes the negative verdict with a short TTL. KVS failures are swallowed. */
+async function cacheNotFound(cloudId, pageId, customContentId) {
+  if (!isExport404CacheEnabled()) return;
+  try {
+    await kvs.set(
+      exportNotFoundCacheKey(cloudId, pageId, customContentId),
+      true,
+      { ttl: { value: EXPORT_404_CACHE_TTL_SECONDS, unit: 'SECONDS' } },
+    );
+  } catch (e) {
+    console.warn('Export: KVS set failed:', e?.message);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -146,7 +202,16 @@ function fallbackProps(info) {
 
 export const handler = async (payload) => {
   const ctx = extractExportContext(payload);
-  const { pageId, customContentId, attachmentName } = ctx;
+  const { cloudId, pageId, customContentId, attachmentName } = ctx;
+
+  // Short-circuit on cached "not generated" verdict — skips both Confluence
+  // API calls and the two Mixpanel posts. Trades analytics fidelity (we
+  // under-count the user's retries) for the quota saving that is the whole
+  // point of this cache. See module-header comment for the trade-off.
+  if (customContentId && pageId && cloudId && cloudId !== 'unknown'
+      && await isCachedNotFound(cloudId, pageId, customContentId)) {
+    return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");
+  }
 
   await trackExportEvent('macro_export_requested', joinKeyProps(ctx));
 
@@ -207,6 +272,10 @@ export const handler = async (payload) => {
         failure_reason: 'attachment_not_found',
         ...fallbackProps(fallbackInfo),
       });
+      // Cache the negative verdict so the next ~60s of repeats short-circuit.
+      if (cloudId && cloudId !== 'unknown') {
+        await cacheNotFound(cloudId, pageId, customContentId);
+      }
       return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");
     }
 

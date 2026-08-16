@@ -214,17 +214,40 @@ see the **bug-report-framing** skill.
 
 ## Browser automation and Forge iframes
 
-Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Only Playwright can reliably access content inside them.
+Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Playwright reaches
+everything inside them; agent-browser reaches part of it; the rest reach nothing.
 
-| Tool | Forge iframe access | Notes |
+| Tool | Read + click inside the Forge iframe | Run JS / read console in the app's origin |
 |---|---|---|
-| **Playwright** | ✅ Yes | Use `frameLocator()` |
-| **chrome-devtools-mcp** | ❌ No | Feature not implemented ([issue #703](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/703)) |
-| **browser-use** | ❌ No | `cross_origin_iframes` flag exists but fix was reverted |
-| **agent-browser** | ❌ No | Built on browser-use, same limitation |
-| **claude-in-chrome** | ❌ No | Cannot cross origin iframe boundary |
+| **Playwright** | ✅ Yes — `frameLocator()` | ✅ Yes — `page.frames()` |
+| **agent-browser** (≥ 0.22) | ✅ Yes — `snapshot` inlines the iframe's a11y tree and its `@eNNN` refs click straight through | ❌ No |
+| **chrome-devtools-mcp** | ❌ No | ❌ No — feature not implemented ([issue #703](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/703)) |
+| **browser-use** | ❌ No | ❌ No — `cross_origin_iframes` flag exists but the fix was reverted |
+| **claude-in-chrome** | ❌ No — the iframe appears as a childless leaf | ❌ No |
 
-Always use Playwright for E2E tests that interact with Forge app UI.
+**agent-browser's two limits, measured 2026-08-16 on 0.34.0 against a purpose-built local
+cross-origin pair (parent on `127.0.0.1`, child on `localhost`), not inferred:**
+
+- `frame <selector>` does **not** move `eval`'s execution context, **even for a same-origin iframe**:
+  it printed `✓ Done`, then `eval` still reported the parent's path and `undefined` for a variable the
+  child had set. Re-tested with both commands inside a single `batch "frame #same" "eval -b <script>"`
+  call, in case the context simply did not survive between CLI invocations — same result, so this is
+  the command's behaviour rather than lost session state. For a cross-origin child `frame` fails
+  outright with `Frame not found` (ref, `#id`, attribute selector and URL forms all tried). So `eval`
+  cannot reach the Forge app's origin. Refs from `snapshot` are the exception: they carry frame
+  context, which is why click and read work.
+- `console` captures a **same-origin** child's logs but never the cross-origin child's. The Forge app's
+  own console output is therefore invisible — including the `🚫 shouldBlockActions check` line that
+  explains a paywall decision. agent-browser's own docs make no claim either way about iframe console
+  aggregation, so treat this as measured behaviour, not a violated contract; `agent-browser inspect`
+  opens DevTools, which does see every frame, and is the untested fallback if the log is essential.
+
+Consequence: anything needing app-origin JS (seeding the `mock*` paywall knobs in `localStorage`,
+reading the app's console) must use Playwright. Reading state or clicking a control inside the macro
+is fine on either. E2E tests stay on Playwright.
+
+The routing table for choosing a browser tool at all — plus the Volta-shim, profile-copy and
+CDP-endpoint traps — lives in the **browser-check** skill.
 
 ## Agent skills
 

@@ -88,6 +88,37 @@ Run it from the conf-app root only after the user explicitly agrees, and wait fo
 
 Choose based on the user's request.
 
+### Frontend mode invariants
+
+- Treat `pnpm start:local` as a standalone Lite frontend. It runs Vite in
+  `serve` mode and intentionally aliases `@forge/bridge` to
+  `src/stubs/forge-bridge.ts`.
+- Treat `pnpm start:sit` as local D1 migration + Wrangler + `start:local`. It
+  still uses the Forge bridge stub, and it also starts its own Worker. Never
+  substitute it for the separately managed Worker + frontend in this stack.
+- Start a frontend consumed by Forge tunnel with `FORGE_TUNNEL=1`; this is the
+  explicit signal in `vite.config.mjs` that retains the real
+  `@forge/bridge` package.
+- Set `PRODUCT_TYPE=diagramly` on the Vite command itself. Do not rely on a
+  parent environment variable when a nested package script sets
+  `PRODUCT_TYPE=lite` explicitly.
+- Expect the Confluence iframe source to use `http://localhost:8000`: Forge
+  tunnel owns that proxy origin and forwards Custom UI assets to Vite on
+  `127.0.0.1:8080`. Seeing port `8000` is not evidence of a failure.
+
+Before UI testing, inspect the transformed frontend module without printing
+secrets:
+
+```bash
+curl -fsS http://127.0.0.1:8080/src/model/globals/forgeGlobal.ts \
+  | rg 'node_modules/.vite/deps/@forge_bridge|src/stubs/forge-bridge|PRODUCT_TYPE'
+```
+
+Require the real `@forge_bridge` dependency, no `src/stubs/forge-bridge` import,
+and `PRODUCT_TYPE: "diagramly"`. If a real Forge iframe reports
+`Forge context missing extension`, check these invariants first. Do not weaken
+the context guard or manufacture a Forge context in application code.
+
 ### Codex-managed monitoring
 
 When the user asks Codex to start, own, monitor, or automatically diagnose the stack, do not run the AppleScript helper. Launch five long-running managed PTY sessions and retain every session ID:
@@ -99,7 +130,7 @@ DATABASE_URL='<local-url>' pnpm dev
 # conf-app checkout
 npx wrangler pages dev --port 8789
 ngrok http --authtoken '<token>' --url '<domain>' 8789
-pnpm start:local
+FORGE_TUNNEL=1 VERSION=latest PRODUCT_TYPE=diagramly pnpm exec vite dev --port 8080 --host 127.0.0.1
 forge tunnel
 ```
 
@@ -140,6 +171,24 @@ While the user tests:
 4. Apply the smallest evidence-backed fix, run focused tests, and confirm the affected service hot-reloads or restarts.
 5. Ask the user to retry only after the stack returns to ready state.
 
+For an AI Repair acceptance test on a real Confluence draft:
+
+1. Reuse the user's existing logged-in browser tab; do not open another browser.
+2. Use Playwright because Forge Custom UI is a sandboxed cross-origin iframe.
+3. Insert the Diagramly development OpenAPI macro and enter deliberately invalid
+   YAML, for example `title Sample API` instead of `title: Sample API`.
+4. Require visible parser-error evidence, open AI Repair, wait for the repaired
+   diff, apply it, and wait for the stale parser error to disappear.
+5. Require the editor to contain the repaired code and the preview to render.
+6. Corroborate the UI with ngrok metadata showing successful
+   `/diagramly/fix-diagram` and `/diagramly/job-status` responses. Print only
+   timestamps, methods, paths, and status codes.
+7. Save the macro to the page draft only when the user authorized insertion.
+   Do not click Confluence's page-level Publish action unless separately asked.
+
+Do not mark the check passed from unit tests alone. Preserve a screenshot,
+snapshot, or network intercept that proves the final UI state.
+
 Known signatures:
 
 - `Missing accountId in Forge context`: `/diagramly` bypassed authentication. Restore it in `AUTHENTICATED_PATHS`; do not fall back to client-supplied identity.
@@ -148,6 +197,9 @@ Known signatures:
 - Wrangler `EMFILE` or `listen EPERM`: relaunch outside the sandbox; do not change application code.
 - Forge lint errors followed by `Listening for requests`: an old Forge CLI may reject newer manifest schema while the tunnel still works. Do not edit `manifest.yml` without separate evidence.
 - Diagramly Node `>=24` warning followed by Next.js `Ready`: record the warning but treat it as non-blocking for that run.
+- Mixpanel `before_register` errors together with Vite's
+  `VITE_MIXPANEL_TOKEN is empty` warning mean local analytics is unconfigured;
+  report dropped local events separately from AI Repair transport health.
 
 ## Stop and clean up
 

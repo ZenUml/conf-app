@@ -3,18 +3,39 @@
 set -euo pipefail
 
 # Open the five joint-debug services in separate macOS Terminal windows.
-# Usage: ./launch-debug-services.sh <NGROK_AUTHTOKEN> <NGROK_DOMAIN> <DIAGRAMLY_PATH> [LOCAL_DATABASE_URL]
+# Usage:
+#   ./launch-debug-services.sh
+#   ./launch-debug-services.sh <NGROK_AUTHTOKEN> <NGROK_DOMAIN> <DIAGRAMLY_PATH> [LOCAL_DATABASE_URL]
 
-if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-    echo "Usage: $0 <NGROK_AUTHTOKEN> <NGROK_DOMAIN> <DIAGRAMLY_PATH> [LOCAL_DATABASE_URL]"
-    echo "Example: $0 'your-token' 'your-domain.ngrok-free.app' '/path/to/diagramly' 'postgresql://test_user:test_pass@127.0.0.1:5433/diagramly_test'"
+WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+
+if [ "$#" -eq 0 ]; then
+    WRANGLER_CONFIG="$WORKSPACE_DIR/wrangler.toml"
+    DIAGRAMLY_PATH="$WORKSPACE_DIR/../diagramly.ai"
+
+    if [ ! -f "$WRANGLER_CONFIG" ]; then
+        echo "ERROR: wrangler.toml was not found: $WRANGLER_CONFIG" >&2
+        exit 1
+    fi
+
+    NGROK_AUTHTOKEN="$(sed -nE 's/^[[:space:]]*NGROK_AUTHTOKEN[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$WRANGLER_CONFIG" | head -n 1)"
+    NGROK_DOMAIN="$(sed -nE 's/^[[:space:]]*NGROK_DOMAIN[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$WRANGLER_CONFIG" | head -n 1)"
+    DIAGRAMLY_DATABASE_URL=""
+elif [ "$#" -ge 3 ] && [ "$#" -le 4 ]; then
+    NGROK_AUTHTOKEN="$1"
+    NGROK_DOMAIN="$2"
+    DIAGRAMLY_PATH="$3"
+    DIAGRAMLY_DATABASE_URL="${4:-}"
+else
+    echo "Usage: $0"
+    echo "   or: $0 <NGROK_AUTHTOKEN> <NGROK_DOMAIN> <DIAGRAMLY_PATH> [LOCAL_DATABASE_URL]"
     exit 1
 fi
 
-NGROK_AUTHTOKEN="$1"
-NGROK_DOMAIN="$2"
-DIAGRAMLY_PATH="$3"
-DIAGRAMLY_DATABASE_URL="${4:-}"
+if [ -z "$NGROK_AUTHTOKEN" ] || [ -z "$NGROK_DOMAIN" ]; then
+    echo "ERROR: NGROK_AUTHTOKEN and NGROK_DOMAIN must be configured." >&2
+    exit 1
+fi
 
 if [ ! -d "$DIAGRAMLY_PATH" ] || [ ! -f "$DIAGRAMLY_PATH/package.json" ]; then
     echo "ERROR: Diagramly path is not a project directory: $DIAGRAMLY_PATH" >&2
@@ -33,6 +54,7 @@ if [ -z "$DIAGRAMLY_DATABASE_URL" ]; then
         /^[[:space:]]*DATABASE_URL[[:space:]]*=/ {
             value = substr($0, index($0, "=") + 1)
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            sub(/[[:space:]]+#.*/, "", value)
             gsub(/^['\''"]|['\''"]$/, "", value)
             print value
             exit
@@ -54,7 +76,32 @@ case "$DIAGRAMLY_DATABASE_URL_TO_VALIDATE" in
         ;;
 esac
 
-WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# Refuse to open duplicate service windows. The local PostgreSQL port is
+# intentionally excluded because the database container is expected to persist.
+BUSY_PORTS=""
+if command -v lsof >/dev/null 2>&1; then
+    for PORT in 3000 9000 8789 4040 8080 8000; do
+        if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+            BUSY_PORTS="$BUSY_PORTS $PORT"
+        fi
+    done
+fi
+
+if [ -n "$BUSY_PORTS" ]; then
+    echo "ERROR: Joint-debug ports are already in use:$BUSY_PORTS" >&2
+    echo "Stop the existing service windows with Ctrl+C, then run this script again." >&2
+    exit 1
+fi
+
+open_terminal_window() {
+    osascript - "$1" <<'APPLESCRIPT'
+on run argv
+    tell application "Terminal"
+        do script (item 1 of argv)
+    end tell
+end run
+APPLESCRIPT
+}
 
 # Shell-escape dynamic values before embedding them into Terminal commands.
 printf -v DIAGRAMLY_PATH_Q '%q' "$DIAGRAMLY_PATH"
@@ -78,26 +125,26 @@ echo "Diagramly database: $DIAGRAMLY_DATABASE_SOURCE"
 echo "ngrok Domain: $NGROK_DOMAIN"
 echo "Opening terminal windows..."
 
-osascript -e 'tell app "Terminal" to do script "cd '"$DIAGRAMLY_PATH_Q"' && echo '\''Terminal 1: Diagramly AI Service'\'' && '"$DIAGRAMLY_START_COMMAND"'"'
+open_terminal_window "cd $DIAGRAMLY_PATH_Q && echo 'Terminal 1: Diagramly AI Service' && $DIAGRAMLY_START_COMMAND"
 sleep 0.5
 
-osascript -e 'tell app "Terminal" to do script "cd '"$WORKSPACE_DIR_Q"' && echo '\''Terminal 2: Cloudflare Worker'\'' && npx wrangler pages dev --port 8789"'
+open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 2: Cloudflare Worker' && pnpm exec wrangler pages dev --port 8789"
 sleep 0.5
 
-osascript -e 'tell app "Terminal" to do script "cd '"$WORKSPACE_DIR_Q"' && echo '\''Terminal 3: ngrok Tunnel'\'' && ngrok http --authtoken '"$NGROK_AUTHTOKEN_Q"' --url '"$NGROK_DOMAIN_Q"' 8789"'
+open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 3: ngrok Tunnel' && npx --yes ngrok http --authtoken $NGROK_AUTHTOKEN_Q --url $NGROK_DOMAIN_Q 8789"
 sleep 0.5
 
-osascript -e 'tell app "Terminal" to do script "cd '"$WORKSPACE_DIR_Q"' && echo '\''Terminal 4: conf-app Frontend'\'' && pnpm start:local"'
+open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 4: conf-app Frontend (Forge + Diagramly)' && FORGE_TUNNEL=1 VERSION=latest PRODUCT_TYPE=diagramly pnpm exec vite dev --port 8080 --host 127.0.0.1"
 sleep 0.5
 
-osascript -e 'tell app "Terminal" to do script "cd '"$WORKSPACE_DIR_Q"' && echo '\''Terminal 5: Forge Tunnel'\'' && forge tunnel"'
+open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 5: Forge Tunnel' && pnpm forge:tunnel"
 
 echo
 echo "All Terminal commands were accepted. Verify readiness in every window:"
 echo "  - Diagramly:  http://localhost:3000"
 echo "  - Worker:     http://localhost:8789"
-echo "  - Frontend:   http://127.0.0.1:8080"
+echo "  - Frontend:   http://127.0.0.1:8080 (Vite)"
 echo "  - ngrok:      https://$NGROK_DOMAIN"
-echo "  - Forge:      Tunnel active"
+echo "  - Forge:      Tunnel active (the iframe may use localhost:8000 as its bridge)"
 echo
 echo "To stop all services: press Ctrl+C in each Terminal window."

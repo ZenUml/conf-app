@@ -153,7 +153,7 @@ export default defineConfig(({ command }) => ({
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
-      // Dev-server-only (command === 'serve', e.g. `pnpm start:local`):
+      // Standalone dev-server only (command === 'serve', e.g. `pnpm start:local`):
       // @forge/bridge's own module-evaluation code (bridge.js's
       // getCallBridge()) throws synchronously outside a real Forge iframe —
       // not just when a bridge call is made, but the instant ANY static
@@ -163,11 +163,11 @@ export default defineConfig(({ command }) => ({
       // (test-viewer.html, sandbox.html) before forgeGlobal's own try/catch
       // ever gets a chance to run. Storybook hit the identical problem and
       // fixed it with this exact alias (see .storybook/main.ts) — reuse it
-      // here. `forge tunnel` (pnpm forge:tunnel) is a separate Forge-CLI
-      // process that never invokes this Vite config, and `vite build`
-      // (command === 'build', every `pnpm build:*` / production bundle)
-      // is untouched, so real Forge deployments still ship the real package.
-      ...(command === 'serve'
+      // here. A Forge tunnel still proxies Custom UI assets through a Vite dev
+      // server, so joint-debug starts that server with FORGE_TUNNEL=1 to retain
+      // the real bridge. `vite build` (command === 'build', every
+      // `pnpm build:*` / production bundle) is untouched.
+      ...(command === 'serve' && process.env.FORGE_TUNNEL !== '1'
         ? { '@forge/bridge': resolve(__dirname, './src/stubs/forge-bridge.ts') }
         : {}),
       // AsyncAPI variant: @asyncapi/parser pulls in Node's `fs` for its

@@ -1,17 +1,17 @@
 ---
 name: graph-macro
-description: Drive the ZenUML Graph (DrawIO) macro through any entry point — slash-menu insert, in-editor Edit, copy-then-edit fallback, or view-mode Edit — and into the inner DrawIO editor to append a timestamp shape and Publish. Classifies the save outcome as success or did-not-persist, and records whether the paywall was observed. Use whenever you need to verify a Graph macro insert / edit / save end-to-end via Playwright MCP without re-deriving the Forge → DrawIO iframe chain. Triggers on "insert graph macro", "edit graph macro", "publish graph", "spot check drawio publish", "test graph save", "verify graph publish on lite", or any ad-hoc Graph-macro MCP spot check on lite-stg / full-stg / dia-stg / zenuml-stg / prod.
+description: Drive the ZenUML Graph (DrawIO) macro through any entry point — slash-menu insert, in-editor Edit, copy-then-edit fallback, or view-mode Edit — and into the inner DrawIO editor to append a timestamp shape and Publish. Classifies the save outcome as success or did-not-persist, and records whether the paywall was observed. Use whenever you need to verify a Graph macro insert / edit / save end-to-end via agent-browser without re-deriving the Forge → DrawIO iframe chain. Triggers on "insert graph macro", "edit graph macro", "publish graph", "spot check drawio publish", "test graph save", "verify graph publish on lite", or any ad-hoc Graph-macro spot check on lite-stg / full-stg / dia-stg / zenuml-stg / prod.
 ---
 
-# Graph (DrawIO) macro — MCP-driven spot-check playbook
+# Graph (DrawIO) macro — spot-check playbook
 
-A single, MCP-readable playbook that takes you from "Confluence page open in Chrome" to "Graph macro inserted or edited, Publish attempted, outcome classified." Avoids re-deriving the Forge → DrawIO iframe chain, the slash-menu keystroke trap, the paywall placement, and the metered continue-attempts semantics — each is captured inline below with a code citation so you can trust the why, not just the what.
+A single playbook that takes you from "Confluence page open in Chrome" to "Graph macro inserted or edited, Publish attempted, outcome classified." Avoids re-deriving the Forge → DrawIO iframe chain, the slash-menu keystroke trap, the paywall placement, and the metered continue-attempts semantics — each is captured inline below with a code citation so you can trust the why, not just the what.
 
 ## When to use this skill vs an adjacent one
 
 | If you need to … | Use |
 |---|---|
-| Spot-check the Graph macro insert / edit / publish flow via MCP | **this skill** |
+| Spot-check the Graph macro insert / edit / publish flow | **this skill** |
 | Edit a non-Graph macro (no DrawIO inner iframe) | `/edit-macro` |
 | Verify the cross-page-copy writeback behaviour specifically | `/copy-macro` |
 | Run release-gating validation (not ad-hoc) | `/pvt-drawio` or `/pvt-edit` |
@@ -23,7 +23,7 @@ This skill is **variant-agnostic**. It reports observations; the caller (you) in
 
 - Chrome already logged in to a Confluence site.
 - A Confluence page URL is open in the active Chrome tab (view or edit mode is fine — the skill clicks Confluence's page-level Edit button itself if Insert is needed and the page is in view mode).
-- Playwright MCP tools (`mcp__playwright__*`) available.
+- `agent-browser` on PATH. Every call takes `--session conf-app --restore=stg` (see `CLAUDE.md` § "Browser automation and Forge iframes").
 
 You do **not** need to specify a variant. Drive whichever site is open; interpret the report at the end.
 
@@ -33,7 +33,7 @@ You do **not** need to specify a variant. Drive whichever site is open; interpre
 |---|---|
 | Forge editor modal | `[data-testid="custom-ui-modal-dialog"]` |
 | Forge app iframe inside the modal | `[data-testid="hosted-resources-iframe"]` |
-| Inner DrawIO iframe | nested `iframe` reached via the Playwright locator chain — **never** `page.frames().find()` (URL-match is fragile across `drawio/editor` vs `drawio/editor.html`) |
+| Inner DrawIO iframe | nested `iframe`; reach it with a second `agent-browser frame "@<ref>"` after re-reading the ref from a snapshot taken *inside* the modal iframe. Never match by URL — it is fragile across `drawio/editor` vs `drawio/editor.html`. Most tasks do not need to enter it at all; use the postMessage protocol from the modal iframe instead (Section C2 fallback). |
 | Macro extension wrap (in Edit Mode) | `.extensionView-content-wrap` |
 | Confluence native macro pencil / edit toolbar (Edit Mode fallback) | **TBD** — pin on first run by inspecting the floating selection toolbar that appears after clicking a macro in the page editor, then update this table |
 | Paywall "Continue editing" button | `[data-testid="continue-editing-btn"]` (defined in `src/components/UpgradePrompt/UpgradePrompt.vue:51`) |
@@ -76,9 +76,9 @@ Record `entry_path_used` in the final report (`A`, `E1`, `E2`, or `E3`) so spot 
 **Steps:**
 
 1. Click in the page body to position the cursor.
-2. Type `/` then `graph` using `mcp__playwright__browser_press_key` (or `browser_type` one character at a time).
+2. Type `/` then `graph` using `agent-browser keyboard type` (real keystrokes), or `press` one key at a time.
 
-   > **Keystroke trap:** ProseMirror (Confluence's editor) watches `input` events. `mcp__playwright__browser_fill_form` bypasses those events and the slash menu never opens. Use real keystrokes.
+   > **Keystroke trap:** ProseMirror (Confluence's editor) watches `input` events. `agent-browser fill` sets the value directly and bypasses them, so the slash menu never opens. Use `keyboard type`, which emits real keystrokes.
 
 3. Wait for the slash menu to render the Graph option, then click **"Graph (DrawIO)"** specifically. Do not pick any other Graph-named option.
 4. Wait for `[data-testid="custom-ui-modal-dialog"]` to appear.
@@ -171,7 +171,24 @@ The goal of this step is to make the published result observable (you can see *w
 
 **Fallback mechanism (API-driven, use if primary is flaky against the deployed DrawIO build):**
 
-Use `mcp__playwright__browser_evaluate` inside the inner DrawIO iframe to call mxGraph's `editorUi.editor.graph.insertVertex(...)` directly. More invasive but bypasses UI-version drift in DrawIO's shape picker.
+Talk to DrawIO over its **postMessage protocol** from the *outer* Forge iframe — one `frame` hop, no need to enter the DrawIO frame itself:
+
+```bash
+A(){ agent-browser --session conf-app --restore=stg "$@"; }
+A frame "@<editor-oopif-ref>"     # the 1200x849 modal iframe, NOT the inner DrawIO one
+
+# Replace the whole diagram
+A eval "document.querySelector('iframe').contentWindow.postMessage(JSON.stringify({action:'load', xml:'<mxGraphModel>…</mxGraphModel>', autosave:1}), '*'); 'sent'"
+
+# Read the current diagram back (DrawIO replies with an 'export' event)
+A eval "window.__cap=[]; addEventListener('message', e=>{try{const p=JSON.parse(e.data); if(p.event) window.__cap.push(p);}catch(x){}}); 'armed'"
+A eval "document.querySelector('iframe').contentWindow.postMessage(JSON.stringify({action:'export', format:'xmlsvg'}), '*'); 'sent'"
+A eval "JSON.stringify(window.__cap.map(p=>({event:p.event, len:(p.xml||'').length})))"
+```
+
+> **`editorUi.editor.graph.insertVertex(...)` has no entry point — do not try it.** The editor loads with `embed=1` (`ForgeGraphEditor.vue:9`), DrawIO's official embed mode, which deliberately keeps its UI object inside a closure and exposes *only* the postMessage JSON protocol. `window.editorUi` does not exist, and nothing on `window` holds `.editor.graph` — verified 2026-08-17 by scanning every own-property of `window`, the `.geEditor` container node, and `mxEvent.objects`. This is the integration's design, not version drift.
+>
+> The app itself uses this protocol (`ForgeGraphEditor.vue:82` `sendToFrame`), so the actions are exactly the ones it already handles: `load` (with `autosave:1`) and `export`. Incoming events are `init`, `autosave`, `save`, `export`.
 
 > **Don't click on or near existing shapes** — that may select / modify them. The top-left margin works as a default; if the diagram has content there, pick another empty spot but never overlap existing geometry.
 
@@ -195,7 +212,7 @@ Wait up to **15 s** for two things together:
 
 There is **no second paywall watcher** at this step — the paywall has already been observed (or not) in C0, and it never gates the save itself. Once "Continue editing" was clicked in C0, the metered grace window applies and **the save is expected to persist — even on a paywalled Lite space**.
 
-`outcome = did-not-persist` is therefore **always a real failure to investigate**, regardless of `paywall_observed`. Capture `mcp__playwright__browser_console_messages` for the report.
+`outcome = did-not-persist` is therefore **always a real failure to investigate**, regardless of `paywall_observed`. Capture `agent-browser --session conf-app --restore=stg console` for the report (it includes the macro OOPIF's own logs).
 
 ### C5 — Structured report
 

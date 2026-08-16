@@ -315,12 +315,12 @@ follow-through grant when the answers land.
 ## Outbound: raising the ticket FOR the customer (proactive champion-watch)
 
 Sometimes there is **no inbound request** — the trigger is our own champion-watch: a user is
-about to exhaust (≤5 remaining) or has exhausted their 15 continue-attempts, and the tenant has
+about to exhaust (≤1 remaining) or has exhausted their continue-attempts, and the tenant has
 **no live JSM thread**. Then we grant first (flow above) and open the conversation ourselves.
 First done 2026-07-28: ZEN-1193 (tnexwm), ZEN-1194 (propertyguru), ZEN-1195 (xendit).
 
 **Trigger rule (user ruling 2026-07-28 — do NOT blast):** outbound only when BOTH hold:
-(a) a user exhausted or ≤5 `remaining_attempts_after` (7-14d window), (b) no live thread for the
+(a) a user exhausted or ≤1 `remaining_attempts_after` (7-14d window; the threshold was ≤5 when the default was 15 — with a default of 3 since 2026-08-16, ≤5 fires on the first click and is useless), (b) no live thread for the
 tenant (JQL `project = ZEN AND text ~ "<domain>"` via `/rest/api/3/search/jql` — v2 search
 silently returns empty). Tenants WITH a thread get an in-thread nudge instead; graduated-class
 tenants are left alone. Blanket outbound to every over-limit tenant is support-costumed marketing
@@ -365,7 +365,7 @@ await fetch('/rest/servicedeskapi/request/<KEY>/comment', { method:'POST', crede
 
 The reply is the standard template above with a proactive opening ("I'm reaching out because
 you're listed as the technical contact for … — <N> people hit the limit last week; one editor
-used all 15 continue-editing passes, we've already extended their account through <date>").
+used up their continue-editing passes, we've already extended their account through <date>").
 Remember the interaction: the grant hides the wall from that user for its duration, so their
 in-product Request-extension path is dormant — the ticket is the only live channel. Log in the
 sent-log as usual.

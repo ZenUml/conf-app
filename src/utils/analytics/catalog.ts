@@ -652,7 +652,19 @@ export type AnalyticsEventName =
   // here (deferred 2026-08-03) — its ai_generation_* events already exist
   // above and are reused, not redefined, when that lands.
   | "editor_template_gallery_opened"
-  | "editor_template_applied";
+  | "editor_template_applied"
+  // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
+  // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
+  // the detection rule). `shown` is the denominator, fired once per becoming-
+  // visible transition (not on every keystroke while it stays visible);
+  // `switch_clicked` = the user accepted the correction and the editor moved
+  // their source into the PlantUML tab; `dismissed` = the user closed the
+  // hint without switching. Editor-only: the hint's action (switch macro
+  // type) only exists on the editor's type-switcher surface, so it is not
+  // shown in the read-only viewer.
+  | "foreign_dialect_hint_shown"
+  | "foreign_dialect_hint_switch_clicked"
+  | "foreign_dialect_hint_dismissed";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

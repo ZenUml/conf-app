@@ -549,6 +549,12 @@ export type AnalyticsProperties = {
   // inventing a second one.
   template_id?: string;
   is_new_macro?: boolean;
+  // Foreign-dialect hint (#373). `macro_type` on these events is always the
+  // CURRENT macro's type (sequence — the only surface this ships on today);
+  // `detected_dialect` is the OTHER dialect the pasted source looks like,
+  // reusing MacroTypeValue rather than inventing a parallel enum since the
+  // detectable dialects are already macro types users can switch to.
+  detected_dialect?: MacroTypeValue;
   // Error
   error_code?: string;
   error_name?: string;

@@ -193,20 +193,34 @@ Set the notes on the still-draft release, then show them to the user as part of 
 gh release edit <new-draft-tag> --repo ZenUml/conf-app --notes-file release-notes-{variant}.md
 ```
 
-#### 2.4 Publish, then wait for the release workflow
+#### 2.4 Publish, then start PVT as soon as the deploy job is green
 
 ```bash
 gh release edit <new-draft-tag> --repo ZenUml/conf-app --draft=false
 ```
 
-This triggers the Release workflow (`release.yml`): it builds and publishes to Cloudflare production, then deploys to Forge production. Monitor it:
+This triggers the Release workflow (`release.yml`), which runs two distinct phases in one run:
 
-1. `gh run list --workflow=release.yml -L 1` then `gh run watch <run-id>`
-2. Verify it succeeded — if it failed, report and stop (the draft was already published, so the user may need to investigate manually)
+1. **Deploy** — `Deploy Cron Worker to Production` and `v{tag} to production` (Cloudflare production publish + Forge production deploy). **This is the gate for PVT.**
+2. **Prod smoke** — `Smoke Test (Prod) — {variant} / auth bootstrap` and four `shard N/4` jobs, which take several more minutes.
+
+**Do not wait for the whole run before starting 2.5.** The new code is live the moment the deploy job reports `success`; the smoke shards afterwards test that same live deployment, so blocking PVT on them only delays validation of a build that is already serving users.
+
+```bash
+# Poll job-level state, not run-level. Start PVT when the "to production" job is success.
+gh run view <run-id> --repo ZenUml/conf-app --json status,jobs \
+  -q '"run=\(.status)", (.jobs[] | "\(.conclusion // .status)\t\(.name)")'
+```
+
+- **Deploy job `success`** → **go straight to 2.5** and run PVT while the smoke shards continue.
+- **Deploy job `failure`** → report and stop. Nothing was deployed; PVT would test the previous version.
+- In parallel, keep watching the run to completion (`gh run watch <run-id> --exit-status` in the background) and fold the smoke result into the Step 3 report.
+
+**Judge by job, not by run.** A run whose deploy jobs are green and whose only red is a prod-smoke shard **did deploy successfully** — report the shard failure as a separate line item, do not describe the release as failed. Read the failing shard's log before characterizing it (`gh api repos/ZenUml/conf-app/actions/jobs/<jobId>/logs`); a `page.waitForResponse` timeout in a smoke spec is a test-side failure, distinct from a broken deployment.
 
 #### 2.5 Validate — PVT (MANDATORY)
 
-**Not optional. Always run immediately after the release workflow succeeds. Do NOT ask the user whether to run it — just do it.**
+**Not optional. Start it as soon as the 2.4 deploy job reports `success` — do not wait for the prod smoke shards, and do NOT ask the user whether to run it.**
 
 - **Lite**: `/pvt lite`
 - **Full**: `/pvt full`
@@ -290,7 +304,8 @@ Summarize each released variant:
 ## Release Report: v{version}-{variant}
 - Release notes set (replaced placeholder): ✓
 - Draft published: ✓
-- Release workflow: ✓
+- Release workflow — deploy jobs: ✓
+- Release workflow — prod smoke shards: ✓ | <N/4 failed: shard + one-line cause>
 - PVT (Mermaid smoke): PASS | FAIL
 - Release delta (one line): <themes / surfaces touched>
 - Focused tests (targeted coverage for this delta):

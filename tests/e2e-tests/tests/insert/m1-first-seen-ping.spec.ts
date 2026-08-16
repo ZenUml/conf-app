@@ -46,6 +46,34 @@ test('identifies only the target app page-banner first-seen relay', () => {
 test('first-seen ping completes from the target app page-banner', async ({ page }) => {
   test.setTimeout(120_000);
 
+  // The shared auth-state.json this project's `auth` dependency produces is
+  // CACHED ACROSS CI RUNS (daily key, `.github/workflows/e2e-test.yml`'s
+  // "Restore cached auth session" step) — its capture navigates to
+  // `${baseUrl}/overview`, which itself mounts the page-banner and fires this
+  // same ping (src/utils/firstSeen/firstSeenPing.ts), writing the 30-day
+  // `appFirstSeen:<domain>` throttle marker INTO the cached storageState. Any
+  // run later the same day that restores that cache starts with the marker
+  // already fresh, so `maybeSendFirstSeenPing` short-circuits on its
+  // synchronous `isFirstSeenDue` check and no relay call is ever made — this
+  // spec then times out waiting for a response that was never going to arrive
+  // (observed on lite-stg/diagramly-stg release runs 2026-08-14 and
+  // 2026-08-16; deploy jobs were green both times because this is purely a
+  // test-state artifact, not a product defect). Clear the marker (and its
+  // paired attempt-backoff stamp) in every frame BEFORE the navigation that
+  // this test's assertion depends on, so the spec's own pass/fail is never at
+  // the mercy of whichever run happened to populate the shared cache first
+  // that day. try/catch: a sandboxed cross-origin frame without
+  // allow-same-origin may reject localStorage access entirely.
+  await page.addInitScript(() => {
+    try {
+      for (const key of Object.keys(window.localStorage)) {
+        if (key.startsWith('appFirstSeen')) window.localStorage.removeItem(key);
+      }
+    } catch {
+      // inaccessible in this frame — nothing to clear
+    }
+  });
+
   const targetAppId = FORGE_APP_ID_BY_PRODUCT[testConfig.productType];
   const relayResponse = page.waitForResponse((response) => {
     if (!response.url().includes('useInvokeExtensionRelayMutation')) return false;

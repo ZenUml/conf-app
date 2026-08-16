@@ -67,16 +67,27 @@ function describeConversion(conv: EditorConversion): string {
 // Both URL shapes for one type share a page. pasteUntil clears the editor
 // before every attempt, so a second paste starts from an empty document — and
 // page creation is the expensive part of this suite, not the paste.
+// LITE ONLY. scripts/forge-wizard.mjs:236-238 (mirrored in release.yml and
+// staging-deploy.yml) deletes these matchers from full/diagramly/asyncapi: only
+// Lite ships the byline that mints the links, and identical patterns in two
+// installed apps would let the wrong app claim a pasted URL, leaving an
+// unreadable app-scoped custom content behind a /d/ link. Diagramly still ships
+// the graph and openapi macros, so the per-case macro guard below does NOT skip
+// there — the paste stays a plain link, Confluence's link toolbar covers the
+// editor, and the next click times out at 60s. That reaped Diagramly's shard at
+// the 8-minute job cap three runs in a row on 2026-08-16 (run 31937067487).
 test.describe(`Typed diagram deeplink autoConvert - ${testConfig.productType}`, () => {
   for (const c of CASES) {
-    const applies = testConfig.macros.includes(c.requires);
+    const applies = testConfig.isLite && testConfig.macros.includes(c.requires);
 
     test(`/d/${c.segment}/ and /new/${c.segment} both convert to the ${c.segment} macro`, async ({
       page,
     }) => {
       test.skip(
         !applies,
-        `Macro "${c.requires}" not in app profile [${testConfig.macros.join(', ')}]`,
+        testConfig.isLite
+          ? `Macro "${c.requires}" not in app profile [${testConfig.macros.join(', ')}]`
+          : `Typed deeplink matchers are stripped for ${testConfig.productType} (Lite-only byline)`,
       );
       const editorPage = await createPageAndSetup(page, testConfig.isLite ? ' Lite' : '');
       expect(editorPage, 'editor did not open').toBeTruthy();

@@ -24,7 +24,17 @@ import { pasteUntil, isMacro, typedDeeplinkUrl } from '../../helpers/embedDeepli
  */
 
 const macroType = 'graph' as const;
-const skip = !testConfig.macros.includes(macroType);
+
+// LITE ONLY. The typed /new/<type> and /d/<type>/*/* autoConvert matchers exist
+// only in Lite's deployed manifest: scripts/forge-wizard.mjs:236-238 (mirrored in
+// release.yml and staging-deploy.yml) deletes them for full/diagramly/asyncapi,
+// because only Lite ships the byline that mints those links and identical
+// patterns in two installed apps would let the wrong app claim a pasted URL.
+// Diagramly keeps the graph macro itself, so a macros-only guard does NOT skip
+// here — the paste stays a plain link, Confluence's link toolbar covers the
+// editor, and every later click times out at 60s. That reaped Diagramly's shard
+// at the 8-minute job cap three runs in a row on 2026-08-16 (run 31937067487).
+const skip = !testConfig.isLite || !testConfig.macros.includes(macroType);
 
 /** Verified 2026-08-02: returns {"cloudId":"..."} for a Confluence Cloud site. */
 async function fetchCloudId(request: APIRequestContext): Promise<string> {
@@ -73,7 +83,12 @@ async function fetchPageCustomContentId(
 }
 
 test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, () => {
-  test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
+  test.skip(
+    skip,
+    testConfig.isLite
+      ? `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`
+      : `Typed deeplink matchers are stripped for ${testConfig.productType} (Lite-only byline)`,
+  );
 
   test('a pasted graph deeplink renders the diagram, not an empty canvas', async ({
     page,

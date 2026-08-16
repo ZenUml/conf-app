@@ -170,7 +170,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
           custom_content_id: savedId,
           snapshot_skip_reason: 'page_not_published',
           failure_reason,
-          ...(confluence_error_class ? { confluence_error_class } : {}),
+          confluence_error_class,
         });
       } else {
         trackAnalyticsEvent('snapshot_create_failed', {
@@ -180,7 +180,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
           snapshot_trigger: 'save',
           custom_content_id: savedId,
           failure_reason,
-          ...(confluence_error_class ? { confluence_error_class } : {}),
+          confluence_error_class,
         });
       }
     }

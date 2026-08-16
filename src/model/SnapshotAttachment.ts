@@ -198,16 +198,27 @@ export async function uploadSnapshot(pageId: string, snapshot: DiagramSnapshotV1
  * attachment paths; reuse their extractor here rather than duplicating it —
  * both live in `src/`, so unlike the `functions/` side this is a real import.
  */
+/**
+ * `confluence_error_class` is ALWAYS returned, using the explicit `'none'`
+ * sentinel when the envelope carries no parseable class — it is never omitted.
+ *
+ * An absent property and an unparseable class are indistinguishable in a
+ * Mixpanel query, which is the exact ambiguity #398 was filed about, and the
+ * reason #435 chose `macro_type: 'none'` over omission. Omission also cannot be
+ * told apart from "this event predates the change". Callers therefore spread
+ * the field unconditionally; do not reintroduce a `? {...} : {}` guard.
+ */
+export const NO_CONFLUENCE_ERROR_CLASS = 'none';
+
 export function snapshotFailureDetail(e: unknown): {
   failure_reason: string;
-  confluence_error_class?: string;
+  confluence_error_class: string;
 } {
   const raw = String(e instanceof Error ? e.message : e);
   const detail = extractConfluenceMessage(raw);
-  const confluence_error_class = parseConfluenceErrorClass(detail);
   return {
     failure_reason: detail.substring(0, 200),
-    ...(confluence_error_class ? { confluence_error_class } : {}),
+    confluence_error_class: parseConfluenceErrorClass(detail) || NO_CONFLUENCE_ERROR_CLASS,
   };
 }
 
@@ -338,7 +349,7 @@ export async function maybeBackfillSnapshot(opts: {
         custom_content_id: opts.ccId,
         snapshot_skip_reason: skipReason,
         failure_reason,
-        ...(confluence_error_class ? { confluence_error_class } : {}),
+        confluence_error_class,
       });
       return;
     }
@@ -348,7 +359,7 @@ export async function maybeBackfillSnapshot(opts: {
       snapshot_trigger: snapshotTrigger,
       custom_content_id: opts.ccId,
       failure_reason,
-      ...(confluence_error_class ? { confluence_error_class } : {}),
+      confluence_error_class,
     });
   }
 }

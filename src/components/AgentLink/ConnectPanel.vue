@@ -1,5 +1,19 @@
 <template>
   <div class="agent-link-panel" :class="`agent-link-panel--${state}`" data-testid="agent-link-panel">
+    <!-- Persistent link-status rail: browser <-> Worker <-> local agent.
+         Shown for every in-session state (waiting/connected/suspended/timeout)
+         so the user always sees which leg is up, without opening any details.
+         Terminal notice states (closed/expired/already_linked/failed) render
+         their own SessionNotice takeover instead — the session is over, there
+         is no live leg left to show. -->
+    <div v-if="showRail" class="agent-link-rail" data-testid="agent-link-rail">
+      <span class="agent-link-rail__node agent-link-rail__node--up">Browser</span>
+      <span class="agent-link-rail__seg" :class="`agent-link-rail__seg--${railBrowserWorker}`" aria-hidden="true"></span>
+      <span class="agent-link-rail__node agent-link-rail__node--up">Worker</span>
+      <span class="agent-link-rail__seg" :class="`agent-link-rail__seg--${railWorkerAgent}`" aria-hidden="true"></span>
+      <span class="agent-link-rail__node" :class="`agent-link-rail__node--${railAgentNodeState}`">Agent</span>
+    </div>
+
     <div class="agent-link-panel__scroll">
       <!-- waiting: paste prompt + copy + pulsing status + collapsed setup.
            Once the relay reports presence (progressStage != null — Task 5's
@@ -24,6 +38,11 @@
             <span class="agent-link-panel__pulse-dot" aria-hidden="true"></span>
             Waiting for your agent to connect…
           </p>
+          <!-- The idle/max window starts at mint (functions/agent-link/sessionToken.ts's
+               lastActivityMs = issuedAtMs), not at first agent contact — so
+               this counts down for real from the moment the token exists,
+               matching SessionTtl's own default 600s (10-minute) bar. -->
+          <SessionTtl :expires-at="expiresAt" :at-cap="atCap" />
 
           <ol v-if="progressStage != null" class="agent-link-panel__progress" data-testid="agent-link-progress">
             <li
@@ -207,27 +226,50 @@
         <SessionNotice variant="failed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
       </template>
 
-      <!-- timeout: warning + expanded setup -->
+      <!-- timeout: no agent seen yet — two labeled, independent options, each
+           with its own retry hint directly beneath it (final-review fix: the
+           old flat prompt→copy→setup→hint→hint stack left "Then paste the
+           prompt again" reading as if it applied to the setup command shown
+           just above it, when it actually applies to the prompt block). -->
       <template v-else-if="state === 'timeout'">
         <div data-testid="agent-link-timeout">
           <h3 class="agent-link-panel__heading agent-link-panel__heading--warning">No agent yet — first time here?</h3>
+          <SessionTtl :expires-at="expiresAt" :at-cap="atCap" />
 
-          <pre class="agent-link-panel__prompt" data-testid="agent-link-prompt">{{ promptText }}</pre>
+          <div class="agent-link-panel__option" data-testid="agent-link-option-prompt">
+            <p class="agent-link-panel__option-label">Already have an agent connected? Paste this</p>
+            <pre class="agent-link-panel__prompt" data-testid="agent-link-prompt">{{ promptText }}</pre>
+            <button
+              type="button"
+              class="agent-link-panel__btn agent-link-panel__btn--primary"
+              data-testid="agent-link-copy-prompt-btn"
+              @click="onCopyPrompt"
+            >{{ copyButtonLabel }}</button>
+            <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">No response yet — paste it again. Each copy mints a fresh command.</p>
+          </div>
 
+          <div class="agent-link-panel__option" data-testid="agent-link-option-setup">
+            <p class="agent-link-panel__option-label">First time? Run this in your terminal</p>
+            <SetupInstructions />
+            <p class="agent-link-panel__hint" data-testid="agent-link-timeout-hint">
+              Pasted into a session that is already running? Restart it or run /mcp.
+              A mistyped token cannot be detected server-side.
+            </p>
+          </div>
+
+          <!-- Neither option above re-mints: pasting the prompt again reuses
+               the same still-embedded token, and the setup command's token is
+               baked in at render time too — if the session itself has gone
+               bad (expired, wrong token copied, stale terminal), no amount of
+               retrying either block helps. This is the one action that
+               actually gets a new token: same revokeAndRelink() path as the
+               connected/suspended rail's "Revoke & re-link". -->
           <button
             type="button"
-            class="agent-link-panel__btn agent-link-panel__btn--primary"
-            data-testid="agent-link-copy-prompt-btn"
-            @click="onCopyPrompt"
-          >{{ copyButtonLabel }}</button>
-
-          <SetupInstructions />
-
-          <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">Then paste the prompt again.</p>
-          <p class="agent-link-panel__hint" data-testid="agent-link-timeout-hint">
-            If you pasted the command into a session that is already running, restart it or run /mcp.
-            A mistyped token cannot be detected server-side.
-          </p>
+            class="agent-link-panel__link"
+            data-testid="agent-link-timeout-remint-btn"
+            @click="emit('reconnect')"
+          >Session not working? Get a fresh one</button>
         </div>
       </template>
     </div>
@@ -317,6 +359,15 @@ const mcpAddCommand = computed(() => {
   ].join('\n')
 })
 
+// The idle/max TTL is session metadata, not part of what the user pastes into
+// their agent — it used to live inside promptText and got copy-pasted along
+// with the chat instruction, which is noise for the agent and easy to miss
+// for the human. Removed from promptText entirely; SessionTtl.vue now renders
+// the real countdown in every state (waiting/timeout/connected) instead of a
+// static string, since the idle/max window starts at mint, not at "connected"
+// — sessionToken.ts's lastActivityMs is seeded to issuedAtMs, so the clock is
+// already running while the panel still reads "Waiting for your agent".
+
 // Shared "setup the connector" block used by both the waiting-state collapsed
 // <details> and the always-expanded timeout state, so the copy and markup only
 // exist once. The `claude mcp add` command is the single working setup path
@@ -350,6 +401,34 @@ const PROGRESS_RANK: Record<'initialized' | 'discovered' | 'verified' | 'working
 
 const progressRank = computed(() => (props.progressStage ? PROGRESS_RANK[props.progressStage] : 0))
 
+// --- Persistent link-status rail -----------------------------------------
+// Two independent legs, browser<->Worker and Worker<->agent. Rendered for
+// every in-session state so the user always sees which leg is up — the
+// terminal notice states (closed/expired/already_linked/failed) end the
+// session outright and render their own SessionNotice takeover instead.
+const RAIL_STATES: ReadonlyArray<AgentLinkClientState> = ['waiting', 'connected', 'suspended', 'timeout']
+const showRail = computed(() => RAIL_STATES.includes(props.state))
+
+// The browser<->Worker leg IS the relay WebSocket: 'suspended' is the FSM's
+// own name for that socket being down (Track G), everything else in
+// RAIL_STATES means it is open.
+const railBrowserWorker = computed<'up' | 'down'>(() => (props.state === 'suspended' ? 'down' : 'up'))
+
+// The Worker<->agent leg has no dedicated FSM state — it is read off
+// progressStage (Task 5's display-only handshake presence) and 'connected'.
+// 'suspended' drops both legs: once the relay socket itself is down, no
+// agent traffic can reach it either, regardless of the last-known presence.
+const railWorkerAgent = computed<'up' | 'down' | 'pending' | 'connecting'>(() => {
+  if (props.state === 'suspended') return 'down'
+  if (props.state === 'connected') return 'up'
+  return props.progressStage === null ? 'pending' : 'connecting'
+})
+
+const railAgentNodeState = computed<'up' | 'down' | 'pending'>(() => {
+  const leg = railWorkerAgent.value
+  return leg === 'connecting' ? 'pending' : leg
+})
+
 // Copy is deliberately conservative: a `claude -p` one-shot handshake proves
 // the relay + token round-trip, NOT that the interactive session is bound —
 // so 'verified' says "Link verified", never anything that reads as "connected
@@ -366,7 +445,6 @@ const promptText = computed(() => {
   return [
     'Connect to my ZenUML diagram via the conf-agent MCP.',
     `session: ${sessionToken}`,
-    '# reads this page · edits this diagram · 10 min idle / 60 min max',
   ].join('\n')
 })
 
@@ -552,6 +630,68 @@ const resumeText = computed(() => {
   box-sizing: border-box;
 }
 
+/* persistent link-status rail: browser <-> Worker <-> agent */
+.agent-link-rail {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--agent-link-border);
+  background: var(--agent-link-surface-muted);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--agent-link-muted);
+}
+
+.agent-link-rail__node {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.agent-link-rail__node::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--agent-link-faint);
+  flex: 0 0 auto;
+}
+
+.agent-link-rail__node--up::before { background: var(--agent-link-green); }
+.agent-link-rail__node--down::before { background: var(--agent-link-amber); }
+.agent-link-rail__node--pending::before { background: var(--agent-link-faint); }
+
+.agent-link-rail__seg {
+  flex: 1 1 16px;
+  min-width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--agent-link-faint);
+}
+
+.agent-link-rail__seg--up { background: var(--agent-link-green); }
+.agent-link-rail__seg--down { background: var(--agent-link-amber); }
+.agent-link-rail__seg--pending { background: var(--agent-link-faint); }
+.agent-link-rail__seg--connecting {
+  background: linear-gradient(90deg, var(--agent-link-blue) 0%, var(--agent-link-faint) 60%, var(--agent-link-blue) 100%);
+  background-size: 200% 100%;
+  animation: agent-link-rail-connecting 1.2s linear infinite;
+}
+
+@keyframes agent-link-rail-connecting {
+  from { background-position: 0% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-link-rail__seg--connecting {
+    animation: none;
+  }
+}
+
 .agent-link-panel__scroll {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -592,8 +732,25 @@ const resumeText = computed(() => {
 }
 
 .agent-link-panel__prompt,
-.agent-link-panel__command {
+:deep(.agent-link-panel__command) {
+  /* :deep() on .agent-link-panel__command only: SetupInstructions is a
+     defineComponent+h() mini-component, not compiled <template> markup, so
+     Vue's scoped-CSS attribute propagates only to its ROOT element
+     (.agent-link-panel__setup) — the <pre> one level inside never carries
+     the scope attribute, so a plain (non-deep) selector silently never
+     matched it. Every rule in this block was dead code for that element
+     until this changed — it only looked styled because of Tailwind's `pre`
+     element reset happening to resemble the intended box. */
   margin: 0;
+  /* min-width:0 defeats flexbox's automatic-minimum-size floor: as a flex
+     item (this sits inside .agent-link-panel__setup and, for the setup
+     command, an extra .agent-link-panel__option layer above that), a <pre>
+     with visible overflow keeps its min-content width as a hard floor under
+     `stretch` unless this is set — the URL in the setup command is long
+     enough to hit that floor and run off the panel edge unwrapped. */
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 6px;
   border: 1px solid var(--agent-link-border);
@@ -602,6 +759,7 @@ const resumeText = computed(() => {
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   color: var(--agent-link-ink);
 }
@@ -697,6 +855,28 @@ const resumeText = computed(() => {
   color: var(--agent-link-faint);
 }
 
+.agent-link-panel__option {
+  display: flex;
+  flex-direction: column;
+  /* Same reasoning as .agent-link-panel__setup above — no flex-start here. */
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--agent-link-border);
+  min-width: 0;
+}
+
+.agent-link-panel__option:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.agent-link-panel__option-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--agent-link-ink);
+}
+
 .agent-link-panel__disclosure {
   font-size: 12px;
   color: var(--agent-link-muted);
@@ -710,9 +890,13 @@ const resumeText = computed(() => {
 .agent-link-panel__setup {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  /* NOT align-items: flex-start — that sizes children (the <pre> command
+     block) to their content instead of stretching to the panel width, which
+     defeats pre-wrap and lets the command run off the edge unwrapped. The
+     button still self-aligns via its own .agent-link-panel__btn rule. */
   gap: 8px;
   margin-top: 8px;
+  min-width: 0;
 }
 
 .agent-link-panel__divider {
@@ -722,8 +906,20 @@ const resumeText = computed(() => {
 }
 
 .agent-link-panel__link {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
   font-size: 12px;
-  color: var(--agent-link-blue);
+  color: var(--agent-link-muted);
+  cursor: pointer;
+  transition: color 200ms ease;
+}
+.agent-link-panel__link:hover {
+  color: var(--agent-link-ink);
+  text-decoration: underline;
 }
 
 /* bound-diagram line */

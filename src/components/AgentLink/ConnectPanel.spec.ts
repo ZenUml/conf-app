@@ -24,6 +24,8 @@ function mountPanel(props: {
   progressStage?: 'initialized' | 'discovered' | 'verified' | 'working' | null
   clientName?: string
   noticeReason?: 'connection_lost' | null
+  expiresAt?: number | null
+  atCap?: boolean
 }) {
   return mount(ConnectPanel, {
     props: {
@@ -49,11 +51,22 @@ describe('ConnectPanel', () => {
     const prompt = wrapper.find('[data-testid="agent-link-prompt"]').text()
     expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
     expect(prompt).toContain('session: tok-123')
-    expect(prompt).toContain('reads this page · edits this diagram · 10 min idle / 60 min max')
     expect(wrapper.find('[data-testid="agent-link-waiting-status"]').text()).toContain(
       'Waiting for your agent to connect'
     )
     expect(wrapper.find('[data-testid="agent-link-setup-disclosure"]').exists()).toBe(true)
+  })
+
+  it('waiting: the TTL countdown is live from mint (idle/max window starts at issuedAt, not at "connected")', () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123', expiresAt: Date.now() + 9 * 60 * 1000 })
+    const ttl = wrapper.find('[data-testid="agent-link-ttl"]')
+    expect(ttl.exists()).toBe(true)
+    expect(ttl.text()).toContain('Session expires in')
+  })
+
+  it('waiting: no expiresAt yet (mint still in flight) renders no TTL meter, not a fake one', () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
+    expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(false)
   })
 
   it('connected: shows the activity feed entries and a Disconnect button', () => {
@@ -184,6 +197,14 @@ describe('ConnectPanel', () => {
     expect(hint.text()).toContain('mistyped token')
   })
 
+  it('timeout: offers a re-mint action, distinct from re-pasting the prompt or re-running setup', async () => {
+    const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
+    const btn = wrapper.find('[data-testid="agent-link-timeout-remint-btn"]')
+    expect(btn.exists()).toBe(true)
+    await btn.trigger('click')
+    expect(wrapper.emitted('reconnect')).toBeTruthy()
+  })
+
   it('timeout: shows the setup command', () => {
     const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
 
@@ -207,6 +228,39 @@ describe('ConnectPanel', () => {
     expect(cmd).not.toContain('zenapi.zenuml.com') // env-derived in tests, not hardcoded prod
     expect(cmd).toContain('claude -p') // one-shot trigger provokes the handshake immediately
     expect(cmd).toContain('get_status')
+  })
+
+  it('rail: waiting with no presence shows the browser-Worker leg up and the Worker-agent leg pending', () => {
+    const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: null })
+    const rail = w.find('[data-testid="agent-link-rail"]')
+    expect(rail.exists()).toBe(true)
+    expect(rail.find('.agent-link-rail__seg--up').exists()).toBe(true)
+    expect(rail.find('.agent-link-rail__seg--pending').exists()).toBe(true)
+  })
+
+  it('rail: waiting with presence shows the Worker-agent leg connecting', () => {
+    const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: 'discovered' })
+    const rail = w.find('[data-testid="agent-link-rail"]')
+    expect(rail.find('.agent-link-rail__seg--connecting').exists()).toBe(true)
+  })
+
+  it('rail: connected shows both legs up', () => {
+    const w = mountPanel({ state: 'connected', token: 'CL-T' })
+    const rail = w.find('[data-testid="agent-link-rail"]')
+    const segs = rail.findAll('.agent-link-rail__seg--up')
+    expect(segs).toHaveLength(2)
+  })
+
+  it('rail: suspended shows both legs down, not just the socket leg', () => {
+    const w = mountPanel({ state: 'suspended', token: 'CL-T' })
+    const rail = w.find('[data-testid="agent-link-rail"]')
+    const segs = rail.findAll('.agent-link-rail__seg--down')
+    expect(segs).toHaveLength(2)
+  })
+
+  it('rail: hidden on terminal notice states (session already over)', () => {
+    const w = mountPanel({ state: 'closed', token: 'CL-T' })
+    expect(w.find('[data-testid="agent-link-rail"]').exists()).toBe(false)
   })
 
   it('Copy prompt failure: shows "Copy failed — select the text above" on the button', async () => {

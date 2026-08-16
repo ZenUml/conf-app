@@ -51,6 +51,7 @@ if (!mixpanelToken) {
 const DEV_ONLY_HTML_ENTRIES = new Set([
   'test-viewer.html',
   'viewer-preview.html',
+  'editor-preview.html',
   'sandbox.html',
 ]);
 

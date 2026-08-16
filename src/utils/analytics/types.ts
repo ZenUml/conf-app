@@ -50,6 +50,17 @@ export type AnalyticsProperties = {
   format_filter?: DashboardFormatFilter;
   result?: string;
   failure_reason?: string;
+  // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
+  // _failed). `duration_ms` below is click-to-visible-result wall time;
+  // `backend_duration_ms` is job started-to-terminal time reported by the
+  // Diagramly backend. Keep both so polling/UI delay remains attributable.
+  poll_interval_ms?: number;
+  timeout_budget_ms?: number;
+  poll_count?: number;
+  backend_duration_ms?: number;
+  repair_attempts?: number;
+  reasoning_disabled?: boolean;
+  failure_phase?: 'start' | 'poll' | 'server' | 'timeout';
   // Upgrade
   product_option?: string;
   ui_component?: string;

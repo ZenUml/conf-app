@@ -214,17 +214,48 @@ see the **bug-report-framing** skill.
 
 ## Browser automation and Forge iframes
 
-Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Only Playwright can reliably access content inside them.
+Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Three tools reach inside them; the rest cannot.
 
-| Tool | Forge iframe access | Notes |
-|---|---|---|
-| **Playwright** | ✅ Yes | Use `frameLocator()` |
-| **chrome-devtools-mcp** | ❌ No | Feature not implemented ([issue #703](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/703)) |
-| **browser-use** | ❌ No | `cross_origin_iframes` flag exists but fix was reverted |
-| **agent-browser** | ❌ No | Built on browser-use, same limitation |
-| **claude-in-chrome** | ❌ No | Cannot cross origin iframe boundary |
+**Default to `agent-browser`** for ad hoc Forge macro work (spot checks, PVT, UI inspection). Checked-in E2E specs stay on standalone `@playwright/test` — that is a test-runner choice, unrelated to the MCP server below.
 
-Always use Playwright for E2E tests that interact with Forge app UI.
+```bash
+agent-browser --session conf-app --restore=stg <command>
+```
+
+`--session conf-app --restore=stg` loads a saved login state from `~/.agent-browser/sessions/stg-conf-app.json` (robot1yanhui, `cloud.session.token` valid to 2026-09-15). Without it every invocation starts on a blank profile and lands on the Atlassian login page. The SSO token covers any `*.atlassian.net` site the account belongs to; a site's first visit costs one redirect, then its cookie is cached.
+
+| Tool | OOPIF snapshot | OOPIF `eval` | OOPIF console | snapshot token |
+|---|---|---|---|---|
+| **agent-browser** | ✅ | ✅ | ✅ | 9,048 |
+| **ego lite** (`ego-browser`) | ✅ | ✅ (`cdp` + `sessionId`) | ✅ (`Runtime.enable` + `drainEvents`) | 12,246 |
+| **Playwright MCP** | ✅ | ✅ (snapshot `ref` as `target`) | ✅ (`console-*.log`) | 17,914 |
+| **Kimi WebBridge** | ❌ | ❌ | ❌ | 17,888 |
+| chrome-devtools-mcp | ❌ | ❌ | ❌ | — |
+| browser-use | ❌ | ❌ | ❌ | — |
+| claude-in-chrome | ❌ | ❌ | ❌ | — |
+
+Measured 2026-08-16 on lite-stg page 211026061; token counts are one accessibility snapshot of the same page (`cl100k_base`). Wall-clock for a 3-step flow was 13.5–15.7 s for all three capable tools — no measurable speed difference.
+
+**Why agent-browser is the default, and it is not token cost.** Playwright MCP drives one Chrome extension relay with a single global pairing: every concurrent Claude Code session competes for it, the loser's calls hang for 120 s, and recovery needs `/mcp` → Reconnect, which only the user can run. Over 2026-08-10..16 that produced 27 timeouts, 14 `PROFILE_BUSY`, 19 `Target … has been closed`, and **14 forced user interventions**. agent-browser gives each session its own `user-data-dir`, so the failure mode does not exist. Token saving is a rounding error by comparison (~1% of daily spend).
+
+Two agent-browser caveats: `frame @<ref>` silently no-ops on OOPIFs in versions before the 2026-08-16 patch (`eval` stays in the top frame and returns plausible-looking wrong values — verify with `location.host`), and `@e` refs are per-snapshot, so re-read the ref after any navigation.
+
+Kimi WebBridge cannot be used for Forge work at all: its snapshot omits OOPIF subtrees, and its `cdp` passthrough is `chrome.debugger`, which rejects `Target.getTargets` and `Target.attachToTarget` with `Not allowed`.
+
+**This section overrides the skills.** Twelve `.claude/skills/*/SKILL.md` files still spell their browser steps as `mcp__playwright__*` calls. Their *logic* (which page, which selector, which assertion) is still correct — translate the mechanics to agent-browser as you go:
+
+| Playwright MCP | agent-browser (prefix every call with `--session conf-app --restore=stg`) |
+|---|---|
+| `browser_navigate({url})` | `open <url>` |
+| `browser_snapshot()` | `snapshot` |
+| `browser_evaluate({function})` | `eval "<expr>"` |
+| `browser_click({target})` | `click "@<ref>"` |
+| `browser_type` / `browser_fill_form` | `fill "@<ref>" "<value>"` |
+| `browser_take_screenshot({filename})` | `screenshot <path>` |
+| `frameLocator()` / snapshot `ref` as `target` | `frame "@<ref>"`, then plain `eval` / `click` |
+| `browser_console_messages()` | `console` |
+
+Reach for Playwright MCP only when a skill needs something agent-browser lacks, or when agent-browser itself fails. Standalone `@playwright/test` under `tests/e2e-tests/` is unaffected by any of this.
 
 ## Agent skills
 

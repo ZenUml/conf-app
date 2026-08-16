@@ -1015,9 +1015,11 @@ async function createAttachmentIfContentChanged(
     const errorName = (e instanceof Error && e.name) ? e.name : (e == null ? 'null' : typeof e);
     const errorMessage = String((e as { message?: unknown })?.message ?? e ?? '').slice(0, 200);
     const label = buildFailureLabel(e, httpStatus, viaAppFallback);
-    const confluenceErrorClass = e instanceof AttachmentUploadHttpError
-      ? e.confluenceErrorClass
-      : undefined;
+    // Explicit 'none' rather than omission — see NO_CONFLUENCE_ERROR_CLASS in
+    // SnapshotAttachment.ts. An absent property cannot be told apart from an
+    // unparseable class, nor from an event that predates this field.
+    const confluenceErrorClass =
+      (e instanceof AttachmentUploadHttpError ? e.confluenceErrorClass : undefined) || 'none';
     trackEvent(label, 'attachment_upload_failed', 'export', {
       ...ctx,
       error_name: errorName,
@@ -1025,7 +1027,7 @@ async function createAttachmentIfContentChanged(
       http_status: httpStatus,
       via_app_fallback: viaAppFallback,
       ...(viaAppFallback ? { fallback_from_status: fallbackFromStatus } : {}),
-      ...(confluenceErrorClass ? { confluence_error_class: confluenceErrorClass } : {}),
+      confluence_error_class: confluenceErrorClass,
     });
     throw e;
   } finally {

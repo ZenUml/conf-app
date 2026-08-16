@@ -576,6 +576,15 @@ export type AnalyticsProperties = {
   // ({"statusCode":…,"data":{…},"message":"com.atlassian…) eats ~180 of them,
   // so before this the class name itself was truncated mid-word and could not
   // even be substring-matched in JQL.
+  //
+  // Every producer sets this unconditionally, using the explicit `'none'`
+  // sentinel when the envelope carries no parseable class (see
+  // NO_CONFLUENCE_ERROR_CLASS in SnapshotAttachment.ts). It stays optional here
+  // only because most events never carry it at all — do NOT read that as
+  // licence to omit it on an event that does. An omitted property cannot be
+  // told apart from an unparseable class, nor from an event predating the
+  // field, which is the ambiguity #398 was filed about and the reason #435
+  // chose `macro_type: 'none'` over omission.
   confluence_error_class?: string;
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;

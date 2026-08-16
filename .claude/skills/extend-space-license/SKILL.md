@@ -8,9 +8,9 @@ description: >
   space that hit the diagram limit, or when handed a request with a client domain +
   space key + macro count. It resolves the cloudId, verifies the exact space key,
   writes the SPACE_LICENSE_KV record, verifies it, computes the Full-plan upgrade
-  price, and drafts the reply from the canonical template. Also handles a REPEAT
-  asker by trading a longer window for product feedback (--feedback-offer: 7 days
-  now, 60 if they answer four questions) instead of silently renewing. Triggers on
+  price, and drafts the reply from the canonical template. Default handling is
+  7 days now + 60 if they answer four questions (--feedback-offer), run without
+  asking the owner first — repeat askers included. Triggers on
   "extend", "extension request", "temporary editing extension", "grant a space
   license", "re-open editing", "paywall lockout", "lift the limit for <space>",
   "request: temporary Lite editing extension", "ask for feedback in exchange",
@@ -67,6 +67,23 @@ three different humans (`vinit.dir.it6@` → `v.luongtx2@` → `nangdv1990@gmail
 and each one reads as a first request unless you check. Distinct-requester count is
 also what decides scope (see above) — so you need it before you choose a key shape.
 
+## The default is 7 + 60 — run it, do not ask (owner ruling 2026-08-16)
+
+**Every extension request is handled as a 7-day user-scoped grant plus the 60-day
+feedback offer, without asking the owner first.** Do not present "grant / escalate /
+refuse" as a choice, and do not ask which window to use. Run the grant, post the
+reply, log it, report what was done.
+
+Two things still stop for an explicit decision, and only these two:
+
+1. **Escalating to a space-level grant** (omit `--user`) — it removes the limit for
+   the whole site and erases the distributed-pressure signal.
+2. **Refusing a grant outright** (commercial-only reply).
+
+Everything else in this skill is the standing procedure. (Before this ruling, a
+routine 6th request from one space was written up as a three-option question; the
+owner picked the default. The question was overhead — the answer is the default.)
+
 ## Repeat askers: trade the longer window for feedback (`--feedback-offer`)
 
 When someone asks again and the tenant still hasn't converted, the choice is not
@@ -116,10 +133,14 @@ Rules that keep this honest:
 
 ## ⚠ This mutates production KV
 
-The grant writes to the prod `SPACE_LICENSE_KV` namespace. That's a
-deploy-discipline action — **only run the live grant with an explicit go-ahead.**
-Use `--dry-run` to preview the exact record and commands first. The customer-facing
-reply, pricing, and verification are all safe to prepare anytime.
+The grant writes to the prod `SPACE_LICENSE_KV` namespace. The **7 + 60 default is
+pre-authorised** (owner ruling 2026-08-16) — a user-scoped grant at `--days 7` with
+`--feedback-offer` runs live without a separate go-ahead. `--dry-run` first is still
+useful to read the record and the drafted reply back before writing.
+
+An explicit go-ahead is required only for the two exceptions named above: a
+space-level grant, or refusing the grant. Any window other than 7 days also needs
+one, since it changes the 7 → 60 ratio.
 
 ## Quick start
 

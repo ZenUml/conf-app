@@ -1,4 +1,7 @@
-export const DEFAULT_CONTINUE_ATTEMPTS = 15
+// Lowered from 15 to 3 on 2026-08-16. Existing users keep whatever balance is
+// already in localStorage — getOrCreateContinueAttempts only applies this default
+// when no valid record exists, so the change reaches new user/space pairs only.
+export const DEFAULT_CONTINUE_ATTEMPTS = 3
 export const CONTINUE_ATTEMPTS_STORAGE_SOURCE = 'local_storage'
 
 export interface ContinueAttemptsIdentity {

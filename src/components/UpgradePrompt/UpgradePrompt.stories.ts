@@ -86,8 +86,10 @@ export const DefaultUnlimitedContinue: Story = {
   name: 'Default - Continue still unlimited',
 }
 
+// 15 is no longer the default (lowered to 3 on 2026-08-16) but remains reachable:
+// users who started under the old default keep their stored balance.
 export const AttemptsAvailable15: Story = {
-  name: 'Phase 2 - 15 attempts available',
+  name: 'Phase 2 - 15 attempts (legacy balance)',
   args: {
     remainingContinueAttempts: 15,
   },
@@ -102,8 +104,9 @@ export const AttemptsAvailable15: Story = {
   },
 }
 
+// This is the state a new user/space pair now starts in.
 export const AttemptsLow3: Story = {
-  name: 'Phase 2 - low attempts',
+  name: 'Phase 2 - 3 attempts (current default)',
   args: {
     remainingContinueAttempts: 3,
   },

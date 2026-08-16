@@ -1,7 +1,10 @@
 import { beforeEach, describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import PaywallGate from '@/components/UpgradePrompt/PaywallGate.vue';
-import { continueAttemptsKey } from '@/utils/paywall/continueAttempts';
+import {
+  continueAttemptsKey,
+  DEFAULT_CONTINUE_ATTEMPTS,
+} from '@/utils/paywall/continueAttempts';
 
 const identity = {
   clientDomain: 'example-tenant',
@@ -67,9 +70,9 @@ describe('PaywallGate', () => {
       },
     });
 
-    expect(wrapper.get('[data-testid="remaining"]').text()).toBe('15');
+    expect(wrapper.get('[data-testid="remaining"]').text()).toBe(String(DEFAULT_CONTINUE_ATTEMPTS));
     expect(JSON.parse(localStorage.getItem(continueAttemptsKey(identity)) || '{}')).toMatchObject({
-      remainingAttempts: 15,
+      remainingAttempts: DEFAULT_CONTINUE_ATTEMPTS,
       lastUsedAt: null,
       exhaustedAt: null,
     });
@@ -104,7 +107,7 @@ describe('PaywallGate', () => {
     await wrapper.get('[data-testid="continue"]').trigger('click');
 
     expect(JSON.parse(localStorage.getItem(continueAttemptsKey(identity)) || '{}')).toMatchObject({
-      remainingAttempts: 14,
+      remainingAttempts: DEFAULT_CONTINUE_ATTEMPTS - 1,
     });
     expect(wrapper.emitted('continue-editing')).toBeTruthy();
   });

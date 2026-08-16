@@ -17,20 +17,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The `DiagramType` enum (`src/model/Diagram/Diagram.ts`) defines seven user-facing diagram types (`Unknown` is only a sentinel fallback):
 
-- **Sequence** — ZenUML sequence diagrams (the namesake renderer)
-- **Mermaid** — multi-purpose Mermaid renderer
-- **PlantUml** — multi-purpose PlantUML renderer
-- **Graph** — DrawIO-powered graph diagrams
-- **OpenApi** — OpenAPI/Swagger specifications via swagger-ui
+Six of the seven (`Sequence`, `Mermaid`, `PlantUml`, `Graph`, `OpenApi`, `Embed`) are self-describing from the enum. The seventh carries variant rules that the enum does not state:
+
 - **AsyncApi** — AsyncAPI specifications via the bundled AsyncAPI Studio build (`vendor/asyncapi-studio` submodule). Ships **only** in the asyncapi variant — the `zenuml-asyncapi-*` macros and `async-api-doc` custom content are stripped from lite/full/diagramly manifests (see `manifest.yml` comments and `.github/workflows/release.yml`)
-- **Embed** — embeds an existing diagram, graph, or API spec
 
-The project is built as a full-stack application with:
-
-- **Frontend**: Vue 3 with TypeScript, Vite build system, Forge Custom UI
-- **Backend**: Cloudflare Workers with D1 database (accessed via Forge remotes)
-- **Deployment**: Cloudflare Pages (backend API — `functions/` Workers + D1) + Forge CLI (manifest, Custom UI static assets → Atlassian's Forge CDN, and Forge Functions → Atlassian's Forge runtime)
-- **Platform**: Atlassian Forge (Connect runtime was removed; `app.connect` migration bridge in manifest.yml is kept for backward compatibility)
+Stack, build system, and deployment targets are stated in `package.json`, `wrangler.toml`, and `manifest.yml`. The one platform fact those files do not make obvious is under **Pure Forge — no Connect code** below.
 
 ### Product variants
 
@@ -238,7 +229,19 @@ Measured 2026-08-16 on lite-stg page 211026061; token counts are one accessibili
 
 **Why agent-browser is the default, and it is not token cost.** Playwright MCP drives one Chrome extension relay with a single global pairing: every concurrent Claude Code session competes for it, the loser's calls hang for 120 s, and recovery needs `/mcp` → Reconnect, which only the user can run. Over 2026-08-10..16 that produced 27 timeouts, 14 `PROFILE_BUSY`, 19 `Target … has been closed`, and **14 forced user interventions**. agent-browser gives each session its own `user-data-dir`, so the failure mode does not exist. Token saving is a rounding error by comparison (~1% of daily spend).
 
-Two agent-browser caveats: `frame @<ref>` silently no-ops on OOPIFs in versions before the 2026-08-16 patch (`eval` stays in the top frame and returns plausible-looking wrong values — verify with `location.host`), and `@e` refs are per-snapshot, so re-read the ref after any navigation.
+**Nested iframes work as of the 2026-08-17 patch** (`ab-src` `d2d8dbd`). A DrawIO editor inside a Forge macro OOPIF is two `frame` calls deep, and both `frame` and `eval` reach it. Take the ref from a snapshot in the *current* frame's context — `@e` refs are per-snapshot and per-frame, so re-read after every `frame` and every navigation:
+
+```bash
+A(){ agent-browser --session conf-app --restore=stg "$@"; }
+A frame "@e42"                      # layer 1: editor OOPIF
+A snapshot | grep Iframe            # re-read the ref HERE
+A frame "@e1"                       # layer 2: DrawIO
+A eval "typeof window.mxClient"     # -> "object"
+```
+
+Older builds fail two ways worth recognising: `frame @<ref>` reported `✓ Done` while `eval` silently stayed in the top frame (verify with `location.host` — it must be the `cdn.prod.atlassian-dev.net` host), and second-layer `eval` was rejected by the inner frame's CSP for lacking `unsafe-eval`. Both are fixed; the CSP one only ever affected same-origin nested frames.
+
+The DrawIO **instance** is a separate matter: the deployed build keeps its UI object in a closure, so `window.editorUi` does not exist and `graph-macro/SKILL.md`'s `editorUi.editor.graph.insertVertex(...)` fallback has no entry point. Reaching it in the current build is unsolved — use that skill's UI-click primary path.
 
 Kimi WebBridge cannot be used for Forge work at all: its snapshot omits OOPIF subtrees, and its `cdp` passthrough is `chrome.debugger`, which rejects `Target.getTargets` and `Target.attachToTarget` with `Not allowed`.
 

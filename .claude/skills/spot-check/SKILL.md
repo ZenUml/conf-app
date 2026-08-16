@@ -150,7 +150,8 @@ agent-browser --session conf-app --restore=stg console           # includes OOPI
 **Common gotchas:**
 
 - `--restore=stg` is required on every agent-browser call — without it the session starts blank and lands on the Atlassian login page.
-- `agent-browser frame @<ref>` silently no-ops on OOPIFs before the 2026-08-16 patch. Confirm entry with `eval "location.host"` — it must return the `cdn.prod.atlassian-dev.net` host, not `*.atlassian.net`.
+- Confirm frame entry with `eval "location.host"` — it must return the `cdn.prod.atlassian-dev.net` host, not `*.atlassian.net`. Older agent-browser builds reported `✓ Done` while staying in the top frame.
+- Nested frames (a DrawIO editor inside the macro OOPIF) need one `frame` call per layer, with a fresh `snapshot` between them — refs are scoped to the frame they were read in.
 - `@e` refs are per-snapshot. Re-read the ref after any navigation.
 - Selectors from the top frame miss Forge UI — scope to the iframe.
 - Paywall state: use the macro toolbar `Preset:` dropdown (Bystander/Owner/etc.) for deterministic variants.

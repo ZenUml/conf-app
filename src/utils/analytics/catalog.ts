@@ -217,6 +217,12 @@ export type AnalyticsEventName =
   | "ai_title_modified"
   | "ai_editor_opened"
   | "ai_feedback_submitted"
+  // AI Repair performance lifecycle. requested fires immediately before the
+  // start request and carries poll_interval_ms + timeout_budget_ms. succeeded /
+  // failed close the same user-perceived interval with duration_ms, poll_count,
+  // and any backend timing/attempt metadata returned by the job-status API.
+  // failed additionally carries failure_phase; never attach diagram code,
+  // error source text, or a job id to these events.
   | "ai_repair_requested"
   | "ai_repair_succeeded"
   | "ai_repair_failed"

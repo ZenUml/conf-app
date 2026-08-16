@@ -231,8 +231,29 @@ npx wrangler kv key get "license:$CLOUD:<SPACE>:<ACCOUNT_ID>" --namespace-id=$NS
 
 ## Posting the reply into the JSM ticket
 
-`support@zenuml.com` is the only identity that can read/reply on the ZEN desk, and
-only in-browser — so drive the Jira UI (Playwright MCP): open the ticket, click
+**Default path since 2026-08-16: curl with the local agent token.**
+`.env.forge.local` carries `JSM_EMAIL` / `JSM_API_TOKEN` for `support@zenuml.com`
+(agent-level, verified 200 on `/rest/api/3/issue/<KEY>` and
+`/rest/servicedeskapi/request/<KEY>`). Post through the **servicedeskapi** endpoint,
+never `/rest/api/3/issue/<KEY>/comment` — see § visibility in the `support-queue`
+skill; the api/3 endpoint posts **publicly** regardless of what you omit.
+
+```zsh
+set -a && . ./.env.forge.local && set +a
+curl -s -u "$JSM_EMAIL:$JSM_API_TOKEN" -H "Content-Type: application/json" \
+  -X POST "https://zenuml.atlassian.net/rest/servicedeskapi/request/<KEY>/comment" \
+  -d @/tmp/reply.json      # {"body": "<text, \n\n between paragraphs>", "public": true}
+# then assert visibility on read-back:
+curl -s -u "$JSM_EMAIL:$JSM_API_TOKEN" \
+  "https://zenuml.atlassian.net/rest/api/3/issue/<KEY>/comment?maxResults=100" \
+  | python3 -c "import sys,json;c=json.load(sys.stdin)['comments'][-1];print(c['jsdPublic'],c['created'])"
+```
+
+A public reply auto-transitions the ticket to *Waiting for customer* on this path
+too — that behaviour is the desk's, not the UI's.
+
+**Browser fallback (Playwright MCP)** — for anything the API refuses, and the only
+route that gives ProseMirror-rendered structure control. Open the ticket, click
 **Reply to customer**, paste, then click `[data-testid="comment-save-button"]`.
 Don't type the reply (`browser_type` times out ~5s mid-word). Paste it in one call:
 focus `#ak-editor-textarea`, build a `DataTransfer` with `setData('text/plain', …)`,
@@ -349,9 +370,9 @@ Remember the interaction: the grant hides the wall from that user for its durati
 in-product Request-extension path is dormant — the ticket is the only live channel. Log in the
 sent-log as usual.
 
-(Headless variant: needs a local `JSM_API_TOKEN` for support@zenuml.com — currently the token
-exists only as a GH Actions secret, so browser-session fetch is the only path. If a local token
-ever lands in `.env`, this becomes two curl calls and can run from cron.)
+(Headless variant is now live: `JSM_EMAIL` / `JSM_API_TOKEN` in `.env.forge.local` since
+2026-08-16. The two fetches above become two curl calls with `-u "$JSM_EMAIL:$JSM_API_TOKEN"`,
+no browser session, cron-safe. The browser recipe stays as the fallback.)
 
 ## Related
 

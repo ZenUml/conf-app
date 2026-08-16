@@ -194,6 +194,14 @@ export type AnalyticsEventName =
   // split-button menu (AsyncAPI vs OpenAPI) — the funnel entry BEFORE the
   // editor's own macro_create_started fires. `macro_type` carries the choice.
   | "dashboard_create_selected"
+  // conf-app#435: these three carry `macro_type` (reusing the property already
+  // registered below, not a new one — see the field's doc comment in
+  // src/utils/analytics/types.ts) so per-diagram-type export failure rates are
+  // a direct query, not a join against `custom_content_id` history. Emitted
+  // from the Forge backend (src/export.js, src/asyncapi-export.js), which
+  // posts to Mixpanel /import directly rather than through
+  // trackAnalyticsEvent/AnalyticsProperties — this union documents the shape,
+  // it doesn't enforce it there.
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"

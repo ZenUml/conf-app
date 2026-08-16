@@ -38,7 +38,14 @@ export async function getFixDiagramStatus(
   status: 'QUEUED' | 'PROCESSING' | 'GENERATING' | 'COMPLETED' | 'FAILED';
   progress: number;
   message: string;
-  output?: { diagramCode: string };
+  output?: {
+    diagramCode?: string;
+    repairAttempts?: number;
+    durationMs?: number;
+    timeBudgetMs?: number;
+    reasoningDisabled?: boolean;
+    timedOut?: boolean;
+  };
   error?: string;
 }> {
   const jobStatus = await callRemote(
@@ -50,7 +57,14 @@ export async function getFixDiagramStatus(
     status: 'QUEUED' | 'PROCESSING' | 'GENERATING' | 'COMPLETED' | 'FAILED';
     progress: number;
     message: string;
-    output?: { diagramCode: string };
+    output?: {
+      diagramCode?: string;
+      repairAttempts?: number;
+      durationMs?: number;
+      timeBudgetMs?: number;
+      reasoningDisabled?: boolean;
+      timedOut?: boolean;
+    };
     error?: string;
   };
 

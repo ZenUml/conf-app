@@ -212,7 +212,9 @@ describe('Forge export resolver (src/export.js)', () => {
 
     const result = await handler(payload);
 
-    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    // 2 asApp() calls: macro_type lookup (custom-content GET), then the
+    // attachments GET that 404s and triggers the asUser() fallback below.
+    expect(asAppRequest).toHaveBeenCalledTimes(2);
     expect(asUserRequest).toHaveBeenCalledTimes(1);
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
@@ -264,7 +266,9 @@ describe('Forge export resolver (src/export.js)', () => {
 
     await handler(payload);
 
-    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    // 2 asApp() calls: macro_type lookup (custom-content GET), then the
+    // attachments GET that 404s and triggers the asUser() fallback below.
+    expect(asAppRequest).toHaveBeenCalledTimes(2);
     expect(asUserRequest).toHaveBeenCalledTimes(1);
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
@@ -352,6 +356,148 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.client_domain).toBe('example-tenant');
   });
 
+  it('#435: carries macro_type (resolved from custom content) on macro_export_succeeded', async () => {
+    // First asApp() call = macro_type lookup (custom-content GET); second = attachments GET.
+    asAppRequest
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({ body: { raw: { value: JSON.stringify({ diagramType: 'mermaid' }) } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          results: [{ downloadLink: '/wiki/download/attachments/888/zenuml-cc-mermaid.png' }],
+          _links: { base: 'https://acme.atlassian.net' },
+        }),
+      });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-mmd',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-mmd',
+        extension: { content: { id: '888' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-mermaid' } },
+    };
+
+    await handler(payload);
+
+    expect(asAppRequest).toHaveBeenCalledTimes(2);
+    expect(String(asAppRequest.mock.calls[0][0])).toContain('/custom-content/cc-mermaid');
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { macro_type?: string };
+    }>;
+    expect(rows.find((r) => r.event === 'macro_export_requested')?.properties?.macro_type).toBe('mermaid');
+    expect(rows.find((r) => r.event === 'macro_export_succeeded')?.properties?.macro_type).toBe('mermaid');
+  });
+
+  it('#435: carries the resolved macro_type on macro_export_failed (attachment_not_found), so type-sized failure queries work', async () => {
+    asAppRequest
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({ body: { raw: { value: JSON.stringify({ diagramType: 'graph' }) } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({ results: [], _links: { base: 'https://acme.atlassian.net' } }),
+      });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-graph',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-graph',
+        extension: { content: { id: '890' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-graph' } },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { failure_reason?: string; macro_type?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('attachment_not_found');
+    expect(failed?.properties?.macro_type).toBe('graph');
+  });
+
+  it('#435: records macro_type "none" (not omitted) when the type genuinely cannot be determined — no customContentId', async () => {
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-nocc',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-nocc',
+        extension: { content: { id: '891' } },
+      },
+      extensionPayload: { config: { customContentId: null } },
+    };
+
+    await handler(payload);
+
+    expect(asAppRequest).not.toHaveBeenCalled();
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { failure_reason?: string; macro_type?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('missing_custom_content_id');
+    expect(failed?.properties?.macro_type).toBe('none');
+  });
+
+  it('#435: records macro_type "none" when the custom-content lookup itself fails (page restricted, content deleted, etc.)', async () => {
+    asAppRequest
+      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '' }) // macro_type lookup 404s
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          results: [{ downloadLink: '/wiki/download/attachments/892/zenuml-cc-unknown.png' }],
+          _links: { base: 'https://acme.atlassian.net' },
+        }),
+      });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-unk',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-unk',
+        extension: { content: { id: '892' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-unknown-type' } },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { macro_type?: string };
+    }>;
+    expect(rows.find((r) => r.event === 'macro_export_succeeded')?.properties?.macro_type).toBe('none');
+  });
+
   it('does not call asUser() and omits fallback telemetry when asApp() returns a non-404 error', async () => {
     asAppRequest.mockResolvedValue({
       ok: false,
@@ -375,7 +521,9 @@ describe('Forge export resolver (src/export.js)', () => {
 
     await handler(payload);
 
-    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    // 2 asApp() calls: macro_type lookup (custom-content GET), then the
+    // attachments GET that 403s (non-404, so no asUser() fallback).
+    expect(asAppRequest).toHaveBeenCalledTimes(2);
     expect(asUserRequest).not.toHaveBeenCalled();
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{

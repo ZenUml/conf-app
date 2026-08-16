@@ -23,6 +23,59 @@ import api, { route } from '@forge/api';
  * `macro_export_requested`) can carry the join keys we use to correlate
  * with frontend `attachment_upload_*` events.
  */
+// conf-app#435: maps the custom content's `diagramType` field (see
+// src/model/Diagram/Diagram.ts DiagramType, and the same fallback pattern in
+// src/model/ContentProvider/Persistence.ts's DIAGRAM_TYPE_TO_MACRO_TYPE) to the
+// MacroTypeValue used across analytics (src/utils/analytics/catalog.ts). Not
+// imported directly — export.js runs in the Forge functions bundle, kept free
+// of the frontend/Vue module graph — so the mapping is duplicated here.
+const DIAGRAM_TYPE_TO_MACRO_TYPE = {
+  sequence: 'sequence',
+  mermaid: 'mermaid',
+  plantuml: 'plantuml',
+  graph: 'graph',
+  OpenAPI: 'openapi',
+  AsyncAPI: 'asyncapi',
+  embed: 'embed',
+};
+
+/**
+ * Resolves the exported macro's diagram type for analytics sizing (#435:
+ * "macro_export_* events carry no diagram type, so export failures can't be
+ * sized per type"). export.js otherwise never fetches custom content — it
+ * only resolves the attachment by filename — so this is a dedicated GET,
+ * accepted per #435's "route 2" (one extra Confluence API call per export)
+ * since folding this into #434's server-side-render work isn't scheduled yet.
+ *
+ * Returns 'none' — the same "type didn't resolve" sentinel the frontend
+ * already uses (Persistence.ts's DIAGRAM_TYPE_TO_MACRO_TYPE fallback) — for
+ * every case where the type genuinely cannot be determined: no
+ * customContentId (nothing to look up — the `missing_custom_content_id`
+ * failure path), a non-2xx custom-content response (content deleted, page
+ * restricted, asApp() lacking read access), a non-JSON raw body, or a raw
+ * body with no (or an unrecognized) `diagramType` field. Recording 'none'
+ * explicitly (rather than omitting the property) matters: an absent property
+ * and an unknown type look identical in a Mixpanel query, and #435 exists
+ * because of exactly that ambiguity.
+ */
+export async function resolveMacroType(customContentId) {
+  if (!customContentId) return 'none';
+  try {
+    const response = await api
+      .asApp()
+      .requestConfluence(route`/wiki/api/v2/custom-content/${customContentId}?body-format=raw`);
+    if (!response.ok) return 'none';
+    const customContent = await response.json();
+    const rawValue = customContent?.body?.raw?.value;
+    if (!rawValue) return 'none';
+    const parsed = JSON.parse(rawValue);
+    return DIAGRAM_TYPE_TO_MACRO_TYPE[parsed?.diagramType] ?? 'none';
+  } catch (e) {
+    console.warn('Export: macro_type lookup failed:', e?.message);
+    return 'none';
+  }
+}
+
 export function extractExportContext(payload) {
   const format = payload.exportType ?? (payload.context?.content?.id || payload.context?.contentId ? 'word' : 'pdf');
 
@@ -55,13 +108,19 @@ export function extractExportContext(payload) {
 
   const attachmentName = customContentId ? `zenuml-${customContentId}.png` : null;
 
-  return { format, cloudId, clientDomain, spaceKey, accountId, pageId, customContentId, attachmentName };
+  // macroType is resolved separately (async, requires a custom-content GET —
+  // see resolveMacroType) and attached to the context by the caller before
+  // the first trackExportEvent call; default to 'none' ("not yet resolved")
+  // so a caller that forgets the step still emits an explicit sentinel
+  // instead of a silently absent property.
+  return { format, cloudId, clientDomain, spaceKey, accountId, pageId, customContentId, attachmentName, macroType: 'none' };
 }
 
 /**
  * Common join-key fields included on every export tracking event so we can
  * left-join to the frontend `attachment_upload_*` events on
- * (cloud_id, custom_content_id, page_id).
+ * (cloud_id, custom_content_id, page_id). Also carries `macro_type` (#435)
+ * so export failures/successes can be sized per diagram type.
  */
 export function joinKeyProps(ctx) {
   return {
@@ -73,6 +132,7 @@ export function joinKeyProps(ctx) {
     custom_content_id: ctx.customContentId,
     attachment_name: ctx.attachmentName,
     format: ctx.format,
+    macro_type: ctx.macroType ?? 'none',
   };
 }
 
@@ -147,6 +207,10 @@ function fallbackProps(info) {
 export const handler = async (payload) => {
   const ctx = extractExportContext(payload);
   const { pageId, customContentId, attachmentName } = ctx;
+
+  // Resolved before the first event so macro_export_requested — not just the
+  // terminal succeeded/failed events — carries macro_type (#435).
+  ctx.macroType = await resolveMacroType(customContentId);
 
   await trackExportEvent('macro_export_requested', joinKeyProps(ctx));
 

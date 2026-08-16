@@ -39,6 +39,12 @@ export type AnalyticsProperties = {
   product_type?: ProductType;
   environment_type?: string;
   // Contextual — required when scope implies them
+  // Also carried by macro_export_requested/_succeeded/_failed (#435), sent
+  // from src/export.js / src/asyncapi-export.js (Forge backend, outside this
+  // frontend catalog's enforcement — see the event names' doc comment above).
+  // 'none' there means the type genuinely could not be resolved (no
+  // customContentId, or the custom-content GET failed), recorded explicitly
+  // rather than omitted.
   macro_type?: MacroTypeValue;
   entry_point?: EntryPoint;
   confluence_space?: string;

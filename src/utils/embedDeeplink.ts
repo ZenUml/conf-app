@@ -92,14 +92,16 @@ export function newlyCreatedId(before: Array<string>, after: Array<string>): str
  * diagram to my page" should mean.
  *
  * Because we generate the link, the type can go in the path — and then each
- * real macro claims its own pattern (`/d/sequence/*​/*` on the sequence macro,
- * `/d/graph/*​/*` on graph, and so on), so a paste produces the ordinary,
+ * real macro claims its own pattern (`/d/sequence/<cloudId>/<contentId>` on the
+ * sequence macro, `/d/graph/<cloudId>/<contentId>` on graph, and so on), so a
+ * paste produces the ordinary,
  * editable macro pointed at the saved diagram. The URL cannot carry the type
  * implicitly: autoConvert matches on shape alone, with no lookup, so the macro
  * that will handle the paste has to be decidable from the string itself.
  *
- * Segment count keeps the two forms apart: `/d/*​/*` is three, `/d/<type>/*​/*`
- * is four, and a matcher's `*` covers exactly one segment. Links already pasted
+ * Segment count keeps the two forms apart: `/d/<cloudId>/<contentId>` is three,
+ * `/d/<type>/<cloudId>/<contentId>` is four, and a matcher's `*` covers exactly
+ * one segment. Links already pasted
  * or shared as the three-segment form keep resolving as embeds.
  */
 export interface TypedDiagramDeeplink extends EmbedDeeplink {

@@ -565,3 +565,63 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.used_asuser_fallback).toBeUndefined();
   });
 });
+
+describe('macro_export_* $insert_id (Mixpanel dedup key)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '' })));
+    process.env.MIXPANEL_TOKEN = 'unit-test-token';
+    asAppRequest.mockReset();
+    asUserRequest.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.MIXPANEL_TOKEN;
+  });
+
+  // One page export invokes this handler once per macro, and those invocations
+  // land in the same millisecond for the same tenant. When $insert_id carried
+  // only (event, cloud_id, ms), every macro on the page produced an identical
+  // key and Mixpanel kept exactly one — which is why the Console showed 12,407
+  // exportMacro invocations on a day Mixpanel recorded 65 events.
+  it('gives two macros on the SAME page in the same millisecond distinct keys', async () => {
+    asAppRequest.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({
+        results: [{ downloadLink: '/wiki/download/attachments/900/x.png' }],
+        _links: { base: 'https://acme.atlassian.net' },
+      }),
+    }));
+
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+
+    const payloadFor = (ccId: string) => ({
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-same',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-same',
+        extension: { content: { id: '900' } },
+      },
+      extensionPayload: { config: { customContentId: ccId } },
+    });
+
+    await handler(payloadFor('cc-macro-a'));
+    await handler(payloadFor('cc-macro-b'));
+    nowSpy.mockRestore();
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { $insert_id?: string; custom_content_id?: string };
+    }>;
+    const requested = rows.filter((r) => r.event === 'macro_export_requested');
+    expect(requested).toHaveLength(2);
+
+    const keys = requested.map((r) => r.properties?.$insert_id);
+    expect(new Set(keys).size).toBe(2);
+    expect(keys[0]).toContain('cc-macro-a');
+    expect(keys[1]).toContain('cc-macro-b');
+  });
+});

@@ -181,28 +181,22 @@ export async function trackExportEvent(eventName, properties) {
         token,
         time: Math.floor(Date.now() / 1000),
         distinct_id: properties.account_id ?? properties.client_domain ?? 'forge_export',
-        // Mixpanel deduplicates on $insert_id. This key previously carried only
-        // the event name, the cloud id and a millisecond timestamp — so every
-        // macro on a page being exported produced the SAME key, because one page
-        // export invokes this handler once per macro and those invocations land
-        // in the same millisecond for the same tenant. Mixpanel kept one and
-        // discarded the rest.
+        // Mixpanel requires $insert_id to be at most 36 bytes and contain only
+        // alphanumeric characters or hyphens. A previous semantic key included
+        // the event, cloud, page and macro identities plus a timestamp; Mixpanel
+        // stored only its first 36 characters, before the page and macro identity,
+        // so same-tenant exports still collided. A UUID fits the contract and is
+        // unique per handler event, including same-millisecond macro exports.
         //
         // Measured 2026-08-16: `exportMacro` ran 12,407 times in 24h on Lite
         // production (Developer Console, invocations grouped by Source) while
         // Mixpanel recorded 65 `macro_export_requested` for the same day. The
-        // macro identity below is what separates those collapsed events.
+        // the UUID below is what separates those collapsed events.
         //
         // ANALYSIS BREAK: counts before and after this ships are not comparable.
         // A rise in export volume on the changeover date is this fix landing,
         // not a change in user behaviour.
-        $insert_id: [
-          eventName,
-          properties.cloud_id ?? '',
-          properties.page_id ?? '',
-          properties.custom_content_id ?? '',
-          Date.now(),
-        ].join('_'),
+        $insert_id: crypto.randomUUID(),
         source: 'forge_export',
         ...properties,
       },

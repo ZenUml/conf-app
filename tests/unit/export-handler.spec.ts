@@ -583,7 +583,7 @@ describe('macro_export_* $insert_id (Mixpanel dedup key)', () => {
   // only (event, cloud_id, ms), every macro on the page produced an identical
   // key and Mixpanel kept exactly one — which is why the Console showed 12,407
   // exportMacro invocations on a day Mixpanel recorded 65 events.
-  it('gives two macros on the SAME page in the same millisecond distinct keys', async () => {
+  it('gives two macros on the SAME page in the same millisecond distinct Mixpanel-valid keys', async () => {
     asAppRequest.mockImplementation(async () => ({
       ok: true,
       status: 200,
@@ -621,7 +621,10 @@ describe('macro_export_* $insert_id (Mixpanel dedup key)', () => {
 
     const keys = requested.map((r) => r.properties?.$insert_id);
     expect(new Set(keys).size).toBe(2);
-    expect(keys[0]).toContain('cc-macro-a');
-    expect(keys[1]).toContain('cc-macro-b');
+    for (const key of keys) {
+      expect(key).toBeDefined();
+      expect(Buffer.byteLength(key ?? '', 'utf8')).toBeLessThanOrEqual(36);
+      expect(key).toMatch(/^[A-Za-z0-9-]+$/);
+    }
   });
 });

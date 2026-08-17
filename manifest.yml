@@ -163,11 +163,6 @@ permissions:
         # wss for the Live Agent Link relay channel (empirical: https entry does NOT cover wss scheme)
         - wss://*.zenuml.com
         - https://*.mixpanel.com
-        # issue #434 slice 1: export.js server-renders a never-attached PlantUML PNG via the
-        # public PlantUML server on attachment_not_found. Egress-only addition on a
-        # Forge-from-Connect app = minor version, no admin re-consent (see this repo's
-        # CLAUDE.md "Forge app versions — major vs minor").
-        - https://www.plantuml.com
         - remote: connect
         - remote: diagramly
       client:

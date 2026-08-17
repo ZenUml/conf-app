@@ -9,6 +9,16 @@ import {
 } from '../../scripts/forge-wizard.mjs'
 
 describe('forge-wizard manifest preview helpers', () => {
+  it('keeps PlantUML egress client-only', () => {
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    expect(manifest.permissions.external.fetch.backend).not.toContain(
+      'https://www.plantuml.com',
+    )
+    expect(manifest.permissions.external.fetch.client).toContain(
+      'https://www.plantuml.com',
+    )
+  })
+
   it('base manifest defines the Lite daily snapshot with backend timeout and EUD storage', () => {
     const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
     expect(manifest.modules.scheduledTrigger).toContainEqual({

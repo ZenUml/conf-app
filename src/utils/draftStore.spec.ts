@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@forge/bridge', () => ({
   view: {
-    getContext: vi.fn(async () => ({ cloudId: 'cloud-A' })),
+    getContext: vi.fn(async () => ({
+      cloudId: 'cloud-A',
+      extension: { config: { updatedAt: '2026-08-18T02:33:07.199Z' } },
+    })),
   },
 }));
 
@@ -13,6 +16,7 @@ import {
   saveDraftSync,
   primeCloudId,
   getCachedCloudId,
+  getCachedSavedVersionUpdatedAt,
   makeDebouncedDraftSaver,
 } from './draftStore';
 
@@ -40,6 +44,18 @@ describe('draftStore', () => {
     expect(got).toBeNull();
   });
 
+  it('expires drafts after 30 days instead of surprising a later editing session', async () => {
+    const key = 'zenuml.draft.cloud-A.new:sequence';
+    localStorage.setItem(key, JSON.stringify({
+      code: 'month-old work',
+      title: 'Old draft',
+      savedAt: Date.now() - (31 * 24 * 60 * 60 * 1000),
+    }));
+
+    expect(await loadDraft('new:sequence')).toBeNull();
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
   it('clearDraft removes the entry', async () => {
     await saveDraft('edit:42', { code: 'x', title: 't' });
     expect(await loadDraft('edit:42')).not.toBeNull();
@@ -53,6 +69,11 @@ describe('draftStore', () => {
     saveDraftSync('new:graph', cloudId, { code: '<mxgraph/>', title: '' });
     const got = await loadDraft('new:graph');
     expect(got?.code).toBe('<mxgraph/>');
+  });
+
+  it('caches the saved-version timestamp from the Forge macro context', async () => {
+    await primeCloudId();
+    expect(getCachedSavedVersionUpdatedAt()).toBe('2026-08-18T02:33:07.199Z');
   });
 
   describe('makeDebouncedDraftSaver', () => {

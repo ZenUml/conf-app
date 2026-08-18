@@ -46,7 +46,7 @@ import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getEditorDiagramOptions, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
@@ -250,8 +250,8 @@ export default {
     // Restore if a newer draft exists than the loaded diagram.
     const draft = await loadDraft(this._draftScope);
     if (draft) {
-      const updatedAt = Number(this.$store.state.diagram.updatedAt) || 0;
-      if (draft.savedAt > updatedAt && (draft.code !== this.originalCode || draft.title !== this.$store.state.diagram.title)) {
+      const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store.state.diagram.updatedAt;
+      if (isDraftNewerThanSaved(draft, savedVersionUpdatedAt) && (draft.code !== this.originalCode || draft.title !== this.$store.state.diagram.title)) {
         EventBus.$emit("draft-available", {
           scope: this._draftScope,
           draft,
@@ -291,6 +291,7 @@ export default {
     // launched modal can stay open, so resetting here matters.)
     this._onPublished = () => {
       this.stopSaving();
+      this._draftSaver?.cancel();
       clearDraft(this._draftScope);
     };
     EventBus.$on('saved', this._onPublished);

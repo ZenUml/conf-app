@@ -260,7 +260,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isOpenedModal = !!context.extension?.modal?.macroMode;
     if (
       (!isOpenedModal &&
-        ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage'].includes(context.extension?.type)) ||
+        ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage', 'confluence:homepageFeed'].includes(context.extension?.type)) ||
       (context as any).moduleKey === 'zenuml-page-banner'
     ) {
       console.log('Skipping heavy components load for global context');

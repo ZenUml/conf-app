@@ -432,11 +432,36 @@ export default class ApWrapper2 implements IApWrapper {
     if (content.version?.number) {
       newVersionNumber += content.version?.number
     }
+
+    // The Confluence v2 custom-content UPDATE endpoint only accepts
+    // `CustomContentUpdateAllowedStatus` (`current` | `draft`) for the `status`
+    // field. A macro can still reference content whose loaded status is
+    // something else — most commonly `trashed` (the content was trashed but the
+    // macro on the page still points at it). Echoing that status back verbatim
+    // makes the PUT fail validation with:
+    //   400 INVALID_REQUEST_BODY — "Provided value {trashed} for 'status' is not
+    //   the correct type. Expected type is CustomContentUpdateAllowedStatus"
+    // which blocks EVERY save for that macro (observed in prod: one tenant with
+    // dozens of back-to-back save_failed). Coerce any non-updatable status to
+    // `current` so the save goes through (and restores trashed content), while
+    // leaving a legitimate `draft` untouched.
+    const updateStatus =
+      content.status === 'current' || content.status === 'draft'
+        ? content.status
+        : 'current';
+    if (updateStatus !== content.status) {
+      trackEvent('update_status_coerced', 'update_status_coerced', 'warning', {
+        content_id: String(content.id),
+        original_status: String(content.status),
+        coerced_status: updateStatus,
+      });
+    }
+
     // Must provide at most one of [spaceId, pageId, blogPostId, or customContentId]
     const buildData = (versionNumber: number) => ({
       "id": content.id,
       "type": content.type,
-      "status": content.status,
+      "status": updateStatus,
       "pageId": content.pageId,
       "title": sanitizedBody.title || content.title,
       "body": {

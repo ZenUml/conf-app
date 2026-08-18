@@ -109,6 +109,46 @@ describe('ApWrapper2', () => {
       expect(trackEvent).toHaveBeenCalledWith('"123"', 'update_custom_content', 'info');
     });
 
+    it('coerces a trashed status to current so the PUT passes v2 validation', async () => {
+      // A macro can reference custom content that was trashed while the macro
+      // still points at it. Echoing status:'trashed' back makes the v2 PUT fail
+      // with 400 INVALID_REQUEST_BODY ("Expected type is
+      // CustomContentUpdateAllowedStatus"), blocking every save. We must send
+      // 'current' instead (observed in prod as repeated save_failed).
+      const content = { ...buildContent(5), status: 'trashed' };
+      const diagram = buildDiagram();
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      expect(forgeRequest).toHaveBeenCalledWith(
+        '/wiki/api/v2/custom-content/123',
+        'PUT',
+        expect.objectContaining({ status: 'current' })
+      );
+      expect(trackEvent).toHaveBeenCalledWith(
+        'update_status_coerced', 'update_status_coerced', 'warning',
+        expect.objectContaining({ original_status: 'trashed', coerced_status: 'current' })
+      );
+    });
+
+    it('leaves an allowed status (draft) untouched and does not emit a coercion event', async () => {
+      const content = { ...buildContent(5), status: 'draft' };
+      const diagram = buildDiagram();
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      expect(forgeRequest).toHaveBeenCalledWith(
+        '/wiki/api/v2/custom-content/123',
+        'PUT',
+        expect.objectContaining({ status: 'draft' })
+      );
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        'update_status_coerced', expect.anything(), expect.anything(), expect.anything()
+      );
+    });
+
     it('strips stale compressed flag when updating a graph body with plain XML', async () => {
       const content = buildContent(5);
       const diagram = {

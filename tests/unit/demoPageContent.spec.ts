@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   DEMO_PAGE_TITLE,
   DIAGRAMLY_CUSTOM_CONTENT_TYPE,
@@ -21,8 +21,8 @@ const FAKE_CTX = {
 };
 
 describe('demoPageContent', () => {
-  it('exports the canonical title', () => {
-    expect(DEMO_PAGE_TITLE).toBe('Welcome to Diagramly — Try it out');
+  it('exports the canonical title (falls back to Diagramly branding when no variant env is set)', () => {
+    expect(DEMO_PAGE_TITLE).toBe('Welcome to Diagramly for Confluence — Try it out');
   });
 
   it('exports the diagramly custom-content type', () => {
@@ -122,5 +122,67 @@ describe('buildDemoPageAdf', () => {
   it('parses cleanly when round-tripped through JSON', () => {
     const adf = buildDemoPageAdf(FAKE_IDS, FAKE_CTX);
     expect(JSON.parse(JSON.stringify(adf))).toEqual(adf);
+  });
+});
+
+// task 6: demoPageContent.js originally hardcoded Diagramly's own branding
+// (custom-content type, macro keys, page title, in-body copy). Get Started
+// (task 7) now reuses the same pipeline for lite and full, so every one of
+// those values must come from the calling variant's own manifest env
+// (process.env.CONNECT_KEY / CUSTOM_CONTENT_KEY / APP_LABEL / SEQUENCE_MACRO_KEY
+// / LITE_KEY_SUFFIX — the same mechanism src/page-capture.js already uses),
+// not be hardcoded to Diagramly. Module-scope constants read process.env
+// once at import time, so proving this requires a real module reload with
+// the env stubbed — vi.resetModules() + a fresh dynamic import.
+describe('variant-correct branding (lite)', () => {
+  const LITE_ENV = {
+    CONNECT_KEY: 'com.zenuml.confluence-addon-lite',
+    CUSTOM_CONTENT_KEY: 'zenuml-content-sequence',
+    APP_LABEL: 'ZenUML for Confluence Lite',
+    SEQUENCE_MACRO_KEY: 'zenuml-sequence-macro-lite',
+    LITE_KEY_SUFFIX: '-lite',
+  };
+  const ORIGINAL_ENV: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of Object.keys(LITE_ENV)) {
+      ORIGINAL_ENV[key] = process.env[key];
+      process.env[key] = (LITE_ENV as Record<string, string>)[key];
+    }
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    for (const key of Object.keys(LITE_ENV)) {
+      if (ORIGINAL_ENV[key] === undefined) delete process.env[key];
+      else process.env[key] = ORIGINAL_ENV[key];
+    }
+    vi.resetModules();
+  });
+
+  it('computes the Lite custom-content type and page title from Lite env, not Diagramly', async () => {
+    const lite = await import('../../src/demoPageContent');
+    expect(lite.APP_LABEL).toBe('ZenUML for Confluence Lite');
+    expect(lite.DEMO_PAGE_TITLE).toBe('Welcome to ZenUML for Confluence Lite — Try it out');
+    expect(lite.CUSTOM_CONTENT_TYPE).toBe('ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence');
+    expect(lite.CUSTOM_CONTENT_TYPE).not.toBe(DIAGRAMLY_CUSTOM_CONTENT_TYPE);
+  });
+
+  it('uses the Lite macro keys (zenuml-*-macro-lite), not the Diagramly gpt-* keys', async () => {
+    const lite = await import('../../src/demoPageContent');
+    expect(new Set(lite.MACRO_KEYS)).toEqual(
+      new Set(['zenuml-sequence-macro-lite', 'zenuml-graph-macro-lite', 'zenuml-openapi-macro-lite']),
+    );
+    expect(lite.MACRO_KEYS).not.toContain('gpt-diagram-macro');
+  });
+
+  it('the generated ADF carries Lite branding in its copy and never the word "Diagramly"', async () => {
+    const lite = await import('../../src/demoPageContent');
+    const idToContentId: Record<string, string> = {};
+    for (const m of lite.MACROS as Array<any>) idToContentId[m.id] = `id-${m.id}`;
+    const adf = lite.buildDemoPageAdf(idToContentId, FAKE_CTX);
+    const json = JSON.stringify(adf);
+    expect(json).toContain('ZenUML for Confluence Lite');
+    expect(json).not.toContain('Diagramly');
   });
 });

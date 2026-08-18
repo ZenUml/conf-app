@@ -27,6 +27,7 @@ import type {
   AgentLinkListScope,
   ActivationPath,
   ViewerRelation,
+  GetStartedAction,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -555,6 +556,9 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // Get Started page (get_started_action_clicked — task 7). Names which
+  // control was clicked; see GetStartedAction's doc comment in catalog.ts.
+  action?: GetStartedAction;
   // Error
   error_code?: string;
   error_name?: string;

@@ -3,7 +3,7 @@ import Resolver from '@forge/resolver';
 import {
   buildDemoPageAdf,
   DEMO_PAGE_TITLE,
-  DIAGRAMLY_CUSTOM_CONTENT_TYPE,
+  CUSTOM_CONTENT_TYPE,
   MACROS,
 } from './demoPageContent';
 
@@ -88,7 +88,7 @@ async function createCustomContentForMacro(macro, draftPageId) {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify({
-      type: DIAGRAMLY_CUSTOM_CONTENT_TYPE,
+      type: CUSTOM_CONTENT_TYPE,
       pageId: draftPageId,
       title: macro.contentTitle,
       body: { value: JSON.stringify(macro.body), representation: 'raw' },
@@ -222,8 +222,8 @@ async function processDemoPageForSpace({ space, source, logContext }) {
   }
 
   // 3. Build the ADF body referencing the custom-content IDs. Forge ARI
-  //    extensionKey form scopes the macro to the Diagramly app so
-  //    Confluence routing is unambiguous on multi-install sites.
+  //    extensionKey form scopes the macro to the calling variant's own app
+  //    so Confluence routing is unambiguous on multi-install sites.
   let adf;
   try {
     const appCtx = getAppContext();

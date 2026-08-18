@@ -64,9 +64,14 @@ export const APPS = {
         yqEvalExpr: 'del(.connectModules)',
       },
       {
-        description: 'Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)',
+        // Keeps `createDemoPage` (the function, and the resolver binding on
+        // zenuml-get-started-settings) so Lite's Get Started page can create
+        // its own examples page. Only the Diagramly-only admin panel module
+        // and the hourly background pipeline are stripped — Lite's action is
+        // synchronous, on-click, from the Get Started page.
+        description: 'Remove Diagramly admin panel + demo-page pipeline (Lite keeps createDemoPage for Get Started)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPageScheduled" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -154,9 +159,11 @@ export const APPS = {
           'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
-        description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
+        // Keeps `createDemoPage` (see the matching Lite comment above) so
+        // Full's Get Started page can create its own examples page.
+        description: 'Remove Lite snapshot and Diagramly admin/pipeline schedules from Full (Full keeps createDemoPage for Get Started)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline" or .key == "byline-visibility-hourly"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline" or .key == "byline-visibility-hourly"))',
       },
       {
         description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
@@ -193,9 +200,15 @@ export const APPS = {
     // this wizard strips/keeps for diagramly, change both CI workflows too.
     manifestEdits: [
       {
-        description: 'Remove globalSettings + globalPage + spacePage',
+        // Key-scoped (not a whole-node delete): Diagramly keeps its own
+        // admin panel (diagramly-admin-create-demo-page) under
+        // confluence:globalSettings — only the ZenUML-branded Get Started
+        // entry is Lite/Full-only. Matches the CI copies of this edit
+        // (release.yml + staging-deploy.yml) — see the note at the top of
+        // this variant's manifestEdits array.
+        description: 'Remove zenuml-get-started-settings + globalPage + spacePage (Diagramly keeps its own admin panel)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "zenuml-get-started-settings")) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
       },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and

@@ -1,10 +1,30 @@
-export const DEMO_PAGE_TITLE = 'Welcome to Diagramly — Try it out';
+// Variant-aware content: this file originally shipped Diagramly-only, with
+// its custom-content type and copy hardcoded. It now ships to Lite and Full
+// too (Get Started page, task 7), so every variant-specific value is read
+// from the Forge manifest's `environment.variables` — exposed to the
+// function runtime as `process.env.*`, same mechanism src/page-capture.js
+// already uses for BACKEND_API_BASE_URL/PAGE_CAPTURE_SECRET. Each falls back
+// to its original Diagramly value when unset (e.g. under `vitest --run`,
+// which has no Forge deploy env), so existing behavior for that variant is
+// unchanged.
+const LITE_KEY_SUFFIX = process.env.LITE_KEY_SUFFIX || '';
+const SEQUENCE_MACRO_KEY = process.env.SEQUENCE_MACRO_KEY || 'gpt-diagram-macro';
+const GRAPH_MACRO_KEY = `zenuml-graph-macro${LITE_KEY_SUFFIX}`;
+const OPENAPI_MACRO_KEY = `zenuml-openapi-macro${LITE_KEY_SUFFIX}`;
 
-// Diagramly variant only. Build-time env (CONNECT_KEY=gptdock-confluence,
-// CUSTOM_CONTENT_KEY=gpt-custom-content-key) is baked into the manifest but
-// not into the Forge function runtime, so the type is hardcoded here.
-// Mirrors ApWrapper2.getCustomContentType() when isDiagramly === true.
-export const DIAGRAMLY_CUSTOM_CONTENT_TYPE = 'ac:gptdock-confluence:gpt-custom-content-key';
+// The variant's own display name (manifest APP_LABEL — e.g. "ZenUML for
+// Confluence Lite", "Diagramly for Confluence"). Used for both the page
+// title and the in-body copy, so a ZenUML (lite/full) tenant never sees
+// Diagramly branding on its own examples page.
+export const APP_LABEL = process.env.APP_LABEL || 'Diagramly for Confluence';
+export const DEMO_PAGE_TITLE = `Welcome to ${APP_LABEL} — Try it out`;
+
+// Mirrors ApWrapper2.getCustomContentType(): `ac:${CONNECT_KEY}:${CUSTOM_CONTENT_KEY}`.
+export const CUSTOM_CONTENT_TYPE = `ac:${process.env.CONNECT_KEY || 'gptdock-confluence'}:${process.env.CUSTOM_CONTENT_KEY || 'gpt-custom-content-key'}`;
+// Back-compat alias — this constant predates the multi-variant support above
+// and existing callers/tests import it by this name. It now reflects
+// whichever variant's env the function is running under, not always Diagramly.
+export const DIAGRAMLY_CUSTOM_CONTENT_TYPE = CUSTOM_CONTENT_TYPE;
 
 const SEQUENCE_BODY = `title Order Service
 @Actor Client
@@ -21,7 +41,9 @@ const MERMAID_BODY = `flowchart LR
   Draft --> Review
   Review --> Ship`;
 
-const GRAPH_XML = `<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageScale="1" pageWidth="827" pageHeight="1169"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="Start" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="120" y="80" width="120" height="40" as="geometry"/></mxCell><mxCell id="3" value="Try Diagramly" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="120" y="160" width="120" height="40" as="geometry"/></mxCell><mxCell id="4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="2" target="3"><mxGeometry relative="1" as="geometry"/></mxCell></root></mxGraphModel>`;
+// Kept variant-neutral ("Try it here", not a product name) so the same
+// literal works for every variant without runtime interpolation.
+const GRAPH_XML = `<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageScale="1" pageWidth="827" pageHeight="1169"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="Start" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="120" y="80" width="120" height="40" as="geometry"/></mxCell><mxCell id="3" value="Try it here" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="120" y="160" width="120" height="40" as="geometry"/></mxCell><mxCell id="4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="2" target="3"><mxGeometry relative="1" as="geometry"/></mxCell></root></mxGraphModel>`;
 
 const OPENAPI_BODY = `openapi: 3.0.0
 info:
@@ -41,7 +63,7 @@ paths:
 export const MACROS = [
   {
     id: 'sequence',
-    macroKey: 'gpt-diagram-macro',
+    macroKey: SEQUENCE_MACRO_KEY,
     diagramType: 'sequence',
     sectionTitle: 'Sequence diagram (ZenUML)',
     sectionLead: 'Describe how components or actors talk to each other.',
@@ -55,7 +77,7 @@ export const MACROS = [
   },
   {
     id: 'mermaid',
-    macroKey: 'gpt-diagram-macro',
+    macroKey: SEQUENCE_MACRO_KEY,
     diagramType: 'mermaid',
     sectionTitle: 'Flowchart (Mermaid)',
     sectionLead: 'Map a process top-to-bottom or left-to-right.',
@@ -69,7 +91,7 @@ export const MACROS = [
   },
   {
     id: 'graph',
-    macroKey: 'zenuml-graph-macro',
+    macroKey: GRAPH_MACRO_KEY,
     diagramType: 'graph',
     sectionTitle: 'Graph (DrawIO)',
     sectionLead: 'Free-form diagrams powered by DrawIO.',
@@ -81,7 +103,7 @@ export const MACROS = [
   },
   {
     id: 'openapi',
-    macroKey: 'zenuml-openapi-macro',
+    macroKey: OPENAPI_MACRO_KEY,
     diagramType: 'openapi',
     sectionTitle: 'OpenAPI / Swagger',
     sectionLead: 'Render an API spec inline.',
@@ -159,8 +181,8 @@ function randomUuid() {
 }
 
 // forgeContext: { appId, environmentId, environmentType }
-//   - appId / environmentId pin the ADF extension to the Diagramly Forge module
-//     even on sites with overlapping Connect-era macro keys.
+//   - appId / environmentId pin the ADF extension to the calling variant's own
+//     Forge module even on sites with overlapping Connect-era macro keys.
 //   - environmentType ('DEVELOPMENT' | 'STAGING' | 'PRODUCTION') flows into
 //     `parameters.forgeEnvironment` to match the shape Confluence stores.
 // idToContentId: { [macro.id]: customContentId-string }
@@ -174,7 +196,7 @@ export function buildDemoPageAdf(idToContentId, forgeContext) {
   const content = [
     heading(1, 'Welcome 👋'),
     paragraph(
-      'This page was created by Diagramly so you can try the diagram types we support. Edit any macro to play with the source.',
+      `This page was created by ${APP_LABEL} so you can try the diagram types we support. Edit any macro to play with the source.`,
     ),
   ];
 
@@ -197,7 +219,7 @@ export function buildDemoPageAdf(idToContentId, forgeContext) {
   content.push(heading(2, 'Not for you?'));
   content.push(
     paragraph(
-      'Delete this page if you would rather not see it — Diagramly will not recreate it.',
+      `Delete this page if you would rather not see it — ${APP_LABEL} will not recreate it.`,
     ),
   );
 

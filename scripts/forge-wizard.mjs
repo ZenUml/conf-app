@@ -310,10 +310,11 @@ export const APPS = {
       {
         // AsyncAPI ships only confluence:spacePage (the per-space "My API
         // Documents" entry). Strip the ZenUML globalPage + getStarted +
-        // byline entries — they don't apply to asyncapi.
-        description: 'Remove globalSettings + globalPage + contentBylineItem (asyncapi uses spacePage only)',
+        // byline + homepage-feed entries — they don't apply to asyncapi.
+        // Mirrored in release.yml and staging-deploy.yml.
+        description: 'Remove globalSettings + globalPage + contentBylineItem + homepageFeed (asyncapi uses spacePage only)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"]) | del(.modules["confluence:homepageFeed"])',
       },
       {
         description: 'Remove non-asyncapi custom content types',

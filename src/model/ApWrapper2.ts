@@ -450,10 +450,23 @@ export default class ApWrapper2 implements IApWrapper {
         ? content.status
         : 'current';
     if (updateStatus !== content.status) {
+      // Load-time diagnostic snapshot of the backing record so the NEXT
+      // occurrence self-identifies its trigger from telemetry alone. We can't
+      // reach a customer tenant (our REST token 404s off-site) and the record's
+      // status/id were never captured before, so the sparknz incident's trigger
+      // (what put the record into `trashed` while its macro stayed live) could
+      // only be inferred. These fields — content id, the loaded status, the
+      // parent page id, the version number, and the content type — let a future
+      // case be correlated directly (e.g. is the parent page also trashed? is
+      // the version high/low?). Structural ids and enums only — never the title
+      // or body, which carry customer content.
       trackEvent('update_status_coerced', 'update_status_coerced', 'warning', {
         content_id: String(content.id),
         original_status: String(content.status),
         coerced_status: updateStatus,
+        page_id: content.pageId != null ? String(content.pageId) : 'unknown',
+        content_version: content.version?.number ?? 'unknown',
+        content_type: String(content.type),
       });
     }
 

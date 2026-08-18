@@ -128,7 +128,15 @@ describe('ApWrapper2', () => {
       );
       expect(trackEvent).toHaveBeenCalledWith(
         'update_status_coerced', 'update_status_coerced', 'warning',
-        expect.objectContaining({ original_status: 'trashed', coerced_status: 'current' })
+        expect.objectContaining({
+          content_id: '123',
+          original_status: 'trashed',
+          coerced_status: 'current',
+          // Trigger-diagnostic snapshot so a future occurrence self-identifies
+          page_id: '456',
+          content_version: 5,
+          content_type: 'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
+        })
       );
     });
 

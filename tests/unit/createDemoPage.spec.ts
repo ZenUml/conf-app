@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { asAppRequest, asUserRequest, storageGet, storageSet, storageDelete, storageQuery, getAppContext } = vi.hoisted(() => ({
   asAppRequest: vi.fn(),
@@ -28,7 +28,25 @@ vi.mock('@forge/api', () => ({
 }));
 
 import { enrollSpaceImpl, runEnrollmentPipelineImpl } from '../../src/createDemoPage';
-import { MACROS, DIAGRAMLY_CUSTOM_CONTENT_TYPE, GRAPH_CUSTOM_CONTENT_TYPE } from '../../src/demoPageContent';
+import { MACROS, DIAGRAMLY_CUSTOM_CONTENT_TYPE, GRAPH_CUSTOM_CONTENT_TYPE, REQUIRED_VARIANT_ENV_VARS } from '../../src/demoPageContent';
+
+// demoPageContent.js's module-scope constants (CONNECT_KEY, SEQUENCE_MACRO_KEY,
+// CUSTOM_CONTENT_KEY, APP_LABEL) fall back to Diagramly literals when unset —
+// that fallback exists only so the module stays importable without per-suite
+// env stubbing (see the comment above getMissingVariantEnvVars() in
+// demoPageContent.js). Stubbing these here — with the SAME literal values the
+// fallback already produces — makes that requirement explicit for this spec
+// file instead of relying on it implicitly, and is required once
+// src/createDemoPage.js starts calling getMissingVariantEnvVars() at request
+// time: without these set, every happy-path test below would now fail closed
+// with `variant_not_configured` before ever reaching a Confluence call.
+const DIAGRAMLY_ENV = {
+  CONNECT_KEY: 'gptdock-confluence',
+  SEQUENCE_MACRO_KEY: 'gpt-diagram-macro',
+  CUSTOM_CONTENT_KEY: 'gpt-custom-content-key',
+  APP_LABEL: 'Diagramly for Confluence',
+};
+const ORIGINAL_DIAGRAMLY_ENV: Record<string, string | undefined> = {};
 
 function makeResponse(body: unknown, status = 200) {
   return {
@@ -116,6 +134,17 @@ beforeEach(() => {
   storageQuery.mockReset();
   storageQuery.mockReturnValue({ where: () => ({ getMany: async () => ({ results: [] }) }) });
   storageGet.mockResolvedValue(undefined);
+  for (const key of Object.keys(DIAGRAMLY_ENV)) {
+    ORIGINAL_DIAGRAMLY_ENV[key] = process.env[key];
+    process.env[key] = (DIAGRAMLY_ENV as Record<string, string>)[key];
+  }
+});
+
+afterEach(() => {
+  for (const key of Object.keys(DIAGRAMLY_ENV)) {
+    if (ORIGINAL_DIAGRAMLY_ENV[key] === undefined) delete process.env[key];
+    else process.env[key] = ORIGINAL_DIAGRAMLY_ENV[key];
+  }
 });
 
 describe('enrollSpace — authorization', () => {
@@ -507,6 +536,80 @@ describe('runEnrollmentPipelineImpl — scheduled scan', () => {
     const summary = await runEnrollmentPipelineImpl();
     expect(summary).toMatchObject({ scanned: 0, processed: 0, errors: 0 });
     // No draft writes.
+    const draftCalls = asAppRequest.mock.calls.filter(
+      ([url, init]) =>
+        (url as string) === '/wiki/api/v2/pages' &&
+        ((init as any)?.method || 'GET').toUpperCase() === 'POST',
+    );
+    expect(draftCalls.length).toBe(0);
+  });
+});
+
+// Adversarial-review fix (PR #508): before this, every one of
+// demoPageContent.js's variant-specific values (macro keys, custom-content
+// type, APP_LABEL) silently fell back to a Diagramly literal when its Forge
+// env var was unset. A deploy that missed setting one of these for Lite/Full
+// would then POST Diagramly's macro keys/content type to Confluence under
+// that variant's own connect key, which Confluence rejects with a bare 400 —
+// exactly the class of bug the "no fallback that masks an error" rule
+// forbids. getMissingVariantEnvVars() + this guard in
+// processDemoPageForSpace makes that fail closed instead, before any
+// Confluence write.
+describe('processDemoPageForSpace — variant not configured (fail closed)', () => {
+  beforeEach(() => {
+    installAdminUserMock();
+    installHappyPathAsAppMock();
+  });
+
+  it('returns variant_not_configured and names every missing var, without touching Confluence', async () => {
+    delete process.env.APP_LABEL;
+    delete process.env.CUSTOM_CONTENT_KEY;
+
+    const result = await callHandler({ spaceKey: 'DEMO' });
+
+    expect(result).toMatchObject({ ok: false, status: 500, error: 'variant_not_configured' });
+    expect(result.detail).toContain('APP_LABEL');
+    expect(result.detail).toContain('CUSTOM_CONTENT_KEY');
+    // Not reached: no draft, no custom-content, no publish — i.e. it never
+    // fell through to the Diagramly-literal fallback and sent that to
+    // Confluence.
+    const writeCalls = asAppRequest.mock.calls.filter(
+      ([, init]) => ((init as any)?.method || 'GET').toUpperCase() !== 'GET',
+    );
+    expect(writeCalls.length).toBe(0);
+    // No `creating`/`done` marker written either — the guard runs before
+    // the sentinel write.
+    expect(storageSet).not.toHaveBeenCalledWith('demo-page:DEMO', expect.anything());
+  });
+
+  it('lists every REQUIRED_VARIANT_ENV_VARS entry as individually checked (LITE_KEY_SUFFIX excluded)', () => {
+    expect(REQUIRED_VARIANT_ENV_VARS).toEqual(
+      expect.arrayContaining(['CONNECT_KEY', 'SEQUENCE_MACRO_KEY', 'CUSTOM_CONTENT_KEY', 'APP_LABEL']),
+    );
+    expect(REQUIRED_VARIANT_ENV_VARS).not.toContain('LITE_KEY_SUFFIX');
+  });
+
+  it('succeeds normally once all required vars are present (regression guard)', async () => {
+    // beforeEach's DIAGRAMLY_ENV stub already sets all four; this just
+    // documents that the happy path is unaffected by the new guard.
+    const result = await callHandler({ spaceKey: 'DEMO' });
+    expect(result).toMatchObject({ ok: true, enrolled: true });
+  });
+
+  it('also fails closed for the scheduled pipeline path, not just the admin path', async () => {
+    delete process.env.SEQUENCE_MACRO_KEY;
+    storageQuery.mockReturnValue({
+      where: () => ({
+        getMany: async () => ({
+          results: [{ key: 'enrollment:NEW', value: { state: 'enabled' } }],
+        }),
+      }),
+    });
+
+    const summary = await runEnrollmentPipelineImpl();
+
+    expect(summary.errors).toBe(1);
+    expect(summary.processed).toBe(0);
     const draftCalls = asAppRequest.mock.calls.filter(
       ([url, init]) =>
         (url as string) === '/wiki/api/v2/pages' &&

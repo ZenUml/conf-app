@@ -3,10 +3,25 @@
 // too (Get Started page, task 7), so every variant-specific value is read
 // from the Forge manifest's `environment.variables` — exposed to the
 // function runtime as `process.env.*`, same mechanism src/page-capture.js
-// already uses for BACKEND_API_BASE_URL/PAGE_CAPTURE_SECRET. Each falls back
-// to its original Diagramly value when unset (e.g. under `vitest --run`,
-// which has no Forge deploy env), so existing behavior for that variant is
-// unchanged.
+// already uses for BACKEND_API_BASE_URL/PAGE_CAPTURE_SECRET.
+//
+// Each of these module-scope constants still falls back to its original
+// Diagramly literal when the corresponding env var is unset — that fallback
+// exists ONLY so this module stays importable under `vitest --run` (no Forge
+// deploy env, no per-suite env stubbing required for every existing test)
+// and so its export names keep working for current importers. It is NOT a
+// safe-to-ship default: in a real Forge deployment every one of these
+// REQUIRED_VARIANT_ENV_VARS is always present (declared with a default in
+// manifest.yml for the variant that owns this file, or passed explicitly at
+// `forge deploy` time for the others — see the `forge:deploy:*` scripts in
+// package.json). If a deploy path ever misses one, this fallback would
+// silently produce Diagramly macro keys / a Diagramly custom-content type
+// for another variant, so Confluence would reject the write with a bare 400.
+// getMissingVariantEnvVars() below is the actual guard against that: it is
+// called at REQUEST time (src/createDemoPage.js, before any Confluence
+// write) so a misconfigured deploy fails closed with a named error instead
+// of reaching Confluence with wrong data. LITE_KEY_SUFFIX is exempt — it
+// legitimately defaults to '' for every non-Lite variant.
 const LITE_KEY_SUFFIX = process.env.LITE_KEY_SUFFIX || '';
 const SEQUENCE_MACRO_KEY = process.env.SEQUENCE_MACRO_KEY || 'gpt-diagram-macro';
 const GRAPH_MACRO_KEY = `zenuml-graph-macro${LITE_KEY_SUFFIX}`;
@@ -24,6 +39,20 @@ const CONNECT_KEY = process.env.CONNECT_KEY || 'gptdock-confluence';
 // Mirrors ApWrapper2.getCustomContentType(): `ac:${CONNECT_KEY}:${CUSTOM_CONTENT_KEY}`.
 // This is the type for sequence/mermaid/plantuml/openapi custom content only.
 export const CUSTOM_CONTENT_TYPE = `ac:${CONNECT_KEY}:${process.env.CUSTOM_CONTENT_KEY || 'gpt-custom-content-key'}`;
+
+// Variant-identifying env vars this module needs to produce THIS variant's
+// own macro keys / custom-content type / branding, rather than silently
+// falling back to Diagramly's. LITE_KEY_SUFFIX is intentionally excluded —
+// see the comment above.
+export const REQUIRED_VARIANT_ENV_VARS = ['CONNECT_KEY', 'SEQUENCE_MACRO_KEY', 'CUSTOM_CONTENT_KEY', 'APP_LABEL'];
+
+// Called at request time (not import time) so it always reflects the
+// runtime's actual process.env, independent of the fallback-literal values
+// already baked into this module's cached exports above. Returns the names
+// of any REQUIRED_VARIANT_ENV_VARS that are unset or empty.
+export function getMissingVariantEnvVars() {
+  return REQUIRED_VARIANT_ENV_VARS.filter((name) => !process.env[name]);
+}
 // Back-compat alias — this constant predates the multi-variant support above
 // and existing callers/tests import it by this name. It now reflects
 // whichever variant's env the function is running under, not always Diagramly.

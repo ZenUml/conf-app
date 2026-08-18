@@ -4,6 +4,7 @@ import {
   buildDemoPageAdf,
   DEMO_PAGE_TITLE,
   MACROS,
+  getMissingVariantEnvVars,
 } from './demoPageContent';
 
 // Marker schema:
@@ -168,6 +169,29 @@ async function tagDemoPage(pageId) {
 //   - marker.state==='creating' and recent  → return in_progress
 //   - marker.state==='creating' and stale   → treat as crashed; proceed
 async function processDemoPageForSpace({ space, source, logContext }) {
+  // Fail closed BEFORE any marker write or Confluence call: a deploy that
+  // missed setting one of demoPageContent.js's REQUIRED_VARIANT_ENV_VARS
+  // would otherwise silently reuse Diagramly's macro keys / custom-content
+  // type for this variant, and Confluence would reject the write with a
+  // bare 400 the admin can't act on. Naming the missing var(s) here gives
+  // an actionable error instead. See demoPageContent.js's comment above
+  // getMissingVariantEnvVars() for why this can't be caught at import time.
+  const missingEnvVars = getMissingVariantEnvVars();
+  if (missingEnvVars.length > 0) {
+    console.log(JSON.stringify({
+      event: 'demo_page_variant_not_configured',
+      spaceKey: space.key,
+      source,
+      missingEnvVars,
+    }));
+    return {
+      ok: false,
+      status: 500,
+      error: 'variant_not_configured',
+      detail: `Missing required Forge environment variable(s): ${missingEnvVars.join(', ')}`,
+    };
+  }
+
   const markerKey = MARKER_KEY(space.key);
   const existing = await storage.get(markerKey);
 

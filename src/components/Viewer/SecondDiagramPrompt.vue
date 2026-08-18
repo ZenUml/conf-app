@@ -49,8 +49,9 @@ import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import globals from '@/model/globals';
 import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters';
+import { isSecondDiagramPromptEnabled } from '@/utils/featureConstants';
 
-const props = defineProps<{
+interface Props {
   attribution: DiagramAttribution | null;
   macroType: string;
   ready: boolean;
@@ -62,15 +63,24 @@ const props = defineProps<{
    * VITE_SECOND_DIAGRAM_PROMPT_ENABLED rebuild. No production call site
    * passes this — GenericViewer.vue never sets it, so production behavior
    * is governed solely by the build-time constant, unchanged.
+   *
+   * Explicit `undefined` default below is load-bearing: Vue casts an
+   * ABSENT optional Boolean-typed prop to `false` (not `undefined`) unless
+   * it has an explicit default (see "Boolean Casting" in the Vue props
+   * docs). Without `withDefaults(..., { forceEnabled: undefined })`,
+   * `props.forceEnabled` reads as `false` even when the caller never
+   * passes it, which makes `props.forceEnabled ?? isSecondDiagramPromptEnabled()`
+   * below always short-circuit to `false` — the `??` never sees a nullish
+   * value to fall through on.
    */
   forceEnabled?: boolean;
-}>();
+}
+
+const props = withDefaults(defineProps<Props>(), { forceEnabled: undefined });
 
 const shown = ref(false);
 
-const enabled = computed(() =>
-  props.forceEnabled ?? (import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED === 'true'),
-);
+const enabled = computed(() => props.forceEnabled ?? isSecondDiagramPromptEnabled());
 
 const isCreator = computed(() =>
   !!props.attribution?.createdByAccountId

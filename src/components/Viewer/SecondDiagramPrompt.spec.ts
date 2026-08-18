@@ -12,6 +12,24 @@ vi.mock("@/model/globals", () => ({
   default: { apWrapper: undefined },
 }));
 
+// `import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED` is statically replaced
+// by esbuild/Vite's `define` block (vite.config.mjs) at transform time — in
+// BOTH `pnpm build:*` and `vitest --run`, since vitest shares the same
+// `defineConfig`. `vi.stubEnv` cannot override a value the transform already
+// inlined as a literal, so it silently no-ops here. Mock the accessor module
+// instead (src/utils/featureConstants.ts) and control its return value
+// directly. `importOriginal` keeps the real (build-time-default) function as
+// the mock's default implementation, so the one test that intentionally
+// exercises the unmocked default doesn't need any override.
+vi.mock("@/utils/featureConstants", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/utils/featureConstants")>();
+  return {
+    ...actual,
+    isSecondDiagramPromptEnabled: vi.fn(actual.isSecondDiagramPromptEnabled),
+  };
+});
+import { isSecondDiagramPromptEnabled } from "@/utils/featureConstants";
+
 const CREATOR = "acct-creator";
 const OTHER = "acct-other";
 
@@ -33,18 +51,20 @@ function mountPrompt(props: Partial<InstanceType<typeof SecondDiagramPrompt>["$p
 }
 
 describe("SecondDiagramPrompt (viewer 'second diagram' affordance)", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.mocked(trackAnalyticsEvent).mockClear();
-    vi.unstubAllEnvs();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
+    // Reset to the REAL implementation (not just clear call history) before
+    // every test, so mockReturnValue(true) set by one test can't leak into
+    // the next via a shared mock instance.
+    const actual = await vi.importActual<typeof import("@/utils/featureConstants")>(
+      "@/utils/featureConstants",
+    );
+    vi.mocked(isSecondDiagramPromptEnabled).mockImplementation(actual.isSecondDiagramPromptEnabled);
   });
 
   it("is hidden by default — the VITE_SECOND_DIAGRAM_PROMPT_ENABLED constant defaults OFF", async () => {
-    // No vi.stubEnv here: this exercises the REAL build-time default from
-    // vite.config.mjs, not a mocked override.
+    // No mockReturnValue override here: this exercises the REAL build-time
+    // default from vite.config.mjs (via importOriginal), not a mocked value.
     const wrapper = mountPrompt();
     await wrapper.vm.$nextTick();
 
@@ -53,7 +73,7 @@ describe("SecondDiagramPrompt (viewer 'second diagram' affordance)", () => {
   });
 
   it("renders when the constant is on and every implemented display condition holds", async () => {
-    vi.stubEnv("VITE_SECOND_DIAGRAM_PROMPT_ENABLED", "true");
+    vi.mocked(isSecondDiagramPromptEnabled).mockReturnValue(true);
     const wrapper = mountPrompt();
     await wrapper.vm.$nextTick();
 
@@ -61,7 +81,7 @@ describe("SecondDiagramPrompt (viewer 'second diagram' affordance)", () => {
   });
 
   it("stays hidden when the constant is on but the viewer is not the creator", async () => {
-    vi.stubEnv("VITE_SECOND_DIAGRAM_PROMPT_ENABLED", "true");
+    vi.mocked(isSecondDiagramPromptEnabled).mockReturnValue(true);
     const wrapper = mountPrompt({ currentAccountId: OTHER });
     await wrapper.vm.$nextTick();
 
@@ -70,7 +90,7 @@ describe("SecondDiagramPrompt (viewer 'second diagram' affordance)", () => {
   });
 
   it("stays hidden when the constant is on but the viewer is not yet ready", async () => {
-    vi.stubEnv("VITE_SECOND_DIAGRAM_PROMPT_ENABLED", "true");
+    vi.mocked(isSecondDiagramPromptEnabled).mockReturnValue(true);
     const wrapper = mountPrompt({ ready: false });
     await wrapper.vm.$nextTick();
 
@@ -78,7 +98,7 @@ describe("SecondDiagramPrompt (viewer 'second diagram' affordance)", () => {
   });
 
   it("stays hidden with no attribution (author unknown) even when the constant is on", async () => {
-    vi.stubEnv("VITE_SECOND_DIAGRAM_PROMPT_ENABLED", "true");
+    vi.mocked(isSecondDiagramPromptEnabled).mockReturnValue(true);
     const wrapper = mountPrompt({ attribution: null });
     await wrapper.vm.$nextTick();
 
@@ -86,7 +106,7 @@ describe("SecondDiagramPrompt (viewer 'second diagram' affordance)", () => {
   });
 
   it("fires macro_second_diagram_prompt_shown exactly once when it becomes visible", async () => {
-    vi.stubEnv("VITE_SECOND_DIAGRAM_PROMPT_ENABLED", "true");
+    vi.mocked(isSecondDiagramPromptEnabled).mockReturnValue(true);
     const wrapper = mountPrompt();
     await wrapper.vm.$nextTick();
     await wrapper.vm.$nextTick();
@@ -100,7 +120,7 @@ describe("SecondDiagramPrompt (viewer 'second diagram' affordance)", () => {
   });
 
   it("fires macro_second_diagram_prompt_clicked on click, with the documented properties", async () => {
-    vi.stubEnv("VITE_SECOND_DIAGRAM_PROMPT_ENABLED", "true");
+    vi.mocked(isSecondDiagramPromptEnabled).mockReturnValue(true);
     const wrapper = mountPrompt();
     await wrapper.vm.$nextTick();
     vi.mocked(trackAnalyticsEvent).mockClear();

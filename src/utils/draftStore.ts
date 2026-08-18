@@ -20,15 +20,40 @@ export interface Draft {
   savedAt: number;
 }
 
+export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Forge macro config writes updatedAt as an ISO string. Older tests and a few
+ * legacy callers use epoch milliseconds, so accept both shapes explicitly.
+ * Invalid or absent values mean "no saved timestamp available".
+ */
+export function savedVersionTimestamp(updatedAt: unknown): number {
+  if (typeof updatedAt === 'number') {
+    return Number.isFinite(updatedAt) ? updatedAt : 0;
+  }
+  if (typeof updatedAt === 'string' && updatedAt.trim()) {
+    const parsed = Date.parse(updatedAt);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+export function isDraftNewerThanSaved(draft: Draft, updatedAt: unknown): boolean {
+  return draft.savedAt > savedVersionTimestamp(updatedAt);
+}
+
 let _cloudId: string | null = null;
+let _savedVersionUpdatedAt: unknown = null;
 
 async function getCloudId(): Promise<string> {
   if (_cloudId) return _cloudId;
   try {
     const ctx = await view.getContext();
     _cloudId = (ctx as any)?.cloudId || 'unknown-cloud';
+    _savedVersionUpdatedAt = (ctx as any)?.extension?.config?.updatedAt ?? null;
   } catch {
     _cloudId = 'unknown-cloud';
+    _savedVersionUpdatedAt = null;
   }
   return _cloudId!;
 }
@@ -50,10 +75,15 @@ export async function saveDraft(scope: string, draft: Omit<Draft, 'savedAt'>): P
 export async function loadDraft(scope: string): Promise<Draft | null> {
   const cloudId = await getCloudId();
   try {
-    const raw = localStorage.getItem(keyFor(scope, cloudId));
+    const key = keyFor(scope, cloudId);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Draft;
     if (typeof parsed?.savedAt !== 'number') return null;
+    if (Date.now() - parsed.savedAt > DRAFT_MAX_AGE_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
     return parsed;
   } catch {
     return null;
@@ -90,6 +120,10 @@ export async function primeCloudId(): Promise<string> {
 // Cached for callers that need the synchronous path.
 export function getCachedCloudId(): string | null {
   return _cloudId;
+}
+
+export function getCachedSavedVersionUpdatedAt(): unknown {
+  return _savedVersionUpdatedAt;
 }
 
 // Simple per-key debounce for live save-on-keystroke. Returns a saver fn.

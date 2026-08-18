@@ -2,7 +2,7 @@ import React, { FormEventHandler, useEffect, useRef, useState } from "react";
 import { trackEvent } from "@/utils/window";
 import { PublishButton } from "./PublishButton";
 import { setupCloseGuard } from "@/utils/closeGuard";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import yaml from "js-yaml";
 import { openUrl } from "@/model/globals/forgeGlobal";
@@ -80,9 +80,9 @@ const Component = ({ saveAndExit, exit }: Props) => {
       // Restore prompt if a newer draft is sitting in localStorage.
       const draft = await loadDraft(scope);
       if (draft) {
-        const updatedAt = Number((window as any).diagram?.updatedAt) || 0;
         const baseline = originalSpec.current ?? '';
-        if (draft.savedAt > updatedAt && draft.code !== baseline) {
+        const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? (window as any).diagram?.updatedAt;
+        if (isDraftNewerThanSaved(draft, savedVersionUpdatedAt) && draft.code !== baseline) {
           EventBus.$emit('draft-available', { scope, draft });
         } else {
           await clearDraft(scope);
@@ -110,7 +110,11 @@ const Component = ({ saveAndExit, exit }: Props) => {
       });
 
       // Clear draft + release the Publish button after a successful publish.
-      onSaved = () => { resetSaving(); clearDraft(scope); };
+      onSaved = () => {
+        resetSaving();
+        saver.cancel();
+        clearDraft(scope);
+      };
       EventBus.$on('saved', onSaved);
 
       // Release the Publish button when a save fails — the editor stays open

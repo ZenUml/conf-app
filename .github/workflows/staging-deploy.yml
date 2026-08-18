@@ -358,7 +358,7 @@ jobs:
               pnpm exec forge variables set CUSTOM_CONTENT_KEY "zenuml-content-sequence" -e staging
               pnpm exec forge variables set APP_LABEL "ZenUML for Confluence Lite" -e staging
               pnpm exec forge variables set SEQUENCE_MACRO_KEY "zenuml-sequence-macro-lite" -e staging
-              pnpm exec forge variables set LITE_KEY_SUFFIX -- "-lite" -e staging
+              pnpm exec forge variables set -e staging -- LITE_KEY_SUFFIX "-lite"
               ;;
           esac
           pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging

@@ -268,7 +268,7 @@ jobs:
           pnpm exec forge variables set CUSTOM_CONTENT_KEY "zenuml-content-sequence" -e production
           pnpm exec forge variables set APP_LABEL "ZenUML for Confluence Lite" -e production
           pnpm exec forge variables set SEQUENCE_MACRO_KEY "zenuml-sequence-macro-lite" -e production
-          pnpm exec forge variables set LITE_KEY_SUFFIX -- "-lite" -e production
+          pnpm exec forge variables set -e production -- LITE_KEY_SUFFIX "-lite"
           pnpm forge:deploy:lite:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.license == 'full' }}

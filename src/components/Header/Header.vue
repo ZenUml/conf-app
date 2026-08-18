@@ -9,7 +9,7 @@
     </div>
     <div class="flex items-center gap-3 shrink-0">
       <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
-        @click="openTemplateGallery">
+        @click="openTemplateGallery()">
         <LightBulbIcon class="w-4 h-4" />
         <span>Templates</span>
       </button>
@@ -59,6 +59,8 @@ import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircle
 import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
 import TemplateGallery from "@/components/TemplateGallery/TemplateGallery.vue";
 import { PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
+import { getTemplatesForType } from "@/model/Diagram/EditorTemplates";
+import { hasAutoOpenedStarterGallery, markStarterGalleryAutoOpened } from "@/utils/starterGallery/autoOpenMarker";
 
 export default {
   name: "Header",
@@ -167,32 +169,44 @@ export default {
     // #334: opens the starter-template gallery panel. Keeps the pre-existing
     // "template click" legacy signal (unknown downstream consumers) and adds
     // the new editor_template_gallery_opened event alongside it, rather than
-    // replacing one tracker with the other.
+    // replacing one tracker with the other. `trigger` defaults to 'manual'
+    // (the Templates-button click path); the mounted() auto-open path below
+    // calls this with 'auto_first_open' explicitly. The button binds
+    // `@click="openTemplateGallery()"` (with parens) rather than a bare
+    // method reference, so Vue does NOT pass the native MouseEvent as the
+    // `trigger` argument.
     //
-    // Onboarding funnel: this is currently the ONLY producer of
-    // editor_starter_shown too. There is no auto-open-on-empty-macro surface
-    // yet, so `trigger` is always 'manual' here — fired only when the macro
-    // is genuinely new and still empty, which is the "starter surface on an
-    // empty new macro" condition the event documents. An editing session or
-    // a new macro that already has code (e.g. a restored draft) does not
-    // fire it, since the starter surface isn't replacing a blank slate there.
-    openTemplateGallery() {
-      trackEvent("template", "click", this.diagramType);
+    // Onboarding funnel: this is the producer of editor_starter_shown for
+    // BOTH triggers. `entry_point` reuses the existing EntryPoint values
+    // rather than adding a new one: 'macro_toolbar' for the manual click
+    // (unchanged), 'page_editor' for auto-open — the same value forgeIndex.ts
+    // already uses for macro_create_started, since auto-open fires at the
+    // same "the page editor just opened a brand-new macro" moment. Fired
+    // only when the macro is genuinely new and still empty, which is the
+    // "starter surface on an empty new macro" condition the event documents.
+    // An editing session or a new macro that already has code (e.g. a
+    // restored draft) does not fire it, since the starter surface isn't
+    // replacing a blank slate there. The legacy "template click" signal only
+    // fires for a real click — auto-open didn't originate from one.
+    openTemplateGallery(trigger = "manual") {
+      if (trigger === "manual") {
+        trackEvent("template", "click", this.diagramType);
+      }
       const isNewMacro = !this.$store.state.diagram.id;
       trackAnalyticsEvent("editor_template_gallery_opened", {
         feature_area: "macro",
         surface: "editor",
         macro_type: this.diagramType,
         is_new_macro: isNewMacro,
-        template_gallery_trigger: "manual",
+        template_gallery_trigger: trigger,
       });
       if (isNewMacro && !this.currentCode) {
         trackAnalyticsEvent("editor_starter_shown", {
           feature_area: "macro",
           surface: "editor",
           macro_type: this.diagramType,
-          entry_point: "macro_toolbar",
-          trigger: "manual",
+          entry_point: trigger === "auto_first_open" ? "page_editor" : "macro_toolbar",
+          trigger,
         });
       }
       this.isTemplateGalleryOpen = true;
@@ -258,6 +272,30 @@ export default {
 
     // Pre-resolve cloudId so the synchronous onClose path has it.
     await primeCloudId();
+
+    // Onboarding funnel: auto-open the starter-template gallery on first
+    // entry to an empty NEW macro, instead of a blank canvas. Mixpanel
+    // (macro_create_succeeded, 2026-05-18..08-17): 33.6% of tenants that
+    // created a first diagram never created a second one.
+    //
+    // Guarded by all three: create mode (isNewMacro), source empty
+    // (this.currentCode, captured above before any draft restore is
+    // applied), and the macro type actually has templates (Graph/OpenApi/
+    // Embed don't — getTemplatesForType returns [] for those, see
+    // EditorTemplates.ts). Once per cloudId+macro-type per browser — see
+    // utils/starterGallery/autoOpenMarker.ts for why that's the scope
+    // ("per user" proxy) instead of accountId. The marker is written BEFORE
+    // opening, so it also covers "dismissing must never re-open in this or
+    // a later session": the decision to auto-open is made at most once,
+    // regardless of what the user does with the gallery afterward.
+    const isNewMacro = !this.$store.state.diagram.id;
+    if (isNewMacro && !this.currentCode && getTemplatesForType(this.diagramType).length > 0) {
+      const cloudId = getCachedCloudId() || 'unknown-cloud';
+      if (!hasAutoOpenedStarterGallery(cloudId, this.diagramType)) {
+        markStarterGalleryAutoOpened(cloudId, this.diagramType);
+        this.openTemplateGallery("auto_first_open");
+      }
+    }
 
     // Scope: distinguishes "draft for new diagram of this type" from
     // "draft for editing this specific custom-content id".

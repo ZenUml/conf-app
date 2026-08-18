@@ -1,4 +1,4 @@
-import {mount} from '@vue/test-utils'
+import {mount, flushPromises} from '@vue/test-utils'
 import {vi} from 'vitest'
 import Header from '@/components/Header/Header.vue'
 import {DiagramType} from "@/model/Diagram/Diagram";
@@ -199,6 +199,130 @@ describe('Header — starter-template gallery (#334)', () => {
     store.commit('updateDiagramType', DiagramType.Mermaid)
     await wrapper.vm.$nextTick()
 
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
+  })
+})
+
+describe('Header — starter-template gallery auto-open (onboarding funnel)', () => {
+  const AUTO_OPEN_KEY = 'zenuml.starterGalleryAutoOpened.test-cloud.sequence'
+
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear()
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.id = ''
+    store.state.diagram.code = ''
+    localStorage.removeItem(AUTO_OPEN_KEY)
+    localStorage.removeItem('zenuml.starterGalleryAutoOpened.test-cloud.mermaid')
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(AUTO_OPEN_KEY)
+    localStorage.removeItem('zenuml.starterGalleryAutoOpened.test-cloud.mermaid')
+  })
+
+  it('opens the gallery exactly once on mount for an empty new macro', async () => {
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(true)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_template_gallery_opened', expect.objectContaining({
+      macro_type: DiagramType.Sequence,
+      is_new_macro: true,
+      template_gallery_trigger: 'auto_first_open',
+    }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_starter_shown', expect.objectContaining({
+      macro_type: DiagramType.Sequence,
+      trigger: 'auto_first_open',
+    }))
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(c => c[0] === 'editor_starter_shown')).toHaveLength(1)
+    expect(localStorage.getItem(AUTO_OPEN_KEY)).toBe('1')
+  })
+
+  it('does not auto-open when the new macro already has code', async () => {
+    store.state.diagram.code = 'A->B: hi'
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_starter_shown', expect.anything())
+  })
+
+  it('does not auto-open when editing an existing macro', async () => {
+    store.state.diagram.id = 'existing-cc-id'
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_starter_shown', expect.anything())
+  })
+
+  it('a second mount after dismissal does not re-open the gallery', async () => {
+    const first = mount(Header, { global: { plugins: [store] } })
+    await first.vm.$nextTick()
+    await flushPromises()
+    await first.vm.$nextTick()
+    expect(first.find('[data-testid="template-gallery"]').exists()).toBe(true)
+
+    await first.find('[data-testid="template-gallery-close"]').trigger('click')
+    await first.vm.$nextTick()
+    expect(first.find('[data-testid="template-gallery"]').exists()).toBe(false)
+    first.unmount()
+
+    vi.mocked(trackAnalyticsEvent).mockClear()
+    const second = mount(Header, { global: { plugins: [store] } })
+    await second.vm.$nextTick()
+    await flushPromises()
+    await second.vm.$nextTick()
+
+    expect(second.find('[data-testid="template-gallery"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_starter_shown', expect.anything())
+  })
+
+  it('the manual Templates button still reports trigger "manual" even after an auto-open marker exists', async () => {
+    localStorage.setItem(AUTO_OPEN_KEY, '1')
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
+
+    vi.mocked(trackAnalyticsEvent).mockClear()
+    const templatesButton = wrapper.findAll('button').find(b => b.text().includes('Templates'))!
+    await templatesButton.trigger('click')
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_template_gallery_opened', expect.objectContaining({
+      template_gallery_trigger: 'manual',
+    }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_starter_shown', expect.objectContaining({
+      trigger: 'manual',
+      entry_point: 'macro_toolbar',
+    }))
+  })
+
+  it('applying a template from the auto-opened gallery behaves identically to the manual path', async () => {
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(true)
+
+    const templates = getTemplatesForType(DiagramType.Sequence)
+    const useButtons = wrapper.findAll('[data-testid="template-use-button"]')
+    await useButtons[0].trigger('click')
+
+    expect(store.state.diagram.code).toBe(templates[0].dsl)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_template_applied', expect.objectContaining({
+      template_id: templates[0].id,
+      macro_type: DiagramType.Sequence,
+      is_new_macro: true,
+    }))
+    await wrapper.vm.$nextTick()
     expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
   })
 })

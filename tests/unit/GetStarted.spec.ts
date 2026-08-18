@@ -76,4 +76,46 @@ describe('GetStarted', () => {
     // No page link on failure.
     expect(wrapper.find('a.resource-link[href*="viewpage.action"]').exists()).toBe(false);
   });
+
+  // Regression: createDemoPage.js's processDemoPageForSpace returns
+  // `orphanDraftPageId` on a partial failure (draft page created, then a
+  // later step — custom content or publish — failed), so an unpublished
+  // draft is left behind. Before this fix the UI dropped that field and
+  // showed only the generic error code, leaving the admin with no way to
+  // know a page existed at all. It also carries `detail`, which is more
+  // actionable than the bare `error` code (e.g. for `variant_not_configured`,
+  // `detail` names the missing env var; `error` alone does not).
+  it('surfaces the orphaned draft page id and the detailed reason when the resolver reports one', async () => {
+    invokeMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      error: 'custom_content_failed',
+      detail: 'macro=graph status=400 bad request',
+      orphanDraftPageId: 'draft-42',
+    });
+
+    const wrapper = mount(GetStarted);
+    await wrapper.find('#get-started-space-key').setValue('TEAM');
+    await wrapper.find('form.action-form').trigger('submit.prevent');
+    await flushPromises();
+
+    expect(wrapper.find('.action-result.err').exists()).toBe(true);
+    // The detailed reason, not just the bare error code.
+    expect(wrapper.text()).toContain('macro=graph status=400 bad request');
+    // Names the orphaned draft so an admin can find/delete it.
+    expect(wrapper.text()).toContain('draft-42');
+    expect(wrapper.text()).toContain('draft page');
+  });
+
+  it('does not mention an orphaned draft when the resolver reports none', async () => {
+    invokeMock.mockResolvedValueOnce({ ok: false, status: 403, error: 'not_authorized' });
+
+    const wrapper = mount(GetStarted);
+    await wrapper.find('#get-started-space-key').setValue('TEAM');
+    await wrapper.find('form.action-form').trigger('submit.prevent');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('not_authorized');
+    expect(wrapper.text()).not.toContain('draft page');
+  });
 });

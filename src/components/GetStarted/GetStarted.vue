@@ -50,10 +50,13 @@
         <p v-else-if="!result.ok && result.error === 'in_progress'">
           Another run is already in progress for this space. Try again in a few minutes.
         </p>
-        <p v-else>
-          Could not create the examples page ({{ result.error || 'unknown error' }}). Try again, or insert a
-          macro manually from the "+" button on any Confluence page.
-        </p>
+        <template v-else>
+          <p>{{ errorMessage }}</p>
+          <p v-if="result.orphanDraftPageId">
+            A draft page (id <code>{{ result.orphanDraftPageId }}</code>) was left behind and was not published.
+            It is not visible to other users; an admin can delete it from Confluence if desired.
+          </p>
+        </template>
       </div>
     </div>
 
@@ -149,6 +152,16 @@ export default {
       const base = getBaseUrl();
       if (!base) return null;
       return `${base}/wiki/pages/viewpage.action?pageId=${this.result.pageId}`;
+    },
+    // Prefer the resolver's own `detail` (e.g. "Missing required Forge
+    // environment variable(s): APP_LABEL" or "macro=graph status=400 ...")
+    // over the bare error code — it is the only field that actually tells
+    // an admin what went wrong. Falls back to the error code, then a
+    // generic message, for resolver outcomes that carry neither.
+    errorMessage() {
+      if (!this.result) return '';
+      const reason = this.result.detail || this.result.error || 'unknown error';
+      return `Could not create the examples page: ${reason}. Try again, or insert a macro manually from the "+" button on any Confluence page.`;
     },
   },
   mounted() {

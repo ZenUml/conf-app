@@ -313,10 +313,30 @@ jobs:
             full)
               APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-full.zenuml.com" -e staging
+              # Get Started (zenuml-get-started-settings) reads these at
+              # Forge runtime via process.env.* — manifest `environment.
+              # variables[].default` is NOT auto-injected into process.env,
+              # only forge variables set is (verified live on lite-dev
+              # 2026-08-19, PR #508: without this, every variant fell back
+              # to demoPageContent.js's Diagramly-literal defaults and every
+              # custom-content POST 400'd with "Invalid content type").
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set CONNECT_KEY "com.zenuml.confluence-addon" -e staging
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set CUSTOM_CONTENT_KEY "zenuml-content-sequence" -e staging
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set APP_LABEL "ZenUML for Confluence" -e staging
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set SEQUENCE_MACRO_KEY "zenuml-sequence-macro" -e staging
               ;;
             diagramly)
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              # Diagramly keeps its own admin panel (diagramly-admin-create-
+              # demo-page), which shares this same createDemoPage.js resolver
+              # — these are its literal defaults in demoPageContent.js, set
+              # explicitly rather than relying on the fallback (see full/
+              # comment above for why the fallback cannot be trusted).
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set CONNECT_KEY "gptdock-confluence" -e staging
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set CUSTOM_CONTENT_KEY "gpt-custom-content-key" -e staging
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set APP_LABEL "Diagramly for Confluence" -e staging
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set SEQUENCE_MACRO_KEY "gpt-diagram-macro" -e staging
               ;;
             asyncapi)
               APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
@@ -324,10 +344,21 @@ jobs:
               # (per scripts/forge-wizard.mjs); revisit when a dedicated
               # conf-stg-asyncapi project is stood up.
               APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              # No CONNECT_KEY/CUSTOM_CONTENT_KEY/APP_LABEL/SEQUENCE_MACRO_KEY
+              # here: asyncapi strips confluence:globalSettings entirely
+              # (scripts/forge-wizard.mjs), so createDemoPage.js is never
+              # invoked on this variant.
               ;;
             *)
               pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              # See the "full)" branch above for why these are required, not
+              # optional, for Get Started to work.
+              pnpm exec forge variables set CONNECT_KEY "com.zenuml.confluence-addon-lite" -e staging
+              pnpm exec forge variables set CUSTOM_CONTENT_KEY "zenuml-content-sequence" -e staging
+              pnpm exec forge variables set APP_LABEL "ZenUML for Confluence Lite" -e staging
+              pnpm exec forge variables set SEQUENCE_MACRO_KEY "zenuml-sequence-macro-lite" -e staging
+              pnpm exec forge variables set LITE_KEY_SUFFIX -- "-lite" -e staging
               ;;
           esac
           pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging

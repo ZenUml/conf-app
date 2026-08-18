@@ -257,6 +257,18 @@ jobs:
           pnpm forge:deploy:disable-analytics
           pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-lite.zenuml.com" -e production
+          # Get Started (zenuml-get-started-settings) reads these at Forge
+          # runtime via process.env.* — manifest `environment.variables[].
+          # default` is NOT auto-injected into process.env, only
+          # `forge variables set` is (verified live on lite-dev 2026-08-19,
+          # PR #508: without this, every variant fell back to
+          # demoPageContent.js's Diagramly-literal defaults and every
+          # custom-content POST 400'd with "Invalid content type").
+          pnpm exec forge variables set CONNECT_KEY "com.zenuml.confluence-addon-lite" -e production
+          pnpm exec forge variables set CUSTOM_CONTENT_KEY "zenuml-content-sequence" -e production
+          pnpm exec forge variables set APP_LABEL "ZenUML for Confluence Lite" -e production
+          pnpm exec forge variables set SEQUENCE_MACRO_KEY "zenuml-sequence-macro-lite" -e production
+          pnpm exec forge variables set LITE_KEY_SUFFIX -- "-lite" -e production
           pnpm forge:deploy:lite:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.license == 'full' }}
@@ -264,6 +276,11 @@ jobs:
           pnpm forge:deploy:disable-analytics
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-full.zenuml.com" -e production
+          # See the lite Get Started comment above — same requirement.
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set CONNECT_KEY "com.zenuml.confluence-addon" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set CUSTOM_CONTENT_KEY "zenuml-content-sequence" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set APP_LABEL "ZenUML for Confluence" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set SEQUENCE_MACRO_KEY "zenuml-sequence-macro" -e production
           pnpm forge:deploy:full:prod
       - name: Deploy "Diagramly for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
@@ -271,6 +288,14 @@ jobs:
           pnpm forge:deploy:disable-analytics
           APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-lite.zenuml.com" -e production
+          # Diagramly keeps its own admin panel (diagramly-admin-create-
+          # demo-page), sharing this same createDemoPage.js resolver — these
+          # are its literal defaults in demoPageContent.js, set explicitly
+          # rather than relying on the fallback (see lite comment above).
+          APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set CONNECT_KEY "gptdock-confluence" -e production
+          APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set CUSTOM_CONTENT_KEY "gpt-custom-content-key" -e production
+          APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set APP_LABEL "Diagramly for Confluence" -e production
+          APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set SEQUENCE_MACRO_KEY "gpt-diagram-macro" -e production
           pnpm forge:deploy:diagramly:prod
       - name: Deploy "AsyncAPI for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'asyncapi' }}
@@ -292,6 +317,11 @@ jobs:
           pnpm forge:deploy:disable-analytics
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-full.zenuml.com" -e production
+          # See the lite Get Started comment earlier in this file.
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set CONNECT_KEY "com.zenuml.confluence-addon" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set CUSTOM_CONTENT_KEY "zenuml-content-sequence" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set APP_LABEL "ZenUML for Confluence" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set SEQUENCE_MACRO_KEY "zenuml-sequence-macro" -e production
           pnpm forge:deploy:full:prod
       - name: Set PAGE_CAPTURE_SECRET in Forge Production
         if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}

@@ -19,12 +19,28 @@ const OPENAPI_MACRO_KEY = `zenuml-openapi-macro${LITE_KEY_SUFFIX}`;
 export const APP_LABEL = process.env.APP_LABEL || 'Diagramly for Confluence';
 export const DEMO_PAGE_TITLE = `Welcome to ${APP_LABEL} — Try it out`;
 
+const CONNECT_KEY = process.env.CONNECT_KEY || 'gptdock-confluence';
+
 // Mirrors ApWrapper2.getCustomContentType(): `ac:${CONNECT_KEY}:${CUSTOM_CONTENT_KEY}`.
-export const CUSTOM_CONTENT_TYPE = `ac:${process.env.CONNECT_KEY || 'gptdock-confluence'}:${process.env.CUSTOM_CONTENT_KEY || 'gpt-custom-content-key'}`;
+// This is the type for sequence/mermaid/plantuml/openapi custom content only.
+export const CUSTOM_CONTENT_TYPE = `ac:${CONNECT_KEY}:${process.env.CUSTOM_CONTENT_KEY || 'gpt-custom-content-key'}`;
 // Back-compat alias — this constant predates the multi-variant support above
 // and existing callers/tests import it by this name. It now reflects
 // whichever variant's env the function is running under, not always Diagramly.
 export const DIAGRAMLY_CUSTOM_CONTENT_TYPE = CUSTOM_CONTENT_TYPE;
+
+// Graph (DrawIO) custom content lives under its OWN type, `zenuml-content-graph`
+// — NOT CUSTOM_CONTENT_KEY (`zenuml-content-sequence`). See
+// ApWrapper2.ts's DIAGRAM_TYPE_TO_CONTENT_KEY: 'sequence'/'mermaid'/'plantuml'/
+// 'openapi' all share zenuml-content-sequence, but 'graph' is registered
+// separately (manifest.yml confluence:customContent, key: zenuml-content-graph).
+// The literal key is not suffixed per-variant (unlike CUSTOM_CONTENT_KEY it has
+// no LITE_KEY_SUFFIX-style override), only the connect-key prefix varies.
+// Bug found live 2026-08-19 on lite-dev (PR #508): every macro — including
+// graph — was POSTed under the single CUSTOM_CONTENT_TYPE above, so a graph
+// demo page would have created content Confluence tags as a sequence type;
+// ApWrapper2's graph-scoped CQL lookup would never find it.
+export const GRAPH_CUSTOM_CONTENT_TYPE = `ac:${CONNECT_KEY}:zenuml-content-graph`;
 
 const SEQUENCE_BODY = `title Order Service
 @Actor Client
@@ -65,6 +81,7 @@ export const MACROS = [
     id: 'sequence',
     macroKey: SEQUENCE_MACRO_KEY,
     diagramType: 'sequence',
+    contentType: CUSTOM_CONTENT_TYPE,
     sectionTitle: 'Sequence diagram (ZenUML)',
     sectionLead: 'Describe how components or actors talk to each other.',
     contentTitle: 'Demo · Sequence diagram',
@@ -79,6 +96,7 @@ export const MACROS = [
     id: 'mermaid',
     macroKey: SEQUENCE_MACRO_KEY,
     diagramType: 'mermaid',
+    contentType: CUSTOM_CONTENT_TYPE,
     sectionTitle: 'Flowchart (Mermaid)',
     sectionLead: 'Map a process top-to-bottom or left-to-right.',
     contentTitle: 'Demo · Flowchart',
@@ -93,6 +111,9 @@ export const MACROS = [
     id: 'graph',
     macroKey: GRAPH_MACRO_KEY,
     diagramType: 'graph',
+    // NOT CUSTOM_CONTENT_TYPE — graph has its own registered type (see
+    // GRAPH_CUSTOM_CONTENT_TYPE comment above).
+    contentType: GRAPH_CUSTOM_CONTENT_TYPE,
     sectionTitle: 'Graph (DrawIO)',
     sectionLead: 'Free-form diagrams powered by DrawIO.',
     contentTitle: 'Demo · Graph',
@@ -105,6 +126,7 @@ export const MACROS = [
     id: 'openapi',
     macroKey: OPENAPI_MACRO_KEY,
     diagramType: 'openapi',
+    contentType: CUSTOM_CONTENT_TYPE,
     sectionTitle: 'OpenAPI / Swagger',
     sectionLead: 'Render an API spec inline.',
     contentTitle: 'Demo · OpenAPI',

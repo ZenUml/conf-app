@@ -28,7 +28,7 @@ vi.mock('@forge/api', () => ({
 }));
 
 import { enrollSpaceImpl, runEnrollmentPipelineImpl } from '../../src/createDemoPage';
-import { MACROS, DIAGRAMLY_CUSTOM_CONTENT_TYPE } from '../../src/demoPageContent';
+import { MACROS, DIAGRAMLY_CUSTOM_CONTENT_TYPE, GRAPH_CUSTOM_CONTENT_TYPE } from '../../src/demoPageContent';
 
 function makeResponse(body: unknown, status = 200) {
   return {
@@ -196,6 +196,44 @@ describe('enrollSpace — space resolution', () => {
     const result = await callHandler({ spaceKey: 'OB' });
     expect(result).toMatchObject({ ok: true });
   });
+
+  // Regression: the space type v2 actually returns for a space created
+  // through today's Confluence "Create space" flow — verified live against
+  // lite-dev.atlassian.net (space key DP, created 2026-05-19, GET
+  // /wiki/api/v2/spaces?keys=DP -> type: "collaboration"). The original
+  // eligibility list only allowed 'global'/'onboarding', which every prior
+  // unit test fabricated but no real admin-picked space actually has,
+  // so `space_not_eligible` fired on every real attempt this branch shipped
+  // with (spot-checked 2026-08-19 on lite-dev, PR #508).
+  it('accepts collaboration-type spaces (the real type modern Confluence assigns)', async () => {
+    installAdminUserMock();
+    installHappyPathAsAppMock({
+      space: makeResponse({ results: [{ id: '333', key: 'DP', type: 'collaboration', status: 'current' }] }),
+    });
+
+    const result = await callHandler({ spaceKey: 'DP' });
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it('accepts knowledge_base-type spaces', async () => {
+    installAdminUserMock();
+    installHappyPathAsAppMock({
+      space: makeResponse({ results: [{ id: '444', key: 'KB', type: 'knowledge_base', status: 'current' }] }),
+    });
+
+    const result = await callHandler({ spaceKey: 'KB' });
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it('still rejects personal spaces', async () => {
+    installAdminUserMock();
+    installHappyPathAsAppMock({
+      space: makeResponse({ results: [{ id: '555', key: '~user123', type: 'personal', status: 'current' }] }),
+    });
+
+    const result = await callHandler({ spaceKey: '~user123' });
+    expect(result).toMatchObject({ ok: false, status: 400, error: 'space_not_eligible' });
+  });
 });
 
 describe('enrollSpace — opt-out is terminal (criterion 6)', () => {
@@ -325,9 +363,20 @@ describe('enrollSpace — full happy path', () => {
 
     const ccCalls = calls.filter(c => c.method === 'POST' && c.url === '/wiki/api/v2/custom-content');
     expect(ccCalls.length).toBe(MACROS.length);
-    for (const c of ccCalls) {
-      expect(c.body.type).toBe(DIAGRAMLY_CUSTOM_CONTENT_TYPE);
+    // Regression: every macro used to be POSTed under the single sequence
+    // content type, including graph — Confluence never rejected the
+    // mismatch (verified live 2026-08-19, PR #508), so this silently
+    // mistyped every graph demo page. Each macro must carry its OWN
+    // registered content type (see demoPageContent.js MACROS.contentType).
+    const ccByType = new Map(ccCalls.map(c => [c.body.type, c]));
+    for (const macro of MACROS as Array<any>) {
+      expect(ccByType.has(macro.contentType)).toBe(true);
     }
+    const graphCall = ccCalls.find(c => c.body.type === GRAPH_CUSTOM_CONTENT_TYPE);
+    expect(graphCall).toBeDefined();
+    expect(graphCall).not.toBe(
+      ccCalls.find(c => c.body.type === DIAGRAMLY_CUSTOM_CONTENT_TYPE),
+    );
 
     const publishCall = calls.find(c => c.method === 'PUT' && c.url.startsWith('/wiki/api/v2/pages/'));
     expect(publishCall!.body.status).toBe('current');

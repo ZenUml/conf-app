@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   DEMO_PAGE_TITLE,
   DIAGRAMLY_CUSTOM_CONTENT_TYPE,
+  GRAPH_CUSTOM_CONTENT_TYPE,
   MACRO_KEYS,
   MACROS,
   buildDemoPageAdf,
@@ -36,10 +37,28 @@ describe('demoPageContent', () => {
       expect(typeof m.macroKey).toBe('string');
       expect(typeof m.diagramType).toBe('string');
       expect(typeof m.contentTitle).toBe('string');
+      expect(typeof m.contentType).toBe('string');
       expect(m.body).toBeTypeOf('object');
     }
     const ids = (MACROS as Array<any>).map(m => m.id);
     expect(new Set(ids).size).toBe(ids.length); // unique
+  });
+
+  // Regression (PR #508, found live on lite-dev 2026-08-19): every macro was
+  // being POSTed under the single sequence-family content type, including
+  // graph, which is registered under its own type. Confluence's v2 API
+  // accepts the POST either way (it does not validate type-vs-macroKey), so
+  // the bug was silent — the graph demo page's custom content would be
+  // stored under the wrong type and never surface in ApWrapper2's
+  // graph-scoped CQL lookup.
+  it('the graph macro uses its own content type, not the sequence-family one', () => {
+    const graph = (MACROS as Array<any>).find(m => m.id === 'graph');
+    const others = (MACROS as Array<any>).filter(m => m.id !== 'graph');
+    expect(graph.contentType).toBe(GRAPH_CUSTOM_CONTENT_TYPE);
+    expect(graph.contentType).not.toBe(DIAGRAMLY_CUSTOM_CONTENT_TYPE);
+    for (const m of others) {
+      expect(m.contentType).toBe(DIAGRAMLY_CUSTOM_CONTENT_TYPE);
+    }
   });
 
   it('MACRO_KEYS exposes the unique macro keys used by MACROS', () => {

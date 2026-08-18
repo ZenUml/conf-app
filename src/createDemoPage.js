@@ -3,7 +3,6 @@ import Resolver from '@forge/resolver';
 import {
   buildDemoPageAdf,
   DEMO_PAGE_TITLE,
-  CUSTOM_CONTENT_TYPE,
   MACROS,
 } from './demoPageContent';
 
@@ -23,6 +22,19 @@ const ADMIN_GROUP_RE = /^(site-admins|confluence-admins(-.+)?|confluence-adminis
 
 const PAGE_PROPERTY_KEY = 'diagramly-demo-page';
 
+// Eligible space types for a shared examples page. 'global' is the legacy
+// default; 'onboarding' is Atlassian's own demo space. 'collaboration' and
+// 'knowledge_base' are the two types the redesigned Confluence UI actually
+// assigns to newly-created team spaces (verified live on lite-dev: every
+// space created through the current "Create space" flow comes back as
+// type 'collaboration' — see DP space, created 2026-05-19). The original
+// list only allowed 'global'/'onboarding', so every real-world space an
+// admin picked failed with space_not_eligible; the unit tests never
+// exercised 'collaboration' because they only ever fabricated 'global' or
+// 'onboarding' fixtures. 'personal' stays excluded — a shared examples page
+// has no business landing in someone's personal space.
+const ELIGIBLE_SPACE_TYPES = ['global', 'onboarding', 'collaboration', 'knowledge_base'];
+
 async function resolveSpace(spaceKey) {
   try {
     const res = await api
@@ -32,7 +44,7 @@ async function resolveSpace(spaceKey) {
     const body = await res.json();
     const hit = body && body.results && body.results[0];
     if (!hit) return { ok: false, status: 404, error: 'space_not_found' };
-    if (!['global', 'onboarding'].includes(hit.type) || hit.status !== 'current') {
+    if (!ELIGIBLE_SPACE_TYPES.includes(hit.type) || hit.status !== 'current') {
       return { ok: false, status: 400, error: 'space_not_eligible' };
     }
     return { ok: true, space: { id: hit.id, key: hit.key } };
@@ -88,7 +100,9 @@ async function createCustomContentForMacro(macro, draftPageId) {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify({
-      type: CUSTOM_CONTENT_TYPE,
+      // Per-macro type — graph uses GRAPH_CUSTOM_CONTENT_TYPE, everything
+      // else uses CUSTOM_CONTENT_TYPE (see demoPageContent.js MACROS).
+      type: macro.contentType,
       pageId: draftPageId,
       title: macro.contentTitle,
       body: { value: JSON.stringify(macro.body), representation: 'raw' },
@@ -197,6 +211,12 @@ async function processDemoPageForSpace({ space, source, logContext }) {
       MACROS.map(m => createCustomContentForMacro(m, draft.pageId)),
     );
   } catch (e) {
+    console.log(JSON.stringify({
+      event: 'demo_page_custom_content_failed',
+      reason: 'exception',
+      detail: String(e && e.message || e),
+      orphanDraftPageId: draft.pageId,
+    }));
     return {
       ok: false,
       status: 500,
@@ -207,6 +227,14 @@ async function processDemoPageForSpace({ space, source, logContext }) {
   }
   const failed = customContentResults.find(r => !r.ok);
   if (failed) {
+    console.log(JSON.stringify({
+      event: 'demo_page_custom_content_failed',
+      reason: 'http_error',
+      macroId: failed.macroId,
+      status: failed.status,
+      detail: failed.detail,
+      orphanDraftPageId: draft.pageId,
+    }));
     return {
       ok: false,
       status: failed.status,

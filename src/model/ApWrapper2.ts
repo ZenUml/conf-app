@@ -352,11 +352,24 @@ export default class ApWrapper2 implements IApWrapper {
     if (!response?.errors && isValidCustomContentId(response?.id)) {
       return response as ICustomContentResponseBodyV2;
     }
-    const detail = response?.errors
-      ? JSON.stringify(response.errors).substring(0, 500)
+    const errorsArr = Array.isArray(response?.errors) ? response.errors : undefined;
+    const detail = errorsArr
+      ? JSON.stringify(errorsArr).substring(0, 500)
       : `no id in response (id=${JSON.stringify(response?.id)})`;
     trackEvent(`${op}_custom_content_no_id`, `${op}_custom_content_no_id`, 'error', { detail });
-    throw new Error(`${op}CustomContentV2: save returned no usable customContentId: ${detail}`);
+    const err: any = new Error(`${op}CustomContentV2: save returned no usable customContentId: ${detail}`);
+    // Surface the Atlassian error envelope on the thrown Error so downstream
+    // telemetry (buildStructuredErrorProps) and recovery routing
+    // (saveCustomContentV2's 404 create-fallback) can read the real status/code
+    // instead of logging http_status='unknown'. The body comes back HTTP-200
+    // with an { errors: [...] } array, so the status is not on any HTTP error.
+    const first = errorsArr?.[0];
+    if (first) {
+      err.status = first.status;
+      err.code = first.code;
+    }
+    err.responseErrors = errorsArr;
+    throw err;
   }
 
   async updateCustomContent(contentObj: ICustomContent, newBody: Diagram) {
@@ -392,11 +405,31 @@ export default class ApWrapper2 implements IApWrapper {
     return msg.includes('Version must be incremented');
   }
 
-  private buildStructuredErrorProps(error: any): { error_message: string; http_status: string | number } {
+  private buildStructuredErrorProps(error: any): { error_message: string; http_status: string | number; error_code?: string } {
     return {
       error_message: String(error?.message || error?.responseText || error).substring(0, 500),
       http_status: error?.status || error?.statusCode || error?.xhr?.status || 'unknown',
+      // Atlassian error envelope code (e.g. INVALID_REQUEST_BODY, NOT_FOUND),
+      // surfaced by assertSavedCustomContent. Lets the update_custom_content_error
+      // dashboard segment failure classes without regex on error_message — the
+      // 400-trashed vs 404-missing split was previously invisible because both
+      // logged http_status='unknown'.
+      error_code: error?.code || error?.errorCode || undefined,
     };
+  }
+
+  // The Confluence v2 custom-content UPDATE endpoint accepts EXACTLY ONE value
+  // for `status`: `current`. (Verified live 2026-08 on staging — the rejection
+  // body reads "CustomContentUpdateAllowedStatus is one of [CURRENT]"; both
+  // `trashed` AND `draft` are rejected with 400 INVALID_REQUEST_BODY.) A macro
+  // whose backing custom content has been moved to Confluence trash reports
+  // status `trashed`, and echoing that back verbatim on the PUT made the save
+  // fail so the edit could never persist and every retry re-failed. Always send
+  // `current`, which for a trashed record also un-trashes it and lands the edit.
+  // See the 2026-08 update_custom_content_error incident (issue #500; 124 errors,
+  // one stuck enterprise user).
+  private normalizeUpdatableStatus(_status: string | undefined): 'current' {
+    return 'current';
   }
 
   private sanitizeCustomContentBody(content: Diagram): Diagram {
@@ -436,7 +469,7 @@ export default class ApWrapper2 implements IApWrapper {
     const buildData = (versionNumber: number) => ({
       "id": content.id,
       "type": content.type,
-      "status": content.status,
+      "status": this.normalizeUpdatableStatus(content.status),
       "pageId": content.pageId,
       "title": sanitizedBody.title || content.title,
       "body": {
@@ -1646,8 +1679,22 @@ export default class ApWrapper2 implements IApWrapper {
     if (existing && samePage && countAllowsUpdate) {
       try {
         result = await this.updateCustomContentV2(existing, saveValue);
-      } catch (error) {
-        trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
+      } catch (error: any) {
+        // updateCustomContentV2 already emitted update_custom_content_error;
+        // don't re-track here (the redundant second emit doubled the error
+        // counts on the dashboard). When the in-place update failed because the
+        // backing record vanished (404 NOT_FOUND) between the existence check
+        // and the PUT — a TOCTOU race, or content trashed/purged mid-edit —
+        // recreate it on the current page so the user's edit is not lost rather
+        // than dead-ending the save. A 404 means the id is gone, so recreating
+        // cannot mint a duplicate of it.
+        if (Number(error?.status) === 404) {
+          trackEvent('update_recreate_fallback', 'update_recreate_fallback', 'info', {
+            content_id: String(existing.id),
+          });
+          result = await this.createCustomContentV2(saveValue);
+          return result;
+        }
         throw error;
       }
     } else {

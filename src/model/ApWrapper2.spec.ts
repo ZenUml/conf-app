@@ -210,6 +210,64 @@ describe('ApWrapper2', () => {
         expect.objectContaining({ http_status: 'unknown' })
       );
     });
+
+    // Regression: 2026-08 update_custom_content_error incident (issue #500). A macro
+    // whose backing custom content is in Confluence trash reports status
+    // 'trashed'; echoing that into the PUT triggered 400 INVALID_REQUEST_BODY and
+    // the user's edit could never persist. The update must coerce it to 'current'.
+    it('coerces a trashed backing-content status to current on the update PUT', async () => {
+      const content = { ...buildContent(5), status: 'trashed' } as any;
+      const diagram = buildDiagram();
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      expect(payload.status).toBe('current'); // never 'trashed'
+    });
+
+    // Verified live on staging: the update endpoint accepts ONLY 'current'
+    // ("CustomContentUpdateAllowedStatus is one of [CURRENT]"), so 'draft' must
+    // be coerced too — not preserved.
+    it('coerces a draft status to current on the update PUT', async () => {
+      const content = { ...buildContent(5), status: 'draft' } as any;
+      const diagram = buildDiagram();
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      expect(payload.status).toBe('current');
+    });
+
+    it('sends current for an already-current record (unchanged path)', async () => {
+      const content = { ...buildContent(5), status: 'current' } as any;
+      const diagram = buildDiagram();
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      expect(payload.status).toBe('current');
+    });
+
+    // The failure class the incident dashboard could not segment: the API returns
+    // HTTP-200 with an { errors: [...] } envelope, so the status/code live in the
+    // body, not on an HTTP error. They must reach the tracked event.
+    it('surfaces the Atlassian error envelope status/code on the tracked error', async () => {
+      const content = buildContent(5);
+      const diagram = buildDiagram();
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 400, code: 'INVALID_REQUEST_BODY', title: "Provided value {trashed} for 'status' is not the correct type" }],
+      });
+
+      await expect(wrapper.updateCustomContentV2(content, diagram)).rejects.toThrow(/no usable customContentId/);
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        'update_custom_content_error', 'update_custom_content_error', 'error',
+        expect.objectContaining({ http_status: 400, error_code: 'INVALID_REQUEST_BODY' })
+      );
+    });
   });
 
   describe('getCustomContentByIdV2', () => {
@@ -1239,6 +1297,41 @@ describe('ApWrapper2', () => {
 
       await expect(wrapper.saveCustomContentV2(ccId, diagramToSave()))
         .rejects.toThrow(/no usable customContentId/);
+    });
+
+    // Orphan-recovery routing: the existence check passed, but the record
+    // vanished (404 NOT_FOUND) before the PUT landed. Rather than dead-ending
+    // the save, recreate the content on the page so the edit is not lost.
+    it('recreates on the page when the in-place update 404s (record vanished mid-edit)', async () => {
+      (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(1);
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(mockExistence())                                 // existence GET (ok)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] }) // update PUT → gone
+        .mockResolvedValueOnce({ id: 'recreated-id', version: { number: 1 } });  // create POST
+
+      const result = await wrapper.saveCustomContentV2(ccId, diagramToSave());
+
+      const createCall = vi.mocked(forgeRequest).mock.calls[2];
+      expect(createCall[0]).toBe('/wiki/api/v2/custom-content'); // collection endpoint → create
+      expect(createCall[1]).toBe('POST');
+      expect(result?.id).toBe('recreated-id');
+      expect(trackEvent).toHaveBeenCalledWith(
+        'update_recreate_fallback', 'update_recreate_fallback', 'info',
+        expect.objectContaining({ content_id: ccId })
+      );
+    });
+
+    // A non-404 update failure (e.g. 400) must still throw — no speculative
+    // recreate that could mint a duplicate of a record that still exists.
+    it('does not recreate on a non-404 update failure', async () => {
+      (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(1);
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(mockExistence())
+        .mockResolvedValueOnce({ errors: [{ status: 400, code: 'INVALID_REQUEST_BODY' }] });
+
+      await expect(wrapper.saveCustomContentV2(ccId, diagramToSave()))
+        .rejects.toThrow(/no usable customContentId/);
+      expect(forgeRequest).toHaveBeenCalledTimes(2); // no third (create) call
     });
   });
 

@@ -10,7 +10,7 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "macro_viewed",
   "macro_create_started",
   "macro_create_succeeded",
-  "macro_edit_opened",
+  "macro_edit_started",
   "macro_edit_cancelled",
   "macro_save_succeeded",
   "macro_save_failed",

@@ -544,7 +544,7 @@ export type AnalyticsProperties = {
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is
   // a stable Mixpanel dimension regardless of macro_type. `is_new_macro` is
   // the same create-vs-edit discriminator Header.vue already uses for its
-  // macro_create_started/macro_edit_opened split (`!diagram.id`) — reused
+  // macro_create_started/macro_edit_started split (`!diagram.id`) — reused
   // here so the gallery's funnel joins against that axis rather than
   // inventing a second one.
   template_id?: string;

@@ -979,7 +979,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
             entry_point: "page_editor",
           });
         } else {
-          trackAnalyticsEvent("macro_edit_opened", {
+          trackAnalyticsEvent("macro_edit_started", {
             feature_area: "macro",
             surface: "editor",
             macro_type: macroType,

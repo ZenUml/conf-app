@@ -189,7 +189,7 @@ EventBus.$on('edit', async () => {
     // shared forgeIndex listener firing on this same click costs no extra GET.
     if (!(await guardEditClick({ customContentId: viewerCustomContentId, macroType: 'asyncapi' }))) return;
 
-    trackAnalyticsEvent('macro_edit_opened', {
+    trackAnalyticsEvent('macro_edit_started', {
       feature_area: 'macro',
       surface: 'viewer',
       macro_type: 'asyncapi',

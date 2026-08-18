@@ -59,8 +59,12 @@ function show(payload: DraftPayload) {
   const root = document.createElement('div');
   root.setAttribute('role', 'status');
   root.setAttribute('data-zenuml-draft-banner', '');
+  // Offset below the app header (h-14 = 56px) so the banner doesn't cover
+  // the title and Publish button.
+  const headerEl = document.querySelector('header.header') as HTMLElement | null;
+  const headerBottom = headerEl ? headerEl.getBoundingClientRect().bottom : 56;
   root.style.cssText = [
-    'position:fixed', 'top:0', 'left:0', 'right:0', 'z-index:2147483647',
+    'position:fixed', `top:${headerBottom}px`, 'left:0', 'right:0', 'z-index:2147483647',
     'display:flex', 'align-items:center', 'gap:12px',
     'padding:8px 16px',
     'background:#fff8c5', 'border-bottom:1px solid #d4a72c',

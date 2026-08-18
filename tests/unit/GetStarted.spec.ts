@@ -118,4 +118,78 @@ describe('GetStarted', () => {
     expect(wrapper.text()).toContain('not_authorized');
     expect(wrapper.text()).not.toContain('draft page');
   });
+
+  // Round 2 adversarial finding: a stalled invoke() never resolves and never
+  // rejects, so pre-fix `busy` stays true forever — the button stays
+  // disabled showing "Creating…" with no way out except a page reload.
+  describe('bounded deadline on a stalled invocation', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('leaves the busy state and shows a warning once the deadline elapses, re-enabling the control', async () => {
+      // Never settles within this test.
+      invokeMock.mockReturnValueOnce(new Promise(() => {}));
+
+      const wrapper = mount(GetStarted);
+      await wrapper.find('#get-started-space-key').setValue('TEAM');
+      await wrapper.find('form.action-form').trigger('submit.prevent');
+      await flushPromises();
+
+      // Still pending, well before the deadline.
+      expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined();
+      expect(wrapper.text()).toContain('Creating…');
+
+      // Cross the deadline.
+      await vi.advanceTimersByTimeAsync(20000);
+      await flushPromises();
+
+      // Busy cleared — the control is usable again.
+      expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeUndefined();
+      expect(wrapper.text()).not.toContain('Creating…');
+
+      // Explicit warning: request not returned, may still complete server-side,
+      // reload-and-check before retrying (never silently swallowed).
+      const warning = wrapper.find('.action-result.err');
+      expect(warning.exists()).toBe(true);
+      expect(wrapper.text()).toContain('has not returned');
+      expect(wrapper.text()).toContain('may still');
+      expect(wrapper.text()).toContain('complete in the background');
+      expect(wrapper.text()).toContain('Reload this page');
+      expect(wrapper.text()).toContain('TEAM');
+    });
+
+    it('does not let a resolution arriving after the deadline overwrite the warning with a stale success', async () => {
+      let resolveInvoke: (value: unknown) => void = () => {};
+      invokeMock.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveInvoke = resolve;
+        })
+      );
+
+      const wrapper = mount(GetStarted);
+      await wrapper.find('#get-started-space-key').setValue('TEAM');
+      await wrapper.find('form.action-form').trigger('submit.prevent');
+      await flushPromises();
+
+      await vi.advanceTimersByTimeAsync(20000);
+      await flushPromises();
+
+      // Warning is up.
+      expect(wrapper.text()).toContain('has not returned');
+
+      // The stalled call finally resolves, long after the deadline.
+      resolveInvoke({ ok: true, pageId: '999', spaceKey: 'TEAM' });
+      await flushPromises();
+
+      // The warning must still be showing — a late success must not replace it.
+      expect(wrapper.text()).toContain('has not returned');
+      expect(wrapper.text()).not.toContain('Examples page created in');
+      expect(wrapper.find('a.resource-link[href*="viewpage.action?pageId=999"]').exists()).toBe(false);
+    });
+  });
 });

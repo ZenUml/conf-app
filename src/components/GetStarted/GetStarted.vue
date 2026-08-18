@@ -58,6 +58,17 @@
           </p>
         </template>
       </div>
+
+      <div v-else-if="timedOut" class="action-result err" role="status">
+        <p>
+          The request has not returned after {{ TIMEOUT_SECONDS_LABEL }} seconds. The server-side run may still
+          complete in the background.
+        </p>
+        <p>
+          Reload this page and check <code>{{ spaceKey }}</code> for an examples page before trying again, so a
+          second attempt does not create a duplicate.
+        </p>
+      </div>
     </div>
 
     <div class="resources-section">
@@ -133,6 +144,15 @@ const ISSUE_URL = "https://zenuml.atlassian.net/servicedesk";
 
 const ANALYTICS_BASE = { feature_area: "confluence", surface: "dashboard" };
 
+// The resolver's pipeline (src/createDemoPage.js) runs sequentially: create a
+// draft page, create one custom content object per diagram type (Sequence,
+// Mermaid, Graph, OpenAPI — 4 REST calls), then publish the page. That is 6
+// sequential Confluence REST round-trips; each has run well under 2s in
+// staging, so 20s leaves a wide margin over the observed happy path before
+// telling the admin something is wrong, while still being short enough that
+// a genuinely stuck request does not read as a frozen page.
+const INVOKE_TIMEOUT_MS = 20000;
+
 export default {
   name: "GetStarted",
   data() {
@@ -141,9 +161,15 @@ export default {
       VIDEO_URL,
       COMMUNITY_URL,
       ISSUE_URL,
+      TIMEOUT_SECONDS_LABEL: String(INVOKE_TIMEOUT_MS / 1000),
       spaceKey: "",
       busy: false,
       result: null,
+      timedOut: false,
+      // Bumped on every submit so a late resolution from an earlier,
+      // already-timed-out (or superseded) invoke can recognize it is stale
+      // and refuse to overwrite whatever state the admin is looking at now.
+      requestSeq: 0,
     };
   },
   computed: {
@@ -179,17 +205,40 @@ export default {
 
       this.busy = true;
       this.result = null;
+      this.timedOut = false;
+
+      const requestSeq = ++this.requestSeq;
+      let timedOutHere = false;
+      const timeoutId = setTimeout(() => {
+        // A newer submit already superseded this one; let its own timer own
+        // the UI state.
+        if (requestSeq !== this.requestSeq) return;
+        timedOutHere = true;
+        this.busy = false;
+        this.timedOut = true;
+        this.result = null;
+      }, INVOKE_TIMEOUT_MS);
+
       try {
         // Reuses the same resolver/pipeline the Diagramly admin panel uses
         // (src/createDemoPage.js) — do not write a second one.
-        this.result = await invoke("createDemoPage", { spaceKey });
+        const res = await invoke("createDemoPage", { spaceKey });
+        clearTimeout(timeoutId);
+        // Stale if a newer submit has since started, or if the deadline for
+        // THIS request already fired and put up the "not returned" warning —
+        // a late success/failure must not silently clobber that warning
+        // (the admin may already have reloaded and acted on it).
+        if (requestSeq !== this.requestSeq || timedOutHere) return;
+        this.result = res;
+        this.busy = false;
       } catch (e) {
+        clearTimeout(timeoutId);
+        if (requestSeq !== this.requestSeq || timedOutHere) return;
         this.result = {
           ok: false,
           error: "invoke_failed",
           detail: e instanceof Error ? e.message : String(e),
         };
-      } finally {
         this.busy = false;
       }
     },

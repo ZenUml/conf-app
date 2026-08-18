@@ -33,8 +33,8 @@
 
       <div v-if="result" class="action-result" :class="{ ok: result.ok, err: !result.ok }" role="status">
         <p v-if="result.ok && result.pageId">
-          <span v-if="result.alreadyExists">An examples page already exists for <code>{{ spaceKey }}</code>.</span>
-          <span v-else>Examples page created in <code>{{ spaceKey }}</code>.</span>
+          <span v-if="result.alreadyExists">An examples page already exists for <code>{{ submittedSpaceKey }}</code>.</span>
+          <span v-else>Examples page created in <code>{{ submittedSpaceKey }}</code>.</span>
           <a
             v-if="resultPageUrl"
             :href="resultPageUrl"
@@ -65,7 +65,7 @@
           complete in the background.
         </p>
         <p>
-          Reload this page and check <code>{{ spaceKey }}</code> for an examples page before trying again, so a
+          Reload this page and check <code>{{ submittedSpaceKey }}</code> for an examples page before trying again, so a
           second attempt does not create a duplicate.
         </p>
       </div>
@@ -163,6 +163,16 @@ export default {
       ISSUE_URL,
       TIMEOUT_SECONDS_LABEL: String(INVOKE_TIMEOUT_MS / 1000),
       spaceKey: "",
+      // The space key a request was actually submitted with, frozen at
+      // submit time. `spaceKey` is the live input model — the input
+      // re-enables as soon as `busy` clears (on success or on timeout), so
+      // an admin can edit it while a result/timeout message for the
+      // PREVIOUS request is still on screen. Rendering from the live model
+      // would let that edit reactively rewrite an already-shown "created in
+      // TEAM" into "created in OTHER", or retarget a timeout warning to the
+      // wrong space. Every result/timeout message must render from this
+      // field instead.
+      submittedSpaceKey: "",
       busy: false,
       result: null,
       timedOut: false,
@@ -206,6 +216,9 @@ export default {
       this.busy = true;
       this.result = null;
       this.timedOut = false;
+      // Freeze the submitted key for this request; the live `spaceKey`
+      // model may keep changing after the input re-enables.
+      this.submittedSpaceKey = spaceKey;
 
       const requestSeq = ++this.requestSeq;
       let timedOutHere = false;

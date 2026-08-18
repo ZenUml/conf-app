@@ -119,6 +119,61 @@ describe('GetStarted', () => {
     expect(wrapper.text()).not.toContain('draft page');
   });
 
+  // Round 3 adversarial finding: the success/timeout messages interpolated
+  // the LIVE `spaceKey` model, which the input re-enables as soon as `busy`
+  // clears (on success, or on timeout). An admin who then edits the field
+  // reactively rewrites an already-rendered "created in TEAM" into "created
+  // in OTHER" (or a timeout warning telling them to check OTHER) even though
+  // the request that actually ran was for TEAM. The submitted key must be
+  // captured in request-scoped state and rendered from that, not the live
+  // input model.
+  it('keeps the success message naming the space that was submitted after the input is edited post-completion', async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true, pageId: '999', spaceKey: 'TEAM' });
+
+    const wrapper = mount(GetStarted);
+    await wrapper.find('#get-started-space-key').setValue('TEAM');
+    await wrapper.find('form.action-form').trigger('submit.prevent');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Examples page created in');
+    expect(wrapper.text()).toContain('TEAM');
+
+    // Input is re-enabled now that busy has cleared; admin edits it.
+    await wrapper.find('#get-started-space-key').setValue('OTHER');
+
+    expect(wrapper.text()).toContain('Examples page created in');
+    expect(wrapper.text()).toContain('TEAM');
+    expect(wrapper.text()).not.toContain('created in OTHER');
+  });
+
+  it('keeps the timeout warning naming the space that was submitted after the input is edited post-timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      invokeMock.mockReturnValueOnce(new Promise(() => {}));
+
+      const wrapper = mount(GetStarted);
+      await wrapper.find('#get-started-space-key').setValue('TEAM');
+      await wrapper.find('form.action-form').trigger('submit.prevent');
+      await flushPromises();
+
+      await vi.advanceTimersByTimeAsync(20000);
+      await flushPromises();
+
+      expect(wrapper.text()).toContain('has not returned');
+      expect(wrapper.text()).toContain('TEAM');
+
+      // Input is re-enabled now that busy has cleared on timeout; admin edits it.
+      await wrapper.find('#get-started-space-key').setValue('OTHER');
+
+      expect(wrapper.text()).toContain('has not returned');
+      expect(wrapper.text()).toContain('TEAM');
+      expect(wrapper.text()).not.toContain('check <code>OTHER</code>');
+      expect(wrapper.find('.action-result.err').text()).not.toContain('OTHER');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // Round 2 adversarial finding: a stalled invoke() never resolves and never
   // rejects, so pre-fix `busy` stays true forever — the button stays
   // disabled showing "Creating…" with no way out except a page reload.

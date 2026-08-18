@@ -44,6 +44,10 @@ test.describe.serial(`Byline create is paywalled - ${testConfig.productType}`, (
   // and the paywall is Lite-only, so both gates are the same gate here.
   test.skip(!testConfig.isForge, 'byline is Forge-only');
   test.skip(!testConfig.isLite, 'the Diagrams byline entry ships on Lite only');
+  test.skip(
+    testConfig.fullCoinstalled,
+    'Full co-installed: the Lite Diagrams byline is hidden by design (zenuml-full-active), so it cannot be opened here',
+  );
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');
 
   let pageId: string;

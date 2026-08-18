@@ -20,6 +20,20 @@ export interface AppProfile {
   productType: ProductType;
   /** Whether this is a Forge app (vs Connect) */
   isForge: boolean;
+  /**
+   * The Full app is co-installed on this site's tenant.
+   *
+   * True only for the @prod profiles, which all share zenuml.atlassian.net —
+   * our dogfood tenant carries Lite, Full, and Diagramly at once. It matters to
+   * the Lite `zenuml-byline-diagrams` byline: that entry's display condition
+   * (manifest.yml) hides itself wherever Full marks its presence
+   * (`zenuml-full-active`, written by Full's `full-presence-daily` sweep —
+   * src/full-presence.ts), so the byline is BY DESIGN dark on this site and its
+   * create/paywall specs cannot open it. Specs that drive the byline skip when
+   * this is set. Absent (stg/dev Lite profiles) means a Lite-only tenant where
+   * the byline renders normally.
+   */
+  fullCoinstalled?: boolean;
   /** Supported macro types for this app */
   macros: MacroType[];
   /** Addon key for custom content type construction */
@@ -146,6 +160,9 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: true,
     productType: 'lite',
     isForge: true,
+    // Full + Diagramly are installed alongside Lite here; the Lite Diagrams
+    // byline is suppressed by design (see fullCoinstalled on AppProfile).
+    fullCoinstalled: true,
     macros: ALL_MACROS,
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
@@ -162,6 +179,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: false,
     productType: 'full',
     isForge: true,
+    fullCoinstalled: true,
     macros: ALL_MACROS,
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon',
@@ -182,6 +200,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: false,
     productType: 'diagramly',
     isForge: true,
+    fullCoinstalled: true,
     macros: NO_EMBED,
     renderMacros: NO_EMBED,
     addonKey: 'gptdock-confluence',

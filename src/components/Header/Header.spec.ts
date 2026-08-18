@@ -4,6 +4,7 @@ import Header from '@/components/Header/Header.vue'
 import {DiagramType} from "@/model/Diagram/Diagram";
 import {getTemplatesForType} from "@/model/Diagram/EditorTemplates";
 import store from "@/model/store2/";
+import Example from "@/utils/sequence/Example";
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -211,6 +212,7 @@ describe('Header — starter-template gallery auto-open (onboarding funnel)', ()
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.id = ''
     store.state.diagram.code = ''
+    store.state.diagram.isNew = false
     localStorage.removeItem(AUTO_OPEN_KEY)
     localStorage.removeItem('zenuml.starterGalleryAutoOpened.test-cloud.mermaid')
   })
@@ -249,6 +251,27 @@ describe('Header — starter-template gallery auto-open (onboarding funnel)', ()
 
     expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
     expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_starter_shown', expect.anything())
+  })
+
+  // Regression for the 2026-08-18 overnight-run spot check: forgeIndex.ts's
+  // real new-macro path never sets code to '' — it seeds Example.Sequence /
+  // .Mermaid / .PlantUml with isNew: true (see forgeIndex.ts's fallback doc
+  // construction). A store fixture with code: '' does not exercise that, so
+  // this test reproduces the actual mounted-state shape a fresh Confluence
+  // macro insert produces.
+  it('auto-opens when the new macro still holds the untouched seed example (real forgeIndex.ts shape)', async () => {
+    store.state.diagram.isNew = true
+    store.state.diagram.code = Example.Sequence
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(true)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_starter_shown', expect.objectContaining({
+      macro_type: DiagramType.Sequence,
+      trigger: 'auto_first_open',
+    }))
   })
 
   it('does not auto-open when editing an existing macro', async () => {

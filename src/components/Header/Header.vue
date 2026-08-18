@@ -61,6 +61,26 @@ import TemplateGallery from "@/components/TemplateGallery/TemplateGallery.vue";
 import { PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
 import { getTemplatesForType } from "@/model/Diagram/EditorTemplates";
 import { hasAutoOpenedStarterGallery, markStarterGalleryAutoOpened } from "@/utils/starterGallery/autoOpenMarker";
+import Example from "@/utils/sequence/Example";
+
+// forgeIndex.ts never mounts a genuinely new Sequence/Mermaid/PlantUml macro
+// with an empty code string — it always seeds Example.Sequence / .Mermaid /
+// .PlantUml as placeholder content (see forgeIndex.ts's `doc = { code:
+// Example.Sequence, ... isNew: true }` fallback). A plain `!currentCode`
+// check is therefore never true for the normal "insert a brand-new macro"
+// flow, so the auto-open feature below silently never fired until this was
+// caught by a real Confluence spot check (2026-08-18 — the actual editor
+// showed the seeded "Order Service" sample instead of auto-opening the
+// gallery). Treat the untouched seed as equivalent to empty.
+const SEED_CODE_BY_TYPE = {
+  [DiagramType.Sequence]: Example.Sequence,
+  [DiagramType.Mermaid]: Example.Mermaid,
+  [DiagramType.PlantUml]: Example.PlantUml,
+};
+function isBlankOrUntouchedSeed(diagramType, code, isNewDiagram) {
+  if (!code) return true;
+  return !!isNewDiagram && SEED_CODE_BY_TYPE[diagramType] === code;
+}
 
 export default {
   name: "Header",
@@ -200,7 +220,7 @@ export default {
         is_new_macro: isNewMacro,
         template_gallery_trigger: trigger,
       });
-      if (isNewMacro && !this.currentCode) {
+      if (isNewMacro && isBlankOrUntouchedSeed(this.diagramType, this.currentCode, this.$store.state.diagram.isNew)) {
         trackAnalyticsEvent("editor_starter_shown", {
           feature_area: "macro",
           surface: "editor",
@@ -289,7 +309,7 @@ export default {
     // a later session": the decision to auto-open is made at most once,
     // regardless of what the user does with the gallery afterward.
     const isNewMacro = !this.$store.state.diagram.id;
-    if (isNewMacro && !this.currentCode && getTemplatesForType(this.diagramType).length > 0) {
+    if (isNewMacro && isBlankOrUntouchedSeed(this.diagramType, this.currentCode, this.$store.state.diagram.isNew) && getTemplatesForType(this.diagramType).length > 0) {
       const cloudId = getCachedCloudId() || 'unknown-cloud';
       if (!hasAutoOpenedStarterGallery(cloudId, this.diagramType)) {
         markStarterGalleryAutoOpened(cloudId, this.diagramType);

@@ -32,7 +32,7 @@ import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
-import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution } from '@/utils/viewerLoadOutcome';
+import { applyViewerLoadOutcome, isDisplayableDiagram, mapCustomContentLoadError, publishDiagramAttribution, setViewerLoadState } from '@/utils/viewerLoadOutcome';
 import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
 import type { DiagramLoadError } from '@/model/store2/types';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
@@ -408,6 +408,22 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // @ts-ignore - viewerDoc may be a partial spread type; matches the happy-path mount below
       mountRoot(viewerDoc, DiagramPortal, { autoResize: true });
       publishDiagramAttribution(attribution);
+      // BUG FIX (overnight verification run, 2026-08-19): this SWR mount path
+      // (both the cache-hit render and the revalidate re-mount) never used to
+      // call setViewerLoadState — only the direct-fetch path further below
+      // (via applyViewerLoadOutcome) did. store.state.viewerLoadState
+      // therefore stayed at its initial `null` forever for any render that
+      // took this path, which per the comment above this function is ~66% of
+      // all sequence-family viewer views. Every consumer gated on
+      // `viewerLoadState === 'ready'` — SecondDiagramPrompt's `ready` prop,
+      // and DiagramAttributionFooter's registerDiagramImpactView call — was
+      // silently starved on the majority of real revisits. mountSequenceViewer
+      // already knows the doc is renderable (it's what's on screen), so
+      // classify it the same way applyViewerLoadOutcome does rather than
+      // hardcoding 'ready' — an empty/blank cached doc (should one ever get
+      // primed) still reports the correct failed state instead of a false
+      // 'ready'.
+      setViewerLoadState(isDisplayableDiagram(viewerDoc, 'sequence') ? 'ready' : 'failed_with_source');
     };
 
     const revalidateSequenceViewer = async (

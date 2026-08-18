@@ -24,7 +24,22 @@
  * Onboarding funnel — "second diagram" viewer prompt gate.
  * Defaults OFF (see vite.config.mjs's `define` block and
  * src/components/Viewer/SecondDiagramPrompt.vue for the full rationale).
+ *
+ * BUG FIXED 2026-08-19 (overnight verification run): vite.config.mjs's
+ * `define` entry for this constant is `JSON.stringify(<boolean>)`
+ * (`JSON.stringify(true)` / `JSON.stringify(false)`), which Vite substitutes
+ * as the literal boolean token `true` / `false` — NOT the quoted string
+ * `"true"` / `"false"`. The previous comparison here (`=== 'true'`) therefore
+ * compiled to `true === 'true'` when the constant was flipped ON, which is
+ * always `false`. The guard could never be true: flipping the vite.config.mjs
+ * literal to `JSON.stringify(true)` per its own doc comment and rebuilding
+ * never actually enabled the prompt. Confirmed by reading the built output
+ * (`dist/assets/GenericViewer-*.js`), where the compiled accessor was
+ * `function(){return!1}` — an unconditional `false` — even with the ON build.
+ * Fixed by comparing against the boolean `true` to match what `define`
+ * actually emits. See featureConstants.spec.ts for a regression test that
+ * exercises both literal shapes the way `define` really produces them.
  */
 export function isSecondDiagramPromptEnabled(): boolean {
-  return import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED === 'true';
+  return import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED === true;
 }

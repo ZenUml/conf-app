@@ -81,9 +81,11 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 ---
 
-### `macro_edit_opened`
+### `macro_edit_started`
 
 **Trigger:** Editor opens for an existing macro (`customContentId` is present). Fired in `forgeIndex.ts`, `forge-graph-editor.ts`, `forge-embed-editor.ts`, `forge-swagger-editor.ts`.
+
+**History:** Replaced `macro_edit_opened` on 2026-08-18. Include both names when querying a date range that spans this change.
 
 | Property | Notes |
 |---|---|

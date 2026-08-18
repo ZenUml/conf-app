@@ -32,7 +32,7 @@ import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
-import { applyViewerLoadOutcome, isDisplayableDiagram, mapCustomContentLoadError, publishDiagramAttribution, setViewerLoadState } from '@/utils/viewerLoadOutcome';
+import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution, setSequenceViewerLoadState } from '@/utils/viewerLoadOutcome';
 import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
 import type { DiagramLoadError } from '@/model/store2/types';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
@@ -422,8 +422,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // classify it the same way applyViewerLoadOutcome does rather than
       // hardcoding 'ready' — an empty/blank cached doc (should one ever get
       // primed) still reports the correct failed state instead of a false
-      // 'ready'.
-      setViewerLoadState(isDisplayableDiagram(viewerDoc, 'sequence') ? 'ready' : 'failed_with_source');
+      // 'ready'. Extracted to setSequenceViewerLoadState (viewerLoadOutcome.ts)
+      // so this one-line classify-and-publish step has a unit test —
+      // forgeIndex.ts itself has no test harness (module-level side effects
+      // on import) — see setSequenceViewerLoadState's regression test in
+      // viewerLoadOutcome.spec.ts.
+      setSequenceViewerLoadState(viewerDoc);
     };
 
     const revalidateSequenceViewer = async (

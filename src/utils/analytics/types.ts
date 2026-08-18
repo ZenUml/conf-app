@@ -27,6 +27,7 @@ import type {
   AgentLinkListScope,
   ActivationPath,
   ViewerRelation,
+  GalleryOpenTrigger,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -549,6 +550,13 @@ export type AnalyticsProperties = {
   // inventing a second one.
   template_id?: string;
   is_new_macro?: boolean;
+  // Onboarding funnel. `trigger` (editor_starter_shown) and
+  // `template_gallery_trigger` (editor_template_gallery_opened) both use
+  // GalleryOpenTrigger — kept as two separate property names rather than one
+  // shared key because the two events can, in principle, both be present on
+  // the same underlying gallery-open session and need independent values.
+  trigger?: GalleryOpenTrigger;
+  template_gallery_trigger?: GalleryOpenTrigger;
   // Foreign-dialect hint (#373). `macro_type` on these events is always the
   // CURRENT macro's type (sequence — the only surface this ships on today);
   // `detected_dialect` is the OTHER dialect the pasted source looks like,

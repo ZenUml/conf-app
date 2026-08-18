@@ -168,14 +168,33 @@ export default {
     // "template click" legacy signal (unknown downstream consumers) and adds
     // the new editor_template_gallery_opened event alongside it, rather than
     // replacing one tracker with the other.
+    //
+    // Onboarding funnel: this is currently the ONLY producer of
+    // editor_starter_shown too. There is no auto-open-on-empty-macro surface
+    // yet, so `trigger` is always 'manual' here — fired only when the macro
+    // is genuinely new and still empty, which is the "starter surface on an
+    // empty new macro" condition the event documents. An editing session or
+    // a new macro that already has code (e.g. a restored draft) does not
+    // fire it, since the starter surface isn't replacing a blank slate there.
     openTemplateGallery() {
       trackEvent("template", "click", this.diagramType);
+      const isNewMacro = !this.$store.state.diagram.id;
       trackAnalyticsEvent("editor_template_gallery_opened", {
         feature_area: "macro",
         surface: "editor",
         macro_type: this.diagramType,
-        is_new_macro: !this.$store.state.diagram.id,
+        is_new_macro: isNewMacro,
+        template_gallery_trigger: "manual",
       });
+      if (isNewMacro && !this.currentCode) {
+        trackAnalyticsEvent("editor_starter_shown", {
+          feature_area: "macro",
+          surface: "editor",
+          macro_type: this.diagramType,
+          entry_point: "macro_toolbar",
+          trigger: "manual",
+        });
+      }
       this.isTemplateGalleryOpen = true;
     },
     closeTemplateGallery() {

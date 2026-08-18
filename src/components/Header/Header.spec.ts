@@ -93,7 +93,44 @@ describe('Header — starter-template gallery (#334)', () => {
       surface: 'editor',
       macro_type: DiagramType.Sequence,
       is_new_macro: true,
+      template_gallery_trigger: 'manual',
     }))
+  })
+
+  it('fires editor_starter_shown once when the gallery opens on an empty new macro', async () => {
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+
+    const templatesButton = wrapper.findAll('button').find(b => b.text().includes('Templates'))!
+    await templatesButton.trigger('click')
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_starter_shown', expect.objectContaining({
+      feature_area: 'macro',
+      surface: 'editor',
+      macro_type: DiagramType.Sequence,
+      entry_point: 'macro_toolbar',
+      trigger: 'manual',
+    }))
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(c => c[0] === 'editor_starter_shown')).toHaveLength(1)
+  })
+
+  it('does not fire editor_starter_shown when opening the gallery for an existing macro', async () => {
+    store.state.diagram.id = 'existing-cc-id'
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+
+    const templatesButton = wrapper.findAll('button').find(b => b.text().includes('Templates'))!
+    await templatesButton.trigger('click')
+
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_starter_shown', expect.anything())
+  })
+
+  it('does not fire editor_starter_shown when a new macro already has code (e.g. a restored draft)', async () => {
+    store.state.diagram.code = 'A->B: hi'
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+
+    const templatesButton = wrapper.findAll('button').find(b => b.text().includes('Templates'))!
+    await templatesButton.trigger('click')
+
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_starter_shown', expect.anything())
   })
 
   it('applying a template writes its DSL into the store code field, fires editor_template_applied, and closes the gallery', async () => {

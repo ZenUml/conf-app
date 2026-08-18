@@ -65,6 +65,7 @@ import {
 
 const LITE_STG = 'c78e721e-957f-402c-9b70-1df2227c2739';
 const WHIMET4 = '866c3a03-ec62-4717-91c4-1ad078bfcc60';
+const ZENUML_PROD = '476abcb3-f5b7-4724-b3ea-d223ecbf0b59';
 const NOBODY = '00000000-0000-0000-0000-000000000000';
 
 const LITE_APP = '8ad26115-211f-4216-971b-0540f606303d';
@@ -84,6 +85,10 @@ describe('decide', () => {
 
   it('enrols the developer site', () => {
     expect(decide(WHIMET4).value).toBe(VISIBLE);
+  });
+
+  it('enrols the Lite production smoke site', () => {
+    expect(decide(ZENUML_PROD).value).toBe(VISIBLE);
   });
 
   it('suppresses an installation that is not on the allowlist', () => {
@@ -115,6 +120,7 @@ describe('decide', () => {
     expect([...ALLOWLIST.values()].sort()).toEqual([
       'lite-stg.atlassian.net',
       'whimet4.atlassian.net',
+      'zenuml.atlassian.net',
     ]);
   });
 });

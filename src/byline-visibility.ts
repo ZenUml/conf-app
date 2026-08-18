@@ -161,7 +161,8 @@ export type Decision = {
 /**
  * Sites that render the Lite byline, by cloudId.
  *
- * Both are our own — the Lite E2E target and a developer site — not customer
+ * All entries are our own — the Lite E2E target, production smoke target, and
+ * a developer site — not customer
  * tenants, which is what makes naming them here compatible with
  * docs/policies/client-privacy.md. `lite-stg.atlassian.net` is already named in
  * tests/e2e-tests/config/apps.ts for the same reason.
@@ -173,6 +174,7 @@ export type Decision = {
  */
 export const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   ['c78e721e-957f-402c-9b70-1df2227c2739', 'lite-stg.atlassian.net'],
+  ['476abcb3-f5b7-4724-b3ea-d223ecbf0b59', 'zenuml.atlassian.net'],
   ['866c3a03-ec62-4717-91c4-1ad078bfcc60', 'whimet4.atlassian.net'],
 ]);
 

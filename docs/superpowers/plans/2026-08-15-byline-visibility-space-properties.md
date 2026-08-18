@@ -1,8 +1,15 @@
 # Byline visibility by space properties — As Built
 
 **Status: SHIPPED 2026-08-15** on `claude/byline-review-design-famy9p` (PR #477). Rollout is an
-explicit cloudId allowlist — `lite-stg.atlassian.net` (the E2E target) and
-`whimet4.atlassian.net` (dev) — so production tenants see nothing until enrolled.
+explicit cloudId allowlist. It initially enrolled `lite-stg.atlassian.net` (the E2E target) and
+`whimet4.atlassian.net` (dev). On 2026-08-18, `zenuml.atlassian.net` was approved as the first
+production enrolment so the production Lite smoke can exercise the byline flow.
+
+The existing Full-presence leg is unchanged: an enrolled space that carries
+`zenuml-full-active` still hides the Lite byline. The production smoke space had neither
+`zenuml-byline-lite` nor `zenuml-full-active` immediately before enrolment, so the next successful
+Lite visibility sweep will make the byline visible there without weakening the both-apps-installed
+suppression policy.
 
 **Goal:** Control whether the Lite byline entry (`zenuml-byline-diagrams`) renders, per space,
 from Confluence **space properties** read by a manifest `displayConditions` block. Two facts, two

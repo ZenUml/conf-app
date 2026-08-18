@@ -92,6 +92,14 @@ export default defineConfig(({ command }) => ({
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
+    // Onboarding funnel — "second diagram" viewer prompt (33.6% of tenants
+    // create exactly one diagram and never a second). Build-time constant,
+    // deliberately NOT a Forge feature flag: Lite is already at the
+    // Developer Console's 10-flags-per-app cap, and adding one requires
+    // deleting a live flag first — a product-owner decision, not this
+    // task's. Defaults OFF; flip this literal to JSON.stringify(true) and
+    // redeploy to enable. See src/components/Viewer/SecondDiagramPrompt.vue.
+    'import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED': JSON.stringify(false),
   },
   // Pre-bundle the hot CJS / Vue / CodeMirror cluster on dev-server cold start.
   // Without this, Vite discovers each lazily on first request and rebuilds the

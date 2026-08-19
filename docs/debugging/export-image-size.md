@@ -58,11 +58,69 @@ never throws — a failure degrades to the pre-existing mediaSingle-only
 event) and `createMediaDocument` (declares `width`/`height` on the media node
 attrs when known, and mirrors the same pixel value into `mediaSingle`).
 
-**Not yet confirmed against a real PDF export.** The hypothesis above and the
-media-node-attrs mechanism are both plausible but unverified without a
-staging deploy + `pdfimages -list` remeasurement — see the PR body for that
-result, and for whether a `mediaSingle` `layout` other than `center` (`wide`,
-`full-width`) is also needed if width/height alone doesn't move placement.
+## Verified on lite-stg, 2026-08-19 (after this PR's staging deploy)
+
+Confirmed: declaring `width`/`height` on the media node (not just `mediaSingle`)
+is the mechanism. Real PDF export via Scroll PDF Exporter, measured with
+`pdfimages -list`, across 3 page sizes × 5 macro types (15 combinations —
+sequence, mermaid, plantuml, graph, openapi; AsyncAPI uses a separate handler,
+`src/asyncapi-export.js`, that embeds the raw spec as text and never produces a
+PNG attachment, so it is unaffected and out of scope):
+
+| Page | Macro | Embedded image | Placed width | Present, uncropped |
+|---|---|---|---|---|
+| small | sequence | 1468x454 @ 233 ppi | 6.30 in | yes |
+| small | mermaid | 1468x438 @ 233 ppi | 6.30 in | yes |
+| small | plantuml | 95x129 @ 15 ppi | 6.33 in | yes (upscaled, see caveat) |
+| small | graph | 1468x300 @ 233 ppi | 6.30 in | yes |
+| small | openapi | 1468x896 @ 233 ppi | 6.30 in | yes |
+| medium | sequence | 1468x710 @ 233 ppi | 6.30 in | yes |
+| medium | mermaid | 1468x710 @ 233 ppi | 6.30 in | yes |
+| medium | plantuml | 319x246 @ 51 ppi | 6.25 in | yes |
+| medium | graph | 1468x300 @ 233 ppi | 6.30 in | yes |
+| medium | openapi | 1468x896 @ 233 ppi | 6.30 in | yes |
+| wide | sequence | 1468x496 @ 233 ppi | 6.30 in | yes |
+| wide | mermaid | 1468x432 @ 233 ppi | 6.30 in | yes |
+| wide | plantuml | 936x217 @ 149 ppi | 6.28 in | yes |
+| wide | graph | 1468x300 @ 233 ppi | 6.30 in | yes |
+| wide | openapi | 1468x896 @ 233 ppi | 6.30 in | yes |
+
+Every combination places at 6.25–6.33in — within 6% of the pre-#510 baseline
+(6.68in) and a large recovery from PR #510's 5.38in regression. `pdfimages`
+placement is computed from the page's image-transform matrix, so this is the
+real on-page size, not a proxy.
+
+**Two things this did NOT fix, both explicitly out of scope for this PR**
+(read the code, watched it run):
+
+1. **Blank margins.** The `zenuml-<ccId>.png` source attachment itself is
+   wider than its own ink (root cause: `GenericViewer.vue`'s
+   `.screen-capture-content.w-full { width: 100% }`, unrelated to this PR).
+   This fix
+   restores the image to FULL COLUMN WIDTH, reproducing the pre-#510 visual
+   result exactly (blank margin included) — confirmed visually: the small
+   page's sequence/mermaid diagrams occupy roughly the left 45% of their own
+   placed image, the rest is blank canvas, invisible against the white page.
+   This is the SAME behavior the old `external`-type node produced (it never
+   looked broken because nobody compared it against the diagram's own ink).
+2. **Tiny-source upscaling.** `plantuml.com`-rendered diagrams are captured
+   at their own small natural size (no blank margin — see the small page's
+   95x129 plantuml image above), so forcing them to placed-width parity with
+   the other macro types upscales a 95px-wide source to ~1468 CSS px
+   equivalent, producing a visibly blurry/pixelated PDF image (watched it
+   run: the rendered PDF page for the medium page's plantuml macro shows a
+   visibly pixelated, upscaled render). Correct only in
+   the "fills the column, not cut off" sense the acceptance test checks —
+   not in print quality.
+
+One content-authoring caveat: the OpenAPI fixture's custom spec (`Small/
+Medium/Wide API`, different endpoint counts) never rendered — all three
+`openapi` custom-content bodies fell back to the swagger-ui built-in "Sample
+API" example (confirmed: all three PNGs are byte-identical, 101566 bytes).
+The placement mechanism was still exercised (same media-node code path,
+independent of spec content), so this does not affect the sizing conclusion,
+but the "small/medium/wide" OpenAPI rows above did not actually vary in
+rendered content — root cause of the fixture not loading is uninvestigated.
 
 ## Why the Forge function and not the Cloudflare Worker
 

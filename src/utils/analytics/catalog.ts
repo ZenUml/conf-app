@@ -50,6 +50,10 @@ export type Surface =
   | "byline"
   | "forge_trigger"
   | "scheduled_job"
+  // Vendor-operated actions launched from the ZenUML JSM agent view. This is
+  // deliberately separate from `route`: it measures a support workflow, not
+  // customer traffic to a Pages endpoint.
+  | "support_automation"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
@@ -293,6 +297,15 @@ export type AnalyticsEventName =
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
+  // JSM "Apply Extension" lifecycle. requested fires after the dedicated
+  // automation secret is authenticated and the command shape is accepted;
+  // succeeded fires only after the requester-scoped SPACE_LICENSE_KV record
+  // is read back active; failed closes every authenticated attempt that did
+  // not reach that state. Backend-emitted through Mixpanel /import. Never add
+  // the Jira ticket key, raw JSM description, or customer reply to telemetry.
+  | "extension_action_requested"
+  | "extension_action_succeeded"
+  | "extension_action_failed"
   | "content_sync_requested"
   | "content_sync_succeeded"
   | "content_sync_failed"

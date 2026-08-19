@@ -238,7 +238,8 @@ export type AnalyticsProperties = {
     | 'paid_status'
     | 'idempotency'
     | 'license_write'
-    | 'license_verify';
+    | 'license_verify'
+    | 'unexpected';
   // Attribution token embedded in the Stripe Payment Link URL
   // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment

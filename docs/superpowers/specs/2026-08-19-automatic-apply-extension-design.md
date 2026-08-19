@@ -56,7 +56,7 @@ The endpoint:
 5. resolves cloudId from the tenant's `/_edge/tenant_info` response;
 6. requires an exact, case-sensitive space-key match in server-side metrics and a
    macro count of at least 100;
-7. rejects a recent Full/Diagramly paid-rail install;
+7. rejects a recent Full/Diagramly paid-rail install or an active space license;
 8. always writes `license:<cloudId>:<spaceKey>:<accountId>` and never the bare
    space key.
 
@@ -67,13 +67,14 @@ existing manual runbook for exceptions.
 ## Idempotency and recovery
 
 D1 stores one `ExtensionAction` row per `(ticketKey, action)`. The initial insert
-fixes the target and expiry before the KV write. States are `pending`, `applied`,
-and `failed`.
+fixes the target and expiry before the KV write.
 
 An `initial` replay resumes or returns the original result. A `feedback` action
 derives cloudId, space key, and account ID from the ticket's applied `initial`
 row, not from newly supplied description text. A feedback action without an
-applied initial row is rejected.
+applied initial row is rejected. States are `pending` and `applied`; recoverable
+failures deliberately remain pending so a later action can resume the same fixed
+target and expiry.
 
 After the license write, the endpoint reads the exact key back and requires an
 active record with the expected target and expiry before marking the action
@@ -98,8 +99,8 @@ canonical plain-text reply:
 }
 ```
 
-- `applied`, initial: post `reply` publicly; leave the request waiting for the
-  customer.
+- `applied`, initial: post `reply` publicly; explicitly transition the request
+  to Waiting for customer.
 - `applied`, feedback: post `reply` publicly; resolve the request.
 - `already_applied`: do not post publicly; add an internal idempotency note.
 - `validation_failed`: add an internal note with the stable error code; do not
@@ -109,6 +110,9 @@ canonical plain-text reply:
 Replies contain no arbitrary user input. The initial reply includes the canonical
 four feedback questions, the seven-day through-date, the sixty-day offer, and the
 "no strings attached" line. The feedback reply confirms the new through-date.
+If the backend succeeds but a later Jira comment or transition action fails, a
+retry returns the same reply in `already_applied`; its internal note directs the
+agent to inspect and manually complete only the missing Jira-side action.
 
 ## Analytics
 
@@ -140,8 +144,9 @@ space and threshold checks, requester-only key shape, fixed durations, read-back
 verification, paid-rail rejection, initial and feedback replies, duplicate clicks,
 pending retry, feedback target reuse, and route allowlisting.
 
-The JSM rule is first exercised against a local/staging endpoint using a fixture
-request. Production enablement requires a dry run that proves the endpoint returns
-the expected result without writing production KV, followed by one controlled
-support request and KV read-back. A public-reply assertion requires observing the
-JSM comment; backend tests alone do not count as UI evidence.
+The JSM rule is first exercised with a command that must fail validation before
+any write. Because staging and production currently share `SPACE_LICENSE_KV`, a
+valid staging command is a production mutation and must not be treated as a safe
+fixture test. Production enablement uses one controlled real support request and
+KV read-back. A public-reply assertion requires observing the JSM comment; backend
+tests alone do not count as UI evidence.

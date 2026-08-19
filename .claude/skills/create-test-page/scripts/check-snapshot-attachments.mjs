@@ -42,7 +42,10 @@ const adf = JSON.parse(page.body.atlas_doc_format.value);
 const expected = adf.content
   .filter((n) => n.type === "extension")
   .map((n) => ({
-    id: String(n.attrs?.parameters?.guestParams?.["custom-content-id"] ?? ""),
+    // Confluence normalises the guestParam key on read: it is written as
+    // `custom-content-id` and comes back as `customContentId`. Accept both.
+    id: String(n.attrs?.parameters?.guestParams?.customContentId
+      ?? n.attrs?.parameters?.guestParams?.["custom-content-id"] ?? ""),
     type: String(n.attrs?.extensionKey ?? "").split("/").pop()
       .replace(/^zenuml-/, "").replace(/-macro(-lite)?$/, ""),
   }));

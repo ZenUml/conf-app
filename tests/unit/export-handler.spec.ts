@@ -215,20 +215,179 @@ describe('Forge export resolver (src/export.js)', () => {
       content: Array<{ content: Array<{ attrs: Record<string, string> }> }>;
     };
 
+    // This fixture's response has no `arrayBuffer`, so the PNG-dimensions
+    // Range read (fetchPngDimensions) fails and falls back to the
+    // pre-existing mediaSingle-only 760px hint — see the two tests below for
+    // the path where dimensions ARE read successfully.
     expect(result.content[0].content[0].attrs).toEqual({
       type: 'file',
       id: 'file-uuid-1',
       collection: 'contentId-777',
     });
-    // Without an explicit pixel width the native PDF export shrinks the
-    // diagram (measured on lite-stg 2026-08-19: 8% of page width with no
-    // width, 28% with a percentage width, 72% before this change).
     expect((result as unknown as { content: Array<{ attrs: Record<string, unknown> }> }).content[0].attrs).toEqual({
       layout: 'center',
       width: 760,
       widthType: 'pixel',
     });
     expect(JSON.stringify(result)).not.toContain('download');
+  });
+
+  // Placement-width regression (docs/debugging/export-image-size.md): the file
+  // media node is sized from the media file's own metadata, not from
+  // mediaSingle's width hint alone (measured on lite-stg 2026-08-19: 5.38in
+  // with a mediaSingle width hint vs 6.68in for the old external-url node).
+  // Declaring the image's own intrinsic width/height directly on the media
+  // node is the candidate fix — read via a byte-Range request for the PNG's
+  // IHDR chunk (src/lib/pngDimensions.ts), not a full download.
+  it('declares the media node\'s own intrinsic width/height from the PNG header', async () => {
+    const pngHeader = Buffer.alloc(32);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(pngHeader, 0);
+    pngHeader.writeUInt32BE(13, 8);
+    pngHeader.write('IHDR', 12, 'ascii');
+    pngHeader.writeUInt32BE(1516, 16);
+    pngHeader.writeUInt32BE(598, 20);
+
+    asAppRequest.mockImplementation(async (url: string, opts?: { headers?: Record<string, string> }) => {
+      if (opts?.headers?.Range) {
+        expect(url).toBe('https://acme.atlassian.net/wiki/download/attachments/779/zenuml-cc-sized.png');
+        expect(opts.headers.Range).toBe('bytes=0-31');
+        return {
+          ok: true,
+          status: 206,
+          arrayBuffer: async () => pngHeader.buffer.slice(pngHeader.byteOffset, pngHeader.byteOffset + pngHeader.byteLength),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          results: [{ fileId: 'file-uuid-sized', downloadLink: '/wiki/download/attachments/779/zenuml-cc-sized.png' }],
+          _links: { base: 'https://acme.atlassian.net' },
+        }),
+      };
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-sized',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-sized',
+        extension: { content: { id: '779' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-sized' } },
+    };
+
+    const result = (await handler(payload)) as {
+      content: Array<{ attrs: Record<string, unknown>; content: Array<{ attrs: Record<string, unknown> }> }>;
+    };
+
+    expect(result.content[0].content[0].attrs).toEqual({
+      type: 'file',
+      id: 'file-uuid-sized',
+      collection: 'contentId-779',
+      width: 1516,
+      height: 598,
+    });
+    expect(result.content[0].attrs).toEqual({ layout: 'center', width: 1516, widthType: 'pixel' });
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { media_width_px?: number; media_height_px?: number };
+    }>;
+    const succeeded = rows.find((r) => r.event === 'macro_export_succeeded');
+    expect(succeeded?.properties?.media_width_px).toBe(1516);
+    expect(succeeded?.properties?.media_height_px).toBe(598);
+  });
+
+  it('requests only a byte range for the PNG header, not the whole attachment', async () => {
+    let sawFullDownload = false;
+    asAppRequest.mockImplementation(async (url: string, opts?: { headers?: Record<string, string> }) => {
+      if (opts?.headers?.Range) {
+        return {
+          ok: true,
+          status: 206,
+          arrayBuffer: async () => {
+            const buf = Buffer.alloc(32);
+            Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+            buf.writeUInt32BE(13, 8);
+            buf.write('IHDR', 12, 'ascii');
+            buf.writeUInt32BE(300, 16);
+            buf.writeUInt32BE(150, 20);
+            return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+          },
+        };
+      }
+      if (String(url).includes('/download/attachments/')) {
+        sawFullDownload = true;
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          results: [{ fileId: 'file-uuid-range', downloadLink: '/wiki/download/attachments/780/zenuml-cc-range.png' }],
+          _links: { base: 'https://acme.atlassian.net' },
+        }),
+      };
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-range',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-range',
+        extension: { content: { id: '780' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-range' } },
+    };
+
+    await handler(payload);
+
+    expect(sawFullDownload).toBe(false);
+    const rangedCalls = asAppRequest.mock.calls.filter(([, opts]: [string, { headers?: Record<string, string> } | undefined]) => opts?.headers?.Range);
+    expect(rangedCalls).toHaveLength(1);
+  });
+
+  it('falls back to the 760px mediaSingle-only hint, without media-level width/height, when the header bytes are not a valid PNG', async () => {
+    asAppRequest.mockImplementation(async (url: string, opts?: { headers?: Record<string, string> }) => {
+      if (opts?.headers?.Range) {
+        return { ok: true, status: 206, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          results: [{ fileId: 'file-uuid-bad', downloadLink: '/wiki/download/attachments/781/zenuml-cc-bad.png' }],
+          _links: { base: 'https://acme.atlassian.net' },
+        }),
+      };
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-bad',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-bad',
+        extension: { content: { id: '781' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-bad' } },
+    };
+
+    const result = (await handler(payload)) as {
+      content: Array<{ attrs: Record<string, unknown>; content: Array<{ attrs: Record<string, unknown> }> }>;
+    };
+
+    expect(result.content[0].attrs).toEqual({ layout: 'center', width: 760, widthType: 'pixel' });
+    expect(result.content[0].content[0].attrs.width).toBeUndefined();
+    expect(result.content[0].content[0].attrs.height).toBeUndefined();
   });
 
   it('reports missing_file_id when the attachment carries no fileId', async () => {
@@ -300,8 +459,13 @@ describe('Forge export resolver (src/export.js)', () => {
     // fallback below. The asUser() retry then SUCCEEDS, so this is a success
     // path and no custom-content read happens — the count dropped from 2 when
     // that read moved off the success path.
+    //
+    // asUserRequest is called TWICE: the attachments lookup, then the
+    // PNG-dimensions Range request — which reuses asUser() rather than
+    // asApp(), since asUser() is the identity that could actually read this
+    // page (see fetchPngDimensions' `usedAsUser` param in src/export.js).
     expect(asAppRequest).toHaveBeenCalledTimes(1);
-    expect(asUserRequest).toHaveBeenCalledTimes(1);
+    expect(asUserRequest).toHaveBeenCalledTimes(2);
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
       event?: string;
@@ -479,10 +643,13 @@ describe('Forge export resolver (src/export.js)', () => {
 
     await handler(payload);
 
-    // The point of the change: exactly one asApp() call, and it is the
-    // attachments lookup. No custom-content read at all.
-    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    // The point of the change: no custom-content read at all on the success
+    // path. Two asApp() calls remain: the attachments lookup, then the
+    // PNG-dimensions Range request against the same attachment's download
+    // link (also matches '/attachments' — it's '/download/attachments/...').
+    expect(asAppRequest).toHaveBeenCalledTimes(2);
     expect(String(asAppRequest.mock.calls[0][0])).toContain('/attachments');
+    expect(String(asAppRequest.mock.calls[1][0])).toContain('/download/attachments/888/zenuml-cc-mermaid.png');
     expect(
       asAppRequest.mock.calls.filter(([u]: [string]) => String(u).includes('/custom-content/')),
     ).toHaveLength(0);

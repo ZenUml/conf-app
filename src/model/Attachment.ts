@@ -186,6 +186,46 @@ function iframeToPng(iframe: HTMLIFrameElement): Promise<Blob> {
 }
 
 /**
+ * Thrown when htmlToImage.toBlob()'s returned promise doesn't settle (neither
+ * resolves nor rejects) within TOPNG_CAPTURE_TIMEOUT_MS. Observed on lite-stg
+ * page 220659974 / custom content 220659992: `window.createAttachmentInProgress`
+ * stayed true for 90+ seconds across four page loads, no `convert_to_png`
+ * event ever fired (toPng's own `finally` never ran), and no attachment POST
+ * reached the network — the await on toBlob() itself never returned. This
+ * class exists only so toPng's catch can tag the timeout with its own
+ * telemetry label, distinct from `toPng_failed` (a settled rejection). The
+ * root cause of why toBlob() hangs is NOT established by this fix — this only
+ * bounds the wait so the hang becomes an observed, retryable failure instead
+ * of a silent permanent one.
+ */
+class ToPngTimeoutError extends Error {
+  constructor() {
+    super('toPng: html-to-image toBlob() did not settle within the capture timeout');
+    this.name = 'ToPngTimeoutError';
+  }
+}
+
+// Fresh graph macros on a new page wrote their attachment (full pipeline:
+// bootstrap + DOM capture + upload) in ~16s (watched it run on lite-stg,
+// 2026-08-19). That figure bounds the WHOLE save, not the toBlob() call in
+// isolation — html-to-image's DOM screenshot is a small fraction of it, the
+// rest being page bootstrap and the network upload that follows capture. So a
+// 10s bound on just the capture step leaves ample margin and shouldn't cut
+// off a legitimate slow capture; it only needs to be shorter than "forever".
+const TOPNG_CAPTURE_TIMEOUT_MS = 10_000;
+
+/** Race `promise` against a timeout; on timeout, reject with `makeTimeoutError()`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, makeTimeoutError: () => Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(makeTimeoutError()), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
+/**
  * Convert diagram to PNG.
  * Uses iframe postMessage if mainFrame exists, otherwise uses html-to-image.
  */
@@ -211,10 +251,22 @@ async function toPng(): Promise<Blob | null | undefined> {
     // / `non_error_thrown` in attachment_upload_failed (~48% of all failures).
     // Catching it here turns a capture miss into a clean ToPngError skip with
     // its own `convert_to_png` telemetry, not a mislabeled upload failure.
-    return await htmlToImage.toBlob(node, { backgroundColor: 'white', skipFonts: true });
+    //
+    // Bounded with a timeout: toBlob()'s promise has been observed to never
+    // settle at all (see ToPngTimeoutError) — an unbounded await here left
+    // `window.createAttachmentInProgress` stuck true, silently blocking every
+    // later save for that session. Racing against the timeout guarantees this
+    // function always settles.
+    return await withTimeout(
+      htmlToImage.toBlob(node, { backgroundColor: 'white', skipFonts: true }),
+      TOPNG_CAPTURE_TIMEOUT_MS,
+      () => new ToPngTimeoutError(),
+    );
   } catch (e) {
     console.warn('Failed to convert to png', e);
-    trackEvent('toPng_failed', 'convert_to_png', 'error');
+    // Timeout gets its own label so it's countable separately from other
+    // convert_to_png capture failures (a settled html-to-image rejection).
+    trackEvent(e instanceof ToPngTimeoutError ? 'toPng_timeout' : 'toPng_failed', 'convert_to_png', 'error');
     return undefined;
   } finally {
     trackEvent('toPng', 'convert_to_png', 'export');

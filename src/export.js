@@ -1,5 +1,5 @@
 
-import api, { route } from '@forge/api';
+import api, { route, routeFromAbsolute } from '@forge/api';
 import { readPngDimensions } from './lib/pngDimensions.js';
 
 // ---------------------------------------------------------------------------
@@ -281,7 +281,15 @@ async function fetchPngDimensions(linksBase, downloadLink, attachmentName, pageI
   const downloadUrl = `${linksBase}${downloadLink}`;
   try {
     const requester = usedAsUser ? api.asUser() : api.asApp();
-    const response = await requester.requestConfluence(downloadUrl, {
+    // requestConfluence rejects a plain string URL at runtime — @forge/api
+    // requires a Route built from the `route` tagged template, or (as here,
+    // where the full absolute URL is already known from `_links.base` +
+    // `downloadLink`) `routeFromAbsolute`, which strips it down to the
+    // pathname+search a Route carries. See the ReadonlyRoute brand check in
+    // @forge/api's safeUrl.js — a bare string throws
+    // "You must create your route using the 'route' export from
+    // '@forge/api'", which is exactly the production error this fixes.
+    const response = await requester.requestConfluence(routeFromAbsolute(downloadUrl), {
       headers: { Range: 'bytes=0-31' },
     });
     if (!response.ok) {

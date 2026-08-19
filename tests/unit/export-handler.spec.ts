@@ -148,7 +148,7 @@ describe('Forge export resolver (src/export.js)', () => {
       status: 200,
       text: async () => '',
       json: async () => ({
-        results: [{ downloadLink: '/wiki/download/attachments/222/zenuml-cc-pdf-ok.png' }],
+        results: [{ fileId: 'file-zenuml-cc-pdf-ok', downloadLink: '/wiki/download/attachments/222/zenuml-cc-pdf-ok.png' }],
         _links: { base: 'https://acme.atlassian.net' },
       }),
     });
@@ -175,9 +175,85 @@ describe('Forge export resolver (src/export.js)', () => {
     const succeeded = rows.find((r) => r.event === 'macro_export_succeeded');
     expect(succeeded?.properties?.custom_content_id).toBe('cc-pdf-ok');
 
-    expect(JSON.stringify(result)).toContain(
-      'https://acme.atlassian.net/wiki/download/attachments/222/zenuml-cc-pdf-ok.png',
-    );
+    expect(JSON.stringify(result)).toContain('file-zenuml-cc-pdf-ok');
+  });
+
+  // Scroll PDF Exporter (K15t) renders the ADF we return outside the Confluence
+  // page context. A media node of type "external" pointing at the attachment
+  // download endpoint needs a Confluence session, so that renderer got 404 and
+  // dropped the image (reproduced 2026-08-19, docs/debugging/scroll-pdf-export.md).
+  // A native file media node is resolved by the exporter with its own credentials.
+  it('returns a native file media node carrying fileId and the page collection', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({
+        results: [
+          {
+            fileId: 'file-uuid-1',
+            downloadLink: '/wiki/download/attachments/777/zenuml-cc-media.png',
+          },
+        ],
+        _links: { base: 'https://acme.atlassian.net' },
+      }),
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-media',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-media',
+        extension: { content: { id: '777' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-media' } },
+    };
+
+    const result = (await handler(payload)) as {
+      content: Array<{ content: Array<{ attrs: Record<string, string> }> }>;
+    };
+
+    expect(result.content[0].content[0].attrs).toEqual({
+      type: 'file',
+      id: 'file-uuid-1',
+      collection: 'contentId-777',
+    });
+    expect(JSON.stringify(result)).not.toContain('download');
+  });
+
+  it('reports missing_file_id when the attachment carries no fileId', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({
+        results: [{ downloadLink: '/wiki/download/attachments/778/no-file-id.png' }],
+        _links: { base: 'https://acme.atlassian.net' },
+      }),
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-nofile',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-nofile',
+        extension: { content: { id: '778' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-nofile' } },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { failure_reason?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('missing_file_id');
   });
 
   it('falls back to asUser() when asApp() returns 404 and succeeds, with fallback telemetry', async () => {
@@ -191,7 +267,7 @@ describe('Forge export resolver (src/export.js)', () => {
       status: 200,
       text: async () => '',
       json: async () => ({
-        results: [{ downloadLink: '/wiki/download/attachments/444/zenuml-cc-fallback.png' }],
+        results: [{ fileId: 'file-zenuml-cc-fallback', downloadLink: '/wiki/download/attachments/444/zenuml-cc-fallback.png' }],
         _links: { base: 'https://acme.atlassian.net' },
       }),
     });
@@ -235,9 +311,7 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(succeeded?.properties?.fallback_error_name).toBeUndefined();
     expect(rows.find((r) => r.event === 'macro_export_failed')).toBeUndefined();
 
-    expect(JSON.stringify(result)).toContain(
-      'https://acme.atlassian.net/wiki/download/attachments/444/zenuml-cc-fallback.png',
-    );
+    expect(JSON.stringify(result)).toContain('file-zenuml-cc-fallback');
   });
 
   it('preserves asApp 404 failure_reason when asUser() fallback also fails, and tags telemetry', async () => {
@@ -375,7 +449,7 @@ describe('Forge export resolver (src/export.js)', () => {
           status: 200,
           text: async () => '',
           json: async () => ({
-            results: [{ downloadLink: '/wiki/download/attachments/888/zenuml-cc-mermaid.png' }],
+            results: [{ fileId: 'file-zenuml-cc-mermaid', downloadLink: '/wiki/download/attachments/888/zenuml-cc-mermaid.png' }],
             _links: { base: 'https://acme.atlassian.net' },
           }),
         };
@@ -494,7 +568,7 @@ describe('Forge export resolver (src/export.js)', () => {
           status: 200,
           text: async () => '',
           json: async () => ({
-            results: [{ downloadLink: '/wiki/download/attachments/892/zenuml-cc-unknown.png' }],
+            results: [{ fileId: 'file-zenuml-cc-unknown', downloadLink: '/wiki/download/attachments/892/zenuml-cc-unknown.png' }],
             _links: { base: 'https://acme.atlassian.net' },
           }),
         };
@@ -589,7 +663,7 @@ describe('macro_export_* $insert_id (Mixpanel dedup key)', () => {
       status: 200,
       text: async () => '',
       json: async () => ({
-        results: [{ downloadLink: '/wiki/download/attachments/900/x.png' }],
+        results: [{ fileId: 'file-x', downloadLink: '/wiki/download/attachments/900/x.png' }],
         _links: { base: 'https://acme.atlassian.net' },
       }),
     }));

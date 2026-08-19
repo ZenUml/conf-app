@@ -353,7 +353,19 @@ export const handler = async (payload) => {
     }
 
     const attachment = attachmentsData.results[0];
-    const downloadLink = `${attachmentsData._links.base}${attachment.downloadLink}`;
+
+    // The export ADF must reference the PNG as a native Confluence media file,
+    // never as an external URL — see createMediaDocument below. Without a
+    // fileId there is nothing to reference, so surface it instead of degrading.
+    if (!attachment.fileId) {
+      console.error(`Export: attachment ${attachmentName} on page ${pageId} carries no fileId`);
+      await trackExportEvent('macro_export_failed', {
+        ...joinKeyProps(ctx),
+        failure_reason: 'missing_file_id',
+        ...fallbackProps(fallbackInfo),
+      });
+      return createErrorDocument('Diagram image reference not available for export');
+    }
 
     console.info(`Export: found ${attachmentName} on page ${pageId}`);
 
@@ -362,7 +374,7 @@ export const handler = async (payload) => {
       ...fallbackProps(fallbackInfo),
     });
 
-    return createMediaDocument(downloadLink);
+    return createMediaDocument(attachment.fileId, pageId);
 
   } catch (error) {
     const errorName = error?.name ?? 'UnknownError';
@@ -408,7 +420,20 @@ export function createErrorDocument(message) {
   };
 }
 
-function createMediaDocument(downloadLink) {
+/**
+ * Builds the export document as a native Confluence media reference.
+ *
+ * A media node of type "external" pointing at the attachment download endpoint
+ * needs a Confluence session. Confluence's own export pipeline has one; a
+ * third-party exporter running outside the page context does not, so it
+ * received 404 and dropped the image. Reproduced with Scroll PDF Exporter on
+ * 2026-08-19 — see docs/debugging/scroll-pdf-export.md for the issue report.
+ *
+ * A file media node carries only the fileId and the page's media collection.
+ * Every renderer resolves it with its own credentials, so the diagram keeps the
+ * access control the page already has and no URL is published.
+ */
+function createMediaDocument(fileId, pageId) {
   return {
     type: "doc",
     version: 1,
@@ -422,8 +447,9 @@ function createMediaDocument(downloadLink) {
           {
             "type": "media",
             "attrs": {
-              "type": "external",
-              "url": downloadLink
+              "type": "file",
+              "id": fileId,
+              "collection": `contentId-${pageId}`
             }
           }
         ]

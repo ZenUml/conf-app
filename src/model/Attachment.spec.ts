@@ -1308,6 +1308,39 @@ describe('Attachment', () => {
         vi.unstubAllGlobals();
       });
 
+      it('skips the upscale re-fetch when the source has leading whitespace so the dpi directive would not match (no false "upscaled" event)', async () => {
+        // validate.ts trims before checking @startuml, so leading whitespace
+        // is storable content. withDpiDirective's regex is anchored to the
+        // very first character — this content never gets the directive.
+        const natural = fakePng(95, 129);
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(natural) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('  @startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png_upscaled')).toBeUndefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('treats a re-fetch that comes back no wider than natural as a failed upscale, not a false success', async () => {
+        const natural = fakePng(95, 129);
+        // Server ignored/rejected the injected dpi directive — same size back.
+        const sameSize = fakePng(95, 129);
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(natural) })
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(sameSize) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png_upscaled')).toBeUndefined();
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+        vi.unstubAllGlobals();
+      });
+
       it('falls back to the natural-size PNG when the upscale re-fetch fails, without failing the upload', async () => {
         const natural = fakePng(95, 129);
         const fetchMock = vi.fn()

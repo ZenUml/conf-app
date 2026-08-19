@@ -273,9 +273,16 @@ async function upscalePlantUmlPng(naturalBlob: Blob, code: string): Promise<Blob
   const dpi = computeUpscaleDpi(size.width, size.height);
   if (!dpi) return undefined;
 
+  // withDpiDirective only matches a leading `@startuml` — if the caller's
+  // content has leading whitespace (validate.ts trims before rejecting, so
+  // it's storable) the injection is a no-op and the re-fetch would return
+  // the same tiny PNG. Skip it rather than firing a false "upscaled" event.
+  const dpiCode = withDpiDirective(code, dpi);
+  if (dpiCode === code) return undefined;
+
   try {
     const { plantumlEncode } = await import('@/utils/plantuml/encode');
-    const encoded = plantumlEncode(withDpiDirective(code, dpi));
+    const encoded = plantumlEncode(dpiCode);
     const resp = await fetch(`${PLANTUML_PNG_SERVER}${encoded}`);
     if (!resp.ok) {
       trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
@@ -284,6 +291,14 @@ async function upscalePlantUmlPng(naturalBlob: Blob, code: string): Promise<Blob
     const blob = await resp.blob();
     const type = (blob.type || '').toLowerCase().split(';')[0].trim();
     if (type !== 'image/png') {
+      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+      return undefined;
+    }
+    // Confirm the server actually honoured the dpi directive before trusting
+    // it as the "upscaled" result — a rejected/ignored directive would
+    // otherwise report success while silently keeping the tiny image.
+    const upscaledSize = await readPngSize(blob);
+    if (!upscaledSize || upscaledSize.width <= size.width) {
       trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
       return undefined;
     }

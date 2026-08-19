@@ -220,6 +220,13 @@ describe('Forge export resolver (src/export.js)', () => {
       id: 'file-uuid-1',
       collection: 'contentId-777',
     });
+    // Without an explicit width the native PDF export shrinks the diagram to
+    // about a quarter of the page width (measured on lite-stg 2026-08-19).
+    expect((result as unknown as { content: Array<{ attrs: Record<string, unknown> }> }).content[0].attrs).toEqual({
+      layout: 'center',
+      width: 100,
+      widthType: 'percentage',
+    });
     expect(JSON.stringify(result)).not.toContain('download');
   });
 

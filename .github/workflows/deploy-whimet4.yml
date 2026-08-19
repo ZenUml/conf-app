@@ -109,13 +109,20 @@ jobs:
         with:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
 
+      # `createDemoPage` (the function) is deliberately KEPT here — Lite's own
+      # zenuml-get-started-settings globalSettings module (which this workflow
+      # keeps) binds it as its resolver, so the Get Started page's "Create
+      # examples page" action can invoke it. Deleting the function while
+      # keeping that binding leaves the generated manifest referencing a
+      # function that does not exist. Mirrors staging-deploy.yml's "Remove
+      # diagramly admin panel + pipeline from Lite/Full manifest (keep
+      # createDemoPage for Get Started)" step — keep these two in sync.
       - name: Remove diagramly admin module from Lite manifest
         uses: mikefarah/yq@master
         with:
           cmd: |
             yq eval '
               del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page"))
-              | del(.modules.function[] | select(.key == "createDemoPage"))
               | del(.modules.function[] | select(.key == "createDemoPageScheduled"))
               | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
             ' -i manifest.yml
@@ -156,6 +163,19 @@ jobs:
           # Default APP_ID (no override) is the Lite app — the one whimet4 has.
           pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e "$FORGE_ENV"
           pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e "$FORGE_ENV"
+          # Get Started (createDemoPage) reads these at invoke time. Forge does
+          # not inject manifest environment.variables defaults into
+          # process.env (verified live on this branch), so without them the
+          # resolver returns variant_not_configured regardless of whatever the
+          # manifest declares. Values copied verbatim from the Lite variant
+          # block in staging-deploy.yml / release.yml.
+          pnpm exec forge variables set CONNECT_KEY "com.zenuml.confluence-addon-lite" -e "$FORGE_ENV"
+          pnpm exec forge variables set CUSTOM_CONTENT_KEY "zenuml-content-sequence" -e "$FORGE_ENV"
+          pnpm exec forge variables set APP_LABEL "ZenUML for Confluence Lite" -e "$FORGE_ENV"
+          pnpm exec forge variables set SEQUENCE_MACRO_KEY "zenuml-sequence-macro-lite" -e "$FORGE_ENV"
+          # A value beginning with a hyphen needs the options BEFORE the `--`
+          # separator or the CLI parses "-lite" as a flag.
+          pnpm exec forge variables set -e "$FORGE_ENV" -- LITE_KEY_SUFFIX "-lite"
           pnpm exec forge deploy -e "$FORGE_ENV" --non-interactive --verbose
 
       # Non-fatal, for two reasons learned from the first real run:

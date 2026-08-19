@@ -64,9 +64,14 @@ export const APPS = {
         yqEvalExpr: 'del(.connectModules)',
       },
       {
-        description: 'Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)',
+        // Keeps `createDemoPage` (the function, and the resolver binding on
+        // zenuml-get-started-settings) so Lite's Get Started page can create
+        // its own examples page. Only the Diagramly-only admin panel module
+        // and the hourly background pipeline are stripped — Lite's action is
+        // synchronous, on-click, from the Get Started page.
+        description: 'Remove Diagramly admin panel + demo-page pipeline (Lite keeps createDemoPage for Get Started)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPageScheduled" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -154,9 +159,11 @@ export const APPS = {
           'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
-        description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
+        // Keeps `createDemoPage` (see the matching Lite comment above) so
+        // Full's Get Started page can create its own examples page.
+        description: 'Remove Lite snapshot and Diagramly admin/pipeline schedules from Full (Full keeps createDemoPage for Get Started)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline" or .key == "byline-visibility-hourly"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline" or .key == "byline-visibility-hourly"))',
       },
       {
         description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
@@ -193,9 +200,15 @@ export const APPS = {
     // this wizard strips/keeps for diagramly, change both CI workflows too.
     manifestEdits: [
       {
-        description: 'Remove globalSettings + globalPage + spacePage',
+        // Key-scoped (not a whole-node delete): Diagramly keeps its own
+        // admin panel (diagramly-admin-create-demo-page) under
+        // confluence:globalSettings — only the ZenUML-branded Get Started
+        // entry is Lite/Full-only. Matches the CI copies of this edit
+        // (release.yml + staging-deploy.yml) — see the note at the top of
+        // this variant's manifestEdits array.
+        description: 'Remove zenuml-get-started-settings + globalPage + spacePage (Diagramly keeps its own admin panel)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "zenuml-get-started-settings")) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
       },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
@@ -639,6 +652,61 @@ function extractFirstJsonArray(text) {
   return safeJsonParse(candidate)
 }
 
+// Variants that keep the ZenUML Get Started admin panel
+// (zenuml-get-started-settings, see each app's manifestEdits above) need
+// CONNECT_KEY / SEQUENCE_MACRO_KEY / CUSTOM_CONTENT_KEY / APP_LABEL — and,
+// for Lite, LITE_KEY_SUFFIX — set as Forge RUNTIME variables. Forge does
+// NOT inject manifest `environment.variables[].default` into
+// `process.env`; only `forge variables set` does (verified live on
+// lite-dev 2026-08-19, PR #508 — see src/demoPageContent.js). `forge
+// deploy` env vars (passed via `env:` to runCommandLogged below) are
+// build/substitution-time only and do not become runtime variables, so a
+// wizard-driven deploy that skips this step ships a working UI whose Get
+// Started action fails closed with `variant_not_configured`.
+//
+// This mirrors the per-variant `forge variables set` calls this project's
+// CI workflows run (staging-deploy.yml, release.yml, deploy-whimet4.yml) —
+// it reuses THIS file's own per-app config (app.connectKey etc.) rather
+// than hardcoding a second copy of the variant table. asyncapi is
+// excluded: its manifestEdits strip confluence:globalSettings entirely, so
+// createDemoPage.js's resolver binding never exists on that variant and
+// these vars are unused (matches the CI comment in staging-deploy.yml).
+function getStartedRuntimeVarSets(app) {
+  if (app.productType === 'asyncapi') return []
+  const sets = [
+    { name: 'CONNECT_KEY', value: app.connectKey },
+    { name: 'SEQUENCE_MACRO_KEY', value: app.sequenceMacroKey },
+    { name: 'CUSTOM_CONTENT_KEY', value: app.customContentKey },
+    { name: 'APP_LABEL', value: app.appLabel },
+  ]
+  if (app.liteKeySuffix) {
+    // Only Lite has a non-empty suffix (e.g. "-lite"). Full/Diagramly/
+    // AsyncAPI leave it unset — demoPageContent.js's LITE_KEY_SUFFIX
+    // fallback is legitimately '' for them (see its top-of-file comment).
+    // A value beginning with '-' is parsed as another option unless the
+    // `--` separator precedes it, and that separator must come AFTER
+    // `-e <env>` — `forge variables set` rejects `-- -e staging ...`.
+    // Same constraint already proven in staging-deploy.yml.
+    sets.push({ name: 'LITE_KEY_SUFFIX', value: app.liteKeySuffix, needsSeparator: true })
+  }
+  return sets
+}
+
+async function setForgeRuntimeVariable({ name, value, forgeEnv, appEnvVars, needsSeparator }) {
+  const args = needsSeparator
+    ? ['variables', 'set', '-e', forgeEnv, '--', name, value]
+    : ['variables', 'set', name, value, '-e', forgeEnv]
+  await runCommandLogged({
+    label: `Set Get Started runtime variable: ${name}`,
+    command: 'forge',
+    args,
+    env: appEnvVars,
+    liveOutput: 'limited',
+    maxLiveChars: 2000,
+    progressDotsEveryMs: 0,
+  })
+}
+
 async function isAppInstalledOnSite({ site, forgeEnv, appEnvVars }) {
   // Forge's `install list` output is a JSON array. We determine whether our app is installed
   // by checking if any entry's `site` matches the requested site.
@@ -802,6 +870,24 @@ async function main() {
       appEnvironmentChoice: environmentChoice,
       devEnvVars,
     })
+
+    // Set Get Started's runtime variables BEFORE `forge deploy` — see
+    // getStartedRuntimeVarSets() above for why this can't be done via the
+    // deploy env instead.
+    const runtimeVarSets = getStartedRuntimeVarSets(app)
+    if (runtimeVarSets.length > 0) {
+      console.log('\nSet Get Started runtime variables (forge variables set, not manifest defaults)')
+      for (const v of runtimeVarSets) {
+        await setForgeRuntimeVariable({
+          name: v.name,
+          value: v.value,
+          forgeEnv,
+          appEnvVars,
+          needsSeparator: v.needsSeparator,
+        })
+      }
+    }
+
     // `--no-verify` skips Forge's manifest lint. The asyncapi variant
     // (and the other variants too — sequence/openapi/graph/embed all
     // use `viewportSize: fullscreen` in macro config) hits a lint rule

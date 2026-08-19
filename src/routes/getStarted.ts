@@ -7,13 +7,11 @@ export async function handleGetStartedRoute() {
   try {
     // Initialize context
     await globals.apWrapper.initializeContext();
-    
-    // Track page view
-    trackEvent('', 'get_started_route_accessed', 'forge_get_started', {
-      page_type: 'global_settings_get_started',
-      version: '2025.04'
-    });
-    
+
+    // Page-view analytics fires once, from GetStarted.vue's mounted() hook
+    // (get_started_viewed via trackAnalyticsEvent) — not here, to avoid a
+    // route-level + component-level double count of the same page load.
+
     // Create and mount the Vue app
     const app = createApp(GetStarted);
     

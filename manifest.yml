@@ -435,6 +435,14 @@ modules:
       title: Get Started
       resource: main
       useAsGetStarted: true
+      # Lets the page's primary action invoke the shared demo-page pipeline
+      # (createDemoPage.handler) directly — same resolver the Diagramly admin
+      # panel (diagramly-admin-create-demo-page below) already uses. Present
+      # only where this module ships: lite and full keep it; diagramly strips
+      # just this key (keeping its own admin panel); asyncapi strips the
+      # whole confluence:globalSettings node.
+      resolver:
+        function: createDemoPage
     - key: diagramly-admin-create-demo-page
       title: "Diagramly Admin — Create demo page"
       resource: main

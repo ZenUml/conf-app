@@ -7,7 +7,7 @@ type Story = StoryObj<typeof GetStarted>
 
 /**
  * Stub out Forge-specific side-effects so Storybook renders cleanly:
- *  - forgeGlobal.isForge = false disables AP/bridge calls in trackEvent and openUrl
+ *  - forgeGlobal.isForge = false disables AP/bridge calls in openUrl
  *  - mockClientDomain lets getLocalStorageKey() produce stable keys for analytics
  */
 function installMocks() {
@@ -33,9 +33,10 @@ const meta: Meta<typeof GetStarted> = {
     docs: {
       description: {
         component:
-          'Full-page onboarding screen shown to admins after installing the Forge app. ' +
-          'Displays a hero section, a feature grid with all five diagram types, a quick-start tutorial, ' +
-          'and a resources panel. Fires a get_started_page_view analytics event on mount.',
+          'Post-install onboarding screen shown to admins (Forge useAsGetStarted). Its primary control ' +
+          'creates a real examples page (via the shared createDemoPage resolver/pipeline) in an ' +
+          'admin-chosen space, plus a compact resources panel. Fires get_started_viewed on mount and ' +
+          'get_started_action_clicked on every control click.',
       },
     },
   },
@@ -52,100 +53,47 @@ const meta: Meta<typeof GetStarted> = {
 export default meta
 
 /**
- * Full page render — all sections visible.
- * Use this as the reference story for the complete onboarding experience.
+ * Full page render — hero, the create-examples-page action, and the
+ * resources panel.
  */
 export const Default: Story = {
   name: 'Default — full page',
   play: async () => {
     const canvas = within(document.body)
     await expect(await canvas.findByText(/Welcome to ZenUML Diagrams!/)).toBeVisible()
-    await expect(canvas.getByText('What You Can Do')).toBeVisible()
-    await expect(canvas.getByText('Quick Start Tutorial')).toBeVisible()
+    await expect(canvas.getByText('Create an examples page')).toBeVisible()
+    await expect(canvas.getByRole('button', { name: /Create examples page/ })).toBeVisible()
     await expect(canvas.getByText('Resources & Support')).toBeVisible()
   },
 }
 
 /**
- * Sequence diagram feature card.
- * The hero badge and Sequence Diagrams card are the primary entry point for ZenUML DSL users.
+ * The primary action: pick a space, create the examples page. Disabled until
+ * a space key is entered — never fires without an explicit click.
  */
-export const SequenceDiagramType: Story = {
-  name: 'Diagram type — Sequence',
+export const CreateExamplesPageAction: Story = {
+  name: 'Action — create examples page',
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByText('Sequence Diagrams')).toBeVisible()
-    await expect(
-      canvas.getByText(/Create ZenUML sequence diagrams with powerful syntax/)
-    ).toBeVisible()
-    // FORGE badge is shown in the hero alongside the welcome heading
-    await expect(canvas.getByText('FORGE')).toBeVisible()
+    const button = await canvas.findByRole('button', { name: /Create examples page/ })
+    await expect(button).toBeDisabled()
+    const input = canvas.getByLabelText('Space key')
+    await expect(input).toBeVisible()
   },
 }
 
 /**
- * Mermaid diagram feature card.
- */
-export const MermaidDiagramType: Story = {
-  name: 'Diagram type — Mermaid',
-  play: async () => {
-    const canvas = within(document.body)
-    await expect(await canvas.findByText('Mermaid Diagrams')).toBeVisible()
-    await expect(
-      canvas.getByText(/Write diagrams using Mermaid syntax/)
-    ).toBeVisible()
-  },
-}
-
-/**
- * Graph (DrawIO) diagram feature card.
- */
-export const GraphDiagramType: Story = {
-  name: 'Diagram type — Graph',
-  play: async () => {
-    const canvas = within(document.body)
-    await expect(await canvas.findByText('Graph Diagrams')).toBeVisible()
-    await expect(
-      canvas.getByText(/DrawIO-powered graph editor/)
-    ).toBeVisible()
-  },
-}
-
-/**
- * OpenAPI diagram feature card.
- */
-export const OpenApiDiagramType: Story = {
-  name: 'Diagram type — OpenAPI',
-  play: async () => {
-    const canvas = within(document.body)
-    await expect(await canvas.findByText('OpenAPI Specifications')).toBeVisible()
-    await expect(
-      canvas.getByText(/OpenAPI\/Swagger specifications with interactive documentation/)
-    ).toBeVisible()
-  },
-}
-
-/**
- * Tutorial section — three numbered steps for the quick-start flow.
- */
-export const TutorialSteps: Story = {
-  name: 'Tutorial — quick start steps',
-  play: async () => {
-    const canvas = within(document.body)
-    await expect(await canvas.findByText('Insert a Macro')).toBeVisible()
-    await expect(canvas.getByText('Create Your Diagram')).toBeVisible()
-    await expect(canvas.getByText('Save and Share')).toBeVisible()
-  },
-}
-
-/**
- * Resources section — documentation, videos, community, and issue reporting links.
+ * Resources section — documentation, videos, community, and issue reporting
+ * links. Real hrefs (not "#") so middle-click and copy-link work; openUrl()
+ * still handles the click for the Forge iframe.
  */
 export const ResourceLinks: Story = {
   name: 'Resources — support links',
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByRole('link', { name: /View Documentation/ })).toBeVisible()
+    const docsLink = await canvas.findByRole('link', { name: /View Documentation/ })
+    await expect(docsLink).toBeVisible()
+    await expect(docsLink).toHaveAttribute('href', expect.stringContaining('http'))
     await expect(canvas.getByRole('link', { name: /Watch Videos/ })).toBeVisible()
     await expect(canvas.getByRole('link', { name: /Join Community/ })).toBeVisible()
     await expect(canvas.getByRole('link', { name: /Report Issue/ })).toBeVisible()

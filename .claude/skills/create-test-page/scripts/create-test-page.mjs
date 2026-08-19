@@ -33,6 +33,7 @@ const { values: args } = parseArgs({
     title:  { type: "string" },
     parent: { type: "string" },
     macro:  { type: "string", multiple: true },
+    filler: { type: "string" },
   },
 });
 
@@ -87,6 +88,15 @@ const adf = {
   type: "doc",
   content: [
     { type: "paragraph", content: [{ type: "text", text: title }] },
+    // --filler N pushes the macros below the fold: N paragraphs of text before
+    // the first macro. Needed to reproduce viewport-position-dependent bugs —
+    // a Forge macro iframe that is offscreen at load has its rendering
+    // throttled by Chrome (no requestAnimationFrame), which broke the PNG
+    // snapshot capture (PR #516).
+    ...Array.from({ length: Number(args.filler || 0) }, (_, i) => ({
+      type: "paragraph",
+      content: [{ type: "text", text: `filler line ${i + 1} ` + "x".repeat(60) }],
+    })),
     ...adfNodes,
   ],
 };

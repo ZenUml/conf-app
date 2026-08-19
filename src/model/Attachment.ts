@@ -1,4 +1,4 @@
-import * as htmlToImage from 'html-to-image';
+import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
 import {trackEvent} from '@/utils/window';
 import { toast } from '@/utils/toast';
@@ -186,17 +186,18 @@ function iframeToPng(iframe: HTMLIFrameElement): Promise<Blob> {
 }
 
 /**
- * Thrown when htmlToImage.toBlob()'s returned promise doesn't settle (neither
- * resolves nor rejects) within TOPNG_CAPTURE_TIMEOUT_MS. Observed on lite-stg
+ * Thrown when the capture promise doesn't settle (neither resolves nor
+ * rejects) within TOPNG_CAPTURE_TIMEOUT_MS. Observed on lite-stg
  * page 220659974 / custom content 220659992: `window.createAttachmentInProgress`
  * stayed true for 90+ seconds across four page loads, no `convert_to_png`
  * event ever fired (toPng's own `finally` never ran), and no attachment POST
  * reached the network — the await on toBlob() itself never returned. This
  * class exists only so toPng's catch can tag the timeout with its own
  * telemetry label, distinct from `toPng_failed` (a settled rejection). The
- * root cause of why toBlob() hangs is NOT established by this fix — this only
- * bounds the wait so the hang becomes an observed, retryable failure instead
- * of a silent permanent one.
+ * cause of that hang IS now established — html-to-image's rAF-gated
+ * `createImage`, see model/captureBlob.ts — but the bound stays, so any future
+ * never-settling path becomes an observed, retryable failure instead of a
+ * silent permanent one.
  */
 class ToPngTimeoutError extends Error {
   constructor() {
@@ -257,8 +258,15 @@ async function toPng(): Promise<Blob | null | undefined> {
     // `window.createAttachmentInProgress` stuck true, silently blocking every
     // later save for that session. Racing against the timeout guarantees this
     // function always settles.
+    //
+    // The hang is now explained and fixed: `captureBlob` replaces
+    // htmlToImage.toBlob(), whose only resolve path runs inside a
+    // requestAnimationFrame callback that Chrome never services in an
+    // offscreen (rendering-throttled) Forge macro iframe. See
+    // model/captureBlob.ts for the measurement. The timeout stays as a bound
+    // on any future never-settling path.
     return await withTimeout(
-      htmlToImage.toBlob(node, { backgroundColor: 'white', skipFonts: true }),
+      captureBlob(node, { backgroundColor: 'white', skipFonts: true }),
       TOPNG_CAPTURE_TIMEOUT_MS,
       () => new ToPngTimeoutError(),
     );

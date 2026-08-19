@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('html-to-image', () => ({ toBlob: vi.fn() }));
+vi.mock('@/model/captureBlob', () => ({ captureBlob: vi.fn(), default: vi.fn() }));
 vi.mock('file-saver', () => ({ saveAs: vi.fn() }));
 
-import * as htmlToImage from 'html-to-image';
+import { captureBlob } from '@/model/captureBlob';
 import { saveAs } from 'file-saver';
 import {
   useExportEngine,
@@ -251,18 +251,18 @@ describe('useExportEngine', () => {
       const { exportDiagram } = useExportEngine();
       const result = await exportDiagram(baseOptions(), 'Login flow', null);
       expect(result).toEqual({ ok: false, reason: 'no_capture_node' });
-      expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+      expect(captureBlob).not.toHaveBeenCalled();
     });
 
     it('falls back to the global .screen-capture-content when no node is passed', async () => {
       const el = document.createElement('div');
       el.className = 'screen-capture-content';
       document.body.appendChild(el);
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(null);
+      vi.mocked(captureBlob).mockResolvedValue(null);
 
       const { exportDiagram } = useExportEngine();
       await exportDiagram(baseOptions(), 'Login flow');
-      expect(htmlToImage.toBlob).toHaveBeenCalledWith(el, expect.any(Object));
+      expect(captureBlob).toHaveBeenCalledWith(el, expect.any(Object));
     });
 
     it('prefers the explicit node over any global .screen-capture-content match', async () => {
@@ -270,16 +270,16 @@ describe('useExportEngine', () => {
       globalEl.className = 'screen-capture-content';
       document.body.appendChild(globalEl);
       const explicitEl = document.createElement('div');
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(null);
+      vi.mocked(captureBlob).mockResolvedValue(null);
 
       const { exportDiagram } = useExportEngine();
       await exportDiagram(baseOptions(), 'Login flow', explicitEl);
-      expect(htmlToImage.toBlob).toHaveBeenCalledWith(explicitEl, expect.any(Object));
+      expect(captureBlob).toHaveBeenCalledWith(explicitEl, expect.any(Object));
     });
 
-    it('returns blob_null when html-to-image yields no blob, without saving', async () => {
+    it('returns blob_null when the capture yields no blob, without saving', async () => {
       const node = document.createElement('div');
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(null);
+      vi.mocked(captureBlob).mockResolvedValue(null);
 
       const { exportDiagram } = useExportEngine();
       const result = await exportDiagram(baseOptions(), 'Login flow', node);
@@ -293,12 +293,12 @@ describe('useExportEngine', () => {
       const { exportDiagramToClipboard } = useExportEngine();
       const result = await exportDiagramToClipboard(baseOptions(), null);
       expect(result).toEqual({ ok: false, reason: 'no_capture_node' });
-      expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+      expect(captureBlob).not.toHaveBeenCalled();
     });
 
-    it('returns blob_null when html-to-image yields no blob, without touching the clipboard', async () => {
+    it('returns blob_null when the capture yields no blob, without touching the clipboard', async () => {
       const node = document.createElement('div');
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(null);
+      vi.mocked(captureBlob).mockResolvedValue(null);
       const clipboardWrite = vi.fn();
       Object.defineProperty(navigator, 'clipboard', { value: { write: clipboardWrite }, configurable: true });
 

@@ -440,15 +440,15 @@ function createMediaDocument(fileId, pageId) {
     content: [
       {
         "type": "mediaSingle",
-        // A file media node carries no intrinsic size, and without an explicit
-        // width Confluence's own PDF export placed the diagram at roughly a
-        // quarter of the page width (measured 2026-08-19: 1.77in vs the 6.68in
-        // the external-URL node produced). Percentage width keeps both the
-        // native exporter and third-party exporters at full line width.
+        // A file media node carries no intrinsic size. Measured on lite-stg
+        // 2026-08-19, drawn width as a share of the PDF page: no width 8%,
+        // width 100 + widthType percentage 28%, the external-URL node this
+        // replaced 72%. The percentage unit is not honoured, so the width is
+        // stated in pixels at the Confluence content width.
         "attrs": {
           "layout": "center",
-          "width": 100,
-          "widthType": "percentage"
+          "width": 760,
+          "widthType": "pixel"
         },
         "content": [
           {

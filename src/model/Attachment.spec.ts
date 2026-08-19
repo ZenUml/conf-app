@@ -1178,6 +1178,46 @@ describe('Attachment', () => {
       expect((window as any).createAttachmentInProgress).toBe(false);
     });
 
+    it('bounds a hung html-to-image toBlob() with a timeout, so the capture fails instead of hanging forever', async () => {
+      vi.useFakeTimers();
+      try {
+        // Remove the iframe so toPng uses the html-to-image path
+        document.body.innerHTML = '';
+        const mockElement = document.createElement('div');
+        mockElement.className = 'screen-capture-content';
+        document.body.appendChild(mockElement);
+
+        // Reproduces the lite-stg hang: toBlob()'s returned promise never
+        // settles (neither resolves nor rejects).
+        vi.mocked(htmlToImage.toBlob).mockImplementation(() => new Promise(() => {}));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        const pending = createAttachmentIfContentChanged('test content');
+        // Let the pending assertions below queue before advancing fake time.
+        const flush = expect(pending).resolves.toBeUndefined();
+
+        // Advance past the capture timeout — must resolve, not hang.
+        await vi.advanceTimersByTimeAsync(15_000);
+        await flush;
+
+        // Timeout is recorded under its own label so it's countable separately
+        // from other convert_to_png capture failures (e.g. a DOM error Event).
+        expect(mockTrackEvent).toHaveBeenCalledWith('toPng_timeout', 'convert_to_png', 'error');
+        expect(mockTrackEvent).toHaveBeenCalledWith('toPng', 'convert_to_png', 'export');
+        const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
+        expect(failedCalls).toHaveLength(0);
+        const genericFailure = mockTrackEvent.mock.calls.filter(
+          (c: unknown[]) => c[0] === 'toPng_failed' && c[1] === 'convert_to_png'
+        );
+        expect(genericFailure).toHaveLength(0);
+        // The whole point of the guard: the in-progress flag must not stay
+        // stuck true, which would silently block every subsequent save.
+        expect((window as any).createAttachmentInProgress).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     // ── PlantUML server-PNG fetch (fixes the ~81% [object Event] capture fail) ──
     it('PlantUML: captures the backup via the server PNG fetch, not html-to-image', async () => {
       const pngBlob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], { type: 'image/png' });

@@ -1253,6 +1253,110 @@ describe('Attachment', () => {
       expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
       vi.unstubAllGlobals();
     });
+
+    // ── PlantUML dpi upscale (fixes pixelated small-diagram exports) ──
+    describe('PlantUML dpi upscale', () => {
+      /** Header-only fake PNG (not a decodable image) — enough for the IHDR-reading upscale logic. */
+      function fakePng(width: number, height: number): Blob {
+        const bytes = new Uint8Array(24);
+        bytes.set([137, 80, 78, 71, 13, 10, 26, 10], 0);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(8, 13, false);
+        bytes.set([73, 72, 68, 82], 12); // 'IHDR'
+        view.setUint32(16, width, false);
+        view.setUint32(20, height, false);
+        return new Blob([bytes], { type: 'image/png' });
+      }
+
+      beforeEach(() => {
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true, status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-pu-dpi' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
+      });
+
+      it('re-fetches at a higher dpi when the natural PNG is under the target width, and uploads the upscaled result', async () => {
+        // Real staging sample: a tiny 3-line diagram renders 95x129 at 96 dpi.
+        const natural = fakePng(95, 129);
+        const upscaled = fakePng(1400, 1900);
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(natural) })
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(upscaled) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        // Second request's encoded payload differs from the first (dpi directive injected).
+        expect(fetchMock.mock.calls[1][0]).not.toBe(fetchMock.mock.calls[0][0]);
+        expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_upscaled', 'convert_to_png', 'export');
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('skips the upscale re-fetch when the natural PNG already meets the target width', async () => {
+        const natural = fakePng(1500, 400); // already >= TARGET_WIDTH_PX
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(natural) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png_upscaled')).toBeUndefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('skips the upscale re-fetch when the source has leading whitespace so the dpi directive would not match (no false "upscaled" event)', async () => {
+        // validate.ts trims before checking @startuml, so leading whitespace
+        // is storable content. withDpiDirective's regex is anchored to the
+        // very first character — this content never gets the directive.
+        const natural = fakePng(95, 129);
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(natural) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('  @startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png_upscaled')).toBeUndefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('treats a re-fetch that comes back no wider than natural as a failed upscale, not a false success', async () => {
+        const natural = fakePng(95, 129);
+        // Server ignored/rejected the injected dpi directive — same size back.
+        const sameSize = fakePng(95, 129);
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(natural) })
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(sameSize) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png_upscaled')).toBeUndefined();
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('falls back to the natural-size PNG when the upscale re-fetch fails, without failing the upload', async () => {
+        const natural = fakePng(95, 129);
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(natural) })
+          .mockResolvedValueOnce({ ok: false, status: 500, blob: () => Promise.resolve(new Blob()) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+        expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+        vi.unstubAllGlobals();
+      });
+    });
   });
 
 });

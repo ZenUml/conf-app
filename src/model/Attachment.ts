@@ -243,14 +243,70 @@ async function fetchPlantUmlPng(code: string): Promise<Blob | undefined> {
     // page from a proxy/CDN) — only accept a real raster PNG, else fall back.
     // Content-Type is reliable for the PlantUML server (image/png for PNGs).
     const type = (blob.type || '').toLowerCase().split(';')[0].trim();
-    if (type === 'image/png') {
-      trackEvent('plantuml_server_png', 'convert_to_png', 'export');
-      return blob;
-    }
-    return undefined;
+    if (type !== 'image/png') return undefined;
+    trackEvent('plantuml_server_png', 'convert_to_png', 'export');
+    return (await upscalePlantUmlPng(blob, code)) ?? blob;
   } catch (e) {
     console.warn('PlantUML server PNG fetch failed; falling back to DOM capture', e);
     trackEvent('plantuml_server_png_failed', 'convert_to_png', 'warning');
+    return undefined;
+  }
+}
+
+/**
+ * The PlantUML server renders at a fixed 96 dpi by default, so a small
+ * diagram (few participants) comes back as a tiny raster (e.g. ~95px wide
+ * for a 3-line sequence). The PDF export places every macro image at the
+ * fixed content-column width (~6.3in) regardless of the source's native
+ * size, so anything under `TARGET_WIDTH_PX` gets stretched ~15x and turns
+ * visibly pixelated. Re-request the same diagram at a computed
+ * `skinparam dpi` so the natural render is already sharp at that width —
+ * see `src/utils/plantuml/resolution.ts` for why `skinparam dpi` (not the
+ * `scale` directive, which plantuml.com's public server caps at 4x) is the
+ * lever. Best-effort: any failure here just keeps the natural-size PNG
+ * already captured by the caller.
+ */
+async function upscalePlantUmlPng(naturalBlob: Blob, code: string): Promise<Blob | undefined> {
+  const { readPngSize, computeUpscaleDpi, withDpiDirective } = await import('@/utils/plantuml/resolution');
+  const size = await readPngSize(naturalBlob);
+  if (!size) return undefined;
+  const dpi = computeUpscaleDpi(size.width, size.height);
+  if (!dpi) return undefined;
+
+  // withDpiDirective only matches a leading `@startuml` — if the caller's
+  // content has leading whitespace (validate.ts trims before rejecting, so
+  // it's storable) the injection is a no-op and the re-fetch would return
+  // the same tiny PNG. Skip it rather than firing a false "upscaled" event.
+  const dpiCode = withDpiDirective(code, dpi);
+  if (dpiCode === code) return undefined;
+
+  try {
+    const { plantumlEncode } = await import('@/utils/plantuml/encode');
+    const encoded = plantumlEncode(dpiCode);
+    const resp = await fetch(`${PLANTUML_PNG_SERVER}${encoded}`);
+    if (!resp.ok) {
+      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+      return undefined;
+    }
+    const blob = await resp.blob();
+    const type = (blob.type || '').toLowerCase().split(';')[0].trim();
+    if (type !== 'image/png') {
+      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+      return undefined;
+    }
+    // Confirm the server actually honoured the dpi directive before trusting
+    // it as the "upscaled" result — a rejected/ignored directive would
+    // otherwise report success while silently keeping the tiny image.
+    const upscaledSize = await readPngSize(blob);
+    if (!upscaledSize || upscaledSize.width <= size.width) {
+      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+      return undefined;
+    }
+    trackEvent('plantuml_server_png_upscaled', 'convert_to_png', 'export');
+    return blob;
+  } catch (e) {
+    console.warn('PlantUML dpi upscale fetch failed; using natural-size PNG', e);
+    trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
     return undefined;
   }
 }

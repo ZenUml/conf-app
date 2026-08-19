@@ -1,9 +1,36 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { asAppRequest, asUserRequest } = vi.hoisted(() => ({
-  asAppRequest: vi.fn(),
-  asUserRequest: vi.fn(),
-}));
+// MockRoute mirrors @forge/api's real ReadonlyRoute brand: `route`/
+// `routeFromAbsolute` return this object, NEVER a plain string. The real
+// `requestConfluence` throws "You must create your route using the 'route'
+// export from '@forge/api'" for anything that isn't this branded type — that
+// is verbatim the production error this file's fix addresses (fetchPngDimensions
+// in src/export.js was building `${linksBase}${downloadLink}` as a bare
+// template-string URL instead of routing it).
+//
+// Before this fix, this mock's `route` returned a plain string too, and there
+// was no `routeFromAbsolute` mock at all — so a call passing a bare string
+// URL and a call passing a properly-tagged route were indistinguishable here.
+// That is why the existing tests (e.g. the exact-string assertion this file
+// used to make against the Range-request URL) passed against code that threw
+// in production: the mock accepted whatever shape it was given. Branding the
+// mock's return value the same way the SDK does closes that gap.
+const { asAppRequest, asUserRequest, MockRoute } = vi.hoisted(() => {
+  class MockRoute {
+    readonly value: string;
+    constructor(value: string) {
+      this.value = value;
+    }
+    toString() {
+      return this.value;
+    }
+  }
+  return {
+    asAppRequest: vi.fn(),
+    asUserRequest: vi.fn(),
+    MockRoute,
+  };
+});
 
 vi.mock('@forge/api', () => ({
   default: {
@@ -11,7 +38,15 @@ vi.mock('@forge/api', () => ({
     asApp: () => ({ requestConfluence: asAppRequest }),
   },
   route: (strings: TemplateStringsArray, ...values: unknown[]) =>
-    strings.reduce((acc, s, i) => acc + s + String(values[i] ?? ''), ''),
+    new MockRoute(strings.reduce((acc, s, i) => acc + s + String(values[i] ?? ''), '')),
+  // Real routeFromAbsolute (safeUrl.ts) does exactly this: parse the absolute
+  // URL and keep only pathname+search, wrapped in the same Route brand as
+  // `route`. Anything that reaches requestConfluence NOT wrapped this way
+  // (e.g. a bare `${base}${path}` string) is the bug under test.
+  routeFromAbsolute: (absoluteUrl: string) => {
+    const u = new URL(absoluteUrl);
+    return new MockRoute(`${u.pathname}${u.search}`);
+  },
 }));
 
 import { handler } from '../../src/export.js';
@@ -247,9 +282,21 @@ describe('Forge export resolver (src/export.js)', () => {
     pngHeader.writeUInt32BE(1516, 16);
     pngHeader.writeUInt32BE(598, 20);
 
-    asAppRequest.mockImplementation(async (url: string, opts?: { headers?: Record<string, string> }) => {
+    asAppRequest.mockImplementation(async (url: unknown, opts?: { headers?: Record<string, string> }) => {
       if (opts?.headers?.Range) {
-        expect(url).toBe('https://acme.atlassian.net/wiki/download/attachments/779/zenuml-cc-sized.png');
+        // The load-bearing assertion for this fix: requestConfluence must
+        // receive a Route (route()/routeFromAbsolute()'s branded return
+        // value), never a plain string. Pre-fix, fetchPngDimensions built
+        // `${linksBase}${downloadLink}` as a bare template-string URL and
+        // passed THAT — a plain string, which fails this instanceof check —
+        // and would throw in the real @forge/api SDK with "You must create
+        // your route using the 'route' export from '@forge/api'". A mock
+        // that merely accepted "any argument" (as this test's `route` mock
+        // used to, by returning a string itself) could not see the
+        // difference; asserting the branded type is what makes this test
+        // fail against the pre-fix code.
+        expect(url).toBeInstanceOf(MockRoute);
+        expect(String(url)).toBe('/wiki/download/attachments/779/zenuml-cc-sized.png');
         expect(opts.headers.Range).toBe('bytes=0-31');
         return {
           ok: true,

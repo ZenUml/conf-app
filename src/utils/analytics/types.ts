@@ -222,6 +222,23 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  // JSM Apply Extension automation. `extension_action` is the fixed policy
+  // command, never an arbitrary duration. Initial grants are requester-only
+  // for 7 days; feedback grants renew the same requester for 60 days.
+  // `extension_action_outcome` distinguishes a real write from an idempotent
+  // replay, while `extension_failure_stage` is deliberately low-cardinality.
+  extension_action?: 'initial' | 'feedback';
+  extension_action_outcome?: 'applied' | 'already_applied';
+  extension_scope?: 'user';
+  extension_days?: 7 | 60;
+  extension_failure_stage?:
+    | 'request_validation'
+    | 'tenant_resolution'
+    | 'space_validation'
+    | 'paid_status'
+    | 'idempotency'
+    | 'license_write'
+    | 'license_verify';
   // Attribution token embedded in the Stripe Payment Link URL
   // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment

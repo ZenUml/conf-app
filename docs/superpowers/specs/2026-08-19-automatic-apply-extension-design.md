@@ -99,8 +99,9 @@ canonical plain-text reply:
 }
 ```
 
-- `applied`, initial: post `reply` publicly; explicitly transition the request
-  to Waiting for customer.
+- `applied`, initial: post `reply` publicly. The current ZEN workflow moves a
+  public Automation reply to Waiting for customer; verify that resulting status
+  without adding a redundant transition action.
 - `applied`, feedback: post `reply` publicly; resolve the request.
 - `already_applied`: do not post publicly; add an internal idempotency note.
 - `validation_failed`: add an internal note with the stable error code; do not

@@ -86,7 +86,10 @@ Handle the response with If/else blocks:
 1. `{{webhookResponse.status}}` equals `200` and
    `{{webhookResponse.body.outcome}}` equals `applied`:
    - add `{{webhookResponse.body.reply}}` as a **public/customer-visible** reply;
-   - transition the request explicitly to **Waiting for customer**.
+   - do not add a transition action. The current ZEN workflow moves a request
+     from Waiting for support to Waiting for customer when Automation posts a
+     public reply; this was verified in the controlled E2E. Assert the resulting
+     status instead of adding a redundant transition.
 2. Status `200` and outcome `already_applied`:
    - add an internal note: `Apply Extension was already completed through
      {{webhookResponse.body.expiresAt}}; no duplicate customer reply was sent.
@@ -155,6 +158,11 @@ workflow verified:
   correct through-date.
 - Running the action again returns `already_applied` and creates no second public
   reply.
+
+The endpoint performs a same-request KV read-back before returning `applied`.
+Wrangler's remote KV read can still return a transient 404 while the write
+propagates between Cloudflare edges; retry that external verification for up to
+one minute before treating it as a missing write.
 
 For the feedback action, additionally verify the same KV key has the sixty-day
 expiry and the request is Resolved. Backend unit tests are not evidence for the

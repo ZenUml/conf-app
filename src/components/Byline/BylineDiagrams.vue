@@ -1216,7 +1216,15 @@ async function onLearnMore() {
 .byline {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* 100vh, NOT 100%. The Forge mount chain gives no ancestor a height —
+     index.html is `body > div.mx-auto(width:100%) > #app`, all height:auto —
+     so `height:100%` here resolved to content height, the body's overflow-y
+     never engaged, and the whole iframe scrolled with the pinned addrow +
+     footer pushed off the bottom (observed on lite-stg, 6-diagram page).
+     100vh is the iframe viewport height regardless of ancestors, which caps
+     the flex column so only the list scrolls. Scoped to the byline; the
+     shared index.html is untouched, so no other Forge surface is affected. */
+  height: 100vh;
   box-sizing: border-box;
   overflow: hidden;
   background: #ffffff;

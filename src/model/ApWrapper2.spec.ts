@@ -1542,6 +1542,41 @@ describe('ApWrapper2', () => {
       expect(clause).toContain('zenuml-content-sequence');
       expect(clause).toContain('zenuml-content-graph');
     });
+
+    // Regression (#524): Diagramly stores every diagram under ONE key,
+    // `gpt-custom-content-key` (package.json `forge:deploy:diagramly:*`), while
+    // lite/full use zenuml-content-sequence/-graph. The clause used to hardcode
+    // the lite/full pair for every non-asyncapi variant, so on Diagramly the CQL
+    // asked for two types the variant never writes and matched nothing: the
+    // homepage feed card showed only example rows, and Agent Link's
+    // search_diagrams / list_diagrams returned empty. getMacroContentTypes()
+    // already branched on isDiagramly; this clause must agree with it.
+    it('asks for the Diagramly storage type on the Diagramly variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isDiagramly = true;
+      try {
+        expect(wrapper.buildDiagramSearchTypesClause()).toBe(
+          'type="ac:gptdock-confluence:gpt-custom-content-key"',
+        );
+      } finally {
+        (forgeGlobalMod.default as any).isDiagramly = false;
+      }
+    });
+
+    // Diagramly has no separate graph type, so a graph-only filter cannot narrow
+    // any further — it must still emit the single real type rather than an empty
+    // clause (an empty `type=` clause 400s at the search API).
+    it('keeps the single Diagramly type even when a narrower filter is requested', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isDiagramly = true;
+      try {
+        expect(wrapper.buildDiagramSearchTypesClause(['graph'])).toBe(
+          'type="ac:gptdock-confluence:gpt-custom-content-key"',
+        );
+      } finally {
+        (forgeGlobalMod.default as any).isDiagramly = false;
+      }
+    });
   });
 
   describe('buildDiagramSearchCql', () => {

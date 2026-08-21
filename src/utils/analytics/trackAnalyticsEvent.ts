@@ -28,6 +28,13 @@ type AuthoringReplayProperties = Pick<
   | "session_replay_start_call_outcome"
 >;
 
+// `is_demo_page` is useful segmentation, but it is never allowed to hold an
+// analytics event hostage. In particular, an editor iframe can be torn down
+// soon after it opens; if the optional page-property request stalls, losing
+// `macro_*_started` also loses the replay-to-event join for that session.
+const DEMO_PAGE_TELEMETRY_TIMEOUT_MS = 750;
+const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
+
 function _startAuthoringReplay(
   eventName: AnalyticsEventName
 ): Partial<AuthoringReplayProperties> {
@@ -248,11 +255,26 @@ async function _getDemoPageTelemetry(
   if (!eventName.startsWith("macro_")) {
     return {};
   }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const isDemo = await isCurrentPageDemoPage();
+    const isDemo = await Promise.race([
+      isCurrentPageDemoPage(),
+      new Promise<typeof DEMO_PAGE_TELEMETRY_TIMED_OUT>((resolve) => {
+        timeout = setTimeout(
+          () => resolve(DEMO_PAGE_TELEMETRY_TIMED_OUT),
+          DEMO_PAGE_TELEMETRY_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (isDemo === DEMO_PAGE_TELEMETRY_TIMED_OUT) {
+      return {};
+    }
     return isDemo ? { is_demo_page: true } : {};
   } catch {
     return {};
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 

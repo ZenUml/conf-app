@@ -152,8 +152,25 @@ export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 
 export type FeedbackValue = "good" | "partial" | "bad";
 
+// Effective Session Replay policy stamped on analytics events. `authoring`
+// means a macro create/edit start forced recording independently of the Forge
+// flag cohort. See macro_create_started / macro_edit_started below.
+export type SessionReplayEventSource =
+  | "targeted"
+  | "sampled"
+  | "authoring"
+  | "off";
+
+// `start_session_recording()` is a void SDK call whose recorder work continues
+// asynchronously. `returned` records only that the call did not synchronously
+// throw; it is not proof that a replay was uploaded. `$mp_replay_id` on a later
+// event is the outcome evidence.
+export type SessionReplayStartCallOutcome = "returned" | "threw";
+
 export type AnalyticsEventName =
   | "macro_viewed"
+  // Both authoring-start events force Session Replay at 100% before the event
+  // is sent. This covers every macro type without editor-specific wiring.
   | "macro_create_started"
   | "macro_create_succeeded"
   | "macro_edit_started"

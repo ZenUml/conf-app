@@ -30,6 +30,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
+import { handleHomepageFeedRoute } from './routes/homepageFeed';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution } from '@/utils/viewerLoadOutcome';
@@ -122,6 +123,17 @@ async function initializeCriticalPath() {
     ) {
       const { handleAsyncApiDashboardRoute } = await import('./routes/asyncApiDashboard');
       await handleAsyncApiDashboardRoute();
+      return { macroData: null };
+    }
+
+    // Home page feed card (confluence:homepageFeed). No moduleKey
+    // discrimination needed — lite/full/diagramly ship exactly one entry
+    // (zenuml-homepage-feed); asyncapi strips the whole module (see
+    // manifest.yml + scripts/forge-wizard.mjs), so this branch never runs
+    // there. No `route` property exists for this module type (Forge manifest
+    // reference), so extension.type is the only signal available.
+    if (!isOpenedModal && context.extension?.type === 'confluence:homepageFeed') {
+      await handleHomepageFeedRoute();
       return { macroData: null };
     }
 
@@ -248,7 +260,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isOpenedModal = !!context.extension?.modal?.macroMode;
     if (
       (!isOpenedModal &&
-        ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage'].includes(context.extension?.type)) ||
+        ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage', 'confluence:homepageFeed'].includes(context.extension?.type)) ||
       (context as any).moduleKey === 'zenuml-page-banner'
     ) {
       console.log('Skipping heavy components load for global context');

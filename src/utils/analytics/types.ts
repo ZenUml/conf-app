@@ -27,6 +27,8 @@ import type {
   AgentLinkListScope,
   ActivationPath,
   ViewerRelation,
+  SessionReplayEventSource,
+  SessionReplayStartCallOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -51,6 +53,13 @@ export type AnalyticsProperties = {
   macro_uuid?: string;
   // Lifecycle
   operation_mode?: OperationMode;
+  // Session Replay policy. `macro_create_started` / `macro_edit_started` set
+  // source=authoring and percent=100 after the SDK start call returns. The call
+  // outcome is intentionally distinct from actual capture: only a later
+  // `$mp_replay_id` proves that the recorder became active.
+  session_replay_source?: SessionReplayEventSource;
+  session_replay_percent?: number;
+  session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
   // Format slice chosen on the dual-format "My API Documents" dashboard
   // (dashboard_format_filtered). "all" = both AsyncAPI and OpenAPI shown.
   format_filter?: DashboardFormatFilter;

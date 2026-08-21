@@ -155,7 +155,7 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py per-space <domain>
 python3 .claude/skills/paywall/scripts/paywall_queries.py daily --window-days 7
 ```
 
-The legacy MCP-based approach below is preserved for the cases where the script can't run (`.env.mixpanel` missing, no network, or you need a chart format the script doesn't produce). In those cases use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`. The query reference below documents each event's purpose — read those notes regardless of execution path, since they tell you what each metric *means*.
+The legacy MCP-based approach below is preserved for the cases where the script can't run (`.env.mixpanel` missing, no network, or you need a chart format the script doesn't produce). In those cases use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`, plus the mixpanel skill's global `is_internal_client_domain = "false"` filter. The query reference below documents each event's purpose — read those notes regardless of execution path, since they tell you what each metric *means*.
 
 > **Server name matters (MCP fallback).** Use the `mcp__claude_ai_Mixpanel__` tool namespace consistently — the older, deprecated Mixpanel MCP server rejected the `report` parameter as a string in some sessions (`Input should be a valid dictionary`); the claude.ai namespace accepts the same payload reliably.
 
@@ -164,7 +164,7 @@ The legacy MCP-based approach below is preserved for the cases where the script 
 "breakdowns": [{"metric": {"type": "property", "propertyName": "client_domain", "propertyType": "string", "resource": "event"}}]
 ```
 
-**Filter shapes (MCP fallback, verified 2026-07-28):** string filters take a SINGLE value — no arrays (`{"type":"string","propertyName":"client_domain","operator":"equals","value":"<one-domain>"}`). For a domain list, either breakdown by `client_domain` and filter rows client-side, or use one metric per domain with metric-level `filters`. Boolean filters need both operator and value: `{"type":"boolean","propertyName":"is_internal_client_domain","operator":"false","value":false}`. For per-editor (champion-structure) breakdowns use `user_account_id` — breaking down by `distinct_id` returns a single `"undefined"` bucket.
+**Filter shapes (MCP fallback, verified 2026-08-22):** string filters take a SINGLE value — no arrays (`{"type":"string","propertyName":"client_domain","operator":"equals","value":"<one-domain>"}`). For a customer-wide domain table, pair the breakdown with the mixpanel skill's global filter `{"type":"string","propertyName":"is_internal_client_domain","propertyType":"string","resource":"event","operator":"equals","value":"false"}`; do not list internal domains one by one. A specifically targeted customer query may instead use its `client_domain = "<one-domain>"` filter. For per-editor (champion-structure) breakdowns use `user_account_id` — breaking down by `distinct_id` returns a single `"undefined"` bucket.
 
 The daily script runs these events in parallel internally.
 

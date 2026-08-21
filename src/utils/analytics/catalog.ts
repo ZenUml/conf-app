@@ -170,7 +170,8 @@ export type SessionReplayStartCallOutcome = "returned" | "threw";
 export type AnalyticsEventName =
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
-  // is sent. This covers every macro type without editor-specific wiring.
+  // is sent. Editor entries must emit the event from the iframe that owns the
+  // interaction; the replay policy itself stays centralized here.
   | "macro_create_started"
   | "macro_create_succeeded"
   | "macro_edit_started"

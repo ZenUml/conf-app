@@ -7,8 +7,10 @@ delivery on recorder failure.
 **Architecture:** Keep the policy inside the public typed analytics path. After
 Mixpanel initialization and identification, `trackAnalyticsEvent` recognizes
 `macro_create_started` and `macro_edit_started`, requests recording, stamps the
-effective authoring policy, and emits the original event. No editor-specific
-entry point or Forge feature flag is added.
+effective authoring policy, and emits the original event. No Forge feature flag
+is added. The AsyncAPI editor requires a small lifecycle correction because its
+create path did not emit the event and its page-macro edit path emitted it from
+the viewer iframe.
 
 **Tech stack:** TypeScript, `mixpanel-browser`, Vitest.
 
@@ -79,7 +81,23 @@ entry point or Forge feature flag is added.
 2. Confirm the test passes without widening the trigger predicate.
 3. Retain the existing page-banner and feature-flag sampling tests unchanged.
 
-## Task 6: Refactor and verify
+## Task 6: Correct AsyncAPI editor lifecycle coverage
+
+**Files:**
+
+- Add: `src/utils/analytics/authoringStarted.ts`
+- Add: `src/utils/analytics/authoringStarted.spec.ts`
+- Modify: `src/forge-asyncapi-editor.ts`
+- Modify: `src/forge-asyncapi-viewer.ts`
+- Modify: `src/forge-asyncapi-embed-editor.ts`
+
+1. Add a focused helper test for create/edit start-event classification.
+2. Emit the event from the AsyncAPI editor for dashboard and macro create/edit.
+3. Move page-macro edit tracking out of the viewer and into the editor iframe.
+4. Trigger edit tracking at the dashboard's in-place View → Edit swap.
+5. Cover the AsyncAPI embed picker, which is a separate editor entry.
+
+## Task 7: Refactor and verify
 
 1. Remove duplication only after all focused tests are green.
 2. Run the complete `trackAnalyticsEvent` spec.

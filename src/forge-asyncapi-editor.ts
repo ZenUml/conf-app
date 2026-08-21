@@ -12,6 +12,7 @@ import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStu
 import { Diagram } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
+import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 // info.title → custom-content title mirroring now lives in
 // buildAsyncApiSaveDiagram (it parses the spec when no explicit title is
@@ -49,6 +50,21 @@ async function initializeMacro() {
   const configContentId = context.extension?.config?.customContentId
   const modalContentId = context.extension?.modal?.customContentId
   const customContentId = configContentId || modalContentId
+
+  const entryPoint = context.extension?.type === 'confluence:spacePage'
+    ? 'dashboard'
+    : context.extension?.type === 'confluence:contentBylineItem'
+      ? 'byline'
+      : customContentId
+        ? 'macro_toolbar'
+        : 'page_editor'
+  // Emit from this iframe, not the viewer that opened it: Session Replay is
+  // scoped to an iframe, and the Studio interaction happens here.
+  trackAuthoringStarted({
+    macroType: 'asyncapi',
+    entryPoint,
+    customContentId,
+  })
 
   // Dashboard edits open this editor as a standalone modal targeting a known
   // document id (modal.customContentId, with no macro on the current page).

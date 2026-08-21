@@ -24,7 +24,7 @@ import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 import { mountRoot } from '@/mount-root'
 import { guardEditClick } from '@/utils/guardEditClick'
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
 import EventBus from './EventBus'
 import { attributionFromCustomContent } from '@/model/DiagramAttribution'
 import { publishDiagramAttribution } from '@/utils/viewerLoadOutcome'
@@ -111,6 +111,13 @@ async function initializeMacro() {
 
     async function renderEditor() {
       try {
+        // This path swaps the current viewer iframe into the editor instead of
+        // loading forge-asyncapi-editor.ts, so start replay at the swap point.
+        trackAuthoringStarted({
+          macroType: 'asyncapi',
+          entryPoint: 'dashboard',
+          customContentId,
+        })
         const [{ default: AsyncApiStudioEditor }] = await Promise.all([
           import('@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'),
         ])
@@ -189,14 +196,6 @@ EventBus.$on('edit', async () => {
     // shared forgeIndex listener firing on this same click costs no extra GET.
     if (!(await guardEditClick({ customContentId: viewerCustomContentId, macroType: 'asyncapi' }))) return;
 
-    trackAnalyticsEvent('macro_edit_started', {
-      feature_area: 'macro',
-      surface: 'viewer',
-      macro_type: 'asyncapi',
-      entry_point: 'macro_toolbar',
-      operation_mode: 'edit',
-      custom_content_id: viewerCustomContentId,
-    })
     await openModal({
       resource: 'main',
       onClose: () => {

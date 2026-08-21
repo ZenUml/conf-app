@@ -25,9 +25,9 @@ their existing replay-sampling behavior.
 
 Recording begins immediately before the authoring-start event is sent. It is
 not retroactive: editor bootstrap, paywall, or render activity that occurs
-before the existing start event may be absent. This design intentionally uses
-the observed analytics boundary rather than adding separate create/edit-mode
-detection to every editor entry point.
+before the start event may be absent. This design uses the analytics boundary;
+the AsyncAPI editor paths must first emit their missing start event from the
+iframe that actually owns the editor.
 
 ## Analytics Contract
 
@@ -63,9 +63,14 @@ the `returned` outcome. If an existing targeted or sampled recording is already
 active, Mixpanel treats the start call as an idempotent no-op; the authoring
 source still records why this session is required to be captured.
 
-The behavior is centralized instead of added to the individual Sequence,
-Mermaid, PlantUML, Graph, OpenAPI, Embed, and AsyncAPI entry points. New macro
-types that use the same catalog events inherit the policy automatically.
+The replay behavior is centralized instead of duplicated across the individual
+Sequence, Mermaid, PlantUML, Graph, OpenAPI, Embed, and AsyncAPI entry points.
+New macro types that use the same catalog events inherit the policy
+automatically. A lifecycle audit found one pre-existing exception: AsyncAPI
+create did not emit a start event, and its page-macro edit event was emitted
+from the viewer before opening a separate editor iframe. Those events must be
+emitted or moved to the actual editor entry points so the central policy records
+the interaction rather than the viewer.
 
 No explicit stop call is added. The replay follows the editor iframe lifecycle,
 which preserves the final moments of abandoned sessions and avoids truncating
@@ -113,6 +118,11 @@ Use a red-green test cycle in `trackAnalyticsEvent.spec.ts`:
   authoring start call without reinitializing Mixpanel;
 - the page-banner iframe remains unable to enable replay through its ordinary
   events.
+
+Add a focused lifecycle-helper test for the missing AsyncAPI create/edit start
+events, and verify the dashboard create, dashboard edit, dashboard View → Edit,
+page-macro edit, and AsyncAPI embed-picker routes invoke the helper in the
+iframe that owns the authoring UI.
 
 Focused unit tests are sufficient for the central policy. A staging validation
 should then create and edit at least one macro, confirm both paths produce a

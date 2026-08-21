@@ -1,11 +1,10 @@
 <template>
-  <div class="flex items-center flex-1 min-w-64 border-2 rounded-md transition-colors duration-200 h-10"
-    :class="titleError ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300 focus-within:border-blue-500'">
-    <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
-    <div class="w-px h-4 bg-gray-200 flex-shrink-0"></div>
+  <div class="flex items-center flex-none w-[280px] border rounded transition-colors duration-200 h-[26px] px-2 gap-1.5 bg-white"
+    :class="titleError ? 'border-red-400 bg-red-50' : 'border-gray-200 focus-within:border-[#0094D9]'">
+    <span class="text-[10px] font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
 
     <button v-if="aiTitleEnabled || autoNameAnimationDone" type="button"
-      class="ml-1 rounded-md p-1 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+      class="rounded p-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
       :class="[
         (isGeneratingTitle || showSpark) && !sparkFadingOut ? 'autoname-spark-in text-purple-500' : '',
         sparkFadingOut ? 'autoname-spark-out' : '',
@@ -18,16 +17,23 @@
 
     <input
       type="text"
-      placeholder="Name your diagram…"
+      placeholder="Untitled diagram"
       :value="inputValue"
       @input="onInput"
       :readonly="isAnimating"
-      class="flex-1 px-2 py-2 bg-transparent outline-none text-sm min-w-0"
-      :class="[titleError ? 'text-red-700 placeholder-red-300' : '', isAnimating ? 'autoname-typing' : '']" />
+      class="flex-1 bg-transparent outline-none text-[13px] min-w-0 truncate"
+      :class="[titleError ? 'text-red-700 placeholder-red-300' : 'placeholder:italic placeholder:text-gray-400', isAnimating ? 'autoname-typing' : '']" />
 
     <button v-if="showDismiss" type="button" class="autoname-dismiss flex items-center justify-center flex-shrink-0"
       title="Dismiss suggested title" @click="onDismiss">
       <IconDismiss />
+    </button>
+    <button v-else-if="inputValue" type="button" title="Clear title"
+      class="flex items-center justify-center w-4 h-4 flex-shrink-0 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+      @click="onClear">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M6 18 18 6M6 6l12 12" />
+      </svg>
     </button>
   </div>
 </template>
@@ -83,6 +89,13 @@ function onManualGenerate() {
 
 function onDismiss() {
   dismiss()
+}
+
+function onClear() {
+  titleError.value = false
+  onTitleCleared()
+  scheduleAutoGenerate()
+  store.dispatch('updateTitle', '')
 }
 
 function onFlashTitleError() {

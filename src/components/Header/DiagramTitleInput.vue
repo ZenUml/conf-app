@@ -1,13 +1,13 @@
 <template>
-  <div class="flex items-center flex-none w-[280px] border rounded transition-colors duration-200 h-[26px] px-2 gap-1.5 bg-white"
-    :class="titleError ? 'border-red-400 bg-red-50' : 'border-gray-200 focus-within:border-[#0094D9]'">
-    <span class="text-[10px] font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
+  <div class="group/title inline-flex items-center h-7 min-w-0 px-2 gap-1.5 rounded-md transition-colors duration-200"
+    :class="titleError ? 'bg-red-50 border border-red-400' : isFocused ? 'bg-white border border-[#0094D9]' : 'border border-transparent hover:bg-gray-200'">
 
     <button v-if="aiTitleEnabled || autoNameAnimationDone" type="button"
       class="rounded p-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
       :class="[
         (isGeneratingTitle || showSpark) && !sparkFadingOut ? 'autoname-spark-in text-purple-500' : '',
         sparkFadingOut ? 'autoname-spark-out' : '',
+        sparkAlwaysVisible ? 'opacity-100' : 'opacity-0 group-hover/title:opacity-100 group-focus-within/title:opacity-100',
       ]"
       title="Generate title with AI" :disabled="isGeneratingTitle || isAnimating" @click="onManualGenerate">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -16,13 +16,20 @@
     </button>
 
     <input
+      ref="inputEl"
       type="text"
       placeholder="Untitled diagram"
       :value="inputValue"
       @input="onInput"
+      @focus="isFocused = true"
+      @blur="isFocused = false"
       :readonly="isAnimating"
-      class="flex-1 bg-transparent outline-none text-[13px] min-w-0 truncate"
-      :class="[titleError ? 'text-red-700 placeholder-red-300' : 'placeholder:italic placeholder:text-gray-400', isAnimating ? 'autoname-typing' : '']" />
+      :style="{ width: inputWidthPx + 'px' }"
+      class="bg-transparent outline-none text-[15px] font-semibold min-w-0 truncate"
+      :class="[
+        titleError ? 'text-red-600 placeholder-red-400 placeholder:italic' : 'text-gray-900 placeholder:italic placeholder:text-gray-400',
+        isAnimating ? 'autoname-typing' : '',
+      ]" />
 
     <button v-if="showDismiss" type="button" class="autoname-dismiss flex items-center justify-center flex-shrink-0"
       title="Dismiss suggested title" @click="onDismiss">
@@ -30,16 +37,23 @@
     </button>
     <button v-else-if="inputValue" type="button" title="Clear title"
       class="flex items-center justify-center w-4 h-4 flex-shrink-0 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+      :class="isFocused ? 'opacity-100' : 'opacity-0 group-hover/title:opacity-100 group-focus-within/title:opacity-100'"
       @click="onClear">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
         <path d="M6 18 18 6M6 6l12 12" />
       </svg>
     </button>
+
+    <!-- Off-screen twin of the input's text, used only to measure its rendered
+         width so the field grows with the title instead of sitting in a fixed
+         box. Font must match the input exactly or the measurement is wrong. -->
+    <span ref="measureEl" aria-hidden="true"
+      class="invisible absolute -z-10 whitespace-pre text-[15px] font-semibold">{{ inputValue || 'Untitled diagram' }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig'
@@ -48,6 +62,11 @@ import { useAutoTitle } from '@/composables/useAutoTitle'
 import IconDismiss from '@/components/icons/IconDismiss.vue'
 
 const AUTO_DEBOUNCE_MS = 1500
+// Rest state is bare text with no box, so the field must grow with its
+// content instead of sitting in a fixed-width input — capped so a long
+// title still leaves room for the tabs and Publish.
+const MIN_WIDTH_PX = 90
+const MAX_WIDTH_PX = 320
 
 const {
   aiTitleEnabled, isGeneratingTitle, isAnimating, displayedTitle,
@@ -56,11 +75,20 @@ const {
 } = useAutoTitle()
 
 const titleError = ref(false)
+const isFocused = ref(false)
+const measureEl = ref<HTMLSpanElement | null>(null)
+const inputWidthPx = ref(MIN_WIDTH_PX)
 
 const currentTitle = computed<string>(() => store.state.diagram.title || '')
 const diagramType = computed<DiagramType>(() => store.state.diagram.diagramType)
 const currentCode = computed<string>(() => getCodeFromDiagram(store.state.diagram, diagramType.value))
 const inputValue = computed<string>(() => (isAnimating.value ? displayedTitle.value : currentTitle.value))
+// The AI sparkle is a discovery affordance (hover/focus) once a title exists,
+// but stays visible without hovering while there's nothing to discover yet
+// (empty field) or while it's actively doing something (generating, or a
+// fresh suggestion pending dismiss/accept) — same rule the dismiss button
+// already follows.
+const sparkAlwaysVisible = computed<boolean>(() => !inputValue.value || showSpark.value)
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -69,6 +97,12 @@ function scheduleAutoGenerate() {
   debounceTimer = setTimeout(() => {
     generate('init', { code: currentCode.value, diagramType: diagramType.value, currentTitle: currentTitle.value })
   }, AUTO_DEBOUNCE_MS)
+}
+
+function updateWidth() {
+  if (!measureEl.value) return
+  const measured = measureEl.value.scrollWidth
+  inputWidthPx.value = Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, measured))
 }
 
 function onInput(e: Event) {
@@ -102,11 +136,13 @@ function onFlashTitleError() {
   titleError.value = true
 }
 
-watch(currentCode, () => scheduleAutoGenerate())
+watch(inputValue, () => nextTick(updateWidth))
 watch(diagramType, () => { titleError.value = false })
+watch(currentCode, () => scheduleAutoGenerate())
 
 onMounted(async () => {
   reset() // clear any per-document state left over from a previous editor session
+  updateWidth()
   EventBus.$on('flash-title-error', onFlashTitleError)
   await initFlag()
   if (aiTitleEnabled.value) scheduleAutoGenerate()

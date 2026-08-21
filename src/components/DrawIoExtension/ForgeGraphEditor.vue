@@ -6,7 +6,7 @@
          relabels it from "Save & Exit" to "Publish" via mxResources. -->
     <iframe
       ref="drawioFrame"
-      src="./drawio/index.html?embed=1&spin=1&proto=json&noSaveBtn=1&saveAndExit=1&publishClose=1&noExitBtn=1&libraries=1&offline=1"
+      :src="iframeSrc"
       class="drawio-frame"
       @load="onFrameLoad"
     ></iframe>
@@ -46,6 +46,18 @@ import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCached
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
+import {
+  buildDrawioEditorSrc,
+  captureXmlForModeSwitch,
+  normalizeGraphEditorMode,
+  setGraphEditorMode,
+  wasContentPreserved,
+} from "@/utils/graph/graphEditorMode";
+import {
+  findDrawioMenubar,
+  hideDrawioFilename,
+  injectGraphModeSwitch,
+} from "@/components/DrawIoExtension/graphModeSwitch";
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -67,13 +79,17 @@ export default {
     graphXml: String,
     saveGraphAndExit: Function,
     doc: Object,
-    customContentId: { type: String, default: undefined }
+    customContentId: { type: String, default: undefined },
+    graphEditorMode: { type: String, default: 'diagram' },
   },
   computed: {
     // Live diagram content for the AI auto-title watcher: the latest DrawIO
     // autosave xml once the user starts editing, otherwise the initial body.
     currentXml() {
       return this.latestXml || this.graphXml || "";
+    },
+    iframeSrc() {
+      return buildDrawioEditorSrc(this.editorMode);
     }
   },
   methods: {
@@ -82,16 +98,102 @@ export default {
         this.$refs.drawioFrame.contentWindow?.postMessage(JSON.stringify(data), '*');
       }
     },
+    xmlForLoad() {
+      return this.pendingModeSwitch?.xml
+        || captureXmlForModeSwitch({ latestXml: this.latestXml, graphXml: this.graphXml })
+        || EMPTY_GRAPH;
+    },
     onFrameLoad() {
-      // Send initial graph XML to the iframe. autosave:1 makes DrawIO emit
-      // 'autosave' events on every model change (see loadGraph below).
-      if (this.graphXml) {
-        this.sendToFrame({ action: 'load', xml: this.graphXml, autosave: 1 });
+      // Send the live (possibly captured-pre-switch) XML. autosave:1 makes
+      // DrawIO emit 'autosave' events on every model change.
+      const xml = this.xmlForLoad();
+      if (xml) {
+        this.sendToFrame({ action: 'load', xml, autosave: 1 });
       }
-    }
+      this.scheduleMountModeSwitch();
+    },
+    modeSwitchProps(extra) {
+      return {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: 'graph',
+        ...extra,
+      };
+    },
+    switchGraphEditorMode(toMode) {
+      const to = normalizeGraphEditorMode(toMode);
+      const from = this.editorMode;
+      if (to === from) return;
+      const xml = captureXmlForModeSwitch({ latestXml: this.latestXml, graphXml: this.graphXml });
+      if (!xml) {
+        trackAnalyticsEvent('graph_editor_mode_switch_failed', this.modeSwitchProps({
+          from_mode: from,
+          to_mode: to,
+          failure_stage: 'capture',
+          error_code: 'missing_xml',
+        }));
+        return;
+      }
+      const hasUnsaved = !!(this.drawioModified || (this.latestXml && this.latestXml !== this.graphXml));
+      trackAnalyticsEvent('graph_editor_mode_switch_requested', this.modeSwitchProps({
+        from_mode: from,
+        to_mode: to,
+        has_unsaved_changes: hasUnsaved,
+      }));
+      this.pendingModeSwitch = { from, to, xml, startedAt: Date.now() };
+      this.latestXml = xml;
+      setGraphEditorMode(to);
+      this.editorMode = to;
+    },
+    mountModeSwitch(doc) {
+      if (this.isUnmounted) return;
+      const frameDoc = doc || this.$refs.drawioFrame?.contentDocument;
+      if (!frameDoc) return;
+      hideDrawioFilename(frameDoc);
+      const menubar = findDrawioMenubar(frameDoc);
+      if (!menubar) return;
+      const menuItems = [...menubar.querySelectorAll('.geMenubar > a, .geMenubar > .geItem')]
+      const help = menuItems.find((el) => (el.textContent || '').trim() === 'Help')
+        || menuItems[menuItems.length - 1]
+      let reservedLeftPx = 0
+      if (help) {
+        const menubarRect = menubar.getBoundingClientRect()
+        const helpRect = help.getBoundingClientRect()
+        reservedLeftPx = Math.max(0, helpRect.right - menubarRect.left + 8)
+      }
+      injectGraphModeSwitch(menubar, {
+        mode: this.editorMode,
+        onSelect: (mode) => this.switchGraphEditorMode(mode),
+        reservedLeftPx,
+        reservedRightPx: 300,
+      });
+    },
+    scheduleMountModeSwitch() {
+      this.mountTimers.forEach((id) => clearTimeout(id));
+      this.mountTimers = [0, 100, 300, 800].map((ms) =>
+        setTimeout(() => this.mountModeSwitch(), ms)
+      );
+    },
+    finishPendingModeSwitch(loadedXml) {
+      const pending = this.pendingModeSwitch;
+      if (!pending) return;
+      trackAnalyticsEvent('graph_editor_mode_switch_succeeded', this.modeSwitchProps({
+        from_mode: pending.from,
+        to_mode: pending.to,
+        reload_duration_ms: Date.now() - pending.startedAt,
+        content_preserved: wasContentPreserved(pending.xml, loadedXml),
+      }));
+      this.pendingModeSwitch = null;
+    },
   },
   data() {
+    const editorMode = normalizeGraphEditorMode(this.graphEditorMode);
+    setGraphEditorMode(editorMode);
     return {
+      editorMode,
+      pendingModeSwitch: null,
+      mountTimers: [],
+      isUnmounted: false,
       drawioModified: false,
       publishing: false,
       closeGuardOff: null,
@@ -141,8 +243,10 @@ export default {
             content_id: this.customContentId,
           });
         }
-        const initialGraphXml = this.graphXml || EMPTY_GRAPH;
+        const initialGraphXml = this.xmlForLoad();
         loadGraph(initialGraphXml);
+        this.scheduleMountModeSwitch();
+        this.finishPendingModeSwitch(initialGraphXml);
       }
       else if (payload.event === 'autosave') {
         this.drawioModified = !!payload.modified;
@@ -152,6 +256,7 @@ export default {
             this.draftSaver.save({
               code: payload.xml,
               title: this.$store?.state?.diagram?.title || '',
+              graphEditorMode: this.editorMode,
             });
           }
         }
@@ -192,6 +297,8 @@ export default {
     window.addEventListener('message', this.messageListener);
   },
   beforeUnmount() {
+    this.isUnmounted = true;
+    this.mountTimers.forEach((id) => clearTimeout(id));
     this.closeGuardOff?.();
     this.draftSaver?.flush();
     if (this.savedListener) EventBus.$off('saved', this.savedListener);
@@ -224,6 +331,7 @@ export default {
         saveDraftSync(this.draftScope, cloudId, {
           code: this.latestXml,
           title: this.$store?.state?.diagram?.title || '',
+          graphEditorMode: this.editorMode,
         });
       }
     });
@@ -243,6 +351,9 @@ export default {
         if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
         this.drawioModified = true;
         this.latestXml = payload.draft.code;
+        if (payload.draft.graphEditorMode && payload.draft.graphEditorMode !== this.editorMode) {
+          this.switchGraphEditorMode(payload.draft.graphEditorMode);
+        }
         clearDraft(this.draftScope);
       } catch (e) {
         console.error('[draft-restore] graph restore failed', e);

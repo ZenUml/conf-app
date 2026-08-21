@@ -676,9 +676,20 @@ export type AnalyticsEventName =
   // confluence:globalSettings "Get Started" page reaches only site admins.
   // `homepage_feed_viewed` fires once per mount (the card only exists while
   // its Home-page section is expanded); `homepage_feed_action_clicked` fires
-  // on the single action button.
+  // on the quick-start button. `homepage_feed_diagram_opened` fires when a
+  // recent-diagram row sends the user to the page that diagram lives on —
+  // the one event that measures whether this card returns people to their
+  // work, as opposed to merely being rendered. It carries `macro_type` (via
+  // `toMacroType`, never the raw stored `diagramType`) so the row's type is
+  // comparable with every other create/view surface.
+  // `homepage_feed_example_expanded` fires when an example row is opened in
+  // place. It is the funnel signal for the recognition half of the card: which
+  // diagram type someone with none of their own wants to look at. Carries
+  // `macro_type` so it lines up with the create events for the same type.
   | "homepage_feed_viewed"
-  | "homepage_feed_action_clicked";
+  | "homepage_feed_action_clicked"
+  | "homepage_feed_diagram_opened"
+  | "homepage_feed_example_expanded";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

@@ -482,7 +482,12 @@ modules:
     - key: zenuml-homepage-feed
       resource: main
       title: Create a diagram${LITE_TITLE_SUFFIX}
-      viewportSize: small
+      # No viewportSize: the property pins the iframe to a fixed box, and
+      # `small` measured 266x52 px on lite-dev 2026-08-21 — the body copy alone
+      # overflows that, so the action button was unreachable (the iframe's own
+      # scrollbar does not respond to wheel events from the host page). Per the
+      # manifest reference, "Remove this property to enable automatic resizing
+      # of the module", which sizes the iframe to the card's real height.
       # invokeRemote REQUIRES the calling module to carry a resolver/endpoint
       # binding — without this line the iframe's call fails with: Entry point
       # "resolver" for extension "zenuml-homepage-feed" could not be invoked

@@ -5,7 +5,7 @@ description: Create a Confluence page with one or more ZenUML macros entirely vi
 
 # Create Test Page (API-only)
 
-Render a ZenUML macro on a real Confluence page in three HTTPS calls. No Playwright snapshots, no slash menu, no Publish button. Returns just the page URL.
+Render a ZenUML macro on a real Confluence page through the REST API. No Playwright snapshots, no slash menu, no Publish button. The command verifies the page and custom content before returning the URL and IDs.
 
 ## When to use
 
@@ -45,48 +45,57 @@ These reuse the same env-var names the Forge CLI documents (see [docs/debugging/
 ```bash
 set -a; source .env.forge.local; set +a
 node .claude/skills/create-test-page/scripts/create-test-page.mjs \
+  --app lite \
+  --environment development \
   --site lite-dev \
   --space SD \
   --title "Wide graph render test" \
   --macro graph:.claude/skills/create-test-page/fixtures/graph-wide.xml
 ```
 
-Output: a single line — the page URL. Hand it to Playwright for screenshot/inspection, or `open` it.
+Output: the page URL followed by `pageId=... customContentIds=...`. Hand the URL to a browser skill for screenshot/inspection, or `open` it.
 
 ### Args
 
 | Flag | Required | Notes |
 |---|---|---|
-| `--site` | yes | `lite-dev`, `lite-stg`, `zenuml-stg`, `zenuml` |
+| `--app` | yes | `lite`, `full`, `diagramly`, or `asyncapi` |
+| `--environment` | yes | `development`, `staging`, or `production` (validated for the selected app) |
+| `--site` | yes | Approved site alias for the selected app/environment |
 | `--space` | yes | Space key (e.g. `SD`, `ZEN`, `ZS`) |
 | `--title` | no | Defaults to `Test page <ISO timestamp>` |
 | `--parent` | no | Parent page ID for placement |
-| `--macro` | yes (repeatable) | `<type>:<path-to-content-file>` — pass multiple for several macros on one page |
+| `--macro` | yes (repeatable) | `<type>:<path-to-content-file>` — at least one; pass multiple for several macros on one page |
 
 ### Macro types
 
 | Type | Content format | Custom-content type |
 |---|---|---|
 | `graph` | DrawIO mxGraphModel XML | `…:zenuml-content-graph` |
-| `sequence` | ZenUML / Mermaid / PlantUML source | `…:zenuml-content-sequence` |
-| `openapi` | OpenAPI YAML or JSON | `…:zenuml-content-openapi` |
+| `sequence` | ZenUML source | `…:zenuml-content-sequence` |
+| `mermaid` | Mermaid source | `…:zenuml-content-sequence` |
+| `plantuml` | PlantUML source | `…:zenuml-content-sequence` |
+| `openapi` | OpenAPI YAML or JSON | `…:zenuml-content-sequence` |
+| `asyncapi` | AsyncAPI YAML or JSON | `…:async-api-doc` (AsyncAPI app only) |
 
 ## What it does internally
 
 1. `POST /wiki/rest/api/content` — create empty page (storage representation)
-2. For each `--macro`: `POST /wiki/rest/api/content` — create custom content of the right type, body = `JSON.stringify({diagramType, graphXml | code | spec})` in `raw` representation, container = the new page
+2. For each `--macro`: `POST /wiki/rest/api/content` — create custom content of the right type, with the type-specific body (`graphXml`, `code`, `mermaidCode`, or `plantUmlCode`) in `raw` representation, container = the new page
 3. `PUT /wiki/rest/api/content/{pageId}` — update page with `atlas_doc_format` body containing a Forge `extension` ADF node per macro, with `guestParams['custom-content-id']` pointing at each created custom content
 
-Auth: Basic with `FORGE_EMAIL` + `FORGE_API_TOKEN`. The Atlassian API token authenticates against any of the supported sites; you don't need separate tokens per tenant.
+4. Read the page ADF and each custom-content body back. The command checks extension keys, custom-content IDs, content types, and diagram types before printing success.
 
-The Forge extension key is `<APP_ID>/<ENV_ID>/static/zenuml-<type>-macro-lite`. Site-specific `APP_ID` / `ENV_ID` / `envName` are baked into the SITES table in the script. To add a new site, look up its env ID with `forge environments list` and add a row.
+Auth: Basic with `FORGE_EMAIL` + `FORGE_API_TOKEN`. The token still needs access to the selected site; AsyncAPI may require a different credential profile.
+
+The Forge extension key is `<APP_ID>/<ENV_ID>/static/<macro-module-key>`. App identity, environment, and site are explicit at invocation; the internal registry resolves verified Forge IDs and app-specific content keys.
 
 ## Caveats
 
-- **Lite app only.** Macro keys/content-content types hardcode the `-lite` suffix and `confluence-addon-lite` namespace. Full and Diagramly variants would need their own SITES rows + `suffix`/`ns` overrides.
+- **Target registry.** Add a target only with an environment ID verified by `forge environments list`; do not guess one.
 - **Pages are not auto-cleaned.** They sit in the space until you delete them. The script doesn't tag them — add `--title 'Throwaway …'` and clean up periodically.
 - **Custom content size limits.** Confluence rejects content bodies over ~5MB. The 70KB ZEN-1168 reference XML is fine; very large generated diagrams might not be.
-- **No retry / backoff.** A single transient 5xx from Confluence will fail the whole run. Re-run.
+- **Cleanup is best effort.** If creation or verification fails, the command attempts to delete created custom content and the page. Check Confluence if a request fails midway.
 
 ## Fixtures shipped
 

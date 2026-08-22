@@ -407,6 +407,112 @@ and the diagram is mixing levels of abstraction.
 
 ---
 
+## 10. What notation do people actually use — and why isn't there a standard one?
+
+### 10.1 The answer: informal boxes-and-arrows, by a wide margin
+
+This is measurable, and it has been measured.
+
+- **ECSA 2024** (Migliorini, Verdecchia, Malavolta, Lago, Vicario — *Architectural Views: The State
+  of Practice in Open-Source Software Projects*): **96% of architectural views use an informal
+  notation; only 4% use a semi-formal one (UML).** Same study: **81%** of views use colour, but the
+  meaning of the colours is *seldom defined*; **74%** of connectors are unidirectional; **more than
+  92%** of views have exactly one contributor.
+- **Petre, ICSE 2013** (*UML in practice*): of 50 interviewed professional software engineers,
+  **only 15 used UML at all, and none used it wholeheartedly**. Eleven used it selectively,
+  adapting it to the audience. Diagram types among those: class 7, sequence 6, activity 6, state 2,
+  use case 1.
+- **Ozkaya, Information & Software Technology (2018)** — survey of 115 practitioners across 28
+  countries: non-formal notations are the top choice at **94%**, and **40%** deliberately use ad hoc
+  boxes/lines plus natural language even for complex design decisions. Cited reasons: low learning
+  curve (**79%**), visuality (**62%**), general-purpose scope (**66%**).
+
+*Terminology caveat:* the two big surveys don't slice the same way. Ozkaya's "informal" means
+"not a formal ADL with mathematical semantics" and includes UML; the ECSA study's "informal" means
+"not UML either — ad hoc boxes and lines". Read together they say the same thing from two
+directions: formal ADLs are essentially unused, and UML is a minority even among the survivors.
+
+So the honest answer to "what's the most common notation" is: **an unstandardised folk notation**,
+drawn in draw.io / Lucidchart / Excalidraw / Miro / PowerPoint, increasingly in Mermaid inside
+markdown, using cloud-vendor icons for infrastructure.
+
+### 10.2 The folk notation is real, and remarkably consistent
+
+Nobody specified it, yet it is broadly mutually intelligible:
+
+| Convention | Meaning |
+|---|---|
+| Rectangle | A thing (service, app, module) |
+| Cylinder | A database or store |
+| Arrow | A call or a data flow (direction rarely defined as one or the other) |
+| Dashed line | Async, optional, or a boundary — three incompatible meanings |
+| Stick figure / avatar | A person |
+| Cloud shape | The internet, or "something we don't own" |
+| Dotted rounded box around a group | A boundary of some sort |
+| Colour | Something important that is **not** written down (per ECSA: 81% coloured, meaning seldom defined) |
+
+Its strength is zero learning cost. Its weakness is exactly the ECSA finding: the two channels
+carrying the most meaning — colour and line style — are the two the author never defines.
+
+### 10.3 Why no standard notation took hold
+
+Eight structural reasons, roughly in order of force:
+
+1. **No forcing function.** Notations standardise when a *machine* consumes them and rejects
+   malformed input. Code has compilers; schemas have DDL; APIs have OpenAPI validators; BPMN has
+   execution engines; SysML has contractual deliverables in defence. Architecture diagrams have no
+   consumer that fails the build. Nothing punishes deviation, so deviation is free.
+2. **The purpose is communication, not specification.** A diagram's job is shared understanding
+   across a mixed audience — PM, security reviewer, SRE, new hire. That rewards tuning the picture
+   to the room, which is the opposite of conforming to a spec.
+3. **The subject matter outruns any fixed vocabulary.** UML's 14 diagram types have no symbol for
+   a Kafka topic, a CDN, a feature flag, a vector store, or an LLM endpoint. Any standardised
+   element set lags the technology it describes by years, so practitioners extend it informally —
+   permanently.
+4. **The cost/benefit is an externality.** Learning ArchiMate costs weeks; five boxes on a
+   whiteboard costs thirty seconds and unblocks the meeting. The cost of the resulting ambiguity is
+   deferred and paid by a *different person* six months later. Individually rational, collectively
+   bad — the classic shape of a coordination failure.
+5. **Precision that requires training reduces reach.** Formal notations optimise for the specialist
+   reader. Architecture diagrams are mostly read by non-specialists. A notation only a trained
+   reader can decode has negative value in the room where the diagram is actually used.
+6. **UML's own history poisoned the well.** It was large, weakly defaulted, tied to heavyweight
+   process (RUP), poorly served by tooling, and its killer app — round-trip code generation from
+   models — never materialised. Without that payoff, the learning cost bought nothing mechanical.
+7. **Diagrams are treated as disposable.** ECSA found >92% of views have a single contributor:
+   these are individual artifacts, not collaboratively maintained assets. You standardise things
+   many people must edit; you don't standardise a sketch.
+8. **Several standards bodies, none owning the problem.** OMG (UML, SysML, BPMN), The Open Group
+   (ArchiMate, TOGAF), ISO/IEC/IEEE (42010), plus three mutually incompatible cloud-vendor icon
+   dialects. Several overlapping standards is functionally equivalent to none — the practitioner
+   still has to choose, and choosing is the cost they were avoiding.
+
+### 10.4 What is converging instead
+
+Not a notation — **conventions and a delivery mechanism**:
+
+- **C4's labelling discipline** (name + type + purpose on every box, one abstraction level per
+  diagram, mandatory legend) spreads because it is additive: it costs nothing and works on top of
+  whatever shapes you already draw.
+- **Cloud vendor icon sets** are the closest thing to a de facto element standard for
+  infrastructure, precisely because the vendor supplies the artwork for free and the icons are
+  self-documenting.
+- **Diagrams-as-code** (Mermaid especially, because GitHub renders it with no build step) is
+  standardising the *pipeline* — version control, review, CI rendering — while leaving the notation
+  free. This is the one place a forcing function is appearing: a parser that rejects invalid input.
+
+### 10.5 What this means for a diagramming product
+
+Direct consequence for us: the 96%/4% split is the market. A tool that only serves formal
+notations is addressing the 4%. Our `Graph` (DrawIO) macro serves the folk notation and is
+therefore aimed at where the volume is; `PlantUML` serves the formal minority; `Mermaid` sits in
+the converging middle (text-based, low ceremony, renders anywhere). The unserved opportunity is
+not "add ArchiMate" — it is **helping the folk notation be less ambiguous**: prompting for a
+legend, making colour semantics explicit, labelling arrows with sync/async. That is a product
+question, not a research finding, and would need usage data to justify.
+
+---
+
 ## Sources
 
 - [ISO/IEC/IEEE 42010:2022 — Software, systems and enterprise — Architecture description](https://www.iso.org/standard/74393.html) · [arc42 quality model summary](https://quality.arc42.org/standards/iso-42010)
@@ -423,3 +529,4 @@ and the diagram is mixing levels of abstraction.
 - [EventStorming (Avanscoperta)](https://www.avanscoperta.it/en/eventstorming/) · [Domain Storytelling (InformIT)](https://www.informit.com/store/domain-storytelling-a-collaborative-visual-and-agile-9780137458912) · [Collaborative modelling overview](https://www.avanscoperta.it/en/collaborative-modelling/)
 - [Azure architecture icons (Microsoft Learn)](https://learn.microsoft.com/azure/architecture/icons) · [Cloud provider icon set roundup](https://revision.app/blog/top-icon-resources-for-diagrams)
 - [Diagram-as-code tool comparison 2026](https://infrasketch.net/blog/best-diagram-as-code-tools-2026)
+- Notation-in-practice evidence: [Migliorini et al., *Architectural Views: The State of Practice in Open-Source Software Projects*, ECSA 2024](https://link.springer.com/chapter/10.1007/978-3-031-70797-1_27) ([PDF](https://robertoverdecchia.github.io/papers/ECSA_2024.pdf)) · [Petre, *UML in practice*, ICSE 2013 (PDF)](https://oro.open.ac.uk/35805/8/UML%20in%20practice%208.pdf) · [Ozkaya, *Do the informal & formal software modeling notations satisfy practitioners for software architecture modeling?*, Information and Software Technology](https://www.sciencedirect.com/science/article/abs/pii/S0950584917304834) · [*How are informal diagrams used in software engineering? An exploratory study of open-source and industrial practices*, SoSyM 2024](https://link.springer.com/article/10.1007/s10270-024-01252-3)

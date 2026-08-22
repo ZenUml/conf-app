@@ -4,10 +4,35 @@ import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import {
   buildOpenApiSaveDiagram,
+  buildOpenApiAiTitleContent,
   createOpenApiEditorState,
   extractOpenApiTitle,
   getOpenApiTitleField,
 } from './OpenApiEditorState';
+
+describe('buildOpenApiAiTitleContent', () => {
+  it('removes info.title while preserving the API structure', () => {
+    const content = buildOpenApiAiTitleContent(
+      'openapi: 3.0.0\ninfo:\n  title: Inventory API\n  description: Stock service\npaths:\n  /items: {}',
+    );
+
+    expect(content).not.toContain('Inventory API');
+    expect(content).toContain('description: Stock service');
+    expect(content).toContain('/items');
+  });
+
+  it('produces the same dedup content when only info.title changes', () => {
+    const untitled = 'openapi: 3.0.0\ninfo:\n  title: ""\npaths:\n  /items: {}';
+    const generated = 'openapi: 3.0.0\ninfo:\n  title: Inventory API\npaths:\n  /items: {}';
+
+    expect(buildOpenApiAiTitleContent(generated)).toBe(buildOpenApiAiTitleContent(untitled));
+  });
+
+  it('keeps invalid in-progress source available as a best-effort prompt', () => {
+    const invalid = 'openapi: 3.0.0\ninfo: [';
+    expect(buildOpenApiAiTitleContent(invalid)).toBe(invalid);
+  });
+});
 
 describe('createOpenApiEditorState', () => {
   it('makes the visible example available to OpenAPI consumers for a new macro', () => {

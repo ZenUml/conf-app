@@ -47,6 +47,35 @@ export function extractOpenApiTitle(spec: string | undefined): string | undefine
   }
 }
 
+/**
+ * Build the title-independent OpenAPI content sent to AI title generation.
+ *
+ * `info.title` is both the editor title and part of the specification. Leaving
+ * it in the prompt makes the model echo the current title and, more subtly,
+ * changes the dedup hash when a generated title is written back or dismissed.
+ * Parse + re-serialize the document without that one field so title-only edits
+ * do not count as specification changes. Invalid in-progress source falls back
+ * to the raw text rather than blocking the existing best-effort generation.
+ */
+export function buildOpenApiAiTitleContent(spec: string | undefined): string {
+  if (!spec?.trim()) return '';
+
+  try {
+    const document = yaml.load(spec) as Record<string, any> | null;
+    if (!document || typeof document !== 'object' || Array.isArray(document)) {
+      return spec;
+    }
+
+    if (document.info && typeof document.info === 'object' && !Array.isArray(document.info)) {
+      delete document.info.title;
+    }
+
+    return yaml.dump(document).trim();
+  } catch {
+    return spec;
+  }
+}
+
 export interface BuildOpenApiSaveDiagramArgs {
   existing?: Diagram;
   spec: string;

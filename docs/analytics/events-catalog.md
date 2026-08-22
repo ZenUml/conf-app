@@ -161,13 +161,13 @@ The frontend's `attachment_upload_queued` is the denominator: every queued uploa
 
 ### `ai_generation_requested`
 
-**Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts`.
+**Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts` for Sequence/Mermaid/PlantUML, Graph and OpenAPI editors.
 
 | Property | Notes |
 |---|---|
 | `feature_area` | `"ai"` |
 | `surface` | `"editor"` |
-| `macro_type` | Diagram type (Mermaid sub-type string for Mermaid diagrams, e.g. `"flow chart"`) |
+| `macro_type` | Diagram type (`sequence`, `mermaid`, `plantuml`, `graph`, or `openapi`) |
 | `generation_source` | `"init"` (auto on editor open), `"user"` (manual click), `"regenerate"` (user clicked a second time after auto-generate) |
 | `prompt_length` | Character count of the diagram DSL sent to the AI |
 
@@ -205,7 +205,7 @@ Same properties as `ai_generation_requested`.
 
 ### `ai_title_accepted`
 
-**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired in `useAutoTitle.ts::notifyAiTitleSaved`, called from the `save` EventBus handler in `forgeIndex.ts`.
+**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths.
 
 | Property | Notes |
 |---|---|

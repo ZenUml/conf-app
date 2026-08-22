@@ -316,6 +316,97 @@ Both need validation against actual usage data before anyone acts on them.
 
 ---
 
+## 9. Common component (element) types
+
+Across every framework in this note, the boxes people draw collapse into eight archetypes. The
+notations disagree on *names*, not on the archetypes.
+
+### 9.1 The eight archetypes
+
+| # | Archetype | What it is | Typical labels |
+|---|---|---|---|
+| 1 | **Actor** | A human or organisation using the system | person, user, role, actor, business actor, external entity |
+| 2 | **External system** | Something you depend on but don't own | external system, third-party service, SaaS, upstream/downstream system |
+| 3 | **Boundary** | A scope line, not a thing | system boundary, bounded context, trust boundary, VPC/subnet, availability zone, tenant, security zone |
+| 4 | **Deployable unit** | Something that runs as its own process | container (C4), service, application, worker, daemon, function, job |
+| 5 | **Internal unit** | A grouping of code inside a deployable unit | component, module, package, layer, class, library |
+| 6 | **Data store** | State at rest | database, table, cache, object/blob store, file system, queue, topic, index, data object |
+| 7 | **Connector** | The lines — as typed as the boxes | request/response, event, data flow, dependency, hosting/deployment, pipe, shared-data access |
+| 8 | **Infrastructure** | What the deployable units sit on | node, device, host, VM, cluster, load balancer, gateway, CDN, firewall, DNS, identity provider |
+
+### 9.2 The same archetype across notations
+
+| Archetype | C4 | UML | ArchiMate 3.2 | SEI Views & Beyond | DFD / threat model |
+|---|---|---|---|---|---|
+| Actor | Person | Actor | Business Actor / Business Role | (outside scope) | External entity / interactor |
+| Whole system | Software System | Subsystem | Application Component (coarse) | — | Process (Level 0) |
+| Deployable unit | **Container** | Artifact deployed on a Node | Application Component / Node | C&C Component | Process |
+| Internal unit | Component | Component, Package, Class | Application Component (nested) | Module | Process (Level 2) |
+| Data store | Container with the database shape | Artifact / Node | Data Object, Artifact | Repository (shared-data style) | Data store |
+| Interface | (implicit on the relationship) | Interface, Port | Application / Technology Interface | Port | (implicit on the flow) |
+| Behaviour | Dynamic diagram step | Activity, Interaction | Application Service / Function / Process | — | Process |
+| Connection | Labelled relationship | Association, Dependency | Serving, Flow, Triggering, Access, Realization | Connector | Data flow |
+| Boundary | Boundary box | Package, Namespace | Grouping | — | **Trust boundary** |
+| Infrastructure | Deployment node | Node, Device, Execution Environment | Node, Device, System Software, Technology Service | Deployment (allocation viewtype) | — |
+
+Two notation notes worth carrying:
+
+- **C4 "container" does not mean Docker.** It means *a separately deployable/runnable thing* — a
+  web app, an API service, a database, a single-page app, a mobile app, a shell script on a cron.
+  This is the single most common misreading of the model.
+- **ArchiMate 3.2 reclassified Device, System Software, Facility and Equipment** as *technology
+  internal active structure elements* rather than specialisations of Node, adding composition and
+  aggregation relationships to Node for flexibility. If you're reading a 3.1-era diagram or
+  tutorial, that hierarchy has changed.
+
+### 9.3 Connector types (the half everyone under-specifies)
+
+A box's type is usually written on it; a line's type usually isn't, and that's where diagrams
+lose their meaning. The SEI component-and-connector styles give the standard vocabulary:
+
+- **call-return** — synchronous request/response (HTTP, gRPC, RPC, SQL query)
+- **pipe** — streaming, ordered, one-way (pipe-and-filter style)
+- **event / publish-subscribe** — asynchronous, fan-out, sender doesn't know receivers
+- **data access** — reads/writes against a shared repository
+- **shared data** — two components coupled through a common store (usually a smell worth marking)
+
+At minimum, label each line with **what flows**, **the protocol**, and **sync vs async**. Direction
+of the arrow should mean one thing consistently across the diagram — either "who calls whom" or
+"where the data goes", never both on the same page.
+
+### 9.4 The modern cloud vocabulary
+
+The cloud vendors' icon sets encode a de facto element taxonomy that most contemporary
+architecture diagrams use, whether or not they say so:
+
+- **Compute** — VM/instance, container/pod, cluster, serverless function, batch job
+- **Storage** — object/blob, block, file share, archive
+- **Data** — relational DB, NoSQL/document, key-value, cache, search index, warehouse, lakehouse
+- **Messaging** — queue, topic, event bus, stream, scheduler/cron
+- **Networking & edge** — VPC, subnet, load balancer, API gateway, CDN, DNS, WAF, private link
+- **Identity & security** — identity provider, secrets manager, KMS, IAM role, certificate
+- **Observability** — logs, metrics, traces, alerting
+
+Recent additions that now appear routinely and have no settled standard notation: **BFF**
+(backend-for-frontend), **feature-flag service**, **model/LLM endpoint**, **vector store**,
+**agent/tool runtime**, and **webhook receiver**.
+
+### 9.5 The labelling rule that matters more than the shape
+
+Whatever vocabulary you pick, C4's convention is the one that makes a diagram readable by someone
+who wasn't in the room. Every box carries three things:
+
+```
+Name                 <- what it is called
+[Type: technology]   <- which archetype, and what it is built with
+One line of purpose  <- why it exists
+```
+
+If a box can't be given a type, it usually means two archetypes have been merged into one shape,
+and the diagram is mixing levels of abstraction.
+
+---
+
 ## Sources
 
 - [ISO/IEC/IEEE 42010:2022 — Software, systems and enterprise — Architecture description](https://www.iso.org/standard/74393.html) · [arc42 quality model summary](https://quality.arc42.org/standards/iso-42010)
@@ -323,7 +414,7 @@ Both need validation against actual usage data before anyone acts on them.
 - [arc42 template overview](https://arc42.org/overview/) · [§5 Building block view](https://docs.arc42.org/section-5/) · [§6 Runtime view](https://docs.arc42.org/section-6/) · [§7 Deployment view](https://docs.arc42.org/section-7/)
 - [Kruchten, "Architectural Blueprints — The 4+1 View Model of Software Architecture" (PDF)](https://www.cs.ubc.ca/~gregor/teaching/papers/4+1view-architecture.pdf) · [Wikipedia summary](https://en.wikipedia.org/wiki/4%2B1_architectural_view_model)
 - [SEI — Creating and Using Software Architecture Documentation (Views and Beyond)](https://www.sei.cmu.edu/documents/2057/2004_004_001_14351.pdf) · [Viewtypes and styles](https://flylib.com/books/en/2.121.1/p5_viewtypes_and_styles.html)
-- [ArchiMate 3.2 Specification (The Open Group)](https://pubs.opengroup.org/architecture/archimate32-doc/) · [Example viewpoints](https://pubs.opengroup.org/architecture/archimate32-doc/ch-Example-Viewpoints.html)
+- [ArchiMate 3.2 Specification (The Open Group)](https://pubs.opengroup.org/architecture/archimate32-doc/) · [Example viewpoints](https://pubs.opengroup.org/architecture/archimate32-doc/ch-Example-Viewpoints.html) · [Application Layer](https://pubs.opengroup.org/architecture/archimate32-doc/ch-Application-Layer.html) · [Technology Layer](https://pubs.opengroup.org/architecture/archimate3-doc/ch-Technology-Layer.html) · [What changed in 3.2](https://goodelearning.com/articles/whats-changed-in-archimate-3-2/) — note: pubs.opengroup.org now sits behind an SSO redirect, so the layer chapters could not be fetched directly for this note
 - [OMG — final adoption of SysML v2, KerML 1.0, Systems Modeling API 1.0 (2025-07-21)](https://www.omg.org/news/releases/pr2025/07-21-25.htm) · [SysML v2 release repo](https://github.com/Systems-Modeling/SysML-v2-Release)
 - [TOGAF ADM and Architecture Content Framework](https://www.visual-paradigm.com/guide/togaf/togaf-adm-and-architecture-content-framework/) · [TOGAF viewpoints — catalogs, matrices, diagrams](https://meta.linked.archi/togaf/viewpoints/)
 - [Zachman Framework — CIO overview](https://www.cio.com/article/193229/what-is-the-zachman-framework-a-matrix-for-managing-enterprise-architecture.html) · [Zachman International](https://zachman-feac.com/zachman/about-the-zachman-framework)

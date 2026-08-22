@@ -491,6 +491,17 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
+  // `retry()` is a bare location.reload(), so the click and its result sit in
+  // two different page lifetimes: the click event is emitted before the reload,
+  // and the resolution event after it, matched through a sessionStorage marker
+  // (utils/loadFailedRetry.ts) keyed on the macro's localId. Without the pair
+  // there is no way to tell a transient content-fetch failure (recovers on
+  // reload) from a permanently unavailable diagram — both render the same
+  // terminal panel, and 2026-08-18..22 telemetry could only count impressions
+  // (391 external, 128 macros) with no recovery rate attached.
+  | "load_failed_retry_clicked"
+  | "load_failed_retry_resolved"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)
   | "snapshot_created"

@@ -66,6 +66,13 @@ export async function handlePageBannerRoute(
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
   let effective = choice;
+  // Preserve the exact count that admitted this impression. A macro iframe can
+  // refresh the shared targeting marker while context/component imports await;
+  // re-reading afterwards could show an out-of-band count in an already-chosen
+  // offer (observed on Lite staging as 60 becoming 8014 during mount).
+  const templateOfferMacroCount = choice === 'template-offer'
+    ? readTargetingMarker(deriveWarningBannerIdentity())?.macroCount ?? 0
+    : 0;
 
   // Flag check happens here, not in decidePageBanner, so it costs nothing on the
   // ~99% of loads that show no banner. When off, the admin impression is dropped
@@ -94,7 +101,7 @@ export async function handlePageBannerRoute(
   const props = effective === 'paywall-admin'
     ? { isSpaceAdmin: true }
     : effective === 'template-offer'
-      ? { macroCount: readTargetingMarker(deriveWarningBannerIdentity())?.macroCount ?? 0 }
+      ? { macroCount: templateOfferMacroCount }
       : undefined;
   createApp(Component, props).mount(container);
   return effective;

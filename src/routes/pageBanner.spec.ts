@@ -46,6 +46,7 @@ const readTargeting = vi.mocked(readTargetingMarker)
 const inTemplateBand = vi.mocked(isInTemplateOfferBand)
 const templateSuppressed = vi.mocked(isTemplateOfferSuppressed)
 const flag = vi.mocked((await import('@/utils/paywall/adminBannerFlag')).isAdminBannerEnabled)
+const initializeContext = vi.mocked((await import('@/model/globals')).default.apWrapper.initializeContext)
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -226,5 +227,16 @@ describe('handlePageBannerRoute — Phase 5b flag gating', () => {
     await expect(handlePageBannerRoute('template-offer')).resolves.toBe('template-offer')
     expect(createdWith).toEqual({ macroCount: 60 })
     expect(flag).not.toHaveBeenCalled()
+  })
+
+  it('keeps the qualifying macro count when another iframe updates the marker during mount', async () => {
+    identity.mockReturnValue(IDENTITY)
+    readTargeting.mockReturnValue({ macroCount: 60 } as any)
+    initializeContext.mockImplementationOnce(async () => {
+      readTargeting.mockReturnValue({ macroCount: 8014 } as any)
+    })
+
+    await expect(handlePageBannerRoute('template-offer')).resolves.toBe('template-offer')
+    expect(createdWith).toEqual({ macroCount: 60 })
   })
 })

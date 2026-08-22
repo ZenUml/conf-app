@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo="${RELEASE_REPO:-ZenUml/conf-app}"
-variant="${1:-}"
+requested_variant="${1:-}"
 draft_tag="${2:-}"
 
 block() {
@@ -11,9 +11,12 @@ block() {
   exit 1
 }
 
-case "$variant" in
-  diagramly|lite|full|asyncapi) ;;
-  *) block "variant must be diagramly, lite, full, or asyncapi" ;;
+case "$requested_variant" in
+  diagramly|dia) variant="diagramly" ;;
+  lite) variant="lite" ;;
+  full) variant="full" ;;
+  asyncapi|async|api) variant="asyncapi" ;;
+  *) block "variant must be diagramly (or dia), lite, full, or asyncapi (or async/api)" ;;
 esac
 
 [[ -n "$draft_tag" ]] || block "draft tag is required"

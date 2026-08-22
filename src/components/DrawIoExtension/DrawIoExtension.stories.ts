@@ -1,20 +1,24 @@
-import type { Meta, StoryObj } from '@storybook/vue3-vite'
+import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
-import DiagramTitleInput from './DiagramTitleInput.vue'
+import type { App } from 'vue'
+import DrawIoExtension from './DrawIoExtension.vue'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { useAutoTitle } from '@/composables/useAutoTitle'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
-import EventBus from '@/EventBus'
 
-type Story = StoryObj<typeof DiagramTitleInput>
+setup((app: App) => {
+  app.use(store)
+})
 
-const SAMPLE_CODE = `
-Client->Server: submitPayment()
-Server->DB: insert(payment)
-DB-->Server: ok
-Server-->Client: receipt
-`.trim()
+type Story = StoryObj<typeof DrawIoExtension>
+
+const LABELLED_XML = `<mxGraphModel><root>
+  <mxCell id="0" />
+  <mxCell id="2" value="Login" vertex="1" />
+  <mxCell id="3" value="Validate" vertex="1" />
+  <mxCell id="4" value="Dashboard" vertex="1" />
+</root></mxGraphModel>`
 
 let _restoreFetch: (() => void) | null = null
 
@@ -26,12 +30,12 @@ function clearFetchMock() {
 function mockFetch(title: string, delayMs = 0, ok = true) {
   clearFetchMock()
   const original = window.fetch
-  window.fetch = async (url: RequestInfo | URL, init?: RequestInit) => {
+  window.fetch = async (url: RequestInfo | URL) => {
     if (String(url).includes('ai-generate-title')) {
       if (delayMs > 0) await new Promise<void>((r) => setTimeout(r, delayMs))
       return { ok, text: async () => (ok ? title : title) } as Response
     }
-    return original(url, init)
+    return original(url)
   }
   _restoreFetch = () => {
     window.fetch = original
@@ -51,36 +55,43 @@ function setAiEnabled(enabled: boolean) {
   }
 }
 
-function setupStore({
-  code = '',
-  title = '',
-  diagramType = DiagramType.Sequence,
-}: { code?: string; title?: string; diagramType?: DiagramType } = {}) {
-  store.dispatch('updateDiagramType', diagramType)
-  store.dispatch('updateCode2', code)
-  store.dispatch('updateTitle', title)
+function setupStore({ title = '' }: { title?: string } = {}) {
+  store.commit('updateDiagramType', DiagramType.Graph)
+  store.commit('updateTitle', title)
 }
 
-const meta: Meta<typeof DiagramTitleInput> = {
-  title: 'Header/DiagramTitleInput',
-  component: DiagramTitleInput,
+const overlayShell = {
+  template: `
+    <div
+      style="position: relative; height: 120px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 8px;"
+    >
+      <story />
+    </div>
+  `,
+}
+
+const meta: Meta<typeof DrawIoExtension> = {
+  title: 'Editors/DrawIoExtension',
+  component: DrawIoExtension,
   parameters: {
     layout: 'padded',
     docs: {
       description: {
         component:
-          'Title input for the diagram editor header. When the AI feature flag is enabled, a spark button appears that generates a title from the diagram code.',
+          'DrawIO graph editor title overlay. Sits on the DrawIO menubar row (top-right), drives AI auto-title from live mxGraph XML, and exposes window.ensureTitle() for the publish path.',
       },
     },
+  },
+  args: {
+    doc: {},
+    currentXml: LABELLED_XML,
   },
   decorators: [
     () => {
       clearFetchMock()
       setupForge()
       ;(useAutoTitle as any).__resetForTests?.()
-      return {
-        template: '<div class="p-4 bg-white w-full max-w-lg"><story /></div>',
-      }
+      return overlayShell
     },
   ],
 }
@@ -93,18 +104,29 @@ export const Default: Story = {
     () => {
       setAiEnabled(false)
       setupStore()
-      return { template: '<story />' }
+      return overlayShell
     },
   ],
 }
 
-/** AI feature flag ON, no code yet — spark button is visible but auto-generate won't fire (empty code). */
+/** Existing title filled in — typical saved graph state. */
+export const WithTitle: Story = {
+  decorators: [
+    () => {
+      setAiEnabled(false)
+      setupStore({ title: 'Order Flow' })
+      return overlayShell
+    },
+  ],
+}
+
+/** AI feature flag ON with labelled shapes in currentXml. */
 export const AIEnabled: Story = {
   decorators: [
     () => {
       setAiEnabled(true)
       setupStore()
-      return { template: '<story />' }
+      return overlayShell
     },
   ],
 }
@@ -114,9 +136,9 @@ export const Generating: Story = {
   decorators: [
     () => {
       setAiEnabled(true)
-      setupStore({ code: SAMPLE_CODE })
-      mockFetch('Payment Flow Sequence', 60_000)
-      return { template: '<story />' }
+      setupStore()
+      mockFetch('Order Flow', 60_000)
+      return overlayShell
     },
   ],
   play: async () => {
@@ -132,20 +154,19 @@ export const Suggested: Story = {
   decorators: [
     () => {
       setAiEnabled(true)
-      setupStore({ code: SAMPLE_CODE })
-      mockFetch('Payment Flow Sequence', 0)
-      return { template: '<story />' }
+      setupStore()
+      mockFetch('Order Flow', 0)
+      return overlayShell
     },
   ],
   play: async () => {
     const body = within(document.body)
     const sparkBtn = await body.findByTitle('Generate title with AI')
     await userEvent.click(sparkBtn)
-    // 22 chars × 40 ms/char ≈ 880 ms; allow up to 3 s for CI
     await waitFor(
       () => {
-        const input = body.getByPlaceholderText('Untitled diagram')
-        expect(input).toHaveValue('Payment Flow Sequence')
+        const input = body.getByPlaceholderText('Name your graph…')
+        expect(input).toHaveValue('Order Flow')
       },
       { timeout: 3000 },
     )
@@ -153,16 +174,21 @@ export const Suggested: Story = {
   },
 }
 
-/** flash-title-error event turns the border red (e.g. save attempted with empty title). */
+/** ensureTitle() with an empty title surfaces the publish validation error state. */
 export const TitleError: Story = {
   decorators: [
     () => {
       setAiEnabled(false)
-      setupStore({ title: 'My Diagram' })
-      return { template: '<story />' }
+      setupStore()
+      return overlayShell
     },
   ],
   play: async () => {
-    EventBus.$emit('flash-title-error')
+    await waitFor(() => expect(typeof window.ensureTitle).toBe('function'))
+    void window.ensureTitle?.()
+    const body = within(document.body)
+    await waitFor(() => {
+      expect(body.getByPlaceholderText('Name your graph…')).toHaveClass('text-red-700')
+    })
   },
 }

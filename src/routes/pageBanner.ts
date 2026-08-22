@@ -1,8 +1,9 @@
 import { createApp } from 'vue';
 import globals from '@/model/globals';
-import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner';
+import { shouldShowPaywallBanner, deriveWarningBannerIdentity, readTargetingMarker } from '@/utils/paywall/warningBanner';
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { isCsatPendingFresh } from '@/utils/csat';
+import { isInTemplateOfferBand, isTemplateOfferSuppressed } from '@/utils/template/templateOfferMarker';
 
 /**
  * Single `confluence:pageBanner` host. Confluence creates exactly one banner
@@ -12,16 +13,15 @@ import { isCsatPendingFresh } from '@/utils/csat';
  * (this replaces the old two-module + CSAT-defer arrangement, which is why no
  * defer exists here).
  *
- * Priority: the paywall warning (unpaid Lite space over the hard limit, seen by
- * a recent macro author or by a space admin of that space) outranks the CSAT
- * survey. `none` means close the iframe with no work.
+ * Priority: paywall author > paywall admin > Lite template offer > CSAT.
+ * `none` means close the iframe with no work.
  *
  * decidePageBanner() depends only on cheap localStorage predicates, so
  * forgeIndex can run it on the hot path (every page load) to decide whether to
  * close immediately. The heavy banner components load lazily — only when a
  * banner will actually show — inside handlePageBannerRoute().
  */
-export type PageBannerChoice = 'paywall' | 'paywall-admin' | 'csat' | 'none';
+export type PageBannerChoice = 'paywall' | 'paywall-admin' | 'template-offer' | 'csat' | 'none';
 
 /**
  * `paywall` and `paywall-admin` mount the same component; they are separate
@@ -38,8 +38,15 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
   // awaits maybeProbeSpaceAdmin() BEFORE calling this, so on the load that first
   // resolves admin status the verdict is already written — an admin sees the
   // banner on that same load, not the next one.
-  if (isCurrentUserSpaceAdmin(identity) && shouldShowPaywallBanner(now, identity, true)) {
+  const isSpaceAdmin = isCurrentUserSpaceAdmin(identity);
+  if (isSpaceAdmin && shouldShowPaywallBanner(now, identity, true)) {
     return 'paywall-admin';
+  }
+  if (import.meta.env.PRODUCT_TYPE === 'lite' && isSpaceAdmin) {
+    const macroCount = readTargetingMarker(identity)?.macroCount;
+    if (isInTemplateOfferBand(macroCount) && !isTemplateOfferSuppressed(identity, now)) {
+      return 'template-offer';
+    }
   }
   if (isCsatPendingFresh(now)) return 'csat';
   return 'none';
@@ -55,7 +62,7 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
  * admin banner is gated off.
  */
 export async function handlePageBannerRoute(
-  choice: 'paywall' | 'paywall-admin' | 'csat',
+  choice: 'paywall' | 'paywall-admin' | 'template-offer' | 'csat',
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
   let effective = choice;
@@ -77,13 +84,18 @@ export async function handlePageBannerRoute(
     return 'none';
   }
   await globals.apWrapper.initializeContext();
-  const Component =
-    effective === 'csat'
-      ? (await import('@/components/CSAT/CsatBanner.vue')).default
+  const Component = effective === 'csat'
+    ? (await import('@/components/CSAT/CsatBanner.vue')).default
+    : effective === 'template-offer'
+      ? (await import('@/components/UpgradePrompt/TemplateOfferBanner.vue')).default
       : (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default;
   // The audience is passed in rather than re-derived so that a flagged-off admin
   // who ALSO qualifies as a recent author still sees the old author copy.
-  const props = effective === 'paywall-admin' ? { isSpaceAdmin: true } : undefined;
+  const props = effective === 'paywall-admin'
+    ? { isSpaceAdmin: true }
+    : effective === 'template-offer'
+      ? { macroCount: readTargetingMarker(deriveWarningBannerIdentity())?.macroCount }
+      : undefined;
   createApp(Component, props).mount(container);
   return effective;
 }

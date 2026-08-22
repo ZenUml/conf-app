@@ -94,7 +94,7 @@ export async function handlePageBannerRoute(
   const props = effective === 'paywall-admin'
     ? { isSpaceAdmin: true }
     : effective === 'template-offer'
-      ? { macroCount: readTargetingMarker(deriveWarningBannerIdentity())?.macroCount }
+      ? { macroCount: readTargetingMarker(deriveWarningBannerIdentity())?.macroCount ?? 0 }
       : undefined;
   createApp(Component, props).mount(container);
   return effective;

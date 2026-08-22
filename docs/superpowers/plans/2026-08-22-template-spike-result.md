@@ -43,3 +43,11 @@ The staging build label observed during the UI check was `d52168e`.
 ## Decision
 
 **GO.** Continue with the one-click space-template offer. The production ADF builder must include `forgeEnvironment` and must generate an empty `guestParams` object; it must never copy source-bound fields.
+
+## Banner visual check
+
+The production Vue component was rendered locally at 1280 px and inspected in all three user-visible states. The idle and success states stay on one row; the failure explanation wraps onto a second row without clipping.
+
+- [Idle offer](assets/2026-08-22-template-offer-idle.png)
+- [Template created](assets/2026-08-22-template-offer-created.png)
+- [Creation failed](assets/2026-08-22-template-offer-failed.png)

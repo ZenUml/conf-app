@@ -6,9 +6,9 @@
  * therefore silent in both directions. A decision that wrongly returns HIDDEN
  * does not throw, log an error, or fail a build — the byline simply never
  * appears, on every install, and the only symptom is E2E specs failing to find
- * a button. A decision that wrongly returns VISIBLE exposes the surface on
- * tenants that were never enrolled. Neither shows up anywhere else in the
- * suite, so the mapping is asserted here directly.
+ * a button. A decision that wrongly returns VISIBLE writes enrolment
+ * properties for an installation it could not identify. Neither shows up
+ * anywhere else in the suite, so the mapping is asserted here directly.
  *
  * The sweep tests run against src/space-properties.fixtures.ts, which models
  * the API contracts rather than replaying canned responses — the PUT version
@@ -46,7 +46,6 @@ vi.mock('@forge/api', () => ({
 }));
 
 import {
-  ALLOWLIST,
   currentCloudId,
   decide,
   HIDDEN,
@@ -74,28 +73,14 @@ const KEY = 'zenuml-byline-lite';
 const STATE = 'byline-visibility-state';
 
 describe('decide', () => {
-  it('enrols the Lite E2E site', () => {
-    const d = decide(LITE_STG);
-    expect(d.value).toBe(VISIBLE);
-    expect(d.decision).toBe('visible');
-    expect(d.reason).toBe('enrolled');
-    expect(d.site).toBe('lite-stg.atlassian.net');
-  });
-
-  it('enrols the developer site', () => {
-    expect(decide(WHIMET4).value).toBe(VISIBLE);
-  });
-
-  // General rollout (2026-08-22): a site absent from ALLOWLIST is enrolled
-  // exactly like one named in it. This is the assertion that used to say the
-  // opposite; it is inverted deliberately, not stale.
-  it('enrols an installation that is not named in ALLOWLIST', () => {
+  // General rollout (2026-08-22): ANY resolvable cloudId enrols. Until then
+  // this file asserted the opposite for a site outside a two-entry allowlist;
+  // the inversion is deliberate, not a stale test left passing by accident.
+  it('enrols any installation it can identify', () => {
     const d = decide(NOBODY);
     expect(d.value).toBe(VISIBLE);
     expect(d.decision).toBe('visible');
     expect(d.reason).toBe('enrolled');
-    // No hostname to report for a site we do not name — logs only.
-    expect(d.site).toBeUndefined();
   });
 
   // With the allowlist gone this is the ONLY suppressing input left, which
@@ -118,16 +103,11 @@ describe('decide', () => {
     expect(typeof decide(undefined).value).toBe('string');
   });
 
-  // ALLOWLIST is log-naming only now, so this pins a privacy rule rather than
-  // a gate: whatever it holds must stay our own sites, because these hostnames
-  // live in a public repo (docs/policies/client-privacy.md).
-  it('keeps ALLOWLIST to our own sites — it names, it does not grant', () => {
-    expect([...ALLOWLIST.values()].sort()).toEqual([
-      'lite-stg.atlassian.net',
-      'whimet4.atlassian.net',
-    ]);
-    // Membership must not change the decision either way.
-    expect(decide(LITE_STG).decision).toBe(decide(NOBODY).decision);
+  // The rollout is unconditional for identifiable sites: which cloudId it is
+  // must not change the decision. This is what the old allowlist test became.
+  it('treats every identifiable cloudId alike', () => {
+    expect(decide(LITE_STG)).toEqual(decide(NOBODY));
+    expect(decide(WHIMET4)).toEqual(decide(NOBODY));
   });
 });
 
@@ -173,7 +153,7 @@ describe('scheduledHandler', () => {
 
   // `cloudId: undefined` is the ONLY suppressed input since the general
   // rollout — an unidentifiable installation. It used to be possible to
-  // suppress with a real-but-unlisted cloudId; that is now an enrolled site,
+  // suppress with a real-but-unenrolled cloudId; that is now an enrolled site,
   // so the suppression tests below drive this instead.
   function arrange(cloudId: string | undefined, opts: { spaces?: string[]; appId?: string } = {}) {
     site = makeSite(opts.spaces ?? ['11', '22', '33']);

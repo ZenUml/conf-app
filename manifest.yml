@@ -551,9 +551,9 @@ modules:
       # the rollout is GENERAL: src/byline-visibility.ts `decide` enrols every
       # installation whose cloudId the runtime can resolve, so this entry is
       # live in production rather than dark. (It was previously restricted to a
-      # two-site cloudId ALLOWLIST; that map is now log-naming only.) Rollout
-      # scope remains a change to `decide`, not to this condition — and leg 2
-      # below still suppresses the byline wherever Full is installed.
+      # two-site cloudId allowlist, removed with the rollout — see `git log`.)
+      # Rollout scope remains a change to `decide`, not to this condition — and
+      # leg 2 below still suppresses the byline wherever Full is installed.
       #
       # 1. The variant's OWN enrolment property must say enabled. The key is
       #    templated like every other per-variant key in this manifest:
@@ -561,7 +561,7 @@ modules:
       #    on Lite (the key src/byline-visibility.ts writes — keep them in
       #    lockstep) and `zenuml-byline` on Full/Diagramly/AsyncAPI. It is
       #    written to every space by the Lite `byline-visibility-hourly` sweep
-      #    (cloudId-allowlist rollout). Absent property = no byline.
+      #    on every identifiable installation. Absent property = no byline.
       # 2. `zenuml-full-active` must NOT exist — the FULL app's daily sweep
       #    (src/full-presence.ts, Full variant only) marks its presence per
       #    space, and the Lite byline hides itself where Full already provides

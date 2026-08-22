@@ -21,13 +21,13 @@ import {
  *
  * CALLER: `byline-visibility-hourly` (manifest.yml `scheduledTrigger`),
  * Lite-only. Hourly is about the first write, not the steady state: the sweep
- * is idempotent, and the interval only bounds how long a newly installed or
- * newly allowlisted site waits with the wrong visibility.
+ * is idempotent, and the interval only bounds how long a newly installed
+ * site waits with the wrong visibility.
  *
  * SCOPE: every installation whose cloudId the runtime can resolve, materialised
  * as the enrolment space property on every space of that installation. An
  * unresolvable cloudId still suppresses — see `decide`. (Through 2026-08-22
- * this was an explicit two-site ALLOWLIST; that map is now log-naming only.)
+ * this was an explicit two-site cloudId allowlist, removed with the rollout.)
  * The both-apps-installed suppression is NOT decided here: the Full app marks
  * its own presence per space (`zenuml-full-active`, src/full-presence.ts) and
  * the manifest condition subtracts it with a `not entityPropertyExists` leg.
@@ -164,30 +164,7 @@ export type Decision = {
   value: string;
   decision: 'visible' | 'suppressed';
   reason: VisibilityReason;
-  /** Allowlist entry that matched, for logs only — never an analytics property. */
-  site?: string;
 };
-
-/**
- * Our own sites, by cloudId. NO LONGER A GATE — `decide` enrols every
- * identifiable installation. This map survives only so log lines for our own
- * tenants carry a hostname instead of a bare uuid; an entry here grants
- * nothing that a site absent from it does not already have.
- *
- * Both are our own — the Lite E2E target and a developer site — not customer
- * tenants, which is what makes naming them here compatible with
- * docs/policies/client-privacy.md. `lite-stg.atlassian.net` is already named in
- * tests/e2e-tests/config/apps.ts for the same reason.
- *
- * cloudIds read from each site's /_edge/tenant_info on 2026-08-15. Matching on
- * cloudId rather than hostname because that is what the runtime actually hands
- * us (`installation.contexts[].cloudId`); a hostname would have to be resolved
- * by a further request that could fail, on the fail-closed side of the gate.
- */
-export const ALLOWLIST: ReadonlyMap<string, string> = new Map([
-  ['c78e721e-957f-402c-9b70-1df2227c2739', 'lite-stg.atlassian.net'],
-  ['866c3a03-ec62-4717-91c4-1ad078bfcc60', 'whimet4.atlassian.net'],
-]);
 
 /**
  * The cloudId of the installation this invocation is running for.
@@ -195,7 +172,7 @@ export const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * `contexts` is an array and every entry's `cloudId` is optional in the SDK
  * types, so this takes the first one that is present rather than indexing [0]
  * and trusting it. A Confluence installation has exactly one, but the type
- * permits neither assumption, and guessing wrong here silently allowlists or
+ * permits neither assumption, and guessing wrong here silently enrols or
  * silently hides.
  */
 export function currentCloudId(context: {
@@ -210,15 +187,17 @@ export function currentCloudId(context: {
 /**
  * General rollout: every installation the runtime can identify renders the
  * byline. This is the Phase 2 swap the allowlist stage was built to allow —
- * one function changes, the handler around it does not.
+ * one function changes, the handler around it does not. (Through 2026-08-22
+ * this consulted a two-site cloudId allowlist; `git log` has it if a
+ * re-restriction is ever needed.)
  *
  * An unresolvable cloudId is still SUPPRESSED. That leg is not about rollout
  * scope and does not relax with it: the property write is keyed to a specific
  * installation, so "we could not tell which site this is" means there is
- * nothing safe to write, and the fail-closed gate must keep uncertainty on the
- * hidden side.
+ * nothing safe to write. It is now the only suppressing input, which is what
+ * keeps the gate falsifiable.
  *
- * Note this widens only the ALLOWLIST leg of the manifest condition. The
+ * Note this widens only the enrolment leg of the manifest condition. The
  * both-apps-installed suppression is independent and still applies: Full marks
  * `zenuml-full-active` per space (src/full-presence.ts) and the condition
  * subtracts it, so a site carrying both apps keeps the Lite byline dark.
@@ -227,8 +206,7 @@ export function decide(cloudId: string | undefined): Decision {
   if (!cloudId) {
     return { value: HIDDEN, decision: 'suppressed', reason: 'no_signal' };
   }
-  // ALLOWLIST no longer gates — it only names our own sites in logs.
-  return { value: VISIBLE, decision: 'visible', reason: 'enrolled', site: ALLOWLIST.get(cloudId) };
+  return { value: VISIBLE, decision: 'visible', reason: 'enrolled' };
 }
 
 /** `getAppContext()` throws outside an invocation context; degrade to unknown. */
@@ -243,9 +221,9 @@ function readContext(): { cloudId?: string; appId?: string } {
 
 export async function scheduledHandler() {
   const { cloudId, appId } = readContext();
-  const { value: target, decision, reason, site } = decide(cloudId);
+  const { value: target, decision, reason } = decide(cloudId);
   console.log(
-    `${L} evaluated cloudId=${cloudId ?? 'unknown'} site=${site ?? '-'} ` +
+    `${L} evaluated cloudId=${cloudId ?? 'unknown'} ` +
       `decision=${decision} reason=${reason} target=${target}`,
   );
 

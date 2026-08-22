@@ -1216,7 +1216,15 @@ async function onLearnMore() {
 .byline {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* 100vh, NOT 100%. The Forge mount chain gives no ancestor a height —
+     index.html is `body > div.mx-auto(width:100%) > #app`, all height:auto —
+     so `height:100%` here resolved to content height, the body's overflow-y
+     never engaged, and the whole iframe scrolled with the pinned addrow +
+     footer pushed off the bottom (observed on lite-stg, 6-diagram page).
+     100vh is the iframe viewport height regardless of ancestors, which caps
+     the flex column so only the list scrolls. Scoped to the byline; the
+     shared index.html is untouched, so no other Forge surface is affected. */
+  height: 100vh;
   box-sizing: border-box;
   overflow: hidden;
   background: #ffffff;
@@ -1475,11 +1483,17 @@ async function onLearnMore() {
 }
 
 /* Add another ------------------------------------------------------------- */
-/* Sits between the scrolling body and the footer, so it never scrolls away. */
+/* Sits between the scrolling body and the footer, so it never scrolls away.
+   The scroll mechanics (header/addrow/footer flex:none, body flex:1 +
+   min-height:0 + overflow-y:auto) already contain the list — this stronger
+   top divider is the VISIBLE half of that: #dfe1e6 rather than the #ebecf0 of
+   the row separators, so the pinned add-another + footer group reads as one
+   fixed region below the scroll boundary instead of blending into the last
+   scrolled row. Matches the 4a scroll-containment mock. */
 .addrow {
   flex: none;
   padding: 12px 20px;
-  border-top: 1px solid #ebecf0;
+  border-top: 1px solid #dfe1e6;
   background: #fff;
 }
 .addrow__label {

@@ -299,11 +299,13 @@ export type AnalyticsProperties = {
   // key on, so staleness is the only available proxy and it must be readable
   // apart from a confident absence.
   byline_visibility_decision?: "visible" | "suppressed";
-  // `enrolled` is the allowlist hit: this cloudId is named in
-  // src/byline-visibility.ts ALLOWLIST. `not_enrolled` is a confident miss,
-  // and `no_signal` is the distinct case where the runtime gave us no cloudId
-  // to match at all — both suppress, but only one of them means the gate is
-  // working as intended, so they must not collapse into one value.
+  // `enrolled` means the installation renders the byline. Since the
+  // 2026-08-22 general rollout that is every installation with a resolvable
+  // cloudId, so `not_enrolled` is no longer emitted — it is retained here
+  // because historical events in Mixpanel still carry it, and dropping it from
+  // the union would make that data untypeable. `no_signal` is the distinct
+  // live case where the runtime gave us no cloudId at all: it still suppresses,
+  // and it must not collapse into the same value as a deliberate hide.
   byline_visibility_reason?:
     | "full_present"
     | "full_absent"

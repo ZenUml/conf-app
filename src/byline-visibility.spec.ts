@@ -1,6 +1,6 @@
 /**
- * The allowlist that decides whether the Lite byline exists at all, and the
- * space sweep that materialises it.
+ * The rollout decision that controls whether the Lite byline exists at all,
+ * and the space sweep that materialises it.
  *
  * Worth pinning at this level because the gate it feeds is fail-CLOSED and
  * therefore silent in both directions. A decision that wrongly returns HIDDEN
@@ -86,16 +86,23 @@ describe('decide', () => {
     expect(decide(WHIMET4).value).toBe(VISIBLE);
   });
 
-  it('suppresses an installation that is not on the allowlist', () => {
+  // General rollout (2026-08-22): a site absent from ALLOWLIST is enrolled
+  // exactly like one named in it. This is the assertion that used to say the
+  // opposite; it is inverted deliberately, not stale.
+  it('enrols an installation that is not named in ALLOWLIST', () => {
     const d = decide(NOBODY);
-    expect(d.value).toBe(HIDDEN);
-    expect(d.decision).toBe('suppressed');
-    expect(d.reason).toBe('not_enrolled');
+    expect(d.value).toBe(VISIBLE);
+    expect(d.decision).toBe('visible');
+    expect(d.reason).toBe('enrolled');
+    // No hostname to report for a site we do not name — logs only.
+    expect(d.site).toBeUndefined();
   });
 
-  // The uncertainty case is the one that matters: an unresolvable cloudId must
-  // land on the same side as an unenrolled one. Returning VISIBLE here would
-  // turn every installation the runtime could not identify into a rollout.
+  // With the allowlist gone this is the ONLY suppressing input left, which
+  // makes it the load-bearing one. The sweep writes a property keyed to a
+  // specific installation, so an unidentifiable one has nothing safe to write;
+  // returning VISIBLE here would also make the gate unfalsifiable, since every
+  // possible input would then be enrolled.
   it('suppresses rather than enrols when the cloudId cannot be resolved', () => {
     const d = decide(undefined);
     expect(d.value).toBe(HIDDEN);
@@ -111,11 +118,16 @@ describe('decide', () => {
     expect(typeof decide(undefined).value).toBe('string');
   });
 
-  it('keeps the allowlist to our own sites', () => {
+  // ALLOWLIST is log-naming only now, so this pins a privacy rule rather than
+  // a gate: whatever it holds must stay our own sites, because these hostnames
+  // live in a public repo (docs/policies/client-privacy.md).
+  it('keeps ALLOWLIST to our own sites — it names, it does not grant', () => {
     expect([...ALLOWLIST.values()].sort()).toEqual([
       'lite-stg.atlassian.net',
       'whimet4.atlassian.net',
     ]);
+    // Membership must not change the decision either way.
+    expect(decide(LITE_STG).decision).toBe(decide(NOBODY).decision);
   });
 });
 
@@ -159,7 +171,11 @@ describe('spacePropertyKey', () => {
 describe('scheduledHandler', () => {
   let site: FakeSite;
 
-  function arrange(cloudId: string, opts: { spaces?: string[]; appId?: string } = {}) {
+  // `cloudId: undefined` is the ONLY suppressed input since the general
+  // rollout — an unidentifiable installation. It used to be possible to
+  // suppress with a real-but-unlisted cloudId; that is now an enrolled site,
+  // so the suppression tests below drive this instead.
+  function arrange(cloudId: string | undefined, opts: { spaces?: string[]; appId?: string } = {}) {
     site = makeSite(opts.spaces ?? ['11', '22', '33']);
     forgeMocks.requestConfluence.mockImplementation(fakeConfluence(site));
     const store = fakeStorage(site);
@@ -230,7 +246,7 @@ describe('scheduledHandler', () => {
   // Absence is the hidden state: a suppressed installation KNOWN to be clean
   // must cost one storage read per tick and touch Confluence not at all.
   it('a suppressed site in the clean state makes zero Confluence requests', async () => {
-    arrange(NOBODY);
+    arrange(undefined);
     site.storage.set(STATE, 'clean');
 
     await scheduledHandler();
@@ -239,7 +255,7 @@ describe('scheduledHandler', () => {
   });
 
   it('un-enrolment sweeps the properties away, marks clean, and drops the legacy property', async () => {
-    arrange(NOBODY);
+    arrange(undefined);
     for (const spaceId of site.spaces) setProp(site, spaceId, KEY, { enabled: 'true' });
     site.storage.set(STATE, 'enrolled');
     site.appProps.set('byline-enabled', { enabled: 'true' });
@@ -257,7 +273,7 @@ describe('scheduledHandler', () => {
   // suppressed installation converges with ONE sweep (which also clears any
   // stale properties from earlier revisions) and is clean thereafter.
   it('a suppressed site with unknown state converges to clean via one sweep', async () => {
-    arrange(NOBODY);
+    arrange(undefined);
 
     await scheduledHandler();
     expect(site.storage.get(STATE)).toBe('clean');
@@ -271,7 +287,7 @@ describe('scheduledHandler', () => {
   // that could not finish — otherwise a partial clear never retries and stale
   // `enabled:"true"` properties strand on the skipped spaces forever.
   it('keeps the state when the un-enrolment sweep cannot complete', async () => {
-    arrange(NOBODY, { spaces: ['11', '22'] });
+    arrange(undefined, { spaces: ['11', '22'] });
     for (const spaceId of site.spaces) setProp(site, spaceId, KEY, { enabled: 'true' });
     site.storage.set(STATE, 'enrolled');
     const inner = fakeConfluence(site);

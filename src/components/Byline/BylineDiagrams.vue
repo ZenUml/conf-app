@@ -239,8 +239,13 @@
          Shown only alongside the list — the empty and failed states carry the
          full picker, and a page that already has diagrams is exactly where the
          next one gets added, so the types have to stay reachable here too. -->
+    <!-- 5b: real buttons, not ghost chips. The blue "+" replaces the per-type
+         icon — all four carried the same generic glyph, so the icon added noise
+         where the plus says *create*. The heading is a 13px semibold dark
+         "Add a diagram", not a 12px grey caption that read as metadata about
+         the list above. -->
     <div v-if="showAddAnother" class="addrow" data-testid="byline-type-strip">
-      <div class="addrow__label">Add another</div>
+      <div class="addrow__label">Add a diagram</div>
       <div class="chips">
         <button
           v-for="t in DIAGRAM_TYPES"
@@ -251,7 +256,7 @@
           :data-testid="`byline-type-${t.key}`"
           @click="onAddDiagram(t.macroType, t.diagramType)"
         >
-          <img class="chip__icon" :src="t.icon" alt="" />{{ t.name }}
+          <span class="chip__plus" aria-hidden="true">+</span>{{ t.name }}
         </button>
       </div>
     </div>
@@ -1492,33 +1497,45 @@ async function onLearnMore() {
    scrolled row. Matches the 4a scroll-containment mock. */
 .addrow {
   flex: none;
-  padding: 12px 20px;
+  padding: 14px 20px 16px;
   border-top: 1px solid #dfe1e6;
   background: #fff;
 }
+/* A heading, not a caption: 13px semibold dark. At 12px grey it read as
+   metadata about the list above rather than as labelling the actions below. */
 .addrow__label {
-  font-size: 12px;
-  color: #5e6c84;
-  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #172b4d;
+  margin-bottom: 10px;
 }
+/* Equal-width cells (5b): one control group, not four loose chips. Column-flow
+   auto-columns rather than a hardcoded repeat(4, …), so a fifth type keeps the
+   single equal-width row without touching this rule. */
 .chips {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 8px;
-  flex-wrap: wrap;
 }
+/* 5b "real button styling": grey fill instead of ghost, a darker border
+   (#c1c7d0 over #dfe1e6), and a 1px bottom shadow for a raised edge — the
+   three changes that make these read as pressable rather than as tags. */
 .chip {
-  border: 1px solid #dfe1e6;
+  border: 1px solid #c1c7d0;
   border-radius: 4px;
-  padding: 6px 12px 6px 8px;
+  padding: 9px 10px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  background: #fff;
+  background: #f4f5f7;
+  box-shadow: 0 1px 0 rgba(9, 30, 66, 0.08);
   font-family: inherit;
-  color: inherit;
+  color: #172b4d;
 }
 .chip:hover:not(:disabled) {
   border-color: #0052cc;
@@ -1531,10 +1548,13 @@ async function onLearnMore() {
   opacity: 0.5;
   cursor: default;
 }
-.chip__icon {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
+/* The create verb, where a generic per-type glyph only added noise. */
+.chip__plus {
+  flex: none;
+  color: #0052cc;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 /* Post-create panel ------------------------------------------------------- */

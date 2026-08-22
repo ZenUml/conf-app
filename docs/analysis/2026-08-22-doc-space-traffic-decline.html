@@ -1,0 +1,472 @@
+<title>Doc 空间访问量调查</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --plane: #f4f5f3;
+    --surface: #fcfcfb;
+    --ink: #131516;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --hair: #e1e0d9;
+    --axis: #c3c2b7;
+    --s1: #2a78d6;
+    --s1-soft: #cde2fb;
+    --s2: #eb6834;
+    --s2-soft: #fbd9cb;
+    --warn-ink: #7a4a00;
+    --warn-bg: #fff3d6;
+    --ok-ink: #006300;
+    --bad-ink: #b42525;
+    --code-bg: #eeefec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --plane: #0f0f0e;
+      --surface: #1a1a19;
+      --ink: #f3f3ef;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --hair: #2c2c2a;
+      --axis: #383835;
+      --s1: #3987e5;
+      --s1-soft: #184f95;
+      --s2: #d95926;
+      --s2-soft: #6b2a12;
+      --warn-ink: #f5c76a;
+      --warn-bg: #33270d;
+      --ok-ink: #6fd36f;
+      --bad-ink: #f08080;
+      --code-bg: #262624;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane: #0f0f0e;
+    --surface: #1a1a19;
+    --ink: #f3f3ef;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --hair: #2c2c2a;
+    --axis: #383835;
+    --s1: #3987e5;
+    --s1-soft: #184f95;
+    --s2: #d95926;
+    --s2-soft: #6b2a12;
+    --warn-ink: #f5c76a;
+    --warn-bg: #33270d;
+    --ok-ink: #6fd36f;
+    --bad-ink: #f08080;
+    --code-bg: #262624;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--plane);
+    color: var(--ink);
+    font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    font-variant-numeric: tabular-nums;
+  }
+  main { max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1, h2, h3 {
+    font-family: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+    text-wrap: balance;
+    line-height: 1.25;
+    margin: 0;
+  }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: 0.01em; }
+  h2 { font-size: 20px; font-weight: 700; margin-top: 44px; margin-bottom: 12px; padding-top: 16px; border-top: 1px solid var(--hair); }
+  h3 { font-size: 16px; font-weight: 600; margin-top: 20px; margin-bottom: 6px; }
+  p { margin: 0 0 12px; max-width: 70ch; }
+  .eyebrow { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .meta { color: var(--ink-2); font-size: 13px; margin-top: 8px; }
+  .answer {
+    margin-top: 24px;
+    padding: 18px 20px;
+    background: var(--surface);
+    border: 1px solid var(--hair);
+    border-left: 4px solid var(--s1);
+    border-radius: 4px;
+  }
+  .answer p { max-width: none; }
+  .answer .big { font-size: 17px; font-weight: 500; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 20px 0 8px; }
+  @media (max-width: 720px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+  .tile { background: var(--surface); border: 1px solid var(--hair); border-radius: 4px; padding: 12px 14px; }
+  .tile .k { font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+  .tile .v { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 22px; font-weight: 500; line-height: 1.2; margin-top: 4px; }
+  .tile .d { font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+  .tile .v.down { color: var(--bad-ink); }
+  figure { margin: 16px 0 8px; background: var(--surface); border: 1px solid var(--hair); border-radius: 4px; padding: 14px 14px 8px; position: relative; }
+  figure .title { font-weight: 500; font-size: 14px; margin-bottom: 2px; }
+  figure .sub { font-size: 12px; color: var(--ink-2); margin-bottom: 8px; }
+  figure svg { width: 100%; height: auto; display: block; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin: 6px 0 2px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--sw); }
+  .legend span.seg::before { display: none; }
+  .seg button { font: inherit; font-size: 12px; padding: 2px 10px; border: 1px solid var(--hair); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+  .seg button:first-child { border-radius: 3px 0 0 3px; }
+  .seg button:last-child { border-radius: 0 3px 3px 0; margin-left: -1px; }
+  .seg button.on { background: var(--ink); color: var(--plane); border-color: var(--ink); }
+  .seg button:focus-visible { outline: 2px solid var(--s1); outline-offset: 1px; }
+  .tip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--ink); color: var(--plane); font-size: 12px; line-height: 1.4;
+    padding: 6px 8px; border-radius: 3px; white-space: nowrap; z-index: 2;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  .tablewrap { overflow-x: auto; margin: 12px 0; border: 1px solid var(--hair); border-radius: 4px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  th { font-weight: 500; color: var(--ink-2); font-size: 12px; letter-spacing: 0.04em; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace; white-space: nowrap; }
+  code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--hair); color: var(--ink-2); white-space: nowrap; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .tag.run { border-color: var(--ok-ink); color: var(--ok-ink); }
+  .tag.code { border-color: var(--s1); color: var(--s1); }
+  .tag.no { border-color: var(--bad-ink); color: var(--bad-ink); }
+  .tag.unk { background: var(--warn-bg); color: var(--warn-ink); border-color: transparent; }
+  ul { padding-left: 20px; margin: 0 0 12px; }
+  li { margin-bottom: 4px; max-width: 75ch; }
+  .note { font-size: 13px; color: var(--ink-2); }
+  .cause { display: grid; grid-template-columns: 92px 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--hair); }
+  .cause:last-child { border-bottom: none; }
+  .cause .w { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; color: var(--ink-2); padding-top: 3px; }
+  .cause .w b { display: block; font-size: 15px; color: var(--ink); font-weight: 500; }
+  .cause h3 { margin-top: 0; }
+  .cause p { margin-bottom: 6px; }
+  a { color: var(--s1); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main>
+  <div class="eyebrow">zenuml.atlassian.net · 空间 Doc(ZenUML Docs)· 2019-11 至 2026-08</div>
+  <h1>Doc 空间访问量调查</h1>
+  <div class="meta">数据截止 2026-08-22 · 34 个 Doc 页面(31 个当前 + 3 个归档)+ 4 个 ZEN 空间对照页面 · 来源:Confluence Analytics REST、GA4、Mixpanel、GitHub、Wayback Machine、Marketplace API</div>
+
+  <div class="answer">
+    <p class="big">下降时间:2023-11 第三周开始,2024-01 第一周到底。月度 2023-12 = 2,619 次 → 2024-01 = 516 次(−80%),之后持续走低到 2026 年的每月约 130 次。</p>
+    <p><b>能直接观测到的:</b>(1)Doc 空间 34 个页面的周浏览量在 2023-12-23 周 318 → 12-30 周 187 → 2024-01-06 周 61,此后不再回升;上一年同样的假期低谷(2022-12-31 周 136)在一月恢复到 131 / 259 / 167 / 202。(2)下跌集中在"从空间首页进入"的那部分流量:首页 2023 年 7,969 次 → 2024 年 1,177 次(−85%),从首页导航才能到达的 Basic Concepts / FAQs −90% / −94%;靠内容查询到达的 Sequence diagram syntax 只降 −48%。(3)2023-12-26 zenuml.com/docs 上线,GA4 中 /docs 2023-12 为 134 次,2024-01 为 7,340 次。(4)Confluence 分析没有来源(referrer)维度,Doc 空间的访问来自哪里无法直接测得。</p>
+    <p><b>结论(推断,不是观测):</b>Doc 空间 2023 年的流量主要来自站外入口落在空间首页(品牌搜索、各处 "Documentation" 链接),2023-12 之后这部分入口转到了 zenuml.com / zenuml.com/docs。已量化并排除的入口:应用内链接(编辑器帮助按钮、Get Started 页、仪表盘)量级为每月几十到几百次,且 2024-05 之前一直指向 Doc 空间;Marketplace 文档链接从未改动,列表页每月约 100–200 次浏览;zenuml.com 换站(2023-10-21 至 11-10)把首页两个文档入口从 Doc 空间改指站内 <code>/docs</code>,前后周均值只差 5%,且 GA4 显示 <code>/docs</code> 作为落地页 2024 Q1 只有 101 次(首页 7,255 次)。削弱推断的事实:zenuml.com 2024 Q1 的会话来源中搜索引擎只占 26%(google 20%、bing 4%、baidu 1%),直接访问 42%,垃圾 referral 18%;Google 今天对 "zenuml sequence diagram syntax" 仍把 Confluence 页排在第一位。Doc 空间 2023 年流量的真实来源:原因未查明。</p>
+  </div>
+
+  <div class="grid-4">
+    <div class="tile"><div class="k">2023 全年</div><div class="v">20,044</div><div class="d">历史最高;11 月 2,598、12 月 2,619</div></div>
+    <div class="tile"><div class="k">2024-01</div><div class="v down">516</div><div class="d">较 2023-12 −80%</div></div>
+    <div class="tile"><div class="k">2025 全年</div><div class="v">3,941</div><div class="d">月均 328</div></div>
+    <div class="tile"><div class="k">2026 1–8 月</div><div class="v">1,078</div><div class="d">月均 135;同期 zenuml.com/docs 26,575</div></div>
+  </div>
+
+  <h2>1. 访问量序列(Atlassian 数据)</h2>
+  <p>数据来自 Confluence Analytics REST <code>/wiki/rest/api/analytics/content/{id}/views?fromDate=</code>,对每个页面按月取累计值再做差分。该接口与页面"分析"面板是同一数据源;站点为 Standard 计划,没有 Premium 的空间级分析界面。计数包含匿名访问(2026-08-22 14:11 用无登录、未点 cookie 同意的浏览器打开 EULA 页,计数 51 → 52)。</p>
+
+  <figure id="f1">
+    <div class="title">Doc 空间月浏览量,2019-11 至 2026-08(34 个页面合计)</div>
+    <div class="sub">悬停看数值。标注:A = 2023-06 起翻倍(原因未查明);B = 2023-11 峰值;C = 2024-01 −80%;D = 2024-05-09 应用内帮助按钮改指 zenuml.com/docs(无台阶);E = 2024-08 孤立峰值 1,548(其中 Sequence diagram syntax 686、其余页面约 860,原因未查明)</div>
+    <div class="legend"><span style="--sw: var(--s1)">Doc 空间月浏览量</span></div>
+    <svg viewBox="0 0 880 300" role="img" aria-label="Doc 空间月浏览量柱状图"></svg>
+    <div class="tip"></div>
+  </figure>
+
+  <figure id="f2">
+    <div class="title">周浏览量放大:2023-01 至 2024-06(6 个主要页面合计)</div>
+    <div class="sub">Confluence 以周为单位存储历史计数(每周六起算)。6 页:ZenUML 首页、Sequence diagram syntax、Get started、Basic Concepts、Order of participants、ZEN 空间 Case Study。</div>
+    <div class="legend"><span style="--sw: var(--s1)">6 页合计 / 周</span></div>
+    <svg viewBox="0 0 880 300" role="img" aria-label="周浏览量折线图"></svg>
+    <div class="tip"></div>
+  </figure>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>周(起始日)</th><th class="num">6 页合计</th><th class="num">首页</th><th class="num">Syntax</th><th class="num">Get started</th><th>同期事件</th></tr></thead>
+    <tbody>
+      <tr><td>2023-09-02 ~ 11-11</td><td class="num">均 402</td><td class="num"></td><td class="num"></td><td class="num"></td><td>换站前基线(11 周;zenuml.com 新站在 11-10 快照已上线)</td></tr>
+      <tr><td>2023-11-18</td><td class="num">753</td><td class="num">405</td><td class="num">118</td><td class="num">95</td><td>孤立峰值周(换站之后;原因未查明)</td></tr>
+      <tr><td>2023-11-25</td><td class="num">619</td><td class="num">276</td><td class="num">125</td><td class="num">77</td><td></td></tr>
+      <tr><td>2023-12-02 ~ 12-23</td><td class="num">均 381</td><td class="num"></td><td class="num"></td><td class="num"></td><td>换站后 4 周,较基线 −5%;12-16 至 12-19 Doc 空间重构(新建 16 页)</td></tr>
+      <tr><td>2023-12-23</td><td class="num">318</td><td class="num">129</td><td class="num">98</td><td class="num">63</td><td>12-26 zenuml.com/docs 内容提交、gtag 启用</td></tr>
+      <tr><td>2023-12-30</td><td class="num">187</td><td class="num">74</td><td class="num">55</td><td class="num">23</td><td>假期周(上一年 2022-12-31 周为 136)</td></tr>
+      <tr><td>2024-01-06</td><td class="num">61</td><td class="num">23</td><td class="num">19</td><td class="num">11</td><td>谷底;上一年 2023-01-07 周为 131</td></tr>
+      <tr><td>2024-01-13 ~ 01-27</td><td class="num">92 / 97 / 72</td><td class="num"></td><td class="num"></td><td class="num"></td><td>不再回升;上一年同期 259 / 167 / 202。此后稳定在 60–110 / 周</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>2. 流量去了哪里:zenuml.com/docs(GA4)</h2>
+  <p>GA4 属性 "ZenUML.com" (420951319,数据从 2023-11 开始)中路径含 <code>docs</code> 的页面浏览量,与 Doc 空间按月并排:</p>
+
+  <figure id="f3">
+    <div class="title">Doc 空间 vs zenuml.com/docs 月浏览量,2023-01 至 2026-08</div>
+    <div class="sub">同一纵轴,单位都是页面浏览次数(Confluence 分析 / GA4 两套计数)。2026-04 至 08 的 GA4 月度值未取得(Google 账号验证页阻断),以 5 个月合计 12,706 显示为一根带纹理的宽柱。悬停看数值。</div>
+    <div class="legend" style="align-items:center"><span style="--sw: var(--s1)">Doc 空间(Confluence)</span><span style="--sw: var(--s2)">zenuml.com/docs(GA4)</span><span class="seg" style="margin-left:auto"><button type="button" data-scale="linear" class="on">线性</button><button type="button" data-scale="log">对数</button></span></div>
+    <svg viewBox="0 0 880 340" role="img" aria-label="Doc 空间与 zenuml.com/docs 月浏览量双柱图"></svg>
+    <div class="tip"></div>
+  </figure>
+  <div class="tablewrap"><table>
+    <thead><tr><th>月份</th><th class="num">Doc 空间(Confluence)</th><th class="num">zenuml.com/docs(GA4)</th></tr></thead>
+    <tbody>
+      <tr><td>2023-11</td><td class="num">2,598</td><td class="num">0</td></tr>
+      <tr><td>2023-12</td><td class="num">2,619</td><td class="num">134</td></tr>
+      <tr><td>2024-01</td><td class="num">516</td><td class="num">7,340</td></tr>
+      <tr><td>2024-02</td><td class="num">561</td><td class="num">7,268</td></tr>
+      <tr><td>2024-03</td><td class="num">629</td><td class="num">7,542</td></tr>
+      <tr><td>2024 全年</td><td class="num">6,877</td><td class="num">135,827</td></tr>
+      <tr><td>2025 全年</td><td class="num">3,941</td><td class="num">97,885</td></tr>
+      <tr><td>2026 1–8 月</td><td class="num">1,078</td><td class="num">26,575</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">两列单位都是页面浏览次数,但计数方式不同(Confluence 分析 vs GA4),只能比较量级与时间点,不能直接相减。GA4 的 /docs 浏览量含站点维护者自己的访问(2024 年 11,463 活跃用户、每人 11.8 次浏览)。</p>
+
+  <h2>3. 原因拆解</h2>
+  <div class="cause">
+    <div class="w"><b>主因(推断)</b>2023-12-26</div>
+    <div>
+      <h3>zenuml.com/docs 用同一套内容上线,站外入口转移 <span class="tag code">ZenUml/docs 提交记录</span> <span class="tag run">GA4</span> <span class="tag run">周序列</span> <span class="tag unk">来源无法直接测得</span></h3>
+      <p>Doc 空间 2023-12-16 至 12-19 新建的页面(What is ZenUML?、Quick Start、Language Guide、participant types 等)在 2023-12-26 以同名 Markdown 提交到 <code>ZenUml/docs</code> 仓库(commits <code>5124f21</code>、<code>205d0cb</code>、<code>fa58fda</code>、<code>eb9ae98</code>),同日启用 gtag(<code>6c2b923</code>)。GA4 中 /docs 路径 2023-12 为 134 次,2024-01 为 7,340 次。Google 对 <code>site:zenuml.atlassian.net</code> 目前仍有收录,但同内容已由 zenuml.com/docs 承接。</p>
+      <p>与序列的对应:12-23 周 318 → 12-30 周 187 → 01-06 周 61,之后 1 月各周 92 / 97 / 72,不再回升。排除季节因素:上一年同样的假期低谷(2022-12-31 周 136)在 2023-01 的各周为 131 / 259 / 167 / 202,完全恢复。各页面同步下跌,包括与应用无关的 ZEN 空间 Case Study 页(2023-11 第三周 48,2024-01 起为 0)。</p>
+      <p><b>证据强度。</b>Confluence 分析没有来源维度,"流量迁移"是推断,依据是时间对应、承接方的量级和下跌的页面分布(首页入口 −85%,内容页 −48%)。zenuml.com 这一侧能看到的来源(GA4,2024 Q1,9,389 个会话):(direct) 41.8%、google 20.4%、bing 4.1%、baidu 1.4%、t.co 3.2%、modeling-languages.com 1.6%,垃圾 referral(news.grets.store、rida.tokyo、static.seders.website)18%;没有来自 zenuml.atlassian.net 或 marketplace.atlassian.com 的会话。应用内指向 zenuml.com/docs 的链接 2024-05-09 才出现,2024 Q1 的 /docs 访问与应用无关。Google 今天对 "zenuml sequence diagram syntax" 仍把 Confluence 页排在第一,对内容查询的承接没有发生;推断只对"落在空间首页的品牌/链接入口"成立。</p>
+    </div>
+  </div>
+  <div class="cause">
+    <div class="w"><b>假设</b></div>
+    <div>
+      <h3>Doc 空间 2023 年的匿名流量主要来自站外(搜索引擎与外部链接) <span class="tag unk">未直接验证</span></h3>
+      <p>支持:首页累计 18,862 次浏览,登录用户只有 48 人,流量几乎全部匿名;应用内、Marketplace、zenuml.com 三个已知入口都量化为小;周序列有假期低谷,与人类访问的季节性一致(爬虫不会)。无法验证:zenuml.atlassian.net 不是我们的 Search Console 资源,Confluence 不记录 referrer,2023 年之前的站点设置变更(匿名访问、搜索引擎收录开关)无审计日志可查。今天的搜索结果(2026-08-22,WebSearch):查询 "zenuml" 和 "zenuml documentation" 的前 10 条都没有 zenuml.atlassian.net(落到 zenuml.github.io、zenuml.com、docs.zenuml.com、zenuml.com/docs、Marketplace);查询 "zenuml sequence diagram syntax" 的第 1 条仍是 Confluence 的 Sequence diagram syntax 页。与"首页入口 −85%、内容页 −48%"的页面分布一致,但这是今天的状态,推不出 2023-12 当时的变化。其他未排除的解释:搜索引擎对 zenuml.atlassian.net 的收录或排名在 2023-12 发生变化(含 Google 对品牌查询改为落到 zenuml.com);Atlassian 对匿名浏览计数口径的历史变化(今天匿名且未同意 cookie 的访问被计数,2024 年当时是否如此无法回溯)。</p>
+    </div>
+  </div>
+  <div class="cause">
+    <div class="w"><b>降级</b>2023-10/11 换站</div>
+    <div>
+      <h3>zenuml.com 换站,首页两个文档入口从 Doc 空间改指 /docs — 对周浏览量的影响 −5% <span class="tag run">Wayback 快照</span> <span class="tag run">周序列</span></h3>
+      <p>旧站(WordPress,标题 "ZenUML - Diagram-As-Code Solution")首页有两处指向 <code>zenuml.atlassian.net/wiki/spaces/Doc/overview</code>:导航栏 "Documentation"(<code>nav#primary-site-navigation &gt; li#menu-item-1436 &gt; a.menu-link</code>)和首屏按钮 "Read Docs"(<code>a#btn_secondary_read_docs</code>)。2022-05-24 快照 1 处,2022-12-01、2023-06-01、2023-09-01、2023-10-02、2023-10-21 快照各 2 处。</p>
+      <p>新站(2023-11-10 快照起)保留了同样两个位置,href 改成站内路径:导航栏 "Docs" → <code>/docs</code>,首屏按钮沿用同一个 DOM id <code>btn_secondary_read_docs</code>,文案 "Docs",href <code>/docs</code>(2024-01-23 快照与今天一致)。所以这两个入口是改指,不是删除;新站不再有任何指向 Doc 空间的链接。</p>
+      <p>但序列上没有对应的台阶:换站前 11 周(2023-09-02 至 11-11)6 页合计周均 402,换站后 4 周(12-02 至 12-23)周均 381,差 5%;中间 11-18 / 11-25 两周反而出现 753 / 619 的孤立峰值(原因未查明)。Google 2023-11 核心更新(11-02 至 11-28)也落在这一窗口,同样没有对应的台阶。GA4 也显示这条路径量小:新站首页 <code>/</code> 2024 Q1 有 7,255 次落地会话,而 <code>/docs</code> 作为落地页只有 101 次,/docs 的浏览量主要来自搜索直接落到具体文档页(<code>/docs/tutorials/condition-and-loops-in-sequence-diagrams</code> 168 次落地)。结论:zenuml.com 首页导流到文档的份额本来就小,这两个入口的改指不是下降的主因。</p>
+    </div>
+  </div>
+  <div class="cause">
+    <div class="w"><b>次要</b>2024-05-09</div>
+    <div>
+      <h3>应用内帮助按钮改指 zenuml.com/docs <span class="tag code">conf-app 2fe93083</span></h3>
+      <p>编辑器 Header 的 Help 按钮从 <code>Doc/overview</code> 改为 <code>zenuml.com/docs?utm_source=confluence-plugin</code>。月序列在 2024-04/05/06 为 443 / 478 / 467,看不到台阶。Mixpanel 2025-04 至 2026-04 的 <code>click · help</code> 为每月 140–617 次(30–89 个用户),说明该入口量级本来就小于每月数百;2024 年的实际点击量无数据(旧 Mixpanel 导出只覆盖 2025-04 之后)。</p>
+    </div>
+  </div>
+  <div class="cause">
+    <div class="w"><b>排除</b></div>
+    <div>
+      <h3>Marketplace 文档链接没有变化 <span class="tag run">Marketplace versions API</span></h3>
+      <p>Full(<code>com.zenuml.confluence-addon</code>)全部 133 个版本(2018-01-10 至 2026-08-21)和 Lite 219 个版本(2019-11-30 起)的 <code>vendorLinks.documentation</code> 都是 <code>Doc/overview</code>,包括最新的 2.97.0 / 8.162.0。GA4 属性 "ZenUML Diagrams for Confluence"(420159616,Marketplace 列表页埋点,2023-11 起)显示列表页每月约 100–200 次浏览,该渠道量级小。</p>
+    </div>
+  </div>
+  <div class="cause">
+    <div class="w"><b>排除</b></div>
+    <div>
+      <h3>Doc 空间权限、robots、Atlassian 计数口径</h3>
+      <p>Doc 空间当前匿名可读(<code>/rest/api/space/Doc</code> 匿名 200,权限含 anonymous read/export);<code>robots.txt</code> 为 <code>Allow: /wiki/</code>;匿名且未同意 cookie 的访问仍被计数(见第 1 节)。2023 年之前的权限变更历史无法查证(Standard 计划审计日志不覆盖该时段)。</p>
+    </div>
+  </div>
+  <div class="cause">
+    <div class="w"><b>无关</b>2024-09</div>
+    <div>
+      <h3>ZEN 空间转为非公开</h3>
+      <p>4 个 ZEN 页面的浏览量在 2024-09 归零(JetBrains Documentations 页 2024-08 = 38,2024-09 = 6,之后 0);当前 ZEN 空间无匿名权限,匿名访问 404。只影响 ZEN,不影响 Doc。</p>
+    </div>
+  </div>
+  <div class="cause">
+    <div class="w"><b>未查明</b>2023-06</div>
+    <div>
+      <h3>2023-06 第二周起的翻倍 <span class="tag unk">原因未查明</span></h3>
+      <p>6 页合计从每周约 200 升到 400–600(2023-06-10 周 395,06-17 周 596)。zenuml.com 的 Doc 链接在 2022 年已存在,不是新增;旧站 WordPress 的 Google Analytics 是 UA(<code>UA-114996686-1</code>),数据已被 Google 删除,无法核对 zenuml.com 当时的流量变化。</p>
+    </div>
+  </div>
+
+  <h2>4. 指向 Doc 空间的入口:变更时间线</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>日期</th><th>入口</th><th>变更</th><th>证据</th></tr></thead>
+    <tbody>
+      <tr><td>2018-01-10 起</td><td>Marketplace 列表 "Documentation"</td><td>一直指向 Doc/overview,至今未变</td><td><span class="tag run">versions API</span></td></tr>
+      <tr><td>2022-05-24 前</td><td>zenuml.com(WordPress)导航</td><td>"Documentation" → Doc/overview</td><td><span class="tag run">Wayback</span></td></tr>
+      <tr><td>2022-08-04</td><td>Connect 应用 DocumentList "Learn more"</td><td>→ ZEN 空间 "How to embed existing macros"</td><td><span class="tag code">5379874a</span></td></tr>
+      <tr><td>2023-12-08</td><td>Connect 仪表盘 onboarding 链接</td><td>→ Doc "Get started"(504659970)</td><td><span class="tag code">12d3e1cc</span></td></tr>
+      <tr><td>2023-10-21 ~ 11-10</td><td>zenuml.com 首页导航 + 首屏按钮</td><td>换站;两处从 Doc/overview 改指站内 <code>/docs</code>(按钮 DOM id <code>btn_secondary_read_docs</code> 不变)</td><td><span class="tag run">Wayback</span></td></tr>
+      <tr><td>2023-12-26</td><td>zenuml.com/docs</td><td>上线,内容与 Doc 空间相同</td><td><span class="tag code">ZenUml/docs</span> <span class="tag run">GA4</span></td></tr>
+      <tr><td>2024-05-09</td><td>编辑器 Help 按钮</td><td>Doc/overview → zenuml.com/docs</td><td><span class="tag code">2fe93083</span></td></tr>
+      <tr><td>2025-08-30 / 10-25</td><td>Forge Get Started 页</td><td>"View docs" → Doc/overview(openUrl);Mixpanel 近 6 个月 8 次点击</td><td><span class="tag code">d2fa88c0 / 1ae24e58</span> <span class="tag run">Mixpanel</span></td></tr>
+      <tr><td>2026-08-19</td><td>Confluence 首页 feed 卡片</td><td>QUICK_START_URL → Doc/overview;上线至今 2 次点击</td><td><span class="tag code">825ee2c4</span> <span class="tag run">Mixpanel</span></td></tr>
+      <tr><td>持续</td><td>jetbrains-zenuml README</td><td>链接 "Sequence diagram syntax"(518848513);插件内 Documentation 动作指向 ZEN 空间页 233373697(现已不可匿名访问)</td><td><span class="tag code">GitHub</span></td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">app.zenuml.com(web-sequence)的代码历史和 2019–2026 各年 Wayback 快照都没有指向 Doc 空间的链接;docs.zenuml.com(VuePress 旧文档站,2018 年起,至今在线)只链接 DEMO 空间。confluence-plugin-server(Server 版插件)代码中没有 Doc 空间链接。</p>
+
+  <h2>5. 数据源覆盖</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>来源</th><th>状态</th><th>取得的内容 / 未取得的原因</th></tr></thead>
+    <tbody>
+      <tr><td>Atlassian(Confluence Analytics REST)</td><td><span class="tag run">已用</span></td><td>38 页 × 83 个月的累计计数(3,154 次请求);6 页 × 79 周。站点 Standard 计划,<code>/wiki/analytics</code> 显示 "restricted content",无空间级界面。</td></tr>
+      <tr><td>Mixpanel(项目 3373228 + 本地 DuckDB 导出 2025-04 至 2026-04)</td><td><span class="tag run">已用</span></td><td>应用内指向 Doc 空间的点击:<code>get_started_view_docs</code> 近 6 个月 8 次,<code>homepage_feed_action_clicked</code> 2 次;Help 按钮 <code>click · help</code> 每月 140–617 次(目标已是 zenuml.com/docs)。2024 年及更早无事件数据。</td></tr>
+      <tr><td>GitHub(conf-app 全历史 = 归档的 confluence-plugin-cloud;confluence-plugin-server;jetbrains-zenuml;web-sequence;docs)</td><td><span class="tag run">已用</span></td><td>第 4 节时间线中的各次链接变更。</td></tr>
+      <tr><td>Google Analytics(账户 P&amp;D Vision 1211588)</td><td><span class="tag run">部分</span></td><td>4 个 GA4 属性可用:zenuml.com 新站(420951319,2023-11 起)、Confluence 应用内(301971259,2023 年有 3,685 万次页面浏览但无帮助点击明细)、ZenUML GTM(386289357,Server 插件客户站点)、Marketplace 列表页(420159616,2023-11 起)。旧站 WordPress 与 app.zenuml.com 使用 UA 属性(UA-114996686-1、UA-1211588-20/22),数据已被 Google 删除,2023 年 zenuml.com 流量无法取得。</td></tr>
+      <tr><td>zenuml.com / app.zenuml.com 历史(Wayback Machine)</td><td><span class="tag run">已用</span></td><td>zenuml.com 2021–2026 共 14 个快照;app.zenuml.com 2020–2025 共 6 个快照;Doc 空间 2020–2026 快照;Marketplace 列表页 2021–2026 快照。</td></tr>
+      <tr><td>Cloudflare</td><td><span class="tag no">无法访问</span></td><td>账户 8d5fc7ce…(eagle.xiao@gmail.com):dash.cloudflare.com 在 Chrome Profile 2 / 6 / 8 / Default(agent-browser 复制)和真 Chrome(Playwright MCP)下都跳转到登录页,页面提示 "This account uses single sign-on (SSO)";wrangler OAuth token 调用 API 返回 <code>{"code":9109,"message":"Invalid access token"}</code>;各项目 .env 中没有 CLOUDFLARE_API_TOKEN。即使登录,区域分析只保留 30 天,覆盖不到 2023–24。</td></tr>
+      <tr><td>Google Search Console(sc-domain:zenuml.com,经 Playwright MCP 真 Chrome)</td><td><span class="tag run">已用</span></td><td>只有近 16 个月(2025-04-20 至 2026-08-19):总点击 23.7K、曝光 1.55M、CTR 1.5%、平均排名 14;点击最多的查询是 "zenuml" 5,840、"sequence diagram online" 551、"plantuml alternatives" 393;页面维度首页 10,131 次、博客文章 300–2,900 次、/docs 页面各 400–650 次。zenuml.atlassian.net 不是本账户的资源,没有该站的搜索数据;2023 年的搜索数据超出 16 个月窗口,无法取得。</td></tr>
+      <tr><td>Atlassian Marketplace</td><td><span class="tag run">已用</span></td><td>versions API(文档链接逐版本核对);列表页 Wayback 快照;v2 reporting API 已停用(HTTP 410),列表页流量用 GA4 属性 420159616 替代。</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>6. 核查过的 Confluence 页面(38 个)</h2>
+  <p>Doc 空间全部 31 个当前页面 + 3 个归档页面,以及 4 个被产品入口链接过的 ZEN 空间页面。累计浏览为 Confluence 分析 REST 的全时段计数;年度列为按 1 月 1 日累计值差分。</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>页面 ID</th><th>标题</th><th class="num">累计</th><th class="num">2023</th><th class="num">2024</th><th class="num">2025</th></tr></thead>
+    <tbody>
+      <tr><td>637599786</td><td>ZenUML(空间首页)</td><td class="num">18,862</td><td class="num">7,969</td><td class="num">1,177</td><td class="num">542</td></tr>
+      <tr><td>518848513</td><td>Sequence diagram syntax</td><td class="num">11,618</td><td class="num">3,880</td><td class="num">2,019</td><td class="num">652</td></tr>
+      <tr><td>504659970</td><td>Get started</td><td class="num">5,273</td><td class="num">2,179</td><td class="num">535</td><td class="num">507</td></tr>
+      <tr><td>251298112</td><td>Basic Concepts</td><td class="num">4,817</td><td class="num">2,160</td><td class="num">220</td><td class="num">80</td></tr>
+      <tr><td>253001861</td><td>ZenUML Docs</td><td class="num">2,618</td><td class="num">53</td><td class="num">36</td><td class="num">77</td></tr>
+      <tr><td>1273430067</td><td>ZEN: [Case Study] retail</td><td class="num">1,999</td><td class="num">993</td><td class="num">15</td><td class="num">0</td></tr>
+      <tr><td>558104577</td><td>Coloring and styles</td><td class="num">1,978</td><td class="num">811</td><td class="num">140</td><td class="num">80</td></tr>
+      <tr><td>1282342917</td><td>ZEN: [Demo] NTLM</td><td class="num">1,831</td><td class="num">646</td><td class="num">827</td><td class="num">1</td></tr>
+      <tr><td>564527216</td><td>How to change the order of participants</td><td class="num">1,674</td><td class="num">696</td><td class="num">116</td><td class="num">76</td></tr>
+      <tr><td>233373697</td><td>ZEN: Documentations(JetBrains 插件帮助目标)</td><td class="num">1,504</td><td class="num">335</td><td class="num">276</td><td class="num">0</td></tr>
+      <tr><td>1717141509</td><td>FAQs</td><td class="num">1,161</td><td class="num">813</td><td class="num">48</td><td class="num">82</td></tr>
+      <tr><td>1782120449</td><td>[Example] Sequence Diagram - Online Shopping</td><td class="num">1,096</td><td class="num">637</td><td class="num">255</td><td class="num">160</td></tr>
+      <tr><td>1727922177</td><td>ZEN: How to embed existing macros(Connect Get Started 页 "More details" 目标)</td><td class="num">847</td><td class="num">611</td><td class="num">53</td><td class="num">0</td></tr>
+      <tr><td>1802437075</td><td>Tutorials</td><td class="num">792</td><td class="num">30</td><td class="num">654</td><td class="num">91</td></tr>
+      <tr><td>1183350789</td><td>(归档) Syntax - Sequence Diagram</td><td class="num">694</td><td class="num">21</td><td class="num">94</td><td class="num">24</td></tr>
+      <tr><td>1724776449</td><td>Release Notes</td><td class="num">441</td><td class="num">169</td><td class="num">68</td><td class="num">65</td></tr>
+      <tr><td>1802306091</td><td>ZenUML Diagrams For Confluence</td><td class="num">349</td><td class="num">32</td><td class="num">135</td><td class="num">142</td></tr>
+      <tr><td>1802338991</td><td>Examples</td><td class="num">346</td><td class="num">46</td><td class="num">135</td><td class="num">144</td></tr>
+      <tr><td>1802305755</td><td>What is ZenUML?</td><td class="num">345</td><td class="num">45</td><td class="num">109</td><td class="num">151</td></tr>
+      <tr><td>1802338544</td><td>Overview</td><td class="num">333</td><td class="num">55</td><td class="num">141</td><td class="num">110</td></tr>
+      <tr><td>1802305790</td><td>Language Guide</td><td class="num">318</td><td class="num">58</td><td class="num">142</td><td class="num">91</td></tr>
+      <tr><td>1802338586</td><td>Quick Start</td><td class="num">314</td><td class="num">59</td><td class="num">159</td><td class="num">68</td></tr>
+      <tr><td>884375553</td><td>公开讲座——动态面向对象建模</td><td class="num">247</td><td class="num">103</td><td class="num">8</td><td class="num">15</td></tr>
+      <tr><td>989724742</td><td>(归档) Sandbox</td><td class="num">247</td><td class="num">4</td><td class="num">10</td><td class="num">7</td></tr>
+      <tr><td>1802338657</td><td>Pricing</td><td class="num">240</td><td class="num">27</td><td class="num">95</td><td class="num">94</td></tr>
+      <tr><td>1802437136</td><td>Products</td><td class="num">221</td><td class="num">20</td><td class="num">94</td><td class="num">92</td></tr>
+      <tr><td>1802339051</td><td>ZenUML Online Editor</td><td class="num">198</td><td class="num">24</td><td class="num">80</td><td class="num">72</td></tr>
+      <tr><td>1802436839</td><td>Concepts and Methodologies</td><td class="num">195</td><td class="num">35</td><td class="num">68</td><td class="num">74</td></tr>
+      <tr><td>1802338669</td><td>About</td><td class="num">186</td><td class="num">12</td><td class="num">52</td><td class="num">112</td></tr>
+      <tr><td>1802339064</td><td>ZenUML VSCode Extension</td><td class="num">172</td><td class="num">23</td><td class="num">65</td><td class="num">70</td></tr>
+      <tr><td>1802437160</td><td>ZenUML JetBrains Plugin</td><td class="num">154</td><td class="num">18</td><td class="num">68</td><td class="num">49</td></tr>
+      <tr><td>1802305811</td><td>Community and Support</td><td class="num">131</td><td class="num">21</td><td class="num">38</td><td class="num">56</td></tr>
+      <tr><td>1802862605</td><td>ZenUML Desktop</td><td class="num">120</td><td class="num">20</td><td class="num">33</td><td class="num">50</td></tr>
+      <tr><td>1803419651</td><td>Community</td><td class="num">110</td><td class="num">9</td><td class="num">36</td><td class="num">54</td></tr>
+      <tr><td>1803419683</td><td>EULA</td><td class="num">51</td><td class="num">3</td><td class="num">21</td><td class="num">17</td></tr>
+      <tr><td>1802338688</td><td>Contact Us</td><td class="num">44</td><td class="num">7</td><td class="num">20</td><td class="num">13</td></tr>
+      <tr><td>1994031105</td><td>Tutorial - JetBrains ZenUML Support</td><td class="num">38</td><td class="num">0</td><td class="num">5</td><td class="num">24</td></tr>
+      <tr><td>605454454</td><td>(归档) 来自X-Developer的采访</td><td class="num">28</td><td class="num">5</td><td class="num">1</td><td class="num">0</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">未纳入:ZEN 空间的其余页面(内部测试、烟雾测试页),以及 2019-11 之前的数据(分析服务无记录)。</p>
+
+  <h2>7. 边界</h2>
+  <ul>
+    <li>Confluence 分析不提供来源(referrer)维度,各入口的占比无法直接测得;"主因"的判断依据是入口变更时间与序列拐点的对应,以及 zenuml.com/docs 在 2024-01 承接的量级。</li>
+    <li>Confluence 历史计数按周存储(周六起算),2023–24 年的"日"级变化不可得。</li>
+    <li>2024-08 Sequence diagram syntax 页单月 686 次、2024-07 ZEN NTLM 页 697 次为孤立峰值,未纳入结论;原因未查明。</li>
+    <li>本报告未做任何改动;两处仍指向 Doc 空间的应用内入口(Forge Get Started、首页 feed 卡片)是否改指 zenuml.com/docs,由你决定。</li>
+  </ul>
+</main>
+
+<script>
+(function () {
+  const monthly = [["2019-11",77],["2019-12",89],["2020-01",213],["2020-02",415],["2020-03",349],["2020-04",610],["2020-05",547],["2020-06",465],["2020-07",406],["2020-08",211],["2020-09",181],["2020-10",344],["2020-11",407],["2020-12",632],["2021-01",612],["2021-02",547],["2021-03",828],["2021-04",802],["2021-05",643],["2021-06",665],["2021-07",823],["2021-08",411],["2021-09",413],["2021-10",672],["2021-11",661],["2021-12",643],["2022-01",1035],["2022-02",1240],["2022-03",895],["2022-04",1013],["2022-05",657],["2022-06",783],["2022-07",1113],["2022-08",761],["2022-09",619],["2022-10",735],["2022-11",981],["2022-12",973],["2023-01",826],["2023-02",1082],["2023-03",1081],["2023-04",1373],["2023-05",878],["2023-06",1750],["2023-07",2153],["2023-08",1782],["2023-09",2109],["2023-10",1793],["2023-11",2598],["2023-12",2619],["2024-01",516],["2024-02",561],["2024-03",629],["2024-04",443],["2024-05",478],["2024-06",467],["2024-07",676],["2024-08",1548],["2024-09",317],["2024-10",325],["2024-11",359],["2024-12",558],["2025-01",183],["2025-02",290],["2025-03",310],["2025-04",341],["2025-05",348],["2025-06",214],["2025-07",221],["2025-08",246],["2025-09",279],["2025-10",458],["2025-11",634],["2025-12",417],["2026-01",187],["2026-02",147],["2026-03",168],["2026-04",118],["2026-05",126],["2026-06",210],["2026-07",60],["2026-08",62]];
+  const weekly = [["2022-12-31",136],["2023-01-07",131],["2023-01-14",259],["2023-01-21",167],["2023-01-28",202],["2023-02-04",255],["2023-02-11",243],["2023-02-18",275],["2023-02-25",252],["2023-03-04",223],["2023-03-11",282],["2023-03-18",258],["2023-03-25",260],["2023-04-01",266],["2023-04-08",264],["2023-04-15",303],["2023-04-22",255],["2023-04-29",215],["2023-05-06",230],["2023-05-13",205],["2023-05-20",211],["2023-05-27",196],["2023-06-03",177],["2023-06-10",395],["2023-06-17",596],["2023-06-24",500],["2023-07-01",401],["2023-07-08",453],["2023-07-15",516],["2023-07-22",341],["2023-07-29",345],["2023-08-05",360],["2023-08-12",354],["2023-08-19",415],["2023-08-26",567],["2023-09-02",386],["2023-09-09",424],["2023-09-16",426],["2023-09-23",374],["2023-09-30",390],["2023-10-07",443],["2023-10-14",288],["2023-10-21",494],["2023-10-28",411],["2023-11-04",330],["2023-11-11",457],["2023-11-18",753],["2023-11-25",619],["2023-12-02",430],["2023-12-09",365],["2023-12-16",409],["2023-12-23",318],["2023-12-30",187],["2024-01-06",61],["2024-01-13",92],["2024-01-20",97],["2024-01-27",72],["2024-02-03",78],["2024-02-10",87],["2024-02-17",90],["2024-02-24",78],["2024-03-02",69],["2024-03-09",60],["2024-03-16",53],["2024-03-23",93],["2024-03-30",110],["2024-04-06",81],["2024-04-13",54],["2024-04-20",59],["2024-04-27",73],["2024-05-04",77],["2024-05-11",71],["2024-05-18",64],["2024-05-25",63],["2024-06-01",58],["2024-06-08",68],["2024-06-15",42],["2024-06-22",51],["2024-06-29",58]];
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  function fmt(n) { return n.toLocaleString("en-US"); }
+  function tooltip(fig, tip, x, y, html) { tip.innerHTML = html; tip.style.display = "block"; const r = fig.getBoundingClientRect(); const w = tip.offsetWidth; let left = x - r.left + 12; if (left + w > r.width - 8) left = x - r.left - w - 12; tip.style.left = left + "px"; tip.style.top = (y - r.top - 36) + "px"; }
+
+  function bars() {
+    const fig = document.getElementById("f1"), svg = fig.querySelector("svg"), tip = fig.querySelector(".tip");
+    const W = 880, H = 300, L = 48, R = 12, T = 26, B = 36; const iw = W - L - R, ih = H - T - B;
+    const max = 2800; const n = monthly.length; const bw = iw / n;
+    const y = v => T + ih - v / max * ih;
+    // grid
+    [0, 500, 1000, 1500, 2000, 2500].forEach(v => { el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: css("--hair"), "stroke-width": 1 }, svg); el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", "font-size": 10, fill: css("--muted"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = fmt(v); });
+    monthly.forEach((d, i) => {
+      const x = L + i * bw + 1, h = Math.max(0, T + ih - y(d[1]));
+      const r = el("rect", { x: x, y: y(d[1]), width: Math.max(1, bw - 2), height: h, fill: css("--s1"), rx: 1 }, svg);
+      const hit = el("rect", { x: L + i * bw, y: T, width: bw, height: ih, fill: "transparent" }, svg);
+      hit.addEventListener("mousemove", ev => { r.setAttribute("fill", css("--s2")); tooltip(fig, tip, ev.clientX, ev.clientY, d[0] + "  " + fmt(d[1]) + " 次"); });
+      hit.addEventListener("mouseleave", () => { r.setAttribute("fill", css("--s1")); tip.style.display = "none"; });
+      if (d[0].endsWith("-01")) { el("text", { x: L + i * bw + bw / 2, y: H - 14, "text-anchor": "middle", "font-size": 11, fill: css("--muted"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = d[0].slice(0, 4); el("line", { x1: L + i * bw, x2: L + i * bw, y1: T + ih, y2: T + ih + 5, stroke: css("--axis") }, svg); }
+    });
+    el("line", { x1: L, x2: W - R, y1: T + ih, y2: T + ih, stroke: css("--axis") }, svg);
+    const marks = [["A", "2023-06"], ["B", "2023-11"], ["C", "2024-01"], ["D", "2024-05"], ["E", "2024-08"]];
+    marks.forEach(m => { const i = monthly.findIndex(d => d[0] === m[1]); const cx = L + i * bw + bw / 2; const cy = y(monthly[i][1]) - 12; el("circle", { cx, cy, r: 8, fill: css("--surface"), stroke: css("--ink-2"), "stroke-width": 1 }, svg); el("text", { x: cx, y: cy + 3.5, "text-anchor": "middle", "font-size": 10, "font-weight": 600, fill: css("--ink"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = m[0]; });
+  }
+
+  function lines() {
+    const fig = document.getElementById("f2"), svg = fig.querySelector("svg"), tip = fig.querySelector(".tip");
+    const W = 880, H = 300, L = 48, R = 12, T = 20, B = 36; const iw = W - L - R, ih = H - T - B;
+    const max = 800; const n = weekly.length; const sx = i => L + i / (n - 1) * iw; const y = v => T + ih - v / max * ih;
+    [0, 200, 400, 600, 800].forEach(v => { el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: css("--hair") }, svg); el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", "font-size": 10, fill: css("--muted"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = fmt(v); });
+    // event bands
+    const band = (a, b, label) => { const ia = weekly.findIndex(d => d[0] >= a), ib = weekly.findIndex(d => d[0] >= b); el("rect", { x: sx(ia), y: T, width: sx(ib) - sx(ia), height: ih, fill: css("--s2-soft"), opacity: 0.45 }, svg); el("text", { x: sx(ib) - 4, y: T + ih - 8, "text-anchor": "end", "font-size": 10.5, fill: css("--ink-2") }, svg).textContent = label; };
+    band("2023-10-21", "2023-11-11", "10-21~11-10 zenuml.com 换站");
+    const vline = (d, label, dy, anchor) => { const i = weekly.findIndex(x => x[0] >= d); el("line", { x1: sx(i), x2: sx(i), y1: T, y2: T + ih, stroke: css("--s2"), "stroke-dasharray": "3 3" }, svg); el("text", { x: sx(i) + (anchor === "end" ? -4 : 4), y: T + dy, "text-anchor": anchor || "start", "font-size": 10.5, fill: css("--ink-2") }, svg).textContent = label; };
+    vline("2023-12-23", "12-26 zenuml.com/docs 上线", 28, "start");
+    vline("2024-05-04", "05-09 Help 按钮改指 zenuml.com/docs", ih - 10, "end");
+    const path = weekly.map((d, i) => (i ? "L" : "M") + sx(i).toFixed(1) + " " + y(d[1]).toFixed(1)).join(" ");
+    el("path", { d: path + " L" + sx(n - 1).toFixed(1) + " " + y(0) + " L" + sx(0) + " " + y(0) + " Z", fill: css("--s1-soft"), opacity: 0.35 }, svg);
+    el("path", { d: path, fill: "none", stroke: css("--s1"), "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+    el("line", { x1: L, x2: W - R, y1: T + ih, y2: T + ih, stroke: css("--axis") }, svg);
+    weekly.forEach((d, i) => { if (/-(01|04|07|10)-0[1-7]$/.test(d[0])) { el("text", { x: sx(i), y: H - 14, "text-anchor": "middle", "font-size": 11, fill: css("--muted"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = d[0].slice(0, 7); } });
+    // emphasized endpoints
+    [["2023-11-18", 753], ["2024-01-06", 61]].forEach(p => { const i = weekly.findIndex(d => d[0] === p[0]); el("circle", { cx: sx(i), cy: y(p[1]), r: 4, fill: css("--s1"), stroke: css("--surface"), "stroke-width": 2 }, svg); el("text", { x: sx(i) + (p[1] > 400 ? 10 : 8), y: y(p[1]) + (p[1] > 400 ? 4 : -8), "text-anchor": "start", "font-size": 11, fill: css("--ink"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = p[0] + "  " + p[1]; });
+    // crosshair + tooltip
+    const cross = el("line", { x1: 0, x2: 0, y1: T, y2: T + ih, stroke: css("--ink-2"), "stroke-width": 1, opacity: 0 }, svg);
+    const dot = el("circle", { r: 4, fill: css("--s1"), stroke: css("--surface"), "stroke-width": 2, opacity: 0 }, svg);
+    const hit = el("rect", { x: L, y: T, width: iw, height: ih, fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", ev => { const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const p = pt.matrixTransform(svg.getScreenCTM().inverse()); let i = Math.round((p.x - L) / iw * (n - 1)); i = Math.max(0, Math.min(n - 1, i)); cross.setAttribute("x1", sx(i)); cross.setAttribute("x2", sx(i)); cross.setAttribute("opacity", 1); dot.setAttribute("cx", sx(i)); dot.setAttribute("cy", y(weekly[i][1])); dot.setAttribute("opacity", 1); tooltip(fig, tip, ev.clientX, ev.clientY, "周 " + weekly[i][0] + "  " + fmt(weekly[i][1]) + " 次"); });
+    hit.addEventListener("mouseleave", () => { cross.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); tip.style.display = "none"; });
+  }
+  // Grouped bars: Doc space vs zenuml.com/docs, 2023-01 .. 2026-08
+  const pair = [["2023-01",826,0],["2023-02",1082,0],["2023-03",1081,0],["2023-04",1373,0],["2023-05",878,0],["2023-06",1750,0],["2023-07",2153,0],["2023-08",1782,0],["2023-09",2109,0],["2023-10",1793,0],["2023-11",2598,0],["2023-12",2619,134],["2024-01",516,7340],["2024-02",561,7268],["2024-03",629,7542],["2024-04",443,16749],["2024-05",478,15144],["2024-06",467,11480],["2024-07",676,12418],["2024-08",1548,14540],["2024-09",317,11339],["2024-10",325,11667],["2024-11",359,10779],["2024-12",558,9561],["2025-01",183,9299],["2025-02",290,10335],["2025-03",310,11184],["2025-04",341,12028],["2025-05",348,10616],["2025-06",214,7443],["2025-07",221,6883],["2025-08",246,6525],["2025-09",279,6854],["2025-10",458,5985],["2025-11",634,6419],["2025-12",417,4314],["2026-01",187,5859],["2026-02",147,4149],["2026-03",168,3861],["2026-04",118,null],["2026-05",126,null],["2026-06",210,null],["2026-07",60,null],["2026-08",62,null]];
+  const COMBINED = { from: "2026-04", to: "2026-08", value: 12706 };
+  function grouped(scale) {
+    const fig = document.getElementById("f3"), svg = fig.querySelector("svg"), tip = fig.querySelector(".tip");
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    const W = 880, H = 340, L = 52, R = 12, T = 16, B = 40; const iw = W - L - R, ih = H - T - B;
+    const n = pair.length, slot = iw / n, bw = (slot - 3) / 2;
+    const lin = v => T + ih - v / 18000 * ih;
+    const lg = v => v <= 0 ? T + ih : T + ih - (Math.log10(v) - 1) / (Math.log10(20000) - 1) * ih;  // floor 10
+    const y = scale === "log" ? lg : lin;
+    const ticks = scale === "log" ? [10, 100, 1000, 10000] : [0, 3000, 6000, 9000, 12000, 15000, 18000];
+    // hatch pattern for the combined bar
+    const defs = el("defs", {}, svg);
+    const pat = el("pattern", { id: "hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, defs);
+    el("rect", { width: 6, height: 6, fill: css("--s2-soft") }, pat);
+    el("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: css("--s2"), "stroke-width": 2 }, pat);
+    ticks.forEach(v => { el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: css("--hair") }, svg); el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", "font-size": 10, fill: css("--muted"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = fmt(v); });
+    const base = T + ih;
+    pair.forEach((d, i) => {
+      const x0 = L + i * slot + 1.5;
+      // Doc bar
+      if (d[1] > 0) el("rect", { x: x0, y: y(d[1]), width: bw, height: Math.max(1, base - y(d[1])), fill: css("--s1"), rx: 1 }, svg);
+      // docs bar
+      if (d[2] !== null && d[2] > 0) el("rect", { x: x0 + bw + 1, y: y(d[2]), width: bw, height: Math.max(1, base - y(d[2])), fill: css("--s2"), rx: 1 }, svg);
+      if (d[0].endsWith("-01") || d[0].endsWith("-07")) { el("text", { x: L + i * slot + slot / 2, y: H - 16, "text-anchor": "middle", "font-size": 10.5, fill: css("--muted"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = d[0]; el("line", { x1: L + i * slot, x2: L + i * slot, y1: base, y2: base + 5, stroke: css("--axis") }, svg); }
+    });
+    // combined Apr–Aug 2026 bar for the docs series
+    const ia = pair.findIndex(d => d[0] === COMBINED.from), ib = pair.findIndex(d => d[0] === COMBINED.to);
+    const cx0 = L + ia * slot + 1.5 + bw + 1, cx1 = L + ib * slot + 1.5 + bw + 1 + bw;
+    el("rect", { x: cx0, y: y(COMBINED.value), width: cx1 - cx0, height: Math.max(1, base - y(COMBINED.value)), fill: "url(#hatch)", stroke: css("--s2"), "stroke-width": 1, rx: 1 }, svg);
+    el("text", { x: (cx0 + cx1) / 2, y: y(COMBINED.value) - 5, "text-anchor": "middle", "font-size": 10, fill: css("--ink-2"), "font-family": "IBM Plex Mono, monospace" }, svg).textContent = "4–8月合计 " + fmt(COMBINED.value);
+    el("line", { x1: L, x2: W - R, y1: base, y2: base, stroke: css("--axis") }, svg);
+    // hover
+    pair.forEach((d, i) => {
+      const hit = el("rect", { x: L + i * slot, y: T, width: slot, height: ih, fill: "transparent" }, svg);
+      hit.addEventListener("mousemove", ev => { const docs = d[2] === null ? "4–8月合计 " + fmt(COMBINED.value) : fmt(d[2]); tooltip(fig, tip, ev.clientX, ev.clientY, d[0] + "<br>Doc 空间 " + fmt(d[1]) + "<br>zenuml.com/docs " + docs); });
+      hit.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    });
+  }
+  grouped("linear");
+  document.querySelectorAll("#f3 .seg button").forEach(b => b.addEventListener("click", () => { document.querySelectorAll("#f3 .seg button").forEach(x => x.classList.remove("on")); b.classList.add("on"); grouped(b.dataset.scale); }));
+  bars(); lines();
+})();
+</script>

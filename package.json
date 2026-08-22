@@ -22,7 +22,7 @@
     "test:insert:diagramly:prod": "cd tests/e2e-tests && pnpm test:insert:diagramly:prod",
     "build:full": "PRODUCT_TYPE=full vite build --mode production",
     "build:full:watch": "PRODUCT_TYPE=full vite build --watch",
-    "build:lite": "PRODUCT_TYPE=lite vite build",
+    "build:lite": "pnpm run build:studio && PRODUCT_TYPE=lite vite build",
     "build:diagramly": "PRODUCT_TYPE=diagramly vite build",
     "storybook": "PRODUCT_TYPE=lite storybook dev -p 6006",
     "build-storybook": "PRODUCT_TYPE=lite storybook build",

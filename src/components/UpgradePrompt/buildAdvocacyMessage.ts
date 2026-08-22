@@ -3,6 +3,7 @@ export type MacroKind =
   | 'mermaid'
   | 'graph'
   | 'openapi'
+  | 'asyncapi'
   | 'embed'
   | 'plantuml'
   | 'unknown'
@@ -27,6 +28,7 @@ const MACRO_LABELS: Record<MacroKind, string> = {
   mermaid: 'Mermaid diagrams',
   graph: 'DrawIO diagrams',
   openapi: 'OpenAPI specs',
+  asyncapi: 'AsyncAPI specs',
   embed: 'embedded diagrams',
   plantuml: 'PlantUML diagrams',
   unknown: 'diagrams',

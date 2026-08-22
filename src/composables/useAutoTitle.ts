@@ -54,6 +54,7 @@ function titleTypeParam(diagramType: DiagramType, code: string): string {
   // labels as `code`. 'flowchart' nudges the model to summarise the labelled
   // nodes as a process/structure rather than a sequence of messages.
   if (diagramType === DiagramType.Graph) return 'flowchart'
+  if (diagramType === DiagramType.OpenApi) return 'OpenAPI specification'
   return DiagramType.Sequence
 }
 

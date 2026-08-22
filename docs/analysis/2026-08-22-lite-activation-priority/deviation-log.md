@@ -22,4 +22,12 @@ Impact on readout: `readout-t5-authors.js` computes first authors from `macro_cr
 
 The plan's sample E2E used `zenumlPaywallTargeting` and `zenumlSpaceAdminProbe` prefixes. The production key builders use `paywallWarning:<domain>:<space>` and `paywallAdminProbe:<domain>:<space>`.
 
-Impact on verification: the checked-in E2E writes the exact parsed production shapes and key prefixes. The branch-local Playwright collection succeeds; the behavior test remains gated on the branch reaching Lite staging.
+Impact on verification: the checked-in E2E writes the exact parsed production shapes and key prefixes. Playwright collection succeeded before deployment; the deployed behavior result is recorded below.
+
+## 2026-08-22 — E2E uses a genuinely authorized template-admin space
+
+The normal Lite staging fixture space lets the browser robot create pages but its live template-create response says the user lacks `manage_templates`. Seeding the cached `isAdmin` verdict therefore proved banner routing but could not honestly prove the success path. The checked-in E2E now discovers, through the current user's Confluence space operations, a space with `manage_templates` and a homepage; no account or space identifier is stored in the public test.
+
+The live macro iframe also refreshes the shared paywall targeting marker after reload. A one-time `macroCount: 60` marker could be replaced by the space's real count before the page-banner iframe read it. The E2E now pins the existing supported macro-side mock inputs at 60, so both writers agree instead of racing.
+
+Impact on verification: against the deployed Draft PR build, the real Forge-iframe flow displayed the 60-diagram offer, created the template, displayed `Template created`, persisted the returned template id, and deleted that exact ephemeral template with HTTP 204. The run passed 2/2 tests. Diagnostic templates created while isolating the permission issue were also deleted by exact id with HTTP 204.

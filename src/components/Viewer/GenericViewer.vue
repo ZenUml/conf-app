@@ -265,6 +265,17 @@
               :macro-type="diagramType"
               :ready="viewerLoadState === 'ready'"
             />
+            <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
+                 defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
+                 vite.config.mjs). See SecondDiagramPrompt.vue for the full
+                 display-condition contract. -->
+            <SecondDiagramPrompt
+              v-if="!isLoadFailed"
+              :attribution="diagramAttribution"
+              :macro-type="diagramType"
+              :ready="viewerLoadState === 'ready'"
+              :current-account-id="currentAccountId"
+            />
 
             <!-- Live Agent Link perceived-latency overlay (charter §6 Track F).
                  Flag-gated exactly like the Connect affordance so the flag-off
@@ -375,7 +386,7 @@
 
 <script>
 import {trackEvent} from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
 
 import { markRaw } from 'vue'
 import {mapState, mapGetters} from "vuex";
@@ -411,6 +422,7 @@ import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDee
 import DiagramAttributionFooter from '@/components/Viewer/DiagramAttributionFooter.vue'
 import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
 import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
+import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -445,6 +457,12 @@ export default {
     agentLinkFeatureEnabled: false,
     agentLinkSession: null,
     loadFailedTelemetryEmitted: false,
+    // Onboarding funnel "second diagram" prompt (SecondDiagramPrompt.vue):
+    // the current viewer's Forge accountId, resolved once in mounted() so
+    // the prompt's author-match check needs no extra context round-trip of
+    // its own. null until resolved / on any resolve failure — the prompt
+    // fails closed (no accountId, no match, no render).
+    currentAccountId: null,
     retryOutcomeEmitted: false,
   }),
   components: {
@@ -459,6 +477,7 @@ export default {
     LiveBadge,
     ThinkingOverlay,
     DiagramAttributionFooter,
+    SecondDiagramPrompt,
   },
   computed: {
     ...mapState({
@@ -774,6 +793,15 @@ export default {
       this.copyForAiPermissionResolved = true;
     }
     try {
+      // SecondDiagramPrompt's author-match display condition — fails closed
+      // (stays null) on any resolve error, which the prompt already treats
+      // as "not the creator".
+      const ctx = await getContext();
+      this.currentAccountId = ctx?.accountId ?? null;
+    } catch (e) {
+      console.error('Failed to resolve current accountId:', e);
+    }
+    try {
       this.agentLinkFeatureEnabled = await isAgentLinkEnabled();
     } catch (e) {
       console.error('Failed to load agent-link feature flag:', e);
@@ -898,15 +926,24 @@ export default {
     getCaptureNode() {
       return this.$refs.captureNode ?? null;
     },
-    retry() {
+    // The reload on the last line aborts an XHR-transported event, so the click
+    // goes out on the unload-safe path and the reload waits for it. Production
+    // recorded 0 load_failed_retry_clicked against 1 load_failed_retry_resolved
+    // on 2026-08-23 with the fire-and-forget call this replaces. A blocked or
+    // failing beacon must never strand the user on the panel, hence the catch.
+    async retry() {
       const attempt = startRetryMarker(this.retryMarkerKey);
-      trackAnalyticsEvent('load_failed_retry_clicked', {
-        feature_area: 'macro',
-        surface: 'viewer',
-        macro_type: this.diagramType,
-        content_id: String(this.failedCustomContentId ?? ''),
-        retry_attempt: attempt,
-      });
+      try {
+        await trackAnalyticsEventBeforeUnload('load_failed_retry_clicked', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: this.diagramType,
+          content_id: String(this.failedCustomContentId ?? ''),
+          retry_attempt: attempt,
+        });
+      } catch (e) {
+        console.error('[analytics] retry click tracking failed', e);
+      }
       reloadViewer();
     },
     // Runs on the OTHER side of that reload. Without it the panel's own

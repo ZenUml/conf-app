@@ -513,6 +513,8 @@ Backend-declared event. Not currently emitted by client code.
 
 **Trigger:** User clicks "Try again" on the load-failed recovery panel. Fired in `GenericViewer.vue::retry`, before the reload it triggers.
 
+**Transport:** `sendBeacon`, via `trackAnalyticsEventBeforeUnload`. The retry is a `location.reload()`, which aborts an in-flight XHR — production recorded 1 `load_failed_retry_resolved` and **0** of this event on 2026-08-23 with the default transport. The reload also waits for the send, because the enrichment step is itself async.
+
 | Property | Notes |
 |---|---|
 | `feature_area` | `"macro"` |

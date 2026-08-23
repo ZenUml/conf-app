@@ -4,7 +4,7 @@ import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import globals from '@/model/globals'
 import forgeRuntime from '@/model/globals/forgeGlobal'
@@ -17,7 +17,10 @@ import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readCopyAttribution } from '@/utils/analytics/copyAttribution'
 import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFailedRetry'
 
-vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: vi.fn(),
+  trackAnalyticsEventBeforeUnload: vi.fn(() => Promise.resolve()),
+}))
 
 // Real marker behaviour (it is the thing under test), stubbed reload — jsdom's
 // location.reload throws "Not implemented" and would navigate the runner.
@@ -1453,11 +1456,24 @@ describe('GenericViewer (chrome-less)', () => {
         while (mounted.length) mounted.pop()?.unmount()
       })
 
-      it('tracks the retry click and reloads the viewer', async () => {
+      // The reload aborts an XHR-transported event, so the click must go out on
+      // the unload-safe path AND the reload must wait for it. Production on
+      // 2026-08-23 recorded 0 clicked against 1 resolved before this.
+      it('tracks the retry click on the unload-safe path, then reloads', async () => {
+        const order: string[] = []
+        vi.mocked(trackAnalyticsEventBeforeUnload).mockImplementation(async () => {
+          order.push('track')
+        })
+        vi.mocked(reloadViewer).mockImplementation(() => {
+          order.push('reload')
+        })
+
         store.state.viewerLoadState = 'failed_with_source'
         const wrapper = mountTracked()
         await wrapper.find('[data-testid="load-failed-retry"]').trigger('click')
-        expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        await flushPromises()
+
+        expect(trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith(
           'load_failed_retry_clicked',
           expect.objectContaining({
             feature_area: 'macro',
@@ -1466,6 +1482,17 @@ describe('GenericViewer (chrome-less)', () => {
             retry_attempt: 1,
           }),
         )
+        expect(reloadViewer).toHaveBeenCalledOnce()
+        expect(order).toEqual(['track', 'reload'])
+      })
+
+      // A blocked or slow beacon must not strand the user on the failed panel.
+      it('reloads even when tracking rejects', async () => {
+        vi.mocked(trackAnalyticsEventBeforeUnload).mockRejectedValueOnce(new Error('blocked'))
+        store.state.viewerLoadState = 'failed_with_source'
+        const wrapper = mountTracked()
+        await wrapper.find('[data-testid="load-failed-retry"]').trigger('click')
+        await flushPromises()
         expect(reloadViewer).toHaveBeenCalledOnce()
       })
 
@@ -1491,7 +1518,8 @@ describe('GenericViewer (chrome-less)', () => {
           expect.objectContaining({ retry_outcome: 'failed_again', retry_attempt: 1 }),
         )
         await wrapper.find('[data-testid="load-failed-retry"]').trigger('click')
-        expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        await flushPromises()
+        expect(trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith(
           'load_failed_retry_clicked',
           expect.objectContaining({ retry_attempt: 2 }),
         )

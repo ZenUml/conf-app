@@ -147,6 +147,24 @@ export function setViewerLoadState(state: ViewerLoadState, loadError: DiagramLoa
   store.state.loadError = loadError;
 }
 
+/**
+ * Classify and publish the load state for a sequence-family doc that's
+ * ALREADY known-renderable — it's what mounted on screen — rather than one
+ * just returned from a fetch. Extracted so forgeIndex.ts's content-SWR
+ * `mountSequenceViewer` (the single call site shared by both the cache-hit
+ * render and the background-revalidate remount) has a testable unit for the
+ * 2026-08-19 fix: that function used to mount the doc without ever calling
+ * setViewerLoadState, leaving store.state.viewerLoadState stuck at its
+ * initial `null` for ~66% of sequence-family viewer views (see the "BUG FIX"
+ * comment on mountSequenceViewer). Classifies with the same
+ * isDisplayableDiagram check classifyViewerLoadOutcome uses, rather than
+ * hardcoding 'ready', so a blank/unrenderable cached doc still reports
+ * 'failed_with_source'.
+ */
+export function setSequenceViewerLoadState(doc: Diagram): void {
+  setViewerLoadState(isDisplayableDiagram(doc, 'sequence') ? 'ready' : 'failed_with_source');
+}
+
 export function applyViewerLoadOutcome(input: ViewerLoadOutcomeInput): Diagram {
   if (!globals.apWrapper.isDisplayMode()) {
     setViewerLoadState(null, null);

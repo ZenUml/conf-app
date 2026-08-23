@@ -116,8 +116,8 @@ export const CompleteProcess: Story = {
     await userEvent.click(body.getByTestId('journey-stage-intake'))
     await expect(await body.findByTestId('journey-stage-status')).toHaveTextContent('Concept')
     await expect(await body.findByTestId('extension-disclosure')).toHaveTextContent('registered technical or site contact')
-    await expect(await body.findByTestId('extension-question-count')).toHaveTextContent('5 questions')
-    await expect(body.getAllByTestId('extension-question')).toHaveLength(5)
+    await expect(await body.findByTestId('extension-question-count')).toHaveTextContent('3 questions')
+    await expect(body.getAllByTestId('extension-question')).toHaveLength(3)
     await userEvent.selectOptions(body.getByLabelText('Requested unblock scope'), 'site')
 
     await userEvent.click(body.getByTestId('journey-next'))

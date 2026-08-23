@@ -38,61 +38,37 @@
     <template v-else>
       <div class="flex items-start justify-between gap-4">
         <div>
-          <p class="text-xs font-semibold uppercase tracking-wide text-blue-700">About one minute · Question {{ step + 1 }} of 5</p>
+          <p class="text-xs font-semibold uppercase tracking-wide text-blue-700">About one minute · Question {{ step + 1 }} of 3</p>
           <h3 class="mt-1 text-base font-semibold text-gray-950">Get a 7-day extension</h3>
         </div>
         <button class="text-xs text-gray-500 hover:text-gray-800" @click="$emit('cancel')">Cancel</button>
       </div>
 
       <p class="mt-3 rounded border border-blue-100 bg-blue-50 p-2.5 text-xs leading-5 text-blue-950" data-testid="extension-disclosure">
-        ZenUML will use these answers to arrange temporary access and will notify your organisation's
-        registered technical or site contact. You do not need to find or confirm their email.
+        If this is your first eligible request, your 7-day access starts as soon as you submit. Your answers do not affect whether you qualify.
+        ZenUML may notify your organisation's registered technical or site contact. That message contains only this Space, its approximate diagram count,
+        and the scope and timing you select below. Your optional product-research answer is not shared with your organisation.
       </p>
 
       <div class="mt-4 min-h-[245px]" :data-testid="`extension-question-${step + 1}`">
         <fieldset v-if="step === 0">
-          <legend class="text-sm font-semibold text-gray-900">1. What are you working on right now?</legend>
-          <OptionList v-model="answers.currentTask" name="current-task" :options="taskOptions" />
+          <legend class="text-sm font-semibold text-gray-900">1. What access does your team need beyond these 7 days?</legend>
+          <OptionList v-model="answers.unblockNeed.scope" name="extension-scope" :options="scopeOptions" />
+          <p class="mt-2 text-xs leading-4 text-gray-500">
+            This helps us suggest the right long-term option to your admin. Your own 7-day access is the same whichever you pick.
+          </p>
         </fieldset>
 
         <fieldset v-else-if="step === 1">
-          <legend class="text-sm font-semibold text-gray-900">2. Who is this diagram ultimately for?</legend>
-          <OptionList v-model="answers.diagramAudience" name="diagram-audience" :options="audienceOptions" />
-        </fieldset>
-
-        <fieldset v-else-if="step === 2">
-          <legend class="text-sm font-semibold text-gray-900">3. Which AI tools do you use, and do you use them for diagrams?</legend>
-          <p class="mt-1 text-xs text-gray-500">Choose up to five tools, then one diagram use.</p>
-          <div class="mt-2 grid grid-cols-2 gap-1.5" data-testid="ai-tool-options">
-            <label v-for="option in aiToolOptions" :key="option.value" class="flex items-center gap-2 rounded border border-gray-200 px-2 py-1.5 text-xs">
-              <input
-                type="checkbox"
-                :checked="answers.aiAndDiagrams.tools.includes(option.value)"
-                @change="toggleAiTool(option.value)"
-              />
-              {{ option.label }}
-            </label>
-          </div>
-          <OptionList v-model="answers.aiAndDiagrams.diagramUsage" name="ai-diagram-usage" :options="aiDiagramOptions" compact />
-        </fieldset>
-
-        <fieldset v-else-if="step === 3">
-          <legend class="text-sm font-semibold text-gray-900">4. What workflow constraints apply?</legend>
-          <p class="mt-2 text-xs font-medium text-gray-700">Required diagram process or template</p>
-          <OptionList v-model="answers.workflowConstraints.processRequirement" name="process-requirement" :options="processOptions" compact />
-          <p class="mt-3 text-xs font-medium text-gray-700">Can code or related material be sent to cloud AI?</p>
-          <OptionList v-model="answers.workflowConstraints.cloudAiPolicy" name="cloud-ai-policy" :options="cloudPolicyOptions" compact />
+          <legend class="text-sm font-semibold text-gray-900">2. When do you need this diagram work done?</legend>
+          <OptionList v-model="answers.unblockNeed.urgency" name="extension-urgency" :options="urgencyOptions" />
+          <p class="mt-2 text-xs leading-4 text-gray-500">Included in the admin message so they can prioritise.</p>
         </fieldset>
 
         <fieldset v-else>
-          <legend class="text-sm font-semibold text-gray-900">5. What needs unblocking, and how urgent is it?</legend>
-          <p class="mt-2 text-xs font-medium text-gray-700">Desired scope</p>
-          <OptionList v-model="answers.unblockNeed.scope" name="extension-scope" :options="scopeOptions" compact />
-          <p class="mt-3 text-xs font-medium text-gray-700">Urgency</p>
-          <OptionList v-model="answers.unblockNeed.urgency" name="extension-urgency" :options="urgencyOptions" compact />
-          <p class="mt-2 text-[11px] leading-4 text-gray-500">
-            The first temporary grant is only for you in this Space. Scope helps us route the longer-term upgrade path.
-          </p>
+          <legend class="text-sm font-semibold text-gray-900">3. Optional: do you use AI tools to create or edit diagrams?</legend>
+          <OptionList v-model="answers.aiDiagramUse" name="ai-diagram-use" :options="aiDiagramUseOptions" />
+          <p class="mt-2 text-xs leading-4 text-gray-500">Product research only. Never shared with your organisation.</p>
         </fieldset>
       </div>
 
@@ -102,14 +78,23 @@
           class="text-sm font-medium text-gray-600 disabled:opacity-40"
           data-testid="extension-back"
           :disabled="submitting"
-          @click="step === 0 ? $emit('cancel') : step--"
+          @click="step === 0 ? $emit('cancel') : goBack()"
         >Back</button>
-        <button
-          class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-          data-testid="extension-next"
-          :disabled="!canAdvance || submitting"
-          @click="advance"
-        >{{ submitting ? 'Submitting…' : step === 4 ? 'Start my 7 days' : 'Next' }}</button>
+        <div class="flex items-center gap-3">
+          <button
+            v-if="step === 2"
+            class="text-sm font-medium text-gray-600 underline disabled:opacity-40"
+            data-testid="extension-skip"
+            :disabled="submitting"
+            @click="skipAiQuestion"
+          >Skip</button>
+          <button
+            class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+            data-testid="extension-next"
+            :disabled="!canAdvance || submitting"
+            @click="advance"
+          >{{ submitting ? 'Submitting…' : step === 2 ? 'Start my 7 days' : 'Next' }}</button>
+        </div>
       </div>
     </template>
   </section>
@@ -120,10 +105,10 @@ import { computed, defineComponent, h, ref, type PropType } from 'vue';
 import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking';
 import {
   submitPaywallExtension,
-  type AiTool,
+  type ExtensionUrgencyV2,
   type PaywallExtensionAnswers,
   type PaywallExtensionResponse,
-  type PaywallExtensionSubmission,
+  type PaywallExtensionSubmissionV2,
   type SubmitPaywallExtension,
 } from '@/utils/paywall/paywallExtension';
 
@@ -135,14 +120,13 @@ const OptionList = defineComponent({
     modelValue: String,
     name: { type: String, required: true },
     options: { type: Array as PropType<Option[]>, required: true },
-    compact: Boolean,
   },
   emits: ['update:modelValue'],
   setup(props, { emit }) {
     return () => h('div', {
-      class: props.compact ? 'mt-2 grid grid-cols-2 gap-1.5' : 'mt-3 grid grid-cols-2 gap-2',
+      class: 'mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2',
     }, props.options.map((option) => h('label', {
-      class: 'flex cursor-pointer items-center gap-2 rounded border border-gray-200 px-2 py-1.5 text-xs hover:bg-gray-50',
+      class: 'flex cursor-pointer items-center gap-2 rounded border border-gray-200 px-2.5 py-2 text-xs hover:bg-gray-50',
     }, [
       h('input', {
         type: 'radio',
@@ -171,91 +155,95 @@ defineEmits<{
   (event: 'granted', expiresAt: string): void;
 }>();
 
-const taskOptions = [
-  ['architecture_design', 'Architecture / solution design'], ['design_review', 'Design review'],
-  ['technical_documentation', 'Technical documentation'], ['incident_review', 'Incident review'],
-  ['understand_existing_system', 'Understand an existing system'], ['team_communication', 'Team / cross-team communication'],
-  ['other', 'Another work task'],
+const scopeOptions: Option[] = [
+  ['self', 'Just me, in this Space'],
+  ['space', 'Several people in this Space'],
+  ['site', 'Multiple Spaces across our site'],
+  ['not_sure', 'Not sure yet'],
 ].map(([value, label]) => ({ value, label }));
-const audienceOptions = [
-  ['self', 'Myself'], ['development_team', 'My development team'], ['architect_tech_lead', 'Architect / Tech Lead'],
-  ['manager_engineering_lead', 'Manager / engineering lead'], ['another_team', 'Another team'],
-  ['security_platform_governance', 'Security / platform / governance'], ['documentation_readers', 'Broader documentation readers'],
+const urgencyOptions: Option[] = [
+  ['today', 'Today'],
+  ['this_week', 'This week'],
+  ['no_hard_deadline', 'No hard deadline'],
 ].map(([value, label]) => ({ value, label }));
-const aiToolOptions = [
-  ['none', 'None'], ['github_copilot', 'GitHub Copilot'], ['cursor', 'Cursor'], ['claude_code', 'Claude Code'],
-  ['chatgpt', 'ChatGPT'], ['windsurf', 'Windsurf'], ['other', 'Another tool'], ['not_sure', 'Not sure'],
-].map(([value, label]) => ({ value: value as AiTool, label }));
-const aiDiagramOptions = [
-  ['none', 'No AI use'], ['ai_without_diagrams', 'AI, not for diagrams'], ['mermaid', 'Mermaid'],
-  ['zenuml', 'ZenUML'], ['other_diagram_as_code', 'Other diagram-as-code'], ['not_sure', 'Not sure'],
+const aiDiagramUseOptions: Option[] = [
+  ['regularly', 'Yes, regularly'],
+  ['occasionally', 'Yes, occasionally'],
+  ['interested', 'No, but I’d like to'],
+  ['no', 'No'],
 ].map(([value, label]) => ({ value, label }));
-const processOptions = [
-  ['required_template', 'Required template'], ['required_without_template', 'Required, no template'],
-  ['not_required', 'No required process'], ['not_sure', 'Not sure'],
-].map(([value, label]) => ({ value, label }));
-const cloudPolicyOptions = [
-  ['allowed', 'Allowed'], ['restricted', 'Restricted'], ['not_allowed', 'Not allowed'], ['not_sure', 'Not sure'],
-].map(([value, label]) => ({ value, label }));
-const scopeOptions = [['self', 'Just me'], ['space', 'This Space'], ['site', 'The whole Site']].map(([value, label]) => ({ value, label }));
-const urgencyOptions = [['today', 'Today'], ['this_week', 'This week'], ['planning_ahead', 'Planning ahead']].map(([value, label]) => ({ value, label }));
 
+const questionIds = ['long_term_access', 'urgency', 'ai_diagram_use'] as const;
 const step = ref(0);
 const submitting = ref(false);
 const errorMessage = ref('');
 const result = ref<PaywallExtensionResponse>();
+const stepStartedAt = ref(Date.now());
 const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID
   ? crypto.randomUUID()
   : `extension-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const answers = ref<PaywallExtensionAnswers>({
-  aiAndDiagrams: { tools: [] },
-  workflowConstraints: {},
   unblockNeed: {},
 });
 
 const canAdvance = computed(() => [
-  Boolean(answers.value.currentTask),
-  Boolean(answers.value.diagramAudience),
-  answers.value.aiAndDiagrams.tools.length > 0 && Boolean(answers.value.aiAndDiagrams.diagramUsage),
-  Boolean(answers.value.workflowConstraints.processRequirement && answers.value.workflowConstraints.cloudAiPolicy),
-  Boolean(answers.value.unblockNeed.scope && answers.value.unblockNeed.urgency),
+  Boolean(answers.value.unblockNeed.scope),
+  Boolean(answers.value.unblockNeed.urgency),
+  true,
 ][step.value]);
 
-function toggleAiTool(tool: AiTool) {
-  const current = answers.value.aiAndDiagrams.tools;
-  if (current.includes(tool)) {
-    answers.value.aiAndDiagrams.tools = current.filter((item) => item !== tool);
-    return;
-  }
-  if (tool === 'none' || tool === 'not_sure') {
-    answers.value.aiAndDiagrams.tools = [tool];
-    return;
-  }
-  answers.value.aiAndDiagrams.tools = current
-    .filter((item) => item !== 'none' && item !== 'not_sure')
-    .concat(tool)
-    .slice(0, 5);
+function goBack() {
+  step.value -= 1;
+  stepStartedAt.value = Date.now();
 }
 
-function trackAnswer() {
-  const common = { question_id: ['current_task', 'diagram_audience', 'ai_and_diagrams', 'workflow_constraints', 'unblock_need'][step.value], step_index: step.value + 1 };
-  const values = [
-    { extension_task: answers.value.currentTask },
-    { extension_audience: answers.value.diagramAudience },
-    { ai_diagram_usage: answers.value.aiAndDiagrams.diagramUsage },
-    { process_requirement: answers.value.workflowConstraints.processRequirement, cloud_ai_policy: answers.value.workflowConstraints.cloudAiPolicy },
-    { extension_scope: answers.value.unblockNeed.scope, urgency: answers.value.unblockNeed.urgency },
-  ][step.value];
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_QUESTION_ANSWERED, { ...common, ...values });
+function selectedOptionPosition(options: Option[], value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const index = options.findIndex((option) => option.value === value);
+  return index < 0 ? undefined : index + 1;
 }
 
-async function advance() {
-  if (!canAdvance.value) return;
-  trackAnswer();
-  if (step.value < 4) {
-    step.value += 1;
-    return;
+function trackAnswer(answerSkipped = false) {
+  const common = {
+    questionnaire_version: 2 as const,
+    question_id: questionIds[step.value],
+    step_index: step.value + 1,
+    answer_skipped: answerSkipped,
+    time_on_step_ms: Math.max(0, Date.now() - stepStartedAt.value),
+  };
+  if (step.value === 0) {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_QUESTION_ANSWERED, {
+      ...common,
+      extension_scope: answers.value.unblockNeed.scope,
+      option_position: selectedOptionPosition(scopeOptions, answers.value.unblockNeed.scope),
+    });
+  } else if (step.value === 1) {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_QUESTION_ANSWERED, {
+      ...common,
+      urgency: answers.value.unblockNeed.urgency,
+      option_position: selectedOptionPosition(urgencyOptions, answers.value.unblockNeed.urgency),
+    });
+  } else {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_QUESTION_ANSWERED, {
+      ...common,
+      ...(answerSkipped ? {} : { ai_diagram_use: answers.value.aiDiagramUse }),
+      ...(answerSkipped ? {} : { option_position: selectedOptionPosition(aiDiagramUseOptions, answers.value.aiDiagramUse) }),
+    });
   }
+}
+
+function submissionAnswers(): PaywallExtensionSubmissionV2['answers'] | undefined {
+  const { scope, urgency } = answers.value.unblockNeed;
+  if (!scope || !urgency) return undefined;
+  return {
+    unblockNeed: { scope, urgency: urgency as ExtensionUrgencyV2 },
+    ...(answers.value.aiDiagramUse ? { aiDiagramUse: answers.value.aiDiagramUse } : {}),
+  };
+}
+
+async function submit() {
+  const submission = submissionAnswers();
+  if (!submission) return;
 
   submitting.value = true;
   errorMessage.value = '';
@@ -264,7 +252,8 @@ async function advance() {
       spaceKey: props.spaceKey,
       macroCount: props.macroCount,
       idempotencyKey,
-      answers: answers.value as PaywallExtensionSubmission['answers'],
+      questionnaireVersion: 2,
+      answers: submission,
     });
     result.value = response;
     if (response.adminContactRouting) {
@@ -278,6 +267,7 @@ async function advance() {
     }
     if (response.status === 'granted') {
       trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_GRANTED, {
+        questionnaire_version: 2,
         outcome: response.isReplay ? 'replay' : 'created',
         extension_scope: answers.value.unblockNeed.scope,
         urgency: answers.value.unblockNeed.urgency,
@@ -286,6 +276,7 @@ async function advance() {
       });
     } else {
       trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_REPEAT_REQUESTED, {
+        questionnaire_version: 2,
         extension_scope: answers.value.unblockNeed.scope,
         urgency: answers.value.unblockNeed.urgency,
         prior_grant_count: response.priorGrantCount,
@@ -297,6 +288,30 @@ async function advance() {
   } finally {
     submitting.value = false;
   }
+}
+
+async function advance() {
+  if (!canAdvance.value || submitting.value) return;
+  if (step.value < 2) {
+    trackAnswer();
+    step.value += 1;
+    stepStartedAt.value = Date.now();
+    return;
+  }
+  // The optional question can be submitted with the primary CTA as well as
+  // with Skip. In both cases, an unanswered field is recorded as skipped and
+  // remains absent from the request.
+  trackAnswer(!answers.value.aiDiagramUse);
+  await submit();
+}
+
+async function skipAiQuestion() {
+  if (submitting.value) return;
+  // Skipping must remain an actual omission in the request; never infer an AI
+  // answer from the operational scope or urgency selections.
+  answers.value.aiDiagramUse = undefined;
+  trackAnswer(true);
+  await submit();
 }
 
 function formatExpiry(iso: string): string {

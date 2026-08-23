@@ -42,27 +42,34 @@ export type ProcessRequirement =
   | 'not_required'
   | 'not_sure';
 export type CloudAiPolicy = 'allowed' | 'restricted' | 'not_allowed' | 'not_sure';
-export type ExtensionScope = 'self' | 'space' | 'site';
-export type ExtensionUrgency = 'today' | 'this_week' | 'planning_ahead';
+export type ExtensionScope = 'self' | 'space' | 'site' | 'not_sure';
+export type ExtensionUrgency = 'today' | 'this_week' | 'no_hard_deadline' | 'planning_ahead';
+export type ExtensionUrgencyV2 = 'today' | 'this_week' | 'no_hard_deadline';
+export type AiDiagramUse = 'regularly' | 'occasionally' | 'interested' | 'no';
 
 export interface PaywallExtensionAnswers {
-  currentTask?: ExtensionTask;
-  diagramAudience?: ExtensionAudience;
-  aiAndDiagrams: {
-    tools: AiTool[];
-    diagramUsage?: AiDiagramUsage;
-  };
-  workflowConstraints: {
-    processRequirement?: ProcessRequirement;
-    cloudAiPolicy?: CloudAiPolicy;
-  };
+  /** Version 2 keeps only the operational answers needed for routing. */
   unblockNeed: {
     scope?: ExtensionScope;
-    urgency?: ExtensionUrgency;
+    urgency?: ExtensionUrgencyV2;
+  };
+  /** Optional product-research answer; omitted when the user skips it. */
+  aiDiagramUse?: AiDiagramUse;
+}
+
+export interface PaywallExtensionSubmissionV2 {
+  spaceKey: string;
+  macroCount: number;
+  idempotencyKey: string;
+  questionnaireVersion: 2;
+  answers: {
+    unblockNeed: { scope: ExtensionScope; urgency: ExtensionUrgencyV2 };
+    aiDiagramUse?: AiDiagramUse;
   };
 }
 
-export interface PaywallExtensionSubmission {
+/** Legacy shape retained so old clients can roll out behind the new backend. */
+export interface LegacyPaywallExtensionSubmission {
   spaceKey: string;
   macroCount: number;
   idempotencyKey: string;
@@ -71,9 +78,11 @@ export interface PaywallExtensionSubmission {
     diagramAudience: ExtensionAudience;
     aiAndDiagrams: { tools: AiTool[]; diagramUsage: AiDiagramUsage };
     workflowConstraints: { processRequirement: ProcessRequirement; cloudAiPolicy: CloudAiPolicy };
-    unblockNeed: { scope: ExtensionScope; urgency: ExtensionUrgency };
+    unblockNeed: { scope: Exclude<ExtensionScope, 'not_sure'>; urgency: Exclude<ExtensionUrgency, 'no_hard_deadline' | 'planning_ahead'> };
   };
 }
+
+export type PaywallExtensionSubmission = PaywallExtensionSubmissionV2 | LegacyPaywallExtensionSubmission;
 
 export interface PaywallAdminContactRouting {
   routingOutcome: 'automatic' | 'manual' | 'suppressed';

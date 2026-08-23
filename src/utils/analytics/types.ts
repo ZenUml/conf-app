@@ -25,6 +25,8 @@ import type {
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
+  AgentLinkPairingMethod,
+  AgentLinkInstructionKind,
   ActivationPath,
   ViewerRelation,
 } from "./catalog";
@@ -456,6 +458,10 @@ export type AnalyticsProperties = {
   stage?: string;
   ms_since_connect_clicked?: number;
   client_name?: string;
+  // One-time Remote MCP pairing (2026-08-23). Both copy and completion carry
+  // pairing_method; only the copy event carries instruction_kind.
+  pairing_method?: AgentLinkPairingMethod;
+  instruction_kind?: AgentLinkInstructionKind;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

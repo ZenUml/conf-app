@@ -13,7 +13,8 @@ export const AUTHENTICATED_PATHS = [
   '/forge-custom-content',
   '/forge-upload-attachment',
   '/deeplink-ticket',
-  '/activation-prepared'
+  '/activation-prepared',
+  '/api/paywall-extension'
 ];
 
 const DEEPLINK_TICKET_CORS_HEADERS: Record<string, string> = {

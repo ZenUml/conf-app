@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // `macrosCreated`, which defaults to 0 and is only raised when `getMacroMetrics()`
 // returns a truthy `.total`. When that read rejects, returns undefined, or
 // returns total:0 (KV stale-low / collect under-return / network error), the
-// count stays 0, so `0 >= 100` is false and the gate does NOT fire on an
+// count stays 0, so `0 > 100` is false and the gate does NOT fire on an
 // over-limit space — the editor mounts ungated and the save persists at N=0
 // with no paywall event, no continue_used, no reset.
 //

@@ -110,7 +110,7 @@ export type ContentSource = "fetch" | "swr_cache";
 // Where the macro count used by the Lite paywall gate came from, and — when the
 // count is unusable — WHY. Rides on `paywall_gate_evaluated.macro_count_source`.
 // This is the dispositive dimension for the #302 fail-open leak: the gate is
-// `macrosCreated >= 100`, but `macrosCreated` defaults to 0, so a `undefined`
+// `macrosCreated > 100`, but `macrosCreated` defaults to 0, so a `undefined`
 // (read failed) or `zero` (under-return) source means the gate silently does not
 // fire on a genuinely over-limit space. `kv` = served from the KV cache (may be
 // stale-low); `collect` = fresh space enumeration; `mock` = localStorage override.
@@ -256,6 +256,22 @@ export type AnalyticsEventName =
   // absent interest. Low-intent signal vs the two purchase rails: it measures
   // "wants to understand the pricing story", not "ready to pay".
   | "paywall_learn_more_clicked"
+  // Seven-day paywall extension program. These events are registered as one
+  // vocabulary before any request/grant/contact/notification behavior lands,
+  // so every lifecycle edge can be measured without retrofitting telemetry.
+  // All answer values are coded enums; operational identifiers and contact
+  // details must never be attached to these events.
+  | "paywall_extension_started"
+  | "paywall_extension_question_answered"
+  | "paywall_extension_granted"
+  | "paywall_extension_repeat_requested"
+  | "paywall_extension_expiring"
+  | "paywall_extension_expired"
+  | "paywall_admin_contact_routed"
+  | "paywall_admin_notification_sent"
+  | "paywall_admin_notification_delivered"
+  | "paywall_admin_notification_clicked"
+  | "paywall_admin_notification_failed"
   | "space_admin_active"
   // M1 first-seen ping (onboarding spec Phase 1). Fired from the page-banner
   // host — the only surface that mounts on EVERY Confluence page in every
@@ -600,3 +616,48 @@ export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "e
 // estate (no space/page filter). Search (agent_link_search_performed) is always
 // site-wide by design, so it has no scope field.
 export type AgentLinkListScope = "page" | "space" | "site";
+
+// Structured, PII-safe values collected by the seven-day extension intake.
+// The backend persists these codes; analytics may receive only these codes,
+// never raw questionnaire text or a free-form "other" value.
+export type PaywallExtensionTask =
+  | "architecture_design"
+  | "design_review"
+  | "technical_documentation"
+  | "incident_review"
+  | "understand_existing_system"
+  | "team_communication"
+  | "other";
+
+export type PaywallExtensionAudience =
+  | "self"
+  | "development_team"
+  | "architect_tech_lead"
+  | "manager_engineering_lead"
+  | "another_team"
+  | "security_platform_governance"
+  | "documentation_readers";
+
+export type PaywallExtensionAiDiagramUsage =
+  | "none"
+  | "ai_without_diagrams"
+  | "mermaid"
+  | "zenuml"
+  | "other_diagram_as_code"
+  | "not_sure";
+
+export type PaywallExtensionProcessRequirement =
+  | "required_template"
+  | "required_without_template"
+  | "not_required"
+  | "not_sure";
+
+export type PaywallExtensionCloudAiPolicy =
+  | "allowed"
+  | "restricted"
+  | "not_allowed"
+  | "not_sure";
+
+export type PaywallExtensionScope = "self" | "space" | "site";
+export type PaywallExtensionUrgency = "today" | "this_week" | "planning_ahead";
+export type PaywallExtensionRoutingOutcome = "automatic" | "manual_review" | "suppressed";

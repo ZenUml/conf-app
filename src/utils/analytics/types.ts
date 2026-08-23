@@ -26,6 +26,14 @@ import type {
   AgentLinkListScope,
   BylineMode,
   ActivationPath,
+  PaywallExtensionTask,
+  PaywallExtensionAudience,
+  PaywallExtensionAiDiagramUsage,
+  PaywallExtensionProcessRequirement,
+  PaywallExtensionCloudAiPolicy,
+  PaywallExtensionScope,
+  PaywallExtensionUrgency,
+  PaywallExtensionRoutingOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -83,6 +91,35 @@ export type AnalyticsProperties = {
   // this event. 'space' ships first (client-side macro count); 'personal' and
   // 'team' arrive with the /api/user-diagram-stats endpoint.
   mirror_level?: 'personal' | 'space' | 'team';
+  // Seven-day paywall extension. Values are deliberately closed enums so the
+  // questionnaire cannot leak free text, user/site identifiers, or contact
+  // data into Mixpanel.
+  entry_source?: 'paywall_modal' | 'paywall_banner' | 'extension_status';
+  attempts_remaining?: number;
+  question_id?: 'current_task' | 'diagram_audience' | 'ai_and_diagrams' | 'workflow_constraints' | 'unblock_need';
+  step_index?: number;
+  extension_task?: PaywallExtensionTask;
+  extension_audience?: PaywallExtensionAudience;
+  ai_diagram_usage?: PaywallExtensionAiDiagramUsage;
+  process_requirement?: PaywallExtensionProcessRequirement;
+  cloud_ai_policy?: PaywallExtensionCloudAiPolicy;
+  extension_scope?: PaywallExtensionScope;
+  urgency?: PaywallExtensionUrgency;
+  extension_days?: number;
+  is_replay?: boolean;
+  prior_grant_count?: number;
+  routing_outcome?: PaywallExtensionRoutingOutcome;
+  days_remaining?: number;
+  channel?: 'in_app' | 'email';
+  paid_entitlement_active?: boolean;
+  reason_codes?: string;
+  cache_age_hours?: number;
+  override_used?: boolean;
+  template_version?: string;
+  attempt_number?: number;
+  delivery_latency_bucket?: 'under_1m' | '1m_to_10m' | '10m_to_1h' | 'over_1h';
+  cta_kind?: 'enterprise_bundle' | 'marketplace' | 'contact_sales';
+  error_code?: string;
   is_lite?: boolean;
   cta_position?: "primary" | "secondary";
   feature_name?: string;

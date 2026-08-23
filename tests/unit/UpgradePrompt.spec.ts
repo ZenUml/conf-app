@@ -13,6 +13,10 @@ vi.mock('@/utils/upgradeTracking', () => ({
     ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
     ADVOCACY_DRAFT_PREVIEW_CLICKED: 'advocacy_draft_preview_clicked',
     EXTENSION_REQUEST_CLICKED: 'extension_request_clicked',
+    PAYWALL_EXTENSION_STARTED: 'paywall_extension_started',
+    PAYWALL_EXTENSION_QUESTION_ANSWERED: 'paywall_extension_question_answered',
+    PAYWALL_EXTENSION_GRANTED: 'paywall_extension_granted',
+    PAYWALL_EXTENSION_REPEAT_REQUESTED: 'paywall_extension_repeat_requested',
   },
   UIComponent: {
     MODAL: 'modal',
@@ -362,13 +366,7 @@ describe('UpgradePrompt', () => {
     wrapper.unmount()
   })
 
-  it('opens support request link, copies extension details, and tracks the request click', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
-
+  it('opens the five-question extension intake with disclosure and tracks its start', async () => {
     const wrapper = mount(UpgradePrompt, {
       props: baseProps,
       attachTo: document.body,
@@ -376,38 +374,24 @@ describe('UpgradePrompt', () => {
 
     const button = document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement
     button.click()
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
-    expect(writeText).toHaveBeenCalledTimes(1)
-    const copiedMessage = writeText.mock.calls[0][0]
-    expect(copiedMessage).toContain('Request: Temporary Lite editing extension')
-    expect(copiedMessage).toContain('Space key: engineering-architecture')
-    expect(copiedMessage).toContain('Macro count: 105')
-    expect(copiedMessage).toContain('Limit: 100')
-    expect(copiedMessage).toContain('User account ID: account-123')
-    expect(copiedMessage).toContain('Page ID: page-456')
+    expect(document.querySelector('[data-testid="extension-intake"]')).toBeTruthy()
+    expect(document.querySelector('[data-testid="extension-question-1"]')?.textContent)
+      .toContain('What are you working on right now?')
+    expect(document.querySelector('[data-testid="extension-disclosure"]')?.textContent?.replace(/\s+/g, ' '))
+      .toContain("notify your organisation's registered technical or site contact")
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith(
-      'extension_request_clicked',
+      'paywall_extension_started',
       expect.objectContaining({
-        ui_component: 'modal',
-        copied_request_details: true,
-        request_url: expect.stringContaining(
-          'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9?'
-        ),
+        entry_source: 'paywall_modal',
+        attempts_remaining: 0,
         macro_count: 100,
         space_key: 'engineering-architecture',
       })
     )
-    const openedUrl = new URL(vi.mocked(openUrl).mock.calls[0][0] as string)
-    expect(`${openedUrl.origin}${openedUrl.pathname}`).toBe(
-      'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9'
-    )
-    expect(openedUrl.searchParams.get('description')).toBe(copiedMessage)
-    expect(openedUrl.searchParams.get('customfield_10070')).toBe('10037')
-
-    const status = document.querySelector('[data-testid="request-extension-status"]') as HTMLElement
-    expect(status.textContent).toContain('pre-filled')
+    expect(openUrl).not.toHaveBeenCalled()
 
     wrapper.unmount()
   })

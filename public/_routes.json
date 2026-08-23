@@ -13,6 +13,7 @@
     "/forge-custom-content",
     "/api/space-status",
     "/api/space-license",
+    "/api/paywall-extension",
     "/api/user-cohorts",
     "/api/stripe-webhook",
     "/forge-installed",

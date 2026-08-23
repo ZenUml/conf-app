@@ -717,7 +717,13 @@ export class AgentLinkSession {
       return jsonResponse({ error: 'invalid_body' }, 400);
     }
     const type = body?.type;
-    if (type !== 'guardrail_rejected' && type !== 'agent_request' && type !== 'turn') {
+    if (
+      type !== 'guardrail_rejected' &&
+      type !== 'protocol_incompatible' &&
+      type !== 'client_identified' &&
+      type !== 'agent_request' &&
+      type !== 'turn'
+    ) {
       return jsonResponse({ error: 'invalid_body' }, 400);
     }
     const detail = typeof body?.detail === 'string' ? body.detail : undefined;

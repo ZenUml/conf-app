@@ -68,6 +68,15 @@ describe('agentLinkState', () => {
       expect(nextClientState('suspended', 'resumed')).toBe('connected')
     })
 
+    it('suspended --reconnect_failed--> recovery_exhausted', () => {
+      expect(nextClientState('suspended', 'reconnect_failed')).toBe('recovery_exhausted')
+    })
+
+    it('waiting/timeout --protocol_incompatible--> incompatible', () => {
+      expect(nextClientState('waiting', 'protocol_incompatible')).toBe('incompatible')
+      expect(nextClientState('timeout', 'protocol_incompatible')).toBe('incompatible')
+    })
+
     it('suspended --disconnect--> closed (explicit Disconnect while suspended)', () => {
       expect(nextClientState('suspended', 'disconnect')).toBe('closed')
     })
@@ -108,14 +117,18 @@ describe('agentLinkState', () => {
       ['idle', 'ws_drop'],
       ['idle', 'resumed'],
       ['idle', 'expired'],
+      ['idle', 'reconnect_failed'],
+      ['idle', 'protocol_incompatible'],
       ['waiting', 'connect_clicked'],
       ['waiting', 'ws_drop'],
       ['waiting', 'resumed'],
+      ['waiting', 'reconnect_failed'],
       ['timeout', 'connect_clicked'],
       ['timeout', 'session_created'],
       ['timeout', 'timeout'],
       ['timeout', 'ws_drop'],
       ['timeout', 'resumed'],
+      ['timeout', 'reconnect_failed'],
       ['connected', 'connect_clicked'],
       ['connected', 'session_created'],
       ['connected', 'agent_connected'],
@@ -123,6 +136,8 @@ describe('agentLinkState', () => {
       ['connected', 'mint_rejected'],
       ['connected', 'mint_failed'],
       ['connected', 'resumed'],
+      ['connected', 'reconnect_failed'],
+      ['connected', 'protocol_incompatible'],
       ['suspended', 'connect_clicked'],
       ['suspended', 'session_created'],
       ['suspended', 'agent_connected'],
@@ -130,6 +145,7 @@ describe('agentLinkState', () => {
       ['suspended', 'mint_rejected'],
       ['suspended', 'mint_failed'],
       ['suspended', 'ws_drop'],
+      ['suspended', 'protocol_incompatible'],
       ['already_linked', 'connect_clicked'],
       ['already_linked', 'session_created'],
       ['already_linked', 'agent_connected'],
@@ -168,6 +184,8 @@ describe('agentLinkState', () => {
       'mint_failed',
       'ws_drop',
       'resumed',
+      'reconnect_failed',
+      'protocol_incompatible',
       'expired',
     ]
 

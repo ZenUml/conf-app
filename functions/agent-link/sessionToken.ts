@@ -65,9 +65,9 @@ function randomSegment(length: number): string {
   return out;
 }
 
-/** Mints an opaque, URL-safe, human-pasteable session token, e.g. "CL-7F3K-Q9M2". */
+/** Mints an opaque, URL-safe, human-pasteable session token, e.g. "CL-8F3K7Q". */
 export function mintToken(): string {
-  return `CL-${randomSegment(4)}-${randomSegment(4)}`;
+  return `CL-${randomSegment(6)}`;
 }
 
 /** The server-authoritative deadline: min(idle window, absolute cap). */

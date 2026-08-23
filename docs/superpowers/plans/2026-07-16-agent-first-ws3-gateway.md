@@ -63,7 +63,7 @@ import {
 describe('detectCodeProduct', () => {
   it('routes DL-prefixed codes to DL and CL-prefixed codes to CL', () => {
     expect(detectCodeProduct('DL-2345-ABCD-6789')).toBe('DL');
-    expect(detectCodeProduct('CL-7F3K-Q9M2')).toBe('CL');
+    expect(detectCodeProduct('CL-8F3K7Q')).toBe('CL');
   });
 
   it('is lenient about case and surrounding whitespace (target product validates fully)', () => {
@@ -1116,13 +1116,13 @@ describe('D1CapabilityRegistry', () => {
     const db = fakeDb();
     const registry = new D1CapabilityRegistry(db as unknown as D1Database);
     const now = 1_752_600_000_000;
-    await registry.bind('clc_secretcapability', 'CL-7F3K-Q9M2', now + 600_000);
+    await registry.bind('clc_secretcapability', 'CL-8F3K7Q', now + 600_000);
 
     // Raw capability + raw token are never stored.
     for (const key of db.rows.keys()) expect(key).not.toContain('clc_secretcapability');
 
-    expect(await registry.resolve('clc_secretcapability', now)).toBe('CL-7F3K-Q9M2');
-    expect(await registry.resolve('clc_secretcapability', now)).toBe('CL-7F3K-Q9M2');
+    expect(await registry.resolve('clc_secretcapability', now)).toBe('CL-8F3K7Q');
+    expect(await registry.resolve('clc_secretcapability', now)).toBe('CL-8F3K7Q');
     // The lookup key is the sha256 of the capability.
     expect(db.rows.has(await sha256Hex('clc_secretcapability'))).toBe(true);
   });
@@ -1132,7 +1132,7 @@ describe('D1CapabilityRegistry', () => {
     const registry = new D1CapabilityRegistry(db as unknown as D1Database);
     const now = 1_752_600_000_000;
     expect(await registry.resolve('clc_unknown', now)).toBeNull();
-    await registry.bind('clc_x', 'CL-AAAA-BBBB', now + 1000);
+    await registry.bind('clc_x', 'CL-AAAAAA', now + 1000);
     expect(await registry.resolve('clc_x', now + 2000)).toBeNull(); // past expiry
   });
 });
@@ -1253,20 +1253,20 @@ describe('ConfluenceAdapter.connect', () => {
   it('exchanges a live CL code for a fresh clc_ capability bound to the CL token — no token leak', async () => {
     const { adapter, store } = makeAdapter(async () => ({ ok: true, expiresAtMs: NOW + 600_000 }));
 
-    const res = await adapter.connect('CL-7F3K-Q9M2');
+    const res = await adapter.connect('CL-8F3K7Q');
 
     expect(res.product).toBe('CL');
     expect(res.capability).toMatch(/^clc_/);
     expect(res.capabilityExpiresAt).toBe(new Date(NOW + 600_000).toISOString());
     expect(res.notations).toEqual(['mermaid', 'zenuml', 'plantuml']);
     // The binding stores the CL token as the target; the response never carries it.
-    expect(store.get(res.capability)?.target).toBe('CL-7F3K-Q9M2');
-    expect(JSON.stringify(res)).not.toContain('CL-7F3K-Q9M2');
+    expect(store.get(res.capability)?.target).toBe('CL-8F3K7Q');
+    expect(JSON.stringify(res)).not.toContain('CL-8F3K7Q');
   });
 
   it('rejects an invalid/expired CL code with PAIRING_CODE_INVALID', async () => {
     const { adapter } = makeAdapter(async () => ({ ok: false }));
-    await expect(adapter.connect('CL-0000-0000')).rejects.toMatchObject({ code: 'PAIRING_CODE_INVALID' });
+    await expect(adapter.connect('CL-000000')).rejects.toMatchObject({ code: 'PAIRING_CODE_INVALID' });
   });
 
   it('rejects a code with no CL prefix as PAIRING_CODE_INVALID before any validation', async () => {
@@ -1283,8 +1283,8 @@ describe('ConfluenceAdapter.connect', () => {
 describe('ConfluenceAdapter.resolve', () => {
   it('resolves a bound capability to its CL token and null once expired', async () => {
     const { adapter } = makeAdapter(async () => ({ ok: true, expiresAtMs: NOW + 1000 }));
-    const res = await adapter.connect('CL-7F3K-Q9M2');
-    expect(await adapter.resolve(res.capability)).toBe('CL-7F3K-Q9M2');
+    const res = await adapter.connect('CL-8F3K7Q');
+    expect(await adapter.resolve(res.capability)).toBe('CL-8F3K7Q');
     // GatewayAdapterError is exported for the dispatcher's redaction checks.
     expect(GatewayAdapterError).toBeDefined();
   });
@@ -1458,7 +1458,7 @@ const CONNECT_SESSION: GatewayToolDescriptor = {
   inputSchema: {
     type: 'object',
     properties: {
-      code: { type: 'string', description: 'The pairing code shown by the product (DL-XXXX-XXXX-XXXX or CL-XXXX-XXXX).' },
+      code: { type: 'string', description: 'The pairing code shown by the product (DL-XXXX-XXXX-XXXX or CL-XXXXXX).' },
       clientName: { type: 'string', description: 'Optional agent/client name (e.g. "claude-code").' },
       clientVersion: { type: 'string', description: 'Optional agent/client version.' },
     },
@@ -1589,7 +1589,7 @@ describe('connect_session routing', () => {
 
   it('routes a CL code to the CL adapter', async () => {
     const { ctx } = makeCtx();
-    const res = (await dispatchGatewayTool('connect_session', { code: 'CL-7F3K-Q9M2' }, ctx)) as { capability: string };
+    const res = (await dispatchGatewayTool('connect_session', { code: 'CL-8F3K7Q' }, ctx)) as { capability: string };
     expect(res.capability).toBe('clc_new');
   });
 
@@ -1654,7 +1654,7 @@ describe('kill switch + redaction', () => {
 
   it('leaves CL working when the DL kill switch is off', async () => {
     const { ctx } = makeCtx({ dlEnabled: false, dl: null });
-    const res = (await dispatchGatewayTool('connect_session', { code: 'CL-7F3K-Q9M2' }, ctx)) as { capability: string };
+    const res = (await dispatchGatewayTool('connect_session', { code: 'CL-8F3K7Q' }, ctx)) as { capability: string };
     expect(res.capability).toBe('clc_new');
   });
 
@@ -2133,11 +2133,11 @@ describe('one install connects CL and rejects a cross-adapter capability (DoD §
     const env = { AGENT_LINK: ns, DB: fakeD1() };
 
     // 1. Exchange a CL code for a fresh clc_ capability (no token leak).
-    const connect = await gwPost(rpc('tools/call', { name: 'connect_session', arguments: { code: 'CL-7F3K-Q9M2' } }), env);
+    const connect = await gwPost(rpc('tools/call', { name: 'connect_session', arguments: { code: 'CL-8F3K7Q' } }), env);
     expect(connect.res.status).toBe(200);
     const capability = connect.json.result.structuredContent.capability as string;
     expect(capability).toMatch(/^clc_[A-Za-z0-9_-]{43}$/);
-    expect(JSON.stringify(connect.json)).not.toContain('CL-7F3K-Q9M2'); // redaction
+    expect(JSON.stringify(connect.json)).not.toContain('CL-8F3K7Q'); // redaction
 
     // 2. read_page with that capability resolves clc_ → the DO token and forwards.
     const read = await gwPost(rpc('tools/call', { name: 'read_page', arguments: { sessionCapability: capability } }), env);

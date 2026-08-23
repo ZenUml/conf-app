@@ -34,6 +34,13 @@ import { getGuideByUri, listGuideResources, selectInstructions } from './dslGuid
 import { sessionRegistry } from './registrySingleton';
 import { effectiveExpiryMs } from './sessionToken';
 import type { SessionRecord, SessionState } from './sessionToken';
+import {
+  LATEST_MCP_PROTOCOL_VERSION,
+  SUPPORTED_MCP_PROTOCOL_VERSIONS,
+  isSupportedMcpProtocolVersion,
+  negotiateMcpCompatibility,
+  normalizeAgentClientLabel,
+} from './mcpProtocol';
 
 interface Env {
   AGENT_LINK?: DurableObjectNamespace;
@@ -42,7 +49,7 @@ interface Env {
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, MCP-Protocol-Version',
 };
 
 const JSON_HEADERS = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
@@ -120,6 +127,28 @@ function extractToken(request: Request, url: URL): string | undefined {
 interface AgentOpResponseBody {
   ok: boolean;
   payload: ForwardResult;
+}
+
+type ReportableStatusActivity = 'guardrail_rejected' | 'protocol_incompatible' | 'client_identified';
+
+/** Best-effort, privacy-safe status signal from MCP to the live macro rail. */
+async function reportStatusActivity(
+  env: Env | undefined,
+  token: string,
+  type: ReportableStatusActivity,
+  detail?: string,
+): Promise<void> {
+  if (!env?.AGENT_LINK) return;
+  try {
+    const stub = env.AGENT_LINK.get(env.AGENT_LINK.idFromName(token));
+    await stub.fetch('https://agent-link-do/activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, ...(detail ? { detail } : {}) }),
+    });
+  } catch {
+    // Status reporting must never replace the real MCP response.
+  }
 }
 
 /** The DO's `GET /session` response body shape for a live session. */
@@ -387,6 +416,31 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return jsonRpcError(status, null, RPC_AUTH_ERROR, authErrorMessage(auth.code), { code: auth.code });
   }
 
+  // Newer Streamable HTTP clients repeat the negotiated revision in this
+  // header after initialize. Keep legacy direct tool calls working when the
+  // header is absent, but never let an explicitly incompatible revision fall
+  // through into a misleading partially-working connection.
+  const protocolHeader = request.headers.get('MCP-Protocol-Version')?.trim();
+  if (
+    body.method !== 'initialize' &&
+    protocolHeader &&
+    !isSupportedMcpProtocolVersion(protocolHeader)
+  ) {
+    await reportStatusActivity(env, token, 'protocol_incompatible');
+    return jsonRpcError(
+      400,
+      body.id ?? null,
+      RPC_INVALID_PARAMS,
+      'Agent Link protocol version mismatch. Update your AI agent or its Agent Link MCP configuration, then start a new agent session before reconnecting.',
+      {
+        code: 'protocol_version_mismatch',
+        requested: protocolHeader,
+        supported: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
+        latest: LATEST_MCP_PROTOCOL_VERSION,
+      },
+    );
+  }
+
   const id = body.id ?? null;
 
   // JSON-RPC notifications (`notifications/*`) expect NO response. A
@@ -411,17 +465,35 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   switch (body.method) {
     case 'initialize': {
+      const compatibility = negotiateMcpCompatibility(body.params);
+      if (!compatibility.ok) {
+        await reportStatusActivity(env, token, 'protocol_incompatible');
+        return jsonRpcError(200, id, RPC_INVALID_PARAMS, compatibility.message, {
+          code: compatibility.code,
+          ...(compatibility.requested ? { requested: compatibility.requested } : {}),
+          supported: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
+          latest: LATEST_MCP_PROTOCOL_VERSION,
+        });
+      }
       // Surfaced by MCP clients into the model's context so any agent writes
       // valid DSL for the bound dialect on the first try, instead of blending
       // Mermaid/PlantUML/ZenUML syntax and hitting a guardrail-reject retry
       // loop. Omitted entirely for a known non-DSL type.
       const instructions = selectInstructions(boundDiagramType);
       const result: Record<string, unknown> = {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: {}, resources: {} },
+        protocolVersion: compatibility.protocolVersion,
+        capabilities: compatibility.capabilities,
         serverInfo: { name: 'conf-agent-link', version: '0.1.0' },
       };
       if (instructions !== undefined) result.instructions = instructions;
+      // Only a normalized display label leaves this authenticated,
+      // compatible handshake boundary. Raw clientInfo and its version do not.
+      await reportStatusActivity(
+        env,
+        token,
+        'client_identified',
+        normalizeAgentClientLabel(body.params),
+      );
       return jsonRpcResult(id, result);
     }
 
@@ -482,19 +554,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
             // macro never saw this op (the guard runs before forwarding), which
             // was the worst dead-air case (spec 2026-07-13 §1/§4.2).
             // Best-effort: a failed report must not mask the RPC error reply.
-            try {
-              const stub = env.AGENT_LINK.get(env.AGENT_LINK.idFromName(token));
-              await stub.fetch('https://agent-link-do/activity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  type: 'guardrail_rejected',
-                  detail: (err.data as { reason?: string } | undefined)?.reason ?? 'guardrail',
-                }),
-              });
-            } catch {
-              // swallow — see above
-            }
+            await reportStatusActivity(
+              env,
+              token,
+              'guardrail_rejected',
+              (err.data as { reason?: string } | undefined)?.reason ?? 'guardrail',
+            );
           }
           let code = RPC_UNKNOWN_TOOL;
           if (err.code === 'bad_args') code = RPC_INVALID_PARAMS;

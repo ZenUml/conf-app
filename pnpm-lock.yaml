@@ -207,6 +207,9 @@ importers:
       rollup-plugin-copy:
         specifier: ^3.5.0
         version: 3.5.0
+      simple-icons:
+        specifier: 16.28.0
+        version: 16.28.0
       split.js:
         specifier: ^1.6.5
         version: 1.6.5
@@ -840,6 +843,7 @@ packages:
 
   '@atlaskit/icon-object@7.4.0':
     resolution: {integrity: sha512-FqCUXPnC0t81bUQxDeNJcPjrPz41WmOn7OE/vOl0QVUE2+WEnyYxzn59UPem1bslak7dVjm6IGO4vKp8xB2Fxw==}
+    deprecated: This package is deprecated. Use the @atlaskit/object package at https://atlassian.design/components/object/examples instead.
     peerDependencies:
       react: 17.0.2
 
@@ -7700,6 +7704,7 @@ packages:
   eslint@9.4.0:
     resolution: {integrity: sha512-sjc7Y8cUD1IlwYcTS9qPSvGjAC8Ne9LctpxKKu3x/1IC9bnOg98Zy6GxEJUfr1NojMgVPlyANXYns8oE2c1TAA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
 
   esm-resolve@1.0.11:
@@ -11215,6 +11220,10 @@ packages:
 
   simple-get@4.0.1:
     resolution: {integrity: sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA==}
+
+  simple-icons@16.28.0:
+    resolution: {integrity: sha512-sQPR5AtK/ijRjou7zw7mlLp08oB6FH7i0lOy5XJ2zp9mJs/yejgiOn7KvQoe2q4YJIx6VmgUSW5AOefebPt5kg==}
+    engines: {node: '>=0.12.18'}
 
   sirv@2.0.4:
     resolution: {integrity: sha512-94Bdh3cC2PKrbgSOUqTiGPWVZeSiXfKOVZNJniWoqrWrRkB1CJzBU3NEbiTsPcYy1lDsANA/THzS+9WBiy5nfQ==}
@@ -28272,6 +28281,8 @@ snapshots:
       decompress-response: 6.0.0
       once: 1.4.0
       simple-concat: 1.0.1
+
+  simple-icons@16.28.0: {}
 
   sirv@2.0.4:
     dependencies:

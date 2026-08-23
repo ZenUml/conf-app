@@ -22,7 +22,7 @@ describe('SessionNotice', () => {
     it('without lockExpiresAt: shows the generic no-fake-time copy', () => {
       const wrapper = mount(SessionNotice, { props: { variant: 'rejected' } })
       expect(wrapper.text()).toContain(
-        'Another agent session holds this diagram. Only one agent can hold the link at a time.'
+        'Connecting another AI agent will end the current link. Your diagram is saved.'
       )
     })
 
@@ -31,7 +31,7 @@ describe('SessionNotice', () => {
       const lockExpiresAt = Date.now() + (4 * 60 + 30) * 1000
       const wrapper = mount(SessionNotice, { props: { variant: 'rejected', lockExpiresAt } })
       expect(wrapper.text()).toContain(
-        'Another agent session holds this diagram — it expires in ~5 min. Only one agent can hold the link at a time.'
+        'Another AI agent has this link for about 5 more min. Connecting another agent will end that link.'
       )
     })
 
@@ -40,21 +40,33 @@ describe('SessionNotice', () => {
         props: { variant: 'rejected', lockExpiresAt: Date.now() - 1000 },
       })
       expect(wrapper.text()).toContain(
-        'Another agent session holds this diagram. Only one agent can hold the link at a time.'
+        'Connecting another AI agent will end the current link. Your diagram is saved.'
       )
-      expect(wrapper.text()).not.toContain('expires in')
+      expect(wrapper.text()).not.toContain('more min')
     })
 
     it('with lockExpiresAt null: shows the generic copy', () => {
       const wrapper = mount(SessionNotice, { props: { variant: 'rejected', lockExpiresAt: null } })
       expect(wrapper.text()).toContain(
-        'Another agent session holds this diagram. Only one agent can hold the link at a time.'
+        'Connecting another AI agent will end the current link. Your diagram is saved.'
       )
     })
   })
 
-  it('expired variant is unaffected by lockExpiresAt copy changes', () => {
+  it('expired variant offers one new-pairing action', () => {
     const wrapper = mount(SessionNotice, { props: { variant: 'expired' } })
-    expect(wrapper.text()).toContain('Your session ended. Your diagram is saved — nothing was lost.')
+    expect(wrapper.text()).toContain('Connection expired')
+    expect(wrapper.text()).toContain('Start a new connection when you are ready.')
+    expect(wrapper.text()).not.toContain('diagram is saved')
+    expect(wrapper.text()).not.toMatch(/reconnect/i)
+    expect(wrapper.findAll('button')).toHaveLength(1)
+    expect(wrapper.find('button').text()).toBe('Connect')
+  })
+
+  it('closed variant stays neutral and does not introduce switching language', () => {
+    const wrapper = mount(SessionNotice, { props: { variant: 'closed' } })
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Disconnected')
+    expect(wrapper.find('button').text()).toBe('Connect')
+    expect(wrapper.text()).not.toMatch(/another agent|AI agent/i)
   })
 })

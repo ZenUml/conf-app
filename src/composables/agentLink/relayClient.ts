@@ -63,11 +63,17 @@ export interface RelayEditOutcome {
 // see forwarding.ts's Envelope union), and 'close'/'reconnect_failed' for
 // surfacing connection loss.
 export type RelayStateEvent =
-  | { type: 'open' }
-  | { type: 'close'; code?: number; wasClean?: boolean }
-  | { type: 'error'; message?: string }
+  | { type: 'open'; reconnectAttempt?: number }
+  | {
+      type: 'close'
+      code?: number
+      wasClean?: boolean
+      reconnectAttempt?: number
+      unexpected?: boolean
+    }
+  | { type: 'error'; message?: string; reconnectAttempt?: number; unexpected?: boolean }
   | { type: 'reconnecting'; attempt: number }
-  | { type: 'reconnect_failed' }
+  | { type: 'reconnect_failed'; attempt?: number }
   // `receivedAt` is stamped the instant handleOp() begins (i.e. as close to
   // the wire as this module gets), so the composable can measure perceived
   // latency — op received → "AI thinking" shown — against a transport-owned
@@ -323,7 +329,7 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
   function scheduleReconnect(): void {
     if (closedByCaller) return
     if (reconnectAttempt >= maxReconnectAttempts) {
-      emit({ type: 'reconnect_failed' })
+      emit({ type: 'reconnect_failed', attempt: reconnectAttempt })
       return
     }
     reconnectAttempt += 1
@@ -338,20 +344,36 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
     ws = socket
 
     socket.onopen = () => {
+      const successfulReconnectAttempt = reconnectAttempt
       reconnectAttempt = 0
       state = 'open'
-      emit({ type: 'open' })
+      emit(
+        successfulReconnectAttempt > 0
+          ? { type: 'open', reconnectAttempt: successfulReconnectAttempt }
+          : { type: 'open' }
+      )
     }
     socket.onmessage = (evt: MessageEvent) => {
       const raw = typeof evt.data === 'string' ? evt.data : String(evt.data)
       handleMessage(raw)
     }
     socket.onerror = (evt: any) => {
-      emit({ type: 'error', message: evt?.message })
+      emit({
+        type: 'error',
+        message: evt?.message,
+        reconnectAttempt,
+        unexpected: !closedByCaller,
+      })
     }
     socket.onclose = (evt: any) => {
       state = 'closed'
-      emit({ type: 'close', code: evt?.code, wasClean: evt?.wasClean })
+      emit({
+        type: 'close',
+        code: evt?.code,
+        wasClean: evt?.wasClean,
+        reconnectAttempt,
+        unexpected: !closedByCaller,
+      })
       if (!closedByCaller) scheduleReconnect()
     }
   }

@@ -34,10 +34,12 @@
     v-else-if="state === 'suspended'"
     class="agent-link-live-badge agent-link-live-badge--suspended"
     data-testid="agent-link-live-badge-suspended"
-    title="Connection paused — reopen fullscreen to resume"
+    role="status"
+    aria-live="polite"
+    aria-label="Connecting AI assistant"
   >
     <span class="agent-link-live-badge__dot" aria-hidden="true"></span>
-    Paused
+    Connecting
   </span>
   <span
     v-else-if="state === 'closed'"
@@ -60,7 +62,7 @@
 // (design §3 decision #8, §5.1): the iframe stays alive after Fullscreen
 // closes, so the small macro needs its own "still connected" indicator.
 //
-// Track G extends this with 'suspended' (amber "Paused" — the relay socket
+// Track G extends this with 'suspended' (amber "Connecting" — the relay socket
 // dropped unexpectedly but is still resumable within the token TTL) and
 // 'closed' (gray "Disconnected" — the terminal state, explicit disconnect).
 // #314 adds 'expired' (gray "Expired" — the client-side TTL watchdog noticed
@@ -168,7 +170,7 @@ const agentActive = computed(() => {
   to { transform: rotate(360deg); }
 }
 
-/* Track G: 'suspended' — amber "Paused", still pulsing (resumable). */
+/* Track G: 'suspended' — lightweight amber connection status. */
 .agent-link-live-badge--suspended {
   background: rgba(226, 178, 3, 0.14);
   color: #c4761f;

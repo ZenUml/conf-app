@@ -67,6 +67,8 @@ export type AgentLinkHandoffState =
   | 'waiting'
   | 'connected'
   | 'suspended'
+  | 'recovery_exhausted'
+  | 'incompatible'
   | 'already_linked'
   | 'failed'
   | 'expired'
@@ -205,6 +207,8 @@ function isValidPersisted(
     (parsed.state === 'waiting' ||
       parsed.state === 'connected' ||
       parsed.state === 'suspended' ||
+      parsed.state === 'recovery_exhausted' ||
+      parsed.state === 'incompatible' ||
       parsed.state === 'already_linked' ||
       parsed.state === 'failed' ||
       parsed.state === 'expired')

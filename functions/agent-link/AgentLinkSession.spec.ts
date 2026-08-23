@@ -83,12 +83,118 @@ function sessionInfoRequest(): Request {
   return new Request('https://agent-link-do/session', { method: 'GET' });
 }
 
+function mcpClaimRequest(mcpSessionId: string): Request {
+  return new Request('https://agent-link-do/mcp-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mcpSessionId }),
+  });
+}
+
+function mcpBindingRequest(token: string, expiresAtMs: number): Request {
+  return new Request('https://agent-link-do/mcp-binding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, expiresAtMs }),
+  });
+}
+
+function mcpReleaseRequest(mcpSessionId: string): Request {
+  return new Request('https://agent-link-do/mcp-release', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mcpSessionId }),
+  });
+}
+
 /** Flushes the microtask queue (a real setTimeout(0) only fires once every pending microtask has run). */
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /agent-op)', () => {
+  describe('POST /mcp-claim', () => {
+    it('claims a live Macro session for one MCP transport session', async () => {
+      const store = new Map<string, unknown>();
+      const session = new AgentLinkSession(makeState(store), {});
+      (session as any).session = makeSession();
+      (session as any).macroSocket = makeFakeMacroWs();
+
+      const res = await session.fetch(mcpClaimRequest('mcp-session-1'));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true });
+      expect(store.get('mcpClaim')).toBe('mcp-session-1');
+    });
+
+    it('rejects a second MCP session trying to reuse the code', async () => {
+      const session = new AgentLinkSession(makeState(), {});
+      (session as any).session = makeSession();
+      (session as any).macroSocket = makeFakeMacroWs();
+      await session.fetch(mcpClaimRequest('mcp-session-1'));
+
+      const res = await session.fetch(mcpClaimRequest('mcp-session-2'));
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: 'code_already_used' });
+    });
+
+    it('releases the claim only for the owning MCP session', async () => {
+      const store = new Map<string, unknown>([['mcpClaim', 'mcp-session-1']]);
+      const session = new AgentLinkSession(makeState(store), {});
+
+      const wrongOwner = await session.fetch(mcpReleaseRequest('mcp-session-2'));
+      expect(wrongOwner.status).toBe(200);
+      expect(store.get('mcpClaim')).toBe('mcp-session-1');
+
+      const owner = await session.fetch(mcpReleaseRequest('mcp-session-1'));
+      expect(owner.status).toBe(200);
+      expect(store.has('mcpClaim')).toBe(false);
+    });
+  });
+
+  describe('POST /mcp-binding', () => {
+    it('stores the claimed target on the MCP-session Durable Object', async () => {
+      const store = new Map<string, unknown>();
+      const session = new AgentLinkSession(makeState(store), {});
+      const expiresAtMs = Date.now() + 600_000;
+
+      const res = await session.fetch(mcpBindingRequest('CL-PAIR-CODE', expiresAtMs));
+
+      expect(res.status).toBe(200);
+      expect(store.get('mcpBinding')).toEqual({ token: 'CL-PAIR-CODE', expiresAtMs });
+    });
+
+    it('returns a live target binding to later MCP tool calls', async () => {
+      const expiresAtMs = Date.now() + 600_000;
+      const store = new Map<string, unknown>([
+        ['mcpBinding', { token: 'CL-PAIR-CODE', expiresAtMs }],
+      ]);
+      const session = new AgentLinkSession(makeState(store), {});
+
+      const res = await session.fetch(
+        new Request('https://agent-link-do/mcp-binding', { method: 'GET' }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ token: 'CL-PAIR-CODE', expiresAtMs });
+    });
+
+    it('deletes the MCP-session target binding', async () => {
+      const store = new Map<string, unknown>([
+        ['mcpBinding', { token: 'CL-PAIR-CODE', expiresAtMs: Date.now() + 600_000 }],
+      ]);
+      const session = new AgentLinkSession(makeState(store), {});
+
+      const res = await session.fetch(
+        new Request('https://agent-link-do/mcp-binding', { method: 'DELETE' }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(store.has('mcpBinding')).toBe(false);
+    });
+  });
+
   describe('GET /session', () => {
     it('returns 401 when no session has ever been bootstrapped for this token', async () => {
       const session = new AgentLinkSession(makeState(), {});

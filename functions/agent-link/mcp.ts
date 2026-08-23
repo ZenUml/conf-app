@@ -1,7 +1,8 @@
-// POST /agent-link/mcp — the hosted MCP endpoint the local agent's
-// conf-agent MCP client connects to. Token-authenticated (design §8: "Token
-// = auth"), routes a minimal JSON-RPC 2.0 envelope to the 4-tool surface
-// (design §6).
+// /agent-link/mcp — the fixed hosted endpoint installed once in a coding
+// agent. A public Streamable HTTP handshake issues Mcp-Session-Id; the
+// `connect(code)` tool consumes one Macro-minted linking capability and binds
+// that transport session to the open Macro. Later tool calls carry only the
+// MCP session id — never the one-time code as a persistent credential.
 //
 // See docs/superpowers/specs/2026-07-08-live-agent-link-design.md §5.2
 // (relay components), §5.3 (conf-agent MCP remote-HTTP mode), §6 (MCP tool
@@ -9,7 +10,7 @@
 //
 // Real macro-forwarding: when `env.AGENT_LINK` is bound (staging/prod — see
 // wrangler-stg.toml), both authentication and `tools/call` forwarding go
-// through the AgentLinkSession Durable Object for this token
+// through the AgentLinkSession Durable Object for the paired target token
 // (`env.AGENT_LINK.get(idFromName(token))` — the same DO instance the macro
 // bootstrapped via its `GET /channel` connect, regardless of which Worker
 // isolate this HTTP request landed on). That's the fix for the bug this
@@ -18,8 +19,8 @@
 // different one.
 //
 // `env.AGENT_LINK` absent (local dev / unit tests — no companion Worker
-// bound, see channel.ts's matching fallback): falls back to the original
-// in-memory `sessionRegistry` + a canned-response stub for
+// bound, see channel.ts's matching fallback): falls back to the in-memory
+// session and MCP-binding registries + a canned-response stub for
 // `forwardToMacro`, so local dev and this file's own tests that don't wire
 // up a DO stub keep working unchanged.
 // TODO(agent-link): once every environment (incl. wrangler-dev.toml) has a
@@ -27,6 +28,7 @@
 
 import { authenticateSession } from './mcpAuth';
 import type { AuthResult } from './mcpAuth';
+import { mcpBindingRegistry } from './mcpBindingRegistry';
 import { dispatchTool, getToolSchemas, ToolError } from './mcpTools';
 import type { DispatchContext, ForwardResult, ToolName } from './mcpTools';
 import type { DiagramSnapshot } from './updateDiagramGuard';
@@ -41,8 +43,9 @@ interface Env {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version',
+  'Access-Control-Expose-Headers': 'Mcp-Session-Id',
 };
 
 const JSON_HEADERS = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
@@ -69,10 +72,10 @@ const RPC_MACRO_ERROR = -32003;
 // before any macro round-trip — see mcpTools.ts + updateDiagramGuard.ts.
 const RPC_GUARDRAIL_REJECTED = -32004;
 
-function jsonRpcResult(id: JsonRpcId, result: unknown): Response {
+function jsonRpcResult(id: JsonRpcId, result: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify({ jsonrpc: '2.0', id, result }), {
     status: 200,
-    headers: JSON_HEADERS,
+    headers: { ...JSON_HEADERS, ...headers },
   });
 }
 
@@ -137,6 +140,94 @@ interface DoSessionInfo {
    * until the agent has read the diagram at least once.
    */
   lastDiagram?: DiagramSnapshot;
+}
+
+type PairingResult =
+  | { ok: true; expiresAtMs: number }
+  | {
+      ok: false;
+      code: 'invalid_code' | 'expired_code' | 'code_already_used' | 'target_unavailable' | 'binding_failed';
+    };
+
+async function pairViaDo(
+  agentLink: DurableObjectNamespace,
+  code: string,
+  mcpSessionId: string,
+): Promise<PairingResult> {
+  const target = agentLink.get(agentLink.idFromName(code));
+  const claim = await target.fetch('https://agent-link-do/mcp-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mcpSessionId }),
+  });
+  if (!claim.ok) {
+    let error = '';
+    try {
+      error = ((await claim.json()) as { error?: string }).error ?? '';
+    } catch {
+      // The stable code below is derived from the HTTP status.
+    }
+    if (error === 'code_already_used') return { ok: false, code: 'code_already_used' };
+    if (error === 'target_unavailable') return { ok: false, code: 'target_unavailable' };
+    if (claim.status === 403) return { ok: false, code: 'expired_code' };
+    return { ok: false, code: 'invalid_code' };
+  }
+
+  const claimBody = (await claim.json()) as { expiresAtMs?: unknown };
+  if (typeof claimBody.expiresAtMs !== 'number') return { ok: false, code: 'binding_failed' };
+
+  const binding = agentLink.get(agentLink.idFromName(`mcp:${mcpSessionId}`));
+  const stored = await binding.fetch('https://agent-link-do/mcp-binding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: code, expiresAtMs: claimBody.expiresAtMs }),
+  });
+  if (!stored.ok) return { ok: false, code: 'binding_failed' };
+  return { ok: true, expiresAtMs: claimBody.expiresAtMs };
+}
+
+async function resolveBindingViaDo(
+  agentLink: DurableObjectNamespace,
+  mcpSessionId: string,
+): Promise<string | undefined> {
+  const binding = agentLink.get(agentLink.idFromName(`mcp:${mcpSessionId}`));
+  const res = await binding.fetch('https://agent-link-do/mcp-binding', { method: 'GET' });
+  if (!res.ok) return undefined;
+  const body = (await res.json()) as { token?: unknown };
+  return typeof body.token === 'string' && body.token ? body.token : undefined;
+}
+
+/** Releases both halves of a production pairing. Each operation is
+ * idempotent; target TTL remains the fallback when a client crashes without
+ * sending Streamable HTTP DELETE. */
+async function releasePairingViaDo(
+  agentLink: DurableObjectNamespace,
+  mcpSessionId: string,
+): Promise<void> {
+  const binding = agentLink.get(agentLink.idFromName(`mcp:${mcpSessionId}`));
+  let token: string | undefined;
+  try {
+    token = await resolveBindingViaDo(agentLink, mcpSessionId);
+  } catch {
+    // Best-effort teardown: an expired/missing mapping is already released.
+  }
+  if (token) {
+    try {
+      const target = agentLink.get(agentLink.idFromName(token));
+      await target.fetch('https://agent-link-do/mcp-release', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mcpSessionId }),
+      });
+    } catch {
+      // The target claim remains bounded by the linking-code TTL.
+    }
+  }
+  try {
+    await binding.fetch('https://agent-link-do/mcp-binding', { method: 'DELETE' });
+  } catch {
+    // The binding itself carries the same target expiry and will self-expire.
+  }
 }
 
 // 'macro_disconnected' (Track G, design §7 decision #4): the session is
@@ -361,18 +452,31 @@ export async function onRequestOptions(): Promise<Response> {
   return new Response(null, { headers: CORS_HEADERS });
 }
 
+export async function onRequestGet(): Promise<Response> {
+  return new Response(JSON.stringify({ error: 'Use POST for MCP messages.' }), {
+    status: 405,
+    headers: { ...JSON_HEADERS, Allow: 'POST, DELETE, OPTIONS' },
+  });
+}
+
+export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
+  const mcpSessionId = request.headers.get('Mcp-Session-Id')?.trim();
+  if (!mcpSessionId) {
+    return new Response(JSON.stringify({ error: 'Mcp-Session-Id is required' }), {
+      status: 400,
+      headers: JSON_HEADERS,
+    });
+  }
+
+  if (env?.AGENT_LINK) await releasePairingViaDo(env.AGENT_LINK, mcpSessionId);
+  else mcpBindingRegistry.release(mcpSessionId);
+  return new Response(null, { status: 200, headers: CORS_HEADERS });
+};
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const url = new URL(request.url);
-  const token = extractToken(request, url);
-
-  // Cheap, local, no-I/O check — a blank/absent token can never authenticate
-  // anywhere, so there's no reason to round-trip to the DO (or the fallback
-  // registry) to find that out. Real token *validity* (known vs. unknown,
-  // expired vs. live) is answered below by whichever backing store is live
-  // in this environment.
-  if (!token || token.trim().length === 0) {
-    return jsonRpcError(401, null, RPC_AUTH_ERROR, authErrorMessage('missing'), { code: 'missing' });
-  }
+  const legacyToken = extractToken(request, url);
+  let token: string | undefined;
 
   // Body is parsed BEFORE auth (ordering change, spec 2026-07-13): computing
   // bump-worthiness needs the method (and, for tools/call, params.name), and
@@ -389,6 +493,180 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   if (!body || typeof body !== 'object' || typeof body.method !== 'string') {
     return jsonRpcError(400, body?.id ?? null, RPC_INVALID_REQUEST, 'Invalid Request: missing "method"');
+  }
+
+  // A linking code is a one-time pairing capability, never a reusable MCP
+  // transport credential. Reject the old setup shape explicitly so a copied
+  // code cannot bypass the one-session claim by being replayed as Bearer auth.
+  if (legacyToken && !request.headers.get('Mcp-Session-Id') && body.method !== 'initialize') {
+    return jsonRpcError(401, body.id ?? null, RPC_AUTH_ERROR, 'Mcp-Session-Id is required', {
+      code: 'mcp_session_missing',
+    });
+  }
+
+  // A fixed Remote MCP endpoint must be able to complete its transport
+  // handshake before the user has a Macro linking code. The server-issued
+  // MCP session id is the stable client-session identity that `connect(code)`
+  // will bind in the next slice of the one-time-pairing design.
+  if ((!token || token.trim().length === 0) && body.method === 'initialize') {
+    return jsonRpcResult(
+      body.id ?? null,
+      {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {}, resources: {} },
+        serverInfo: { name: 'conf-agent-link', version: '0.1.0' },
+        instructions: selectInstructions(undefined),
+      },
+      { 'Mcp-Session-Id': crypto.randomUUID() },
+    );
+  }
+
+  // Clients probe a configured endpoint before initialize. Claude Code 2.1.240
+  // uses `server/discover`; other MCP clients use the standard `ping`.
+  // Keeping both public prevents a credential-free server from being mistaken
+  // for an OAuth challenge.
+  if (
+    (!token || token.trim().length === 0) &&
+    (body.method === 'ping' || body.method === 'server/discover')
+  ) {
+    return jsonRpcResult(body.id ?? null, {});
+  }
+
+  if (
+    (!token || token.trim().length === 0) &&
+    body.method === 'tools/list'
+  ) {
+    return jsonRpcResult(body.id ?? null, { tools: getToolSchemas() });
+  }
+
+  if (
+    (!token || token.trim().length === 0) &&
+    body.method === 'resources/list'
+  ) {
+    return jsonRpcResult(body.id ?? null, { resources: listGuideResources() });
+  }
+
+  if (
+    (!token || token.trim().length === 0) &&
+    body.method === 'resources/read'
+  ) {
+    const rparams = (body.params ?? {}) as { uri?: unknown };
+    const guide = typeof rparams.uri === 'string' ? getGuideByUri(rparams.uri) : undefined;
+    if (!guide) {
+      return jsonRpcError(
+        400,
+        body.id ?? null,
+        RPC_INVALID_PARAMS,
+        `Unknown resource: ${String(rparams.uri)}`,
+      );
+    }
+    return jsonRpcResult(body.id ?? null, {
+      contents: [{ uri: guide.uri, mimeType: 'text/markdown', text: guide.text }],
+    });
+  }
+
+  if (
+    (!token || token.trim().length === 0) &&
+    body.method.startsWith('notifications/')
+  ) {
+    return new Response(null, { status: 202, headers: CORS_HEADERS });
+  }
+
+  const unpairedCall = (body.params ?? {}) as { name?: unknown; arguments?: unknown };
+  if (
+    (!token || token.trim().length === 0) &&
+    body.method === 'tools/call' &&
+    unpairedCall.name === 'connect'
+  ) {
+    const mcpSessionId = request.headers.get('Mcp-Session-Id')?.trim();
+    if (!mcpSessionId) {
+      return jsonRpcError(400, body.id ?? null, RPC_INVALID_PARAMS, 'connect requires Mcp-Session-Id', {
+        code: 'mcp_session_missing',
+      });
+    }
+    const args = unpairedCall.arguments as { code?: unknown } | undefined;
+    const code = typeof args?.code === 'string' ? args.code.trim() : '';
+    if (!code) {
+      return jsonRpcError(200, body.id ?? null, RPC_INVALID_PARAMS, 'connect requires a non-empty code', {
+        code: 'invalid_code',
+      });
+    }
+
+    // Local-dev tracer bullet. The production DO-backed claim is added in the
+    // next TDD slice; keeping this branch real makes the public MCP contract
+    // executable without Cloudflare bindings.
+    if (!env?.AGENT_LINK) {
+      const linkAuth = authenticateSession(code, sessionRegistry, Date.now());
+      if (!linkAuth.ok) {
+        const reason = linkAuth.code === 'expired' ? 'expired_code' : 'invalid_code';
+        return jsonRpcError(200, body.id ?? null, RPC_AUTH_ERROR, `Unable to connect: ${reason}`, {
+          code: reason,
+        });
+      }
+      const claim = mcpBindingRegistry.bind(mcpSessionId, code);
+      if (!claim.ok) {
+        return jsonRpcError(200, body.id ?? null, RPC_AUTH_ERROR, 'This linking code was already used', {
+          code: claim.code,
+        });
+      }
+      const expiresInSec = Math.max(
+        0,
+        Math.round(
+          (effectiveExpiryMs(linkAuth.session.issuedAtMs, linkAuth.session.lastActivityMs) - Date.now()) /
+            1000,
+        ),
+      );
+      const result = { connected: true, expiresInSec };
+      return jsonRpcResult(body.id ?? null, {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+        structuredContent: result,
+      });
+    }
+
+    // One MCP transport can switch between open Macros. Release its previous
+    // target before committing the new code, so the old code is not stranded
+    // as consumed until TTL.
+    await releasePairingViaDo(env.AGENT_LINK, mcpSessionId);
+    const pairing = await pairViaDo(env.AGENT_LINK, code, mcpSessionId);
+    if (!pairing.ok) {
+      return jsonRpcError(200, body.id ?? null, RPC_AUTH_ERROR, `Unable to connect: ${pairing.code}`, {
+        code: pairing.code,
+      });
+    }
+    const result = {
+      connected: true,
+      expiresInSec: Math.max(0, Math.round((pairing.expiresAtMs - Date.now()) / 1000)),
+    };
+    return jsonRpcResult(body.id ?? null, {
+      content: [{ type: 'text', text: JSON.stringify(result) }],
+      structuredContent: result,
+    });
+  }
+
+  // After a successful local-dev `connect(code)`, normal tools resolve the
+  // target from the stable MCP transport session rather than asking the
+  // client to resend or persist the linking code.
+  if ((!token || token.trim().length === 0) && !env?.AGENT_LINK) {
+    const mcpSessionId = request.headers.get('Mcp-Session-Id')?.trim();
+    if (mcpSessionId) token = mcpBindingRegistry.getToken(mcpSessionId);
+  }
+  if ((!token || token.trim().length === 0) && env?.AGENT_LINK) {
+    const mcpSessionId = request.headers.get('Mcp-Session-Id')?.trim();
+    if (mcpSessionId) token = await resolveBindingViaDo(env.AGENT_LINK, mcpSessionId);
+  }
+
+  if (
+    (!token || token.trim().length === 0) &&
+    request.headers.get('Mcp-Session-Id') &&
+    body.method === 'tools/call'
+  ) {
+    return jsonRpcError(200, body.id ?? null, RPC_AUTH_ERROR, 'Call connect with a linking code first', {
+      code: 'not_paired',
+    });
+  }
+
+  if (!token || token.trim().length === 0) {
+    return jsonRpcError(401, null, RPC_AUTH_ERROR, authErrorMessage('missing'), { code: 'missing' });
   }
 
   // Bump-worthiness (spec 2026-07-13 §3): real work slides the idle window;

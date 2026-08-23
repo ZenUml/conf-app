@@ -352,6 +352,7 @@
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
             @reconnect="onAgentLinkReconnect"
+            @instruction-copied="onAgentLinkInstructionCopied"
           />
         </aside>
         </div>
@@ -962,6 +963,15 @@ export default {
     // absorbing 'closed' terminal state (a plain startConnect() would no-op).
     onAgentLinkReconnect() {
       this.agentLinkSession?.revokeAndRelink();
+    },
+    onAgentLinkInstructionCopied(instructionKind) {
+      trackAnalyticsEvent('agent_link_connection_instruction_copied', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: this.diagramType ?? 'none',
+        pairing_method: 'linking_code',
+        instruction_kind: instructionKind,
+      });
     },
     // Live Agent Link render fix: an agent's update_diagram op PERSISTS via
     // the Forge bridge (writeDiagram -> saveCustomContentV2), but that write

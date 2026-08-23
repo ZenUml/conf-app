@@ -15,10 +15,10 @@
     </div>
 
     <div class="agent-link-panel__scroll">
-      <!-- waiting: paste prompt + copy + pulsing status + collapsed setup.
+      <!-- waiting: paste pairing prompt + copy + pulsing status + collapsed setup.
            Once the relay reports presence (progressStage != null — Task 5's
            useAgentLinkSession), the setup block is replaced by a staged
-           ladder: the agent has already found the token, so re-showing the
+           ladder: the agent has already claimed the linking code, so re-showing the
            setup command would be confusing/redundant. Copy is honest about
            what each stage actually proves — see the `verified` row below. -->
       <template v-if="state === 'waiting'">
@@ -38,7 +38,8 @@
             <span class="agent-link-panel__pulse-dot" aria-hidden="true"></span>
             Waiting for your agent to connect…
           </p>
-          <!-- The idle/max window starts at mint (functions/agent-link/sessionToken.ts's
+          <!-- The idle/max window starts when the linking code is minted
+               (functions/agent-link/sessionToken.ts's
                lastActivityMs = issuedAtMs), not at first agent contact — so
                this counts down for real from the moment the token exists,
                matching SessionTtl's own default 600s (10-minute) bar. -->
@@ -54,7 +55,7 @@
           </ol>
 
           <details v-if="progressStage === null" class="agent-link-panel__disclosure" data-testid="agent-link-setup-disclosure">
-            <summary>Connect your agent (each session uses a fresh command)</summary>
+            <summary>First time? Install the connector once</summary>
             <SetupInstructions />
           </details>
         </div>
@@ -199,7 +200,7 @@
       </template>
 
       <!-- expired (#314, terminal): the client-side TTL watchdog noticed the
-           minted token's own lapse (the relay already 403s the agent
+           linking capability's lapse (the relay already rejects the agent
            server-side). SessionNotice already ships an "expired" variant
            (verbatim design-contract copy) — reuse it and the SAME reconnect
            emit the closed/failed notices use, rather than inventing a new
@@ -245,7 +246,7 @@
               data-testid="agent-link-copy-prompt-btn"
               @click="onCopyPrompt"
             >{{ copyButtonLabel }}</button>
-            <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">No response yet — paste it again. Each copy mints a fresh command.</p>
+            <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">No response yet — paste the pairing prompt again while this code is still live.</p>
           </div>
 
           <div class="agent-link-panel__option" data-testid="agent-link-option-setup">
@@ -253,7 +254,7 @@
             <SetupInstructions />
             <p class="agent-link-panel__hint" data-testid="agent-link-timeout-hint">
               Pasted into a session that is already running? Restart it or run /mcp.
-              A mistyped token cannot be detected server-side.
+              If the linking code expired, get a fresh one below.
             </p>
           </div>
 
@@ -343,21 +344,15 @@ const emit = defineEmits<{
   // Track H rejected notice secondary action. The host decides whether this
   // closes the Fullscreen surface or simply leaves the notice visible.
   (e: 'cancel'): void
+  (e: 'instruction-copied', kind: 'setup_command' | 'pairing_prompt'): void
 }>()
 
-// Rebuilt per session: the token rotates on every mint, and mcp.ts accepts
-// credentials ONLY as an Authorization header (or ?token=) — a command
-// without --header cannot authenticate. The trailing `claude -p` one-shot
-// makes a real MCP client connect NOW (mcp add alone only writes config;
-// the handshake would otherwise wait for the user's next session start).
-const mcpAddCommand = computed(() => {
-  const token = props.token ?? ''
-  return [
-    `claude mcp add --transport http conf-agent ${agentLinkMcpUrl()} \\`,
-    `  --header "Authorization: Bearer ${token}" \\`,
-    `&& claude -p "Using conf-agent, call get_status and report the diagram title."`,
-  ].join('\n')
-})
+// Stable, credential-free setup: install the Remote MCP endpoint once. Each
+// Macro session is paired later through the connect tool and a one-time code,
+// so no expiring secret is left behind in Claude's MCP configuration.
+const mcpAddCommand = computed(
+  () => `claude mcp add --transport http conf-agent ${agentLinkMcpUrl()}`
+)
 
 // The idle/max TTL is session metadata, not part of what the user pastes into
 // their agent — it used to live inside promptText and got copy-pasted along
@@ -382,6 +377,16 @@ const SetupInstructions = defineComponent({
           'pre',
           { class: 'agent-link-panel__command', 'data-testid': 'agent-link-setup-command' },
           mcpAddCommand.value
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'agent-link-panel__btn',
+            'data-testid': 'agent-link-copy-setup-btn',
+            onClick: onCopySetup,
+          },
+          'Copy setup command'
         ),
       ])
   },
@@ -443,8 +448,8 @@ const progressRows = computed(() => [
 const promptText = computed(() => {
   const sessionToken = props.token ?? ''
   return [
-    'Connect to my ZenUML diagram via the conf-agent MCP.',
-    `session: ${sessionToken}`,
+    'Using conf-agent, call connect with this one-time linking code.',
+    `code: ${sessionToken}`,
   ].join('\n')
 })
 
@@ -462,6 +467,7 @@ async function onCopyPrompt() {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(promptText.value)
+      emit('instruction-copied', 'pairing_prompt')
       copyState.value = 'copied'
       if (copyRevertTimer) clearTimeout(copyRevertTimer)
       copyRevertTimer = setTimeout(() => {
@@ -473,6 +479,17 @@ async function onCopyPrompt() {
     console.warn('[agent-link] failed to copy connect prompt', e)
   }
   copyState.value = 'failed'
+}
+
+async function onCopySetup() {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(mcpAddCommand.value)
+      emit('instruction-copied', 'setup_command')
+    }
+  } catch (e) {
+    console.warn('[agent-link] failed to copy setup command', e)
+  }
 }
 
 function formatTime(at: number): string {

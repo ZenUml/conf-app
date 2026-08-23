@@ -44,13 +44,13 @@ describe('ConnectPanel', () => {
     })
   })
 
-  it('waiting: shows the paste-prompt block with the token', () => {
+  it('waiting: shows a connect tool prompt with the one-time code', () => {
     const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
 
     expect(wrapper.find('[data-testid="agent-link-waiting"]').exists()).toBe(true)
     const prompt = wrapper.find('[data-testid="agent-link-prompt"]').text()
-    expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
-    expect(prompt).toContain('session: tok-123')
+    expect(prompt).toContain('Using conf-agent, call connect')
+    expect(prompt).toContain('code: tok-123')
     expect(wrapper.find('[data-testid="agent-link-waiting-status"]').text()).toContain(
       'Waiting for your agent to connect'
     )
@@ -194,7 +194,7 @@ describe('ConnectPanel', () => {
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toContain('already running')
     expect(hint.text()).toContain('run /mcp')
-    expect(hint.text()).toContain('mistyped token')
+    expect(hint.text()).toContain('linking code expired')
   })
 
   it('timeout: offers a re-mint action, distinct from re-pasting the prompt or re-running setup', async () => {
@@ -212,7 +212,8 @@ describe('ConnectPanel', () => {
     const cmd = wrapper.find('[data-testid="agent-link-setup-command"]').text()
     expect(cmd).toContain('claude mcp add --transport http conf-agent')
     expect(cmd).toContain('/agent-link/mcp')
-    expect(cmd).toContain('--header "Authorization: Bearer tok-123"')
+    expect(cmd).not.toContain('Authorization')
+    expect(cmd).not.toContain('tok-123')
     // The dead "Add to Cursor" button (no click handler) and the dead
     // "Use the no-install bridge instead" link (href="#") were removed —
     // the working `claude mcp add` command is the single setup path.
@@ -220,14 +221,14 @@ describe('ConnectPanel', () => {
     expect(wrapper.find('[data-testid="agent-link-no-install-link"]').exists()).toBe(false)
   })
 
-  it('setup command carries the session token as an Authorization header and a get_status trigger', () => {
+  it('setup command is stable and contains no session credential', () => {
     const wrapper = mountPanel({ state: 'waiting', token: 'CL-TEST-1234' })
     const cmd = wrapper.find('[data-testid="agent-link-setup-command"]').text()
-    expect(cmd).toContain('--header "Authorization: Bearer CL-TEST-1234"')
+    expect(cmd).not.toContain('Authorization')
+    expect(cmd).not.toContain('CL-TEST-1234')
     expect(cmd).toContain('/agent-link/mcp')
     expect(cmd).not.toContain('zenapi.zenuml.com') // env-derived in tests, not hardcoded prod
-    expect(cmd).toContain('claude -p') // one-shot trigger provokes the handshake immediately
-    expect(cmd).toContain('get_status')
+    expect(cmd).not.toContain('claude -p')
   })
 
   it('rail: waiting with no presence shows the browser-Worker leg up and the Worker-agent leg pending', () => {
@@ -285,8 +286,21 @@ describe('ConnectPanel', () => {
     await wrapper.vm.$nextTick()
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      expect.stringContaining('session: tok-123')
+      expect.stringContaining('code: tok-123')
     )
+    expect(wrapper.emitted('instruction-copied')).toEqual([['pairing_prompt']])
+  })
+
+  it('copies the stable setup command separately from the pairing code', async () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
+
+    await wrapper.find('[data-testid="agent-link-copy-setup-btn"]').trigger('click')
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      expect.stringContaining('claude mcp add --transport http conf-agent')
+    )
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('tok-123'))
+    expect(wrapper.emitted('instruction-copied')).toEqual([['setup_command']])
   })
 
   it('Disconnect emits the disconnect event', async () => {

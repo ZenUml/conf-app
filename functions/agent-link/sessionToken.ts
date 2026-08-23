@@ -71,14 +71,15 @@ function randomSegment(length: number): string {
   crypto.getRandomValues(bytes);
   let out = '';
   for (let i = 0; i < length; i++) {
-    out += TOKEN_ALPHABET[bytes[i] % TOKEN_ALPHABET.length];
+    // 32 divides 256 exactly, so masking keeps every character equiprobable.
+    out += TOKEN_ALPHABET[bytes[i] & 31];
   }
   return out;
 }
 
-/** Mints an opaque, URL-safe, human-pasteable session token, e.g. "CL-7F3K-Q9M2". */
+/** Mints an opaque, URL-safe, pasteable 130-bit session/linking capability. */
 export function mintToken(): string {
-  return `CL-${randomSegment(4)}-${randomSegment(4)}`;
+  return `CL-${randomSegment(5)}-${randomSegment(5)}-${randomSegment(5)}-${randomSegment(5)}-${randomSegment(6)}`;
 }
 
 /** The server-authoritative deadline: min(idle window, absolute cap). */

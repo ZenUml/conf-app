@@ -471,6 +471,17 @@ export function useAgentLinkSession(
               connectClickedAt != null ? now() - connectClickedAt : -1,
             client_name: agentClientName.value ?? undefined,
           })
+          if (stage === 'verified') {
+            trackAnalyticsEvent('agent_link_pairing_completed', {
+              feature_area: 'agent_link',
+              surface: 'fullscreen',
+              macro_type: macroType,
+              pairing_method: 'linking_code',
+              client_name: agentClientName.value ?? undefined,
+              time_to_connect_ms:
+                connectClickedAt != null ? now() - connectClickedAt : -1,
+            })
+          }
         }
       }
       // Republish so a separate Fullscreen mirror gets the new deadline + feed

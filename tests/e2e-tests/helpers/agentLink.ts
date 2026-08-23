@@ -15,9 +15,8 @@ import { Page } from '@playwright/test';
  *    happen WHILE the Playwright tab is open (do not close the browser first).
  *  - The Forge Custom UI iframe is a sandboxed cross-origin OOPIF; content
  *    lives in a child frame whose URL matches *.atlassian-dev.net.
- *  - `read_page`/the first agent op is what fires `agent_connected` and flips
- *    the macro panel `waiting -> connected` (the green border). There is no
- *    dedicated pairing envelope.
+ *  - `connect(code)` binds the fixed MCP transport session and pushes verified
+ *    presence, which flips the macro panel `waiting -> connected`.
  */
 
 // lite-stg backend (REMOTE_BASE_URL_MAP STAGING_LITE in src/model/globals/forgeGlobal.ts).
@@ -31,16 +30,53 @@ export interface McpResult {
   error: any;
 }
 
-/** Call one hosted-MCP tool as the agent, presenting the session token. */
+/** Start one standard Streamable HTTP MCP transport session. */
+export async function initializeAgentLinkMcp(base = AGENT_LINK_STG_BASE): Promise<string> {
+  const init = await fetch(agentLinkMcpUrl(base), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 0,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'agent-link-e2e', version: '1' },
+      },
+    }),
+  });
+  if (!init.ok) throw new Error(`MCP initialize failed: HTTP ${init.status}`);
+  const mcpSessionId = init.headers.get('mcp-session-id');
+  if (!mcpSessionId) throw new Error('MCP initialize returned no Mcp-Session-Id');
+  await fetch(agentLinkMcpUrl(base), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'mcp-session-id': mcpSessionId },
+    body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+  });
+  return mcpSessionId;
+}
+
+/** Pair a newly initialized MCP transport session with one Macro code. */
+export async function connectAgentLink(code: string, base = AGENT_LINK_STG_BASE): Promise<string> {
+  const mcpSessionId = await initializeAgentLinkMcp(base);
+  const result = await agentLinkMcp(mcpSessionId, 'connect', { code }, base);
+  if (result.status !== 200 || result.error || result.result?.connected !== true) {
+    throw new Error(`Agent Link connect failed: ${JSON.stringify(result)}`);
+  }
+  return mcpSessionId;
+}
+
+/** Call one hosted-MCP tool through an already-paired transport session. */
 export async function agentLinkMcp(
-  token: string,
+  mcpSessionId: string,
   name: string,
   args: Record<string, unknown> = {},
   base = AGENT_LINK_STG_BASE,
 ): Promise<McpResult> {
   const res = await fetch(agentLinkMcpUrl(base), {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    headers: { 'content-type': 'application/json', 'mcp-session-id': mcpSessionId },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
   });
   let body: any = null;
@@ -67,8 +103,8 @@ export async function agentLinkMcp(
  * Whether the agent-link functions are actually routed on this deployment.
  * The `conf-stg-lite` alias is SHARED and gets clobbered by macro-only
  * deploys (see reference: shared-lite-stg-alias-clobber) — when that happens
- * `/agent-link/mcp` POST falls through to the static SPA handler and returns
- * 405. A live endpoint returns a JSON-RPC error (401/invalid token) instead.
+ * `/agent-link/mcp` POST falls through to the static SPA handler. A live
+ * endpoint completes an anonymous MCP initialize and issues Mcp-Session-Id.
  * The spec skips (not fails) when this is false, since the feature ships on an
  * unreleased build.
  */
@@ -76,10 +112,15 @@ export async function isAgentLinkEndpointLive(base = AGENT_LINK_STG_BASE): Promi
   try {
     const res = await fetch(agentLinkMcpUrl(base), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer probe' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'route-probe', version: '1' } },
+      }),
     });
-    return res.status !== 405 && res.status !== 404;
+    return res.status === 200 && Boolean(res.headers.get('mcp-session-id'));
   } catch {
     return false;
   }

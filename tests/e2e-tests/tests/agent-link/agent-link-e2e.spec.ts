@@ -20,7 +20,7 @@ import { test, expect, type Page } from '@playwright/test';
 import {
   AGENT_LINK_STG_BASE,
   agentLinkMcp,
-  agentLinkMcpUrl,
+  connectAgentLink,
   clickConnectToAgent,
   enableAgentLinkOverrides,
   isAgentLinkEndpointLive,
@@ -120,6 +120,7 @@ test.describe('Live Agent Link — end to end', () => {
     await openMacroPage(page, TEST_PAGE_URL);
 
     let token: string | null = null;
+    let mcpSessionId: string | null = null;
     let originalDsl = '';
     try {
       expect(await clickConnectToAgent(page), 'macro renders a "Connect to Agent" affordance').toBe(true);
@@ -138,17 +139,7 @@ test.describe('Live Agent Link — end to end', () => {
       // FSM stays 'waiting' — that assertion is valid on both old and new
       // relays. Once Task 9 deploys presence to lite-stg, tighten this back
       // to a hard assertion.
-      const init = await fetch(agentLinkMcpUrl(), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 0,
-          method: 'initialize',
-          params: { clientInfo: { name: 'e2e-probe', version: '0' }, protocolVersion: '2024-11-05', capabilities: {} },
-        }),
-      });
-      expect(init.status, 'initialize HTTP').toBe(200);
+      mcpSessionId = await connectAgentLink(token!);
       try {
         await expect
           .poll(() => readProgressStage(page), { timeout: 5000, message: 'presence reaches the panel before any op' })
@@ -166,7 +157,7 @@ test.describe('Live Agent Link — end to end', () => {
       );
 
       // ---- agent side: read_page (also fires agent_connected) ----
-      const rp = await agentLinkMcp(token!, 'read_page');
+      const rp = await agentLinkMcp(mcpSessionId, 'read_page');
       expect(rp.status, 'read_page HTTP').toBe(200);
       expect(String(mcpPayload(rp).title ?? ''), 'read_page returns a real page title').not.toHaveLength(0);
 
@@ -176,7 +167,7 @@ test.describe('Live Agent Link — end to end', () => {
         .toContain('connected');
 
       // ---- agent reads current diagram, edits it, macro re-renders live ----
-      const rd = await agentLinkMcp(token!, 'read_diagram');
+      const rd = await agentLinkMcp(mcpSessionId, 'read_diagram');
       expect(rd.status, 'read_diagram HTTP').toBe(200);
       const rdPayload = mcpPayload(rd);
       originalDsl = String(rdPayload.dsl ?? rdPayload.code ?? '');
@@ -184,7 +175,7 @@ test.describe('Live Agent Link — end to end', () => {
       const diagramType = String(rdPayload.diagramType ?? 'sequence');
 
       const marker = `AGENTE2E${String(Date.now()).slice(-5)}`;
-      const up = await agentLinkMcp(token!, 'update_diagram', {
+      const up = await agentLinkMcp(mcpSessionId, 'update_diagram', {
         dsl: appendMarkerEdit(originalDsl, diagramType, marker),
         summary: 'agent-link e2e',
       });
@@ -195,8 +186,8 @@ test.describe('Live Agent Link — end to end', () => {
       expect(await waitForRenderedMarker(page, marker), 'macro re-renders the edit LIVE (no reload)').toBe(true);
     } finally {
       // Non-destructive: put the diagram back the way we found it.
-      if (token && originalDsl) {
-        await agentLinkMcp(token, 'update_diagram', { dsl: originalDsl, summary: 'agent-link e2e restore' }).catch(() => {});
+      if (mcpSessionId && originalDsl) {
+        await agentLinkMcp(mcpSessionId, 'update_diagram', { dsl: originalDsl, summary: 'agent-link e2e restore' }).catch(() => {});
       }
       await page.close().catch(() => {});
       if (token) await forceReleaseLock(token);
@@ -210,6 +201,7 @@ test.describe('Live Agent Link — end to end', () => {
     );
 
     let token: string | null = null;
+    let mcpSessionId: string | null = null;
     try {
       // ---- macro side: Connect -> mint -> waiting ----
       await enableAgentLinkOverrides(page);
@@ -222,7 +214,9 @@ test.describe('Live Agent Link — end to end', () => {
       expect(token, 'Connect mints a session token').toBeTruthy();
       expect(await readPanelClass(page), 'Fullscreen shows the waiting prompt').toBe('agent-link-panel--waiting');
 
-      const s1 = await agentLinkMcp(token!, 'get_status');
+      mcpSessionId = await connectAgentLink(token!);
+
+      const s1 = await agentLinkMcp(mcpSessionId, 'get_status');
       expect(s1.status, 'get_status HTTP before activity').toBe(200);
       expect(s1.error, 'get_status before activity has no JSON-RPC error').toBeFalsy();
       const e1 = Number(mcpPayload(s1).expiresInSec);
@@ -230,11 +224,11 @@ test.describe('Live Agent Link — end to end', () => {
 
       await page.waitForTimeout(30_000);
 
-      const rd = await agentLinkMcp(token!, 'read_diagram');
+      const rd = await agentLinkMcp(mcpSessionId, 'read_diagram');
       expect(rd.status, 'read_diagram HTTP').toBe(200);
       expect(rd.error, 'read_diagram has no JSON-RPC error').toBeFalsy();
 
-      const s2 = await agentLinkMcp(token!, 'get_status');
+      const s2 = await agentLinkMcp(mcpSessionId, 'get_status');
       expect(s2.status, 'get_status HTTP after activity').toBe(200);
       expect(s2.error, 'get_status after activity has no JSON-RPC error').toBeFalsy();
       const e2 = Number(mcpPayload(s2).expiresInSec);

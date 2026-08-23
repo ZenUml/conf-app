@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { onRequestPost, onRequestOptions } from './mcp';
+import { onRequestDelete, onRequestGet, onRequestPost, onRequestOptions } from './mcp';
 import { onRequestPost as sessionPost } from './session';
 import { sessionRegistry } from './registrySingleton';
 import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 import { getToolSchemas } from './mcpTools';
+import { mcpBindingRegistry } from './mcpBindingRegistry';
 
 const CTX: BoundContext = { cloudId: 'cloud-1', pageId: 'page-1', contentId: 'content-1' };
 
@@ -14,7 +15,7 @@ function rpc(method: string, params?: unknown, id: number | string = 1) {
 
 function makeRequest(
   body: unknown,
-  opts: { token?: string; viaQuery?: boolean; rawBody?: string } = {},
+  opts: { token?: string; viaQuery?: boolean; rawBody?: string; mcpSessionId?: string } = {},
 ): Request {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let url = 'https://example.com/agent-link/mcp';
@@ -26,6 +27,7 @@ function makeRequest(
       headers['Authorization'] = `Bearer ${opts.token}`;
     }
   }
+  if (opts.mcpSessionId) headers['Mcp-Session-Id'] = opts.mcpSessionId;
 
   return new Request(url, {
     method: 'POST',
@@ -34,57 +36,196 @@ function makeRequest(
   });
 }
 
-async function post(body: unknown, opts?: { token?: string; viaQuery?: boolean; rawBody?: string }) {
-  const res = await onRequestPost({ request: makeRequest(body, opts) } as any);
+async function post(
+  body: unknown,
+  opts?: { token?: string; viaQuery?: boolean; rawBody?: string; mcpSessionId?: string },
+) {
+  const requestOpts = { ...opts };
+  if (opts?.token) {
+    const mcpSessionId = `test:${opts.token}`;
+    mcpBindingRegistry.bind(mcpSessionId, opts.token);
+    requestOpts.mcpSessionId = mcpSessionId;
+    delete requestOpts.token;
+    delete requestOpts.viaQuery;
+  }
+  const res = await onRequestPost({ request: makeRequest(body, requestOpts) } as any);
   const json = await res.json();
   return { res, json };
 }
 
 describe('POST /agent-link/mcp', () => {
-  it('returns 401 when no token is presented', async () => {
-    const { res, json } = await post(rpc('tools/list'));
+  it('initializes without Agent Link credentials and issues an MCP session id', async () => {
+    const { res, json } = await post(
+      rpc('initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'test-client', version: '1' },
+      }),
+    );
 
-    expect(res.status).toBe(401);
-    expect(json.error).toBeDefined();
-    expect(json.error.data?.code).toBe('missing');
+    expect(res.status).toBe(200);
+    expect(json.result.serverInfo.name).toBe('conf-agent-link');
+    expect(res.headers.get('Mcp-Session-Id')).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('returns 401 for a bogus token', async () => {
-    const { res, json } = await post(rpc('tools/list'), { token: 'CL-0000-0000' });
+  it('lists connect on an unpaired MCP session without Agent Link credentials', async () => {
+    const { res, json } = await post(rpc('tools/list'), {
+      mcpSessionId: '55d92b0c-a875-4f52-9520-7758667eed09',
+    });
+
+    expect(res.status).toBe(200);
+    expect(json.result.tools.map((tool: { name: string }) => tool.name)).toContain('connect');
+  });
+
+  it('lists static DSL resources before pairing', async () => {
+    const { res, json } = await post(rpc('resources/list'), {
+      mcpSessionId: '77bfdd2a-0b93-4ec8-a0ec-f59c1e357e7f',
+    });
+
+    expect(res.status).toBe(200);
+    expect(json.result.resources.map((resource: { uri: string }) => resource.uri)).toContain(
+      'zenuml://dsl-guide',
+    );
+  });
+
+  it('accepts the initialized notification on an unpaired MCP session', async () => {
+    const request = makeRequest(rpc('notifications/initialized'), {
+      mcpSessionId: 'b59bd32d-925a-4310-b73a-a957bb574a2d',
+    });
+
+    const res = await onRequestPost({ request } as any);
+
+    expect(res.status).toBe(202);
+    expect(await res.text()).toBe('');
+  });
+
+  it('connects an MCP session with a live one-time code', async () => {
+    const link = sessionRegistry.create(CTX);
+    const { res, json } = await post(
+      rpc('tools/call', { name: 'connect', arguments: { code: link.token } }),
+      { mcpSessionId: '6c63738f-d61c-4acc-8e25-50118ee95fd3' },
+    );
+
+    expect(res.status).toBe(200);
+    expect(json.error).toBeUndefined();
+    expect(json.result.structuredContent).toMatchObject({ connected: true });
+  });
+
+  it('uses the MCP session binding for later tools without resending the code', async () => {
+    const link = sessionRegistry.create(CTX);
+    const mcpSessionId = '5b6b553c-f3ee-49ce-b959-30d280030efd';
+    await post(rpc('tools/call', { name: 'connect', arguments: { code: link.token } }), {
+      mcpSessionId,
+    });
+
+    const { res, json } = await post(rpc('tools/call', { name: 'read_page', arguments: {} }), {
+      mcpSessionId,
+    });
+
+    expect(res.status).toBe(200);
+    expect(json.result.structuredContent).toMatchObject({ pageId: CTX.pageId, stubbed: true });
+  });
+
+  it('returns not_paired when a diagram tool is called before connect', async () => {
+    const { res, json } = await post(
+      rpc('tools/call', { name: 'read_page', arguments: {} }),
+      { mcpSessionId: 'f21784a4-3910-4480-87b5-9ea6d4ce0757' },
+    );
+
+    expect(res.status).toBe(200);
+    expect(json.error.data.code).toBe('not_paired');
+  });
+
+  it('does not accept the one-time code as a reusable Bearer credential', async () => {
+    const link = sessionRegistry.create(CTX);
+    const request = makeRequest(
+      rpc('tools/call', { name: 'read_page', arguments: {} }),
+      { token: link.token },
+    );
+
+    const res = await onRequestPost({ request } as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(json.error.data.code).toBe('mcp_session_missing');
+  });
+
+  it('allows discovery without an MCP session so clients do not start OAuth discovery', async () => {
+    const { res, json } = await post(rpc('tools/list'));
+
+    expect(res.status).toBe(200);
+    expect(json.result.tools.map((tool: { name: string }) => tool.name)).toContain('connect');
+  });
+
+  it('answers the public MCP ping used by client connectivity probes', async () => {
+    const { res, json } = await post(rpc('ping'));
+
+    expect(res.status).toBe(200);
+    expect(json.result).toEqual({});
+  });
+
+  it('answers Claude Code server discovery without advertising OAuth', async () => {
+    const { res, json } = await post(rpc('server/discover'));
+
+    expect(res.status).toBe(200);
+    expect(json.result).toEqual({});
+  });
+
+  it('reads static DSL resources before pairing', async () => {
+    const { res, json } = await post(
+      rpc('resources/read', { uri: 'zenuml://dsl-guide' }),
+      { mcpSessionId: '67855920-2a19-4418-97ae-1ca38a99a809' },
+    );
+
+    expect(res.status).toBe(200);
+    expect(json.result.contents[0]).toMatchObject({
+      uri: 'zenuml://dsl-guide',
+      mimeType: 'text/markdown',
+    });
+  });
+
+  it('returns 401 when an MCP binding points to an unknown target', async () => {
+    const { res, json } = await post(
+      rpc('tools/call', { name: 'read_page', arguments: {} }),
+      { token: 'CL-0000-0000' },
+    );
 
     expect(res.status).toBe(401);
     expect(json.error.data?.code).toBe('invalid');
   });
 
-  it('returns 403 for an expired token', async () => {
+  it('returns 403 when a paired target expires', async () => {
     const record = sessionRegistry.create(CTX);
     record.issuedAtMs = Date.now() - IDLE_TTL_MS - 1;
     record.lastActivityMs = record.issuedAtMs; // no bumping yet — idle window is what expires
 
-    const { res, json } = await post(rpc('tools/list'), { token: record.token });
+    const { res, json } = await post(
+      rpc('tools/call', { name: 'read_page', arguments: {} }),
+      { token: record.token },
+    );
 
     expect(res.status).toBe(403);
     expect(json.error.data?.code).toBe('expired');
   });
 
-  it('tools/list returns the 6 tools for a valid token', async () => {
+  it('tools/list returns connect plus the 6 diagram tools', async () => {
     const record = sessionRegistry.create(CTX);
 
     const { res, json } = await post(rpc('tools/list'), { token: record.token });
 
     expect(res.status).toBe(200);
-    expect(json.result.tools).toHaveLength(6);
+    expect(json.result.tools).toHaveLength(7);
     expect(json.result.tools.map((t: { name: string }) => t.name).sort()).toEqual(
-      ['get_status', 'list_diagrams', 'read_diagram', 'read_page', 'search_diagrams', 'update_diagram'].sort(),
+      ['connect', 'get_status', 'list_diagrams', 'read_diagram', 'read_page', 'search_diagrams', 'update_diagram'].sort(),
     );
   });
 
-  it('accepts the token via ?token= query param instead of the Authorization header', async () => {
+  it('does not accept the one-time code through the legacy ?token= query parameter', async () => {
     const record = sessionRegistry.create(CTX);
+    const request = makeRequest(rpc('tools/list'), { token: record.token, viaQuery: true });
+    const res = await onRequestPost({ request } as any);
 
-    const { res } = await post(rpc('tools/list'), { token: record.token, viaQuery: true });
-
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
   });
 
   it('tools/call read_page returns the stubbed result', async () => {
@@ -211,14 +352,15 @@ describe('POST /agent-link/mcp', () => {
   });
 
   it('acknowledges `notifications/initialized` with 202 + empty body (real MCP client handshake)', async () => {
-    const record = sessionRegistry.create(CTX);
-
     // A spec-compliant MCP client (Claude Code / the MCP SDK) POSTs this
     // notification right after `initialize`. It must NOT get a JSON-RPC error
     // (that aborts the handshake) — call onRequestPost directly since `post`
     // would choke on the empty 202 body.
     const res = await onRequestPost({
-      request: makeRequest({ jsonrpc: '2.0', method: 'notifications/initialized' }, { token: record.token }),
+      request: makeRequest(
+        { jsonrpc: '2.0', method: 'notifications/initialized' },
+        { mcpSessionId: 'f6eca506-d0e3-421f-bff8-92ed298cb4aa' },
+      ),
     } as any);
 
     expect(res.status).toBe(202);
@@ -255,7 +397,7 @@ describe('POST /agent-link/mcp', () => {
     const { res, json } = await post(rpc('tools/list'), { token });
 
     expect(res.status).toBe(200);
-    expect(json.result.tools).toHaveLength(6);
+    expect(json.result.tools).toHaveLength(7);
   });
 
   it('onRequestOptions returns CORS headers for preflight', async () => {
@@ -263,6 +405,58 @@ describe('POST /agent-link/mcp', () => {
 
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+  });
+
+  it('returns an explicit non-HTML response to Streamable HTTP GET probes', async () => {
+    const res = await onRequestGet();
+
+    expect(res.status).toBe(405);
+    expect(res.headers.get('Content-Type')).toContain('application/json');
+    expect(await res.text()).toContain('POST');
+  });
+
+  it('DELETE releases the local MCP-session binding and one-time claim', async () => {
+    const link = sessionRegistry.create(CTX);
+    const firstSessionId = 'fc66af34-09c5-488a-8c6b-3079ac3c79b5';
+    await post(rpc('tools/call', { name: 'connect', arguments: { code: link.token } }), {
+      mcpSessionId: firstSessionId,
+    });
+
+    const deleted = await onRequestDelete({
+      request: new Request('https://example.com/agent-link/mcp', {
+        method: 'DELETE',
+        headers: { 'Mcp-Session-Id': firstSessionId },
+      }),
+    } as any);
+
+    expect(deleted.status).toBe(200);
+    const afterDelete = await post(rpc('tools/call', { name: 'read_page', arguments: {} }), {
+      mcpSessionId: firstSessionId,
+    });
+    expect(afterDelete.json.error.data.code).toBe('not_paired');
+
+    const secondSession = await post(
+      rpc('tools/call', { name: 'connect', arguments: { code: link.token } }),
+      { mcpSessionId: '98d9900f-a100-4afb-b476-44c720d8c815' },
+    );
+    expect(secondSession.json.result.structuredContent.connected).toBe(true);
+  });
+
+  it('DELETE remains idempotent when a production binding is already unavailable', async () => {
+    const res = await onRequestDelete({
+      request: new Request('https://example.com/agent-link/mcp', {
+        method: 'DELETE',
+        headers: { 'Mcp-Session-Id': 'gone-session' },
+      }),
+      env: {
+        AGENT_LINK: {
+          idFromName: (name: string) => ({ name }),
+          get: () => ({ fetch: async () => { throw new Error('DO unavailable') } }),
+        },
+      },
+    } as any);
+
+    expect(res.status).toBe(200);
   });
 });
 
@@ -288,6 +482,12 @@ function makeDoEnv(responses: FakeDoResponses) {
       // `?bump=1` may ride the /session auth URL (sliding-TTL) — match on the
       // path only so a bumped auth still routes to the session handler.
       const path = url.split('?')[0];
+      if (path.endsWith('/mcp-binding')) {
+        return new Response(JSON.stringify({ token: 'CL-TEST-TOKN', expiresAtMs: Date.now() + 600_000 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (path.endsWith('/session')) {
         return responses.session ? responses.session() : new Response(null, { status: 404 });
       }
@@ -334,6 +534,12 @@ function makeRecordingDoEnv(responses: FakeDoResponses) {
     fetch: async (url: string, init?: RequestInit) => {
       fetchedUrls.push(url);
       const path = url.split('?')[0];
+      if (path.endsWith('/mcp-binding')) {
+        return new Response(JSON.stringify({ token: 'CL-TEST-TOKN', expiresAtMs: Date.now() + 600_000 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (path.endsWith('/session')) {
         return responses.session ? responses.session() : new Response(null, { status: 404 });
       }
@@ -368,12 +574,103 @@ async function postWithEnv(
   env: unknown,
   opts: { token?: string; viaQuery?: boolean; rawBody?: string } = {},
 ) {
-  const res = await onRequestPost({ request: makeRequest(body, { token: 'CL-TEST-TOKN', ...opts }), env } as any);
+  const token = opts.token ?? 'CL-TEST-TOKN';
+  const res = await onRequestPost({
+    request: makeRequest(body, { rawBody: opts.rawBody, mcpSessionId: `test:${token}` }),
+    env,
+  } as any);
   const json = await res.json();
   return { res, json };
 }
 
 describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () => {
+  it('claims a code and persists the MCP-session binding through Durable Objects', async () => {
+    const code = 'CL-LIVE-CODE';
+    const mcpSessionId = 'ef150863-1f19-4b75-bdb6-dd946f94ece5';
+    const calls: Array<{ name: string; path: string; body?: unknown }> = [];
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: (id: { name: string }) => ({
+          fetch: async (url: string, init?: RequestInit) => {
+            const path = new URL(url).pathname;
+            const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+            calls.push({ name: id.name, path, body });
+            if (id.name === code && path === '/mcp-claim') {
+              return new Response(JSON.stringify({ ok: true, expiresAtMs: Date.now() + 600_000 }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+            if (id.name === `mcp:${mcpSessionId}` && path === '/mcp-binding') {
+              return new Response(JSON.stringify({ ok: true }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+            return new Response(null, { status: 404 });
+          },
+        }),
+      },
+    };
+
+    const request = makeRequest(
+      rpc('tools/call', { name: 'connect', arguments: { code } }),
+      { mcpSessionId },
+    );
+    const res = await onRequestPost({ request, env } as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.result.structuredContent.connected).toBe(true);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: code, path: '/mcp-claim' }),
+        expect.objectContaining({ name: `mcp:${mcpSessionId}`, path: '/mcp-binding' }),
+      ]),
+    );
+  });
+
+  it('resolves a Durable Object binding for later tools without the code', async () => {
+    const code = 'CL-LIVE-BOUND';
+    const mcpSessionId = '90fc7bd2-e10e-4109-b876-5a23d0723675';
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: (id: { name: string }) => ({
+          fetch: async (url: string, init?: RequestInit) => {
+            const path = new URL(url).pathname;
+            if (id.name === `mcp:${mcpSessionId}` && path === '/mcp-binding') {
+              return new Response(JSON.stringify({ token: code, expiresAtMs: Date.now() + 600_000 }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+            if (id.name === code && path === '/session') return sessionInfoResponse();
+            if (id.name === code && path === '/agent-op') {
+              const body = init?.body ? JSON.parse(String(init.body)) : {};
+              expect(body.op).toBe('read_page');
+              return new Response(
+                JSON.stringify({ ok: true, payload: { pageId: 'page-1', title: 'Bound target' } }),
+                { status: 200, headers: { 'Content-Type': 'application/json' } },
+              );
+            }
+            return new Response(null, { status: 404 });
+          },
+        }),
+      },
+    };
+
+    const request = makeRequest(rpc('tools/call', { name: 'read_page', arguments: {} }), {
+      mcpSessionId,
+    });
+    const res = await onRequestPost({ request, env } as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.result.structuredContent.title).toBe('Bound target');
+  });
+
   it('tools/call read_page returns the DO-forwarded payload verbatim', async () => {
     const env = makeDoEnv({
       session: () => sessionInfoResponse(),
@@ -441,29 +738,29 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
     expect(json.error.data?.code).toBe('macro_timeout');
   });
 
-  it('a token the DO reports as unknown (401) fails auth with code "invalid"', async () => {
+  it('a paired target the DO reports as unknown (401) fails auth with code "invalid"', async () => {
     const env = makeDoEnv({
       session: () => new Response(JSON.stringify({ error: 'invalid' }), { status: 401 }),
     });
 
-    const { res, json } = await postWithEnv(rpc('tools/list'), env);
+    const { res, json } = await postWithEnv(rpc('tools/call', { name: 'read_page', arguments: {} }), env);
 
     expect(res.status).toBe(401);
     expect(json.error.data?.code).toBe('invalid');
   });
 
-  it('a token the DO reports as expired/closed (403) fails auth with code "expired"', async () => {
+  it('a paired target the DO reports as expired/closed (403) fails auth with code "expired"', async () => {
     const env = makeDoEnv({
       session: () => new Response(JSON.stringify({ error: 'expired' }), { status: 403 }),
     });
 
-    const { res, json } = await postWithEnv(rpc('tools/list'), env);
+    const { res, json } = await postWithEnv(rpc('tools/call', { name: 'read_page', arguments: {} }), env);
 
     expect(res.status).toBe(403);
     expect(json.error.data?.code).toBe('expired');
   });
 
-  it('a missing token still 401s locally without ever touching the DO', async () => {
+  it('anonymous discovery stays local without touching the DO', async () => {
     const doFetch = vi.fn();
     const env = {
       AGENT_LINK: { idFromName: (name: string) => ({ name }), get: () => ({ fetch: doFetch }) },
@@ -471,7 +768,7 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
 
     const res = await onRequestPost({ request: makeRequest(rpc('tools/list')), env } as any);
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
     expect(doFetch).not.toHaveBeenCalled();
   });
 
@@ -493,12 +790,12 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
       expect(fetchedUrls.some((u) => u.includes('bump=1'))).toBe(true);
     });
 
-    it('resources/read auths WITH bump', async () => {
+    it('static resources/read is public and does not bump the target session', async () => {
       const { env, fetchedUrls } = makeRecordingDoEnv({ session: () => sessionInfoResponse() });
 
       await postWithEnv(rpc('resources/read', { uri: 'zenuml://dsl-guide' }), env);
 
-      expect(fetchedUrls.some((u) => u.includes('bump=1'))).toBe(true);
+      expect(fetchedUrls).toEqual([]);
     });
 
     it('get_status and tools/list auth WITHOUT bump', async () => {
@@ -583,7 +880,19 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
       return {
         AGENT_LINK: {
           idFromName: (name: string) => ({ name }),
-          get: (id: { name: string }) => stubs.get(id.name) ?? { fetch: async () => new Response(null, { status: 404 }) },
+          get: (id: { name: string }) => {
+            if (id.name.startsWith('mcp:test:')) {
+              const token = id.name.slice('mcp:test:'.length);
+              return {
+                fetch: async () =>
+                  new Response(JSON.stringify({ token, expiresAtMs: Date.now() + 600_000 }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                  }),
+              };
+            }
+            return stubs.get(id.name) ?? { fetch: async () => new Response(null, { status: 404 }) };
+          },
         },
       };
     }
@@ -663,7 +972,7 @@ describe('POST /agent-link/mcp — presence stage on the DO auth GET', () => {
     // empty body, which postWithEnv's res.json() would choke on — this block
     // only asserts the DO fetch URL, so skip response parsing entirely.
     return onRequestPost({
-      request: makeRequest(body, { token: 'CL-TEST-TOKN', ...opts }),
+      request: makeRequest(body, { mcpSessionId: `test:${opts.token ?? 'CL-TEST-TOKN'}` }),
       env: recorded.env,
     } as any);
   }
@@ -673,15 +982,13 @@ describe('POST /agent-link/mcp — presence stage on the DO auth GET', () => {
     return sessionUrls[sessionUrls.length - 1] ?? '';
   }
 
-  it.each([
-    ['initialize', 'initialized'],
-    ['notifications/initialized', 'initialized'],
-    ['tools/list', 'discovered'],
-    ['resources/list', 'discovered'],
-  ])('method %s reports presence=%s on the DO auth GET', async (method, stage) => {
-    await postMcp(rpc(method), { token: 'CL-X' });
-    expect(lastDoUrl()).toContain(`presence=${stage}`);
-  });
+  it.each(['initialize', 'notifications/initialized', 'tools/list', 'resources/list'])(
+    'unpaired handshake method %s does not touch a Macro target',
+    async (method) => {
+      await postMcp(rpc(method), { token: 'CL-X' });
+      expect(lastDoUrl()).toBe('');
+    },
+  );
 
   it('tools/call get_status reports presence=verified without bump', async () => {
     await postMcp(rpc('tools/call', { name: 'get_status' }), { token: 'CL-X' });
@@ -695,94 +1002,26 @@ describe('POST /agent-link/mcp — presence stage on the DO auth GET', () => {
     expect(lastDoUrl()).toContain('bump=1');
   });
 
-  it('initialize forwards the client name', async () => {
-    await postMcp(
-      rpc('initialize', { clientInfo: { name: 'claude-code', version: '2.0' } }),
-      { token: 'CL-X' },
-    );
-    expect(lastDoUrl()).toContain('client=claude-code');
-  });
-
-  it('a non-initialize method never forwards a client param', async () => {
-    await postMcp(rpc('tools/list'), { token: 'CL-X' });
+  it('paired work does not invent a client name absent from connect metadata', async () => {
+    await postMcp(rpc('tools/call', { name: 'get_status' }), { token: 'CL-X' });
     expect(lastDoUrl()).not.toContain('client=');
   });
 });
 
-// --- Per-dialect guide serving (the bound diagramType, cached by the DO into
-// lastDiagram, selects which guide/hint the relay serves) --------------------
+// --- Guide serving before pairing -------------------------------------------
+// The Remote MCP transport initializes before it knows which Macro the user
+// will pair, so initialization and the first tools/list must be safe across
+// dialects. Dialect-specific resources remain available after read_diagram.
 describe('POST /agent-link/mcp — per-dialect guide serving', () => {
-  it('a bound mermaid session gets the Mermaid guide as initialize instructions + the Mermaid tool hint', async () => {
-    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Mermaid' }) });
-
-    const init = await postWithEnv(rpc('initialize'), env);
-    expect(init.res.status).toBe(200);
-    expect(init.json.result.instructions).toMatch(/This is Mermaid/);
-    expect(init.json.result.instructions).not.toMatch(/This is ZenUML/);
-
-    const list = await postWithEnv(rpc('tools/list'), env);
-    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
-    expect(update.description).toMatch(/Mermaid DSL/);
-    expect(update.description).not.toMatch(/ZenUML DSL/);
-  });
-
-  it('a bound sequence (ZenUML) session gets the ZenUML guide + hint', async () => {
-    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Sequence' }) });
-
-    const init = await postWithEnv(rpc('initialize'), env);
-    expect(init.json.result.instructions).toMatch(/This is ZenUML/);
-
-    const list = await postWithEnv(rpc('tools/list'), env);
-    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
-    expect(update.description).toMatch(/ZenUML DSL/);
-  });
-
-  it('a bound plantuml session gets the PlantUML guide', async () => {
-    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'PlantUml' }) });
-
-    const init = await postWithEnv(rpc('initialize'), env);
-    expect(init.json.result.instructions).toMatch(/This is PlantUML/);
-  });
-
-  it('a bound Graph session gets NO instructions and a generic update_diagram description (never broken)', async () => {
-    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Graph' }) });
-
-    const init = await postWithEnv(rpc('initialize'), env);
-    expect(init.res.status).toBe(200);
-    expect(init.json.result.instructions).toBeUndefined();
-
-    const list = await postWithEnv(rpc('tools/list'), env);
-    expect(list.res.status).toBe(200);
-    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
-    // base description present, but no dialect-specific DSL hint
-    expect(update.description).toMatch(/Replace the bound diagram's DSL/);
-    expect(update.description).not.toMatch(/ZenUML DSL|Mermaid DSL|PlantUML DSL/);
-  });
-
-  it('a bound OpenApi session gets its own minimal spec guide (budget-permitting tier)', async () => {
-    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'OpenApi' }) });
-
-    const init = await postWithEnv(rpc('initialize'), env);
-    expect(init.json.result.instructions).toMatch(/This is a SPEC, not a diagram DSL/);
-
-    const list = await postWithEnv(rpc('tools/list'), env);
-    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
-    expect(update.description).toMatch(/OpenAPI\/Swagger/);
-  });
-
-  it('an AsyncApi session still gets no guide (generic behavior — no guide authored for it)', async () => {
-    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'AsyncApi' }) });
-
-    const init = await postWithEnv(rpc('initialize'), env);
-    expect(init.json.result.instructions).toBeUndefined();
-  });
-
-  it('before any read_diagram (no lastDiagram) the combined cross-dialect guide is served', async () => {
+  it('initialization serves the combined cross-dialect guide before pairing', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse() });
 
     const init = await postWithEnv(rpc('initialize'), env);
     expect(init.json.result.instructions).toMatch(/DO NOT blend/);
+  });
 
+  it('the first tools/list carries a cross-dialect update hint', async () => {
+    const env = makeDoEnv({ session: () => sessionInfoResponse() });
     const list = await postWithEnv(rpc('tools/list'), env);
     const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
     expect(update.description).toMatch(/must match the bound diagram type/);

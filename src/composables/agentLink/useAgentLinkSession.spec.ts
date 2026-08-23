@@ -2538,6 +2538,28 @@ describe('useAgentLinkSession', () => {
       expect(props.ms_since_connect_clicked).toBeGreaterThanOrEqual(5_000)
     })
 
+    it('tracks one-time pairing completion when the relay verifies connect(code)', async () => {
+      const h = await mountWaitingWithRelay('pairing-completed')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'verified', clientName: 'claude-code' },
+      })
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_pairing_completed',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          surface: 'fullscreen',
+          macro_type: 'sequence',
+          pairing_method: 'linking_code',
+          client_name: 'claude-code',
+          time_to_connect_ms: expect.any(Number),
+        })
+      )
+    })
+
     it('a presence status must not slide the local expiry mirror', async () => {
       const h = await mountWaitingWithRelay('presence-no-ttl-slide')
       const before = h.api.expiresAt.value

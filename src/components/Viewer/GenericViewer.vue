@@ -265,6 +265,17 @@
               :macro-type="diagramType"
               :ready="viewerLoadState === 'ready'"
             />
+            <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
+                 defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
+                 vite.config.mjs). See SecondDiagramPrompt.vue for the full
+                 display-condition contract. -->
+            <SecondDiagramPrompt
+              v-if="!isLoadFailed"
+              :attribution="diagramAttribution"
+              :macro-type="diagramType"
+              :ready="viewerLoadState === 'ready'"
+              :current-account-id="currentAccountId"
+            />
 
             <!-- Live Agent Link perceived-latency overlay (charter §6 Track F).
                  Flag-gated exactly like the Connect affordance so the flag-off
@@ -409,6 +420,7 @@ import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readRetryMarker, startRetryMarker, settleRetryMarker, clearRetryMarker, reloadViewer } from '@/utils/loadFailedRetry'
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink'
 import DiagramAttributionFooter from '@/components/Viewer/DiagramAttributionFooter.vue'
+import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -441,6 +453,12 @@ export default {
     agentLinkFeatureEnabled: false,
     agentLinkSession: null,
     loadFailedTelemetryEmitted: false,
+    // Onboarding funnel "second diagram" prompt (SecondDiagramPrompt.vue):
+    // the current viewer's Forge accountId, resolved once in mounted() so
+    // the prompt's author-match check needs no extra context round-trip of
+    // its own. null until resolved / on any resolve failure — the prompt
+    // fails closed (no accountId, no match, no render).
+    currentAccountId: null,
     retryOutcomeEmitted: false,
   }),
   components: {
@@ -455,6 +473,7 @@ export default {
     LiveBadge,
     ThinkingOverlay,
     DiagramAttributionFooter,
+    SecondDiagramPrompt,
   },
   computed: {
     ...mapState({
@@ -745,6 +764,15 @@ export default {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
       console.error('canUserEdit failed', e);
+    }
+    try {
+      // SecondDiagramPrompt's author-match display condition — fails closed
+      // (stays null) on any resolve error, which the prompt already treats
+      // as "not the creator".
+      const ctx = await getContext();
+      this.currentAccountId = ctx?.accountId ?? null;
+    } catch (e) {
+      console.error('Failed to resolve current accountId:', e);
     }
     try {
       this.agentLinkFeatureEnabled = await isAgentLinkEnabled();

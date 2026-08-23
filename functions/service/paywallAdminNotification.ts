@@ -240,6 +240,21 @@ export async function createPaywallAdminNotification(
   return row;
 }
 
+/** Persist an operationally unsendable state without invoking the provider. */
+export async function failPaywallAdminNotificationBeforeDispatch(
+  db: D1Database,
+  notification: PaywallAdminNotificationRow,
+  errorCode: 'resend_configuration_missing' | 'contact_unavailable',
+  now: Date = new Date(),
+): Promise<PaywallAdminNotificationRow> {
+  await db.prepare(
+    `UPDATE PaywallAdminNotification
+        SET state = 'failed', lastErrorCode = ?1, failedAt = ?2, updatedAt = ?2
+      WHERE notificationId = ?3 AND state IN ('queued', 'retry_pending')`,
+  ).bind(errorCode, now.toISOString(), notification.notificationId).run();
+  return getNotification(db, notification.notificationId);
+}
+
 interface DispatchOptions {
   apiKey: string;
   from: string;

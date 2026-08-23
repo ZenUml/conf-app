@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createPaywallAdminNotification,
   dispatchPaywallAdminNotification,
+  failPaywallAdminNotificationBeforeDispatch,
   renderPaywallAdminAdoptionEmail,
   sendResendEmail,
   type PaywallAdminNotificationRow,
@@ -50,6 +51,11 @@ class NotificationDb {
             this.row.state = 'sent'; this.row.providerMessageId = String(args[0]);
             this.row.sentAt = String(args[1]); this.row.updatedAt = String(args[1]);
             this.row.lastErrorCode = null; this.row.nextAttemptAt = null;
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (sql.includes("SET state = 'failed'")) {
+            this.row.state = 'failed'; this.row.lastErrorCode = String(args[0]);
+            this.row.failedAt = String(args[1]); this.row.updatedAt = String(args[1]);
             return { success: true, meta: { changes: 1 } };
           }
           if (sql.includes('SET state = ?1')) {
@@ -186,6 +192,17 @@ describe('notification outbox and bounded dispatch', () => {
     });
     expect(result).toMatchObject({ state: 'retry_pending', attemptCount: 1, lastErrorCode: 'resend_http_503' });
     expect(JSON.stringify(result)).not.toContain('admin@example.com');
+  });
+
+  it('records missing runtime configuration without invoking the provider', async () => {
+    const db = new NotificationDb();
+    const row = await createPaywallAdminNotification(db as unknown as D1Database, base, {
+      randomUUID: () => 'notification-1', now: new Date('2026-08-23T02:00:00.000Z'),
+    });
+    await expect(failPaywallAdminNotificationBeforeDispatch(
+      db as unknown as D1Database, row, 'resend_configuration_missing',
+      new Date('2026-08-23T02:01:00.000Z'),
+    )).resolves.toMatchObject({ state: 'failed', lastErrorCode: 'resend_configuration_missing', attemptCount: 0 });
   });
 
   it('does not send when another dispatcher already claimed the notification', async () => {

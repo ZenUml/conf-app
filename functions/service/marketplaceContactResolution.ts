@@ -27,6 +27,12 @@ export interface MarketplaceAdminRoute {
   cacheAgeHours: number | null;
 }
 
+/** Server-only notification target. Never serialize this object to a response or analytics. */
+export interface MarketplaceAdminNotificationTarget {
+  route: MarketplaceAdminRoute;
+  recipient: string | null;
+}
+
 interface ClassificationOptions {
   fetchedAt: Date;
   now?: Date;
@@ -137,17 +143,16 @@ interface ResolutionRow {
   cacheExpiresAt: string;
 }
 
-/**
- * Resolve only routing metadata for the extension hot path. Even when a
- * contact decrypts successfully, the address remains server-internal and is
- * never returned by this interface.
- */
-export async function resolveMarketplaceAdminRoute(
+export async function resolveMarketplaceAdminNotificationTarget(
   db: D1Database,
   cloudId: string,
   encryptionSecret: string | undefined,
   now: Date = new Date(),
-): Promise<MarketplaceAdminRoute> {
+): Promise<MarketplaceAdminNotificationTarget> {
+  const target = (
+    route: MarketplaceAdminRoute,
+    recipient: string | null = null,
+  ): MarketplaceAdminNotificationTarget => ({ route, recipient });
   const override = await db.prepare(
     `SELECT decision, contactCiphertext, expiresAt
        FROM MarketplaceContactOverride
@@ -161,20 +166,23 @@ export async function resolveMarketplaceAdminRoute(
   let approvedCacheOverride = false;
   if (override) {
     if (override.decision === 'suppress') {
-      return { routingOutcome: 'suppressed', reasonCodes: ['override_suppressed'], overrideUsed: true, cacheAgeHours: null };
+      return target({ routingOutcome: 'suppressed', reasonCodes: ['override_suppressed'], overrideUsed: true, cacheAgeHours: null });
     }
     if (override.decision === 'partner') {
-      return { routingOutcome: 'manual', reasonCodes: ['override_partner'], overrideUsed: true, cacheAgeHours: null };
+      return target({ routingOutcome: 'manual', reasonCodes: ['override_partner'], overrideUsed: true, cacheAgeHours: null });
     }
     if (!encryptionSecret) {
-      return { routingOutcome: 'manual', reasonCodes: ['override_contact_unavailable'], overrideUsed: true, cacheAgeHours: null };
+      return target({ routingOutcome: 'manual', reasonCodes: ['override_contact_unavailable'], overrideUsed: true, cacheAgeHours: null });
     }
     if (override.contactCiphertext) {
       try {
-        await decryptMarketplaceContact(override.contactCiphertext, encryptionSecret);
-        return { routingOutcome: 'automatic', reasonCodes: ['override_approved'], overrideUsed: true, cacheAgeHours: null };
+        const contact = await decryptMarketplaceContact(override.contactCiphertext, encryptionSecret);
+        return target(
+          { routingOutcome: 'automatic', reasonCodes: ['override_approved'], overrideUsed: true, cacheAgeHours: null },
+          contact.email,
+        );
       } catch {
-        return { routingOutcome: 'manual', reasonCodes: ['contact_decryption_failed'], overrideUsed: true, cacheAgeHours: null };
+        return target({ routingOutcome: 'manual', reasonCodes: ['contact_decryption_failed'], overrideUsed: true, cacheAgeHours: null });
       }
     }
     approvedCacheOverride = true;
@@ -188,46 +196,65 @@ export async function resolveMarketplaceAdminRoute(
       LIMIT 1`,
   ).bind(cloudId).first<ResolutionRow>();
   if (!resolution) {
-    return {
+    return target({
       routingOutcome: 'manual',
       reasonCodes: [approvedCacheOverride ? 'override_contact_unavailable' : 'contact_resolution_missing'],
       overrideUsed: approvedCacheOverride,
       cacheAgeHours: null,
-    };
+    });
   }
   const refreshedAt = Date.parse(resolution.sourceRefreshedAt);
   const cacheAgeHours = Number.isFinite(refreshedAt)
     ? Math.max(0, Math.round(((now.getTime() - refreshedAt) / 3_600_000) * 10) / 10)
     : null;
   if (!Number.isFinite(Date.parse(resolution.cacheExpiresAt)) || resolution.cacheExpiresAt <= now.toISOString()) {
-    return { routingOutcome: 'manual', reasonCodes: ['source_stale'], overrideUsed: approvedCacheOverride, cacheAgeHours };
+    return target({ routingOutcome: 'manual', reasonCodes: ['source_stale'], overrideUsed: approvedCacheOverride, cacheAgeHours });
   }
   if (approvedCacheOverride) {
     if (!resolution.contactCiphertext) {
-      return { routingOutcome: 'manual', reasonCodes: ['override_contact_unavailable'], overrideUsed: true, cacheAgeHours };
+      return target({ routingOutcome: 'manual', reasonCodes: ['override_contact_unavailable'], overrideUsed: true, cacheAgeHours });
     }
     try {
-      await decryptMarketplaceContact(resolution.contactCiphertext, encryptionSecret as string);
-      return { routingOutcome: 'automatic', reasonCodes: ['override_approved'], overrideUsed: true, cacheAgeHours };
+      const contact = await decryptMarketplaceContact(resolution.contactCiphertext, encryptionSecret as string);
+      return target(
+        { routingOutcome: 'automatic', reasonCodes: ['override_approved'], overrideUsed: true, cacheAgeHours },
+        contact.email,
+      );
     } catch {
-      return { routingOutcome: 'manual', reasonCodes: ['contact_decryption_failed'], overrideUsed: true, cacheAgeHours };
+      return target({ routingOutcome: 'manual', reasonCodes: ['contact_decryption_failed'], overrideUsed: true, cacheAgeHours });
     }
   }
   if (resolution.routingOutcome !== 'automatic') {
-    return { routingOutcome: 'manual', reasonCodes: parseReasonCodes(resolution.reasonCodes), overrideUsed: false, cacheAgeHours };
+    return target({ routingOutcome: 'manual', reasonCodes: parseReasonCodes(resolution.reasonCodes), overrideUsed: false, cacheAgeHours });
   }
   if (!encryptionSecret || !resolution.contactCiphertext) {
-    return { routingOutcome: 'manual', reasonCodes: ['contact_unavailable'], overrideUsed: false, cacheAgeHours };
+    return target({ routingOutcome: 'manual', reasonCodes: ['contact_unavailable'], overrideUsed: false, cacheAgeHours });
   }
   try {
-    await decryptMarketplaceContact(resolution.contactCiphertext, encryptionSecret);
-    return {
-      routingOutcome: 'automatic', reasonCodes: parseReasonCodes(resolution.reasonCodes),
-      overrideUsed: false, cacheAgeHours,
-    };
+    const contact = await decryptMarketplaceContact(resolution.contactCiphertext, encryptionSecret);
+    return target(
+      {
+        routingOutcome: 'automatic', reasonCodes: parseReasonCodes(resolution.reasonCodes),
+        overrideUsed: false, cacheAgeHours,
+      },
+      contact.email,
+    );
   } catch {
-    return { routingOutcome: 'manual', reasonCodes: ['contact_decryption_failed'], overrideUsed: false, cacheAgeHours };
+    return target({ routingOutcome: 'manual', reasonCodes: ['contact_decryption_failed'], overrideUsed: false, cacheAgeHours });
   }
+}
+
+/**
+ * Frontend-safe routing metadata. The companion target resolver above is only
+ * for server-side dispatch and its recipient must never cross the API boundary.
+ */
+export async function resolveMarketplaceAdminRoute(
+  db: D1Database,
+  cloudId: string,
+  encryptionSecret: string | undefined,
+  now: Date = new Date(),
+): Promise<MarketplaceAdminRoute> {
+  return (await resolveMarketplaceAdminNotificationTarget(db, cloudId, encryptionSecret, now)).route;
 }
 
 /**

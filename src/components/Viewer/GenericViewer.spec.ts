@@ -1501,12 +1501,13 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = mount(GenericViewer, {
         global: { plugins: [store] },
         props: { wide: false },
-        slots: { default: '<div class="intrinsic-diagram" style="width: 240px" />' },
+        slots: { default: '<div class="zenuml"><div class="intrinsic-diagram" style="width: 1600px" /></div>' },
       })
       await flushPromises()
 
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
       expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--agent-link')
+      expect(wrapper.find('.generic').classes()).toContain('generic--agent-link-workspace')
     })
 
     it('tracks which fixed-setup or pairing instruction was copied', async () => {

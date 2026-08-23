@@ -1,6 +1,6 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.ts to select the node. -->
-<div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel}">
+<div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel, 'generic--agent-link-workspace': showAgentLinkPanel}">
   <!-- The debug strip is a dev affordance for the inline macro. In the
        fullscreen modal it stacks above .viewer-frame, which is min-height:100vh,
        so the page ends up taller than the viewport and scrolls; it also eats the
@@ -1357,6 +1357,13 @@ export default {
   max-width: 100%;
   max-height: 100%;
   overflow: auto;
+}
+/* Sequence.vue normally clips its generated ZenUML canvas. Inside the fixed
+   workspace that would hide participants beyond the left pane instead of
+   letting the pane own the overflow. Expose the generated canvas here so the
+   screen-capture wrapper above becomes the single scroll container. */
+.generic--agent-link-workspace .viewer-canvas .screen-capture-content :deep(.zenuml) {
+  overflow: visible;
 }
 
 /* The Source panel is position:fixed in fullscreen (ViewSourcePanel.vue) —

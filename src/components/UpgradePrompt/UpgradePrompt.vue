@@ -412,6 +412,7 @@ async function onRequestExtension() {
     feature_area: 'upgrade',
     surface: 'modal',
     entry_source: 'paywall_modal',
+    questionnaire_version: 2,
     attempts_remaining: props.remainingContinueAttempts ?? 0,
     ...getUpgradeContext(),
   })

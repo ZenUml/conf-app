@@ -21,6 +21,10 @@ export enum UpgradeEventName {
   PAYWALL_BUNDLE_CTA_CLICKED = 'paywall_bundle_cta_clicked',
   PAYWALL_MARKETPLACE_CTA_CLICKED = 'paywall_marketplace_cta_clicked',
   PAYWALL_LEARN_MORE_CLICKED = 'paywall_learn_more_clicked',
+  PAYWALL_EXTENSION_STARTED = 'paywall_extension_started',
+  PAYWALL_EXTENSION_QUESTION_ANSWERED = 'paywall_extension_question_answered',
+  PAYWALL_EXTENSION_GRANTED = 'paywall_extension_granted',
+  PAYWALL_EXTENSION_REPEAT_REQUESTED = 'paywall_extension_repeat_requested',
 }
 
 export enum UIComponent {

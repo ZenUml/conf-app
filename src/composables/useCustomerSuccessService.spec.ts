@@ -212,6 +212,28 @@ describe('useCustomerSuccessService - space paid source (hybrid extension)', () 
 
     expect(spacePaidSource.value).toBeUndefined()
   })
+
+  it('applies an authoritative user extension immediately to the mounted editor', async () => {
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const svc = useCustomerSuccessService()
+    svc.activateUserExtension('2099-01-01T00:00:00.000Z')
+
+    expect(svc.spacePaid.value).toBe(true)
+    expect(svc.spacePaidSource.value).toBe('user_license')
+    expect(svc.userExtensionExpiresAt.value).toBe('2099-01-01T00:00:00.000Z')
+  })
+
+  it('does not replace a confirmed paid Space source with a user extension', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: true, source: 'space_license' })
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const svc = useCustomerSuccessService()
+    await svc.initialize()
+    svc.activateUserExtension('2099-01-01T00:00:00.000Z')
+
+    expect(svc.spacePaidSource.value).toBe('space_license')
+    expect(svc.userExtensionExpiresAt.value).toBeUndefined()
+  })
 })
 
 describe('useCustomerSuccessService - Full App (no restrictions)', () => {
@@ -378,10 +400,22 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
     expect(svc.shouldBlockActions.value).toBe(false)
   })
 
-  it('default_on blocks at 100 macros in an unpaid space', async () => {
+  it('default_on does not block at exactly 100 macros', async () => {
     const getFeatureFlags = (await import('@/apis/featureFlags')).default
     vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
     localStorage.mockMacroCount = '100'
+
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const svc = useCustomerSuccessService()
+    await svc.initialize()
+
+    expect(svc.shouldBlockActions.value).toBe(false)
+  })
+
+  it('default_on blocks after 100 macros in an unpaid space', async () => {
+    const getFeatureFlags = (await import('@/apis/featureFlags')).default
+    vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
+    localStorage.mockMacroCount = '101'
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
     const svc = useCustomerSuccessService()

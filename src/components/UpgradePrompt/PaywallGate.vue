@@ -28,6 +28,7 @@
     :remaining-continue-attempts="remainingContinueAttempts"
     @close="onClose"
     @continue-editing="onContinueEditing"
+    @extension-granted="onExtensionGranted"
   />
 </template>
 
@@ -85,6 +86,11 @@ function onContinueEditing() {
       props.continueAttemptsIdentity
     ).remainingAttempts
   }
+  modalVisible.value = false
+  emit('continue-editing')
+}
+
+function onExtensionGranted() {
   modalVisible.value = false
   emit('continue-editing')
 }

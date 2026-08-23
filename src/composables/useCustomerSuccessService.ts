@@ -36,6 +36,7 @@ const spacePaidStatus = ref<boolean>(false)
 // isn't paid. Rides on paywall_gate_evaluated.
 const spacePaidSource = ref<'user_license' | 'space_license' | 'paid_rail' | undefined>(undefined)
 const currentSpaceKey = ref<string>('')
+const userExtensionExpiresAt = ref<string | undefined>(undefined)
 
 let macroMetricsLoaded = false;
 let cssFlagLoaded = false;
@@ -56,7 +57,7 @@ export function useCustomerSuccessService() {
     }
 
     const isLite = globals.apWrapper.isLite()
-    const shouldBlock = macrosCreated.value >= MACROS_LIMIT && customerSuccessServiceEnabled.value && isLite
+    const shouldBlock = macrosCreated.value > MACROS_LIMIT && customerSuccessServiceEnabled.value && isLite
     console.log('🚫 shouldBlockActions check:', {
       macrosCreated: macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
@@ -69,7 +70,7 @@ export function useCustomerSuccessService() {
   })
 
   const severity = computed(() => {
-    if (macrosCreated.value >= MACROS_LIMIT) return 'critical'
+    if (macrosCreated.value > MACROS_LIMIT) return 'critical'
     if (macrosCreated.value >= WARNING_THRESHOLD) return 'warning'
     return 'normal'
   })
@@ -298,6 +299,22 @@ export function useCustomerSuccessService() {
     persistTargetingMarker();
   }
 
+  /** Apply only an authoritative grant response returned by the backend. This
+   * updates the already-mounted editor immediately; the next iframe load
+   * re-checks the same grant through /api/space-status. */
+  function activateUserExtension(expiresAt: string): void {
+    const expiry = Date.parse(expiresAt)
+    if (!Number.isFinite(expiry) || expiry <= Date.now()) return
+    // Never replace a confirmed Space entitlement with a lower-precedence
+    // user-scoped source in the client-visible status.
+    if (spacePaidStatus.value && spacePaidSource.value === 'space_license') return
+    spacePaidStatus.value = true
+    spacePaidSource.value = 'user_license'
+    userExtensionExpiresAt.value = expiresAt
+    spacePaidStatusLoaded = true
+    persistTargetingMarker()
+  }
+
   return {
     macrosCreated,
     macroCountSource,
@@ -310,6 +327,8 @@ export function useCustomerSuccessService() {
     learnMoreUrl,
     spacePaid: spacePaidStatus,
     spacePaidSource,
+    userExtensionExpiresAt,
+    activateUserExtension,
     // Legacy-named alias of the effective paywall-enabled boolean, kept for
     // saved-query compatibility until downstream consumers migrate to
     // paywallPolicySource.
@@ -327,6 +346,7 @@ export function useCustomerSuccessService() {
   spacePaidStatus.value = false
   spacePaidSource.value = undefined
   currentSpaceKey.value = ''
+  userExtensionExpiresAt.value = undefined
   macroMetricsLoaded = false
   cssFlagLoaded = false
   spacePaidStatusLoaded = false

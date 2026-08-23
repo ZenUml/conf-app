@@ -29,6 +29,17 @@
           </p>
         </div>
 
+        <PaywallExtensionIntake
+          v-if="extensionFlowOpen"
+          :space-key="messageContext.spaceKey"
+          :macro-count="macrosCreated"
+          :attempts-remaining="remainingContinueAttempts"
+          @cancel="extensionFlowOpen = false"
+          @granted="onExtensionGranted"
+        />
+
+        <template v-else>
+
         <!-- At the last continue the modal collapses to the commitment
              question: every mid-section surface (hero, purchase card, draft,
              advocacy, extension) yields, because the three commitment options
@@ -105,19 +116,14 @@
           <div class="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
             <div class="flex items-center justify-between gap-3">
               <p class="text-xs text-blue-950 leading-5">
-                Need time to review upgrade options? Request a temporary extension from support.
+                Need to finish the work in front of you? Answer five short questions for a one-time 7-day extension.
               </p>
               <button
                 data-testid="request-extension-btn"
                 class="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
                 @click="onRequestExtension"
-              >Request extension</button>
+              >Get a 7-day extension</button>
             </div>
-            <p
-              v-if="extensionRequestStatus"
-              class="mt-1 text-[11px] text-blue-800"
-              data-testid="request-extension-status"
-            >{{ extensionRequestStatus }}</p>
           </div>
         </div>
         </template>
@@ -189,6 +195,7 @@
             Why do I need to upgrade? →
           </a>
         </div>
+        </template>
       </div>
     </div>
   </Teleport>
@@ -199,6 +206,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import PaywallHero from './PaywallHero.vue'
 import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
+import PaywallExtensionIntake from './PaywallExtensionIntake.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
 import { trackUpgradeEvent, UpgradeEventName, UIComponent, bundleClientReferenceId } from '@/utils/upgradeTracking'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
@@ -209,11 +217,6 @@ import {
   type AdvocacyMessageContext,
   type MacroKind,
 } from './buildAdvocacyMessage'
-import {
-  buildExtensionRequestContext,
-  buildExtensionRequestMessage,
-  buildExtensionRequestUrl,
-} from './buildExtensionRequest'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import { openUrl } from '@/model/globals/forgeGlobal'
 
@@ -236,6 +239,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'continueEditing'): void
+  (e: 'extensionGranted', expiresAt: string): void
 }>()
 
 function onContinueEditing() {
@@ -297,7 +301,7 @@ const message = computed(() => buildAdvocacyMessage(messageContext.value))
 const tracking = useUpgradeTracking(() => props.visible, () => emit('close'), () => props.actionType)
 
 const draftExpanded = ref(false)
-const extensionRequestStatus = ref('')
+const extensionFlowOpen = ref(false)
 const commitmentStatus = ref('')
 const canContinueEditing = computed(() => props.remainingContinueAttempts === undefined || props.remainingContinueAttempts > 0)
 const isLastContinueAttempt = computed(() => props.remainingContinueAttempts === 1)
@@ -403,24 +407,19 @@ async function onLearnMore() {
 }
 
 async function onRequestExtension() {
-  const requestContext = buildExtensionRequestContext({
-    spaceKey: messageContext.value.spaceKey,
-    macroCount: props.macrosCreated,
-    macrosLimit: props.macrosLimit,
-    macroKind: props.macroKind,
+  extensionFlowOpen.value = true
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_STARTED, {
+    feature_area: 'upgrade',
+    surface: 'modal',
+    entry_source: 'paywall_modal',
+    attempts_remaining: props.remainingContinueAttempts ?? 0,
+    ...getUpgradeContext(),
   })
-  const requestUrl = buildExtensionRequestUrl(requestContext)
-  const requestMessage = buildExtensionRequestMessage(requestContext)
-  // Clipboard copy is a safety net: JSM drops the prefill params if the user
-  // navigates within the portal before submitting.
-  const copied = await copyToClipboard(requestMessage)
+}
 
-  tracking.trackExtensionRequestClick(copied, requestUrl)
-  extensionRequestStatus.value = copied
-    ? 'Support form opened with your details pre-filled (also copied to your clipboard as backup).'
-    : 'Support form opened with your details pre-filled — just confirm and submit.'
-
-  await openUrl(requestUrl)
+function onExtensionGranted(expiresAt: string) {
+  customerSuccess?.activateUserExtension?.(expiresAt)
+  emit('extensionGranted', expiresAt)
 }
 
 const modalContainer = ref<HTMLElement | null>(null)

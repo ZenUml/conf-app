@@ -110,7 +110,7 @@ export type ContentSource = "fetch" | "swr_cache";
 // Where the macro count used by the Lite paywall gate came from, and — when the
 // count is unusable — WHY. Rides on `paywall_gate_evaluated.macro_count_source`.
 // This is the dispositive dimension for the #302 fail-open leak: the gate is
-// `macrosCreated >= 100`, but `macrosCreated` defaults to 0, so a `undefined`
+// `macrosCreated > 100`, but `macrosCreated` defaults to 0, so a `undefined`
 // (read failed) or `zero` (under-return) source means the gate silently does not
 // fire on a genuinely over-limit space. `kv` = served from the KV cache (may be
 // stale-low); `collect` = fresh space enumeration; `mock` = localStorage override.

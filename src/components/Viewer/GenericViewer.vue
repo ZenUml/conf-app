@@ -16,10 +16,10 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--agent-link': showAgentLinkPanel}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
-             two-column flex row — see .viewer-body--with-agent-rail below. -->
+             fixed two-column workspace — see .viewer-body--with-agent-rail below. -->
         <div class="viewer-body" :class="{'viewer-body--with-agent-rail': showAgentLinkPanel}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
@@ -1332,10 +1332,32 @@ export default {
 .viewer-frame--fullscreen .viewer-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .viewer-frame--fullscreen .viewer-surface { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .viewer-frame--fullscreen .viewer-canvas { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
-/* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
-   .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
-   back into a column. */
-.viewer-frame--fullscreen .viewer-body--with-agent-rail { flex-direction: row; }
+/* .viewer-frame--fullscreen .viewer-body (0,2,0) outranks the base mounting
+   seam below, so define the stable Agent Link workspace at this specificity. */
+.viewer-frame--fullscreen .viewer-body--with-agent-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 316px;
+}
+
+/* Agent Link is a viewport workspace, not a card sized by the diagram. Keep
+   the shell fixed while the left canvas absorbs intrinsic diagram dimensions.
+   This prevents a short sequence diagram from pulling the 316px rail inward,
+   and a large diagram from pushing the rail or the modal beyond the viewport. */
+.viewer-frame--agent-link {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  max-height: 100vh;
+  margin-left: 0;
+  margin-right: 0;
+}
+.viewer-frame--agent-link .viewer-canvas { overflow: hidden; }
+.viewer-frame--agent-link .viewer-canvas .screen-capture-content {
+  max-width: 100%;
+  max-height: 100%;
+  overflow: auto;
+}
 
 /* The Source panel is position:fixed in fullscreen (ViewSourcePanel.vue) —
    out of layout flow — so neither .viewer-frame--auto's fit-content+auto-
@@ -1357,7 +1379,7 @@ export default {
 /* ----- Live Agent Link mounting seam (flag-gated, see showAgentLinkPanel) --
    .viewer-body is a no-op wrapper (default block) when the rail is hidden —
    it changes nothing about layout/sizing for the flag-off / non-fullscreen
-   path. It only becomes a two-column row when the Fullscreen Connect rail
+   path. It becomes the two-column grid above when the Fullscreen Connect rail
    is actually showing. */
 .viewer-body--with-agent-rail {
   display: flex;

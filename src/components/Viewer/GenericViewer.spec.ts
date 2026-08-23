@@ -1494,6 +1494,21 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
+    it('keeps the Fullscreen Agent Link workspace wide for an intrinsically sized sequence diagram', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="intrinsic-diagram" style="width: 240px" />' },
+      })
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--agent-link')
+    })
+
     it('tracks which fixed-setup or pairing instruction was copied', async () => {
       setFullscreen(true)
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)

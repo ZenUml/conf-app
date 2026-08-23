@@ -36,6 +36,7 @@ import {
   normalizeGraphEditorMode,
   setGraphEditorMode,
 } from "@/utils/graph/graphEditorMode";
+import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
 // Track editor session start time
 const editorStartTime = Date.now();

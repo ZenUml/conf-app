@@ -1,4 +1,5 @@
 import { Frame, Page, expect } from '@playwright/test';
+import { dismissStarterGalleryIfPresent } from './starterGallery.js';
 
 /**
  * Driving the Lite byline (`zenuml-byline-diagrams`).
@@ -207,6 +208,7 @@ export async function createDiagramFromByline(
   await bylineFrame.locator(`[data-testid="byline-type-${typeKey}"]`).first().click();
 
   const editor = await appFrameWithSelector(page, 'button:has-text("Publish")', bylineFrame);
+  await dismissStarterGalleryIfPresent(page, editor);
   // Same shape as EditorPage.interactWithForgeDiagramMacro: the title input is
   // the first text field, and Publish only enables once it has a value.
   await editor.locator('input[type="text"]').first().fill(title);

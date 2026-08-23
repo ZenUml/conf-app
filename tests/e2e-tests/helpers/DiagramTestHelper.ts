@@ -1,6 +1,7 @@
 import { Page, expect } from '@playwright/test';
 import { TIMEOUTS } from '../config/test-config.js';
 import { ConfluenceEditorPage } from '../pages/EditorPage.js';
+import { dismissStarterGalleryIfPresent } from './starterGallery.js';
 
 /**
  * Helper class for diagram-related tests (AI Repair and Syntax Validation)
@@ -34,6 +35,11 @@ export class DiagramTestHelper {
     await this.editorPage.searchAndSelectMacro('diagram', macroName);
     console.log(`✓ Macro （${macroName}） inserted, waiting for dialog to load...`);
     await this.page.waitForTimeout(8000);
+    // A brand-new sequence/mermaid/plantuml macro auto-opens the starter
+    // gallery on mount (Header.vue, "auto_first_open") — callers immediately
+    // click into CodeMirror (enterCodeInEditor), which the gallery's backdrop
+    // would otherwise intercept.
+    await dismissStarterGalleryIfPresent(this.page, this.editorPage.getMacroEditorFrame());
   }
 
   /**

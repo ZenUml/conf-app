@@ -1,6 +1,7 @@
 import { Page, FrameLocator, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../config/test-config.js';
 import { dismissPaywallGate } from '../helpers/paywallGate.js';
+import { dismissStarterGalleryIfPresent } from '../helpers/starterGallery.js';
 import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
 import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
 
@@ -430,6 +431,7 @@ export class ConfluenceEditorPage {
     const frame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
 
     await this.dismissPaywallIfPresent(frame);
+    await dismissStarterGalleryIfPresent(this.page, frame);
 
     if (tab) {
       await frame.getByRole('tab', { name: tab }).click();
@@ -448,6 +450,8 @@ export class ConfluenceEditorPage {
 
   private async interactWithConnectDiagramMacro(title: string, tab?: string): Promise<void> {
     const frame = this.page.locator('[role="dialog"] iframe').contentFrame();
+
+    await dismissStarterGalleryIfPresent(this.page, frame);
 
     if (tab) {
       await frame.getByRole('tab', { name: tab }).click();

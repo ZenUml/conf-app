@@ -2,7 +2,7 @@
   <footer v-if="attribution" ref="root" class="diagram-attribution" data-testid="diagram-attribution">
     <span v-if="createdBy">Created by {{ createdBy }}</span>
     <span v-if="lastUpdatedBy && lastUpdatedBy !== createdBy"> · Last updated by {{ lastUpdatedBy }}</span>
-    <span v-if="summary"> · {{ summary.audienceCount }} colleague{{ summary.audienceCount === 1 ? '' : 's' }} viewed</span>
+    <span v-if="summary && summary.audienceCount > 0"> · {{ summary.audienceCount }} view{{ summary.audienceCount === 1 ? '' : 's' }}</span>
   </footer>
 </template>
 

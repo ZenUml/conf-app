@@ -933,6 +933,25 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     if(isSequence) {
       const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
       const fullscreenMode = await isFullscreenMode();
+      const trackPageEditorAuthoringStarted = () => {
+        const isNew = !customContentId;
+        const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
+        if (isNew) {
+          trackAnalyticsEvent("macro_create_started", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "page_editor",
+          });
+        } else {
+          trackAnalyticsEvent("macro_edit_started", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "macro_toolbar",
+          });
+        }
+      };
 
       // Editor paywall: mount Workspace under PaywallGate so the iframe is
       // never blank; save remains gated in the persistence layer.
@@ -947,6 +966,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           contentProps: { autoResize: !fullscreenMode },
           macroKind,
           customContentId,
+          // The gated path returns before the ordinary post-mount telemetry
+          // below. Defer the same authoring event to the explicit continue
+          // action: a user who closes the paywall never started authoring.
+          onContinueEditing: trackPageEditorAuthoringStarted,
         })) return;
       }
 
@@ -981,23 +1004,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       if (!editable) publishDiagramAttribution(diagramAttribution);
 
       if (editable) {
-        const isNew = !customContentId;
-        const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
-        if (isNew) {
-          trackAnalyticsEvent("macro_create_started", {
-            feature_area: "macro",
-            surface: "editor",
-            macro_type: macroType,
-            entry_point: "page_editor",
-          });
-        } else {
-          trackAnalyticsEvent("macro_edit_started", {
-            feature_area: "macro",
-            surface: "editor",
-            macro_type: macroType,
-            entry_point: "macro_toolbar",
-          });
-        }
+        trackPageEditorAuthoringStarted();
       }
     } else if(isGraph) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");

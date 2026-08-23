@@ -152,6 +152,14 @@ export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 
 export type FeedbackValue = "good" | "partial" | "bad";
 
+// Onboarding funnel: how a starter surface (template gallery / starter-shown
+// event) came to be visible. 'auto_first_open' = the editor opened it itself
+// on a brand-new blank macro; 'manual' = the user asked for it (Templates
+// button). Shared by editor_starter_shown's `trigger` and
+// editor_template_gallery_opened's `template_gallery_trigger` so the two
+// surfaces stay comparable on the same axis.
+export type GalleryOpenTrigger = "auto_first_open" | "manual";
+
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a macro create/edit start forced recording independently of the Forge
 // flag cohort. See macro_create_started / macro_edit_started below.
@@ -501,6 +509,17 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
+  // `retry()` is a bare location.reload(), so the click and its result sit in
+  // two different page lifetimes: the click event is emitted before the reload,
+  // and the resolution event after it, matched through a sessionStorage marker
+  // (utils/loadFailedRetry.ts) keyed on the macro's localId. Without the pair
+  // there is no way to tell a transient content-fetch failure (recovers on
+  // reload) from a permanently unavailable diagram — both render the same
+  // terminal panel, and 2026-08-18..22 telemetry could only count impressions
+  // (391 external, 128 macros) with no recovery rate attached.
+  | "load_failed_retry_clicked"
+  | "load_failed_retry_resolved"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)
   | "snapshot_created"
@@ -699,6 +718,23 @@ export type AnalyticsEventName =
   // above and are reused, not redefined, when that lands.
   | "editor_template_gallery_opened"
   | "editor_template_applied"
+  // Onboarding funnel — starter-template surface visibility (companion to
+  // the #334 gallery above, distinct denominator). Fires when the starter
+  // surface becomes visible on an EMPTY new macro. `trigger` ('auto_first_open'
+  // | 'manual') distinguishes an editor that opened the surface itself on a
+  // brand-new blank macro from a user who asked for it via the Templates
+  // button. Today only the `manual` path has a producer (Header.vue's
+  // openTemplateGallery, alongside editor_template_gallery_opened) — no
+  // auto-open-on-empty-macro surface exists yet, so `trigger: 'auto_first_open'`
+  // is reserved for when one is built.
+  | "editor_starter_shown"
+  // Onboarding funnel — "second diagram" prompt (registered ahead of its
+  // producer: this task only registers the event names + properties so the
+  // catalog/types are ready; no call site exists yet in this codebase. A
+  // later task wires the actual prompt UI and emits these). `shown` is the
+  // denominator; `clicked` is the accept action.
+  | "macro_second_diagram_prompt_shown"
+  | "macro_second_diagram_prompt_clicked"
   // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
   // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
   // the detection rule). `shown` is the denominator, fired once per becoming-

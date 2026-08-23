@@ -27,6 +27,7 @@ import type {
   AgentLinkListScope,
   ActivationPath,
   ViewerRelation,
+  GalleryOpenTrigger,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
   GraphEditorModeValue,
@@ -188,6 +189,15 @@ export type AnalyticsProperties = {
   page_id?: string;
   custom_content_id?: string;
   attachment_name?: string;
+  // Load-failed recovery panel — "Try again" (load_failed_retry_clicked /
+  // load_failed_retry_resolved). `retry_attempt` counts retries of the SAME
+  // macro inside one browser session and starts at 1; it survives the reload
+  // through the sessionStorage marker, so attempt 2+ marks a user who retried
+  // a failure that had already failed a retry. `retry_outcome` is the state the
+  // viewer reached after the reload: 'recovered' = the diagram rendered,
+  // 'failed_again' = the terminal panel came back.
+  retry_attempt?: number;
+  retry_outcome?: 'recovered' | 'failed_again';
   // Snapshot attachments: which flow wrote it, and fallback freshness.
   snapshot_trigger?: 'save' | 'editor_backfill' | 'viewer_backfill';
   snapshot_age_days?: number;
@@ -300,11 +310,13 @@ export type AnalyticsProperties = {
   // key on, so staleness is the only available proxy and it must be readable
   // apart from a confident absence.
   byline_visibility_decision?: "visible" | "suppressed";
-  // `enrolled` is the allowlist hit: this cloudId is named in
-  // src/byline-visibility.ts ALLOWLIST. `not_enrolled` is a confident miss,
-  // and `no_signal` is the distinct case where the runtime gave us no cloudId
-  // to match at all — both suppress, but only one of them means the gate is
-  // working as intended, so they must not collapse into one value.
+  // `enrolled` means the installation renders the byline. Since the
+  // 2026-08-22 general rollout that is every installation with a resolvable
+  // cloudId, so `not_enrolled` is no longer emitted — it is retained here
+  // because historical events in Mixpanel still carry it, and dropping it from
+  // the union would make that data untypeable. `no_signal` is the distinct
+  // live case where the runtime gave us no cloudId at all: it still suppresses,
+  // and it must not collapse into the same value as a deliberate hide.
   byline_visibility_reason?:
     | "full_present"
     | "full_absent"
@@ -588,6 +600,13 @@ export type AnalyticsProperties = {
   // inventing a second one.
   template_id?: string;
   is_new_macro?: boolean;
+  // Onboarding funnel. `trigger` (editor_starter_shown) and
+  // `template_gallery_trigger` (editor_template_gallery_opened) both use
+  // GalleryOpenTrigger — kept as two separate property names rather than one
+  // shared key because the two events can, in principle, both be present on
+  // the same underlying gallery-open session and need independent values.
+  trigger?: GalleryOpenTrigger;
+  template_gallery_trigger?: GalleryOpenTrigger;
   // Foreign-dialect hint (#373). `macro_type` on these events is always the
   // CURRENT macro's type (sequence — the only surface this ships on today);
   // `detected_dialect` is the OTHER dialect the pasted source looks like,

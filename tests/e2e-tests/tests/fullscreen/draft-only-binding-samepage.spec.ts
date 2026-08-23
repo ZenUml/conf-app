@@ -38,6 +38,7 @@ import {
   expectModalVisible,
   expectModalClosed,
 } from '../../helpers/FullscreenModalHelper.js';
+import { dismissStarterGalleryIfPresent } from '../../helpers/starterGallery.js';
 
 const SEQUENCE_MACRO_BASE = 'Diagram (Mermaid, PlantUML & ZenUML)';
 const REPRO_PAGE_ID = process.env.REPRO_PAGE_ID?.trim();
@@ -94,6 +95,7 @@ test.describe('SAME-PAGE #169 — one page: broken on buggy deploy → fixed on 
     await expectModalVisible(page, 'edit');
     await page.waitForTimeout(1500);
     await dismissPaywall(page);
+    await dismissStarterGalleryIfPresent(page, modalContentFrame(page, 'edit'));
     await fillEditorTitle(page, `SamePage169 ${Date.now()}`);
     await clickEditorPublish(page);
     await expectModalClosed(page, 'edit');

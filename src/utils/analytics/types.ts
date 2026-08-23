@@ -187,6 +187,15 @@ export type AnalyticsProperties = {
   page_id?: string;
   custom_content_id?: string;
   attachment_name?: string;
+  // Load-failed recovery panel — "Try again" (load_failed_retry_clicked /
+  // load_failed_retry_resolved). `retry_attempt` counts retries of the SAME
+  // macro inside one browser session and starts at 1; it survives the reload
+  // through the sessionStorage marker, so attempt 2+ marks a user who retried
+  // a failure that had already failed a retry. `retry_outcome` is the state the
+  // viewer reached after the reload: 'recovered' = the diagram rendered,
+  // 'failed_again' = the terminal panel came back.
+  retry_attempt?: number;
+  retry_outcome?: 'recovered' | 'failed_again';
   // Snapshot attachments: which flow wrote it, and fallback freshness.
   snapshot_trigger?: 'save' | 'editor_backfill' | 'viewer_backfill';
   snapshot_age_days?: number;

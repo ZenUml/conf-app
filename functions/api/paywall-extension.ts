@@ -24,6 +24,7 @@ import {
   dispatchPaywallAdminNotification,
   failPaywallAdminNotificationBeforeDispatch,
 } from '../service/paywallAdminNotification';
+import { createPaywallExtensionReminder } from '../service/paywallExtensionLifecycle';
 
 interface Env {
   DB: D1Database;
@@ -173,6 +174,22 @@ export const onRequest: PagesFunction<Env, string, ForgeRequestData> = async ({
     }
 
     if (result.status === 'granted') {
+      const reminderWork = createPaywallExtensionReminder(env.DB, {
+        grantId: result.grant.grantId,
+        cloudId,
+        accountId,
+        spaceId: space.id,
+        spaceKey: space.key,
+        grantedAt: result.grant.grantedAt,
+        expiresAt: result.grant.expiresAt,
+      }).catch((error) => {
+        // Reminder persistence is idempotent and operationally secondary. The
+        // exact seven-day grant must remain successful if its reminder store
+        // is temporarily unavailable.
+        console.warn('paywall extension reminder scheduling failed', {
+          reason: error instanceof Error ? error.name : 'unknown_error',
+        });
+      });
       const notificationWork = (async () => {
         const notification = await createPaywallAdminNotification(env.DB, {
           requestId: result.requestId,
@@ -213,8 +230,9 @@ export const onRequest: PagesFunction<Env, string, ForgeRequestData> = async ({
           reason: error instanceof Error ? error.name : 'unknown_error',
         });
       });
-      if (typeof waitUntil === 'function') waitUntil(notificationWork);
-      else await notificationWork;
+      const backgroundWork = Promise.all([reminderWork, notificationWork]).then(() => undefined);
+      if (typeof waitUntil === 'function') waitUntil(backgroundWork);
+      else await backgroundWork;
     }
     return OkResponse({ ...result, adminContactRouting: adminTarget.route });
   } catch (error) {

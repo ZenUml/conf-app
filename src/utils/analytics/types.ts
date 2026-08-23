@@ -29,11 +29,14 @@ import type {
   PaywallExtensionTask,
   PaywallExtensionAudience,
   PaywallExtensionAiDiagramUsage,
+  PaywallExtensionAiDiagramUse,
   PaywallExtensionProcessRequirement,
   PaywallExtensionCloudAiPolicy,
   PaywallExtensionScope,
   PaywallExtensionUrgency,
   PaywallExtensionRoutingOutcome,
+  PaywallExtensionQuestionId,
+  PaywallExtensionQuestionnaireVersion,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -92,15 +95,23 @@ export type AnalyticsProperties = {
   // 'team' arrive with the /api/user-diagram-stats endpoint.
   mirror_level?: 'personal' | 'space' | 'team';
   // Seven-day paywall extension. Values are deliberately closed enums so the
-  // questionnaire cannot leak free text, user/site identifiers, or contact
-  // data into Mixpanel.
+  // questionnaire cannot leak free text, user/site identifiers, email
+  // addresses, or contact data into Mixpanel. Version 2 contains two required
+  // operational questions (long-term access and urgency) and one optional
+  // product-research question (AI diagram use). The optional answer is absent
+  // when skipped; it must never be inferred from the other answers.
   entry_source?: 'paywall_modal' | 'paywall_banner' | 'extension_status';
   attempts_remaining?: number;
-  question_id?: 'current_task' | 'diagram_audience' | 'ai_and_diagrams' | 'workflow_constraints' | 'unblock_need';
+  questionnaire_version?: PaywallExtensionQuestionnaireVersion;
+  question_id?: PaywallExtensionQuestionId;
   step_index?: number;
+  answer_skipped?: boolean;
+  time_on_step_ms?: number;
+  option_position?: number;
   extension_task?: PaywallExtensionTask;
   extension_audience?: PaywallExtensionAudience;
   ai_diagram_usage?: PaywallExtensionAiDiagramUsage;
+  ai_diagram_use?: PaywallExtensionAiDiagramUse;
   process_requirement?: PaywallExtensionProcessRequirement;
   cloud_ai_policy?: PaywallExtensionCloudAiPolicy;
   extension_scope?: PaywallExtensionScope;

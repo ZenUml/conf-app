@@ -618,8 +618,25 @@ export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "e
 export type AgentLinkListScope = "page" | "space" | "site";
 
 // Structured, PII-safe values collected by the seven-day extension intake.
-// The backend persists these codes; analytics may receive only these codes,
-// never raw questionnaire text or a free-form "other" value.
+// Version 2 has two required operational questions (long-term access and
+// urgency) and one optional product-research question (AI diagram use).
+// Version 1 values remain valid during the rollout; analytics may receive only
+// these closed codes, never raw questionnaire text, email/contact data, or a
+// free-form "other" value.
+export type PaywallExtensionQuestionId =
+  // Version 1 question IDs retained for rollout and historical events.
+  | "current_task"
+  | "diagram_audience"
+  | "ai_and_diagrams"
+  | "workflow_constraints"
+  | "unblock_need"
+  // Version 2 question IDs.
+  | "long_term_access"
+  | "urgency"
+  | "ai_diagram_use";
+
+export type PaywallExtensionQuestionnaireVersion = 1 | 2;
+
 export type PaywallExtensionTask =
   | "architecture_design"
   | "design_review"
@@ -646,6 +663,14 @@ export type PaywallExtensionAiDiagramUsage =
   | "other_diagram_as_code"
   | "not_sure";
 
+// Version 2's optional AI-diagram research answer. Keep the version 1
+// PaywallExtensionAiDiagramUsage vocabulary above for historical events.
+export type PaywallExtensionAiDiagramUse =
+  | "regularly"
+  | "occasionally"
+  | "interested"
+  | "no";
+
 export type PaywallExtensionProcessRequirement =
   | "required_template"
   | "required_without_template"
@@ -658,6 +683,13 @@ export type PaywallExtensionCloudAiPolicy =
   | "not_allowed"
   | "not_sure";
 
-export type PaywallExtensionScope = "self" | "space" | "site";
-export type PaywallExtensionUrgency = "today" | "this_week" | "planning_ahead";
+// `not_sure` and `no_hard_deadline` are version 2 values. The version 1
+// `planning_ahead` value remains accepted so old clients and historical
+// events continue to type-check during the backend/frontend rollout.
+export type PaywallExtensionScope = "self" | "space" | "site" | "not_sure";
+export type PaywallExtensionUrgency =
+  | "today"
+  | "this_week"
+  | "planning_ahead"
+  | "no_hard_deadline";
 export type PaywallExtensionRoutingOutcome = "automatic" | "manual_review" | "suppressed";

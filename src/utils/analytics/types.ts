@@ -30,6 +30,7 @@ import type {
   GalleryOpenTrigger,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
+  GraphEditorModeValue,
   EditorReplaceScope,
   EditorInputMethod,
   ContentDeltaBucket,
@@ -470,6 +471,17 @@ export type AnalyticsProperties = {
   // cache_source (rendered-SVG cache). Absent when no content fetch was involved.
   content_source?: ContentSource;
   duration_ms?: number;
+  // Graph Diagram/Board chrome switch (graph_editor_mode_switch_*).
+  // `from_mode` / `to_mode` are the chrome values, never document types.
+  from_mode?: GraphEditorModeValue;
+  to_mode?: GraphEditorModeValue;
+  has_unsaved_changes?: boolean;
+  // True when the mxfile re-loaded after iframe reload matches the captured
+  // pre-switch body (page/shape identity preserved).
+  content_preserved?: boolean;
+  // Wall time from switch click to operable chrome, in ms. Distinct from
+  // render-time `duration_ms` so the two never share a property.
+  reload_duration_ms?: number;
   // Browser cache state at render time, measured via Resource Timing transferSize
   // of same-origin JS bundles, plus the raw summed wire bytes. Lets cold/warm
   // render-time comparisons use a measured signal rather than inferring cache

@@ -30,6 +30,12 @@ import {
   reportLegacyContentPropertyValueUnexpected,
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
+import {
+  GRAPH_EDITOR_MODE_CONFIG_KEY,
+  getGraphEditorMode,
+  normalizeGraphEditorMode,
+  setGraphEditorMode,
+} from "@/utils/graph/graphEditorMode";
 import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
 // Track editor session start time
@@ -146,6 +152,7 @@ async function saveGraphAndExit(graphXml: string): Promise<boolean> {
         await (await getView()).submit({config: {
           customContentId: id,
           updatedAt: new Date().toISOString(),
+          [GRAPH_EDITOR_MODE_CONFIG_KEY]: getGraphEditorMode(),
           ...(originalConfigUuid && { uuid: originalConfigUuid }),
         }});
         if (attemptRepair && originalCustomContentId) {
@@ -154,6 +161,16 @@ async function saveGraphAndExit(graphXml: string): Promise<boolean> {
         if (attemptLegacyMigration && originalConfigUuid) {
           reportLegacyContentPropertyMacroRepaired('graph', originalConfigUuid, id, { pageId: recoveryPageId });
         }
+      } else if (configuring) {
+        // Normal re-save of an existing graph does not change customContentId,
+        // so needsWriteback is false. Still submit so Diagram/Board chrome
+        // persists on the macro config.
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          [GRAPH_EDITOR_MODE_CONFIG_KEY]: getGraphEditorMode(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
       } else {
         await (await getView()).close();
       }
@@ -404,7 +421,12 @@ async function initializeMacro() {
     window.graphXml = graphXml;
   }
 
-  const contentProps = { graphXml, saveGraphAndExit, doc, customContentId };
+  const graphEditorMode = normalizeGraphEditorMode(
+    context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]
+  );
+  setGraphEditorMode(graphEditorMode);
+
+  const contentProps = { graphXml, saveGraphAndExit, doc, customContentId, graphEditorMode };
   const paywalled = await tryPageEditorPaywall({
     doc: doc ?? NULL_DIAGRAM,
     content: ForgeGraphEditor,

@@ -367,6 +367,16 @@ export type AnalyticsEventName =
   | "attachment_create_failed"
   | "custom_content_update_failed"
   | "graph_editor_init_empty"
+  // Graph (DrawIO) Diagram/Board chrome switch. Same mxfile, two DrawIO
+  // chromes: `diagram` is the existing Atlas/standard embed; `board` is
+  // DrawIO Sketch (`ui=sketch&sketch=1`). requested fires on a click that
+  // intends to change mode (same-mode clicks are a no-op and emit nothing);
+  // succeeded fires only after the iframe has reloaded, the previous mxfile
+  // has been re-loaded, and the switch control is operable; failed fires
+  // instead of succeeded on capture/reload/restore/init errors.
+  | "graph_editor_mode_switch_requested"
+  | "graph_editor_mode_switch_succeeded"
+  | "graph_editor_mode_switch_failed"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
@@ -842,3 +852,7 @@ export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "e
 // estate (no space/page filter). Search (agent_link_search_performed) is always
 // site-wide by design, so it has no scope field.
 export type AgentLinkListScope = "page" | "space" | "site";
+
+// Graph (DrawIO) editor chrome. `diagram` is Atlas/standard; `board` is
+// Sketch. Unknown persisted values must normalize to `diagram`.
+export type GraphEditorModeValue = "diagram" | "board";

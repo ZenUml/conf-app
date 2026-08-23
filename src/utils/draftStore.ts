@@ -18,6 +18,7 @@ export interface Draft {
   code: string;
   title: string;
   savedAt: number;
+  graphEditorMode?: 'diagram' | 'board';
 }
 
 export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;

@@ -33,7 +33,7 @@ import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { handleHomepageFeedRoute } from './routes/homepageFeed';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
-import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution } from '@/utils/viewerLoadOutcome';
+import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution, setSequenceViewerLoadState } from '@/utils/viewerLoadOutcome';
 import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
 import type { DiagramLoadError } from '@/model/store2/types';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
@@ -50,6 +50,7 @@ import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
+import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -420,6 +421,26 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // @ts-ignore - viewerDoc may be a partial spread type; matches the happy-path mount below
       mountRoot(viewerDoc, DiagramPortal, { autoResize: true });
       publishDiagramAttribution(attribution);
+      // BUG FIX (overnight verification run, 2026-08-19): this SWR mount path
+      // (both the cache-hit render and the revalidate re-mount) never used to
+      // call setViewerLoadState — only the direct-fetch path further below
+      // (via applyViewerLoadOutcome) did. store.state.viewerLoadState
+      // therefore stayed at its initial `null` forever for any render that
+      // took this path, which per the comment above this function is ~66% of
+      // all sequence-family viewer views. Every consumer gated on
+      // `viewerLoadState === 'ready'` — SecondDiagramPrompt's `ready` prop,
+      // and DiagramAttributionFooter's registerDiagramImpactView call — was
+      // silently starved on the majority of real revisits. mountSequenceViewer
+      // already knows the doc is renderable (it's what's on screen), so
+      // classify it the same way applyViewerLoadOutcome does rather than
+      // hardcoding 'ready' — an empty/blank cached doc (should one ever get
+      // primed) still reports the correct failed state instead of a false
+      // 'ready'. Extracted to setSequenceViewerLoadState (viewerLoadOutcome.ts)
+      // so this one-line classify-and-publish step has a unit test —
+      // forgeIndex.ts itself has no test harness (module-level side effects
+      // on import) — see setSequenceViewerLoadState's regression test in
+      // viewerLoadOutcome.spec.ts.
+      setSequenceViewerLoadState(viewerDoc);
     };
 
     const revalidateSequenceViewer = async (
@@ -1221,6 +1242,17 @@ EventBus.$on('save', async () => {
   try {
     id = await saveToPlatform(store.state.diagram);
   } catch (error) {
+    const status = (error as any)?.status || (error as any)?.statusCode;
+    const failureReason = error instanceof LegacyLoadBlockedSaveError
+      ? 'legacy_load_blocked'
+      : error instanceof InvalidSavedContentIdError
+        ? 'invalid_saved_content_id'
+        : status
+          ? `http_${status}`
+          : error instanceof Error
+            ? error.name
+            : 'unknown_error';
+    trackEditorMutationLifecycleEvent('macro_save_failed', failureReason);
     // ZEN-1170 Defect 1: persistence layer refused save because the legacy
     // content-property load failed. Surface a clear message that does NOT
     // suggest "retry" (retrying won't help; the user needs to refresh or
@@ -1422,6 +1454,7 @@ EventBus.$on('exit', async (showWarning: boolean) => {
       // User confirmed exit - track exit event
       const exitEventAction = isNewSequence ? 'create_macro_exit' : 'edit_macro_exit';
       trackEvent('', exitEventAction, DiagramType.Sequence, eventProps);
+      trackEditorMutationLifecycleEvent('macro_edit_cancelled');
       
       // End journey on exit
       if (getEditJourneyId()) {

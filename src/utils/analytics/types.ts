@@ -31,6 +31,10 @@ import type {
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
   GraphEditorModeValue,
+  EditorReplaceScope,
+  EditorInputMethod,
+  ContentDeltaBucket,
+  CopySource,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -387,6 +391,37 @@ export type AnalyticsProperties = {
   dsl_bytes?: number;
   page_bytes?: number;
   job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
+  // Copy -> editor attribution. A marker is written only after a successful
+  // clipboard write and contains metadata only — never diagram text or hashes.
+  copy_id?: string;
+  copy_source?: CopySource;
+  copy_job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
+  ms_since_copy?: number;
+  // Per-transaction editor replacement signal. journey_id/session_id join the
+  // operation to the editor lifecycle; replace_index preserves repeated whole
+  // replacements rather than collapsing them into a session boolean.
+  journey_id?: string | null;
+  session_id?: string;
+  replace_index?: number;
+  ms_since_editor_open?: number;
+  replace_scope?: EditorReplaceScope;
+  replaced_coverage_ratio?: number;
+  editable_chars_before?: number;
+  inserted_chars?: number;
+  input_method?: EditorInputMethod;
+  content_delta_ratio?: number;
+  content_delta_bucket?: ContentDeltaBucket;
+  // Editor lifecycle summary, attached to save/cancel/failure events. These
+  // fields describe the edit history; macro_save_succeeded remains the actual
+  // persistence outcome.
+  had_global_replace?: boolean;
+  global_replace_count?: number;
+  post_replace_local_edit_count?: number;
+  net_delta_from_open_bucket?: ContentDeltaBucket;
+  delta_from_last_replace_bucket?: ContentDeltaBucket;
+  last_copy_id?: string;
+  last_copy_source?: CopySource;
+  last_copy_job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
   // affordance minted the deeplink; only the viewer pill exists today. Not
   // the same surface as the `/deeplink-ticket` share-preview endpoint, which

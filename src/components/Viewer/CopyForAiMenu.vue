@@ -65,7 +65,7 @@ const JOBS = [
 
 export default {
   name: 'CopyForAiMenu',
-  emits: ['select'],
+  emits: ['select', 'opened'],
   data() {
     return { open: false, jobs: JOBS }
   },
@@ -85,6 +85,7 @@ export default {
     openMenu() {
       if (this.open) return
       this.open = true
+      this.$emit('opened')
       this.$nextTick(() => {
         const firstItem = this.$refs.containerRef?.querySelector('[role="menuitem"]')
         firstItem?.focus()

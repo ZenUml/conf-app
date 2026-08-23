@@ -8,7 +8,9 @@ import {
   isDisplayableDiagram,
   mapCustomContentLoadError,
   mapThrownViewerLoadError,
+  setSequenceViewerLoadState,
 } from '@/utils/viewerLoadOutcome';
+import Example from '@/utils/sequence/Example';
 
 vi.mock('@/model/globals', () => ({
   default: {
@@ -114,5 +116,86 @@ describe('viewerLoadOutcome', () => {
     applyViewerLoadOutcome({ doc, customContentId: 'cc-1', macroKind: 'sequence' });
     expect(store.state.viewerLoadState).toBeNull();
     expect(store.state.diagram).toStrictEqual(doc);
+  });
+});
+
+// Regression coverage for the 2026-08-19 overnight fix (commit 80565da3):
+// forgeIndex.ts's content-SWR `mountSequenceViewer` — the single function
+// shared by BOTH the cache-hit render and the background-revalidate remount
+// — mounted the doc but never called setViewerLoadState, so
+// store.state.viewerLoadState stayed at its initial `null` for ~66% of
+// sequence-family viewer views (the file's own comment on the cache-SWR
+// block gives that figure). Anything gated on `viewerLoadState === 'ready'`
+// — SecondDiagramPrompt's `ready` prop, and DiagramAttributionFooter's
+// registerDiagramImpactView call — was silently starved on the majority of
+// real revisits.
+//
+// forgeIndex.ts itself has NO unit-test harness (confirmed by search: no
+// forgeIndex.spec.ts exists, and importing the module runs side effects at
+// module scope — CSS import, macroMetrics service instantiation, forge
+// bridge globals — none of which are mocked anywhere in this suite). The fix
+// was extracted into setSequenceViewerLoadState (the one line
+// mountSequenceViewer now calls) precisely so it has a seam; these tests
+// exercise that seam with the REAL doc shapes forgeIndex.ts's content-SWR
+// cache produces at its two mountSequenceViewer call sites, read from the
+// actual read/write code (contentCacheStore.ts + forgeIndex.ts lines
+// ~478-480 and ~461-467) rather than an invented fixture.
+describe('setSequenceViewerLoadState — content-SWR mount path regression (commit 80565da3)', () => {
+  beforeEach(() => {
+    store.state.viewerLoadState = null;
+    store.state.loadError = null;
+  });
+
+  it('cache-hit path: a doc read back via JSON.parse(cached.doc) and the plantUmlCode ternary mounts as ready', () => {
+    // Mirrors forgeIndex.ts's cache-hit block exactly:
+    //   const cached = getCachedContent(customContentId);
+    //   const cachedDoc = JSON.parse(cached.doc) as Diagram;
+    //   const viewerDoc = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
+    // `cached.doc` is itself JSON.stringify(loaded.customContent.value) written
+    // by putCachedContent (forgeIndex.ts line ~538) — round-trip it the same way.
+    const fetchedDoc = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A->B: hello' };
+    const cachedRaw = JSON.stringify(fetchedDoc);
+    const cachedDoc = JSON.parse(cachedRaw) as typeof fetchedDoc;
+    const viewerDoc = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
+
+    setSequenceViewerLoadState(viewerDoc);
+
+    expect(store.state.viewerLoadState).toBe('ready');
+  });
+
+  it('background-revalidate remount path: a freshly-fetched doc mounts as ready', () => {
+    // Mirrors revalidateSequenceViewer's remount (forgeIndex.ts line ~466-467):
+    //   const freshDoc = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
+    //   await mountSequenceViewer(freshDoc, freshAttribution);
+    // `fresh` is `loaded.customContent?.value` straight off
+    // loadCustomContentWithOrphanRecovery — the same Diagram shape a live
+    // fetch produces, no plantUmlCode set for a sequence doc.
+    const fresh = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A->B: hi again' };
+    const freshDoc = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
+
+    setSequenceViewerLoadState(freshDoc);
+
+    expect(store.state.viewerLoadState).toBe('ready');
+  });
+
+  it('does not hardcode ready — a legacyLoadBlocked cached doc classifies as failed_with_source, matching applyViewerLoadOutcome', () => {
+    // isDisplayableDiagram's first check is doc.legacyLoadBlocked (ZEN-1170
+    // Defect 2b) — set when a legacy content-property read failed. Proves
+    // setSequenceViewerLoadState really runs isDisplayableDiagram rather than
+    // unconditionally publishing 'ready' for anything that reached mount.
+    // (A merely blank-but-known-type doc, e.g. code: '', is BY DESIGN 'ready'
+    // — see the "treats a blank-but-loaded diagram" case above — so it can't
+    // serve as the negative case here.)
+    const blockedCachedDoc = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Sequence,
+      code: 'A->B: stale',
+      plantUmlCode: Example.PlantUml,
+      legacyLoadBlocked: true,
+    };
+
+    setSequenceViewerLoadState(blockedCachedDoc);
+
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
   });
 });

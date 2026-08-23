@@ -56,11 +56,21 @@ point.
 
 ## Analytics
 
+`copy_for_ai_impression` fires once per eligible viewer instance; `copy_for_ai_menu_opened` fires on
+every closed→open transition. Together they provide the discovery denominator before the click.
+
 `copy_for_ai_clicked` — `feature_area: 'macro'`, `surface: 'viewer' | 'fullscreen'`, `macro_type`,
 `outcome: 'copied' | 'copied_diagram_only' | 'clipboard_failed'`, `dsl_bytes`, `page_bytes`,
 `job: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests'` (which entry point fired
-the click — split-button primary vs. one of the five menu items). One event per click, primary or
-menu item; none on the empty-DSL guard.
+the click — split-button primary vs. one of the five menu items), plus `copy_source`, `copy_job`, and
+on success `copy_id`. One event per click, primary or menu item; none on the empty-DSL guard.
+
+After a successful Copy for AI or View Source copy, the viewer writes a metadata-only marker to
+same-tab `sessionStorage`, partitioned by `custom_content_id` and expiring after 60 minutes. An
+accepted editor-wide replacement reads that marker at transaction time and carries the matching
+`copy_id`; this is a temporal same-tab attribution signal, not proof that AI produced or that the
+user adopted the content. No diagram/page text or content hash is stored in the marker or sent in
+replacement telemetry.
 
 ## Decision rule
 

@@ -186,3 +186,31 @@ export const NewDiagram: Story = {
     },
   ],
 }
+
+// ---------------------------------------------------------------------------
+// Auto-opened starter gallery (onboarding funnel)
+// ---------------------------------------------------------------------------
+
+/**
+ * First entry to a brand-new, empty macro: the starter-template gallery
+ * opens itself instead of showing a blank canvas (`template_gallery_trigger:
+ * 'auto_first_open'`). Requires clearing the "already auto-opened" browser
+ * marker (see utils/starterGallery/autoOpenMarker.ts) so the story always
+ * demonstrates a first visit — in a real session this fires once per
+ * cloudId + macro type per browser, never again after that.
+ */
+export const AutoOpenStarterGallery: Story = {
+  decorators: [
+    () => {
+      localStorage.removeItem('zenuml.starterGalleryAutoOpened.unknown-cloud.sequence')
+      setupStore({
+        diagramType: DiagramType.Sequence,
+        title: '',
+        code: '',
+        isNew: true,
+        id: '',
+      })
+      return { template: '<story />' }
+    },
+  ],
+}

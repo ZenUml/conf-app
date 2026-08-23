@@ -27,10 +27,10 @@ describe('Header', () => {
     const sequenceButton = tabButtons[0];
     const mermaidButton = tabButtons[1];
 
-    // pre-condition - sequence tab should be active (amber filled-tint style)
-    expect(sequenceButton.classes()).toContain('bg-amber-100');
-    expect(sequenceButton.classes()).toContain('text-amber-800');
-    expect(mermaidButton.classes()).not.toContain('bg-emerald-100');
+    // Sequence tab starts selected with its accent underline.
+    expect(sequenceButton.classes()).toContain('after:bg-[#0094D9]')
+    expect(sequenceButton.classes()).toContain('text-[#054E76]')
+    expect(mermaidButton.classes()).not.toContain('after:bg-[#FF3670]')
 
     // click to switch to mermaid
     expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
@@ -38,8 +38,8 @@ describe('Header', () => {
     await headerWrapper.vm.$nextTick()
 
     expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
-    expect(mermaidButton.classes()).toContain('bg-emerald-100');
-    expect(mermaidButton.classes()).toContain('text-emerald-800');
+    expect(mermaidButton.classes()).toContain('after:bg-[#FF3670]')
+    expect(mermaidButton.classes()).toContain('text-[#8E0F33]')
   })
 
   describe('the remembered diagram type', () => {

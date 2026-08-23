@@ -197,11 +197,11 @@ jobs:
         with:
           # Keep the asyncapi macros AND the OpenAPI macro — see scripts/forge-wizard.mjs.
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi|zenuml-openapi-macro") | not))' -i manifest.yml
-      - name: Remove globalSettings + globalPage + contentBylineItem (AsyncAPI uses spacePage only)
+      - name: Remove globalSettings + globalPage + contentBylineItem + homepageFeed (AsyncAPI uses spacePage only)
         if: ${{ steps.properties.outputs.license == 'asyncapi' }}
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"]) | del(.modules["confluence:homepageFeed"])' -i manifest.yml
       - name: Remove non-asyncapi custom content types (AsyncAPI)
         if: ${{ steps.properties.outputs.license == 'asyncapi' }}
         uses: mikefarah/yq@master

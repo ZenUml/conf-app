@@ -4,9 +4,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import mixpanel from "mixpanel-browser";
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
-import { _awaitableTrackAnalyticsEvent, _resetForTesting } from "./trackAnalyticsEvent";
+import {
+  _awaitableTrackAnalyticsEvent,
+  _resetForTesting,
+  trackAnalyticsEvent,
+} from "./trackAnalyticsEvent";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { normalizeProductType } from "./productType";
+import { isCurrentPageDemoPage } from "./demoPageStatus";
 
 vi.mock("mixpanel-browser", () => ({
   default: {
@@ -14,11 +19,16 @@ vi.mock("mixpanel-browser", () => ({
     identify: vi.fn(),
     track: vi.fn(),
     register: vi.fn(),
+    start_session_recording: vi.fn(),
   },
 }));
 
 vi.mock("./sessionReplayFlags", () => ({
   getSessionReplayConfig: vi.fn(),
+}));
+
+vi.mock("./demoPageStatus", () => ({
+  isCurrentPageDemoPage: vi.fn(),
 }));
 
 vi.mock("@/model/globals/forgeGlobal", () => ({
@@ -175,6 +185,7 @@ describe("trackAnalyticsEvent", () => {
       percent: 0,
       source: "off",
     });
+    vi.mocked(isCurrentPageDemoPage).mockResolvedValue(false);
   });
 
   describe("event sampling", () => {
@@ -478,7 +489,7 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
-  it("records nothing when the flag config resolves off", async () => {
+  it("keeps viewer replay off when the flag config resolves off", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: undefined,
       moduleKey: "zenuml-sequence-macro",
@@ -499,6 +510,128 @@ describe("trackAnalyticsEvent", () => {
       expect.any(String),
       expect.objectContaining({ record_sessions_percent: 0 })
     );
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "authoring");
+    expect(properties).not.toHaveProperty("session_replay_start_call_outcome");
+  });
+
+  it("forces replay when macro creation starts", async () => {
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "sequence",
+      entry_point: "page_editor",
+    });
+
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_create_started",
+        expect.objectContaining({
+          session_replay_source: "authoring",
+          session_replay_percent: 100,
+          session_replay_start_call_outcome: "returned",
+        })
+      );
+    });
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(mixpanel.start_session_recording).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(mixpanel.track).mock.invocationCallOrder[0]);
+    expect(mixpanel.register).toHaveBeenLastCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "authoring",
+    });
+  });
+
+  it("forces replay when macro editing starts", async () => {
+    trackAnalyticsEvent("macro_edit_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "openapi",
+      entry_point: "macro_toolbar",
+    });
+
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_edit_started",
+        expect.objectContaining({
+          session_replay_source: "authoring",
+          session_replay_percent: 100,
+          session_replay_start_call_outcome: "returned",
+        })
+      );
+    });
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(mixpanel.register).toHaveBeenLastCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "authoring",
+    });
+  });
+
+  it("sends an authoring start event when optional demo-page enrichment stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(forgeGlobal).forgeContext = {
+        localId: "macro-abc",
+        environmentType: "production",
+        extension: { content: { id: "page-789" } },
+      } as any;
+      vi.mocked(isCurrentPageDemoPage).mockImplementation(
+        () => new Promise<boolean>(() => {}),
+      );
+
+      const tracking = _awaitableTrackAnalyticsEvent("macro_edit_started", {
+        feature_area: "macro",
+        surface: "editor",
+        macro_type: "sequence",
+        entry_point: "macro_toolbar",
+      });
+
+      await vi.advanceTimersByTimeAsync(750);
+      await tracking;
+
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_edit_started",
+        expect.objectContaining({
+          session_replay_source: "authoring",
+          session_replay_percent: 100,
+        }),
+      );
+      const [, properties] = vi.mocked(mixpanel.track).mock.calls.at(-1)!;
+      expect(properties).not.toHaveProperty("is_demo_page");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still sends the authoring event when replay startup throws", async () => {
+    vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => {
+      throw new Error("recorder unavailable");
+    });
+
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "graph",
+      entry_point: "page_editor",
+    });
+
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_create_started",
+        expect.objectContaining({
+          session_replay_start_call_outcome: "threw",
+        })
+      );
+    });
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "authoring");
+    expect(properties).not.toHaveProperty("session_replay_percent", 100);
+    expect(mixpanel.register).toHaveBeenLastCalledWith({
+      session_replay_percent: 0,
+      session_replay_source: "off",
+    });
   });
 
   // Registered ahead of implementation (catalog.ts's "Planned ahead of

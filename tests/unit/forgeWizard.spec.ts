@@ -180,7 +180,7 @@ describe('forge-wizard manifest preview helpers', () => {
       'Remove non-asyncapi macros (sequence, graph, embed); keep asyncapi macros + the OpenAPI macro',
     )
     expect(desc).toContain(
-      'Remove globalSettings + globalPage + contentBylineItem (asyncapi uses spacePage only)',
+      'Remove globalSettings + globalPage + contentBylineItem + homepageFeed (asyncapi uses spacePage only)',
     )
     expect(desc).toContain(
       "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
@@ -201,7 +201,7 @@ describe('forge-wizard manifest preview helpers', () => {
     // asyncapi keeps confluence:spacePage intact (its "My API Documents"
     // entry) but strips confluence:globalPage entirely.
     expect(yq).toContain(
-      'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
+      'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"]) | del(.modules["confluence:homepageFeed"])',
     )
     expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
     expect(yq.join(' ')).toContain('macroCountSnapshotFn')

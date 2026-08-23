@@ -1,9 +1,36 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { asAppRequest, asUserRequest } = vi.hoisted(() => ({
-  asAppRequest: vi.fn(),
-  asUserRequest: vi.fn(),
-}));
+// MockRoute mirrors @forge/api's real ReadonlyRoute brand: `route`/
+// `routeFromAbsolute` return this object, NEVER a plain string. The real
+// `requestConfluence` throws "You must create your route using the 'route'
+// export from '@forge/api'" for anything that isn't this branded type — that
+// is verbatim the production error this file's fix addresses (fetchPngDimensions
+// in src/export.js was building `${linksBase}${downloadLink}` as a bare
+// template-string URL instead of routing it).
+//
+// Before this fix, this mock's `route` returned a plain string too, and there
+// was no `routeFromAbsolute` mock at all — so a call passing a bare string
+// URL and a call passing a properly-tagged route were indistinguishable here.
+// That is why the existing tests (e.g. the exact-string assertion this file
+// used to make against the Range-request URL) passed against code that threw
+// in production: the mock accepted whatever shape it was given. Branding the
+// mock's return value the same way the SDK does closes that gap.
+const { asAppRequest, asUserRequest, MockRoute } = vi.hoisted(() => {
+  class MockRoute {
+    readonly value: string;
+    constructor(value: string) {
+      this.value = value;
+    }
+    toString() {
+      return this.value;
+    }
+  }
+  return {
+    asAppRequest: vi.fn(),
+    asUserRequest: vi.fn(),
+    MockRoute,
+  };
+});
 
 vi.mock('@forge/api', () => ({
   default: {
@@ -11,7 +38,15 @@ vi.mock('@forge/api', () => ({
     asApp: () => ({ requestConfluence: asAppRequest }),
   },
   route: (strings: TemplateStringsArray, ...values: unknown[]) =>
-    strings.reduce((acc, s, i) => acc + s + String(values[i] ?? ''), ''),
+    new MockRoute(strings.reduce((acc, s, i) => acc + s + String(values[i] ?? ''), '')),
+  // Real routeFromAbsolute (safeUrl.ts) does exactly this: parse the absolute
+  // URL and keep only pathname+search, wrapped in the same Route brand as
+  // `route`. Anything that reaches requestConfluence NOT wrapped this way
+  // (e.g. a bare `${base}${path}` string) is the bug under test.
+  routeFromAbsolute: (absoluteUrl: string) => {
+    const u = new URL(absoluteUrl);
+    return new MockRoute(`${u.pathname}${u.search}`);
+  },
 }));
 
 import { handler } from '../../src/export.js';
@@ -148,7 +183,7 @@ describe('Forge export resolver (src/export.js)', () => {
       status: 200,
       text: async () => '',
       json: async () => ({
-        results: [{ downloadLink: '/wiki/download/attachments/222/zenuml-cc-pdf-ok.png' }],
+        results: [{ fileId: 'file-zenuml-cc-pdf-ok', downloadLink: '/wiki/download/attachments/222/zenuml-cc-pdf-ok.png' }],
         _links: { base: 'https://acme.atlassian.net' },
       }),
     });
@@ -175,9 +210,264 @@ describe('Forge export resolver (src/export.js)', () => {
     const succeeded = rows.find((r) => r.event === 'macro_export_succeeded');
     expect(succeeded?.properties?.custom_content_id).toBe('cc-pdf-ok');
 
-    expect(JSON.stringify(result)).toContain(
-      'https://acme.atlassian.net/wiki/download/attachments/222/zenuml-cc-pdf-ok.png',
-    );
+    expect(JSON.stringify(result)).toContain('file-zenuml-cc-pdf-ok');
+  });
+
+  // Scroll PDF Exporter (K15t) renders the ADF we return outside the Confluence
+  // page context. A media node of type "external" pointing at the attachment
+  // download endpoint needs a Confluence session, so that renderer got 404 and
+  // dropped the image (reproduced 2026-08-19, docs/debugging/scroll-pdf-export.md).
+  // A native file media node is resolved by the exporter with its own credentials.
+  it('returns a native file media node carrying fileId and the page collection', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({
+        results: [
+          {
+            fileId: 'file-uuid-1',
+            downloadLink: '/wiki/download/attachments/777/zenuml-cc-media.png',
+          },
+        ],
+        _links: { base: 'https://acme.atlassian.net' },
+      }),
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-media',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-media',
+        extension: { content: { id: '777' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-media' } },
+    };
+
+    const result = (await handler(payload)) as {
+      content: Array<{ content: Array<{ attrs: Record<string, string> }> }>;
+    };
+
+    // This fixture's response has no `arrayBuffer`, so the PNG-dimensions
+    // Range read (fetchPngDimensions) fails and falls back to the
+    // pre-existing mediaSingle-only 760px hint — see the two tests below for
+    // the path where dimensions ARE read successfully.
+    expect(result.content[0].content[0].attrs).toEqual({
+      type: 'file',
+      id: 'file-uuid-1',
+      collection: 'contentId-777',
+    });
+    expect((result as unknown as { content: Array<{ attrs: Record<string, unknown> }> }).content[0].attrs).toEqual({
+      layout: 'center',
+      width: 760,
+      widthType: 'pixel',
+    });
+    expect(JSON.stringify(result)).not.toContain('download');
+  });
+
+  // Placement-width regression (docs/debugging/export-image-size.md): the file
+  // media node is sized from the media file's own metadata, not from
+  // mediaSingle's width hint alone (measured on lite-stg 2026-08-19: 5.38in
+  // with a mediaSingle width hint vs 6.68in for the old external-url node).
+  // Declaring the image's own intrinsic width/height directly on the media
+  // node is the candidate fix — read via a byte-Range request for the PNG's
+  // IHDR chunk (src/lib/pngDimensions.ts), not a full download.
+  it('declares the media node\'s own intrinsic width/height from the PNG header', async () => {
+    const pngHeader = Buffer.alloc(32);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(pngHeader, 0);
+    pngHeader.writeUInt32BE(13, 8);
+    pngHeader.write('IHDR', 12, 'ascii');
+    pngHeader.writeUInt32BE(1516, 16);
+    pngHeader.writeUInt32BE(598, 20);
+
+    asAppRequest.mockImplementation(async (url: unknown, opts?: { headers?: Record<string, string> }) => {
+      if (opts?.headers?.Range) {
+        // The load-bearing assertion for this fix: requestConfluence must
+        // receive a Route (route()/routeFromAbsolute()'s branded return
+        // value), never a plain string. Pre-fix, fetchPngDimensions built
+        // `${linksBase}${downloadLink}` as a bare template-string URL and
+        // passed THAT — a plain string, which fails this instanceof check —
+        // and would throw in the real @forge/api SDK with "You must create
+        // your route using the 'route' export from '@forge/api'". A mock
+        // that merely accepted "any argument" (as this test's `route` mock
+        // used to, by returning a string itself) could not see the
+        // difference; asserting the branded type is what makes this test
+        // fail against the pre-fix code.
+        expect(url).toBeInstanceOf(MockRoute);
+        expect(String(url)).toBe('/wiki/download/attachments/779/zenuml-cc-sized.png');
+        expect(opts.headers.Range).toBe('bytes=0-31');
+        return {
+          ok: true,
+          status: 206,
+          arrayBuffer: async () => pngHeader.buffer.slice(pngHeader.byteOffset, pngHeader.byteOffset + pngHeader.byteLength),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          results: [{ fileId: 'file-uuid-sized', downloadLink: '/wiki/download/attachments/779/zenuml-cc-sized.png' }],
+          _links: { base: 'https://acme.atlassian.net' },
+        }),
+      };
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-sized',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-sized',
+        extension: { content: { id: '779' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-sized' } },
+    };
+
+    const result = (await handler(payload)) as {
+      content: Array<{ attrs: Record<string, unknown>; content: Array<{ attrs: Record<string, unknown> }> }>;
+    };
+
+    expect(result.content[0].content[0].attrs).toEqual({
+      type: 'file',
+      id: 'file-uuid-sized',
+      collection: 'contentId-779',
+      width: 1516,
+      height: 598,
+    });
+    expect(result.content[0].attrs).toEqual({ layout: 'center', width: 1516, widthType: 'pixel' });
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { media_width_px?: number; media_height_px?: number };
+    }>;
+    const succeeded = rows.find((r) => r.event === 'macro_export_succeeded');
+    expect(succeeded?.properties?.media_width_px).toBe(1516);
+    expect(succeeded?.properties?.media_height_px).toBe(598);
+  });
+
+  it('requests only a byte range for the PNG header, not the whole attachment', async () => {
+    let sawFullDownload = false;
+    asAppRequest.mockImplementation(async (url: string, opts?: { headers?: Record<string, string> }) => {
+      if (opts?.headers?.Range) {
+        return {
+          ok: true,
+          status: 206,
+          arrayBuffer: async () => {
+            const buf = Buffer.alloc(32);
+            Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+            buf.writeUInt32BE(13, 8);
+            buf.write('IHDR', 12, 'ascii');
+            buf.writeUInt32BE(300, 16);
+            buf.writeUInt32BE(150, 20);
+            return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+          },
+        };
+      }
+      if (String(url).includes('/download/attachments/')) {
+        sawFullDownload = true;
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          results: [{ fileId: 'file-uuid-range', downloadLink: '/wiki/download/attachments/780/zenuml-cc-range.png' }],
+          _links: { base: 'https://acme.atlassian.net' },
+        }),
+      };
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-range',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-range',
+        extension: { content: { id: '780' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-range' } },
+    };
+
+    await handler(payload);
+
+    expect(sawFullDownload).toBe(false);
+    const rangedCalls = asAppRequest.mock.calls.filter(([, opts]: [string, { headers?: Record<string, string> } | undefined]) => opts?.headers?.Range);
+    expect(rangedCalls).toHaveLength(1);
+  });
+
+  it('falls back to the 760px mediaSingle-only hint, without media-level width/height, when the header bytes are not a valid PNG', async () => {
+    asAppRequest.mockImplementation(async (url: string, opts?: { headers?: Record<string, string> }) => {
+      if (opts?.headers?.Range) {
+        return { ok: true, status: 206, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          results: [{ fileId: 'file-uuid-bad', downloadLink: '/wiki/download/attachments/781/zenuml-cc-bad.png' }],
+          _links: { base: 'https://acme.atlassian.net' },
+        }),
+      };
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-bad',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-bad',
+        extension: { content: { id: '781' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-bad' } },
+    };
+
+    const result = (await handler(payload)) as {
+      content: Array<{ attrs: Record<string, unknown>; content: Array<{ attrs: Record<string, unknown> }> }>;
+    };
+
+    expect(result.content[0].attrs).toEqual({ layout: 'center', width: 760, widthType: 'pixel' });
+    expect(result.content[0].content[0].attrs.width).toBeUndefined();
+    expect(result.content[0].content[0].attrs.height).toBeUndefined();
+  });
+
+  it('reports missing_file_id when the attachment carries no fileId', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({
+        results: [{ downloadLink: '/wiki/download/attachments/778/no-file-id.png' }],
+        _links: { base: 'https://acme.atlassian.net' },
+      }),
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-nofile',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-nofile',
+        extension: { content: { id: '778' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-nofile' } },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { failure_reason?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('missing_file_id');
   });
 
   it('falls back to asUser() when asApp() returns 404 and succeeds, with fallback telemetry', async () => {
@@ -191,7 +481,7 @@ describe('Forge export resolver (src/export.js)', () => {
       status: 200,
       text: async () => '',
       json: async () => ({
-        results: [{ downloadLink: '/wiki/download/attachments/444/zenuml-cc-fallback.png' }],
+        results: [{ fileId: 'file-zenuml-cc-fallback', downloadLink: '/wiki/download/attachments/444/zenuml-cc-fallback.png' }],
         _links: { base: 'https://acme.atlassian.net' },
       }),
     });
@@ -216,8 +506,13 @@ describe('Forge export resolver (src/export.js)', () => {
     // fallback below. The asUser() retry then SUCCEEDS, so this is a success
     // path and no custom-content read happens — the count dropped from 2 when
     // that read moved off the success path.
+    //
+    // asUserRequest is called TWICE: the attachments lookup, then the
+    // PNG-dimensions Range request — which reuses asUser() rather than
+    // asApp(), since asUser() is the identity that could actually read this
+    // page (see fetchPngDimensions' `usedAsUser` param in src/export.js).
     expect(asAppRequest).toHaveBeenCalledTimes(1);
-    expect(asUserRequest).toHaveBeenCalledTimes(1);
+    expect(asUserRequest).toHaveBeenCalledTimes(2);
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
       event?: string;
@@ -235,9 +530,7 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(succeeded?.properties?.fallback_error_name).toBeUndefined();
     expect(rows.find((r) => r.event === 'macro_export_failed')).toBeUndefined();
 
-    expect(JSON.stringify(result)).toContain(
-      'https://acme.atlassian.net/wiki/download/attachments/444/zenuml-cc-fallback.png',
-    );
+    expect(JSON.stringify(result)).toContain('file-zenuml-cc-fallback');
   });
 
   it('preserves asApp 404 failure_reason when asUser() fallback also fails, and tags telemetry', async () => {
@@ -375,7 +668,7 @@ describe('Forge export resolver (src/export.js)', () => {
           status: 200,
           text: async () => '',
           json: async () => ({
-            results: [{ downloadLink: '/wiki/download/attachments/888/zenuml-cc-mermaid.png' }],
+            results: [{ fileId: 'file-zenuml-cc-mermaid', downloadLink: '/wiki/download/attachments/888/zenuml-cc-mermaid.png' }],
             _links: { base: 'https://acme.atlassian.net' },
           }),
         };
@@ -397,10 +690,13 @@ describe('Forge export resolver (src/export.js)', () => {
 
     await handler(payload);
 
-    // The point of the change: exactly one asApp() call, and it is the
-    // attachments lookup. No custom-content read at all.
-    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    // The point of the change: no custom-content read at all on the success
+    // path. Two asApp() calls remain: the attachments lookup, then the
+    // PNG-dimensions Range request against the same attachment's download
+    // link (also matches '/attachments' — it's '/download/attachments/...').
+    expect(asAppRequest).toHaveBeenCalledTimes(2);
     expect(String(asAppRequest.mock.calls[0][0])).toContain('/attachments');
+    expect(String(asAppRequest.mock.calls[1][0])).toContain('/download/attachments/888/zenuml-cc-mermaid.png');
     expect(
       asAppRequest.mock.calls.filter(([u]: [string]) => String(u).includes('/custom-content/')),
     ).toHaveLength(0);
@@ -494,7 +790,7 @@ describe('Forge export resolver (src/export.js)', () => {
           status: 200,
           text: async () => '',
           json: async () => ({
-            results: [{ downloadLink: '/wiki/download/attachments/892/zenuml-cc-unknown.png' }],
+            results: [{ fileId: 'file-zenuml-cc-unknown', downloadLink: '/wiki/download/attachments/892/zenuml-cc-unknown.png' }],
             _links: { base: 'https://acme.atlassian.net' },
           }),
         };
@@ -589,7 +885,7 @@ describe('macro_export_* $insert_id (Mixpanel dedup key)', () => {
       status: 200,
       text: async () => '',
       json: async () => ({
-        results: [{ downloadLink: '/wiki/download/attachments/900/x.png' }],
+        results: [{ fileId: 'file-x', downloadLink: '/wiki/download/attachments/900/x.png' }],
         _links: { base: 'https://acme.atlassian.net' },
       }),
     }));

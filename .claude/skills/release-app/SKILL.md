@@ -5,8 +5,8 @@ description: >
   Reuses an existing fresh draft release when available (the common case after a recent merge),
   composes delta-derived release notes (replacing the auto-draft placeholder), publishes it to
   production, verifies with PVT, then runs a spot check — targeted coverage for what shipped this
-  iteration (not keyword→skill matching alone). Falls back to triggering a
-  fresh build via a changelog push only when no recent draft exists.
+  iteration (not keyword→skill matching alone). Falls back to manually
+  triggering a fresh build only when no recent draft exists.
   Use when the user wants to release, deploy, ship, or push the lite, full, diagramly, or asyncapi Forge app to
   production. Triggers on "release lite", "release full", "release diagramly", "release asyncapi", "deploy to prod",
   "ship forge app", "push to production", "release forge app", "release app", or any request to
@@ -106,22 +106,22 @@ gh run list --repo ZenUml/conf-app --workflow=build-test-deploy.yml --branch=mai
 
 Use `gh run view <run-id> --json jobs` to inspect per-variant job conclusions when there's any doubt.
 
-#### 1.2 Fallback — trigger a fresh build with a changelog push
+#### 1.2 Fallback — manually trigger a fresh build
 
-Only do this if 1.1 found no usable draft. "Build, Test and Draft Release" has no `workflow_dispatch`, so a push to main is the only way to retrigger it.
+Only do this if 1.1 found no usable draft. Trigger the workflow on `main` so
+the resulting drafts are created from the current production branch:
 
-1. `cd` to the conf-app project root
-2. Append to `CHANGELOG.md` with today's date and a release entry:
-   ```
-   ## [YYYY-MM-DD] - Release
-   - Triggered release pipeline for {variants}
-   ```
-3. Stage, commit (message: `chore: trigger release pipeline`), and push to main **only after explicit user confirmation**
-4. Proceed to 1.3
+```bash
+gh workflow run build-test-deploy.yml --repo ZenUml/conf-app --ref main
+```
+
+This dispatch starts the normal build, staging deploy, E2E, and draft-release
+jobs without changing `main`. Show the user that a fresh build is needed and
+obtain explicit confirmation before dispatching it, then proceed to 1.3.
 
 #### 1.3 Wait for the build workflow
 
-Whether triggered by a real merge (1.1) or your changelog push (1.2), wait for it to complete:
+Whether triggered by a real merge (1.1) or manual dispatch (1.2), wait for it to complete:
 
 1. `gh run list --workflow=build-test-deploy.yml --branch=main -L 1` to find the run
 2. `gh run watch <run-id>` (foreground) or `gh run watch <run-id> --exit-status` with `run_in_background: true` so you get a single completion notification
@@ -324,9 +324,9 @@ Summarize each released variant:
 
 - **Never release by default.** If no variant is named, ASK. Release only the variant(s) the user explicitly names; an explicit variant does NOT authorize any other tier (releasing lite does not license releasing full afterward).
 - **Never publish the placeholder body (2.3).** Always replace the auto-draft `"This is a draft release…"` body with delta-derived notes before `--draft=false`. Notes and spot check share the one delta from 2.2.
-- **Always check for a fresh draft first (1.1).** A merge to main that completed in the last 24 hours may already have produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` commit when fresh drafts exist wastes ~15 min of CI, pollutes main history, and gains nothing.
-- The build workflow has no `workflow_dispatch` — a push to main (1.2) is the only fallback if no fresh draft exists.
+- **Always check for a fresh draft first (1.1).** A merge to main that completed in the last 24 hours may already have produced the drafts you need — reuse them. A manual dispatch when fresh drafts exist wastes ~15 min of CI and gains nothing.
+- The build workflow supports `workflow_dispatch`; use it on `main` only when no usable draft exists.
 - Draft releases are only created on `main` (not on PRs or other branches).
 - lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped; manual PVT per 2.5, gated on e2e account access).
-- Always confirm with the user before pushing to main or publishing releases.
+- Always confirm with the user before manually dispatching a fresh build or publishing releases.
 - All order/timing rules live in **"Variants & gates"** — the canary order (diagramly → lite → full), the lite-needs-diagramly prerequisite, and the full ≥ 1-week soak. Don't restate them; reference that section.

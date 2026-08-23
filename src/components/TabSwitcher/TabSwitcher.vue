@@ -10,7 +10,7 @@
       :class="getButtonClass(option.value)"
       @click="handleSelect(option.value)"
     >
-      <span :class="getDotClass(option.value)" aria-hidden="true"></span>
+      <span :class="getDotClass(option.value)" aria-hidden="true" />
       <span :class="getTextClass()">
         {{ option.label }}
       </span>
@@ -45,27 +45,49 @@ export default {
     },
     getButtonClass(value) {
       const isActive = this.modelValue === value
-      const baseClasses = 'px-3 py-1.5 rounded-md flex items-center gap-1.5 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus:outline-none transition-colors duration-200'
-      const inactiveClasses = 'text-gray-600 hover:text-gray-900 hover:bg-white/60'
+      const baseClasses = 'group/tab relative px-3.5 h-full flex items-center gap-1.5 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus:outline-none transition-colors duration-200 after:content-[""] after:absolute after:left-3 after:right-3 after:bottom-[5px] after:h-[2px] after:rounded-t-sm'
 
-      if (!isActive) return `${baseClasses} ${inactiveClasses}`.trim()
-
-      const activeByType = {
-        sequence: 'bg-amber-100 text-amber-800 shadow-sm hover:bg-amber-200 focus-visible:ring-amber-400',
-        mermaid:  'bg-emerald-100 text-emerald-800 shadow-sm hover:bg-emerald-200 focus-visible:ring-emerald-400',
-        plantuml: 'bg-violet-100 text-violet-800 shadow-sm hover:bg-violet-200 focus-visible:ring-violet-400',
+      const typeStyles = {
+        sequence: {
+          hover: 'hover:text-[#0094D9]',
+          active: 'text-[#054E76] after:bg-[#0094D9] focus-visible:ring-[#0094D9]',
+        },
+        mermaid: {
+          hover: 'hover:text-[#FF3670]',
+          active: 'text-[#8E0F33] after:bg-[#FF3670] focus-visible:ring-[#FF3670]',
+        },
+        plantuml: {
+          hover: 'hover:text-[#B84800]',
+          active: 'text-[#6B2900] after:bg-[#B84800] focus-visible:ring-[#B84800]',
+        },
       }
-      return `${baseClasses} ${activeByType[value] ?? 'bg-blue-100 text-blue-800 shadow-sm hover:bg-blue-200'}`.trim()
+      const styles = typeStyles[value] ?? {
+        hover: 'hover:text-blue-600',
+        active: 'text-blue-800 after:bg-blue-500 focus-visible:ring-blue-500',
+      }
+
+      if (!isActive) {
+        return `${baseClasses} text-gray-500 ${styles.hover} after:bg-transparent`.trim()
+      }
+      return `${baseClasses} ${styles.active}`.trim()
     },
     getDotClass(value) {
       const isActive = this.modelValue === value
-      const base = 'w-2 h-2 rounded-full flex-shrink-0'
-      const dotByType = {
-        sequence: isActive ? `${base} bg-amber-500`  : `${base} bg-amber-300`,
-        mermaid:  isActive ? `${base} bg-emerald-500`: `${base} bg-emerald-300`,
-        plantuml: isActive ? `${base} bg-violet-500` : `${base} bg-violet-300`,
+      const base = 'w-[7px] h-[7px] rounded-full flex-shrink-0 transition-colors duration-200'
+      const accentDot = {
+        sequence: 'bg-[#0094D9]',
+        mermaid: 'bg-[#FF3670]',
+        plantuml: 'bg-[#B84800]',
       }
-      return dotByType[value] ?? `${base} bg-gray-400`
+      const hoverDot = {
+        sequence: 'group-hover/tab:bg-[#0094D9]',
+        mermaid: 'group-hover/tab:bg-[#FF3670]',
+        plantuml: 'group-hover/tab:bg-[#B84800]',
+      }
+      if (isActive) {
+        return `${base} ${accentDot[value] ?? 'bg-gray-300'}`.trim()
+      }
+      return `${base} bg-gray-300 ${hoverDot[value] ?? ''}`.trim()
     },
     getTextClass() {
       return 'sr-only lg:not-sr-only'
@@ -77,9 +99,8 @@ export default {
 <style scoped>
 .tab-switcher {
   display: flex;
-  padding: 0.25rem;
-  border-radius: 0.5rem;
-  background-color: rgb(243 244 246 / 0.5);
+  align-items: stretch;
+  height: 31px;
   flex-shrink: 0;
 }
 

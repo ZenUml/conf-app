@@ -28,6 +28,8 @@ import type {
   ActivationPath,
   ViewerRelation,
   GalleryOpenTrigger,
+  SessionReplayEventSource,
+  SessionReplayStartCallOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -52,6 +54,13 @@ export type AnalyticsProperties = {
   macro_uuid?: string;
   // Lifecycle
   operation_mode?: OperationMode;
+  // Session Replay policy. `macro_create_started` / `macro_edit_started` set
+  // source=authoring and percent=100 after the SDK start call returns. The call
+  // outcome is intentionally distinct from actual capture: only a later
+  // `$mp_replay_id` proves that the recorder became active.
+  session_replay_source?: SessionReplayEventSource;
+  session_replay_percent?: number;
+  session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
   // Format slice chosen on the dual-format "My API Documents" dashboard
   // (dashboard_format_filtered). "all" = both AsyncAPI and OpenAPI shown.
   format_filter?: DashboardFormatFilter;
@@ -179,6 +188,15 @@ export type AnalyticsProperties = {
   page_id?: string;
   custom_content_id?: string;
   attachment_name?: string;
+  // Load-failed recovery panel — "Try again" (load_failed_retry_clicked /
+  // load_failed_retry_resolved). `retry_attempt` counts retries of the SAME
+  // macro inside one browser session and starts at 1; it survives the reload
+  // through the sessionStorage marker, so attempt 2+ marks a user who retried
+  // a failure that had already failed a retry. `retry_outcome` is the state the
+  // viewer reached after the reload: 'recovered' = the diagram rendered,
+  // 'failed_again' = the terminal panel came back.
+  retry_attempt?: number;
+  retry_outcome?: 'recovered' | 'failed_again';
   // Snapshot attachments: which flow wrote it, and fallback freshness.
   snapshot_trigger?: 'save' | 'editor_backfill' | 'viewer_backfill';
   snapshot_age_days?: number;
@@ -223,6 +241,24 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  // JSM Apply Extension automation. `extension_action` is the fixed policy
+  // command, never an arbitrary duration. Initial grants are requester-only
+  // for 7 days; feedback grants renew the same requester for 60 days.
+  // `extension_action_outcome` distinguishes a real write from an idempotent
+  // replay, while `extension_failure_stage` is deliberately low-cardinality.
+  extension_action?: 'initial' | 'feedback';
+  extension_action_outcome?: 'applied' | 'already_applied';
+  extension_scope?: 'user';
+  extension_days?: 7 | 60;
+  extension_failure_stage?:
+    | 'request_validation'
+    | 'tenant_resolution'
+    | 'space_validation'
+    | 'paid_status'
+    | 'idempotency'
+    | 'license_write'
+    | 'license_verify'
+    | 'unexpected';
   // Attribution token embedded in the Stripe Payment Link URL
   // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment
@@ -273,11 +309,13 @@ export type AnalyticsProperties = {
   // key on, so staleness is the only available proxy and it must be readable
   // apart from a confident absence.
   byline_visibility_decision?: "visible" | "suppressed";
-  // `enrolled` is the allowlist hit: this cloudId is named in
-  // src/byline-visibility.ts ALLOWLIST. `not_enrolled` is a confident miss,
-  // and `no_signal` is the distinct case where the runtime gave us no cloudId
-  // to match at all — both suppress, but only one of them means the gate is
-  // working as intended, so they must not collapse into one value.
+  // `enrolled` means the installation renders the byline. Since the
+  // 2026-08-22 general rollout that is every installation with a resolvable
+  // cloudId, so `not_enrolled` is no longer emitted — it is retained here
+  // because historical events in Mixpanel still carry it, and dropping it from
+  // the union would make that data untypeable. `no_signal` is the distinct
+  // live case where the runtime gave us no cloudId at all: it still suppresses,
+  // and it must not collapse into the same value as a deliberate hide.
   byline_visibility_reason?:
     | "full_present"
     | "full_absent"

@@ -64,8 +64,31 @@ const TYPE_LABELS: Record<string, string> = {
   [DiagramType.Embed]: 'Embed',
 }
 
+/**
+ * Both tables in this file are keyed on the `DiagramType` enum, and two of its
+ * members are not spelled the way the app stores them: the enum says `OpenAPI`
+ * and `AsyncAPI` while real custom-content bodies store `openapi` / `asyncapi`.
+ * Verified on lite-dev 2026-08-21 — custom content 67600411 ("Demo · OpenAPI")
+ * carries `{"diagramType":"openapi"}`, while sequence / mermaid / graph store
+ * values that already match their enum members exactly.
+ *
+ * An exact-match lookup therefore misses on OpenAPI and AsyncAPI, and every
+ * caller silently degrades: `typeLabel` returns "Diagram" and `toMacroType`
+ * returns "none", so an OpenAPI diagram reads as an untyped one on the byline
+ * and its events land in the catch-all analytics bucket. Fold the key instead
+ * of casting one spelling to the other, so both spellings resolve and an
+ * unrecognised type still reaches the fallback.
+ */
+function lookup(table: Record<string, string>, diagramType: string): string | undefined {
+  const exact = table[diagramType]
+  if (exact) return exact
+  const folded = String(diagramType ?? '').toLowerCase()
+  const key = Object.keys(table).find((k) => k.toLowerCase() === folded)
+  return key ? table[key] : undefined
+}
+
 export function typeLabel(diagramType: string): string {
-  return TYPE_LABELS[diagramType] || 'Diagram'
+  return lookup(TYPE_LABELS, diagramType) || 'Diagram'
 }
 
 /**
@@ -87,7 +110,7 @@ const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
 }
 
 export function toMacroType(diagramType: string): string {
-  return MACRO_TYPE_BY_DIAGRAM_TYPE[diagramType] || 'none'
+  return lookup(MACRO_TYPE_BY_DIAGRAM_TYPE, diagramType) || 'none'
 }
 
 /**

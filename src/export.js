@@ -1,5 +1,6 @@
 
-import api, { route } from '@forge/api';
+import api, { route, routeFromAbsolute } from '@forge/api';
+import { readPngDimensions } from './lib/pngDimensions.js';
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -257,6 +258,51 @@ async function ensureCustomContentParsed(ctx) {
   return ctx.customContentParsed;
 }
 
+/**
+ * Reads the export PNG's own pixel width/height without downloading the
+ * whole file: a byte-Range request for the first 32 bytes is enough to cover
+ * the PNG signature + IHDR chunk (see src/lib/pngDimensions.js). If the
+ * Confluence attachment endpoint ignores the Range header it just returns the
+ * full file — readPngDimensions only reads the leading bytes it needs either
+ * way, so correctness doesn't depend on Range support, only bandwidth does.
+ *
+ * Never throws: a failure here must not fail the whole export (the diagram
+ * still exports, just without a declared intrinsic size — the pre-existing
+ * mediaSingle-only-width behavior). Logged with console.error and surfaced
+ * via the `media_width_px`/`media_height_px: null` telemetry on the success
+ * event, so the degrade stays visible rather than silently masked.
+ *
+ * `usedAsUser` picks the SAME identity that resolved the attachments lookup
+ * (asApp() vs the asUser() 404-fallback, see the handler) — a page asApp()
+ * can't read is a page it likely can't download from either, so this avoids
+ * a doomed second asApp() call on the fallback path.
+ */
+async function fetchPngDimensions(linksBase, downloadLink, attachmentName, pageId, usedAsUser) {
+  const downloadUrl = `${linksBase}${downloadLink}`;
+  try {
+    const requester = usedAsUser ? api.asUser() : api.asApp();
+    // requestConfluence rejects a plain string URL at runtime — @forge/api
+    // requires a Route built from the `route` tagged template, or (as here,
+    // where the full absolute URL is already known from `_links.base` +
+    // `downloadLink`) `routeFromAbsolute`, which strips it down to the
+    // pathname+search a Route carries. See the ReadonlyRoute brand check in
+    // @forge/api's safeUrl.js — a bare string throws
+    // "You must create your route using the 'route' export from
+    // '@forge/api'", which is exactly the production error this fixes.
+    const response = await requester.requestConfluence(routeFromAbsolute(downloadUrl), {
+      headers: { Range: 'bytes=0-31' },
+    });
+    if (!response.ok) {
+      throw new Error(`png_header_fetch_failed_${response.status}`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return readPngDimensions(buffer);
+  } catch (error) {
+    console.error(`Export: failed to read PNG dimensions for ${attachmentName} on page ${pageId}:`, error);
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Export handler
 // ---------------------------------------------------------------------------
@@ -303,6 +349,7 @@ export const handler = async (payload) => {
     // The fallback path is the new failure mode introduced by switching to asApp() (issue #74) —
     // track usage so we can measure how often it triggers and whether it succeeds.
     let fallbackInfo = null;
+    let usedAsUser = false;
     if (!response.ok && response.status === 404) {
       fallbackInfo = { used: true, status: null, error_name: null };
       try {
@@ -310,6 +357,7 @@ export const handler = async (payload) => {
         fallbackInfo.status = userResponse.status;
         if (userResponse.ok) {
           response = userResponse;
+          usedAsUser = true;
         }
       } catch (e) {
         fallbackInfo.error_name = e?.name ?? 'UnknownError';
@@ -353,16 +401,42 @@ export const handler = async (payload) => {
     }
 
     const attachment = attachmentsData.results[0];
-    const downloadLink = `${attachmentsData._links.base}${attachment.downloadLink}`;
+
+    // The export ADF must reference the PNG as a native Confluence media file,
+    // never as an external URL — see createMediaDocument below. Without a
+    // fileId there is nothing to reference, so surface it instead of degrading.
+    if (!attachment.fileId) {
+      console.error(`Export: attachment ${attachmentName} on page ${pageId} carries no fileId`);
+      await trackExportEvent('macro_export_failed', {
+        ...joinKeyProps(ctx),
+        failure_reason: 'missing_file_id',
+        ...fallbackProps(fallbackInfo),
+      });
+      return createErrorDocument('Diagram image reference not available for export');
+    }
 
     console.info(`Export: found ${attachmentName} on page ${pageId}`);
+
+    // The file media node is sized from the media file's own metadata, not
+    // from mediaSingle's width/widthType hint — measured on lite-stg
+    // 2026-08-19: with no width attrs the placed image was 1.77in; with a
+    // mediaSingle width hint (either percentage or an equal-valued pixel
+    // count) it was 5.38in, never the 6.68in the previous `type: "external"`
+    // node produced for the same page. Declaring the image's own intrinsic
+    // width/height directly on the media node (not just on mediaSingle) is
+    // the ADF-documented way to give a file node a natural size; see
+    // fetchPngDimensions below for how those pixels are read without a full
+    // download.
+    const dimensions = await fetchPngDimensions(attachmentsData._links.base, attachment.downloadLink, attachmentName, pageId, usedAsUser);
 
     await trackExportEvent('macro_export_succeeded', {
       ...joinKeyProps(ctx),
       ...fallbackProps(fallbackInfo),
+      media_width_px: dimensions?.width ?? null,
+      media_height_px: dimensions?.height ?? null,
     });
 
-    return createMediaDocument(downloadLink);
+    return createMediaDocument(attachment.fileId, pageId, dimensions);
 
   } catch (error) {
     const errorName = error?.name ?? 'UnknownError';
@@ -408,23 +482,59 @@ export function createErrorDocument(message) {
   };
 }
 
-function createMediaDocument(downloadLink) {
+/**
+ * Builds the export document as a native Confluence media reference.
+ *
+ * A media node of type "external" pointing at the attachment download endpoint
+ * needs a Confluence session. Confluence's own export pipeline has one; a
+ * third-party exporter running outside the page context does not, so it
+ * received 404 and dropped the image. Reproduced with Scroll PDF Exporter on
+ * 2026-08-19 — see docs/debugging/scroll-pdf-export.md for the issue report.
+ *
+ * A file media node carries only the fileId and the page's media collection.
+ * Every renderer resolves it with its own credentials, so the diagram keeps the
+ * access control the page already has and no URL is published.
+ *
+ * `dimensions` is the export PNG's own {width, height} in px (fetchPngDimensions),
+ * or null if that read failed. When known, it is declared BOTH on the media
+ * node (its documented "intrinsic size" attrs) and on mediaSingle (the width
+ * hint alone was measured insufficient — see the call site's comment) —
+ * candidate fix for the placement-width regression tracked in this PR; not
+ * yet confirmed against a real PDF export, see the PR body for the
+ * pdfimages -list measurement.
+ *
+ * Falls back to the pre-existing mediaSingle-only 760px hint when dimensions
+ * are unknown, matching the behavior this replaces.
+ */
+function createMediaDocument(fileId, pageId, dimensions) {
+  const mediaAttrs = {
+    "type": "file",
+    "id": fileId,
+    "collection": `contentId-${pageId}`,
+  };
+  const mediaSingleAttrs = { "layout": "center" };
+
+  if (dimensions) {
+    mediaAttrs.width = dimensions.width;
+    mediaAttrs.height = dimensions.height;
+    mediaSingleAttrs.width = dimensions.width;
+    mediaSingleAttrs.widthType = "pixel";
+  } else {
+    mediaSingleAttrs.width = 760;
+    mediaSingleAttrs.widthType = "pixel";
+  }
+
   return {
     type: "doc",
     version: 1,
     content: [
       {
         "type": "mediaSingle",
-        "attrs": {
-          "layout": "center"
-        },
+        "attrs": mediaSingleAttrs,
         "content": [
           {
             "type": "media",
-            "attrs": {
-              "type": "external",
-              "url": downloadLink
-            }
+            "attrs": mediaAttrs
           }
         ]
       }

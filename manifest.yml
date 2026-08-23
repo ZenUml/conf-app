@@ -374,9 +374,15 @@ modules:
     # Forge-storage read and zero Confluence calls; an ENROLLED one pays the
     # spaces listing plus one property GET per space (writes only on drift).
     # The enrolled sweep cannot be short-circuited by the settled marker —
-    # it is also what enrols spaces CREATED after enrolment. Cheapening it
-    # (e.g. daily full pass + hourly new-space check) becomes worth doing when
-    # ALLOWLIST grows beyond our two sites.
+    # it is also what enrols spaces CREATED after enrolment.
+    #
+    # AS OF 2026-08-22 the rollout is general (every identifiable installation
+    # is enrolled — src/byline-visibility.ts `decide`), so essentially EVERY
+    # install now takes the enrolled path rather than the one-storage-read
+    # suppressed path. That is the condition this comment previously named as
+    # the trigger for cheapening the sweep (daily full pass + hourly new-space
+    # check); it is now met, and the change is pending. Watch Forge Functions
+    # GB-seconds — see the forge-functions-cost skill.
     - key: byline-visibility-hourly
       function: bylineVisibilityFn
       interval: hour
@@ -458,6 +464,43 @@ modules:
       # because every macro module already declares this same binding.
       resolver:
         endpoint: remote-connect
+  # End-user entry point on the Confluence Home page (right side panel). The
+  # confluence:globalSettings "Get Started" page above is admin-only — end
+  # users never open global settings — so this is the only onboarding surface
+  # a non-admin end user encounters without first inserting a macro.
+  #
+  # Ships on lite/full/diagramly (the generic-diagram product line). Stripped
+  # for asyncapi via manifestEdits in scripts/forge-wizard.mjs (and mirrored in
+  # release.yml + staging-deploy.yml): asyncapi already treats its
+  # confluence:spacePage "My API Documents" dashboard as its one onboarding
+  # surface (same manifestEdits strip confluence:globalPage +
+  # confluence:contentBylineItem for the same reason), and this card's "create
+  # a diagram" copy doesn't fit an API-spec product.
+  #
+  # Per the Forge manifest reference, confluence:homepageFeed entries carry NO
+  # `route` property (verified against
+  # https://developer.atlassian.com/platform/forge/manifest-reference/modules/confluence-homepage-feed/
+  # 2026-08-19 — the only properties are key/resource/render/resolver/
+  # viewportSize/title/keyboardShortcut). src/forgeIndex.ts therefore
+  # discriminates purely on context.extension.type, the same way
+  # confluence:spacePage does above.
+  confluence:homepageFeed:
+    - key: zenuml-homepage-feed
+      resource: main
+      title: Create a diagram${LITE_TITLE_SUFFIX}
+      # No viewportSize: the property pins the iframe to a fixed box, and
+      # `small` measured 266x52 px on lite-dev 2026-08-21 — the body copy alone
+      # overflows that, so the action button was unreachable (the iframe's own
+      # scrollbar does not respond to wheel events from the host page). Per the
+      # manifest reference, "Remove this property to enable automatic resizing
+      # of the module", which sizes the iframe to the card's real height.
+      # invokeRemote REQUIRES the calling module to carry a resolver/endpoint
+      # binding — without this line the iframe's call fails with: Entry point
+      # "resolver" for extension "zenuml-homepage-feed" could not be invoked
+      # (same failure mode documented on confluence:pageBanner below, observed
+      # on lite-stg 2026-08-09 for that module).
+      resolver:
+        endpoint: remote-connect
   confluence:spacePage: #Note: AsyncAPI variant only — appears in each Confluence space's sidebar. Mirrors AsyncAPI-Conf-V2's spacePage. Other variants strip this via manifestEdits in scripts/forge-wizard.mjs.
     - key: zenuml-asyncapi-dashboard-page
       resource: main
@@ -504,10 +547,13 @@ modules:
     - key: zenuml-byline-diagrams
       resource: main
       title: Diagrams${LITE_TITLE_SUFFIX}
-      # Fail-CLOSED gate on SPACE properties, two legs ANDed. This entry is
-      # deliberately dark in production: the writer enrols an explicit cloudId
-      # ALLOWLIST (src/byline-visibility.ts) and only our own sites are on it.
-      # Widening the rollout is a change to ALLOWLIST, not to this condition.
+      # Fail-CLOSED gate on SPACE properties, two legs ANDed. Since 2026-08-22
+      # the rollout is GENERAL: src/byline-visibility.ts `decide` enrols every
+      # installation whose cloudId the runtime can resolve, so this entry is
+      # live in production rather than dark. (It was previously restricted to a
+      # two-site cloudId allowlist, removed with the rollout — see `git log`.)
+      # Rollout scope remains a change to `decide`, not to this condition — and
+      # leg 2 below still suppresses the byline wherever Full is installed.
       #
       # 1. The variant's OWN enrolment property must say enabled. The key is
       #    templated like every other per-variant key in this manifest:
@@ -515,7 +561,7 @@ modules:
       #    on Lite (the key src/byline-visibility.ts writes — keep them in
       #    lockstep) and `zenuml-byline` on Full/Diagramly/AsyncAPI. It is
       #    written to every space by the Lite `byline-visibility-hourly` sweep
-      #    (cloudId-allowlist rollout). Absent property = no byline.
+      #    on every identifiable installation. Absent property = no byline.
       # 2. `zenuml-full-active` must NOT exist — the FULL app's daily sweep
       #    (src/full-presence.ts, Full variant only) marks its presence per
       #    space, and the Lite byline hides itself where Full already provides

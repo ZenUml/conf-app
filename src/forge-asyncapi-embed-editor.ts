@@ -11,13 +11,22 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import uuidv4 from '@/utils/uuid'
-import { getView } from '@/model/globals/forgeGlobal'
+import { getContext, getView } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
 import AsyncApiEmbedEditor, {
   AsyncApiEmbedPick,
 } from '@/components/Editor/AsyncApiEmbedEditor/AsyncApiEmbedEditor'
 
 async function initializeMacro() {
+  const context = await getContext()
+  const customContentId = context.extension?.config?.customContentId
+  trackAuthoringStarted({
+    macroType: 'embed',
+    entryPoint: customContentId ? 'macro_toolbar' : 'page_editor',
+    customContentId,
+  })
+
   const root = document.getElementById('app')
   if (!root) {
     console.error('forge-asyncapi-embed-editor: #app element missing')

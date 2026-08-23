@@ -21,6 +21,54 @@ import { normalizeProductType, type ProductType } from "./productType";
 let _initPromise: Promise<void> | null = null;
 let _identified = false;
 
+type AuthoringReplayProperties = Pick<
+  AnalyticsProperties,
+  | "session_replay_source"
+  | "session_replay_percent"
+  | "session_replay_start_call_outcome"
+>;
+
+// `is_demo_page` is useful segmentation, but it is never allowed to hold an
+// analytics event hostage. In particular, an editor iframe can be torn down
+// soon after it opens; if the optional page-property request stalls, losing
+// `macro_*_started` also loses the replay-to-event join for that session.
+const DEMO_PAGE_TELEMETRY_TIMEOUT_MS = 750;
+const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
+
+function _startAuthoringReplay(
+  eventName: AnalyticsEventName
+): Partial<AuthoringReplayProperties> {
+  if (
+    eventName !== "macro_create_started" &&
+    eventName !== "macro_edit_started"
+  ) {
+    return {};
+  }
+
+  try {
+    // Authoring replay is an explicit product policy, independent of the
+    // baseline Forge-flag cohort resolved by _initMixpanel. The SDK call is
+    // idempotent when baseline sampling already started a recording.
+    mixpanel.start_session_recording();
+    const replayProperties: AuthoringReplayProperties = {
+      session_replay_source: "authoring",
+      session_replay_percent: 100,
+      session_replay_start_call_outcome: "returned",
+    };
+    mixpanel.register({
+      session_replay_percent: replayProperties.session_replay_percent,
+      session_replay_source: replayProperties.session_replay_source,
+    });
+    return replayProperties;
+  } catch (error) {
+    console.error(
+      "[session-replay] authoring start call threw",
+      error instanceof Error ? error.name : "unknown"
+    );
+    return { session_replay_start_call_outcome: "threw" };
+  }
+}
+
 function _initMixpanel(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -207,11 +255,26 @@ async function _getDemoPageTelemetry(
   if (!eventName.startsWith("macro_")) {
     return {};
   }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const isDemo = await isCurrentPageDemoPage();
+    const isDemo = await Promise.race([
+      isCurrentPageDemoPage(),
+      new Promise<typeof DEMO_PAGE_TELEMETRY_TIMED_OUT>((resolve) => {
+        timeout = setTimeout(
+          () => resolve(DEMO_PAGE_TELEMETRY_TIMED_OUT),
+          DEMO_PAGE_TELEMETRY_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (isDemo === DEMO_PAGE_TELEMETRY_TIMED_OUT) {
+      return {};
+    }
     return isDemo ? { is_demo_page: true } : {};
   } catch {
     return {};
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 
@@ -228,6 +291,7 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
+    const authoringReplayProperties = _startAuthoringReplay(eventName);
 
     const contentIds = _getContentIdentifiers();
 
@@ -257,6 +321,7 @@ export async function _awaitableTrackAnalyticsEvent(
       attachment_name: callerProps.attachment_name ?? contentIds.attachment_name,
       ...(await _getSpaceAdminTelemetry(eventName)),
       ...(await _getDemoPageTelemetry(eventName)),
+      ...authoringReplayProperties,
     };
 
     mixpanel.track(eventName, enriched);

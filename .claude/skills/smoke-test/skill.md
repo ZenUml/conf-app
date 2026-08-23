@@ -353,7 +353,7 @@ A eval "(() => {
 })()"
 A batch --bail \
   "click [data-ab-pick-tab]" \
-  "fill input[placeholder*=\"Name your diagram\"] \"Test Sequence\"" \
+  "fill input[placeholder=\"Untitled diagram\"] \"Test Sequence\"" \
   "wait 500"
 A eval "(() => {
   const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('Publish'));
@@ -445,7 +445,7 @@ Then publish the Confluence page exactly as in step 6 above.
 Same steps 1–6 as the Diagram macros, with:
 - search term `openapi`, option condition `t.includes('OpenAPI')`
 - no tab click
-- the title field is labelled `Title`, not `Name your diagram…`:
+- the title field is labelled `Title`, not `Untitled diagram`:
   `A fill "input[placeholder*=\"Title\"]" "Test OpenAPI"` (confirm the exact placeholder from a
   snapshot inside the frame first)
 
@@ -578,6 +578,7 @@ Summarize:
 | Refs are stale (wrong element clicked) | Re-snapshot after any DOM change, any navigation, and any `frame` switch |
 | `A wait --text "Sequence"` times out | "Sequence" is inside the Forge iframe — enter the frame first, or use `A wait <ms>` + `A screenshot` |
 | Publish button stays disabled | Title input is empty — set it first |
+| Diagram title fill matches nothing / hangs | The Sequence/Mermaid/PlantUML title placeholder was renamed `Name your diagram…` → `Untitled diagram` (`DiagramTitleInput.vue`, shipped v2026.08.222120). Use `input[placeholder="Untitled diagram"]`. Graph (`Name your graph…`, `DrawIoHeader.vue`) and OpenAPI (`Title`, `OpenApiTitleInput.tsx`) are unchanged |
 | Details panel opens instead of editor | Stale ref — re-snapshot and use a fresh editor ref |
 | CSAT survey blocks title input | Find the Dismiss button in the snapshot and click it |
 | Macro search returns 0 results | App not installed — report and skip |

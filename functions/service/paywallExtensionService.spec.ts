@@ -17,6 +17,14 @@ interface RequestRow {
   spaceKey: string;
   state: string;
   grantId: string | null;
+  questionnaireVersion?: number;
+  currentTask?: string | null;
+  diagramAudience?: string | null;
+  aiTools?: string | null;
+  aiDiagramUsage?: string | null;
+  aiDiagramUse?: string | null;
+  processRequirement?: string | null;
+  cloudAiPolicy?: string | null;
 }
 
 interface GrantRow {
@@ -59,6 +67,14 @@ class MemoryD1 {
               spaceKey: String(args[5]),
               state: 'submitted',
               grantId: null,
+              questionnaireVersion: Number(args[7]),
+              currentTask: args[8] == null ? null : String(args[8]),
+              diagramAudience: args[9] == null ? null : String(args[9]),
+              aiTools: args[10] == null ? null : String(args[10]),
+              aiDiagramUsage: args[11] == null ? null : String(args[11]),
+              aiDiagramUse: args[12] == null ? null : String(args[12]),
+              processRequirement: args[13] == null ? null : String(args[13]),
+              cloudAiPolicy: args[14] == null ? null : String(args[14]),
             });
             return { success: true, meta: { changes: 1 } };
           }
@@ -117,6 +133,7 @@ const input: PaywallExtensionInput = {
   spaceKey: 'ENG',
   macroCount: 123,
   idempotencyKey: 'request-key-00000001',
+  questionnaireVersion: 1,
   answers: {
     currentTask: 'architecture_design',
     diagramAudience: 'architect_tech_lead',
@@ -129,6 +146,17 @@ const input: PaywallExtensionInput = {
   },
 };
 
+const v2Input = {
+  spaceKey: 'ENG',
+  macroCount: 123,
+  idempotencyKey: 'request-key-00000002',
+  questionnaireVersion: 2,
+  answers: {
+    unblockNeed: { scope: 'not_sure', urgency: 'no_hard_deadline' },
+    aiDiagramUse: 'regularly',
+  },
+} as const;
+
 const identity = {
   cloudId: 'cloud-1',
   accountId: 'user-1',
@@ -137,7 +165,7 @@ const identity = {
 };
 
 describe('parsePaywallExtensionInput', () => {
-  it('accepts exactly the five structured answers', () => {
+  it('accepts the legacy five structured answers for rollout compatibility', () => {
     expect(parsePaywallExtensionInput(input)).toEqual(input);
     expect(Object.keys(input.answers)).toEqual([
       'currentTask',
@@ -146,6 +174,34 @@ describe('parsePaywallExtensionInput', () => {
       'workflowConstraints',
       'unblockNeed',
     ]);
+  });
+
+  it('accepts the version 2 three-question payload without inventing legacy answers', () => {
+    expect(parsePaywallExtensionInput(v2Input)).toEqual(v2Input);
+    expect(Object.keys(parsePaywallExtensionInput(v2Input).answers)).toEqual([
+      'unblockNeed',
+      'aiDiagramUse',
+    ]);
+  });
+
+  it('accepts a legacy payload without a version marker as version 1', () => {
+    const { questionnaireVersion: _version, ...legacyPayload } = input;
+    expect(parsePaywallExtensionInput(legacyPayload)).toMatchObject({ questionnaireVersion: 1 });
+  });
+
+  it('rejects an incomplete or invalid version 2 answer set', () => {
+    expect(() => parsePaywallExtensionInput({
+      ...v2Input,
+      answers: { aiDiagramUse: 'regularly' },
+    })).toThrow('answers.unblockNeed is required');
+    expect(() => parsePaywallExtensionInput({
+      ...v2Input,
+      answers: { ...v2Input.answers, aiDiagramUse: 'chatgpt' },
+    })).toThrow('answers.aiDiagramUse is invalid');
+    expect(() => parsePaywallExtensionInput({
+      ...v2Input,
+      questionnaireVersion: 3,
+    })).toThrow('questionnaireVersion is invalid');
   });
 
   it('rejects the limit itself, under-limit, free-form, and malformed input', () => {
@@ -185,6 +241,26 @@ describe('createOrReplayPaywallExtension', () => {
     expect(replay.isReplay).toBe(true);
     expect(db.requests).toHaveLength(1);
     expect(db.grants).toHaveLength(1);
+  });
+
+  it('stores version 2 answers without fabricating legacy questionnaire values', async () => {
+    const db = new MemoryD1();
+    await createOrReplayPaywallExtension(db as unknown as D1Database, identity, v2Input, {
+      now: new Date('2026-08-23T01:02:03.000Z'),
+      randomUUID: () => 'uuid-v2',
+    });
+
+    const request = [...db.requests.values()][0];
+    expect(request).toMatchObject({
+      questionnaireVersion: 2,
+      currentTask: null,
+      diagramAudience: null,
+      aiTools: null,
+      aiDiagramUsage: null,
+      aiDiagramUse: 'regularly',
+      processRequirement: null,
+      cloudAiPolicy: null,
+    });
   });
 
   it('persists a repeat request for manual review without extending expiry', async () => {

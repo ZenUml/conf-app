@@ -94,6 +94,19 @@ describe('renderPaywallAdminAdoptionEmail', () => {
     expect(email.html).not.toContain('<script>');
     expect(email.html).toContain('&lt;script&gt;');
   });
+
+  it('uses honest fallback copy for an uncertain scope and no hard deadline', () => {
+    const email = renderPaywallAdminAdoptionEmail({
+      ...content,
+      requestedScope: 'not_sure',
+      urgency: 'no_hard_deadline',
+    });
+    expect(email.text).toContain('requested access for the team, with longer-term scope still to be confirmed');
+    expect(email.text).toContain('without a hard deadline');
+    expect(`${email.subject}\n${email.html}\n${email.text}`).not.toMatch(
+      /regularly|occasionally|interested|AI tool|cloud AI|diagram audience|workflow requirement/i,
+    );
+  });
 });
 
 describe('sendResendEmail', () => {

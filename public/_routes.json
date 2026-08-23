@@ -15,6 +15,7 @@
     "/api/diagram-impact/*",
     "/api/space-status",
     "/api/space-license",
+    "/api/support/extension-actions",
     "/api/user-cohorts",
     "/api/stripe-webhook",
     "/forge-installed",

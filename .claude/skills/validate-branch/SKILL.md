@@ -70,7 +70,7 @@ Use when the branch has been deployed to staging/dev (e.g. a recent push to `fix
 
 #### 2c. Execute the test plan
 
-Follow the **spot-check** skill workflow. Use Playwright MCP (`mcp__playwright__*`) — ad-hoc only; do not write spec files.
+Follow the **spot-check** skill workflow. Use `agent-browser --session conf-app --restore=stg` — ad-hoc only; do not write spec files.
 
 For each `[ ]` assertion in your plan:
 1. Perform the interaction

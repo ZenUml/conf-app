@@ -268,3 +268,28 @@ describe('typeLabel', () => {
     expect(typeLabel(DiagramType.PlantUml)).toBe('Flowchart')
   })
 })
+
+describe('stored diagramType casing (lite-dev, 2026-08-21)', () => {
+  // Real custom-content bodies on lite-dev store `openapi` in lower case, while
+  // DiagramType.OpenApi is 'OpenAPI'. Every table here is keyed on the enum, so
+  // an exact-match lookup misses and the row falls back to 'Diagram' / 'none'.
+  // Observed on custom content 67600411 "Demo · OpenAPI":
+  //   body.raw.value -> {"diagramType":"openapi", ...}
+  // sequence / mermaid / graph store values that already match the enum.
+  it('labels an OpenAPI diagram whose stored type is lower case', () => {
+    expect(typeLabel('openapi')).toBe('OpenAPI')
+  })
+
+  it('reports the macro type for a lower-case stored OpenAPI type', () => {
+    expect(toMacroType('openapi')).toBe('openapi')
+  })
+
+  it('labels an AsyncAPI diagram whose stored type is lower case', () => {
+    expect(typeLabel('asyncapi')).toBe('AsyncAPI')
+  })
+
+  it('still returns the fallbacks for a genuinely unknown type', () => {
+    expect(typeLabel('kroki')).toBe('Diagram')
+    expect(toMacroType('kroki')).toBe('none')
+  })
+})

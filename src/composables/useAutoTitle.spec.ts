@@ -110,6 +110,25 @@ describe('useAutoTitle', () => {
     expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Order Flow')
   })
 
+  it('sends the OpenAPI specification type for OpenAPI documents', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Inventory API'))
+    const { initFlag, generate } = useAutoTitle()
+    await initFlag()
+    const spec = 'openapi: 3.0.0\ninfo:\n  title: ""\npaths:\n  /items: {}'
+    const p = generate('user', {
+      code: spec,
+      diagramType: DiagramType.OpenApi,
+      currentTitle: '',
+    })
+    await runAnimation('Inventory API')
+    await p
+    expect(aiGenerateTitle).toHaveBeenCalledWith({
+      dsl: spec,
+      type: 'OpenAPI specification',
+    })
+    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Inventory API')
+  })
+
   it('does not re-trigger for unchanged content (dedup hash)', async () => {
     vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
     const { initFlag, generate } = useAutoTitle()

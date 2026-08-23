@@ -187,5 +187,23 @@ describe('notification outbox and bounded dispatch', () => {
     expect(result).toMatchObject({ state: 'retry_pending', attemptCount: 1, lastErrorCode: 'resend_http_503' });
     expect(JSON.stringify(result)).not.toContain('admin@example.com');
   });
-});
 
+  it('does not send when another dispatcher already claimed the notification', async () => {
+    const db = new NotificationDb();
+    const persistedQueuedRow = await createPaywallAdminNotification(db as unknown as D1Database, base, {
+      randomUUID: () => 'notification-1', now: new Date('2026-08-23T02:00:00.000Z'),
+    });
+    const staleQueuedRow = { ...persistedQueuedRow };
+    if (!db.row) throw new Error('Notification row missing');
+    db.row.state = 'sending';
+    db.row.attemptCount = 1;
+    const fetchImpl = vi.fn();
+
+    await expect(dispatchPaywallAdminNotification(db as unknown as D1Database, staleQueuedRow, {
+      apiKey: 'key', from: 'notifications@zenuml.com', replyTo: 'support@zenuml.com',
+      recipient: 'admin@example.com', content, fetchImpl,
+      now: new Date('2026-08-23T02:01:00.000Z'),
+    })).resolves.toMatchObject({ state: 'sending', attemptCount: 1 });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

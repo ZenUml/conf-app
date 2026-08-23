@@ -261,7 +261,7 @@ export async function dispatchPaywallAdminNotification(
     return notification;
   }
   const now = options.now ?? new Date();
-  await db.prepare(
+  const claimResult = await db.prepare(
     `UPDATE PaywallAdminNotification
         SET state = 'sending', attemptCount = attemptCount + 1, updatedAt = ?1
       WHERE notificationId = ?2
@@ -269,6 +269,9 @@ export async function dispatchPaywallAdminNotification(
         AND attemptCount < maxAttempts
         AND (nextAttemptAt IS NULL OR nextAttemptAt <= ?1)`,
   ).bind(now.toISOString(), notification.notificationId).run();
+  if ((claimResult.meta?.changes ?? 0) === 0) {
+    return getNotification(db, notification.notificationId);
+  }
   const claimed = await getNotification(db, notification.notificationId);
   if (claimed.state !== 'sending') return claimed;
 

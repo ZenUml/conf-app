@@ -32,8 +32,19 @@ const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph']
 // Querying for sequence/graph keys here would return 400 from the v1/v2
 // search APIs ("Unsupported value for type").
 const ASYNCAPI_CUSTOM_CONTENT_TYPES = ['async-api-doc'];
+// Diagramly stores EVERY diagram under one key, `gpt-custom-content-key`
+// (package.json `forge:deploy:diagramly:*`), where lite/full split theirs across
+// zenuml-content-sequence/-graph. Omitting this branch made the search CQL ask
+// for two types the variant never writes, so every diagram-discovery caller came
+// back empty on Diagramly: the homepage feed card rendered only example rows and
+// Agent Link's search_diagrams / list_diagrams listed nothing (#524, observed on
+// production 2026-08-21). getMacroContentTypes() carries the same branch — the
+// two must stay in lockstep.
+const DIAGRAMLY_CUSTOM_CONTENT_TYPES = ['gpt-custom-content-key'];
 function customContentTypesForVariant(): string[] {
-  return forgeGlobal.isAsyncApi ? ASYNCAPI_CUSTOM_CONTENT_TYPES : CUSTOM_CONTENT_TYPES;
+  if (forgeGlobal.isAsyncApi) return ASYNCAPI_CUSTOM_CONTENT_TYPES;
+  if (forgeGlobal.isDiagramly) return DIAGRAMLY_CUSTOM_CONTENT_TYPES;
+  return CUSTOM_CONTENT_TYPES;
 }
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 

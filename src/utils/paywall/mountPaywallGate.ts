@@ -137,6 +137,7 @@ export async function mountUnderPaywallGate(opts: {
   customerSuccess: CustomerSuccess;
   logTag: string;
   actionType: PaywallActionType;
+  onContinueEditing?: () => void;
 }): Promise<void> {
   const spaceKey = await resolveSpaceKey(opts.logTag);
   mountRoot(opts.doc, PaywallGate, {
@@ -149,6 +150,11 @@ export async function mountUnderPaywallGate(opts: {
     macroKind: opts.macroKind,
     spaceKey,
     actionType: opts.actionType,
+    // PaywallGate emits this only after the user explicitly chooses
+    // "Continue editing". This lets editor-specific lifecycle tracking wait
+    // for real authoring instead of treating a blocked mount as an authoring
+    // session.
+    onContinueEditing: opts.onContinueEditing,
     continueAttemptsIdentity: {
       clientDomain: getClientDomain() || 'unknown_atlassian_domain',
       spaceKey: spaceKey || opts.customerSuccess.spaceKey.value || 'unknown_space',
@@ -225,6 +231,7 @@ export async function tryPageEditorPaywall(opts: {
   contentProps?: Record<string, unknown>;
   macroKind: MacroKind;
   customContentId?: string;
+  onContinueEditing?: () => void;
 }): Promise<boolean> {
   const customerSuccess = useCustomerSuccessService();
   // No variant gate here either — same reasoning as tryFullscreenViewerPaywall
@@ -273,6 +280,7 @@ export async function tryPageEditorPaywall(opts: {
     customerSuccess,
     logTag: editBlocked ? 'page-editor' : actionType.replace(/_/g, '-'),
     actionType,
+    onContinueEditing: opts.onContinueEditing,
   });
   return true;
 }

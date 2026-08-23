@@ -231,7 +231,7 @@
               </p>
 
               <div class="viewer-lf-actions">
-                <button v-if="hasRetryableFailure" type="button" class="viewer-lf-btn-primary" @click="retry">
+                <button v-if="hasRetryableFailure" type="button" class="viewer-lf-btn-primary" data-testid="load-failed-retry" @click="retry">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
                   Try again
                 </button>
@@ -417,6 +417,7 @@ import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
+import { readRetryMarker, startRetryMarker, settleRetryMarker, clearRetryMarker, reloadViewer } from '@/utils/loadFailedRetry'
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink'
 import DiagramAttributionFooter from '@/components/Viewer/DiagramAttributionFooter.vue'
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
@@ -458,6 +459,7 @@ export default {
     // its own. null until resolved / on any resolve failure — the prompt
     // fails closed (no accountId, no match, no render).
     currentAccountId: null,
+    retryOutcomeEmitted: false,
   }),
   components: {
     Debug,
@@ -492,6 +494,13 @@ export default {
     },
     failedCustomContentId() {
       return getForgeCustomContentId();
+    },
+    // Every macro on the page shares one sessionStorage (same Forge iframe
+    // origin), so the retry marker is keyed on the macro's own localId. The
+    // custom content id is the fallback for contexts that carry no localId.
+    retryMarkerKey() {
+      const ctx = window.forgeGlobal?.forgeContext ?? {};
+      return String(ctx?.localId ?? this.failedCustomContentId ?? 'unknown_macro');
     },
     isFullscreenMode() {
       return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
@@ -705,7 +714,14 @@ export default {
         if (!this.isDisplayMode) {
           return;
         }
-        if (state !== 'failed_with_source' && state !== 'failed_without_source') {
+        const failed = state === 'failed_with_source' || state === 'failed_without_source';
+        if (state !== 'ready' && !failed) {
+          return;
+        }
+        // A 'ready' here is only interesting as the answer to a retry — it is
+        // the sole reason this watcher looks at the success state at all.
+        this.reportRetryOutcome(state === 'ready' ? 'recovered' : 'failed_again');
+        if (!failed) {
           return;
         }
         if (this.loadFailedTelemetryEmitted) {
@@ -884,7 +900,42 @@ export default {
       return this.$refs.captureNode ?? null;
     },
     retry() {
-      location.reload();
+      const attempt = startRetryMarker(this.retryMarkerKey);
+      trackAnalyticsEvent('load_failed_retry_clicked', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType,
+        content_id: String(this.failedCustomContentId ?? ''),
+        retry_attempt: attempt,
+      });
+      reloadViewer();
+    },
+    // Runs on the OTHER side of that reload. Without it the panel's own
+    // impression count cannot separate a transient content-fetch failure from
+    // a diagram that is permanently unavailable.
+    reportRetryOutcome(outcome) {
+      if (this.retryOutcomeEmitted) {
+        return;
+      }
+      const marker = readRetryMarker(this.retryMarkerKey);
+      if (!marker || !marker.pending) {
+        return;
+      }
+      this.retryOutcomeEmitted = true;
+      trackAnalyticsEvent('load_failed_retry_resolved', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType,
+        content_id: String(this.failedCustomContentId ?? ''),
+        retry_attempt: marker.attempt,
+        retry_outcome: outcome,
+      });
+      if (outcome === 'recovered') {
+        clearRetryMarker(this.retryMarkerKey);
+      } else {
+        // Keep the attempt count: the next click on this macro is attempt N+1.
+        settleRetryMarker(this.retryMarkerKey);
+      }
     },
     async contactSupport() {
       const contentId = this.failedCustomContentId ?? '(unknown)';

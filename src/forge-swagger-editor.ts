@@ -43,6 +43,7 @@ import {
   buildOpenApiSaveDiagram,
   createOpenApiEditorState,
 } from '@/model/OpenApi/OpenApiEditorState';
+import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
@@ -132,6 +133,13 @@ async function saveOpenApiAndExit() {
   console.log('saveOpenApiAndExit - diagram', JSON.stringify(diagram, null, 2));
   // @ts-ignore
   window.diagram = Object.assign(window.diagram || {}, diagram);
+
+  // Record acceptance while the shared AI-title state still identifies this
+  // as an unmodified generated suggestion. Mirrors the sequence/graph saves.
+  notifyAiTitleSaved({
+    title: window.diagram?.title,
+    contentId: window.diagram?.id,
+  });
 
   // Captured before save. If the returned id differs from sourceId, the save
   // forked a new custom content (cross-page-copy / same-page-duplicate path)

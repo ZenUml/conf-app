@@ -14,6 +14,11 @@ export type FeatureArea =
   // area because it is an activation surface, not part of a macro's lifecycle:
   // it renders on every page, including pages with no diagram at all.
   | "byline"
+  // The confluence:homepageFeed card in the right panel of the Confluence
+  // Home page. Its own area for the same reason as "byline" above: it is an
+  // activation surface disconnected from any macro's lifecycle, rendered on
+  // the Home page rather than on a page carrying a diagram.
+  | "homepage_feed"
   | "diagram_impact";
 
 /** Current user's relationship to the diagram being measured. */
@@ -50,6 +55,10 @@ export type Surface =
   | "byline"
   | "forge_trigger"
   | "scheduled_job"
+  // Vendor-operated actions launched from the ZenUML JSM agent view. This is
+  // deliberately separate from `route`: it measures a support workflow, not
+  // customer traffic to a Pages endpoint.
+  | "support_automation"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
@@ -151,8 +160,26 @@ export type FeedbackValue = "good" | "partial" | "bad";
 // surfaces stay comparable on the same axis.
 export type GalleryOpenTrigger = "auto_first_open" | "manual";
 
+// Effective Session Replay policy stamped on analytics events. `authoring`
+// means a macro create/edit start forced recording independently of the Forge
+// flag cohort. See macro_create_started / macro_edit_started below.
+export type SessionReplayEventSource =
+  | "targeted"
+  | "sampled"
+  | "authoring"
+  | "off";
+
+// `start_session_recording()` is a void SDK call whose recorder work continues
+// asynchronously. `returned` records only that the call did not synchronously
+// throw; it is not proof that a replay was uploaded. `$mp_replay_id` on a later
+// event is the outcome evidence.
+export type SessionReplayStartCallOutcome = "returned" | "threw";
+
 export type AnalyticsEventName =
   | "macro_viewed"
+  // Both authoring-start events force Session Replay at 100% before the event
+  // is sent. Editor entries must emit the event from the iframe that owns the
+  // interaction; the replay policy itself stays centralized here.
   | "macro_create_started"
   | "macro_create_succeeded"
   | "macro_edit_started"
@@ -301,6 +328,15 @@ export type AnalyticsEventName =
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
+  // JSM "Apply Extension" lifecycle. requested fires after the dedicated
+  // automation secret is authenticated and the command shape is accepted;
+  // succeeded fires only after the requester-scoped SPACE_LICENSE_KV record
+  // is read back active; failed closes every authenticated attempt that did
+  // not reach that state. Backend-emitted through Mixpanel /import. Never add
+  // the Jira ticket key, raw JSM description, or customer reply to telemetry.
+  | "extension_action_requested"
+  | "extension_action_succeeded"
+  | "extension_action_failed"
   | "content_sync_requested"
   | "content_sync_succeeded"
   | "content_sync_failed"
@@ -463,6 +499,17 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
+  // `retry()` is a bare location.reload(), so the click and its result sit in
+  // two different page lifetimes: the click event is emitted before the reload,
+  // and the resolution event after it, matched through a sessionStorage marker
+  // (utils/loadFailedRetry.ts) keyed on the macro's localId. Without the pair
+  // there is no way to tell a transient content-fetch failure (recovers on
+  // reload) from a permanently unavailable diagram — both render the same
+  // terminal panel, and 2026-08-18..22 telemetry could only count impressions
+  // (391 external, 128 macros) with no recovery rate attached.
+  | "load_failed_retry_clicked"
+  | "load_failed_retry_resolved"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)
   | "snapshot_created"
@@ -689,7 +736,27 @@ export type AnalyticsEventName =
   // shown in the read-only viewer.
   | "foreign_dialect_hint_shown"
   | "foreign_dialect_hint_switch_clicked"
-  | "foreign_dialect_hint_dismissed";
+  | "foreign_dialect_hint_dismissed"
+  // Confluence Home page "Create a diagram" card (confluence:homepageFeed —
+  // see manifest.yml). The only onboarding surface a non-admin end user
+  // encounters without first inserting a macro; the pre-existing
+  // confluence:globalSettings "Get Started" page reaches only site admins.
+  // `homepage_feed_viewed` fires once per mount (the card only exists while
+  // its Home-page section is expanded); `homepage_feed_action_clicked` fires
+  // on the quick-start button. `homepage_feed_diagram_opened` fires when a
+  // recent-diagram row sends the user to the page that diagram lives on —
+  // the one event that measures whether this card returns people to their
+  // work, as opposed to merely being rendered. It carries `macro_type` (via
+  // `toMacroType`, never the raw stored `diagramType`) so the row's type is
+  // comparable with every other create/view surface.
+  // `homepage_feed_example_expanded` fires when an example row is opened in
+  // place. It is the funnel signal for the recognition half of the card: which
+  // diagram type someone with none of their own wants to look at. Carries
+  // `macro_type` so it lines up with the create events for the same type.
+  | "homepage_feed_viewed"
+  | "homepage_feed_action_clicked"
+  | "homepage_feed_diagram_opened"
+  | "homepage_feed_example_expanded";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

@@ -98,6 +98,13 @@ function listFeedSummary(scope: 'page' | 'space' | 'site', hits: number): string
 // lives here rather than in the pure state module. Exported for tests.
 export const ERROR_FLASH_MS = 4000
 
+// A user-initiated revoke closes the relay before minting its replacement,
+// but the Durable Object's content-lock release is asynchronous. Absorb that
+// narrow propagation window without weakening the normal already-linked
+// signal for an unrelated Connect click.
+export const RELINK_MINT_RETRY_DELAY_MS = 250
+const RELINK_MINT_CONFLICT_RETRIES = 4
+
 // Injectable clock so the ~20s setup-timeout and duration/latency
 // measurements are testable with fake timers instead of a real 20s wait.
 export interface AgentLinkClock {
@@ -1122,7 +1129,7 @@ export function useAgentLinkSession(
     })
   }
 
-  function startConnect(): void {
+  function startConnectWithMintConflictRetries(mintConflictRetries: number): void {
     // A click is a click regardless of current state — track it, then only
     // bootstrap a new session if it actually moved idle → waiting (a repeat
     // click while already waiting/connected is a no-op transition, so it
@@ -1183,37 +1190,57 @@ export function useAgentLinkSession(
     if (relayOptions) {
       const requestSession = relayOptions.requestSession ?? mintAgentLinkSession
       const startedForThisClick = connectStartedAt
-      requestSession(relayOptions.boundContext)
-        .then((mintResult) => {
-          const { token: realToken } = mintResult
-          // A disconnect, or a NEWER startConnect() click, may have already
-          // moved on while this mint was in flight — don't resurrect a
-          // channel over a session that's no longer the current one.
-          if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
-          token.value = realToken
-          // Track H: capture the token TTL (design contract's rail TTL meter /
-          // toolbar chip countdown). Absent on the pre-relay/dev mint mocks, so
-          // it stays null there and the meter/chip-countdown simply don't show.
-          if (typeof mintResult.expiresInSec === 'number') {
-            expiresAt.value = now() + mintResult.expiresInSec * 1000
-            // #314: arm the TTL watchdog against the real deadline now that
-            // it's known — see scheduleExpiry()'s own doc comment.
-            scheduleExpiry()
-          }
-          // Hand the real token off to the (as-yet-idle) Fullscreen instance
-          // — see sessionHandoff.ts. Only the real, relay-minted token is
-          // persisted, never the local `pending-<ts>` placeholder: a
-          // Fullscreen mount that reads nothing yet (this mint hasn't
-          // resolved) falls back to today's blank-panel behavior, which is
-          // strictly better than hydrating a token that will never resolve.
-          if (boundContext) {
-            persistSession({ ...boundContext, token: realToken, state: 'waiting', ...handoffFeedFields() })
-          }
-          openRelayChannel(realToken, relayOptions)
-        })
-        .catch((e) => {
-          handleMintFailure(e, startedForThisClick)
-        })
+      const mintAndOpen = (retriesRemaining: number): void => {
+        requestSession(relayOptions.boundContext)
+          .then((mintResult) => {
+            const { token: realToken } = mintResult
+            // A disconnect, or a NEWER startConnect() click, may have already
+            // moved on while this mint was in flight — don't resurrect a
+            // channel over a session that's no longer the current one.
+            if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
+            token.value = realToken
+            // Track H: capture the token TTL (design contract's rail TTL meter /
+            // toolbar chip countdown). Absent on the pre-relay/dev mint mocks, so
+            // it stays null there and the meter/chip-countdown simply don't show.
+            if (typeof mintResult.expiresInSec === 'number') {
+              expiresAt.value = now() + mintResult.expiresInSec * 1000
+              // #314: arm the TTL watchdog against the real deadline now that
+              // it's known — see scheduleExpiry()'s own doc comment.
+              scheduleExpiry()
+            }
+            // Hand the real token off to the (as-yet-idle) Fullscreen instance
+            // — see sessionHandoff.ts. Only the real, relay-minted token is
+            // persisted, never the local `pending-<ts>` placeholder: a
+            // Fullscreen mount that reads nothing yet (this mint hasn't
+            // resolved) falls back to today's blank-panel behavior, which is
+            // strictly better than hydrating a token that will never resolve.
+            if (boundContext) {
+              persistSession({
+                ...boundContext,
+                token: realToken,
+                state: 'waiting',
+                ...handoffFeedFields(),
+              })
+            }
+            openRelayChannel(realToken, relayOptions)
+          })
+          .catch((e) => {
+            if (
+              retriesRemaining > 0 &&
+              isAlreadyLinkedMintFailure(e) &&
+              connectStartedAt === startedForThisClick &&
+              state.value !== 'closed'
+            ) {
+              scheduleTimeout(() => {
+                if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
+                mintAndOpen(retriesRemaining - 1)
+              }, RELINK_MINT_RETRY_DELAY_MS)
+              return
+            }
+            handleMintFailure(e, startedForThisClick)
+          })
+      }
+      mintAndOpen(mintConflictRetries)
     }
 
     scheduleTimeout(() => {
@@ -1227,6 +1254,10 @@ export function useAgentLinkSession(
         macro_type: macroType,
       })
     }, SETUP_TIMEOUT_MS)
+  }
+
+  function startConnect(): void {
+    startConnectWithMintConflictRetries(0)
   }
 
   // Track G: called once at mount by the INLINE (non-Fullscreen) macro
@@ -1404,7 +1435,7 @@ export function useAgentLinkSession(
   function revokeAndRelink(): void {
     disconnect('user')
     state.value = 'idle'
-    startConnect()
+    startConnectWithMintConflictRetries(RELINK_MINT_CONFLICT_RETRIES)
   }
 
   // Fullscreen-side hydration (sessionHandoff.ts): shows a session persisted

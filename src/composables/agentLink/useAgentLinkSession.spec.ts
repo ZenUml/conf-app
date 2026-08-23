@@ -18,6 +18,7 @@ import {
   ACTIVITY_LINGER_MS,
   EXTENDED_EVENT_THROTTLE_MS,
   GUARDRAIL_REJECTED_FEED_SUMMARY,
+  RELINK_MINT_RETRY_DELAY_MS,
 } from './useAgentLinkSession'
 import { SETUP_TIMEOUT_MS, RENDER_SAFETY_TIMEOUT_MS } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
@@ -746,7 +747,7 @@ describe('useAgentLinkSession', () => {
       })
     })
 
-    it('revokeAndRelink() disconnects the current session and immediately mints a fresh one', async () => {
+    it('revokeAndRelink() retries a transient old-lock conflict before opening the fresh session', async () => {
       const bridgeOps = makeBridgeOps()
       const fakeClient1 = makeFakeRelayClient()
       const fakeClient2 = makeFakeRelayClient()
@@ -755,6 +756,12 @@ describe('useAgentLinkSession', () => {
       const requestSession = vi
         .fn()
         .mockResolvedValueOnce({ token: 'token-1' })
+        .mockRejectedValueOnce(
+          Object.assign(new Error('agent-link session mint failed: HTTP 409 diagram_already_linked'), {
+            status: 409,
+            error: 'diagram_already_linked',
+          })
+        )
         .mockResolvedValueOnce({ token: 'token-2' })
       const boundContext = { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' }
 
@@ -771,8 +778,49 @@ describe('useAgentLinkSession', () => {
 
       expect(fakeClient1.disconnect).toHaveBeenCalledTimes(1)
       expect(session.state.value).toBe('waiting')
-      expect(session.token.value).toBe('token-2')
+      expect(session.token.value).toMatch(/^pending-/)
       expect(requestSession).toHaveBeenCalledTimes(2)
+
+      await vi.advanceTimersByTimeAsync(RELINK_MINT_RETRY_DELAY_MS)
+
+      expect(session.state.value).toBe('waiting')
+      expect(session.token.value).toBe('token-2')
+      expect(requestSession).toHaveBeenCalledTimes(3)
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+        'agent_link_edit_failed',
+        expect.objectContaining({ reason: 'diagram_already_linked' })
+      )
+    })
+
+    it('revokeAndRelink() still reports already_linked when the conflict outlives its bounded retries', async () => {
+      const conflict = Object.assign(
+        new Error('agent-link session mint failed: HTTP 409 diagram_already_linked'),
+        { status: 409, error: 'diagram_already_linked' }
+      )
+      const requestSession = vi
+        .fn()
+        .mockResolvedValueOnce({ token: 'token-1' })
+        .mockRejectedValue(conflict)
+      const session = useAgentLinkSession(makeBridgeOps(), {
+        macroType: 'sequence',
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' },
+          requestSession,
+          connect: vi.fn(() => makeFakeRelayClient()),
+        },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      session.revokeAndRelink()
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      expect(requestSession).toHaveBeenCalledTimes(6)
+      expect(session.state.value).toBe('already_linked')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_edit_failed',
+        expect.objectContaining({ reason: 'diagram_already_linked' })
+      )
     })
 
     describe('attemptReattach — a fresh (reloaded) inline mount reattaches by the SAME persisted token', () => {

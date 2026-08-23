@@ -58,10 +58,7 @@ function parseState(raw: string | null): ContinueAttemptsState | null {
       return null
     }
     return {
-      // Clamp pre-existing states written under the old 15-attempt regime down
-      // to the current allowance. Never grants more than the user already had;
-      // a state that was exhausted stays exhausted.
-      remainingAttempts: Math.min(Math.floor(parsed.remainingAttempts), DEFAULT_CONTINUE_ATTEMPTS),
+      remainingAttempts: Math.floor(parsed.remainingAttempts),
       firstTriggeredAt: parsed.firstTriggeredAt,
       lastUsedAt: typeof parsed.lastUsedAt === 'string' ? parsed.lastUsedAt : null,
       exhaustedAt: typeof parsed.exhaustedAt === 'string' ? parsed.exhaustedAt : null,

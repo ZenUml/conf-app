@@ -102,25 +102,6 @@ describe('continueAttempts localStorage store', () => {
     expect(state.exhaustedAt).toBe('2026-06-02T00:10:00.000Z')
   })
 
-  // Migration from the 15-attempt regime (paywall-rhythm W1): stored states
-  // written before the reduction are clamped on read, never expanded.
-  it('clamps a stored 15-regime balance down to the current allowance', () => {
-    localStorage.setItem(
-      continueAttemptsKey(identity),
-      JSON.stringify({
-        remainingAttempts: 6,
-        firstTriggeredAt: '2026-06-02T00:00:00.000Z',
-        lastUsedAt: '2026-08-01T00:00:00.000Z',
-        exhaustedAt: null,
-      })
-    )
-
-    const state = getOrCreateContinueAttempts(identity, new Date('2026-08-10T00:00:00.000Z'))
-
-    expect(state.remainingAttempts).toBe(DEFAULT_CONTINUE_ATTEMPTS)
-    expect(state.firstTriggeredAt).toBe('2026-06-02T00:00:00.000Z')
-  })
-
   it('keeps a stored balance below the allowance unchanged', () => {
     localStorage.setItem(
       continueAttemptsKey(identity),

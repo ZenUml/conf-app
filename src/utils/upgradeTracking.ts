@@ -25,6 +25,7 @@ export enum UpgradeEventName {
   PAYWALL_EXTENSION_QUESTION_ANSWERED = 'paywall_extension_question_answered',
   PAYWALL_EXTENSION_GRANTED = 'paywall_extension_granted',
   PAYWALL_EXTENSION_REPEAT_REQUESTED = 'paywall_extension_repeat_requested',
+  PAYWALL_ADMIN_CONTACT_ROUTED = 'paywall_admin_contact_routed',
 }
 
 export enum UIComponent {

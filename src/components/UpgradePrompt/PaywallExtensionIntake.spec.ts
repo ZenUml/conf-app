@@ -7,6 +7,7 @@ vi.mock('@/utils/upgradeTracking', () => ({
     PAYWALL_EXTENSION_QUESTION_ANSWERED: 'paywall_extension_question_answered',
     PAYWALL_EXTENSION_GRANTED: 'paywall_extension_granted',
     PAYWALL_EXTENSION_REPEAT_REQUESTED: 'paywall_extension_repeat_requested',
+    PAYWALL_ADMIN_CONTACT_ROUTED: 'paywall_admin_contact_routed',
   },
 }));
 
@@ -108,6 +109,10 @@ describe('PaywallExtensionIntake', () => {
         expiresAt: '2026-08-30T00:00:00.000Z',
         extensionDays: 7,
       },
+      adminContactRouting: {
+        routingOutcome: 'automatic', reasonCodes: ['technical_contact_unique'],
+        overrideUsed: false, cacheAgeHours: 1,
+      },
     });
     const wrapper = mount(PaywallExtensionIntake, {
       props: { spaceKey: 'ENG', macroCount: 123, submitRequest },
@@ -135,6 +140,12 @@ describe('PaywallExtensionIntake', () => {
       extension_days: 7,
       is_replay: false,
     }));
+    expect(trackUpgradeEvent).toHaveBeenCalledWith('paywall_admin_contact_routed', {
+      routing_outcome: 'automatic',
+      reason_codes: 'technical_contact_unique',
+      cache_age_hours: 1,
+      override_used: false,
+    });
     wrapper.unmount();
   });
 

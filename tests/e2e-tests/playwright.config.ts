@@ -20,6 +20,16 @@ export default defineConfig({
     actionTimeout: 60000,
     navigationTimeout: 60000,
     serviceWorkers: 'allow',
+    // Clipboard writes happen inside our Forge iframes (the byline's paste link,
+    // the advocacy message, Copy source). Headless Chromium refuses them by
+    // default, which is an artefact of the runner rather than of the product —
+    // in real use the gesture-initiated write succeeds (Mixpanel
+    // advocacy_message_copied, ui_component byline_created_link: 17 copied / 0
+    // failed to 2026-08-15). Granting here lets those paths exercise the real
+    // API. Note it may still be refused inside a cross-origin iframe, since the
+    // top document has to delegate clipboard-write via Permissions-Policy and
+    // that is Confluence's call, not ours — so tests must not REQUIRE success.
+    permissions: ['clipboard-read', 'clipboard-write'],
     launchOptions: {
       args: ['--disable-blink-features=AutomationControlled'],
     },

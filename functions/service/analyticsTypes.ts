@@ -10,10 +10,13 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "macro_viewed",
   "macro_create_started",
   "macro_create_succeeded",
-  "macro_edit_opened",
+  "macro_edit_started",
   "macro_edit_cancelled",
   "macro_save_succeeded",
   "macro_save_failed",
+  "copy_for_ai_impression",
+  "copy_for_ai_menu_opened",
+  "editor_global_replace_observed",
   "macro_export_requested",
   "macro_export_succeeded",
   "macro_export_failed",
@@ -46,6 +49,19 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "macro_count_snapshot_completed",
   "macro_count_space_changed",
   "macro_count_snapshot_failed",
+  // Lite->Full conversion lifecycle. Emitted by functions/conversion/service.ts
+  // — the Forge executor that does the work carries no Mixpanel token, so the
+  // two moments the backend observes (claim, terminal report) are the events.
+  // The per-page/per-macro names in src/utils/analytics/catalog.ts stay
+  // unemitted until phase 2 puts conversion in front of a user.
+  "macro_convert_job_claimed",
+  "macro_convert_job_completed",
+  // JSM support-agent manual action lifecycle. The target is intentionally
+  // absent from this runtime list's comments/properties: ticket keys and raw
+  // request descriptions must never enter Mixpanel.
+  "extension_action_requested",
+  "extension_action_succeeded",
+  "extension_action_failed",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

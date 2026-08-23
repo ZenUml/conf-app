@@ -9,7 +9,6 @@ on:
       - '!**ruixiang-e2e**'
     paths-ignore:
       - '**.md'
-      - '!CHANGELOG.md'
       - 'docs/**'
       - '.claude/**'
       - '.cursor/**'
@@ -20,10 +19,12 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - '**.md'
-      - '!CHANGELOG.md'
       - 'docs/**'
       - '.claude/**'
       - '.cursor/**'
+  # Allows the release workflow to create fresh, tested drafts without a
+  # no-op commit to main.
+  workflow_dispatch:
 
 # Cancel superseded runs on the same branch. The default branch never cancels
 # so release drafts are never lost mid-flight. `head_ref` is the source branch on

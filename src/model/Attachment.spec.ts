@@ -23,12 +23,11 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCal
   };
 });
 
-// Mock html-to-image
-vi.mock('html-to-image', () => ({
-  default: {
-    toBlob: vi.fn()
-  },
-  toBlob: vi.fn()
+// Mock the DOM->PNG capture (model/captureBlob), which replaced the direct
+// htmlToImage.toBlob() call — see model/captureBlob.ts for why.
+vi.mock('@/model/captureBlob', () => ({
+  captureBlob: vi.fn(),
+  default: vi.fn()
 }));
 
 // Mock md5
@@ -70,7 +69,7 @@ vi.mock('@forge/bridge', () => ({
 import { getAttachmentDownloadLink } from './Attachment';
 import createAttachmentIfContentChanged from './Attachment';
 
-import * as htmlToImage from 'html-to-image';
+import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
@@ -155,7 +154,7 @@ describe('Attachment', () => {
   describe('createAttachmentIfContentChanged', () => {
     it('should create new attachment when none exists', async () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
 
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
@@ -198,7 +197,7 @@ describe('Attachment', () => {
 
     it('should update existing attachment when content hash changes', async () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
       
       const existingAttachment = {
         id: 'attachment-123',
@@ -251,7 +250,7 @@ describe('Attachment', () => {
       // resolves, so a thrown upload doesn't pollute the success denominator.
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
 
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       // Force the upload POST to throw via the multipart path
@@ -290,7 +289,7 @@ describe('Attachment', () => {
       expect(mockRequestConfluence).not.toHaveBeenCalled();
       expect(mockForgeRequest).not.toHaveBeenCalled();
       // Should not call toPng either
-      expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+      expect(captureBlob).not.toHaveBeenCalled();
       expect(mockTrackEvent).not.toHaveBeenCalledWith(
         expect.any(String),
         'attachment_upload_skipped',
@@ -301,7 +300,7 @@ describe('Attachment', () => {
 
     it('should prevent concurrent execution', async () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
       
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
@@ -357,7 +356,7 @@ describe('Attachment', () => {
       // permission so the direct upload 403s. The frontend hands the PNG to the
       // /forge-upload-attachment remote, which writes as the app and succeeds.
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
 
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
@@ -419,7 +418,7 @@ describe('Attachment', () => {
       // in the body. This previously slipped past the fallback entirely; now it
       // is surfaced as a 403 and recovered the same way as a real HTTP 403.
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
 
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
@@ -448,7 +447,7 @@ describe('Attachment', () => {
       // failure is re-labelled with the same http_<status> scheme.
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
 
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
@@ -483,7 +482,7 @@ describe('Attachment', () => {
       // network drops, parse errors must re-throw without spending a remote call.
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
 
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
@@ -536,7 +535,7 @@ describe('Attachment', () => {
     describe('app-fallback failure attribution (#392)', () => {
       const setUpFallbackFailure = (backendStatus: number, backendBody: string) => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
-        vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
         // User-side write is denied -> the app fallback runs...
         mockRequestConfluence.mockResolvedValue({
@@ -603,7 +602,7 @@ describe('Attachment', () => {
 
       it('marks a plain user-side failure as via_app_fallback: false', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
-        vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
         // 5xx never routes to the fallback.
         mockRequestConfluence.mockResolvedValue({
@@ -628,7 +627,7 @@ describe('Attachment', () => {
     // Confluence error envelope, truncating the reason mid-class-name.
     it('records the Confluence message, not the envelope, in error_message', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: false,
@@ -658,7 +657,7 @@ describe('Attachment', () => {
 
     it('salvages the message from a truncated envelope (backend relays 500 chars)', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: false,
@@ -688,7 +687,7 @@ describe('Attachment', () => {
     // published page is a real regression" guard rail could never fire.
     it('resolves content_status from the API on the 404 skip path', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockApWrapper.request.mockResolvedValue({ status: 'current' });
       mockRequestConfluence.mockResolvedValue({
@@ -712,7 +711,7 @@ describe('Attachment', () => {
 
     it('degrades to unknown when the page-status read fails', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockApWrapper.request.mockRejectedValue(new Error('network down'));
       mockRequestConfluence.mockResolvedValue({
@@ -747,7 +746,7 @@ describe('Attachment', () => {
       // Must not touch the attachment API at all
       expect(mockRequestConfluence).not.toHaveBeenCalled();
       expect(mockForgeRequest).not.toHaveBeenCalled();
-      expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+      expect(captureBlob).not.toHaveBeenCalled();
       expect(mockTrackEvent).not.toHaveBeenCalledWith(
         expect.any(String),
         'attachment_upload_skipped',
@@ -769,7 +768,7 @@ describe('Attachment', () => {
       };
 
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       // Confluence v1 wraps the draft 404 inside a 200 body
       mockRequestConfluence.mockResolvedValue({
@@ -815,7 +814,7 @@ describe('Attachment', () => {
       };
 
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: true,
@@ -850,7 +849,7 @@ describe('Attachment', () => {
       // false). makeRequest throws AttachmentUploadHttpError(404); the outer
       // catch must treat it as the same benign unpublished-parent skip.
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: false,
@@ -885,7 +884,7 @@ describe('Attachment', () => {
       });
 
       const mockBlob = new Blob(['test'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
       
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       
@@ -920,7 +919,7 @@ describe('Attachment', () => {
 
       it('uses the override id for the lookup, upload name, and telemetry even when context has no id', async () => {
         const mockBlob = new Blob(['test'], { type: 'image/png' });
-        vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+        vi.mocked(captureBlob).mockResolvedValue(mockBlob);
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
         mockRequestConfluence.mockResolvedValue({
           ok: true,
@@ -955,7 +954,7 @@ describe('Attachment', () => {
         // POST + PUT. It hands the PNG to /forge-upload-attachment in async mode;
         // the backend acks { ok:true, queued:true } and finishes in waitUntil.
         const mockBlob = new Blob(['test'], { type: 'image/png' });
-        vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+        vi.mocked(captureBlob).mockResolvedValue(mockBlob);
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
         mockCallRemote.mockResolvedValue({ ok: true, queued: true });
 
@@ -986,7 +985,7 @@ describe('Attachment', () => {
 
       it('does NOT set from_save when opts.fromSave is absent', async () => {
         const mockBlob = new Blob(['test'], { type: 'image/png' });
-        vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+        vi.mocked(captureBlob).mockResolvedValue(mockBlob);
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
         mockRequestConfluence.mockResolvedValue({
           ok: true,
@@ -1008,7 +1007,7 @@ describe('Attachment', () => {
 
       it('still skips (guard) when no override AND context has no customContentId', async () => {
         const mockBlob = new Blob(['test'], { type: 'image/png' });
-        vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+        vi.mocked(captureBlob).mockResolvedValue(mockBlob);
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
 
         await createAttachmentIfContentChanged('test content', 'sequence');
@@ -1020,6 +1019,57 @@ describe('Attachment', () => {
           (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
         );
         expect(succeeded).toHaveLength(0);
+      });
+    });
+
+    // A dashboard modal ("My API Documents" → View/Edit) carries the id on
+    // extension.modal, not extension.config, and has no page. Before the id
+    // read was widened to resolveEffectiveCustomContentId it returned early
+    // purely because the config id was empty; the page check keeps that surface
+    // silent for its own reason rather than as a side effect.
+    describe('page-context guard', () => {
+      beforeEach(() => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      });
+
+      it('skips the write in a dashboard modal, which has an id but no page', async () => {
+        (forgeGlobal as any).forgeContext = {
+          extension: { modal: { customContentId: 'dashboard-doc-1' } },
+        };
+        mockApWrapper._getCurrentPageId.mockResolvedValue('');
+
+        await createAttachmentIfContentChanged('test content', 'openapi');
+
+        expect(mockApWrapper.getAttachmentsV2).not.toHaveBeenCalled();
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+        const failed = mockTrackEvent.mock.calls.filter(
+          (c: unknown[]) => c[1] === 'attachment_upload_failed',
+        );
+        expect(failed).toHaveLength(0);
+      });
+
+      it('skips rather than throwing when the page id lookup itself fails', async () => {
+        (forgeGlobal as any).forgeContext = {
+          extension: { modal: { customContentId: 'dashboard-doc-2' } },
+        };
+        mockApWrapper._getCurrentPageId.mockRejectedValue(new Error('no page context'));
+
+        await expect(
+          createAttachmentIfContentChanged('test content', 'openapi'),
+        ).resolves.toBeUndefined();
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+      });
+
+      it('still writes when a page IS in context', async () => {
+        (forgeGlobal as any).forgeContext = {
+          extension: { config: { customContentId: 'test-uuid' }, content: { id: 'page-123' } },
+        };
+        mockApWrapper._getCurrentPageId.mockResolvedValue('page-123');
+
+        await createAttachmentIfContentChanged('test content', 'sequence');
+
+        expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalled();
       });
     });
   });
@@ -1082,7 +1132,7 @@ describe('Attachment', () => {
 
     it('should convert DOM element to PNG via html-to-image', async () => {
       const mockBlob = new Blob(['png data'], { type: 'image/png' });
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      vi.mocked(captureBlob).mockResolvedValue(mockBlob);
 
       const mockElement = document.createElement('div');
       mockElement.className = 'screen-capture-content';
@@ -1099,7 +1149,7 @@ describe('Attachment', () => {
 
       await createAttachmentIfContentChanged('test content');
 
-      expect(htmlToImage.toBlob).toHaveBeenCalledWith(mockElement, { backgroundColor: 'white', skipFonts: true });
+      expect(captureBlob).toHaveBeenCalledWith(mockElement, { backgroundColor: 'white', skipFonts: true });
     });
 
     it('treats a toPng (html-to-image) async rejection as a clean capture skip, not an upload failure', async () => {
@@ -1111,7 +1161,7 @@ describe('Attachment', () => {
 
       // html-to-image rejects (its offscreen image throws a DOM `error` Event —
       // the root of the `[object Event]` / non_error_thrown failures).
-      vi.mocked(htmlToImage.toBlob).mockRejectedValue(new Error('Conversion failed'));
+      vi.mocked(captureBlob).mockRejectedValue(new Error('Conversion failed'));
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
 
       // toPng now AWAITs + catches the async rejection -> undefined -> ToPngError,
@@ -1125,6 +1175,46 @@ describe('Attachment', () => {
       const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
       expect(failedCalls).toHaveLength(0);
       expect((window as any).createAttachmentInProgress).toBe(false);
+    });
+
+    it('bounds a hung html-to-image toBlob() with a timeout, so the capture fails instead of hanging forever', async () => {
+      vi.useFakeTimers();
+      try {
+        // Remove the iframe so toPng uses the html-to-image path
+        document.body.innerHTML = '';
+        const mockElement = document.createElement('div');
+        mockElement.className = 'screen-capture-content';
+        document.body.appendChild(mockElement);
+
+        // Reproduces the lite-stg hang: toBlob()'s returned promise never
+        // settles (neither resolves nor rejects).
+        vi.mocked(captureBlob).mockImplementation(() => new Promise(() => {}));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        const pending = createAttachmentIfContentChanged('test content');
+        // Let the pending assertions below queue before advancing fake time.
+        const flush = expect(pending).resolves.toBeUndefined();
+
+        // Advance past the capture timeout — must resolve, not hang.
+        await vi.advanceTimersByTimeAsync(15_000);
+        await flush;
+
+        // Timeout is recorded under its own label so it's countable separately
+        // from other convert_to_png capture failures (e.g. a DOM error Event).
+        expect(mockTrackEvent).toHaveBeenCalledWith('toPng_timeout', 'convert_to_png', 'error');
+        expect(mockTrackEvent).toHaveBeenCalledWith('toPng', 'convert_to_png', 'export');
+        const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
+        expect(failedCalls).toHaveLength(0);
+        const genericFailure = mockTrackEvent.mock.calls.filter(
+          (c: unknown[]) => c[0] === 'toPng_failed' && c[1] === 'convert_to_png'
+        );
+        expect(genericFailure).toHaveLength(0);
+        // The whole point of the guard: the in-progress flag must not stay
+        // stuck true, which would silently block every subsequent save.
+        expect((window as any).createAttachmentInProgress).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     // ── PlantUML server-PNG fetch (fixes the ~81% [object Event] capture fail) ──
@@ -1144,7 +1234,7 @@ describe('Attachment', () => {
       // Backup came from the PlantUML PNG server — html-to-image NOT used.
       expect(fetchMock).toHaveBeenCalled();
       expect(String(fetchMock.mock.calls[0][0])).toContain('plantuml.com/plantuml/png/');
-      expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+      expect(captureBlob).not.toHaveBeenCalled();
       expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png', 'convert_to_png', 'export');
       expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
       vi.unstubAllGlobals();
@@ -1155,7 +1245,7 @@ describe('Attachment', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(notPng) }));
       document.body.innerHTML = '';
       const el = document.createElement('div'); el.className = 'screen-capture-content'; document.body.appendChild(el);
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+      vi.mocked(captureBlob).mockResolvedValue(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: true, status: 200,
@@ -1166,7 +1256,7 @@ describe('Attachment', () => {
       await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
 
       // Server fetch rejected (non-PNG) -> fell back to the DOM capture, still uploaded.
-      expect(htmlToImage.toBlob).toHaveBeenCalled();
+      expect(captureBlob).toHaveBeenCalled();
       expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
       vi.unstubAllGlobals();
     });
@@ -1182,7 +1272,7 @@ describe('Attachment', () => {
       vi.stubGlobal('fetch', fetchMock);
       document.body.innerHTML = '';
       const el = document.createElement('div'); el.className = 'screen-capture-content'; document.body.appendChild(el);
-      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+      vi.mocked(captureBlob).mockResolvedValue(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: true, status: 200,
@@ -1198,9 +1288,113 @@ describe('Attachment', () => {
       expect(plantumlCalls).toHaveLength(0);
       expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_skipped_content_mismatch', 'convert_to_png', 'warning');
       // Fell back to the DOM capture and the upload still succeeded.
-      expect(htmlToImage.toBlob).toHaveBeenCalled();
+      expect(captureBlob).toHaveBeenCalled();
       expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
       vi.unstubAllGlobals();
+    });
+
+    // ── PlantUML dpi upscale (fixes pixelated small-diagram exports) ──
+    describe('PlantUML dpi upscale', () => {
+      /** Header-only fake PNG (not a decodable image) — enough for the IHDR-reading upscale logic. */
+      function fakePng(width: number, height: number): Blob {
+        const bytes = new Uint8Array(24);
+        bytes.set([137, 80, 78, 71, 13, 10, 26, 10], 0);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(8, 13, false);
+        bytes.set([73, 72, 68, 82], 12); // 'IHDR'
+        view.setUint32(16, width, false);
+        view.setUint32(20, height, false);
+        return new Blob([bytes], { type: 'image/png' });
+      }
+
+      beforeEach(() => {
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true, status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-pu-dpi' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
+      });
+
+      it('re-fetches at a higher dpi when the natural PNG is under the target width, and uploads the upscaled result', async () => {
+        // Real staging sample: a tiny 3-line diagram renders 95x129 at 96 dpi.
+        const natural = fakePng(95, 129);
+        const upscaled = fakePng(1400, 1900);
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(natural) })
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(upscaled) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        // Second request's encoded payload differs from the first (dpi directive injected).
+        expect(fetchMock.mock.calls[1][0]).not.toBe(fetchMock.mock.calls[0][0]);
+        expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_upscaled', 'convert_to_png', 'export');
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('skips the upscale re-fetch when the natural PNG already meets the target width', async () => {
+        const natural = fakePng(1500, 400); // already >= TARGET_WIDTH_PX
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(natural) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png_upscaled')).toBeUndefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('skips the upscale re-fetch when the source has leading whitespace so the dpi directive would not match (no false "upscaled" event)', async () => {
+        // validate.ts trims before checking @startuml, so leading whitespace
+        // is storable content. withDpiDirective's regex is anchored to the
+        // very first character — this content never gets the directive.
+        const natural = fakePng(95, 129);
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(natural) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('  @startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png_upscaled')).toBeUndefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('treats a re-fetch that comes back no wider than natural as a failed upscale, not a false success', async () => {
+        const natural = fakePng(95, 129);
+        // Server ignored/rejected the injected dpi directive — same size back.
+        const sameSize = fakePng(95, 129);
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(natural) })
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(sameSize) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png_upscaled')).toBeUndefined();
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+        vi.unstubAllGlobals();
+      });
+
+      it('falls back to the natural-size PNG when the upscale re-fetch fails, without failing the upload', async () => {
+        const natural = fakePng(95, 129);
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(natural) })
+          .mockResolvedValueOnce({ ok: false, status: 500, blob: () => Promise.resolve(new Blob()) });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+        expect(captureBlob).not.toHaveBeenCalled();
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+        vi.unstubAllGlobals();
+      });
     });
   });
 

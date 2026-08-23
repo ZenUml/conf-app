@@ -11,10 +11,13 @@
     "/diagram-likes/toggle",
     "/diagram-likes/user-likes",
     "/forge-custom-content",
+    "/api/diagram-impact",
+    "/api/diagram-impact/*",
     "/api/space-status",
     "/api/space-license",
     "/api/paywall-extension",
     "/api/resend-webhook",
+    "/api/support/extension-actions",
     "/api/user-cohorts",
     "/api/stripe-webhook",
     "/forge-installed",
@@ -32,7 +35,8 @@
     "/d/*",
     "/i/*",
     "/deeplink-ticket",
-    "/activation-prepared"
+    "/activation-prepared",
+    "/conversion/*"
   ],
   "exclude": []
 }

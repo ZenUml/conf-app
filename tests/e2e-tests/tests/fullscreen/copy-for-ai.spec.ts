@@ -27,6 +27,7 @@ import { viewerFrame } from '../../helpers/ViewerActionsHelper.js';
 import {
   insertAndPublishMermaidMacro,
   insertAndPublishGraphMacroForCopyForAiTest,
+  primeClipboardPermissions,
   clickCopyForAiAndRead,
   waitForCopyForAiTrackingRequest,
 } from '../../helpers/CopyForAiHelper.js';
@@ -64,18 +65,23 @@ test.describe('Copy for AI button', () => {
     writeEvidence('copy-for-ai-button.png', screenshotBuffer);
     await testInfo.attach('copy-for-ai-button', { body: screenshotBuffer, contentType: 'image/png' });
 
-    // Grant clipboard permissions for the OUTER page — the Forge Custom UI
-    // iframe is a sandboxed cross-origin OOPIF with no clipboard permission
-    // of its own (see CopyForAiHelper.ts file header).
-    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    // Grant clipboard permissions for BOTH the outer page's origin and the
+    // Forge Custom UI OOPIF's own (per-install, cross-origin) origin, plus
+    // the one warm-up click Chromium needs before it recognizes the
+    // OOPIF-origin grant — see primeClipboardPermissions()'s doc comment in
+    // CopyForAiHelper.ts for the full mechanism (issue #420's root cause:
+    // grantPermissions() with no `origin` never reached the OOPIF at all,
+    // and even once it does, one throwaway write attempt is required before
+    // Chromium honors it for that frame). This is a harness-only fix; the
+    // real product write already works, per the Mixpanel evidence in #420.
+    await primeClipboardPermissions(page);
 
     // Register the tracking-request listener BEFORE the click that fires it.
     // The primary segment's own inline state machine reaching data-copy-
-    // state="copied" is run CONCURRENTLY (not after) — it's BETTER evidence
-    // of a successful copy than the outer-page clipboard readback below,
-    // which is a known-flaky harness gap on lite-stg (issue #420: the
-    // in-iframe write can succeed even when the outer page's readText()
-    // comes back empty). It must be concurrent, not sequential, because
+    // state="copied" is run CONCURRENTLY (not after) — extra corroborating
+    // evidence alongside the clipboard readback below, not a substitute for
+    // it (the readback is what actually proves the payload reached the
+    // clipboard). It must be concurrent, not sequential, because
     // waitForCopyForAiTrackingRequest can take several seconds (Mixpanel's
     // batch_flush_interval_ms=5000) — by the time that resolves, the ~2s
     // Copied->idle revert may already have fired; expect()'s own polling

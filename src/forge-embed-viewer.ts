@@ -9,8 +9,11 @@ import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
+import { readAutoConvertLink } from '@/utils/newDiagramLink';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { AnalyticsProperties } from '@/utils/analytics/types';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
 
 const AUTOCONVERT_ANALYTICS_PROPS = {
   feature_area: 'macro',
@@ -24,17 +27,26 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
 
   let doc: Diagram | undefined;
   let loadError = null;
-  let customContentId = context.extension?.config?.customContentId;
+  let attribution = null;
+  // Covers a saved macro config, a modal opened from a non-macro surface, and a
+  // pasted TYPED deeplink (`/d/<type>/<cloudId>/<contentId>`). The 3-segment
+  // embed form is handled by the instrumented block below, which additionally
+  // reports why a paste failed to resolve. Reading config alone here left a
+  // pasted macro with no id.
+  let customContentId = resolveEffectiveCustomContentId(context);
   let autoconvertProps: AnalyticsProperties | undefined;
   const pageId = context.extension?.content?.id;
 
-  // AutoConvert: a pasted https://confluence.zenuml.com/d/<cloudId>/<contentId>
-  // deeplink lands with no saved macro config — resolve the target from the
-  // matched URL instead. `autoConvertLink` is a top-level extension-context
-  // field per Atlassian's docs, not nested under `config`:
+  // AutoConvert: a pasted https://<host>/d/<cloudId>/<contentId> deeplink lands
+  // with no saved macro config — resolve the target from the matched URL
+  // instead. `autoConvertLink` is a top-level extension-context field per
+  // Atlassian's docs, not nested under `config`:
   // https://developer.atlassian.com/platform/forge/manifest-reference/modules/macro/
-  if (!customContentId && context.extension?.autoConvertLink) {
-    const deeplink = parseEmbedDeeplink(context.extension.autoConvertLink);
+  // readAutoConvertLink also accepts the `config` and `parameters` shapes,
+  // because the value observed in a live page's ADF sits under `parameters`.
+  const autoConvertLink = readAutoConvertLink(context);
+  if (!customContentId && autoConvertLink) {
+    const deeplink = parseEmbedDeeplink(autoConvertLink);
     if (!deeplink) {
       trackAnalyticsEvent('embed_autoconvert_detected', AUTOCONVERT_ANALYTICS_PROPS);
       trackAnalyticsEvent('embed_autoconvert_failed', {
@@ -73,6 +85,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
+    attribution = attributionFromCustomContent(loaded.customContent);
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
       doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
@@ -121,7 +134,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     }
   }
 
-  return { doc, loadError };
+  return { doc, loadError, ...(attribution ? { attribution } : {}) };
 }
 
 function afterLoad(doc: Diagram | undefined) {

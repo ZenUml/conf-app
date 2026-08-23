@@ -49,6 +49,14 @@ beforeEach(() => {
 });
 
 describe('restoreDraftBanner analytics', () => {
+  it('mounts as a bounded recovery card away from the editor header', () => {
+    emitDraftAvailable();
+    expect(banner().style.top).toBe('');
+    expect(banner().style.bottom).toBe('16px');
+    expect(banner().style.left).toBe('16px');
+    expect(banner().style.maxWidth).toBe('560px');
+  });
+
   it('fires draft_banner_shown when the banner mounts', () => {
     emitDraftAvailable();
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('draft_banner_shown', baseProps);
@@ -74,10 +82,12 @@ describe('restoreDraftBanner analytics', () => {
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('draft_discarded', baseProps);
   });
 
-  it('fires draft_banner_dismissed on ✕ click', () => {
+  it('labels the non-destructive dismissal as keeping the draft for later', () => {
     emitDraftAvailable();
-    buttonByText('✕').click();
+    expect(banner().textContent).toContain('keep them for next time');
+    buttonByText('Not now').click();
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('draft_banner_dismissed', baseProps);
+    expect(document.querySelector('[data-zenuml-draft-banner]')).toBeNull();
   });
 
   it('replacing a visible banner tracks a second shown but no dismissed', () => {

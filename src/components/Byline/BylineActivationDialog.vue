@@ -9,7 +9,7 @@
       <button class="ba-text-btn" @click="cancel">Cancel</button>
     </section>
 
-    <!-- PREVIEW (prepared mode): the curated diagram, read-only. No regenerate;
+    <!-- PREVIEW: the curated diagram, read-only. No regenerate;
          dissatisfaction routes to Edit. -->
     <section v-else-if="phase === 'preview'" class="ba-preview-wrap">
       <header class="ba-head">
@@ -27,22 +27,6 @@
           Edit diagram
         </button>
       </footer>
-    </section>
-
-    <!-- LIST (has-content mode): the diagrams already on this page. -->
-    <section v-else-if="phase === 'list'" class="ba-list-wrap">
-      <header class="ba-head">
-        <h1 class="ba-title">Diagrams on this page</h1>
-        <p class="ba-sub">Copy a link to paste this diagram into any Confluence page.</p>
-      </header>
-      <ul class="ba-list">
-        <li v-for="d in pageDiagrams" :key="d.id" class="ba-list-item">
-          <span class="ba-list-title">{{ d.title }}</span>
-          <button class="ba-btn ba-secondary" @click="copyDiagramLink(d)">
-            {{ copiedId === d.id ? 'Copied' : 'Copy link' }}
-          </button>
-        </li>
-      </ul>
     </section>
 
     <!-- COMPLETION: mint a deeplink; primary action copies it. -->
@@ -77,14 +61,12 @@ import {
   fetchPreparedDiagram,
   preparedToDiagram,
   preparedAgeDays,
-  listPageDiagrams,
 } from '@/services/ActivationPrepared';
 import { capturePng, blobToBase64 } from '@/model/Attachment';
 import { callRemote } from '@/utils/requestUtil';
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink';
 
 const LOADING_MIN_MS = 1800; // theatre floor even on a fast cache hit
-const PROPERTY_KEY = 'zenuml-prepared-diagram';
 // Diagram types DiagramPortal can render read-only in the preview. Graph
 // (DrawIO) / openapi / asyncapi need heavier viewers and ~6s loads — excluded
 // from the prepared preview for v1.
@@ -92,7 +74,7 @@ const RENDERABLE_TYPES = new Set([DiagramType.Sequence, DiagramType.Mermaid, Dia
 
 // Base analytics props for every byline/activation event. surface is passed
 // EXPLICITLY (never inferred) — the byline iframe would otherwise be labelled
-// `viewer` (#368). byline_mode is threaded once the property is read.
+// `viewer` (#368).
 function baseProps(extra = {}) {
   return { feature_area: 'macro', surface: 'byline', ...extra };
 }
@@ -104,13 +86,10 @@ export default {
     return {
       phase: 'loading',
       loadingCopy: 'Reading this page…',
-      mode: undefined, // 'prepared' | 'has-content'
       busy: false,
       copied: false,
-      copiedId: '',
       deeplinkUrl: '',
       errorCopy: 'This preview has expired. Try again from the page.',
-      pageDiagrams: [],
       pageId: undefined,
       savedContentId: undefined,
       preparedAge: undefined,
@@ -121,31 +100,8 @@ export default {
     this.pageId = globals.apWrapper.currentPageId
       || forgeGlobal.forgeContext?.extension?.content?.id;
 
-    // The property VALUE selects the mode. entityPropertyExists only gates
-    // visibility, so the dialog must read the value itself. getContentPropertyV2
-    // returns a discriminated union; the value is at res.property.value (NOT
-    // res.value) — see ApWrapper2.ts:214 and the other three call sites.
-    let mode = 'prepared';
-    try {
-      const res = await globals.apWrapper.getContentPropertyV2(PROPERTY_KEY);
-      const val = res?.status === 'ok' ? res.property?.value : undefined;
-      if (val && typeof val === 'object') {
-        mode = val.mode === 'has-content' ? 'has-content' : 'prepared';
-      }
-    } catch (e) {
-      console.warn('byline: property read failed, defaulting to prepared', e);
-    }
-    this.mode = mode;
-
-    // Fire the funnel entry AFTER the mode is known so byline_mode rides it
-    // (the documented invariant — every activation_*/byline_* event carries it).
-    trackAnalyticsEvent('activation_nudge_clicked', baseProps({ byline_mode: mode }));
-
-    if (mode === 'has-content') {
-      await this.enterListMode();
-    } else {
-      await this.enterPreparedMode();
-    }
+    trackAnalyticsEvent('activation_nudge_clicked', baseProps());
+    await this.enterPreparedMode();
   },
   methods: {
     async enterPreparedMode() {
@@ -162,7 +118,7 @@ export default {
       await this.holdTheatre(started);
 
       if (!payload) {
-        trackAnalyticsEvent('activation_cache_miss', baseProps({ byline_mode: 'prepared' }));
+        trackAnalyticsEvent('activation_cache_miss', baseProps());
         this.errorCopy = 'We couldn’t find a prepared diagram for this page.';
         this.phase = 'error';
         return;
@@ -173,7 +129,6 @@ export default {
       // renderers, so the pipeline can safely never target them for v1.
       if (!RENDERABLE_TYPES.has(payload.diagramType)) {
         trackAnalyticsEvent('activation_cache_miss', baseProps({
-          byline_mode: 'prepared',
           macro_type: payload.diagramType,
         }));
         this.errorCopy = 'This diagram type isn’t supported here yet.';
@@ -185,29 +140,8 @@ export default {
       store.state.diagramLoadComplete = true;
       this.phase = 'preview';
       trackAnalyticsEvent('activation_served', baseProps({
-        byline_mode: 'prepared',
         macro_type: payload.diagramType,
         prepared_age_days: this.preparedAge,
-      }));
-    },
-
-    async enterListMode() {
-      const started = Date.now();
-      let diagrams = [];
-      try {
-        diagrams = await listPageDiagrams(
-          String(this.pageId),
-          globals.apWrapper.getMacroContentTypes(),
-        );
-      } catch (e) {
-        console.error('byline: list fetch failed', e);
-      }
-      await this.holdTheatre(started);
-      this.pageDiagrams = diagrams;
-      this.phase = 'list';
-      trackAnalyticsEvent('byline_diagram_list_shown', baseProps({
-        byline_mode: 'has-content',
-        diagram_count: diagrams.length,
       }));
     },
 
@@ -229,7 +163,6 @@ export default {
         this.savedContentId = saved?.id;
         await this.mintDeeplink();
         trackAnalyticsEvent('activation_completed', baseProps({
-          byline_mode: 'prepared',
           macro_type: store.state.diagram.diagramType,
           activation_path: 'copy_link',
         }));
@@ -251,7 +184,6 @@ export default {
         const saved = await globals.apWrapper.createCustomContentV2(store.state.diagram);
         this.savedContentId = saved?.id;
         trackAnalyticsEvent('activation_diagram_edited', baseProps({
-          byline_mode: 'prepared',
           macro_type: store.state.diagram.diagramType,
         }));
         // Hand off to the real editor with the saved diagram preloaded.
@@ -276,7 +208,6 @@ export default {
     async afterEdit() {
       await this.mintDeeplink().catch(() => {});
       trackAnalyticsEvent('activation_completed', baseProps({
-        byline_mode: 'prepared',
         macro_type: store.state.diagram.diagramType,
         activation_path: 'copy_link',
       }));
@@ -329,16 +260,6 @@ export default {
       this.copied = await this.copyText(this.deeplinkUrl);
     },
 
-    async copyDiagramLink(d) {
-      const cloudId = forgeGlobal.forgeContext?.cloudId;
-      const host = deeplinkHostForProductType(import.meta.env.PRODUCT_TYPE);
-      if (!cloudId || !host) return;
-      const url = buildEmbedDeeplink(host, cloudId, d.id);
-      const ok = await this.copyText(url);
-      if (ok) this.copiedId = d.id;
-      trackAnalyticsEvent('byline_diagram_opened', baseProps({ byline_mode: 'has-content' }));
-    },
-
     // text/plain only — a text/html clipboard flavour is eaten by Confluence's
     // paste handling before autoConvert can match (verified during #360).
     async copyText(text) {
@@ -359,8 +280,7 @@ export default {
     },
 
     cancel() {
-      // mode may still be unresolved if Cancel is hit during the property read.
-      trackAnalyticsEvent('activation_nudge_dismissed', baseProps({ byline_mode: this.mode || 'unknown' }));
+      trackAnalyticsEvent('activation_nudge_dismissed', baseProps());
       this.close();
     },
 
@@ -392,7 +312,7 @@ export default {
 .ba-head { padding: 24px 24px 8px; }
 .ba-title { font-size: 1.35rem; font-weight: 600; margin: 0; }
 .ba-sub { color: #626f86; margin: 6px 0 0; }
-.ba-preview-wrap, .ba-list-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.ba-preview-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .ba-preview { flex: 1; min-height: 0; overflow: auto; padding: 8px 24px; }
 .ba-actions { display: flex; gap: 12px; padding: 16px 24px; border-top: 1px solid #e4e6ea; }
 .ba-btn {
@@ -403,12 +323,6 @@ export default {
 .ba-primary { background: #0c66e4; color: #fff; }
 .ba-secondary { background: #f1f2f4; color: #172b4d; }
 .ba-text-btn { background: none; border: 0; color: #626f86; cursor: pointer; text-decoration: underline; }
-.ba-list { list-style: none; margin: 0; padding: 8px 24px; overflow: auto; }
-.ba-list-item {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; padding: 10px 0; border-bottom: 1px solid #e4e6ea;
-}
-.ba-list-title { font-weight: 500; }
 .ba-spark {
   width: 44px; height: 44px; border-radius: 10px;
   background: linear-gradient(135deg, #0c66e4, #964ac2);

@@ -144,7 +144,7 @@ export const Suggested: Story = {
     // 22 chars × 40 ms/char ≈ 880 ms; allow up to 3 s for CI
     await waitFor(
       () => {
-        const input = body.getByPlaceholderText('Name your diagram…')
+        const input = body.getByPlaceholderText('Untitled diagram')
         expect(input).toHaveValue('Payment Flow Sequence')
       },
       { timeout: 3000 },

@@ -81,9 +81,11 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 ---
 
-### `macro_edit_opened`
+### `macro_edit_started`
 
 **Trigger:** Editor opens for an existing macro (`customContentId` is present). Fired in `forgeIndex.ts`, `forge-graph-editor.ts`, `forge-embed-editor.ts`, `forge-swagger-editor.ts`.
+
+**History:** Replaced `macro_edit_opened` on 2026-08-18. Include both names when querying a date range that spans this change.
 
 | Property | Notes |
 |---|---|
@@ -96,7 +98,12 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 ### `macro_edit_cancelled`
 
-**Trigger:** Backend-declared event (in `functions/service/analyticsTypes.ts`). Not currently emitted by the client. Reserved for a future cancel-tracking flow.
+**Trigger:** An existing Sequence / Mermaid / PlantUML editor has unsaved changes and the user
+confirms **Discard** in the close-without-saving dialog. Merely opening that dialog and choosing to
+keep editing does not fire it.
+
+Carries `journey_id`, `session_id`, `had_global_replace`, `global_replace_count`,
+`post_replace_local_edit_count`, and final delta buckets from the active text-editor session.
 
 ---
 
@@ -112,12 +119,46 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `operation_mode` | `"edit"` |
 | `content_id` / `custom_content_id` | Custom content ID of the saved record (may differ from the pre-save value on cross-page copy / orphan repair) |
 | `attachment_name` | `zenuml-{savedId}.png` |
+| `journey_id` / `session_id` | Text-editor journey and same-tab session identifiers |
+| `global_replace_count` | Number of accepted user transactions covering at least 95% of the editable old document |
+| `post_replace_local_edit_count` | User-local transactions after the first global replacement |
+| `net_delta_from_open_bucket` | Final content delta from editor open: `none \| tiny \| small \| medium \| large` |
+| `delta_from_last_replace_bucket` | Final content delta from the last global replacement; absent when no replacement occurred |
+| `last_copy_id` / `last_copy_source` / `last_copy_job` | Most recent successful-copy marker actually observed by a global replacement |
 
 ---
 
 ### `macro_save_failed`
 
-**Trigger:** Backend-declared event. The client emits it as a legacy `trackEvent` (not `trackAnalyticsEvent`) when `saveToPlatform` throws an unrecognised error or when `view.submit` fails after save. Not currently routed through the canonical Mixpanel pipeline.
+**Trigger:** `saveToPlatform` throws while saving an existing Sequence / Mermaid / PlantUML
+diagram. The canonical event carries the same editor-session summary as `macro_edit_cancelled`, plus
+a bounded, stable `failure_reason` (`legacy_load_blocked`, `invalid_saved_content_id`, `http_<status>`,
+the JavaScript error class, or `unknown_error`). Existing legacy `trackEvent` diagnostics remain in
+place. A later `view.submit` failure is not labelled as persistence failure because the custom
+content save already succeeded.
+
+### `editor_global_replace_observed`
+
+**Trigger:** Every accepted CodeMirror transaction that has `Transaction.userEvent` and whose
+changed ranges cover at least 95% of the **old editable document**. Sequence and Mermaid use the
+whole document; PlantUML excludes the protected `@startuml` / `@enduml` lines. Creates are excluded.
+Programmatic store, AI Repair, and Agent Link document syncs have no user-event annotation and do
+not fire this event.
+
+| Property | Notes |
+|---|---|
+| `journey_id` / `session_id` | Joins the operation to the editor lifecycle |
+| `replace_index` | 1-based sequence; every qualifying transaction fires, with no debounce or dedupe |
+| `replace_scope` | `full` at 100% coverage; `near_full` at 95–<100% |
+| `replaced_coverage_ratio` | Union of changed old-document ranges intersected with the editable range, divided by editable old length |
+| `editable_chars_before` / `inserted_chars` | Size-only operation context |
+| `input_method` | `paste \| typing \| delete \| drop \| undo \| redo \| unknown` |
+| `content_delta_ratio` / `content_delta_bucket` | Text difference, separate from operation coverage; character diff up to 50k combined chars, line-level degradation above it |
+| `copy_id` / `copy_source` / `copy_job` / `ms_since_copy` | Present only when a successful same-tab copy marker for the same custom content is ≤60 minutes old |
+
+This event proves an accepted replacement operation, not that AI generated the text and not that it
+was saved. The strict outcome is a later `macro_save_succeeded` with the same `journey_id`.
+Telemetry contains only IDs, lengths, ratios, buckets, and enums—never DSL, snippets, or hashes.
 
 ---
 
@@ -159,13 +200,13 @@ The frontend's `attachment_upload_queued` is the denominator: every queued uploa
 
 ### `ai_generation_requested`
 
-**Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts`.
+**Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts` for Sequence/Mermaid/PlantUML, Graph and OpenAPI editors.
 
 | Property | Notes |
 |---|---|
 | `feature_area` | `"ai"` |
 | `surface` | `"editor"` |
-| `macro_type` | Diagram type (Mermaid sub-type string for Mermaid diagrams, e.g. `"flow chart"`) |
+| `macro_type` | Diagram type (`sequence`, `mermaid`, `plantuml`, `graph`, or `openapi`) |
 | `generation_source` | `"init"` (auto on editor open), `"user"` (manual click), `"regenerate"` (user clicked a second time after auto-generate) |
 | `prompt_length` | Character count of the diagram DSL sent to the AI |
 
@@ -203,7 +244,7 @@ Same properties as `ai_generation_requested`.
 
 ### `ai_title_accepted`
 
-**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired in `useAutoTitle.ts::notifyAiTitleSaved`, called from the `save` EventBus handler in `forgeIndex.ts`.
+**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths.
 
 | Property | Notes |
 |---|---|
@@ -465,6 +506,41 @@ Backend-declared event. Not currently emitted by client code.
 | `surface` | `"viewer"` |
 | `macro_type` | Diagram type that failed to render |
 | `failure_reason` | Error message string |
+
+---
+
+### `load_failed_retry_clicked`
+
+**Trigger:** User clicks "Try again" on the load-failed recovery panel. Fired in `GenericViewer.vue::retry`, before the reload it triggers.
+
+**Transport:** `sendBeacon`, via `trackAnalyticsEventBeforeUnload`. The retry is a `location.reload()`, which aborts an in-flight XHR — production recorded 1 `load_failed_retry_resolved` and **0** of this event on 2026-08-23 with the default transport. The reload also waits for the send, because the enrichment step is itself async.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"macro"` |
+| `surface` | `"viewer"` |
+| `macro_type` | Diagram type that failed to load |
+| `content_id` | Custom content ID the viewer could not load |
+| `retry_attempt` | 1 for the first retry of this macro in this browser tab, 2 for the next, … |
+
+---
+
+### `load_failed_retry_resolved`
+
+**Trigger:** The viewer reaches a terminal state on the page load that a "Try again" click started. Fired in `GenericViewer.vue`'s `viewerLoadState` watcher, once per retry.
+
+`retry()` is a bare `location.reload()`, so the click and its result sit in two different page lifetimes. A `sessionStorage` marker (`utils/loadFailedRetry.ts`, keyed on the macro's `localId`, 10-minute TTL) carries the attempt across the reload; the marker stops owing an outcome once reported, so an iframe remount without a retry emits nothing.
+
+Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08-18..22: 391 external impressions across 128 macros, with the transient-vs-permanent split unresolvable from telemetry.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"macro"` |
+| `surface` | `"viewer"` |
+| `macro_type` | Diagram type |
+| `content_id` | Custom content ID |
+| `retry_attempt` | Attempt number the resolution belongs to |
+| `retry_outcome` | `"recovered"` = the diagram rendered; `"failed_again"` = the terminal panel came back |
 
 ---
 

@@ -51,6 +51,7 @@ if (!mixpanelToken) {
 const DEV_ONLY_HTML_ENTRIES = new Set([
   'test-viewer.html',
   'viewer-preview.html',
+  'editor-preview.html',
   'sandbox.html',
 ]);
 
@@ -59,11 +60,27 @@ function getHtmlFiles(dir, { isBuild = false } = {}) {
   const files = fs.readdirSync(dir);
 
   for (let i = 0; i < files.length; i++) {
+    // Filter by NAME before touching the filesystem. Vite writes a temp
+    // `vite.config.mjs.timestamp-<ts>-<rand>.mjs` into this very directory while
+    // it loads this config and deletes it immediately afterwards, so a readdir
+    // that catches it reaches lstat after it is gone and takes the whole run
+    // down with ENOENT — observed on CI 2026-08-15, where `pnpm test:unit` died
+    // at config load with `lstat 'vite.config.mjs.timestamp-…mjs'` and no test
+    // ever ran. Checking the extension first means that file, and anything else
+    // transient that is not .html, is never stat'd at all.
+    if (path.extname(files[i]) !== '.html') continue;
+    if (isBuild && DEV_ONLY_HTML_ENTRIES.has(files[i])) continue;
+
     const filepath = path.join(dir, files[i]);
-    if (fs.lstatSync(filepath).isFile() && path.extname(filepath) === '.html') {
-      if (isBuild && DEV_ONLY_HTML_ENTRIES.has(files[i])) continue;
-      htmlFiles.push(filepath);
+    let stat;
+    try {
+      stat = fs.lstatSync(filepath);
+    } catch {
+      // Vanished between readdir and stat. Anything that transient is not a
+      // real entry point, and it must not be able to fail the build.
+      continue;
     }
+    if (stat.isFile()) htmlFiles.push(filepath);
   }
   return htmlFiles;
 }
@@ -75,6 +92,14 @@ export default defineConfig(({ command }) => ({
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
+    // Onboarding funnel — "second diagram" viewer prompt (33.6% of tenants
+    // create exactly one diagram and never a second). Build-time constant,
+    // deliberately NOT a Forge feature flag: Lite is already at the
+    // Developer Console's 10-flags-per-app cap, and adding one requires
+    // deleting a live flag first — a product-owner decision, not this
+    // task's. Defaults OFF; flip this literal to JSON.stringify(true) and
+    // redeploy to enable. See src/components/Viewer/SecondDiagramPrompt.vue.
+    'import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED': JSON.stringify(false),
   },
   // Pre-bundle the hot CJS / Vue / CodeMirror cluster on dev-server cold start.
   // Without this, Vite discovers each lazily on first request and rebuilds the
@@ -137,7 +162,7 @@ export default defineConfig(({ command }) => ({
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
-      // Dev-server-only (command === 'serve', e.g. `pnpm start:local`):
+      // Standalone dev-server only (command === 'serve', e.g. `pnpm start:local`):
       // @forge/bridge's own module-evaluation code (bridge.js's
       // getCallBridge()) throws synchronously outside a real Forge iframe —
       // not just when a bridge call is made, but the instant ANY static
@@ -147,11 +172,11 @@ export default defineConfig(({ command }) => ({
       // (test-viewer.html, sandbox.html) before forgeGlobal's own try/catch
       // ever gets a chance to run. Storybook hit the identical problem and
       // fixed it with this exact alias (see .storybook/main.ts) — reuse it
-      // here. `forge tunnel` (pnpm forge:tunnel) is a separate Forge-CLI
-      // process that never invokes this Vite config, and `vite build`
-      // (command === 'build', every `pnpm build:*` / production bundle)
-      // is untouched, so real Forge deployments still ship the real package.
-      ...(command === 'serve'
+      // here. A Forge tunnel still proxies Custom UI assets through a Vite dev
+      // server, so joint-debug starts that server with FORGE_TUNNEL=1 to retain
+      // the real bridge. `vite build` (command === 'build', every
+      // `pnpm build:*` / production bundle) is untouched.
+      ...(command === 'serve' && process.env.FORGE_TUNNEL !== '1'
         ? { '@forge/bridge': resolve(__dirname, './src/stubs/forge-bridge.ts') }
         : {}),
       // AsyncAPI variant: @asyncapi/parser pulls in Node's `fs` for its
@@ -376,6 +401,10 @@ export default defineConfig(({ command }) => ({
       // Scratch dir — sessions park ad-hoc Playwright specs here; a stray
       // *.spec.ts under tmp/ otherwise fails the whole run at collection.
       '**/tmp/**',
+      // Private customer-investigation contains ephemeral Playwright spot
+      // checks. They are run with tests/e2e-tests' Playwright config, never
+      // as root Vitest unit suites.
+      '**/private/customer-investigation/**/*.spec.ts',
       // Skip the asyncapi-studio submodule's own tests — they import
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.

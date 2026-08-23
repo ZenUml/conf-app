@@ -214,7 +214,7 @@ function trackAnswer(answerSkipped = false) {
   if (step.value === 0) {
     trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_QUESTION_ANSWERED, {
       ...common,
-      extension_scope: answers.value.unblockNeed.scope,
+      unblock_scope: answers.value.unblockNeed.scope,
       option_position: selectedOptionPosition(scopeOptions, answers.value.unblockNeed.scope),
     });
   } else if (step.value === 1) {
@@ -269,7 +269,7 @@ async function submit() {
       trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_GRANTED, {
         questionnaire_version: 2,
         outcome: response.isReplay ? 'replay' : 'created',
-        extension_scope: answers.value.unblockNeed.scope,
+        unblock_scope: answers.value.unblockNeed.scope,
         urgency: answers.value.unblockNeed.urgency,
         extension_days: 7,
         is_replay: response.isReplay,
@@ -277,7 +277,7 @@ async function submit() {
     } else {
       trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_REPEAT_REQUESTED, {
         questionnaire_version: 2,
-        extension_scope: answers.value.unblockNeed.scope,
+        unblock_scope: answers.value.unblockNeed.scope,
         urgency: answers.value.unblockNeed.urgency,
         prior_grant_count: response.priorGrantCount,
         routing_outcome: 'manual_review',

@@ -78,7 +78,7 @@ sleep 4
 ```
 Then re-check and proceed.
 
-Use `mcp__playwright__*` tools to automate browser interactions.
+Use `agent-browser --session conf-app --restore=stg` to automate browser interactions.
 Take a screenshot after each key interaction to document what you observe.
 
 **Track the EventBus edit counter exposed by the harness:**
@@ -120,7 +120,7 @@ then suggest the next environment to try or ask the user for more context.
 
 ## Playwright Tips for This App
 
-The Playwright MCP (`mcp__playwright__*`) is the right tool for browser automation.
+`agent-browser` is the default browser automation tool (see `CLAUDE.md` § "Browser automation and Forge iframes").
 
 - The local SPA (`viewer-preview.html`) is NOT inside a Forge iframe, so standard
   `browser_click`, `browser_snapshot`, etc. work directly.

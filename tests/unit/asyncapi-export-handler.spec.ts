@@ -76,8 +76,15 @@ describe('AsyncAPI export resolver (src/asyncapi-export.js)', () => {
     expect(json).toContain('asyncapi: 3.0.0');
     expect(json).toContain('Streetlights API');
 
-    const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: { export_path?: string } }>;
-    expect(rows.find((r) => r.event === 'macro_export_succeeded')?.properties?.export_path).toBe('asyncapi_spec');
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { export_path?: string; macro_type?: string };
+    }>;
+    const succeeded = rows.find((r) => r.event === 'macro_export_succeeded');
+    expect(succeeded?.properties?.export_path).toBe('asyncapi_spec');
+    // #435: statically known — this handler only ever exports AsyncAPI macros.
+    expect(succeeded?.properties?.macro_type).toBe('asyncapi');
+    expect(rows.find((r) => r.event === 'macro_export_requested')?.properties?.macro_type).toBe('asyncapi');
   });
 
   it('returns an error doc (not the spec) when the content has no code', async () => {
@@ -105,7 +112,15 @@ describe('AsyncAPI export resolver (src/asyncapi-export.js)', () => {
 
     expect(asAppRequest).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).toContain('not available for export');
-    const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: { failure_reason?: string } }>;
-    expect(rows.find((r) => r.event === 'macro_export_failed')?.properties?.failure_reason).toBe('missing_custom_content_id');
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { failure_reason?: string; macro_type?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('missing_custom_content_id');
+    // #435: even the no-customContentId failure carries macro_type='asyncapi'
+    // — known statically from which handler ran, unlike the shared exportMacro
+    // where the same failure resolves to 'none' (type genuinely unknown there).
+    expect(failed?.properties?.macro_type).toBe('asyncapi');
   });
 });

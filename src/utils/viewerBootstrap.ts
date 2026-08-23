@@ -9,12 +9,14 @@ import {
   applyViewerLoadOutcome,
   getForgeCustomContentId,
   mapThrownViewerLoadError,
+  publishDiagramAttribution,
   publishLoadedDiagram,
   setViewerLoadState,
 } from '@/utils/viewerLoadOutcome';
 
 export { publishLoadedDiagram };
 import type { DiagramLoadError } from '@/model/store2/types';
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 
@@ -31,6 +33,7 @@ export type ViewerLoadDiagramResult =
   | {
       doc?: Diagram;
       loadError?: DiagramLoadError | null;
+      attribution?: DiagramAttribution | null;
     };
 
 export interface ViewerBootstrapOptions {
@@ -58,14 +61,15 @@ export interface ViewerBootstrapOptions {
 
 function normalizeViewerLoadResult(
   result: ViewerLoadDiagramResult,
-): { doc?: Diagram; loadError?: DiagramLoadError | null } {
+): { doc?: Diagram; loadError?: DiagramLoadError | null; attribution?: DiagramAttribution | null } {
   if (result && typeof result === 'object' && 'doc' in result) {
     return {
       doc: result.doc,
       loadError: result.loadError ?? null,
+      attribution: result.attribution ?? null,
     };
   }
-  return { doc: result as Diagram | undefined, loadError: null };
+  return { doc: result as Diagram | undefined, loadError: null, attribution: null };
 }
 
 export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Promise<void> {
@@ -146,6 +150,7 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
       customContentId: getForgeCustomContentId(),
       macroKind: options.macroKind,
     });
+    publishDiagramAttribution(loadResult.attribution);
     if (customContentId && loadResult.doc) {
       // Prime the id-keyed SWR cache so a later viewer revisit can render
       // before the fetch. Cache the RAW fetched value (pre-normalization —
@@ -191,6 +196,7 @@ async function revalidateViewer(
     const loadResult = normalizeViewerLoadResult(
       await renderPerf.time('fetch', () => options.loadDiagram()),
     );
+    publishDiagramAttribution(loadResult.attribution);
     // content unreadable now (undefined doc, or a structured loadError with no
     // doc) — keep the last-known-good cached render rather than publish a miss.
     if (!loadResult.doc) return;

@@ -24,7 +24,12 @@ describe("manifest.yml embed deeplink autoConvert matcher", () => {
       (step: any) => step.name === "Point Full embed deeplink matcher at conf-full",
     );
 
-    expect(override?.if).toBe("inputs.variant == 'full'");
+    // The gate reads the `resolve` job's output, not `inputs`, since
+    // staging-deploy.yml gained a workflow_dispatch entry point: dispatch
+    // supplies only `variant`, so `resolve` normalises both trigger shapes
+    // into one set of values. What matters is that the step stays gated on
+    // the full variant — assert the variant, not the expression's source.
+    expect(override?.if).toBe("needs.resolve.outputs.variant == 'full'");
     expect(override?.with?.cmd).toContain("conf-full.zenuml.com/d/*/*");
     expect(override?.with?.cmd).toContain("autoConvert.matchers[0].pattern");
   });

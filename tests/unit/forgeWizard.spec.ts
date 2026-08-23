@@ -9,6 +9,16 @@ import {
 } from '../../scripts/forge-wizard.mjs'
 
 describe('forge-wizard manifest preview helpers', () => {
+  it('keeps PlantUML egress client-only', () => {
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    expect(manifest.permissions.external.fetch.backend).not.toContain(
+      'https://www.plantuml.com',
+    )
+    expect(manifest.permissions.external.fetch.client).toContain(
+      'https://www.plantuml.com',
+    )
+  })
+
   it('base manifest defines the Lite daily snapshot with backend timeout and EUD storage', () => {
     const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
     expect(manifest.modules.scheduledTrigger).toContainEqual({
@@ -26,6 +36,23 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(connect.storage).toEqual({ inScopeEUD: true })
   })
 
+  it('all manifest-generation paths retain the shared remote EUD declaration', () => {
+    for (const variant of ['lite', 'full', 'diagramly', 'asyncapi'] as const) {
+      const yq = getManifestEditYqArgs(variant).map((edit) => edit.expr).join('\n')
+      expect(yq).not.toContain('select(. == "storage")')
+      expect(yq).not.toContain('select(.key == "connect").storage')
+    }
+
+    for (const workflow of [
+      '.github/workflows/staging-deploy.yml',
+      '.github/workflows/release.yml',
+    ]) {
+      const source = fs.readFileSync(workflow, 'utf8')
+      expect(source).not.toContain('select(. == "storage")')
+      expect(source).not.toContain('select(.key == "connect").storage')
+    }
+  })
+
   it('lite strips licensing, contentBylineItem, and asyncapi bits', () => {
     const desc = getManifestEditDescriptions('lite')
     expect(desc).toContain('Remove licensing (lite is free)')
@@ -41,7 +68,11 @@ describe('forge-wizard manifest preview helpers', () => {
 
     const yq = getManifestEditYqArgs('lite').map((x) => x.expr)
     expect(yq).toContain('del(.app.licensing)')
+    // Lite ships TWO byline entries — the activation nudge and the diagram
+    // index — and drops only the Diagramly-branded one. A whole-module delete
+    // here would take both of them with it.
     expect(yq).toContain('del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))')
+    expect(yq).not.toContain('del(.modules["confluence:contentBylineItem"])')
     expect(yq).toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
     )
@@ -53,6 +84,28 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
   })
 
+  it('only Lite keeps the byline paste-to-create matchers', () => {
+    // The /new/<type> and /d/<type>/*/* patterns are minted only by the Lite
+    // byline. Any other variant carrying them races Lite for the same pasted
+    // URL on a both-installed site, and app-scoped custom content makes the
+    // wrong winner a permanently broken macro — so every non-Lite variant
+    // must strip them, and Lite must not.
+    const STRIP = 'Remove byline paste-to-create matchers (Lite-only byline mints those links)'
+    expect(getManifestEditDescriptions('lite')).not.toContain(STRIP)
+    for (const variant of ['full', 'diagramly', 'asyncapi'] as const) {
+      expect(getManifestEditDescriptions(variant), variant).toContain(STRIP)
+      const expr = getManifestEditYqArgs(variant)
+        .map((x: { expr: string }) => x.expr)
+        .find((e: string) => e.includes('autoConvert.matchers'))
+      // `[.]` not `\.`: a backslash escape would be eaten by the JS string
+      // literal and silently widen the regex.
+      expect(expr, variant).toContain('test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)")')
+      // The follow-up clause must drop only EMPTIED autoConvert blocks — the
+      // embed macro's 3-segment matchers survive the first del and keep theirs.
+      expect(expr, variant).toContain('length == 0) | .autoConvert)')
+    }
+  })
+
   it('full strips asyncapi bits and the Connect lifecycle module', () => {
     // Full is the "base" variant — it shares all the ZenUML/Mermaid/Graph/
     // OpenAPI/Embed macros with the base manifest, and only needs to strip
@@ -60,7 +113,22 @@ describe('forge-wizard manifest preview helpers', () => {
     // the base manifest so the asyncapi variant can keep them, plus the
     // Connect lifecycle module (connectModules) — also asyncapi-only.
     const desc = getManifestEditDescriptions('full')
+    expect(desc).toContain(
+      'Remove zenuml-byline-aiaide and zenuml-byline-diagrams from confluence:contentBylineItem (keep zenuml-byline-newuser)',
+    )
     expect(desc).toContain('Remove Lite snapshot and Diagramly demo schedules from Full')
+    // Full is the only variant that drops TWO byline entries: aiaide is
+    // Diagramly-branded and diagrams is the Lite index, leaving just the
+    // activation nudge. The module itself must survive, or newuser goes too.
+    // The strip normalizes byline-diagrams' displayConditions (dropping the
+    // Lite-only `not: zenuml-full-active` leg) in the same expression before
+    // deleting it — a no-op today that makes a future un-strip safe.
+    const fullYq = getManifestEditYqArgs('full').map((x: { expr: string }) => x.expr)
+    expect(fullYq).toContain(
+      '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | ' +
+        'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
+    )
+    expect(fullYq).not.toContain('del(.modules["confluence:contentBylineItem"])')
     expect(getManifestEditYqArgs('full').map((x) => x.expr)).toContain(
       'del(.connectModules)',
     )
@@ -84,6 +152,7 @@ describe('forge-wizard manifest preview helpers', () => {
     )
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
+    expect(desc).toContain('Remove the Lite diagrams byline entry (Diagramly keeps Aide)')
     expect(desc).toContain('Remove Lite macro snapshot schedule from Diagramly')
     // Diagramly's globalSettings+globalPage+spacePage strip removes both
     // the ZenUML dashboard and the asyncapi spacePage in a single edit.
@@ -111,7 +180,7 @@ describe('forge-wizard manifest preview helpers', () => {
       'Remove non-asyncapi macros (sequence, graph, embed); keep asyncapi macros + the OpenAPI macro',
     )
     expect(desc).toContain(
-      'Remove globalSettings + globalPage + contentBylineItem (asyncapi uses spacePage only)',
+      'Remove globalSettings + globalPage + contentBylineItem + homepageFeed (asyncapi uses spacePage only)',
     )
     expect(desc).toContain(
       "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
@@ -132,7 +201,7 @@ describe('forge-wizard manifest preview helpers', () => {
     // asyncapi keeps confluence:spacePage intact (its "My API Documents"
     // entry) but strips confluence:globalPage entirely.
     expect(yq).toContain(
-      'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
+      'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"]) | del(.modules["confluence:homepageFeed"])',
     )
     expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
     expect(yq.join(' ')).toContain('macroCountSnapshotFn')

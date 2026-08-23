@@ -14,15 +14,21 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { guardEditClick } from '@/utils/guardEditClick';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
   let loadError = null;
-  const customContentId = context.extension?.config?.customContentId;
+  let attribution = null;
+  // Includes the pasted-deeplink fallback: a graph macro created by
+  // autoConvert has no config, and reading only config left it rendering an
+  // empty canvas that stayed empty after editing.
+  const customContentId = resolveEffectiveCustomContentId(context);
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
@@ -37,6 +43,7 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     );
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
+    attribution = attributionFromCustomContent(loaded.customContent);
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
       doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
@@ -119,7 +126,7 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     }
   }
 
-  return { doc, loadError };
+  return { doc, loadError, ...(attribution ? { attribution } : {}) };
 }
 
 function afterLoad(doc: Diagram | undefined) {

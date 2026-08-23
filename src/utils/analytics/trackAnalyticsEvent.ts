@@ -12,6 +12,7 @@ import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
+import { normalizeProductType, type ProductType } from "./productType";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -19,6 +20,54 @@ import { decideSample } from "./eventSampling";
 // second init.
 let _initPromise: Promise<void> | null = null;
 let _identified = false;
+
+type AuthoringReplayProperties = Pick<
+  AnalyticsProperties,
+  | "session_replay_source"
+  | "session_replay_percent"
+  | "session_replay_start_call_outcome"
+>;
+
+// `is_demo_page` is useful segmentation, but it is never allowed to hold an
+// analytics event hostage. In particular, an editor iframe can be torn down
+// soon after it opens; if the optional page-property request stalls, losing
+// `macro_*_started` also loses the replay-to-event join for that session.
+const DEMO_PAGE_TELEMETRY_TIMEOUT_MS = 750;
+const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
+
+function _startAuthoringReplay(
+  eventName: AnalyticsEventName
+): Partial<AuthoringReplayProperties> {
+  if (
+    eventName !== "macro_create_started" &&
+    eventName !== "macro_edit_started"
+  ) {
+    return {};
+  }
+
+  try {
+    // Authoring replay is an explicit product policy, independent of the
+    // baseline Forge-flag cohort resolved by _initMixpanel. The SDK call is
+    // idempotent when baseline sampling already started a recording.
+    mixpanel.start_session_recording();
+    const replayProperties: AuthoringReplayProperties = {
+      session_replay_source: "authoring",
+      session_replay_percent: 100,
+      session_replay_start_call_outcome: "returned",
+    };
+    mixpanel.register({
+      session_replay_percent: replayProperties.session_replay_percent,
+      session_replay_source: replayProperties.session_replay_source,
+    });
+    return replayProperties;
+  } catch (error) {
+    console.error(
+      "[session-replay] authoring start call threw",
+      error instanceof Error ? error.name : "unknown"
+    );
+    return { session_replay_start_call_outcome: "threw" };
+  }
+}
 
 function _initMixpanel(): Promise<void> {
   if (!_initPromise) {
@@ -122,10 +171,8 @@ async function _getMacroUuid(): Promise<string> {
   }
 }
 
-function _getProductType(): "lite" | "full" | "diagramly" {
-  const t = import.meta.env.PRODUCT_TYPE;
-  if (t === "lite" || t === "full" || t === "diagramly") return t;
-  return "full";
+function _getProductType(): ProductType {
+  return normalizeProductType(import.meta.env.PRODUCT_TYPE);
 }
 
 function _identify() {
@@ -208,17 +255,41 @@ async function _getDemoPageTelemetry(
   if (!eventName.startsWith("macro_")) {
     return {};
   }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const isDemo = await isCurrentPageDemoPage();
+    const isDemo = await Promise.race([
+      isCurrentPageDemoPage(),
+      new Promise<typeof DEMO_PAGE_TELEMETRY_TIMED_OUT>((resolve) => {
+        timeout = setTimeout(
+          () => resolve(DEMO_PAGE_TELEMETRY_TIMED_OUT),
+          DEMO_PAGE_TELEMETRY_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (isDemo === DEMO_PAGE_TELEMETRY_TIMED_OUT) {
+      return {};
+    }
     return isDemo ? { is_demo_page: true } : {};
   } catch {
     return {};
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
+}
+
+/**
+ * Extra options handed straight to mixpanel.track. Only the transport override
+ * is used today — see trackAnalyticsEventBeforeUnload.
+ */
+interface TrackTransportOptions {
+  transport: "sendBeacon";
 }
 
 export async function _awaitableTrackAnalyticsEvent(
   eventName: AnalyticsEventName,
-  callerProps: AnalyticsProperties
+  callerProps: AnalyticsProperties,
+  options?: TrackTransportOptions
 ): Promise<void> {
   try {
     // Volume sampling first: a dropped event must not pay the init cost — the
@@ -229,6 +300,7 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
+    const authoringReplayProperties = _startAuthoringReplay(eventName);
 
     const contentIds = _getContentIdentifiers();
 
@@ -258,9 +330,14 @@ export async function _awaitableTrackAnalyticsEvent(
       attachment_name: callerProps.attachment_name ?? contentIds.attachment_name,
       ...(await _getSpaceAdminTelemetry(eventName)),
       ...(await _getDemoPageTelemetry(eventName)),
+      ...authoringReplayProperties,
     };
 
-    mixpanel.track(eventName, enriched);
+    if (options) {
+      mixpanel.track(eventName, enriched, options);
+    } else {
+      mixpanel.track(eventName, enriched);
+    }
   } catch (e) {
     console.error("[analytics] trackAnalyticsEvent failed", e);
   }
@@ -271,6 +348,27 @@ export function trackAnalyticsEvent(
   properties: AnalyticsProperties
 ): void {
   void _awaitableTrackAnalyticsEvent(eventName, properties);
+}
+
+/**
+ * For a caller that navigates away immediately after tracking — the load-failed
+ * panel's "Try again" reloads the iframe on the next line. The default XHR
+ * transport is aborted by that navigation, so the event never arrives:
+ * production recorded 1 `load_failed_retry_resolved` and 0
+ * `load_failed_retry_clicked` on 2026-08-23. sendBeacon is queued by the
+ * browser and survives unload.
+ *
+ * Await it: the enrichment itself is async (Mixpanel init, macro uuid, space
+ * telemetry), so firing and navigating would lose the event before it ever
+ * reaches the transport.
+ */
+export async function trackAnalyticsEventBeforeUnload(
+  eventName: AnalyticsEventName,
+  properties: AnalyticsProperties
+): Promise<void> {
+  await _awaitableTrackAnalyticsEvent(eventName, properties, {
+    transport: "sendBeacon",
+  });
 }
 
 export function _resetForTesting(): void {

@@ -9,7 +9,20 @@ export type FeatureArea =
   | "confluence"
   | "feedback"
   | "system"
-  | "agent_link";
+  | "agent_link"
+  // The confluence:contentBylineItem entry point under the page title. Its own
+  // area because it is an activation surface, not part of a macro's lifecycle:
+  // it renders on every page, including pages with no diagram at all.
+  | "byline"
+  // The confluence:homepageFeed card in the right panel of the Confluence
+  // Home page. Its own area for the same reason as "byline" above: it is an
+  // activation surface disconnected from any macro's lifecycle, rendered on
+  // the Home page rather than on a page carrying a diagram.
+  | "homepage_feed"
+  | "diagram_impact";
+
+/** Current user's relationship to the diagram being measured. */
+export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
 
 export type MacroTypeValue =
   | "sequence"
@@ -42,9 +55,18 @@ export type Surface =
   | "byline"
   | "forge_trigger"
   | "scheduled_job"
+  // Vendor-operated actions launched from the ZenUML JSM agent view. This is
+  // deliberately separate from `route`: it measures a support workflow, not
+  // customer traffic to a Pages endpoint.
+  | "support_automation"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
-  | "fullscreen";
+  | "fullscreen"
+  // The contentBylineItem modal. Confluence boots this iframe only when the
+  // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
+  // the variants that ship it), so every event carrying this surface is a
+  // deliberate user action — there are no byline impressions to filter out.
+  | "byline";
 
 export type EntryPoint =
   | "page_view"
@@ -56,9 +78,26 @@ export type EntryPoint =
   | "dashboard"
   | "route"
   | "forge_trigger"
+  | "byline"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
+
+// Text-editor mutation telemetry. Replacement scope describes how much of the
+// editable OLD document a user transaction covered; content delta describes
+// how different the resulting text is. Keeping the two axes separate avoids
+// treating a whole-document paste with a tiny textual change as a local edit.
+export type EditorReplaceScope = "full" | "near_full";
+export type EditorInputMethod =
+  | "paste"
+  | "typing"
+  | "delete"
+  | "drop"
+  | "undo"
+  | "redo"
+  | "unknown";
+export type ContentDeltaBucket = "none" | "tiny" | "small" | "medium" | "large";
+export type CopySource = "copy_for_ai" | "view_source";
 
 // Format slice selected on the dual-format ("My API Documents") dashboard's
 // tab / Format filter. "all" shows both AsyncAPI and OpenAPI docs.
@@ -129,11 +168,37 @@ export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 
 export type FeedbackValue = "good" | "partial" | "bad";
 
+// Onboarding funnel: how a starter surface (template gallery / starter-shown
+// event) came to be visible. 'auto_first_open' = the editor opened it itself
+// on a brand-new blank macro; 'manual' = the user asked for it (Templates
+// button). Shared by editor_starter_shown's `trigger` and
+// editor_template_gallery_opened's `template_gallery_trigger` so the two
+// surfaces stay comparable on the same axis.
+export type GalleryOpenTrigger = "auto_first_open" | "manual";
+
+// Effective Session Replay policy stamped on analytics events. `authoring`
+// means a macro create/edit start forced recording independently of the Forge
+// flag cohort. See macro_create_started / macro_edit_started below.
+export type SessionReplayEventSource =
+  | "targeted"
+  | "sampled"
+  | "authoring"
+  | "off";
+
+// `start_session_recording()` is a void SDK call whose recorder work continues
+// asynchronously. `returned` records only that the call did not synchronously
+// throw; it is not proof that a replay was uploaded. `$mp_replay_id` on a later
+// event is the outcome evidence.
+export type SessionReplayStartCallOutcome = "returned" | "threw";
+
 export type AnalyticsEventName =
   | "macro_viewed"
+  // Both authoring-start events force Session Replay at 100% before the event
+  // is sent. Editor entries must emit the event from the iframe that owns the
+  // interaction; the replay policy itself stays centralized here.
   | "macro_create_started"
   | "macro_create_succeeded"
-  | "macro_edit_opened"
+  | "macro_edit_started"
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
@@ -180,6 +245,14 @@ export type AnalyticsEventName =
   // split-button menu (AsyncAPI vs OpenAPI) — the funnel entry BEFORE the
   // editor's own macro_create_started fires. `macro_type` carries the choice.
   | "dashboard_create_selected"
+  // conf-app#435: these three carry `macro_type` (reusing the property already
+  // registered below, not a new one — see the field's doc comment in
+  // src/utils/analytics/types.ts) so per-diagram-type export failure rates are
+  // a direct query, not a join against `custom_content_id` history. Emitted
+  // from the Forge backend (src/export.js, src/asyncapi-export.js), which
+  // posts to Mixpanel /import directly rather than through
+  // trackAnalyticsEvent/AnalyticsProperties — this union documents the shape,
+  // it doesn't enforce it there.
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
@@ -203,6 +276,12 @@ export type AnalyticsEventName =
   | "ai_title_modified"
   | "ai_editor_opened"
   | "ai_feedback_submitted"
+  // AI Repair performance lifecycle. requested fires immediately before the
+  // start request and carries poll_interval_ms + timeout_budget_ms. succeeded /
+  // failed close the same user-perceived interval with duration_ms, poll_count,
+  // and any backend timing/attempt metadata returned by the job-status API.
+  // failed additionally carries failure_phase; never attach diagram code,
+  // error source text, or a job id to these events.
   | "ai_repair_requested"
   | "ai_repair_succeeded"
   | "ai_repair_failed"
@@ -287,6 +366,15 @@ export type AnalyticsEventName =
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
+  // JSM "Apply Extension" lifecycle. requested fires after the dedicated
+  // automation secret is authenticated and the command shape is accepted;
+  // succeeded fires only after the requester-scoped SPACE_LICENSE_KV record
+  // is read back active; failed closes every authenticated attempt that did
+  // not reach that state. Backend-emitted through Mixpanel /import. Never add
+  // the Jira ticket key, raw JSM description, or customer reply to telemetry.
+  | "extension_action_requested"
+  | "extension_action_succeeded"
+  | "extension_action_failed"
   | "content_sync_requested"
   | "content_sync_succeeded"
   | "content_sync_failed"
@@ -301,6 +389,16 @@ export type AnalyticsEventName =
   | "attachment_create_failed"
   | "custom_content_update_failed"
   | "graph_editor_init_empty"
+  // Graph (DrawIO) Diagram/Board chrome switch. Same mxfile, two DrawIO
+  // chromes: `diagram` is the existing Atlas/standard embed; `board` is
+  // DrawIO Sketch (`ui=sketch&sketch=1`). requested fires on a click that
+  // intends to change mode (same-mode clicks are a no-op and emit nothing);
+  // succeeded fires only after the iframe has reloaded, the previous mxfile
+  // has been re-loaded, and the switch control is operable; failed fires
+  // instead of succeeded on capture/reload/restore/init errors.
+  | "graph_editor_mode_switch_requested"
+  | "graph_editor_mode_switch_succeeded"
+  | "graph_editor_mode_switch_failed"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
@@ -309,6 +407,10 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
+  // instance; menu_opened fires on every closed -> open transition.
+  | "copy_for_ai_impression"
+  | "copy_for_ai_menu_opened"
   // "Copy for AI" demand-test button in the viewer top-actions row (alongside
   // View Source): a split button — a one-click primary segment (job:
   // 'generic') plus a chevron menu of five job-framed entry points (explain /
@@ -319,6 +421,11 @@ export type AnalyticsEventName =
   // diagram-only fallback (page context unavailable) and an outright
   // clipboard-write failure.
   | "copy_for_ai_clicked"
+  // Every accepted, user-attributed CodeMirror transaction that replaces at
+  // least 95% of the editable OLD document. This is an operation signal; a
+  // saved outcome is established separately by macro_save_succeeded carrying
+  // the same journey_id and the edit-session summary properties.
+  | "editor_global_replace_observed"
   // Bottom-pill "Copy diagram link" action (task 6, docs/superpowers/sdd/
   // 2026-07-26-embed-deeplink-productization): mints and copies the bare
   // embed deeplink (https://<host>/d/<cloudId>/<contentId>) for the diagram
@@ -349,6 +456,92 @@ export type AnalyticsEventName =
   // network/auth/malformed-response errors.
   | "cohorts_refreshed"
   | "cohorts_refresh_failed"
+  // Lite byline activation, Phase 1 (docs/superpowers/specs/
+  // 2026-07-25-lite-byline-activation-design.md). The whole point of Phase 1 is
+  // to measure whether a contentBylineItem earns clicks in OUR app: the same
+  // module has been opened 39 times in 3.5 months on Diagramly and never on
+  // Full, so `byline_opened` IS the experiment's readout, not supporting
+  // telemetry. Every event here is user-initiated — Confluence boots the byline
+  // iframe on click only.
+  // Fires exactly ONCE per modal open, even though the emit sits after the
+  // listing resolves (it needs diagram_count to be the readout at all). The
+  // retry button re-runs the same loader, so an unguarded emit counted a retry
+  // as a second open — an inflation only users who hit a load failure could
+  // produce, biasing the primary metric toward the failure population.
+  | "byline_opened"
+  // A retried listing, so the retry rate is measurable without it landing in
+  // byline_opened. `result` = 'recovered' | 'failed'.
+  | "byline_list_retried"
+  // A listed diagram was acted on from the modal (jump / open fullscreen).
+  | "byline_diagram_opened"
+  // The diagram's DSL was copied to the clipboard from a card. Deliberately NOT
+  // byline_diagram_opened: "the index helped me find and open a diagram" and "I
+  // grabbed the source text" are different intents, and folding them together
+  // makes index engagement read higher than the behaviour it describes.
+  | "byline_diagram_source_copied"
+  // "Add a diagram" clicked. Splits from byline_editor_deeplinked so an
+  // intent-to-create that fails to route is still visible.
+  | "byline_create_clicked"
+  // The modal routed the user to the page editor (router.navigate). Phase 1's
+  // create path ends here: the macro itself is inserted with the editor's own
+  // insert menu. North star = a first-ever macro_create_succeeded by an
+  // accountId within 30 minutes of this event.
+  | "byline_editor_deeplinked"
+  // Modal closed with no diagram opened and no create click — the "looked and
+  // left" outcome. `dwell_ms` separates a misfire from a real evaluation.
+  | "byline_dismissed"
+  // Thumbnail resolution finished. Separate from byline_opened because
+  // thumbnails load AFTER the list paints (they must never delay the Phase 1
+  // readout), so the coverage number simply does not exist yet when
+  // byline_opened fires. `thumbnail_count` vs `diagram_count` is the coverage
+  // ratio that decides whether the visual index earns its requests.
+  | "byline_thumbnails_loaded"
+  // The page's published ADF was scanned to find which listed diagrams no macro
+  // references. `unplaced_count` vs `diagram_count` measures the one failure
+  // mode the whole create→paste handoff has: a diagram saved from the byline
+  // that the user never pasted. It is already counted against the Lite
+  // 100-macro limit at that point, so a rising ratio is both a UX failure and a
+  // quota cost. Emitted once per open, after the list paints — the scan is a
+  // full-page ADF GET and must never delay it.
+  | "byline_unplaced_scanned"
+  // The scheduled writer decided whether this installation should see the
+  // byline. Split from byline_visibility_write deliberately: the decision and
+  // the write fail independently, and a merged event would make a failed write
+  // read as a deliberate suppression — the exact ambiguity that made
+  // Diagramly's ai_aide_route_accessed unusable as a numerator.
+  // `decision` = 'visible' | 'suppressed'; `reason` names what drove it.
+  | "byline_visibility_evaluated"
+  // The result of maintaining byline visibility state: the enrolment SPACE
+  // property (`zenuml-byline` + variant suffix — what the display condition
+  // reads) on every space, with last-settled-state memory in Forge app
+  // storage. `result` = 'written' | 'cleared' | 'unchanged' | 'failed';
+  // `space_count` = spaces swept. This one is load-bearing for support, not
+  // just analysis: the display condition is fail-CLOSED, so a tenant whose
+  // writes silently failed has no byline at all and is otherwise
+  // indistinguishable from one deliberately left off the rollout.
+  | "byline_visibility_write"
+  // The Full app marking its presence on a space (`zenuml-full-active` space
+  // property, created by Full's daily sweep). The Lite byline's display
+  // condition hides itself wherever this marker exists, so a missed write here
+  // shows the Lite byline on a site that paid for Full — annoying, not
+  // dangerous — while the marker lingering after a Full uninstall hides the
+  // Lite byline forever on that space. `result` + `space_count` as above.
+  | "full_presence_write"
+  // The byline editor produced a saved diagram, and (when a cloudId is
+  // available) a deeplink to place it. This is the conversion the picker exists
+  // for: unlike byline_create_clicked it cannot fire on intent alone — a custom
+  // content exists by the time it does.
+  | "byline_diagram_created"
+  // The byline editor closed without saving. Splits abandonment from failure,
+  // which byline_create_clicked alone cannot distinguish.
+  | "byline_create_cancelled"
+  // "Done" was pressed on the post-create panel while the host page was in the
+  // editor, and the app asked Confluence to close the byline view. Forge
+  // documents view.close() as a *request* with no module restrictions stated,
+  // but says nothing about contentBylineItem specifically — `result`
+  // ('closed' | 'unsupported' | 'failed') is how we find out whether a byline
+  // item can dismiss itself, rather than assuming it.
+  | "byline_view_close_requested"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-
@@ -363,6 +556,17 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
+  // `retry()` is a bare location.reload(), so the click and its result sit in
+  // two different page lifetimes: the click event is emitted before the reload,
+  // and the resolution event after it, matched through a sessionStorage marker
+  // (utils/loadFailedRetry.ts) keyed on the macro's localId. Without the pair
+  // there is no way to tell a transient content-fetch failure (recovers on
+  // reload) from a permanently unavailable diagram — both render the same
+  // terminal panel, and 2026-08-18..22 telemetry could only count impressions
+  // (391 external, 128 macros) with no recovery rate attached.
+  | "load_failed_retry_clicked"
+  | "load_failed_retry_resolved"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)
   | "snapshot_created"
@@ -379,6 +583,12 @@ export type AnalyticsEventName =
   // snapshot_create_failed.
   | "snapshot_backfill_skipped"
   | "snapshot_fallback_rendered"
+  // Diagram attribution and audience impact (Phase 1): the read-only footer
+  // and its three-second continuous-visibility registration flow.
+  | "diagram_attribution_shown"
+  | "diagram_audience_view_qualified"
+  | "diagram_audience_registration_succeeded"
+  | "diagram_audience_registration_failed"
   // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG
   // to /forge-upload-attachment with `async: true`, gets an ack after
   // validation, emits `attachment_upload_queued` and returns — the real
@@ -413,6 +623,20 @@ export type AnalyticsEventName =
   | "macro_count_snapshot_completed"
   | "macro_count_space_changed"
   | "macro_count_snapshot_failed"
+  // Lite->Full macro conversion (vendor-operated queue, phase 1). Emitted by
+  // the Cloudflare conversion service, not the browser tracker — same
+  // contract as the macro-count snapshot events above. Lifecycle: a job is
+  // enqueued by the vendor admin script, claimed by the Full app's scheduled
+  // function, then each page either converts or fails; `completed` closes the
+  // job with totals. `macro_skipped` is per-macro (embed macros and unknown
+  // keys are skipped by design in v1, and the skip is the signal that tells
+  // us when phase-2 embed support becomes worth building).
+  | "macro_convert_job_enqueued"
+  | "macro_convert_job_claimed"
+  | "macro_convert_page_succeeded"
+  | "macro_convert_page_failed"
+  | "macro_convert_macro_skipped"
+  | "macro_convert_job_completed"
   | "close_guard_rejected"
   // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
   // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —
@@ -508,18 +732,11 @@ export type AnalyticsEventName =
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
   | "agent_link_list_performed"
-  // Byline activation nudge (docs/superpowers/specs/2026-07-26-byline-activation-nudge-design.md).
-  // ONE merged contentBylineItem (decision 2026-07-26, supersedes the design's
-  // two-item shape and closes its §8.4 Aide co-display open item). Visibility is a
-  // single server-side `entityPropertyExists` gate on `zenuml-prepared-diagram`,
-  // whose VALUE selects the dialog mode — `has-content` (the page already has
-  // diagrams / API specs → list them) or `prepared` (no diagrams, a curated one is
-  // ready → the activation flow). Pages with neither get no property and no chip.
-  // The mode branch happens INSIDE the dialog, never in the byline: a per-view
-  // decision would need `dynamicProperties`, i.e. one Forge invocation per content
-  // view — the §5 cost wall (4.15M views/month, 2.1x the free tier at 100ms) and the
-  // exact shape of the PR #234 incident. `mode` rides every event so the two
-  // journeys stay separable.
+  // AI-prepared byline activation nudge
+  // (docs/superpowers/specs/2026-07-26-byline-activation-nudge-design.md).
+  // Visibility is a server-side `entityPropertyExists` gate on
+  // `zenuml-prepared-diagram`: the property means a curated diagram is ready.
+  // Listing diagrams already on the page belongs to the separate Diagrams byline.
   // NOTE: activation_nudge_shown is NOT emitted — the byline chip is
   // server-rendered Confluence chrome, not our Custom UI, so we get no
   // client hook when it renders. `activation_nudge_clicked` IS the funnel
@@ -534,9 +751,6 @@ export type AnalyticsEventName =
   | "activation_diagram_edited"
   | "activation_completed"
   | "activation_nudge_dismissed"
-  // mode='has-content' branch: the page's existing diagrams listed, and one opened.
-  | "byline_diagram_list_shown"
-  | "byline_diagram_opened"
   // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
   // for diagram creation is at the macro editor, before the user has typed
   // anything — the gallery replaces the old external "Examples" link
@@ -550,12 +764,56 @@ export type AnalyticsEventName =
   // here (deferred 2026-08-03) — its ai_generation_* events already exist
   // above and are reused, not redefined, when that lands.
   | "editor_template_gallery_opened"
-  | "editor_template_applied";
-
-// Which journey the merged byline dialog took, from the `zenuml-prepared-diagram`
-// property value. 'has-content' = list the diagrams already on this page;
-// 'prepared' = the activation flow over a pre-generated, human-curated diagram.
-export type BylineMode = "has-content" | "prepared";
+  | "editor_template_applied"
+  // Onboarding funnel — starter-template surface visibility (companion to
+  // the #334 gallery above, distinct denominator). Fires when the starter
+  // surface becomes visible on an EMPTY new macro. `trigger` ('auto_first_open'
+  // | 'manual') distinguishes an editor that opened the surface itself on a
+  // brand-new blank macro from a user who asked for it via the Templates
+  // button. Today only the `manual` path has a producer (Header.vue's
+  // openTemplateGallery, alongside editor_template_gallery_opened) — no
+  // auto-open-on-empty-macro surface exists yet, so `trigger: 'auto_first_open'`
+  // is reserved for when one is built.
+  | "editor_starter_shown"
+  // Onboarding funnel — "second diagram" prompt (registered ahead of its
+  // producer: this task only registers the event names + properties so the
+  // catalog/types are ready; no call site exists yet in this codebase. A
+  // later task wires the actual prompt UI and emits these). `shown` is the
+  // denominator; `clicked` is the accept action.
+  | "macro_second_diagram_prompt_shown"
+  | "macro_second_diagram_prompt_clicked"
+  // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
+  // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
+  // the detection rule). `shown` is the denominator, fired once per becoming-
+  // visible transition (not on every keystroke while it stays visible);
+  // `switch_clicked` = the user accepted the correction and the editor moved
+  // their source into the PlantUML tab; `dismissed` = the user closed the
+  // hint without switching. Editor-only: the hint's action (switch macro
+  // type) only exists on the editor's type-switcher surface, so it is not
+  // shown in the read-only viewer.
+  | "foreign_dialect_hint_shown"
+  | "foreign_dialect_hint_switch_clicked"
+  | "foreign_dialect_hint_dismissed"
+  // Confluence Home page "Create a diagram" card (confluence:homepageFeed —
+  // see manifest.yml). The only onboarding surface a non-admin end user
+  // encounters without first inserting a macro; the pre-existing
+  // confluence:globalSettings "Get Started" page reaches only site admins.
+  // `homepage_feed_viewed` fires once per mount (the card only exists while
+  // its Home-page section is expanded); `homepage_feed_action_clicked` fires
+  // on the quick-start button. `homepage_feed_diagram_opened` fires when a
+  // recent-diagram row sends the user to the page that diagram lives on —
+  // the one event that measures whether this card returns people to their
+  // work, as opposed to merely being rendered. It carries `macro_type` (via
+  // `toMacroType`, never the raw stored `diagramType`) so the row's type is
+  // comparable with every other create/view surface.
+  // `homepage_feed_example_expanded` fires when an example row is opened in
+  // place. It is the funnel signal for the recognition half of the card: which
+  // diagram type someone with none of their own wants to look at. Carries
+  // `macro_type` so it lines up with the create events for the same type.
+  | "homepage_feed_viewed"
+  | "homepage_feed_action_clicked"
+  | "homepage_feed_diagram_opened"
+  | "homepage_feed_example_expanded";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the
@@ -618,8 +876,25 @@ export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "e
 export type AgentLinkListScope = "page" | "space" | "site";
 
 // Structured, PII-safe values collected by the seven-day extension intake.
-// The backend persists these codes; analytics may receive only these codes,
-// never raw questionnaire text or a free-form "other" value.
+// Version 2 has two required operational questions (long-term access and
+// urgency) and one optional product-research question (AI diagram use).
+// Version 1 values remain valid during the rollout; analytics may receive only
+// these closed codes, never raw questionnaire text, email/contact data, or a
+// free-form "other" value.
+export type PaywallExtensionQuestionId =
+  // Version 1 question IDs retained for rollout and historical events.
+  | "current_task"
+  | "diagram_audience"
+  | "ai_and_diagrams"
+  | "workflow_constraints"
+  | "unblock_need"
+  // Version 2 question IDs.
+  | "long_term_access"
+  | "urgency"
+  | "ai_diagram_use";
+
+export type PaywallExtensionQuestionnaireVersion = 1 | 2;
+
 export type PaywallExtensionTask =
   | "architecture_design"
   | "design_review"
@@ -646,6 +921,14 @@ export type PaywallExtensionAiDiagramUsage =
   | "other_diagram_as_code"
   | "not_sure";
 
+// Version 2's optional AI-diagram research answer. Keep the version 1
+// PaywallExtensionAiDiagramUsage vocabulary above for historical events.
+export type PaywallExtensionAiDiagramUse =
+  | "regularly"
+  | "occasionally"
+  | "interested"
+  | "no";
+
 export type PaywallExtensionProcessRequirement =
   | "required_template"
   | "required_without_template"
@@ -658,6 +941,17 @@ export type PaywallExtensionCloudAiPolicy =
   | "not_allowed"
   | "not_sure";
 
-export type PaywallExtensionScope = "self" | "space" | "site";
-export type PaywallExtensionUrgency = "today" | "this_week" | "planning_ahead";
+// `not_sure` and `no_hard_deadline` are version 2 values. The version 1
+// `planning_ahead` value remains accepted so old clients and historical
+// events continue to type-check during the backend/frontend rollout.
+export type PaywallExtensionScope = "self" | "space" | "site" | "not_sure";
+export type PaywallExtensionUrgency =
+  | "today"
+  | "this_week"
+  | "planning_ahead"
+  | "no_hard_deadline";
 export type PaywallExtensionRoutingOutcome = "automatic" | "manual_review" | "suppressed";
+
+// Graph (DrawIO) editor chrome. `diagram` is Atlas/standard; `board` is
+// Sketch. Unknown persisted values must normalize to `diagram`.
+export type GraphEditorModeValue = "diagram" | "board";

@@ -48,9 +48,11 @@ remotes:
       #
       # Previously full/diagramly/asyncapi stripped this operation and the
       # storage declaration below, which under-declared what those apps
-      # actually store. Do NOT re-add that strip: per the Forge remotes
-      # reference, going inScopeEUD false -> true is a MAJOR version, so the
-      # declaration must stay accurate for every variant once shipped.
+      # actually store. Do NOT re-add that strip in any manifest-generation
+      # path. PR #383 removed it from forge-wizard.mjs but missed the staging
+      # and production workflows; PR #460 removes those duplicate strips.
+      # Check the first resulting main-branch Forge deploy before classifying
+      # the version impact: earlier minor deploys still used stripped manifests.
       - storage
     storage:
       inScopeEUD: true
@@ -211,6 +213,28 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/diagram_macro_icon.png
+      # Paste-to-create (byline type picker). Pasting one of these URLs into the
+      # editor converts it into this macro at the cursor; the macro reads
+      # `autoConvertLink` and starts in the named type. There is no API to
+      # insert a macro into the editor from another iframe, so this is the only
+      # way the byline can honour "pick a type and place it here".
+      #
+      # The mechanism is proven on the embed macro — see
+      # docs/superpowers/plans/2026-07-16-embed-autoconvert-deeplink-spike.md:
+      # converts in the current editor AND Live Docs, needs no resolvable URL
+      # (matching is editor-local), and deployed as a MINOR version bump.
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/new/sequence
+          - pattern: https://confluence.zenuml.com/new/mermaid
+          - pattern: https://confluence.zenuml.com/new/plantuml
+          # Place an EXISTING diagram as this (editable) macro. The embed macro
+          # keeps the 3-segment /d/*/* form, which renders but cannot be edited;
+          # a matcher's * covers exactly one segment, so the 4-segment typed form
+          # can never collide with it.
+          - pattern: https://confluence.zenuml.com/d/sequence/*/*
+          - pattern: https://confluence.zenuml.com/d/mermaid/*/*
+          - pattern: https://confluence.zenuml.com/d/plantuml/*/*
       unlicensedAccess:
         - unlicensed
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
@@ -225,6 +249,10 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/new/openapi
+          - pattern: https://confluence.zenuml.com/d/openapi/*/*
       unlicensedAccess:
         - unlicensed
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
@@ -239,9 +267,28 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/graph_macro_icon.png
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/new/graph
+          - pattern: https://confluence.zenuml.com/d/graph/*/*
       unlicensedAccess:
         - unlicensed
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
+      # Paste-to-place. A diagram created from the byline modal has no macro on
+      # any page yet; the modal hands back
+      # https://confluence.zenuml.com/d/<cloudId>/<contentId>, and pasting that
+      # converts into this macro pointed at the saved diagram. Proven end to end
+      # (current editor + Live Docs) in
+      # docs/superpowers/plans/2026-07-16-embed-autoconvert-deeplink-spike.md;
+      # the URL never has to resolve, matching is editor-local.
+      autoConvert:
+        matchers:
+          # conf-lite is the migrated serving host (#382 Phase 1);
+          # confluence.zenuml.com is the retired standalone-Worker host, kept so
+          # links already pasted or shared keep converting. Both must stay until
+          # Phase 3 retires the old form.
+          - pattern: https://conf-lite.zenuml.com/d/*/*
+          - pattern: https://confluence.zenuml.com/d/*/*
       title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
       description: Embed an existing Diagram, Graph or API Spec. ${APP_LABEL}
       resource: main
@@ -255,9 +302,6 @@ modules:
       icon: resource:main;image/diagram_macro_icon.png
       unlicensedAccess:
         - unlicensed
-      autoConvert:
-        matchers:
-          - pattern: https://conf-lite.zenuml.com/d/*/*
     # AsyncAPI macro: ships only with the asyncapi variant; lite/full/diagramly
     # strip this entry via manifestEdits in scripts/forge-wizard.mjs.
     - key: zenuml-asyncapi-macro
@@ -320,6 +364,28 @@ modules:
     - key: lite-macro-count-daily
       function: macroCountSnapshotFn
       interval: day
+    # Lite-only. Variant builds strip this from Full, Diagramly, and AsyncAPI.
+    # Sweeps the per-space enrolment property that the fail-closed
+    # displayConditions on zenuml-byline-diagrams reads, so this trigger is the
+    # only thing that can turn that entry on — the byline cannot repair its own
+    # gate, because a hidden byline is never opened (src/byline-visibility.ts).
+    #
+    # Steady-state cost per hourly tick: a SUPPRESSED installation pays one
+    # Forge-storage read and zero Confluence calls; an ENROLLED one pays the
+    # spaces listing plus one property GET per space (writes only on drift).
+    # The enrolled sweep cannot be short-circuited by the settled marker —
+    # it is also what enrols spaces CREATED after enrolment.
+    #
+    # AS OF 2026-08-22 the rollout is general (every identifiable installation
+    # is enrolled — src/byline-visibility.ts `decide`), so essentially EVERY
+    # install now takes the enrolled path rather than the one-storage-read
+    # suppressed path. That is the condition this comment previously named as
+    # the trigger for cheapening the sweep (daily full pass + hourly new-space
+    # check); it is now met, and the change is pending. Watch Forge Functions
+    # GB-seconds — see the forge-functions-cost skill.
+    - key: byline-visibility-hourly
+      function: bylineVisibilityFn
+      interval: hour
     # Diagramly-only. CI yq-strips this entry for lite/full so it never runs
     # on those variants. Polls the enrollment KV and creates a demo page for
     # any enrolled space that doesn't yet have one. Interval is a safety net
@@ -331,6 +397,23 @@ modules:
     - key: diagramly-demo-page-pipeline
       function: createDemoPageScheduled
       interval: hour
+    # Full-only. Variant builds strip this from Lite, Diagramly, and AsyncAPI
+    # (scripts/forge-wizard.mjs). Lite->Full conversion executor: claims at
+    # most one vendor-enqueued ConversionJob per tick from the connect Remote
+    # and exits immediately when the queue is empty, so idle installations pay
+    # one claim round-trip per hour.
+    # docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md
+    - key: full-lite2full-hourly
+      function: liteFullConversionFn
+      interval: hour
+    # Full-only. Variant builds strip this from Lite, Diagramly, and AsyncAPI.
+    # Marks Full's presence on every space (`zenuml-full-active`) so the Lite
+    # byline's display condition can hide itself beside Full. Daily: presence
+    # changes at install cadence, and the sweep costs a read per space across
+    # every production Full install. See src/full-presence.ts.
+    - key: full-presence-daily
+      function: fullPresenceFn
+      interval: day
   endpoint:
     - key: remote-connect
       remote: connect
@@ -381,6 +464,43 @@ modules:
       # because every macro module already declares this same binding.
       resolver:
         endpoint: remote-connect
+  # End-user entry point on the Confluence Home page (right side panel). The
+  # confluence:globalSettings "Get Started" page above is admin-only — end
+  # users never open global settings — so this is the only onboarding surface
+  # a non-admin end user encounters without first inserting a macro.
+  #
+  # Ships on lite/full/diagramly (the generic-diagram product line). Stripped
+  # for asyncapi via manifestEdits in scripts/forge-wizard.mjs (and mirrored in
+  # release.yml + staging-deploy.yml): asyncapi already treats its
+  # confluence:spacePage "My API Documents" dashboard as its one onboarding
+  # surface (same manifestEdits strip confluence:globalPage +
+  # confluence:contentBylineItem for the same reason), and this card's "create
+  # a diagram" copy doesn't fit an API-spec product.
+  #
+  # Per the Forge manifest reference, confluence:homepageFeed entries carry NO
+  # `route` property (verified against
+  # https://developer.atlassian.com/platform/forge/manifest-reference/modules/confluence-homepage-feed/
+  # 2026-08-19 — the only properties are key/resource/render/resolver/
+  # viewportSize/title/keyboardShortcut). src/forgeIndex.ts therefore
+  # discriminates purely on context.extension.type, the same way
+  # confluence:spacePage does above.
+  confluence:homepageFeed:
+    - key: zenuml-homepage-feed
+      resource: main
+      title: Create a diagram${LITE_TITLE_SUFFIX}
+      # No viewportSize: the property pins the iframe to a fixed box, and
+      # `small` measured 266x52 px on lite-dev 2026-08-21 — the body copy alone
+      # overflows that, so the action button was unreachable (the iframe's own
+      # scrollbar does not respond to wheel events from the host page). Per the
+      # manifest reference, "Remove this property to enable automatic resizing
+      # of the module", which sizes the iframe to the card's real height.
+      # invokeRemote REQUIRES the calling module to carry a resolver/endpoint
+      # binding — without this line the iframe's call fails with: Entry point
+      # "resolver" for extension "zenuml-homepage-feed" could not be invoked
+      # (same failure mode documented on confluence:pageBanner below, observed
+      # on lite-stg 2026-08-09 for that module).
+      resolver:
+        endpoint: remote-connect
   confluence:spacePage: #Note: AsyncAPI variant only — appears in each Confluence space's sidebar. Mirrors AsyncAPI-Conf-V2's spacePage. Other variants strip this via manifestEdits in scripts/forge-wizard.mjs.
     - key: zenuml-asyncapi-dashboard-page
       resource: main
@@ -388,7 +508,13 @@ modules:
       route: zenuml-asyncapi-dashboard
       resolver:
         endpoint: remote-connect
-  confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
+  # Two byline entries, one per audience; scripts/forge-wizard.mjs strips the
+  # one that doesn't apply, so no variant ever ships both. Confluence boots a
+  # byline iframe ONLY on click (measured 2026-08-01: 5 opens against 39,197
+  # macro views on the variants shipping `zenuml-byline-aiaide`), so an unused
+  # entry here costs nothing at page-load time.
+  confluence:contentBylineItem:
+    # Diagramly + Full. Opens the AI Aide chat (src/routes/aiAide.ts).
     - key: zenuml-byline-aiaide
       resource: main
       title: Aide${LITE_TITLE_SUFFIX}
@@ -398,6 +524,99 @@ modules:
       viewportContainer: modal
       resolver:
         endpoint: remote-connect
+    # Lite only. Diagram index + create entry point (src/routes/byline.ts).
+    #
+    # The label is deliberately a noun, not a call to action: this item renders
+    # on EVERY page, and a page with three diagrams already on it makes "Diagram
+    # this page" read wrong.
+    #
+    # It DOES carry ${LITE_TITLE_SUFFIX}, which earlier revisions of this entry
+    # deliberately omitted on the grounds that the entry "ships in exactly one
+    # variant, so there is no sibling app to disambiguate from". That premise
+    # expires the moment Full ships a byline of its own: a site with both apps
+    # installed would show two identically-labelled "Diagrams" items under the
+    # page title, with nothing to say which app owns which. 7 production sites
+    # currently have both Lite and Full (D1 ForgeInstallation joined on
+    # clientDomain, checked 2026-08-14), so the collision is real rather than
+    # hypothetical. Lite renders "Diagrams Lite"; every variant that sets the
+    # suffix empty renders plain "Diagrams".
+    #
+    # A count in the label ("3 diagrams") would be the strongest signal but
+    # needs `dynamicProperties`, which costs a function invocation on every page
+    # RENDER — deferred to Phase 3 behind a measured cost estimate.
+    - key: zenuml-byline-diagrams
+      resource: main
+      title: Diagrams${LITE_TITLE_SUFFIX}
+      # Fail-CLOSED gate on SPACE properties, two legs ANDed. Since 2026-08-22
+      # the rollout is GENERAL: src/byline-visibility.ts `decide` enrols every
+      # installation whose cloudId the runtime can resolve, so this entry is
+      # live in production rather than dark. (It was previously restricted to a
+      # two-site cloudId allowlist, removed with the rollout — see `git log`.)
+      # Rollout scope remains a change to `decide`, not to this condition — and
+      # leg 2 below still suppresses the byline wherever Full is installed.
+      #
+      # 1. The variant's OWN enrolment property must say enabled. The key is
+      #    templated like every other per-variant key in this manifest:
+      #    `zenuml-byline${LITE_KEY_SUFFIX}` resolves to `zenuml-byline-lite`
+      #    on Lite (the key src/byline-visibility.ts writes — keep them in
+      #    lockstep) and `zenuml-byline` on Full/Diagramly/AsyncAPI. It is
+      #    written to every space by the Lite `byline-visibility-hourly` sweep
+      #    on every identifiable installation. Absent property = no byline.
+      # 2. `zenuml-full-active` must NOT exist — the FULL app's daily sweep
+      #    (src/full-presence.ts, Full variant only) marks its presence per
+      #    space, and the Lite byline hides itself where Full already provides
+      #    its own surfaces. Space properties are site-global across apps,
+      #    which is what makes a marker written by Full readable here.
+      #
+      # Leg 2 is LITE-ONLY SEMANTICS that env substitution cannot remove: a
+      # Full deployment of this module would subtract Full's own presence
+      # marker and hide itself on every space. Full strips this whole module
+      # today; whichever change un-strips it MUST also delete the `not` leg in
+      # the same per-variant edit (see the byline strip in
+      # scripts/forge-wizard.mjs) and ship a writer for `zenuml-byline`.
+      #
+      # `objectName` + object value is the encoding PROVEN on this surface —
+      # a bare value's string-conversion semantics is where this gate failed
+      # twice. PROPERTY_FIELD in src/byline-visibility.ts is the other half of
+      # the pair; renaming one side alone hides the byline everywhere silently.
+      # `value` MUST stay the string "true": forge lint rejects a boolean.
+      # Only one property condition may sit per tree level, hence the nesting.
+      displayConditions:
+        and:
+          entityPropertyEqualTo:
+            entity: space
+            propertyKey: zenuml-byline${LITE_KEY_SUFFIX}
+            objectName: enabled
+            value: "true"
+          not:
+            entityPropertyExists:
+              entity: space
+              propertyKey: zenuml-full-active
+      # zenuml.com's own favicon, matching the panel's header. It is a square
+      # mark drawn to be read at favicon size, so it survives the ~16px
+      # Confluence gives a byline icon — unlike the stacked wordmark tried
+      # before it, which turned to mush at that size.
+      icon: resource:main;image/zenuml-favicon.png
+      tooltip: See the diagrams on this page, or add one
+      # contentBylineItem accepts only small | medium | large | fullscreen —
+      # `forge lint` rejects anything else outright (it refused `max` with
+      # exactly that list).
+      #
+      # `medium` (618x529) is the size this panel was designed for. It briefly
+      # shipped as `fullscreen` to give the preview grid more room, and that
+      # inverted the problem: the content here is a picker and a short list, so
+      # a whole-screen modal had to be capped back down at every level — fixed
+      # row heights, `auto-fill` columns, a tile-height cap — and a laptop still
+      # rendered a ~1000x800px preview per type. The layout is a single column
+      # of rows now, which fits 618px without any of those caps.
+      viewportSize: medium
+      viewportContainer: modal
+      resolver:
+        endpoint: remote-connect
+    # From main: the activation nudge, shown only when the page carries a
+    # prepared diagram. Independent of the diagram index above — a page can
+    # legitimately offer both, and every variant ships a different subset (see
+    # scripts/forge-wizard.mjs).
     - key: zenuml-byline-newuser
       resource: main
       title: View as diagram
@@ -479,8 +698,18 @@ modules:
       handler: createDemoPage.handler
     - key: createDemoPageScheduled
       handler: createDemoPage.scheduledHandler
+    - key: bylineVisibilityFn
+      handler: byline-visibility.scheduledHandler
+      # Sweeps every space (property read+write per space), not one property.
+      timeoutSeconds: 900
+    - key: fullPresenceFn
+      handler: full-presence.scheduledHandler
+      timeoutSeconds: 900
     - key: macroCountSnapshotFn
       handler: macro-count-snapshot.scheduledHandler
+      timeoutSeconds: 900
+    - key: liteFullConversionFn
+      handler: lite-full-conversion.scheduledHandler
       timeoutSeconds: 900
 
 resources:

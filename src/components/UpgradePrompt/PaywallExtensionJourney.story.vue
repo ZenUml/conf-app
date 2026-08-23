@@ -11,8 +11,8 @@
         </div>
         <div data-testid="journey-inventory" class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs">
           <p class="font-semibold text-slate-900">Implementation inventory</p>
-          <p class="mt-1"><span class="font-semibold text-emerald-700">7 Implemented</span> · production components or purchase paths</p>
-          <p><span class="font-semibold text-amber-700">9 Concept</span> · local fixtures, no analytics or external calls</p>
+          <p class="mt-1"><span class="font-semibold text-emerald-700">8 Implemented</span> · production components or purchase paths</p>
+          <p><span class="font-semibold text-amber-700">8 Concept</span> · local fixtures, no analytics or external calls</p>
         </div>
       </div>
     </header>
@@ -93,91 +93,49 @@
               <div>
                 <p class="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">About one minute</p>
                 <h3 class="mt-1 text-xl font-semibold">Get a 7-day extension</h3>
-                <p class="mt-1 text-sm text-slate-600">Five short questions help us unblock you and give your administrator useful context.</p>
+                <p class="mt-1 text-sm text-slate-600">Three short questions help us unblock you and give your administrator useful context.</p>
               </div>
-              <span data-testid="extension-question-count" class="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">5 questions</span>
+              <span data-testid="extension-question-count" class="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">3 questions</span>
             </div>
             <div data-testid="extension-disclosure" class="mb-5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
-              ZenUML will use these answers to arrange temporary access and will notify your organisation's registered technical or site contact.
+              If this is your first eligible request, your 7-day access starts as soon as you submit. Your answers do not affect whether you qualify. ZenUML may notify your organisation's registered technical or site contact with this Space, its approximate diagram count, and the scope and timing you select. Your optional product-research answer is not shared with your organisation.
             </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <fieldset data-testid="extension-question" data-question-id="current_task" class="rounded-lg border border-slate-200 p-3">
-                <legend class="px-1 text-sm font-semibold">1. What are you working on?</legend>
-                <select v-model="answers.currentTask" class="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm">
-                  <option value="architecture">Architecture or solution design</option>
-                  <option value="design_review">Design review</option>
-                  <option value="documentation">Technical documentation</option>
-                  <option value="incident_review">Incident review</option>
-                  <option value="system_understanding">Understanding an existing system</option>
-                  <option value="team_communication">Team or cross-team communication</option>
-                  <option value="other">Other</option>
-                </select>
-              </fieldset>
-
-              <fieldset data-testid="extension-question" data-question-id="audience" class="rounded-lg border border-slate-200 p-3">
-                <legend class="px-1 text-sm font-semibold">2. Who is this diagram for?</legend>
-                <select v-model="answers.audience" class="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm">
-                  <option value="self">Me</option>
-                  <option value="team">My development team</option>
-                  <option value="tech_lead">Architect or Tech Lead</option>
-                  <option value="manager">Manager or engineering lead</option>
-                  <option value="other_team">Another team</option>
-                  <option value="governance">Security, platform, or governance</option>
-                  <option value="broad_readers">Broader documentation readers</option>
-                </select>
-              </fieldset>
-
-              <fieldset data-testid="extension-question" data-question-id="ai_diagrams" class="rounded-lg border border-slate-200 p-3">
-                <legend class="px-1 text-sm font-semibold">3. Do you use AI with diagrams?</legend>
-                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <select v-model="answers.aiTool" aria-label="AI coding tool" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
-                    <option value="none">No AI coding tool</option>
-                    <option value="github_copilot">GitHub Copilot</option>
-                    <option value="cursor">Cursor</option>
-                    <option value="claude_code">Claude Code</option>
-                    <option value="codex">Codex</option>
-                    <option value="other">Another tool</option>
-                  </select>
-                  <select v-model="answers.aiForDiagrams" aria-label="AI diagram use" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
-                    <option value="yes">Yes, diagram-as-code</option>
-                    <option value="no">No</option>
-                    <option value="not_sure">Not sure</option>
-                  </select>
-                </div>
-              </fieldset>
-
-              <fieldset data-testid="extension-question" data-question-id="workflow_constraints" class="rounded-lg border border-slate-200 p-3">
-                <legend class="px-1 text-sm font-semibold">4. Does your workflow set constraints?</legend>
-                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <select v-model="answers.template" aria-label="Required diagram process" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
-                    <option value="required">Required process or template</option>
-                    <option value="optional">Optional template</option>
-                    <option value="none">No required process</option>
-                    <option value="not_sure">Not sure</option>
-                  </select>
-                  <select v-model="answers.cloudAi" aria-label="Cloud AI policy" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
-                    <option value="allowed">Cloud AI allowed</option>
-                    <option value="restricted">Cloud AI restricted</option>
-                    <option value="not_allowed">Cloud AI not allowed</option>
-                    <option value="not_sure">Not sure</option>
-                  </select>
-                </div>
-              </fieldset>
-
-              <fieldset data-testid="extension-question" data-question-id="unblock_need" class="rounded-lg border border-slate-200 p-3 sm:col-span-2">
-                <legend class="px-1 text-sm font-semibold">5. What needs unblocking, and how soon?</legend>
+              <fieldset data-testid="extension-question" data-question-id="long_term_access" class="rounded-lg border border-slate-200 p-3">
+                <legend class="px-1 text-sm font-semibold">1. What access does your team need beyond these 7 days?</legend>
                 <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <select v-model="answers.scope" aria-label="Requested unblock scope" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
-                    <option value="self">Just me</option>
-                    <option value="space">This Space</option>
-                    <option value="site">The whole Site</option>
+                    <option value="self">Just me, in this Space</option>
+                    <option value="space">Several people in this Space</option>
+                    <option value="site">Multiple Spaces across our site</option>
+                    <option value="not_sure">Not sure yet</option>
                   </select>
+                </div>
+                <p class="mt-2 text-xs text-slate-500">Your own 7-day access is the same whichever you pick.</p>
+              </fieldset>
+
+              <fieldset data-testid="extension-question" data-question-id="urgency" class="rounded-lg border border-slate-200 p-3">
+                <legend class="px-1 text-sm font-semibold">2. When do you need this diagram work done?</legend>
+                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <select v-model="answers.urgency" aria-label="Urgency" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
                     <option value="today">Today</option>
                     <option value="this_week">This week</option>
-                    <option value="planning_ahead">Planning ahead</option>
+                    <option value="no_hard_deadline">No hard deadline</option>
                   </select>
                 </div>
+                <p class="mt-2 text-xs text-slate-500">Included in the admin message so they can prioritise.</p>
+              </fieldset>
+
+              <fieldset data-testid="extension-question" data-question-id="ai_diagram_use" class="rounded-lg border border-slate-200 p-3 sm:col-span-2">
+                <legend class="px-1 text-sm font-semibold">3. Optional: do you use AI tools to create or edit diagrams?</legend>
+                <select v-model="answers.aiDiagramUse" aria-label="AI diagram use" class="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <option value="">Skip this optional question</option>
+                  <option value="regularly">Yes, regularly</option>
+                  <option value="occasionally">Yes, occasionally</option>
+                  <option value="interested">No, but I’d like to</option>
+                  <option value="no">No</option>
+                </select>
+                <p class="mt-2 text-xs text-slate-500">Product research only. Never shared with your organisation.</p>
               </fieldset>
             </div>
             <p class="mt-4 text-xs text-slate-500">The requested scope informs the upgrade path. The first temporary grant remains limited to you in this Space.</p>
@@ -298,7 +256,7 @@ const stages: Stage[] = [
   { id: 'paywall-2', group: 'Paywall', title: '2 continues', status: 'Implemented', note: 'Loss-preview copy makes the approaching block explicit.', attempts: 2 },
   { id: 'paywall-1', group: 'Paywall', title: 'Last continue', status: 'Implemented', note: 'The production commitment beat replaces duplicate purchase and advocacy rails.', attempts: 1 },
   { id: 'paywall-0', group: 'Paywall', title: 'Editing paused', status: 'Implemented', note: 'Existing diagrams remain safe while new edits pause.', attempts: 0 },
-  { id: 'intake', group: 'Extension intake', title: 'Five questions', status: 'Concept', note: 'A structured, one-minute intake with transparent administrator-contact disclosure.' },
+  { id: 'intake', group: 'Extension intake', title: 'Three questions', status: 'Implemented', note: 'The production intake uses two required operational questions plus one optional AI research question, with transparent administrator-contact disclosure.' },
   { id: 'granted', group: 'Granted', title: '7-day access', status: 'Concept', note: 'A server-authoritative user + Space grant, shown here as a fixed fixture.' },
   { id: 'admin-auto', group: 'Admin outreach', title: 'Automatic route', status: 'Concept', note: 'Fresh direct-customer contacts can be notified without exposing an address.' },
   { id: 'admin-manual', group: 'Admin outreach', title: 'Manual route', status: 'Concept', note: 'Uncertain, stale, missing, or partner contacts are held for review.' },
@@ -314,14 +272,9 @@ const stages: Stage[] = [
 const selectedId = ref(stages[0].id)
 const editorReturned = ref(false)
 const answers = reactive({
-  currentTask: 'architecture',
-  audience: 'team',
-  aiTool: 'codex',
-  aiForDiagrams: 'yes',
-  template: 'required',
-  cloudAi: 'not_sure',
   scope: 'self',
   urgency: 'today',
+  aiDiagramUse: '',
 })
 
 const selectedIndex = computed(() => Math.max(0, stages.findIndex((stage) => stage.id === selectedId.value)))
@@ -356,8 +309,7 @@ function reset() {
   selectedId.value = stages[0].id
   editorReturned.value = false
   Object.assign(answers, {
-    currentTask: 'architecture', audience: 'team', aiTool: 'codex', aiForDiagrams: 'yes',
-    template: 'required', cloudAi: 'not_sure', scope: 'self', urgency: 'today',
+    scope: 'self', urgency: 'today', aiDiagramUse: '',
   })
 }
 

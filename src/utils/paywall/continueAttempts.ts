@@ -1,8 +1,12 @@
-// 3, down from 15 (paywall-rhythm W1, 2026-08-10). Default-on telemetry showed
-// 15 is not a decision point: an active editor burned 7 continues in 30 minutes
-// dismissing the modal like a cookie banner, while monthly-cadence editors
-// would take a year to exhaust it. Three attempts keep the escape hatch and
-// make the last one carry a real choice (see UpgradePrompt's commitment beat).
+// 3, down from 15 (paywall-rhythm W1, 2026-08-10 -> 2026-08-16). Default-on
+// telemetry showed 15 is not a decision point: an active editor burned 7
+// continues in 30 minutes dismissing the modal like a cookie banner, while
+// monthly-cadence editors would take a year to exhaust it. Three attempts
+// keep the escape hatch and make the last one carry a real choice (see
+// UpgradePrompt's commitment beat). Existing users keep whatever balance is
+// already in localStorage — getOrCreateContinueAttempts only applies this
+// default when no valid record exists, so the change reaches new user/space
+// pairs only.
 export const DEFAULT_CONTINUE_ATTEMPTS = 3
 export const CONTINUE_ATTEMPTS_STORAGE_SOURCE = 'local_storage'
 
@@ -54,10 +58,7 @@ function parseState(raw: string | null): ContinueAttemptsState | null {
       return null
     }
     return {
-      // Clamp pre-existing states written under the old 15-attempt regime down
-      // to the current allowance. Never grants more than the user already had;
-      // a state that was exhausted stays exhausted.
-      remainingAttempts: Math.min(Math.floor(parsed.remainingAttempts), DEFAULT_CONTINUE_ATTEMPTS),
+      remainingAttempts: Math.floor(parsed.remainingAttempts),
       firstTriggeredAt: parsed.firstTriggeredAt,
       lastUsedAt: typeof parsed.lastUsedAt === 'string' ? parsed.lastUsedAt : null,
       exhaustedAt: typeof parsed.exhaustedAt === 'string' ? parsed.exhaustedAt : null,

@@ -1,0 +1,140 @@
+import { test, expect, type APIRequestContext } from '@playwright/test';
+import { testConfig } from '../../config/test-config.js';
+import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
+import { pasteUntil, isMacro, typedDeeplinkUrl } from '../../helpers/embedDeeplink.js';
+
+/**
+ * The regression this exists for: a graph placed by pasting its typed deeplink
+ * rendered an EMPTY canvas, and stayed empty after editing.
+ *
+ * A macro created by autoConvert has no `config` — its custom content id lives
+ * only in the matched URL. forge-graph-viewer / forge-graph-editor read
+ * `extension.config.customContentId` directly, so the pasted macro had no id at
+ * all: the viewer loaded nothing, and the editor treated it as a brand-new
+ * diagram and saved to a fresh custom content, orphaning the original. Fixed by
+ * routing every entry point through resolveEffectiveCustomContentId.
+ *
+ * typed-deeplink-autoconvert.spec.ts pins the ROUTING (which macro claims the
+ * URL). That passes even when the macro renders nothing, because a matcher
+ * assertion never resolves the content. This spec is the other half: the pasted
+ * macro must actually RENDER the diagram it points at.
+ *
+ * Two pages by design — page A owns a real diagram, page B receives only the
+ * link — so the assertion on B cannot be satisfied by A's macro.
+ */
+
+const macroType = 'graph' as const;
+
+// LITE ONLY. The typed /new/<type> and /d/<type>/*/* autoConvert matchers exist
+// only in Lite's deployed manifest: scripts/forge-wizard.mjs:236-238 (mirrored in
+// release.yml and staging-deploy.yml) deletes them for full/diagramly/asyncapi,
+// because only Lite ships the byline that mints those links and identical
+// patterns in two installed apps would let the wrong app claim a pasted URL.
+// Diagramly keeps the graph macro itself, so a macros-only guard does NOT skip
+// here — the paste stays a plain link, Confluence's link toolbar covers the
+// editor, and every later click times out at 60s. That reaped Diagramly's shard
+// at the 8-minute job cap three runs in a row on 2026-08-16 (run 31937067487).
+const skip = !testConfig.isLite || !testConfig.macros.includes(macroType);
+
+/** Verified 2026-08-02: returns {"cloudId":"..."} for a Confluence Cloud site. */
+async function fetchCloudId(request: APIRequestContext): Promise<string> {
+  const r = await request.get(`https://${testConfig.domain}/_edge/tenant_info`);
+  expect(r.ok(), `tenant_info failed: ${r.status()}`).toBe(true);
+  const { cloudId } = await r.json();
+  expect(cloudId, 'tenant_info returned no cloudId').toBeTruthy();
+  return cloudId;
+}
+
+/**
+ * The custom content a page's macros own. Same endpoint and `type` key the app
+ * itself uses (ApWrapper2.getPageCustomContent) — every diagram type is stored
+ * under the one custom-content key, graph included.
+ *
+ * Deliberately NO `type` filter. The wire format is the FULLY QUALIFIED type
+ * (`ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence` — see
+ * ApWrapper2.getCustomContentTypePrefix), not the bare key, and the prefix
+ * varies per variant in a way that does not track `testConfig.addonKey`
+ * (diagramly uses `gptdock-confluence`). Passing the bare key returns 400.
+ * `type` is optional on this endpoint and the page has exactly one macro, so
+ * reconstructing the prefix here would be a second source of truth for no gain.
+ * The filter below still prefers a ZenUML-looking type when one is present.
+ */
+async function fetchPageCustomContentId(
+  request: APIRequestContext,
+  pageId: string,
+): Promise<string> {
+  const url = `https://${testConfig.domain}/wiki/api/v2/pages/${pageId}/custom-content?limit=25`;
+  const r = await request.get(url, { headers: { Accept: 'application/json' } });
+  // Include the body: a bare status turned a one-line API mistake into a
+  // source-diving exercise the first time this ran.
+  const raw = await r.text();
+  expect(r.ok(), `custom-content listing failed: ${r.status()} ${url}\n${raw.slice(0, 500)}`)
+    .toBe(true);
+
+  const results: Array<{ id?: string; type?: string }> = JSON.parse(raw)?.results ?? [];
+  const mine = results.find(c => (c.type || '').includes(testConfig.customContentKey));
+  const id = (mine ?? results[0])?.id;
+  expect(
+    id,
+    `page ${pageId} reported no custom-content children — the source diagram was ` +
+      `not persisted, so the paste would have nothing to resolve. Got: ${raw.slice(0, 300)}`,
+  ).toBeTruthy();
+  return String(id);
+}
+
+test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, () => {
+  test.skip(
+    skip,
+    testConfig.isLite
+      ? `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`
+      : `Typed deeplink matchers are stripped for ${testConfig.productType} (Lite-only byline)`,
+  );
+
+  test('a pasted graph deeplink renders the diagram, not an empty canvas', async ({
+    page,
+    request,
+  }) => {
+    // Two page creations and two publishes — comfortably the heaviest test in
+    // the insert suite, and the only one that builds its own fixture instead of
+    // using a fixed id. Triple the project timeout rather than have a slow
+    // staging run read as a product failure.
+    test.slow();
+    const variantLabel = testConfig.isLite ? ' Lite' : '';
+    const cloudId = await fetchCloudId(request);
+
+    // Page A — insert a graph the normal way so a real custom content exists.
+    const sourcePageId = await test.step('create the source diagram', async () => {
+      const editorPage = await createPageAndSetup(page, variantLabel);
+      await editorPage.dismissLearnTheBasicsPanel();
+      await editorPage.clickInsertElements();
+      await editorPage.searchAndSelectMacro('graph', editorPage.getMacroName('Graph (DrawIO)'));
+      await editorPage.interactWithGraphMacro(`Deeplink Source${variantLabel}`);
+      return publishAndVerifyMacros(page, editorPage, 1, 'deeplink-source', async (macroPage) => {
+        await macroPage.assertMacroHasSvg(macroPage.getGraphMacroFrame());
+      });
+    });
+    expect(sourcePageId, 'source page was not published').toBeTruthy();
+
+    const contentId = await fetchPageCustomContentId(request, sourcePageId);
+    console.log(`  ✓ source diagram custom content: ${contentId}`);
+
+    // Page B — the link is the ONLY thing carrying the diagram's identity.
+    await test.step('place it by pasting the typed deeplink', async () => {
+      const editorPage = await createPageAndSetup(page, variantLabel);
+      const url = typedDeeplinkUrl('graph', cloudId, contentId);
+      const conv = await pasteUntil(page, url, (x) => isMacro(x, 'zenuml-graph-macro'));
+      expect(
+        isMacro(conv, 'zenuml-graph-macro'),
+        `paste did not convert to the graph macro: ${JSON.stringify(conv)}`,
+      ).toBe(true);
+
+      // The assertion that would have caught the bug. Iframe visibility alone
+      // is not enough — an empty canvas and the load-failed panel both render
+      // inside a perfectly visible Forge iframe. assertMacroHasSvg requires the
+      // DrawIO viewer to have drawn the retrieved diagram.
+      await publishAndVerifyMacros(page, editorPage, 1, 'deeplink-pasted', async (macroPage) => {
+        await macroPage.assertMacroHasSvg(macroPage.getGraphMacroFrame());
+      });
+    });
+  });
+});

@@ -38,8 +38,8 @@ export interface PaywallAdminNotificationRow {
 export interface PaywallAdminEmailContent {
   spaceKey: string;
   macroCount: number;
-  requestedScope: 'self' | 'space' | 'site';
-  urgency: 'today' | 'this_week' | 'planning_ahead';
+  requestedScope: 'self' | 'space' | 'site' | 'not_sure';
+  urgency: 'today' | 'this_week' | 'planning_ahead' | 'no_hard_deadline';
   grantedAt: string;
   expiresAt: string;
   upgradeUrl: string;
@@ -69,11 +69,14 @@ function displayDate(value: string): string {
 }
 
 function displayScope(scope: PaywallAdminEmailContent['requestedScope']): string {
-  return scope === 'self' ? 'the requester' : scope === 'space' ? 'this Space' : 'this site';
+  if (scope === 'self') return 'the requester';
+  if (scope === 'space') return 'this Space';
+  if (scope === 'site') return 'this site';
+  return 'the team, with longer-term scope still to be confirmed';
 }
 
 function displayUrgency(urgency: PaywallAdminEmailContent['urgency']): string {
-  return urgency === 'today' ? 'today' : urgency === 'this_week' ? 'this week' : 'for upcoming work';
+  return urgency === 'today' ? 'today' : urgency === 'this_week' ? 'this week' : 'without a hard deadline';
 }
 
 /**

@@ -1,4 +1,4 @@
-import * as htmlToImage from 'html-to-image';
+import { captureBlob } from '@/model/captureBlob';
 import { saveAs } from 'file-saver';
 import {
   VIEWBOX_REF_W,
@@ -189,12 +189,15 @@ async function renderPngBlob(options: ExportOptions, node: HTMLElement | null | 
 
   const effectiveBg = resolveBgColor(options.background);
 
-  const blob = await htmlToImage.toBlob(captureNode, {
+  // captureBlob, not htmlToImage.toBlob: the library's raster step resolves
+  // only from inside a requestAnimationFrame callback, which a rendering-
+  // throttled (offscreen) Forge iframe never services — see model/captureBlob.ts.
+  const blob = await captureBlob(captureNode, {
     backgroundColor: effectiveBg ?? undefined,
     skipFonts: true,
   });
   if (!blob) {
-    console.warn('[useExportEngine] html-to-image returned null');
+    console.warn('[useExportEngine] capture returned null');
     return { ok: false, reason: 'blob_null' };
   }
 

@@ -64,6 +64,32 @@ Direct URLs (the app's own nav is the only discoverable path otherwise):
 
 Reading flag state with Playwright MCP in extension mode: the relay usually dies after one `browser_evaluate` per tab. Budget one navigate + one eval per `browser_tabs` `new` call, and scrape everything in that single eval. Client-side walking of the flag list (clicking each row inside one eval) re-scrapes one flag and returns plausible-looking duplicate data — do not trust it.
 
+### Which browser to drive the Console with
+
+The Developer Console is a normal page, not a Forge iframe, so **claude-in-chrome works on it** and is the cheaper entry point. Start with `tabs_context_mcp` — a Console tab is often already open at the exact flag URL, which removes the navigation step entirely. On 2026-08-16 Playwright MCP hung for 120 s on both `browser_navigate` and `browser_find` against this domain and needed two `TaskStop` calls; claude-in-chrome then completed the same task.
+
+Under claude-in-chrome, a plain **screenshot reads chip state reliably** — a selected chip renders a ✓ glyph, an unselected one an empty ○. The computed-colour method below exists because Playwright MCP extension mode may not write screenshots to disk; use whichever matches the transport in hand.
+
+### Update can hang silently — confirm on the Activity tab
+
+Clicking **Update** can open an "Unsaved changes" modal whose save button spins indefinitely. Observed 2026-08-16: ~60 s with no resolution, `POST /gateway/api/session/heartbeat` returning **400** during the hang, and the staged change never persisted. The chip already showed the new state while the server still held the old one.
+
+Recovery: open the same flag URL in a **new tab**, redo the chip click there, click Update. The stalled tab's pending request is harmless when its target state matches what was applied; leave it rather than clicking Discard.
+
+**The `Activity` tab is the authoritative confirmation, not the Setup chips or a page reload.** One click, no navigation, and its rows name the exact transition:
+
+```
+Aug 16, 2026 07:01   Peng Xiao   UPDATED
+  • 'Everyone' applied environments changed from
+    development, staging → development, staging, production
+```
+
+It also proves a stalled attempt did not double-apply — count the rows in the window. A chip glyph reflects local staged state and is not evidence of a write.
+
+### Rule order governs a scope change
+
+Rules evaluate top-down and the first match wins. Adding an environment to a broad first rule (`everyone`, Pass 100%) makes every narrower rule below it unreachable — a site-targeted `installContext` rule then stops governing anything, without being edited or shown as changed. Read the whole rule list before widening any single rule, and state in the report which rules the change made redundant.
+
 ### Reading which environments a rule actually targets
 
 A newly created flag defaults its rule to **development + staging only — production is OFF** — while the page header still reads `ENABLED` in large type. Trusting that header ships a no-op.

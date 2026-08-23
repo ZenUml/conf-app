@@ -6,6 +6,7 @@ import type { DiagramLoadError, ViewerLoadState } from '@/model/store2/types';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import { serializeError } from '@/utils/window';
 import { decompress } from '@/utils/compress';
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
 
 /**
  * Legacy Connect-era graph/DrawIO macros persisted graphXml as LZUTF8-Base64
@@ -44,6 +45,11 @@ export function publishLoadedDiagram(doc: Diagram | undefined, loadError?: Diagr
   window.diagram = diagram;
   console.log('loadDiagram - window.diagram', window.diagram);
   return diagram;
+}
+
+/** Viewer-only metadata; Diagram itself is persisted custom-content data. */
+export function publishDiagramAttribution(attribution: DiagramAttribution | null | undefined): void {
+  store.state.diagramAttribution = attribution ?? null;
 }
 
 export type { DiagramLoadError, ViewerLoadState };
@@ -139,6 +145,24 @@ export function classifyViewerLoadOutcome(
 export function setViewerLoadState(state: ViewerLoadState, loadError: DiagramLoadError | null = null): void {
   store.state.viewerLoadState = state;
   store.state.loadError = loadError;
+}
+
+/**
+ * Classify and publish the load state for a sequence-family doc that's
+ * ALREADY known-renderable — it's what mounted on screen — rather than one
+ * just returned from a fetch. Extracted so forgeIndex.ts's content-SWR
+ * `mountSequenceViewer` (the single call site shared by both the cache-hit
+ * render and the background-revalidate remount) has a testable unit for the
+ * 2026-08-19 fix: that function used to mount the doc without ever calling
+ * setViewerLoadState, leaving store.state.viewerLoadState stuck at its
+ * initial `null` for ~66% of sequence-family viewer views (see the "BUG FIX"
+ * comment on mountSequenceViewer). Classifies with the same
+ * isDisplayableDiagram check classifyViewerLoadOutcome uses, rather than
+ * hardcoding 'ready', so a blank/unrenderable cached doc still reports
+ * 'failed_with_source'.
+ */
+export function setSequenceViewerLoadState(doc: Diagram): void {
+  setViewerLoadState(isDisplayableDiagram(doc, 'sequence') ? 'ready' : 'failed_with_source');
 }
 
 export function applyViewerLoadOutcome(input: ViewerLoadOutcomeInput): Diagram {

@@ -242,6 +242,22 @@ export async function openUrl(url: string) {
   }
 }
 
+// In-product navigation to a Confluence page, for surfaces that hold a
+// spaceKey + pageId but no page context of their own (the homepage feed card).
+// `router.navigate` keeps the user inside Confluence — `openUrl`/`router.open`
+// would spawn a tab — and is the same call BylineDiagrams uses to reach a
+// page's editor. Plain `<a href>` is not an option: links inside a Custom UI
+// iframe are inert under the Forge sandbox.
+export async function navigateToPage(spaceKey: string, pageId: string) {
+  const path = `/wiki/spaces/${spaceKey}/pages/${pageId}`;
+  if (global.isForge) {
+    const { router } = await import("@forge/bridge");
+    await router.navigate(path);
+  } else {
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+}
+
 // @ts-ignore
 window.forgeGlobal = global;
 

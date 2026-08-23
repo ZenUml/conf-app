@@ -55,15 +55,22 @@ export const CLOUD_AI_POLICY_VALUES = [
   'not_sure',
 ] as const;
 
-export const EXTENSION_SCOPE_VALUES = ['self', 'space', 'site'] as const;
-export const EXTENSION_URGENCY_VALUES = ['today', 'this_week', 'planning_ahead'] as const;
+export const LEGACY_EXTENSION_SCOPE_VALUES = ['self', 'space', 'site'] as const;
+export const LEGACY_EXTENSION_URGENCY_VALUES = ['today', 'this_week', 'planning_ahead'] as const;
+export const EXTENSION_SCOPE_VALUES = ['self', 'space', 'site', 'not_sure'] as const;
+export const EXTENSION_URGENCY_VALUES = ['today', 'this_week', 'no_hard_deadline'] as const;
+export const AI_DIAGRAM_USE_VALUES = ['regularly', 'occasionally', 'interested', 'no'] as const;
 
 type ValueOf<T extends readonly string[]> = T[number];
 
-export interface PaywallExtensionInput {
+interface PaywallExtensionInputBase {
   spaceKey: string;
   macroCount: number;
   idempotencyKey: string;
+}
+
+export interface LegacyPaywallExtensionInput extends PaywallExtensionInputBase {
+  questionnaireVersion: 1;
   answers: {
     currentTask: ValueOf<typeof CURRENT_TASK_VALUES>;
     diagramAudience: ValueOf<typeof DIAGRAM_AUDIENCE_VALUES>;
@@ -76,11 +83,26 @@ export interface PaywallExtensionInput {
       cloudAiPolicy: ValueOf<typeof CLOUD_AI_POLICY_VALUES>;
     };
     unblockNeed: {
-      scope: ValueOf<typeof EXTENSION_SCOPE_VALUES>;
-      urgency: ValueOf<typeof EXTENSION_URGENCY_VALUES>;
+      scope: ValueOf<typeof LEGACY_EXTENSION_SCOPE_VALUES>;
+      urgency: ValueOf<typeof LEGACY_EXTENSION_URGENCY_VALUES>;
     };
   };
 }
+
+export interface PaywallExtensionQuestionnaireV2Input extends PaywallExtensionInputBase {
+  questionnaireVersion: 2;
+  answers: {
+    unblockNeed: {
+      scope: ValueOf<typeof EXTENSION_SCOPE_VALUES>;
+      urgency: ValueOf<typeof EXTENSION_URGENCY_VALUES>;
+    };
+    aiDiagramUse?: ValueOf<typeof AI_DIAGRAM_USE_VALUES>;
+  };
+}
+
+export type PaywallExtensionInput =
+  | LegacyPaywallExtensionInput
+  | PaywallExtensionQuestionnaireV2Input;
 
 export interface ExtensionIdentity {
   cloudId: string;
@@ -173,20 +195,48 @@ export function parsePaywallExtensionInput(value: unknown): PaywallExtensionInpu
   }
   if (!isRecord(value.answers)) throw new PaywallExtensionValidationError('answers is required');
   const answers = value.answers;
+  if (!isRecord(answers.unblockNeed)) {
+    throw new PaywallExtensionValidationError('answers.unblockNeed is required');
+  }
+
+  const questionnaireVersion = value.questionnaireVersion === undefined
+    ? 1
+    : value.questionnaireVersion;
+  if (questionnaireVersion !== 1 && questionnaireVersion !== 2) {
+    throw new PaywallExtensionValidationError('questionnaireVersion is invalid');
+  }
+
+  if (questionnaireVersion === 2) {
+    const parsedV2: PaywallExtensionQuestionnaireV2Input = {
+      spaceKey: value.spaceKey,
+      macroCount: value.macroCount as number,
+      idempotencyKey: value.idempotencyKey,
+      questionnaireVersion: 2,
+      answers: {
+        unblockNeed: {
+          scope: enumValue(answers.unblockNeed.scope, EXTENSION_SCOPE_VALUES, 'answers.unblockNeed.scope'),
+          urgency: enumValue(answers.unblockNeed.urgency, EXTENSION_URGENCY_VALUES, 'answers.unblockNeed.urgency'),
+        },
+        ...(answers.aiDiagramUse === undefined ? {} : {
+          aiDiagramUse: enumValue(answers.aiDiagramUse, AI_DIAGRAM_USE_VALUES, 'answers.aiDiagramUse'),
+        }),
+      },
+    };
+    return parsedV2;
+  }
+
   if (!isRecord(answers.workflowConstraints)) {
     throw new PaywallExtensionValidationError('answers.workflowConstraints is required');
   }
   if (!isRecord(answers.aiAndDiagrams)) {
     throw new PaywallExtensionValidationError('answers.aiAndDiagrams is required');
   }
-  if (!isRecord(answers.unblockNeed)) {
-    throw new PaywallExtensionValidationError('answers.unblockNeed is required');
-  }
 
   return {
     spaceKey: value.spaceKey,
     macroCount: value.macroCount as number,
     idempotencyKey: value.idempotencyKey,
+    questionnaireVersion: 1,
     answers: {
       currentTask: enumValue(answers.currentTask, CURRENT_TASK_VALUES, 'answers.currentTask'),
       diagramAudience: enumValue(answers.diagramAudience, DIAGRAM_AUDIENCE_VALUES, 'answers.diagramAudience'),
@@ -211,8 +261,8 @@ export function parsePaywallExtensionInput(value: unknown): PaywallExtensionInpu
         ),
       },
       unblockNeed: {
-        scope: enumValue(answers.unblockNeed.scope, EXTENSION_SCOPE_VALUES, 'answers.unblockNeed.scope'),
-        urgency: enumValue(answers.unblockNeed.urgency, EXTENSION_URGENCY_VALUES, 'answers.unblockNeed.urgency'),
+        scope: enumValue(answers.unblockNeed.scope, LEGACY_EXTENSION_SCOPE_VALUES, 'answers.unblockNeed.scope'),
+        urgency: enumValue(answers.unblockNeed.urgency, LEGACY_EXTENSION_URGENCY_VALUES, 'answers.unblockNeed.urgency'),
       },
     },
   };
@@ -293,14 +343,15 @@ export async function createOrReplayPaywallExtension(
   const nowIso = now.toISOString();
   const randomUUID = options.randomUUID ?? (() => crypto.randomUUID());
   const proposedRequestId = randomUUID();
+  const legacyAnswers = input.questionnaireVersion === 1 ? input.answers : null;
 
   const insertRequest = await db.prepare(
     `INSERT OR IGNORE INTO PaywallExtensionRequest (
        requestId, idempotencyKey, cloudId, accountId, spaceId, spaceKey,
-       macroCount, currentTask, diagramAudience, aiTools, aiDiagramUsage,
-       processRequirement, cloudAiPolicy, requestedScope, urgency,
+       macroCount, questionnaireVersion, currentTask, diagramAudience, aiTools, aiDiagramUsage,
+       aiDiagramUse, processRequirement, cloudAiPolicy, requestedScope, urgency,
        state, grantId, createdAt, updatedAt
-     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 'submitted', NULL, ?16, ?16)`,
+     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'submitted', NULL, ?18, ?18)`,
   ).bind(
     proposedRequestId,
     input.idempotencyKey,
@@ -309,12 +360,14 @@ export async function createOrReplayPaywallExtension(
     identity.spaceId,
     identity.spaceKey,
     input.macroCount,
-    input.answers.currentTask,
-    input.answers.diagramAudience,
-    JSON.stringify(input.answers.aiAndDiagrams.tools),
-    input.answers.aiAndDiagrams.diagramUsage,
-    input.answers.workflowConstraints.processRequirement,
-    input.answers.workflowConstraints.cloudAiPolicy,
+    input.questionnaireVersion,
+    legacyAnswers?.currentTask ?? null,
+    legacyAnswers?.diagramAudience ?? null,
+    legacyAnswers ? JSON.stringify(legacyAnswers.aiAndDiagrams.tools) : null,
+    legacyAnswers?.aiAndDiagrams.diagramUsage ?? null,
+    input.questionnaireVersion === 2 ? input.answers.aiDiagramUse ?? null : null,
+    legacyAnswers?.workflowConstraints.processRequirement ?? null,
+    legacyAnswers?.workflowConstraints.cloudAiPolicy ?? null,
     input.answers.unblockNeed.scope,
     input.answers.unblockNeed.urgency,
     nowIso,

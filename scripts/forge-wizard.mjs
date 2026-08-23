@@ -28,9 +28,11 @@ export const APPS = {
         yqEvalExpr: 'del(.app.licensing)',
       },
       {
-        // Key-scoped: keep zenuml-byline-newuser (the activation nudge),
-        // drop only zenuml-byline-aiaide. A whole-module delete here would
-        // also remove newuser — don't reintroduce that.
+        // Key-scoped: Lite ships TWO byline entries — zenuml-byline-newuser
+        // (the activation nudge) and zenuml-byline-diagrams (the diagram
+        // index). Only zenuml-byline-aiaide is Diagramly-branded and opens the
+        // diagramly chat backend, so only it goes. A whole-module delete here
+        // would take both of the others with it — don't reintroduce that.
         description: 'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)',
         yqEvalExpr:
           'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
@@ -64,7 +66,7 @@ export const APPS = {
       {
         description: 'Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -113,16 +115,48 @@ export const APPS = {
         yqEvalExpr: 'del(.connectModules)',
       },
       {
-        // Key-scoped: keep zenuml-byline-newuser (the activation nudge),
-        // drop only zenuml-byline-aiaide. Mirrors the lite block above.
-        description: 'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)',
+        // Key-scoped, and TWO keys here where lite drops one: Full keeps only
+        // zenuml-byline-newuser. zenuml-byline-aiaide is Diagramly-branded,
+        // and zenuml-byline-diagrams is the Lite diagram index — Full has no
+        // byline surface of its own.
+        //
+        // The expression below normalizes byline-diagrams' displayConditions
+        // BEFORE deleting the module — dropping the `not: zenuml-full-active`
+        // leg while keeping the entityPropertyEqualTo wrapper. A no-op today
+        // (the del in the same expression removes the whole module), it exists
+        // so that un-stripping is safe by construction: that leg is Lite-only
+        // semantics, and a Full byline that kept it would subtract Full's OWN
+        // presence marker and hide itself on every space. If Full ever keeps
+        // the module, remove only its key from the del — the normalization is
+        // already done — and ship an enrolment writer first: the templated
+        // property key resolves to `zenuml-byline` on Full (${LITE_KEY_SUFFIX}
+        // is empty), and nothing writes that key yet, so the un-stripped
+        // byline would be fail-closed hidden until a writer exists.
+        // Mirrored in release.yml and staging-deploy.yml.
+        description:
+          'Remove zenuml-byline-aiaide and zenuml-byline-diagrams from confluence:contentBylineItem (keep zenuml-byline-newuser)',
         yqEvalExpr:
-          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
+          '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
+      },
+      {
+        // The /new/<type> and /d/<type>/*/* matchers are the byline's
+        // paste-to-create and paste-to-place links, and ONLY Lite ships the
+        // byline that mints them. Left in place they collide on both-installed
+        // sites: identical patterns in two apps, one pasted URL, and if the
+        // other app's macro wins the conversion the (app-scoped) custom
+        // content behind a /d/ link is unreadable — a permanently broken
+        // macro. The embed macro's 3-segment /d/*/* matchers are untouched:
+        // that form predates the byline and resolves as a read-only embed.
+        // Revisit (per-variant hosts or app-scoped paths) if another variant
+        // ever ships a byline that mints these links.
+        description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
+        yqEvalExpr:
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline" or .key == "byline-visibility-hourly"))',
       },
       {
         description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
@@ -184,9 +218,29 @@ export const APPS = {
         yqEvalExpr: 'del(.connectModules)',
       },
       {
+        description: 'Remove the Lite diagrams byline entry (Diagramly keeps Aide)',
+        yqEvalExpr:
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))',
+      },
+      {
+        // The /new/<type> and /d/<type>/*/* matchers are the byline's
+        // paste-to-create and paste-to-place links, and ONLY Lite ships the
+        // byline that mints them. Left in place they collide on both-installed
+        // sites: identical patterns in two apps, one pasted URL, and if the
+        // other app's macro wins the conversion the (app-scoped) custom
+        // content behind a /d/ link is unreadable — a permanently broken
+        // macro. The embed macro's 3-segment /d/*/* matchers are untouched:
+        // that form predates the byline and resolves as a read-only embed.
+        // Revisit (per-variant hosts or app-scoped paths) if another variant
+        // ever ships a byline that mints these links.
+        description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
+        yqEvalExpr:
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
+      },
+      {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))',
+          'del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "bylineVisibilityFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "full-lite2full-hourly" or .key == "byline-visibility-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -256,10 +310,11 @@ export const APPS = {
       {
         // AsyncAPI ships only confluence:spacePage (the per-space "My API
         // Documents" entry). Strip the ZenUML globalPage + getStarted +
-        // byline entries — they don't apply to asyncapi.
-        description: 'Remove globalSettings + globalPage + contentBylineItem (asyncapi uses spacePage only)',
+        // byline + homepage-feed entries — they don't apply to asyncapi.
+        // Mirrored in release.yml and staging-deploy.yml.
+        description: 'Remove globalSettings + globalPage + contentBylineItem + homepageFeed (asyncapi uses spacePage only)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"]) | del(.modules["confluence:homepageFeed"])',
       },
       {
         description: 'Remove non-asyncapi custom content types',
@@ -276,9 +331,18 @@ export const APPS = {
         yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
       },
       {
+        // Same reason as the full/diagramly copies: the asyncapi app keeps
+        // zenuml-openapi-macro, whose /new/openapi and /d/openapi/*/* matchers
+        // would otherwise race Lite's on a both-installed site for links only
+        // Lite's byline mints.
+        description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
+        yqEvalExpr:
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
+      },
+      {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
+          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "bylineVisibilityFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger)',
       },
     ],
     sites: {

@@ -3,7 +3,7 @@
 // The four editors (sequence/openapi/graph/embed) each mount their own root —
 // there's no shared parent component that renders for every editor. Rather
 // than asking each editor to render a banner component, this module injects a
-// singleton banner into document.body when EventBus fires 'draft-available',
+// singleton recovery card into document.body when EventBus fires 'draft-available',
 // and removes it when the user clicks Restore/Discard/Dismiss.
 //
 // The banner emits 'draft-restore' or 'draft-discard' on the same EventBus —
@@ -60,10 +60,11 @@ function show(payload: DraftPayload) {
   root.setAttribute('role', 'status');
   root.setAttribute('data-zenuml-draft-banner', '');
   root.style.cssText = [
-    'position:fixed', 'top:0', 'left:0', 'right:0', 'z-index:2147483647',
+    'position:fixed', 'bottom:16px', 'left:16px', 'z-index:2147483647',
+    'width:calc(100% - 32px)', 'max-width:560px', 'box-sizing:border-box',
     'display:flex', 'align-items:center', 'gap:12px',
     'padding:8px 16px',
-    'background:#fff8c5', 'border-bottom:1px solid #d4a72c',
+    'background:#fff8c5', 'border:1px solid #d4a72c', 'border-radius:8px',
     'color:#57460a', 'font-size:13px',
     'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
     'box-shadow:0 2px 4px rgba(0,0,0,.08)',
@@ -72,7 +73,7 @@ function show(payload: DraftPayload) {
   const text = document.createElement('span');
   text.style.flex = '1';
   text.style.minWidth = '0';
-  text.textContent = `Unsaved changes from ${relativeTime(payload.draft.savedAt)} — these were preserved when the modal closed.`;
+  text.textContent = `Unsaved changes from ${relativeTime(payload.draft.savedAt)}. Choose Not now to keep them for next time.`;
   root.appendChild(text);
 
   const btnBase = 'background:#fff;border:1px solid #d4a72c;color:#57460a;padding:4px 12px;border-radius:4px;cursor:pointer;font:inherit;font-size:12px;font-weight:500';
@@ -100,16 +101,16 @@ function show(payload: DraftPayload) {
   });
   root.appendChild(discardBtn);
 
-  const closeBtn = document.createElement('button');
-  closeBtn.type = 'button';
-  closeBtn.setAttribute('aria-label', 'Dismiss');
-  closeBtn.textContent = '✕';
-  closeBtn.style.cssText = 'background:none;border:none;color:#57460a;cursor:pointer;font-size:14px;padding:4px 8px;line-height:1';
-  closeBtn.addEventListener('click', () => {
+  const notNowBtn = document.createElement('button');
+  notNowBtn.type = 'button';
+  notNowBtn.setAttribute('aria-label', 'Keep draft for later');
+  notNowBtn.textContent = 'Not now';
+  notNowBtn.style.cssText = 'background:none;border:none;color:#57460a;cursor:pointer;font:inherit;font-size:12px;padding:4px 8px;white-space:nowrap';
+  notNowBtn.addEventListener('click', () => {
     trackAnalyticsEvent('draft_banner_dismissed', draftProps(payload));
     dismiss();
   });
-  root.appendChild(closeBtn);
+  root.appendChild(notNowBtn);
 
   document.body.appendChild(root);
   currentRoot = root;

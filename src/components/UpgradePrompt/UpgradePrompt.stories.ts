@@ -86,6 +86,25 @@ export const DefaultUnlimitedContinue: Story = {
   name: 'Default - Continue still unlimited',
 }
 
+// 15 is no longer the default (lowered to 3 on 2026-08-16) but remains reachable:
+// users who started under the old default keep their stored balance.
+export const AttemptsAvailable15: Story = {
+  name: 'Phase 2 - 15 attempts (legacy balance)',
+  args: {
+    remainingContinueAttempts: 15,
+  },
+  play: async () => {
+    const body = within(document.body)
+    const button = await body.findByTestId('continue-editing-btn')
+    await expect(button).toHaveTextContent('Continue editing without upgrading (15)')
+    await expect(button).toHaveAttribute(
+      'title',
+      'You have 15 temporary continue attempts left before editing is blocked for you in this space.'
+    )
+  },
+}
+
+// This is the state a new user/space pair now starts in.
 export const FullAllowance: Story = {
   name: 'W1 - full allowance (3)',
   args: {

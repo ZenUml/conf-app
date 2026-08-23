@@ -9,8 +9,8 @@
 //
 //   APP=zenuml-lite@dev BYLINE_ACTIVATION_LIVE=1 npx playwright test byline-activation
 //
-// The dialog opens in a Forge fullscreen modal iframe; the deep preview/list
-// assertions require frameLocator traversal into that OOPIF (Playwright only).
+// The dialog opens in a Forge fullscreen modal iframe; preview assertions
+// require frameLocator traversal into that OOPIF (Playwright only).
 
 import { test, expect } from '@playwright/test';
 import { testConfig } from '../../config/test-config.js';
@@ -42,7 +42,7 @@ test.describe('byline activation nudge', () => {
     await expect(bylineChip(page)).toHaveCount(0);
 
     // 2. Seed 'prepared' → chip appears on reload.
-    await seedPreparedProperty(request, testConfig.baseUrl, PAGE_ID, 'prepared');
+    await seedPreparedProperty(request, testConfig.baseUrl, PAGE_ID);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(bylineChip(page).first()).toBeVisible({ timeout: 20_000 });
 

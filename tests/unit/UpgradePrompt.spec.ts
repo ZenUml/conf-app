@@ -366,7 +366,7 @@ describe('UpgradePrompt', () => {
     wrapper.unmount()
   })
 
-  it('opens the five-question extension intake with disclosure and tracks its start', async () => {
+  it('opens the three-question extension intake with disclosure and tracks its versioned start', async () => {
     const wrapper = mount(UpgradePrompt, {
       props: baseProps,
       attachTo: document.body,
@@ -378,7 +378,7 @@ describe('UpgradePrompt', () => {
 
     expect(document.querySelector('[data-testid="extension-intake"]')).toBeTruthy()
     expect(document.querySelector('[data-testid="extension-question-1"]')?.textContent)
-      .toContain('What are you working on right now?')
+      .toContain('What access does your team need beyond these 7 days?')
     expect(document.querySelector('[data-testid="extension-disclosure"]')?.textContent?.replace(/\s+/g, ' '))
       .toContain("notify your organisation's registered technical or site contact")
 
@@ -386,6 +386,7 @@ describe('UpgradePrompt', () => {
       'paywall_extension_started',
       expect.objectContaining({
         entry_source: 'paywall_modal',
+        questionnaire_version: 2,
         attempts_remaining: 0,
         macro_count: 100,
         space_key: 'engineering-architecture',

@@ -161,7 +161,7 @@
                     </span>
                   </span>
                 </button>
-                <CopyForAiMenu @select="copyForAi" />
+                <CopyForAiMenu @select="copyForAi" @opened="onCopyForAiMenuOpened" />
                 <!-- Mintlify-style inline feedback: the button's own label already
                      shows Copying…/Copied/Copy failed/Nothing to copy visibly, but a
                      visually-hidden live region also announces the terminal states
@@ -231,7 +231,7 @@
               </p>
 
               <div class="viewer-lf-actions">
-                <button v-if="hasRetryableFailure" type="button" class="viewer-lf-btn-primary" @click="retry">
+                <button v-if="hasRetryableFailure" type="button" class="viewer-lf-btn-primary" data-testid="load-failed-retry" @click="retry">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
                   Try again
                 </button>
@@ -259,6 +259,23 @@
             <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
               <slot></slot>
             </div>
+            <DiagramAttributionFooter
+              v-if="!isLoadFailed && diagramAttribution"
+              :attribution="diagramAttribution"
+              :macro-type="diagramType"
+              :ready="viewerLoadState === 'ready'"
+            />
+            <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
+                 defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
+                 vite.config.mjs). See SecondDiagramPrompt.vue for the full
+                 display-condition contract. -->
+            <SecondDiagramPrompt
+              v-if="!isLoadFailed"
+              :attribution="diagramAttribution"
+              :macro-type="diagramType"
+              :ready="viewerLoadState === 'ready'"
+              :current-account-id="currentAccountId"
+            />
 
             <!-- Live Agent Link perceived-latency overlay (charter §6 Track F).
                  Flag-gated exactly like the Connect affordance so the flag-off
@@ -369,7 +386,7 @@
 
 <script>
 import {trackEvent} from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
 
 import { markRaw } from 'vue'
 import {mapState, mapGetters} from "vuex";
@@ -400,7 +417,12 @@ import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
+import { readRetryMarker, startRetryMarker, settleRetryMarker, clearRetryMarker, reloadViewer } from '@/utils/loadFailedRetry'
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink'
+import DiagramAttributionFooter from '@/components/Viewer/DiagramAttributionFooter.vue'
+import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
+import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
+import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -426,6 +448,8 @@ export default {
     copyForAiLabel: '',
     copyForAiAnnouncement: '',
     copyForAiRevertTimer: null,
+    copyForAiImpressionTracked: false,
+    copyForAiPermissionResolved: false,
     // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
     // master flag, resolved async in mounted(). Defaults false so the flag
     // controls the ENTIRE feature — until it resolves true, this macro
@@ -433,6 +457,13 @@ export default {
     agentLinkFeatureEnabled: false,
     agentLinkSession: null,
     loadFailedTelemetryEmitted: false,
+    // Onboarding funnel "second diagram" prompt (SecondDiagramPrompt.vue):
+    // the current viewer's Forge accountId, resolved once in mounted() so
+    // the prompt's author-match check needs no extra context round-trip of
+    // its own. null until resolved / on any resolve failure — the prompt
+    // fails closed (no accountId, no match, no render).
+    currentAccountId: null,
+    retryOutcomeEmitted: false,
   }),
   components: {
     Debug,
@@ -445,6 +476,8 @@ export default {
     LinkStatusChip,
     LiveBadge,
     ThinkingOverlay,
+    DiagramAttributionFooter,
+    SecondDiagramPrompt,
   },
   computed: {
     ...mapState({
@@ -452,6 +485,7 @@ export default {
       diagram: state => state.diagram,
       viewerLoadState: state => state.viewerLoadState,
       loadError: state => state.loadError,
+      diagramAttribution: state => state.diagramAttribution,
     }),
     ...mapGetters({isDisplayMode: 'isDisplayMode'}),
     isLoadFailed() {
@@ -464,6 +498,13 @@ export default {
     },
     failedCustomContentId() {
       return getForgeCustomContentId();
+    },
+    // Every macro on the page shares one sessionStorage (same Forge iframe
+    // origin), so the retry marker is keyed on the macro's own localId. The
+    // custom content id is the fallback for contexts that carry no localId.
+    retryMarkerKey() {
+      const ctx = window.forgeGlobal?.forgeContext ?? {};
+      return String(ctx?.localId ?? this.failedCustomContentId ?? 'unknown_macro');
     },
     isFullscreenMode() {
       return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
@@ -552,6 +593,13 @@ export default {
     // audience includes readers without edit permission.
     showViewSource() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+    },
+    copyForAiImpressionEligible() {
+      return this.copyForAiPermissionResolved
+        && this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed
+        && this.showViewSource;
     },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
@@ -655,6 +703,20 @@ export default {
     },
   },
   watch: {
+    copyForAiImpressionEligible: {
+      immediate: true,
+      handler(eligible) {
+        if (!eligible || this.copyForAiImpressionTracked) return;
+        this.copyForAiImpressionTracked = true;
+        trackAnalyticsEvent('copy_for_ai_impression', {
+          feature_area: 'macro',
+          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+          macro_type: this.diagramType,
+          has_edit_permission: !!this.canUserEdit,
+          instance_nonce: getRenderIdentity().instance_nonce,
+        });
+      },
+    },
     // Fire viewer_load_failed when the error store slot becomes truthy while
     // the macro is in display (viewer) mode. The isDisplayMode guard prevents
     // false positives from editor-context syntax validation errors, which also
@@ -677,7 +739,14 @@ export default {
         if (!this.isDisplayMode) {
           return;
         }
-        if (state !== 'failed_with_source' && state !== 'failed_without_source') {
+        const failed = state === 'failed_with_source' || state === 'failed_without_source';
+        if (state !== 'ready' && !failed) {
+          return;
+        }
+        // A 'ready' here is only interesting as the answer to a retry — it is
+        // the sole reason this watcher looks at the success state at all.
+        this.reportRetryOutcome(state === 'ready' ? 'recovered' : 'failed_again');
+        if (!failed) {
           return;
         }
         if (this.loadFailedTelemetryEmitted) {
@@ -720,6 +789,17 @@ export default {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
       console.error('canUserEdit failed', e);
+    } finally {
+      this.copyForAiPermissionResolved = true;
+    }
+    try {
+      // SecondDiagramPrompt's author-match display condition — fails closed
+      // (stays null) on any resolve error, which the prompt already treats
+      // as "not the creator".
+      const ctx = await getContext();
+      this.currentAccountId = ctx?.accountId ?? null;
+    } catch (e) {
+      console.error('Failed to resolve current accountId:', e);
     }
     try {
       this.agentLinkFeatureEnabled = await isAgentLinkEnabled();
@@ -846,8 +926,52 @@ export default {
     getCaptureNode() {
       return this.$refs.captureNode ?? null;
     },
-    retry() {
-      location.reload();
+    // The reload on the last line aborts an XHR-transported event, so the click
+    // goes out on the unload-safe path and the reload waits for it. Production
+    // recorded 0 load_failed_retry_clicked against 1 load_failed_retry_resolved
+    // on 2026-08-23 with the fire-and-forget call this replaces. A blocked or
+    // failing beacon must never strand the user on the panel, hence the catch.
+    async retry() {
+      const attempt = startRetryMarker(this.retryMarkerKey);
+      try {
+        await trackAnalyticsEventBeforeUnload('load_failed_retry_clicked', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: this.diagramType,
+          content_id: String(this.failedCustomContentId ?? ''),
+          retry_attempt: attempt,
+        });
+      } catch (e) {
+        console.error('[analytics] retry click tracking failed', e);
+      }
+      reloadViewer();
+    },
+    // Runs on the OTHER side of that reload. Without it the panel's own
+    // impression count cannot separate a transient content-fetch failure from
+    // a diagram that is permanently unavailable.
+    reportRetryOutcome(outcome) {
+      if (this.retryOutcomeEmitted) {
+        return;
+      }
+      const marker = readRetryMarker(this.retryMarkerKey);
+      if (!marker || !marker.pending) {
+        return;
+      }
+      this.retryOutcomeEmitted = true;
+      trackAnalyticsEvent('load_failed_retry_resolved', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType,
+        content_id: String(this.failedCustomContentId ?? ''),
+        retry_attempt: marker.attempt,
+        retry_outcome: outcome,
+      });
+      if (outcome === 'recovered') {
+        clearRetryMarker(this.retryMarkerKey);
+      } else {
+        // Keep the attempt count: the next click on this macro is attempt N+1.
+        settleRetryMarker(this.retryMarkerKey);
+      }
     },
     async contactSupport() {
       const contentId = this.failedCustomContentId ?? '(unknown)';
@@ -898,11 +1022,25 @@ export default {
       });
     },
     onViewSourceCopied() {
+      const attribution = recordSuccessfulCopyAttribution({
+        customContentId: getForgeCustomContentId(),
+        source: 'view_source',
+      });
       trackAnalyticsEvent('viewer_source_copied', {
         feature_area: 'macro',
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
         has_edit_permission: !!this.canUserEdit,
+        outcome: 'copied',
+        copy_source: 'view_source',
+        ...(attribution ? { copy_id: attribution.copy_id } : {}),
+      });
+    },
+    onCopyForAiMenuOpened() {
+      trackAnalyticsEvent('copy_for_ai_menu_opened', {
+        feature_area: 'macro',
+        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+        macro_type: this.diagramType ?? 'none',
       });
     },
     // Connect-to-Agent affordance (design §5.1, §9): kicks off this mount's
@@ -1244,6 +1382,14 @@ export default {
         this.setCopyForAiState('failed', 'Copy failed');
       }
 
+      const attribution = ok
+        ? recordSuccessfulCopyAttribution({
+            customContentId: getForgeCustomContentId(),
+            source: 'copy_for_ai',
+            job,
+          })
+        : null;
+
       trackAnalyticsEvent('copy_for_ai_clicked', {
         feature_area: 'macro',
         surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
@@ -1252,6 +1398,9 @@ export default {
         dsl_bytes: result.dslBytes,
         page_bytes: result.pageBytes,
         job,
+        copy_source: 'copy_for_ai',
+        copy_job: job,
+        ...(attribution ? { copy_id: attribution.copy_id } : {}),
       });
     },
   },

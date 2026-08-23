@@ -68,4 +68,23 @@ describe('DiagramTitleInput', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.border-red-400').exists()).toBe(true)
   })
+
+  it('shows trailing spaces while focused even though the store trims on commit', async () => {
+    fakeStore.state.diagram.title = 'Class'
+    const wrapper = mount(DiagramTitleInput)
+    await flushPromises()
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+    await input.setValue('Class ')
+    expect(input.element.value).toBe('Class ')
+  })
+
+  it('blurs the field on Enter', async () => {
+    const wrapper = mount(DiagramTitleInput)
+    await flushPromises()
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(document.activeElement).not.toBe(input.element)
+  })
 })

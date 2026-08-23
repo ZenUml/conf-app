@@ -5,7 +5,7 @@
 // network cost is paid at most once per session.
 //
 // Used by trackAnalyticsEvent to enrich macro_viewed / macro_save_succeeded /
-// macro_edit_opened payloads with `is_demo_page: true` so analysts can filter
+// macro_edit_started payloads with `is_demo_page: true` so analysts can filter
 // engagement signals to demo pages.
 
 import forgeGlobal from "@/model/globals/forgeGlobal";

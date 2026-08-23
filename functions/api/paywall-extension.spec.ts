@@ -44,6 +44,17 @@ const validBody = {
   },
 };
 
+const validV2Body = {
+  spaceKey: 'ENG',
+  macroCount: 123,
+  idempotencyKey: 'request-key-00000002',
+  questionnaireVersion: 2,
+  answers: {
+    unblockNeed: { scope: 'not_sure', urgency: 'no_hard_deadline' },
+    aiDiagramUse: 'occasionally',
+  },
+};
+
 function context(options: {
   method?: string;
   body?: unknown;
@@ -201,6 +212,24 @@ describe('paywall-extension API', () => {
       },
       expect.objectContaining({ spaceKey: 'ENG' }),
     );
+  });
+
+  it('accepts the version 2 three-question payload and forwards only operational answers to notifications', async () => {
+    const scheduled: Promise<unknown>[] = [];
+    const response = await onRequest(context({ body: validV2Body, resendConfigured: true, scheduled }));
+    expect(response.status).toBe(200);
+    await Promise.all(scheduled);
+
+    expect(createOrReplayPaywallExtension).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), validV2Body,
+    );
+    expect(dispatchPaywallAdminNotification).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.objectContaining({
+        content: expect.objectContaining({ requestedScope: 'not_sure', urgency: 'no_hard_deadline' }),
+      }),
+    );
+    const dispatchContent = vi.mocked(dispatchPaywallAdminNotification).mock.calls[0]?.[2]?.content;
+    expect(dispatchContent).not.toHaveProperty('aiDiagramUse');
   });
 
   it('rejects a missing or mismatched accessible Space', async () => {

@@ -7,6 +7,29 @@ description: Use when you need a Mixpanel fact or query path for the conf-app / 
 
 Canonical, pinned facts for querying Mixpanel for the ZenUML Confluence add-on. The point of this skill is **don't re-verify these** — they're settled (most are immutable history). For analysis/investigation (churn, retention, growth, cross-source D1 joins) use the **conf-app** skill, which delegates Mixpanel mechanics here.
 
+## Event names and property names — ask the code, never this file
+
+Names change; a prose list drifts. `scripts/mp_schema.py` derives every answer from the repo at call time and is the authority. **Run it before you put an event name or property into a query, a report, or a dashboard.**
+
+```bash
+S=.claude/skills/mixpanel/scripts/mp_schema.py
+python3 $S doctor                          # is the working tree behind origin/main?
+python3 $S event macro_viewed              # auto-enriched props + props from this event's emit sites
+python3 $S check confluence_space          # declaration, doc comment, auto-enriched?, emit sites
+python3 $S verify macro_viewed <property>  # LIVE fleet-wide: is it actually populated?
+python3 $S events paywall                  # valid event names matching a pattern
+python3 $S props space                     # declared properties matching a pattern
+```
+
+Sources it parses: `catalog.ts` (`AnalyticsEventName` union) for event names, `types.ts` (`AnalyticsProperties`) for the property vocabulary, the `enriched` literal in `trackAnalyticsEvent.ts` for what rides every event, and the tracker call sites for what rides a specific event. Add `--ref origin/main` when the working tree is behind — `doctor` tells you.
+
+**Two traps it exists to stop** (both hit on 2026-08-11, building a per-tenant Usage board):
+
+1. **A declared property is not a property of every event.** `space_key` is declared in `types.ts`, but it belongs to the Cloudflare backend's macro-count snapshot events. On `macro_viewed` it is 100% undefined — 81,878 of 81,878 events in a 7-day fleet-wide check. The space dimension on frontend events is **`confluence_space`**, which the tracker auto-injects (`trackAnalyticsEvent.ts`: `callerProps.confluence_space ?? getSpaceKey() ?? "unknown_space"`).
+2. **Never validate a property against one tenant.** A single-tenant distinct count returns `1` for a completely absent property (counting the one value `undefined`) and also `1` for a real property at a one-space tenant. The two are indistinguishable. Fleet-wide they differ by three orders of magnitude. `verify` is fleet-wide by construction and reports the undefined-only case as `VERDICT: UNUSABLE`.
+
+Section comments in `types.ts` are organisational, not authoritative — `confluence_space` sits under "Contextual" yet is auto-injected. `mp_schema.py` reads the runtime object, not the comment.
+
 ## Which query path
 
 | Situation | Path |
@@ -79,6 +102,8 @@ There is **no reliable runtime boolean** (`isForge` is dead). To split:
 | Trust a 30/90d window | Tracking starts 2026-04-18. Check earliest date. |
 | Join Mixpanel `client_domain` ↔ D1 `clientDomain` directly | Subdomain vs full hostname. Convert first. |
 | `macro_type='unknown'` = failure for graph/openapi/embed | Only valid for sequence/mermaid/plantuml. |
+| `space_key` as the space dimension on frontend events | Undefined on `macro_viewed` (0 of 81,878 fleet-wide, 7d). It belongs to backend macro-count snapshot events. Use **`confluence_space`**. Check with `mp_schema.py verify <event> <prop>`. |
+| Validating a property against ONE tenant | A distinct count returns 1 both for an absent property (the value `undefined`) and for a real property at a one-space tenant. Always verify fleet-wide. |
 | `macro_viewed` `surface='viewer'` = a real page view | On builds before 2026-07-19 (conf-app#368) the native macro-config surface was stamped `viewer` too, so historical viewer volumes include ~3% authoring renders — recognizable as no-`custom_content_id` events near `macro_create_started` by the same user, with inflated `duration_ms` (long-lived editor iframes, tab switches re-firing). Fixed in `ApWrapper2.isDisplayMode()`; segment by `app_version` across the fix. |
 
 ## JQL details

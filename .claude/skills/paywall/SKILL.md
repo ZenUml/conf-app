@@ -56,7 +56,7 @@ Every Lite tenant sits in one of three states. Your job is to determine which st
 
 ## Continue-attempts gate (added 2026-06-02, `v2026.06.02-lite`)
 
-Once a space is over the limit, the `UpgradePrompt` no longer offers unlimited "Continue editing without upgrading". Each user gets **15 attempts per (clientDomain, spaceKey, userAccountId)**, tracked client-side.
+Once a space is over the limit, the `UpgradePrompt` no longer offers unlimited "Continue editing without upgrading". Each user gets **3 attempts per (clientDomain, spaceKey, userAccountId)**, tracked client-side (`DEFAULT_CONTINUE_ATTEMPTS`, lowered from 15 on 2026-08-16). The new value applies to new (user, space) pairs only — a stored balance is never rewritten, so users who started under the old default still hold up to 15.
 
 - **Mechanism:** `src/utils/paywall/continueAttempts.ts`. State lives in **localStorage** under key `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (parts URL-encoded), shape `{ remainingAttempts, firstTriggeredAt, lastUsedAt, exhaustedAt }`. Default `DEFAULT_CONTINUE_ATTEMPTS = 15`. Created at paywall mount (`getOrCreateContinueAttempts`), decremented per continue click (`useContinueAttempt`). **Lite-only** — gated on `isLite`, so full/diagramly never trigger it. localStorage lives in the **Forge iframe origin** (`*.cdn.prod.atlassian-dev.net`), not the top-level page.
 - **UI:** continue button reads `Continue editing without upgrading (N)`; at `N=0` it's replaced by the `continue-attempts-exhausted` span ("Request extension to continue editing"). The advocacy/request-extension CTAs remain.

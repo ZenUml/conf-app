@@ -37,11 +37,13 @@ const meta: Meta<typeof PaywallExtensionIntake> = {
     controls: { exclude: ['submitRequest'] },
     docs: {
       description: {
-        component: 'Production five-question intake with inert submit adapters. No Forge, D1, Mixpanel, email, or support request is invoked by these stories.',
+        component: 'Production three-question intake with inert submit adapters. The first two questions route the operational request; the optional AI question is product research and is never sent to the organisation. No Forge, D1, Mixpanel, email, or support request is invoked by these stories.',
       },
     },
   },
-  decorators: [() => ({ template: '<div style="width:680px;background:white;border:1px solid #ddd;border-radius:12px"><story /></div>' })],
+  decorators: [() => ({
+    template: '<div style="width:min(680px,calc(100vw - 32px));background:white;border:1px solid #ddd;border-radius:12px"><story /></div>',
+  })],
 };
 
 export default meta;

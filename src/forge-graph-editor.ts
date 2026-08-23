@@ -23,12 +23,19 @@ import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
   reportLegacyContentPropertyValueUnexpected,
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
+import {
+  GRAPH_EDITOR_MODE_CONFIG_KEY,
+  getGraphEditorMode,
+  normalizeGraphEditorMode,
+  setGraphEditorMode,
+} from "@/utils/graph/graphEditorMode";
 import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
 // Track editor session start time
@@ -145,6 +152,7 @@ async function saveGraphAndExit(graphXml: string): Promise<boolean> {
         await (await getView()).submit({config: {
           customContentId: id,
           updatedAt: new Date().toISOString(),
+          [GRAPH_EDITOR_MODE_CONFIG_KEY]: getGraphEditorMode(),
           ...(originalConfigUuid && { uuid: originalConfigUuid }),
         }});
         if (attemptRepair && originalCustomContentId) {
@@ -153,6 +161,16 @@ async function saveGraphAndExit(graphXml: string): Promise<boolean> {
         if (attemptLegacyMigration && originalConfigUuid) {
           reportLegacyContentPropertyMacroRepaired('graph', originalConfigUuid, id, { pageId: recoveryPageId });
         }
+      } else if (configuring) {
+        // Normal re-save of an existing graph does not change customContentId,
+        // so needsWriteback is false. Still submit so Diagram/Board chrome
+        // persists on the macro config.
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          [GRAPH_EDITOR_MODE_CONFIG_KEY]: getGraphEditorMode(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
       } else {
         await (await getView()).close();
       }
@@ -254,7 +272,10 @@ async function initializeMacro() {
   
   // Ensure session is initialized
   getOrCreateSession();
-  const customContentId = context.extension?.config?.customContentId;
+  // See forge-graph-viewer: a pasted graph macro carries its id only in the
+  // autoConvert link, so the editor must resolve it the same way or it opens
+  // a new blank diagram instead of the linked one.
+  const customContentId = resolveEffectiveCustomContentId(context);
   originalCustomContentId = customContentId;
   recoveryPageId = context.extension?.content?.id;
 
@@ -400,7 +421,12 @@ async function initializeMacro() {
     window.graphXml = graphXml;
   }
 
-  const contentProps = { graphXml, saveGraphAndExit, doc, customContentId };
+  const graphEditorMode = normalizeGraphEditorMode(
+    context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]
+  );
+  setGraphEditorMode(graphEditorMode);
+
+  const contentProps = { graphXml, saveGraphAndExit, doc, customContentId, graphEditorMode };
   const paywalled = await tryPageEditorPaywall({
     doc: doc ?? NULL_DIAGRAM,
     content: ForgeGraphEditor,
@@ -413,7 +439,7 @@ async function initializeMacro() {
   }
 
   const isNew = await MacroUtil.isCreateNew();
-  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_opened', {
+  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'graph',
@@ -421,4 +447,4 @@ async function initializeMacro() {
   });
 }
 
-export default initializeMacro(); 
+export default initializeMacro();

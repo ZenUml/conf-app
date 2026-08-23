@@ -30,9 +30,11 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
+import { handleHomepageFeedRoute } from './routes/homepageFeed';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
-import { applyViewerLoadOutcome, mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
+import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution, setSequenceViewerLoadState } from '@/utils/viewerLoadOutcome';
+import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
 import type { DiagramLoadError } from '@/model/store2/types';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
@@ -46,7 +48,9 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
+import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -123,14 +127,34 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Content byline items. Both items share extension.type, so discriminate by
-    // moduleKey (same pattern as the pageBanner route below). The activation
-    // nudge ("View as diagram", zenuml-byline-newuser) routes to its own dialog;
-    // everything else stays the Aide route.
+    // Home page feed card (confluence:homepageFeed). No moduleKey
+    // discrimination needed — lite/full/diagramly ship exactly one entry
+    // (zenuml-homepage-feed); asyncapi strips the whole module (see
+    // manifest.yml + scripts/forge-wizard.mjs), so this branch never runs
+    // there. No `route` property exists for this module type (Forge manifest
+    // reference), so extension.type is the only signal available.
+    if (!isOpenedModal && context.extension?.type === 'confluence:homepageFeed') {
+      await handleHomepageFeedRoute();
+      return { macroData: null };
+    }
+
+    // Content byline items. THREE entries now share this extension type and
+    // every variant ships a different subset (see scripts/forge-wizard.mjs), so
+    // discriminate by moduleKey — same pattern as the pageBanner route below.
+    // Branching on moduleKey rather than PRODUCT_TYPE means a manifest/route
+    // mismatch fails visibly here instead of silently rendering another
+    // entry's UI.
+    //
+    //   zenuml-byline-newuser  → the activation nudge ("View as diagram")
+    //   zenuml-byline-diagrams → the Lite diagram index
+    //   zenuml-byline-aiaide   → the Aide chat (the fallback)
     if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
       if (context.moduleKey === 'zenuml-byline-newuser') {
         const { handleBylineActivationRoute } = await import('./routes/bylineActivation');
         await handleBylineActivationRoute();
+      } else if (context.moduleKey === 'zenuml-byline-diagrams') {
+        const { handleBylineRoute } = await import('./routes/byline');
+        await handleBylineRoute();
       } else {
         await handleAiAideRoute();
       }
@@ -237,7 +261,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isOpenedModal = !!context.extension?.modal?.macroMode;
     if (
       (!isOpenedModal &&
-        ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage'].includes(context.extension?.type)) ||
+        ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage', 'confluence:homepageFeed'].includes(context.extension?.type)) ||
       (context as any).moduleKey === 'zenuml-page-banner'
     ) {
       console.log('Skipping heavy components load for global context');
@@ -283,8 +307,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // openapi/graph/embed. The load block below is therefore gated on isSequence.
     // See src/utils/macroEntryRouting.ts.
     const isSequence = isSequenceFamilyEntry(context.moduleKey, context.extension.modal?.diagramType);
-    const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
-    const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
+    // The `modal?.diagramType` arms exist for modals opened from a NON-macro
+    // surface — the Lite byline modal opens a diagram with
+    // `moduleKey: 'zenuml-byline-diagrams'`, so every moduleKey test here misses
+    // and the routing chain would fall through to the swagger viewer. This
+    // mirrors what isSequenceFamilyEntry already does with the same field.
+    const isGraph = context.moduleKey.startsWith('zenuml-graph-macro')
+      || context.extension.modal?.diagramType === 'graph';
+    const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro')
+      || context.extension.modal?.diagramType === 'embed';
     // AsyncAPI ships two macros — `zenuml-asyncapi-macro` (page-rendered
     // spec, each instance owns its own custom-content doc) and
     // `zenuml-asyncapi-embed-macro` (references an existing doc by
@@ -300,9 +331,17 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
 
     let doc: Diagram | undefined;
+    let diagramAttribution = null;
     let ccLoadError: DiagramLoadError | null = null;
     let legacyLoadBlocked = false;
-    const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
+    // A macro created by pasting a typed diagram deeplink
+    // (.../d/<type>/<cloudId>/<contentId>) has no config yet — the id is in the
+    // matched URL. Deriving it here is what makes that paste an ORDINARY,
+    // editable macro rather than an embed: the embed macro renders a diagram
+    // but its editor is a document picker, so a diagram placed that way could
+    // never be edited again. The link persists in the page ADF, so this keeps
+    // resolving on every later render with no config write needed.
+    const customContentId = resolveEffectiveCustomContentId(context);
     originalCustomContentId = customContentId;
     recoveryPageId = context.extension?.content?.id;
     // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
@@ -368,7 +407,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // moments later, so nothing is silently dropped — it's deferred off the
     // critical path, same as the fetch itself.
     // See utils/renderCache/contentCacheStore.ts.
-    const mountSequenceViewer = async (viewerDoc: Diagram) => {
+    const mountSequenceViewer = async (viewerDoc: Diagram, attribution: DiagramAttribution | null = null) => {
       // #382: hold the mount until the viewport gate releases (the gate shows
       // its own shimmer placeholder while holding — index.html has no real
       // skeleton element). awaitGateBlocking also records the ACTUAL wait at
@@ -381,6 +420,27 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
       // @ts-ignore - viewerDoc may be a partial spread type; matches the happy-path mount below
       mountRoot(viewerDoc, DiagramPortal, { autoResize: true });
+      publishDiagramAttribution(attribution);
+      // BUG FIX (overnight verification run, 2026-08-19): this SWR mount path
+      // (both the cache-hit render and the revalidate re-mount) never used to
+      // call setViewerLoadState — only the direct-fetch path further below
+      // (via applyViewerLoadOutcome) did. store.state.viewerLoadState
+      // therefore stayed at its initial `null` forever for any render that
+      // took this path, which per the comment above this function is ~66% of
+      // all sequence-family viewer views. Every consumer gated on
+      // `viewerLoadState === 'ready'` — SecondDiagramPrompt's `ready` prop,
+      // and DiagramAttributionFooter's registerDiagramImpactView call — was
+      // silently starved on the majority of real revisits. mountSequenceViewer
+      // already knows the doc is renderable (it's what's on screen), so
+      // classify it the same way applyViewerLoadOutcome does rather than
+      // hardcoding 'ready' — an empty/blank cached doc (should one ever get
+      // primed) still reports the correct failed state instead of a false
+      // 'ready'. Extracted to setSequenceViewerLoadState (viewerLoadOutcome.ts)
+      // so this one-line classify-and-publish step has a unit test —
+      // forgeIndex.ts itself has no test harness (module-level side effects
+      // on import) — see setSequenceViewerLoadState's regression test in
+      // viewerLoadOutcome.spec.ts.
+      setSequenceViewerLoadState(viewerDoc);
     };
 
     const revalidateSequenceViewer = async (
@@ -402,6 +462,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         }
         const fresh = loaded.customContent?.value;
         if (!fresh) return; // content unreadable now — keep the last-known-good cached render
+        const freshAttribution = attributionFromCustomContent(loaded.customContent);
         if (loaded.customContent) {
           import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
             maybeBackfillSnapshot({
@@ -415,12 +476,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           ).catch(e => console.debug('[snapshot] backfill skipped', e));
         }
         const serialized = JSON.stringify(fresh);
-        putCachedContent(ccId, serialized);
+        putCachedContent(ccId, serialized, freshAttribution);
         if (hashContent(serialized) !== cachedHash) {
           renderPerf.markContentSource('fetch');
           // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
           const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
-          await mountSequenceViewer(freshDoc);
+          await mountSequenceViewer(freshDoc, freshAttribution);
         }
       } catch (e) {
         console.warn('[content-swr] background revalidate failed; cached render stands', e);
@@ -454,7 +515,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           } else {
             void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
           }
-          await mountSequenceViewer(viewerDoc);
+          // Attribution comes from the cache entry: this path returns without ever
+          // reaching the fetch that derives it. An entry written before the cache
+          // carried attribution mounts without a footer; the background revalidate
+          // rewrites the entry with attribution, but only re-mounts when the content
+          // hash changed — so such an entry shows its footer from the NEXT visit on.
+          await mountSequenceViewer(viewerDoc, cached.attribution ?? null);
           return; // rendered from cache — skip the live-fetch + mount path entirely
         } catch (e) {
           console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
@@ -477,6 +543,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
+      diagramAttribution = attributionFromCustomContent(loaded.customContent);
       if (isSequence && loaded.customContent?.value) {
         // Prime the id-keyed SWR cache so a later viewer revisit can render
         // before the fetch (see the content-SWR block above). Cache the RAW
@@ -485,7 +552,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // revalidate's hash comparison. Primed from both editor and viewer
         // loads — either is a legitimate source of "current truth" for a
         // later viewer revisit.
-        putCachedContent(customContentId, JSON.stringify(loaded.customContent.value));
+        putCachedContent(customContentId, JSON.stringify(loaded.customContent.value), diagramAttribution);
         renderPerf.markContentSource('fetch');
       }
       if (loaded.recoveredFromOrphanId && doc) {
@@ -838,6 +905,47 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
+    // Paste-to-create seeding. A macro produced by pasting a
+    // `https://confluence.zenuml.com/new/<type>` link carries that URL as
+    // `autoConvertLink`; it names the type the user picked in the byline modal,
+    // which is otherwise unknowable here because the editor opens on a blank
+    // macro. Only ever applies to a macro with no stored content — an existing
+    // diagram's own type always wins — so a link that somehow survives on a
+    // saved macro can never re-type it.
+    // Gate on `!customContentId` (a macro with nothing stored yet), NOT on
+    // `!doc`. The sequence family assigns its own placeholder doc above —
+    // diagramType Sequence with all three example bodies pre-filled — so a
+    // `!doc` guard silently skipped exactly the family this feature is for:
+    // measured 2026-08-01, `/new/graph` and `/new/openapi` seeded while
+    // `/new/mermaid` pasted as a sequence diagram, because only the sequence
+    // branch had already populated `doc`.
+    {
+      const seeded = applyNewDiagramLink(doc, readAutoConvertLink(context), !!customContentId);
+      doc = seeded.doc;
+      // Second source: an editor opened from a non-macro surface (the byline
+      // type picker) states the chosen type in `modal.diagramType`. forgeIndex
+      // consulted that field for ROUTING only, so the doc kept the
+      // sequence-family placeholder's Sequence and picking Flowchart opened a
+      // sequence editor.
+      const fromModal = seeded.seededType
+        ? { doc, seededType: undefined as any }
+        : applyRequestedDiagramType(
+            doc,
+            diagramTypeFromModalType(context.extension.modal?.diagramType),
+            !!customContentId,
+          );
+      doc = fromModal.doc;
+      const seededType = seeded.seededType || fromModal.seededType;
+      if (seededType) {
+        // Normalised, not the raw enum: DiagramType.OpenApi is 'OpenAPI', and
+        // emitting it verbatim splits Mixpanel's macro_type into two buckets
+        // ('OpenAPI' here, 'openapi' from every other surface) — the exact join
+        // breakage toMacroType exists to prevent.
+        const { toMacroType } = await import('@/utils/byline/pageDiagrams');
+        trackEvent('', 'new_diagram_link_seeded', 'macro', { macro_type: toMacroType(seededType) });
+      }
+    }
+
     // isSequence / isGraph / isEmbed / isAsyncApiEmbed / isAsyncApi are computed
     // earlier now (hoisted above the customContentId load) so BOTH the P1.1
     // ADF-scan deferral gate AND the sequence-family load/telemetry gate reuse
@@ -846,6 +954,25 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     if(isSequence) {
       const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
       const fullscreenMode = await isFullscreenMode();
+      const trackPageEditorAuthoringStarted = () => {
+        const isNew = !customContentId;
+        const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
+        if (isNew) {
+          trackAnalyticsEvent("macro_create_started", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "page_editor",
+          });
+        } else {
+          trackAnalyticsEvent("macro_edit_started", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "macro_toolbar",
+          });
+        }
+      };
 
       // Editor paywall: mount Workspace under PaywallGate so the iframe is
       // never blank; save remains gated in the persistence layer.
@@ -860,6 +987,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           contentProps: { autoResize: !fullscreenMode },
           macroKind,
           customContentId,
+          // The gated path returns before the ordinary post-mount telemetry
+          // below. Defer the same authoring event to the explicit continue
+          // action: a user who closes the paywall never started authoring.
+          onContinueEditing: trackPageEditorAuthoringStarted,
         })) return;
       }
 
@@ -891,25 +1022,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
       //@ts-ignore
       mountRoot(mountDoc, component, { autoResize: !editable && !fullscreenMode });
+      if (!editable) publishDiagramAttribution(diagramAttribution);
 
       if (editable) {
-        const isNew = !customContentId;
-        const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
-        if (isNew) {
-          trackAnalyticsEvent("macro_create_started", {
-            feature_area: "macro",
-            surface: "editor",
-            macro_type: macroType,
-            entry_point: "page_editor",
-          });
-        } else {
-          trackAnalyticsEvent("macro_edit_opened", {
-            feature_area: "macro",
-            surface: "editor",
-            macro_type: macroType,
-            entry_point: "macro_toolbar",
-          });
-        }
+        trackPageEditorAuthoringStarted();
       }
     } else if(isGraph) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
@@ -1045,7 +1161,8 @@ EventBus.$on('edit', async(params: any) => {
   // Forward the macro's customContentId so the modal can load the right diagram
   // and the pre-edit paywall gate can fire. Without this the modal opens a blank
   // new diagram and the paywall check is skipped entirely.
-  const customContentId = context.extension?.config?.customContentId;
+  // Resolved (not a raw config read) so a pasted macro forwards its real id.
+  const customContentId = resolveEffectiveCustomContentId(context);
 
   // In-viewer Edit gate (utils/guardEditClick.ts): when this macro's id is
   // shared by another macro on the page, saving from the modal forks a CC that
@@ -1085,9 +1202,10 @@ EventBus.$on('edit', async(params: any) => {
 
 
 // Install the singleton "Restore unsaved changes" banner. It listens for
-// 'draft-available' on EventBus and renders a fixed-position banner at the
+// 'draft-available' on EventBus and renders a fixed-position recovery card at the
 // top of the page; each editor's mount logic emits the event on reopen.
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
@@ -1124,6 +1242,17 @@ EventBus.$on('save', async () => {
   try {
     id = await saveToPlatform(store.state.diagram);
   } catch (error) {
+    const status = (error as any)?.status || (error as any)?.statusCode;
+    const failureReason = error instanceof LegacyLoadBlockedSaveError
+      ? 'legacy_load_blocked'
+      : error instanceof InvalidSavedContentIdError
+        ? 'invalid_saved_content_id'
+        : status
+          ? `http_${status}`
+          : error instanceof Error
+            ? error.name
+            : 'unknown_error';
+    trackEditorMutationLifecycleEvent('macro_save_failed', failureReason);
     // ZEN-1170 Defect 1: persistence layer refused save because the legacy
     // content-property load failed. Surface a clear message that does NOT
     // suggest "retry" (retrying won't help; the user needs to refresh or
@@ -1223,6 +1352,27 @@ EventBus.$on('save', async () => {
         configuring,
       })
     );
+    // A save that produced an id but cannot bind it leaves an orphaned custom
+    // content behind and a macro that still renders empty — the failure mode
+    // paste-to-create hit on lite-stg. Record the surface signals so the cause
+    // is visible without a browser: `firstBind` is now handled, so anything
+    // reaching here is a non-submittable surface.
+    //
+    // The byline editor is EXCLUDED: it is a designed unbound-save surface —
+    // the saved diagram is handed back as a paste link, there is no macro to
+    // bind — so every byline create would otherwise fire this warn and, once
+    // the byline rolls out, drown the defect signal the event instruments in
+    // designed-behaviour noise. The editor modal the byline opens carries the
+    // byline's own moduleKey (see the isSequenceFamilyEntry note above).
+    const fromByline =
+      (forgeGlobal.forgeContext as any)?.moduleKey === 'zenuml-byline-diagrams';
+    if (!!id && !sourceId && !originalCustomContentId && !needsWriteback && !fromByline) {
+      trackEvent('', 'writeback_unbound_first_save', 'warn', {
+        inserting: !!inserting,
+        configuring: !!configuring,
+        custom_content_id: String(id),
+      });
+    }
     // Redirect starts now (view.submit / view.close below). Stop the
     // publish-latency clock here so it captures the full user-perceived wait.
     trackPublishCompleted({
@@ -1304,6 +1454,7 @@ EventBus.$on('exit', async (showWarning: boolean) => {
       // User confirmed exit - track exit event
       const exitEventAction = isNewSequence ? 'create_macro_exit' : 'edit_macro_exit';
       trackEvent('', exitEventAction, DiagramType.Sequence, eventProps);
+      trackEditorMutationLifecycleEvent('macro_edit_cancelled');
       
       // End journey on exit
       if (getEditJourneyId()) {

@@ -47,6 +47,8 @@ import {
   readSession,
   subscribeToHandoff,
   subscribeToAnyHandoff,
+  publishSessionDisconnectRequest,
+  subscribeToSessionDisconnectRequest,
   type AgentLinkHandoffSession,
   type AgentLinkHandoffState,
   type AgentLinkHandoffThinking,
@@ -302,6 +304,7 @@ export function useAgentLinkSession(
   // clearSession calls below, since a handoff record is keyed by pageId and
   // scoped to {cloudId, pageId, contentId}.
   const boundContext = options.relay?.boundContext ?? null
+  let hydratedContext: AgentLinkBoundContext | null = null
 
   // Shared by every persistSession() call site below (bug 2 fix, spot-check
   // #3): attaches the current bounded activity feed + known token TTL onto
@@ -346,6 +349,24 @@ export function useAgentLinkSession(
   let lastAppliedDsl = ''
   let editsCount = 0
   let relayClient: RelayClient | null = null
+  let disconnectRequestUnsubscribe: (() => void) | null = null
+
+  function stopDisconnectRequestSubscription(): void {
+    disconnectRequestUnsubscribe?.()
+    disconnectRequestUnsubscribe = null
+  }
+
+  function ensureDisconnectRequestSubscription(): void {
+    if (!boundContext || disconnectRequestUnsubscribe) return
+    disconnectRequestUnsubscribe = subscribeToSessionDisconnectRequest(
+      boundContext.pageId,
+      (request) => {
+        if (!relayClient || request.token !== token.value) return false
+        disconnect('user')
+        return true
+      }
+    )
+  }
 
   // --- Track F perceived-latency ("AI is thinking") internals --------------
   // opReceivedAt: transport-stamped instant the in-flight update_diagram op
@@ -1223,6 +1244,7 @@ export function useAgentLinkSession(
               })
             }
             openRelayChannel(realToken, relayOptions)
+            ensureDisconnectRequestSubscription()
           })
           .catch((e) => {
             if (
@@ -1343,7 +1365,10 @@ export function useAgentLinkSession(
     }
 
     const relayOptions = options.relay
-    if (relayOptions) openRelayChannel(persisted.token, relayOptions)
+    if (relayOptions) {
+      openRelayChannel(persisted.token, relayOptions)
+      ensureDisconnectRequestSubscription()
+    }
   }
 
   function onAgentConnected(): void {
@@ -1383,6 +1408,7 @@ export function useAgentLinkSession(
   }
 
   function disconnect(reason: AgentLinkDisconnectReason = 'user'): void {
+    const disconnectedToken = token.value
     const prev = state.value
     state.value = nextClientState(state.value, 'disconnect')
     if (prev === state.value) return // nothing was connected — no-op
@@ -1409,9 +1435,10 @@ export function useAgentLinkSession(
     // relayClient.ts's close()/disconnect() split).
     relayClient?.disconnect()
     relayClient = null
+    stopDisconnectRequestSubscription()
     // Clear the handoff record so a future Fullscreen mount doesn't hydrate
     // a session that's already been disconnected here.
-    if (boundContext) clearSession(boundContext.pageId)
+    if (boundContext) clearSession(boundContext.pageId, disconnectedToken ?? undefined)
 
     trackAnalyticsEvent('agent_link_disconnected', {
       feature_area: 'agent_link',
@@ -1425,14 +1452,20 @@ export function useAgentLinkSession(
   }
 
   // "Revoke & re-link" (design decision #1's escape hatch for a dead first
-  // agent, or for a session stuck 'suspended'): closes the current session
-  // (same explicit-disconnect path as disconnect()) and immediately mints a
-  // fresh token, in one action. Resets to 'idle' directly rather than relying
+  // agent, or for a session stuck 'suspended'): asks the inline relay owner to
+  // close the old session when this is a display-only Fullscreen instance,
+  // then closes local state and mints a fresh token in one action. Resets to
+  // 'idle' directly rather than relying
   // on a natural FSM transition out of the just-set terminal 'closed' —
   // startConnect() requires prev === 'idle' to actually mint/connect (see its
   // own guard), and this action IS a deliberate fresh start, not a
   // resurrection of the old (closed) session.
   function revokeAndRelink(): void {
+    const previousToken = token.value
+    const previousContext = boundContext ?? hydratedContext
+    if (!relayClient && previousToken && previousContext) {
+      publishSessionDisconnectRequest(previousContext.pageId, previousToken)
+    }
     disconnect('user')
     state.value = 'idle'
     startConnectWithMintConflictRetries(RELINK_MINT_CONFLICT_RETRIES)
@@ -1443,6 +1476,11 @@ export function useAgentLinkSession(
   // new token or opening a rival relay socket — the instance that persisted
   // it keeps owning the one live WS (design §3 decision #8).
   function hydrateFrom(session: AgentLinkHandoffSession): void {
+    hydratedContext = {
+      cloudId: session.cloudId,
+      pageId: session.pageId,
+      contentId: session.contentId,
+    }
     // --- session STATE (token + waiting/connected) -----------------------
     // Only a fresh (idle) instance may adopt the token/state — guards against
     // clobbering a session this very instance is itself driving (re-entrant

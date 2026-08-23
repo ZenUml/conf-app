@@ -183,9 +183,107 @@ interface PersistedHandoff extends AgentLinkHandoffSession {
 export const HANDOFF_TTL_MS = 10 * 60 * 1000
 
 const STORAGE_KEY_PREFIX = 'agentLinkSession:'
+const DISCONNECT_REQUEST_KEY_PREFIX = 'agentLinkDisconnectRequest:'
+const DISCONNECT_REQUEST_TTL_MS = 30_000
 
 function storageKey(pageId: string): string {
   return `${STORAGE_KEY_PREFIX}${pageId}`
+}
+
+function disconnectRequestStorageKey(pageId: string): string {
+  return `${DISCONNECT_REQUEST_KEY_PREFIX}${pageId}`
+}
+
+export interface AgentLinkSessionDisconnectRequest {
+  pageId: string
+  token: string
+  requestId: string
+  requestedAt: number
+}
+
+export function publishSessionDisconnectRequest(pageId: string, token: string): void {
+  try {
+    const request: AgentLinkSessionDisconnectRequest = {
+      pageId,
+      token,
+      requestId:
+        globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      requestedAt: Date.now(),
+    }
+    localStorage.setItem(disconnectRequestStorageKey(pageId), JSON.stringify(request))
+  } catch (e) {
+    console.warn('[agent-link] failed to publish session disconnect request', e)
+  }
+}
+
+export function readSessionDisconnectRequest(
+  pageId: string,
+  now: number = Date.now()
+): AgentLinkSessionDisconnectRequest | null {
+  try {
+    const raw = localStorage.getItem(disconnectRequestStorageKey(pageId))
+    if (!raw) return null
+    const request = JSON.parse(raw) as Partial<AgentLinkSessionDisconnectRequest>
+    if (
+      request.pageId !== pageId ||
+      typeof request.token !== 'string' ||
+      !request.token ||
+      typeof request.requestId !== 'string' ||
+      !request.requestId ||
+      typeof request.requestedAt !== 'number' ||
+      now - request.requestedAt > DISCONNECT_REQUEST_TTL_MS
+    ) {
+      return null
+    }
+    return request as AgentLinkSessionDisconnectRequest
+  } catch (e) {
+    console.warn('[agent-link] failed to read session disconnect request', e)
+    return null
+  }
+}
+
+export function subscribeToSessionDisconnectRequest(
+  pageId: string,
+  onRequest: (request: AgentLinkSessionDisconnectRequest) => boolean | void
+): () => void {
+  const key = disconnectRequestStorageKey(pageId)
+  let active = true
+  let lastRequestId: string | null = null
+
+  function tryDeliver(): void {
+    if (!active) return
+    const request = readSessionDisconnectRequest(pageId)
+    if (!request || request.requestId === lastRequestId) return
+    if (onRequest(request) === false) return
+    lastRequestId = request.requestId
+    try {
+      const current = readSessionDisconnectRequest(pageId)
+      if (current?.requestId === request.requestId) localStorage.removeItem(key)
+    } catch (e) {
+      console.warn('[agent-link] failed to consume session disconnect request', e)
+    }
+  }
+
+  function handleStorage(event: StorageEvent): void {
+    if (event.key === key) tryDeliver()
+  }
+
+  try {
+    window.addEventListener('storage', handleStorage)
+    // Covers a request published just before this owner finished mounting.
+    tryDeliver()
+  } catch (e) {
+    console.warn('[agent-link] failed to subscribe to session disconnect requests', e)
+  }
+
+  return () => {
+    active = false
+    try {
+      window.removeEventListener('storage', handleStorage)
+    } catch (e) {
+      console.warn('[agent-link] failed to unsubscribe from session disconnect requests', e)
+    }
+  }
 }
 
 export function persistSession(session: AgentLinkHandoffSession): void {
@@ -323,8 +421,12 @@ export function readAnySession(now: number = Date.now()): AgentLinkHandoffSessio
   }
 }
 
-export function clearSession(pageId: string): void {
+export function clearSession(pageId: string, expectedToken?: string): void {
   try {
+    if (expectedToken) {
+      const current = readSession(pageId)
+      if (current && current.token !== expectedToken) return
+    }
     localStorage.removeItem(storageKey(pageId))
   } catch (e) {
     console.warn('[agent-link] failed to clear session handoff', e)

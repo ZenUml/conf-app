@@ -6,6 +6,9 @@ import {
   clearSession,
   subscribeToHandoff,
   subscribeToAnyHandoff,
+  publishSessionDisconnectRequest,
+  readSessionDisconnectRequest,
+  subscribeToSessionDisconnectRequest,
   HANDOFF_TTL_MS,
   HANDOFF_FEED_MAX_ENTRIES,
   DEFAULT_HANDOFF_POLL_INTERVAL_MS,
@@ -124,6 +127,14 @@ describe('sessionHandoff', () => {
     clearSession('page-1')
 
     expect(readSession('page-1')).toBeNull()
+  })
+
+  it('token-scoped clearSession does not remove a newer replacement session', () => {
+    persistSession(makeSession({ token: 'new-token' }))
+
+    clearSession('page-1', 'old-token')
+
+    expect(readSession('page-1')).toMatchObject({ token: 'new-token' })
   })
 
   it('readSession returns null for malformed JSON instead of throwing', () => {
@@ -527,6 +538,35 @@ describe('sessionHandoff', () => {
       vi.advanceTimersByTime(1000)
 
       expect(onSession).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('cross-iframe disconnect requests', () => {
+    it('publishes a token-scoped request for the owning iframe', () => {
+      publishSessionDisconnectRequest('page-1', 'token-1')
+
+      expect(readSessionDisconnectRequest('page-1')).toMatchObject({
+        pageId: 'page-1',
+        token: 'token-1',
+      })
+    })
+
+    it('delivers a matching storage event once and consumes the request', () => {
+      const onRequest = vi.fn()
+      const unsubscribe = subscribeToSessionDisconnectRequest('page-1', onRequest)
+      publishSessionDisconnectRequest('page-1', 'token-1')
+
+      window.dispatchEvent(
+        new StorageEvent('storage', { key: 'agentLinkDisconnectRequest:page-1' })
+      )
+      window.dispatchEvent(
+        new StorageEvent('storage', { key: 'agentLinkDisconnectRequest:page-1' })
+      )
+
+      expect(onRequest).toHaveBeenCalledTimes(1)
+      expect(onRequest).toHaveBeenCalledWith(expect.objectContaining({ token: 'token-1' }))
+      expect(readSessionDisconnectRequest('page-1')).toBeNull()
+      unsubscribe()
     })
   })
 })

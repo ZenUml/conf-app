@@ -23,7 +23,12 @@ import {
 import { SETUP_TIMEOUT_MS, RENDER_SAFETY_TIMEOUT_MS } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
 import type { RelayClient, RelayConnectionState, RelayStateEvent } from './relayClient'
-import { readSession, persistSession } from './sessionHandoff'
+import {
+  readSession,
+  persistSession,
+  publishSessionDisconnectRequest,
+  readSessionDisconnectRequest,
+} from './sessionHandoff'
 import type { AgentLinkHandoffSession } from './sessionHandoff'
 
 function makeBridgeOps(
@@ -821,6 +826,46 @@ describe('useAgentLinkSession', () => {
         'agent_link_edit_failed',
         expect.objectContaining({ reason: 'diagram_already_linked' })
       )
+    })
+
+    it('a hydrated Fullscreen revoke asks the inline owner to disconnect its exact token', () => {
+      const fullscreen = useAgentLinkSession(makeBridgeOps(), { macroType: 'sequence' })
+      fullscreen.hydrateFrom({
+        cloudId: 'c1',
+        pageId: 'p1',
+        contentId: 'cc1',
+        token: 'owner-token',
+        state: 'connected',
+      })
+
+      fullscreen.revokeAndRelink()
+
+      expect(readSessionDisconnectRequest('p1')).toMatchObject({
+        pageId: 'p1',
+        token: 'owner-token',
+      })
+    })
+
+    it('the inline owner disconnects when another iframe requests its current token', async () => {
+      const fakeClient = makeFakeRelayClient()
+      const session = useAgentLinkSession(makeBridgeOps(), {
+        macroType: 'sequence',
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' },
+          requestSession: vi.fn().mockResolvedValue({ token: 'owner-token' }),
+          connect: vi.fn(() => fakeClient),
+        },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      publishSessionDisconnectRequest('p1', 'owner-token')
+
+      window.dispatchEvent(
+        new StorageEvent('storage', { key: 'agentLinkDisconnectRequest:p1' })
+      )
+
+      expect(fakeClient.disconnect).toHaveBeenCalledTimes(1)
+      expect(session.state.value).toBe('closed')
     })
 
     describe('attemptReattach — a fresh (reloaded) inline mount reattaches by the SAME persisted token', () => {

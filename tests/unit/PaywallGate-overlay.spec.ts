@@ -22,10 +22,11 @@ const stubs = {
   UpgradePrompt: {
     name: 'UpgradePrompt',
     props: ['visible'],
-    emits: ['close', 'continueEditing'],
+    emits: ['close', 'continueEditing', 'extensionGranted'],
     template: `
       <div v-if="visible" data-testid="upgrade-prompt-mounted">
         <button data-testid="continue" @click="$emit('continueEditing')">continue</button>
+        <button data-testid="extension-granted" @click="$emit('extensionGranted', '2026-08-30T23:00:00.000Z')">extension granted</button>
         <button data-testid="close" @click="$emit('close')">close</button>
       </div>
     `,
@@ -54,6 +55,19 @@ describe('PaywallGate — content underneath the paywall modal', () => {
     expect(wrapper.find('[data-testid="upgrade-prompt-mounted"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="content-mounted"]').exists()).toBe(true);
     expect(wrapper.emitted('continue-editing')).toBeTruthy();
+  });
+
+  it('returns to the mounted editor when the server grants an extension', async () => {
+    const wrapper = mount(PaywallGate, {
+      props: baseProps,
+      global: { stubs },
+    });
+
+    await wrapper.get('[data-testid="extension-granted"]').trigger('click');
+
+    expect(wrapper.find('[data-testid="upgrade-prompt-mounted"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="content-mounted"]').exists()).toBe(true);
+    expect(wrapper.emitted('continue-editing')).toEqual([[]]);
   });
 
   it('hides the modal but keeps the content when the modal emits close', async () => {

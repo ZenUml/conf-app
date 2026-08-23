@@ -17,6 +17,9 @@ vi.mock('../service/paywallAdminNotification', () => ({
   dispatchPaywallAdminNotification: vi.fn(),
   failPaywallAdminNotificationBeforeDispatch: vi.fn(),
 }));
+vi.mock('../service/paywallExtensionLifecycle', () => ({
+  createPaywallExtensionReminder: vi.fn(),
+}));
 
 import { onRequest } from './paywall-extension';
 import { createOrReplayPaywallExtension } from '../service/paywallExtensionService';
@@ -26,6 +29,7 @@ import {
   dispatchPaywallAdminNotification,
   failPaywallAdminNotificationBeforeDispatch,
 } from '../service/paywallAdminNotification';
+import { createPaywallExtensionReminder } from '../service/paywallExtensionLifecycle';
 
 const validBody = {
   spaceKey: 'ENG',
@@ -126,6 +130,7 @@ describe('paywall-extension API', () => {
     });
     vi.mocked(dispatchPaywallAdminNotification).mockImplementation(async (_db, notification) => notification);
     vi.mocked(failPaywallAdminNotificationBeforeDispatch).mockImplementation(async (_db, notification) => notification);
+    vi.mocked(createPaywallExtensionReminder).mockResolvedValue({} as never);
   });
 
   it('requires POST and a complete authenticated Forge user context', async () => {
@@ -265,6 +270,24 @@ describe('paywall-extension API', () => {
       }),
     );
     expect(JSON.stringify(await response.json())).not.toContain('admin@example.com');
+  });
+
+  it('idempotently schedules the grant expiry reminder without delaying the grant response', async () => {
+    const scheduled: Promise<unknown>[] = [];
+    const response = await onRequest(context({ scheduled }));
+    expect(response.status).toBe(200);
+    expect(scheduled).toHaveLength(1);
+    await Promise.all(scheduled);
+
+    expect(createPaywallExtensionReminder).toHaveBeenCalledWith(expect.anything(), {
+      grantId: 'grant-1',
+      cloudId: 'cloud-from-fit',
+      accountId: 'account-from-fit',
+      spaceId: 'space-123',
+      spaceKey: 'ENG',
+      grantedAt: '2026-08-23T00:00:00.000Z',
+      expiresAt: '2026-08-30T00:00:00.000Z',
+    });
   });
 
   it('persists automatic routing but records missing configuration without sending', async () => {

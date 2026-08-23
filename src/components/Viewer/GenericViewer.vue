@@ -386,7 +386,7 @@
 
 <script>
 import {trackEvent} from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
 
 import { markRaw } from 'vue'
 import {mapState, mapGetters} from "vuex";
@@ -899,15 +899,24 @@ export default {
     getCaptureNode() {
       return this.$refs.captureNode ?? null;
     },
-    retry() {
+    // The reload on the last line aborts an XHR-transported event, so the click
+    // goes out on the unload-safe path and the reload waits for it. Production
+    // recorded 0 load_failed_retry_clicked against 1 load_failed_retry_resolved
+    // on 2026-08-23 with the fire-and-forget call this replaces. A blocked or
+    // failing beacon must never strand the user on the panel, hence the catch.
+    async retry() {
       const attempt = startRetryMarker(this.retryMarkerKey);
-      trackAnalyticsEvent('load_failed_retry_clicked', {
-        feature_area: 'macro',
-        surface: 'viewer',
-        macro_type: this.diagramType,
-        content_id: String(this.failedCustomContentId ?? ''),
-        retry_attempt: attempt,
-      });
+      try {
+        await trackAnalyticsEventBeforeUnload('load_failed_retry_clicked', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: this.diagramType,
+          content_id: String(this.failedCustomContentId ?? ''),
+          retry_attempt: attempt,
+        });
+      } catch (e) {
+        console.error('[analytics] retry click tracking failed', e);
+      }
       reloadViewer();
     },
     // Runs on the OTHER side of that reload. Without it the panel's own

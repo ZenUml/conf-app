@@ -16,14 +16,23 @@ import {
   type DomainMetrics,
 } from '../metrics-cache/snapshot/common';
 import {
-  resolveMarketplaceAdminRoute,
+  resolveMarketplaceAdminNotificationTarget,
   type MarketplaceAdminRoute,
 } from '../service/marketplaceContactResolution';
+import {
+  createPaywallAdminNotification,
+  dispatchPaywallAdminNotification,
+  failPaywallAdminNotificationBeforeDispatch,
+} from '../service/paywallAdminNotification';
 
 interface Env {
   DB: D1Database;
   confluence_plugin_features: KVNamespace;
   MARKETPLACE_CONTACT_ENCRYPTION_KEY?: string;
+  RESEND_API_KEY?: string;
+  RESEND_FROM?: string;
+  RESEND_REPLY_TO?: string;
+  PAYWALL_ENTERPRISE_BUNDLE_URL?: string;
 }
 
 const AUTHORITATIVE_COUNT_MAX_AGE_MS = 48 * 60 * 60 * 1000;
@@ -33,6 +42,17 @@ const MANUAL_ROUTE_FALLBACK: MarketplaceAdminRoute = {
   overrideUsed: false,
   cacheAgeHours: null,
 };
+
+function hasCompleteResendRuntimeConfig(env: Env): boolean {
+  if (![env.RESEND_API_KEY, env.RESEND_FROM, env.RESEND_REPLY_TO]
+    .every((value) => typeof value === 'string' && value.trim())) return false;
+  if (!env.RESEND_FROM?.includes('@') || !env.RESEND_REPLY_TO?.includes('@')) return false;
+  try {
+    return new URL(env.PAYWALL_ENTERPRISE_BUNDLE_URL ?? '').protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
 
 interface ConfluenceSpace {
   id?: unknown;
@@ -94,6 +114,7 @@ export const onRequest: PagesFunction<Env, string, ForgeRequestData> = async ({
   request,
   env,
   data,
+  waitUntil,
 }) => {
   if (request.method !== 'POST') return response(405, 'Method not allowed');
   if (!env.DB) return response(500, 'D1 binding is not configured');
@@ -140,17 +161,62 @@ export const onRequest: PagesFunction<Env, string, ForgeRequestData> = async ({
     // Contact resolution is a D1-only best-effort lookup after the extension
     // authority has decided. Failure can change outreach routing, never the
     // eligible user's grant. The API returns metadata, not the contact.
-    let adminContactRouting: MarketplaceAdminRoute;
+    let adminTarget: { route: MarketplaceAdminRoute; recipient: string | null };
     try {
-      adminContactRouting = await resolveMarketplaceAdminRoute(
+      adminTarget = await resolveMarketplaceAdminNotificationTarget(
         env.DB,
         cloudId,
         env.MARKETPLACE_CONTACT_ENCRYPTION_KEY,
       );
     } catch {
-      adminContactRouting = MANUAL_ROUTE_FALLBACK;
+      adminTarget = { route: MANUAL_ROUTE_FALLBACK, recipient: null };
     }
-    return OkResponse({ ...result, adminContactRouting });
+
+    if (result.status === 'granted') {
+      const notificationWork = (async () => {
+        const notification = await createPaywallAdminNotification(env.DB, {
+          requestId: result.requestId,
+          grantId: result.grant.grantId,
+          cloudId,
+          route: adminTarget.route,
+        });
+        if (adminTarget.route.routingOutcome !== 'automatic') return;
+        if (!adminTarget.recipient) {
+          await failPaywallAdminNotificationBeforeDispatch(env.DB, notification, 'contact_unavailable');
+          return;
+        }
+        if (!hasCompleteResendRuntimeConfig(env)) {
+          await failPaywallAdminNotificationBeforeDispatch(
+            env.DB, notification, 'resend_configuration_missing',
+          );
+          return;
+        }
+        await dispatchPaywallAdminNotification(env.DB, notification, {
+          apiKey: env.RESEND_API_KEY as string,
+          from: env.RESEND_FROM as string,
+          replyTo: env.RESEND_REPLY_TO as string,
+          recipient: adminTarget.recipient,
+          content: {
+            spaceKey: space.key,
+            macroCount: serverMacroCount,
+            requestedScope: input.answers.unblockNeed.scope,
+            urgency: input.answers.unblockNeed.urgency,
+            grantedAt: result.grant.grantedAt,
+            expiresAt: result.grant.expiresAt,
+            upgradeUrl: env.PAYWALL_ENTERPRISE_BUNDLE_URL as string,
+          },
+        });
+      })().catch((error) => {
+        // The grant is already authoritative. Do not propagate notification
+        // failures or log tenant/contact/provider values.
+        console.warn('paywall administrator notification preparation failed', {
+          reason: error instanceof Error ? error.name : 'unknown_error',
+        });
+      });
+      if (typeof waitUntil === 'function') waitUntil(notificationWork);
+      else await notificationWork;
+    }
+    return OkResponse({ ...result, adminContactRouting: adminTarget.route });
   } catch (error) {
     if (error instanceof PaywallExtensionValidationError) {
       return response(400, error.message);

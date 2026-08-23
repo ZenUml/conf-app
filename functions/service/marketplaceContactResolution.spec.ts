@@ -4,6 +4,7 @@ import {
   decryptMarketplaceContact,
   encryptMarketplaceContact,
   persistMarketplaceContactResolutions,
+  resolveMarketplaceAdminNotificationTarget,
   resolveMarketplaceAdminRoute,
 } from './marketplaceContactResolution';
 
@@ -298,5 +299,25 @@ describe('Marketplace contact encryption and hot-path routing', () => {
       overrideUsed: false, cacheAgeHours: 0,
     });
     expect(JSON.stringify(result)).not.toContain('admin@example.com');
+
+    const target = await resolveMarketplaceAdminNotificationTarget(db, 'cloud-direct', secret, fetchedAt);
+    expect(target).toMatchObject({
+      route: { routingOutcome: 'automatic', reasonCodes: ['technical_contact_unique'] },
+      recipient: 'admin@example.com',
+    });
+  });
+
+  it('never yields a recipient for a manual route', async () => {
+    const db = {
+      prepare: (sql: string) => ({
+        bind: () => ({ first: async () => sql.includes('MarketplaceContactOverride') ? null : {
+          classification: 'partner', routingOutcome: 'manual', reasonCodes: '["known_reseller_domain"]',
+          contactCiphertext: null, sourceRefreshedAt: '2026-08-23T02:00:00.000Z',
+          cacheExpiresAt: '2026-08-24T14:00:00.000Z',
+        } }),
+      }),
+    } as unknown as D1Database;
+    await expect(resolveMarketplaceAdminNotificationTarget(db, 'cloud-manual', undefined, fetchedAt))
+      .resolves.toMatchObject({ route: { routingOutcome: 'manual' }, recipient: null });
   });
 });

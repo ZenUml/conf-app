@@ -1,7 +1,7 @@
 <template>
   <div data-testid="paywall-extension-journey" class="min-h-screen bg-slate-100 text-slate-950">
     <header class="border-b border-slate-200 bg-white px-6 py-4">
-      <div class="mx-auto flex max-w-[1440px] items-start justify-between gap-6">
+      <div class="mx-auto flex max-w-[1440px] flex-col items-start justify-between gap-4 lg:flex-row lg:gap-6">
         <div>
           <p class="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">ZenUML Lite · review prototype</p>
           <h1 class="mt-1 text-2xl font-semibold">Seven-day extension journey</h1>
@@ -17,8 +17,8 @@
       </div>
     </header>
 
-    <div class="mx-auto grid max-w-[1440px] grid-cols-[300px_minmax(0,1fr)] gap-5 p-5">
-      <aside class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm" aria-label="Journey stages">
+    <div class="mx-auto grid max-w-[1440px] grid-cols-1 gap-5 p-3 sm:p-5 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <aside class="max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-sm lg:max-h-none lg:overflow-visible" aria-label="Journey stages">
         <div v-for="group in groupedStages" :key="group.label" class="mb-4 last:mb-0">
           <h2 class="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{{ group.label }}</h2>
           <div class="space-y-1">
@@ -45,7 +45,7 @@
       </aside>
 
       <main class="min-w-0">
-        <section class="mb-4 flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-5 py-3 shadow-sm">
+        <section class="mb-4 flex flex-col items-start justify-between gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 shadow-sm sm:flex-row sm:items-center sm:gap-4">
           <div>
             <p class="text-xs font-semibold text-slate-500">{{ selectedStage.group }}</p>
             <div class="mt-0.5 flex items-center gap-2">
@@ -88,7 +88,7 @@
             @continue-editing="noop"
           />
 
-          <div v-else-if="selectedStage.id === 'intake'" class="p-7">
+          <div v-else-if="selectedStage.id === 'intake'" class="p-4 sm:p-7">
             <div class="mb-5 flex items-start justify-between gap-4">
               <div>
                 <p class="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">About one minute</p>
@@ -100,7 +100,7 @@
             <div data-testid="extension-disclosure" class="mb-5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
               ZenUML will use these answers to arrange temporary access and will notify your organisation's registered technical or site contact.
             </div>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <fieldset data-testid="extension-question" data-question-id="current_task" class="rounded-lg border border-slate-200 p-3">
                 <legend class="px-1 text-sm font-semibold">1. What are you working on?</legend>
                 <select v-model="answers.currentTask" class="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm">
@@ -129,7 +129,7 @@
 
               <fieldset data-testid="extension-question" data-question-id="ai_diagrams" class="rounded-lg border border-slate-200 p-3">
                 <legend class="px-1 text-sm font-semibold">3. Do you use AI with diagrams?</legend>
-                <div class="mt-2 grid grid-cols-2 gap-2">
+                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <select v-model="answers.aiTool" aria-label="AI coding tool" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
                     <option value="none">No AI coding tool</option>
                     <option value="github_copilot">GitHub Copilot</option>
@@ -148,7 +148,7 @@
 
               <fieldset data-testid="extension-question" data-question-id="workflow_constraints" class="rounded-lg border border-slate-200 p-3">
                 <legend class="px-1 text-sm font-semibold">4. Does your workflow set constraints?</legend>
-                <div class="mt-2 grid grid-cols-2 gap-2">
+                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <select v-model="answers.template" aria-label="Required diagram process" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
                     <option value="required">Required process or template</option>
                     <option value="optional">Optional template</option>
@@ -164,9 +164,9 @@
                 </div>
               </fieldset>
 
-              <fieldset data-testid="extension-question" data-question-id="unblock_need" class="col-span-2 rounded-lg border border-slate-200 p-3">
+              <fieldset data-testid="extension-question" data-question-id="unblock_need" class="rounded-lg border border-slate-200 p-3 sm:col-span-2">
                 <legend class="px-1 text-sm font-semibold">5. What needs unblocking, and how soon?</legend>
-                <div class="mt-2 grid grid-cols-2 gap-2">
+                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <select v-model="answers.scope" aria-label="Requested unblock scope" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm">
                     <option value="self">Just me</option>
                     <option value="space">This Space</option>
@@ -203,7 +203,7 @@
             <RouteCard tone="emerald" title="Automatic route" status="Ready for notification">
               A fresh Marketplace Technical Contact is classified as a direct customer. The user is unblocked immediately; the address stays hidden from the frontend.
             </RouteCard>
-            <div class="mt-5 grid grid-cols-3 gap-3 text-sm">
+            <div class="mt-5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
               <Fact label="Resolution" value="direct_customer" />
               <Fact label="Freshness" value="Refreshed today" />
               <Fact label="Recipient" value="Registered contact (hidden)" />
@@ -214,14 +214,14 @@
             <RouteCard tone="amber" title="Manual review" status="No external email queued">
               The cached contact is missing, stale, uncertain, or associated with a partner. This never blocks the eligible user's extension.
             </RouteCard>
-            <div class="mt-5 grid grid-cols-3 gap-3 text-sm">
+            <div class="mt-5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
               <Fact label="Resolution" value="uncertain" />
               <Fact label="Reason" value="Conflicting contact signals" />
               <Fact label="Next step" value="Operator review" />
             </div>
           </div>
 
-          <div v-else-if="selectedStage.id === 'admin-email'" class="bg-slate-100 p-8">
+          <div v-else-if="selectedStage.id === 'admin-email'" class="bg-slate-100 p-3 sm:p-8">
             <div data-testid="admin-email-preview" class="mx-auto max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <div class="bg-slate-950 px-7 py-5 text-white">
                 <p class="text-xs font-bold uppercase tracking-[0.16em] text-emerald-300">ZenUML for Confluence</p>

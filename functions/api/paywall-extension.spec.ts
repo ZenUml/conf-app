@@ -10,12 +10,22 @@ vi.mock('../service/paywallExtensionService', async (importOriginal) => {
   return { ...actual, createOrReplayPaywallExtension: vi.fn() };
 });
 vi.mock('../service/marketplaceContactResolution', () => ({
-  resolveMarketplaceAdminRoute: vi.fn(),
+  resolveMarketplaceAdminNotificationTarget: vi.fn(),
+}));
+vi.mock('../service/paywallAdminNotification', () => ({
+  createPaywallAdminNotification: vi.fn(),
+  dispatchPaywallAdminNotification: vi.fn(),
+  failPaywallAdminNotificationBeforeDispatch: vi.fn(),
 }));
 
 import { onRequest } from './paywall-extension';
 import { createOrReplayPaywallExtension } from '../service/paywallExtensionService';
-import { resolveMarketplaceAdminRoute } from '../service/marketplaceContactResolution';
+import { resolveMarketplaceAdminNotificationTarget } from '../service/marketplaceContactResolution';
+import {
+  createPaywallAdminNotification,
+  dispatchPaywallAdminNotification,
+  failPaywallAdminNotificationBeforeDispatch,
+} from '../service/paywallAdminNotification';
 
 const validBody = {
   spaceKey: 'ENG',
@@ -35,6 +45,8 @@ function context(options: {
   body?: unknown;
   forgeContext?: Record<string, unknown>;
   userToken?: string;
+  resendConfigured?: boolean;
+  scheduled?: Promise<unknown>[];
 } = {}) {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (options.userToken !== '') headers['x-forge-oauth-user'] = options.userToken ?? 'user-token';
@@ -49,6 +61,12 @@ function context(options: {
     env: {
       DB: {} as D1Database,
       MARKETPLACE_CONTACT_ENCRYPTION_KEY: 'test-only-secret-that-is-at-least-32-characters',
+      ...(options.resendConfigured ? {
+        RESEND_API_KEY: 'test-resend-key',
+        RESEND_FROM: 'ZenUML <notifications@zenuml.com>',
+        RESEND_REPLY_TO: 'support@zenuml.com',
+        PAYWALL_ENTERPRISE_BUNDLE_URL: 'https://example.com/enterprise-bundle',
+      } : {}),
       confluence_plugin_features: {
         get: vi.fn().mockResolvedValue({
           domain: 'example',
@@ -69,6 +87,7 @@ function context(options: {
         apiBaseUrl: 'https://api.atlassian.com/ex/confluence/cloud-from-fit',
       },
     },
+    ...(options.scheduled ? { waitUntil: (promise: Promise<unknown>) => options.scheduled?.push(promise) } : {}),
   } as any;
 }
 
@@ -89,10 +108,24 @@ describe('paywall-extension API', () => {
         extensionDays: 7,
       },
     });
-    vi.mocked(resolveMarketplaceAdminRoute).mockResolvedValue({
-      routingOutcome: 'automatic', reasonCodes: ['technical_contact_unique'],
-      overrideUsed: false, cacheAgeHours: 1,
+    vi.mocked(resolveMarketplaceAdminNotificationTarget).mockResolvedValue({
+      route: {
+        routingOutcome: 'automatic', reasonCodes: ['technical_contact_unique'],
+        overrideUsed: false, cacheAgeHours: 1,
+      },
+      recipient: 'admin@example.com',
     });
+    vi.mocked(createPaywallAdminNotification).mockResolvedValue({
+      notificationId: 'notification-1', requestId: 'request-1', grantId: 'grant-1',
+      cloudId: 'cloud-from-fit', templateVersion: 'active-adoption-v1',
+      routingOutcome: 'automatic', routingReasonCodes: '["technical_contact_unique"]',
+      state: 'queued', providerMessageId: null, attemptCount: 0, maxAttempts: 3,
+      lastErrorCode: null, nextAttemptAt: null, sentAt: null, deliveredAt: null,
+      clickedAt: null, failedAt: null, createdAt: '2026-08-23T00:00:00.000Z',
+      updatedAt: '2026-08-23T00:00:00.000Z',
+    });
+    vi.mocked(dispatchPaywallAdminNotification).mockImplementation(async (_db, notification) => notification);
+    vi.mocked(failPaywallAdminNotificationBeforeDispatch).mockImplementation(async (_db, notification) => notification);
   });
 
   it('requires POST and a complete authenticated Forge user context', async () => {
@@ -198,7 +231,7 @@ describe('paywall-extension API', () => {
   });
 
   it('never blocks an eligible extension when contact routing fails', async () => {
-    vi.mocked(resolveMarketplaceAdminRoute).mockRejectedValueOnce(new Error('fixture D1 read failure'));
+    vi.mocked(resolveMarketplaceAdminNotificationTarget).mockRejectedValueOnce(new Error('fixture D1 read failure'));
     const response = await onRequest(context());
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -208,5 +241,64 @@ describe('paywall-extension API', () => {
         overrideUsed: false, cacheAgeHours: null,
       },
     });
+  });
+
+  it('creates and dispatches one server-only notification with complete runtime configuration', async () => {
+    const scheduled: Promise<unknown>[] = [];
+    const response = await onRequest(context({ resendConfigured: true, scheduled }));
+    expect(response.status).toBe(200);
+    expect(scheduled).toHaveLength(1);
+    await Promise.all(scheduled);
+
+    expect(createPaywallAdminNotification).toHaveBeenCalledWith(expect.anything(), {
+      requestId: 'request-1', grantId: 'grant-1', cloudId: 'cloud-from-fit',
+      route: expect.objectContaining({ routingOutcome: 'automatic' }),
+    });
+    expect(dispatchPaywallAdminNotification).toHaveBeenCalledWith(
+      expect.anything(), expect.objectContaining({ notificationId: 'notification-1' }),
+      expect.objectContaining({
+        apiKey: 'test-resend-key', recipient: 'admin@example.com',
+        content: expect.objectContaining({
+          spaceKey: 'ENG', macroCount: 123, requestedScope: 'self', urgency: 'today',
+          grantedAt: '2026-08-23T00:00:00.000Z', expiresAt: '2026-08-30T00:00:00.000Z',
+        }),
+      }),
+    );
+    expect(JSON.stringify(await response.json())).not.toContain('admin@example.com');
+  });
+
+  it('persists automatic routing but records missing configuration without sending', async () => {
+    const response = await onRequest(context());
+    expect(response.status).toBe(200);
+    expect(createPaywallAdminNotification).toHaveBeenCalledOnce();
+    expect(failPaywallAdminNotificationBeforeDispatch).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'resend_configuration_missing',
+    );
+    expect(dispatchPaywallAdminNotification).not.toHaveBeenCalled();
+  });
+
+  it('persists manual routing without decrypting or sending to that contact', async () => {
+    vi.mocked(resolveMarketplaceAdminNotificationTarget).mockResolvedValueOnce({
+      route: {
+        routingOutcome: 'manual', reasonCodes: ['known_reseller_domain'],
+        overrideUsed: false, cacheAgeHours: 1,
+      },
+      recipient: null,
+    });
+    const response = await onRequest(context({ resendConfigured: true }));
+    expect(response.status).toBe(200);
+    expect(createPaywallAdminNotification).toHaveBeenCalledWith(
+      expect.anything(), expect.objectContaining({ route: expect.objectContaining({ routingOutcome: 'manual' }) }),
+    );
+    expect(dispatchPaywallAdminNotification).not.toHaveBeenCalled();
+    expect(failPaywallAdminNotificationBeforeDispatch).not.toHaveBeenCalled();
+  });
+
+  it('never changes the successful grant response when outbox persistence fails', async () => {
+    vi.mocked(createPaywallAdminNotification).mockRejectedValueOnce(new Error('fixture outbox unavailable'));
+    const response = await onRequest(context({ resendConfigured: true }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: 'granted', requestId: 'request-1' });
+    expect(dispatchPaywallAdminNotification).not.toHaveBeenCalled();
   });
 });

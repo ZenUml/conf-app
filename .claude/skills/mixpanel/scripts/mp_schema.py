@@ -138,7 +138,19 @@ def parse_events(ref=None):
         if m:
             events.append({"name": m.group(1), "doc": _leading_comment(lines, i)})
             continue
-        if ln.strip().endswith(";") or re.match(r"\s*export\s", ln):
+        # Comment lines can never end the union, and MUST be skipped before the
+        # terminator check below. The union is documented inline, and prose
+        # routinely ends a line with ';' — e.g. "…the command shape is accepted;"
+        # at catalog.ts:324. Treating that as the end of the type silently
+        # truncated the list to the 54 events declared above it and dropped the
+        # other 108, including every byline_* and agent_link_* name. The failure
+        # mode was the worst kind: `event <name>` answered "NOT a declared event
+        # name" for a name that is declared, so the tool this skill calls
+        # authoritative argued against correct queries.
+        stripped = ln.strip()
+        if stripped.startswith("//") or stripped.startswith("*") or stripped.startswith("/*"):
+            continue
+        if stripped.endswith(";") or re.match(r"\s*export\s", ln):
             if events:
                 break
     return events

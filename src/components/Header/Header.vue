@@ -1,24 +1,26 @@
 <template>
-  <header class="toolbar header border-b border-gray-200 px-6 py-3 flex items-center gap-3 relative z-10 h-14">
+  <header class="toolbar header bg-[#F1F3F4] px-6 flex items-center gap-3 relative z-10 h-10">
     <div class="flex items-center gap-3 flex-1 min-w-0">
+      <DiagramTitleInput />
+    </div>
+    <div class="notch">
       <TabSwitcher
         v-model="diagramType"
         :options="diagramOptions"
       />
-      <DiagramTitleInput />
     </div>
-    <div class="flex items-center gap-3 shrink-0">
-      <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+    <div class="flex items-center gap-3 shrink-0 ml-auto">
+      <button class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="openTemplateGallery">
         <LightBulbIcon class="w-4 h-4" />
         <span>Templates</span>
       </button>
-      <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+      <button class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="helpClick">
         <QuestionMarkCircleIcon class="w-4 h-4" />
         <span>Help</span>
       </button>
-      <div class="h-6 w-px bg-gray-300"></div>
+      <div class="h-5 w-px bg-gray-300"></div>
       <div class="relative group/save">
         <publish-button
           :saveAndExit="saveAndExit"
@@ -46,7 +48,7 @@ import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getEditorDiagramOptions, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
@@ -168,14 +170,33 @@ export default {
     // "template click" legacy signal (unknown downstream consumers) and adds
     // the new editor_template_gallery_opened event alongside it, rather than
     // replacing one tracker with the other.
+    //
+    // Onboarding funnel: this is currently the ONLY producer of
+    // editor_starter_shown too. There is no auto-open-on-empty-macro surface
+    // yet, so `trigger` is always 'manual' here — fired only when the macro
+    // is genuinely new and still empty, which is the "starter surface on an
+    // empty new macro" condition the event documents. An editing session or
+    // a new macro that already has code (e.g. a restored draft) does not
+    // fire it, since the starter surface isn't replacing a blank slate there.
     openTemplateGallery() {
       trackEvent("template", "click", this.diagramType);
+      const isNewMacro = !this.$store.state.diagram.id;
       trackAnalyticsEvent("editor_template_gallery_opened", {
         feature_area: "macro",
         surface: "editor",
         macro_type: this.diagramType,
-        is_new_macro: !this.$store.state.diagram.id,
+        is_new_macro: isNewMacro,
+        template_gallery_trigger: "manual",
       });
+      if (isNewMacro && !this.currentCode) {
+        trackAnalyticsEvent("editor_starter_shown", {
+          feature_area: "macro",
+          surface: "editor",
+          macro_type: this.diagramType,
+          entry_point: "macro_toolbar",
+          trigger: "manual",
+        });
+      }
       this.isTemplateGalleryOpen = true;
     },
     closeTemplateGallery() {
@@ -217,9 +238,17 @@ export default {
     },
   },
   async mounted() {
-    // Load user's preferred diagram type from localStorage for new diagrams
+    // Load user's preferred diagram type from localStorage for new diagrams.
+    //
+    // Skipped when the type was explicitly ASKED for — the byline's type picker
+    // and a pasted /new/<type> link both seed the doc and set `typeRequested`
+    // (see applyRequestedDiagramType). A remembered preference is a default, and
+    // a default must not overrule a choice the user just made: picking Flowchart
+    // in the byline opened a Sequence editor for anyone whose last diagram was a
+    // sequence, which is most people.
     const isNewDiagram = this.$store.state.diagram.isNew;
-    if (isNewDiagram) {
+    const typeWasRequested = !!this.$store.state.diagram.typeRequested;
+    if (isNewDiagram && !typeWasRequested) {
       const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
       if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid)) {
         this.updateDiagramType(savedDiagramType);
@@ -242,8 +271,8 @@ export default {
     // Restore if a newer draft exists than the loaded diagram.
     const draft = await loadDraft(this._draftScope);
     if (draft) {
-      const updatedAt = Number(this.$store.state.diagram.updatedAt) || 0;
-      if (draft.savedAt > updatedAt && (draft.code !== this.originalCode || draft.title !== this.$store.state.diagram.title)) {
+      const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store.state.diagram.updatedAt;
+      if (isDraftNewerThanSaved(draft, savedVersionUpdatedAt) && (draft.code !== this.originalCode || draft.title !== this.$store.state.diagram.title)) {
         EventBus.$emit("draft-available", {
           scope: this._draftScope,
           draft,
@@ -283,6 +312,7 @@ export default {
     // launched modal can stay open, so resetting here matters.)
     this._onPublished = () => {
       this.stopSaving();
+      this._draftSaver?.cancel();
       clearDraft(this._draftScope);
     };
     EventBus.$on('saved', this._onPublished);
@@ -317,3 +347,28 @@ export default {
   },
 };
 </script>
+
+<style scoped>
+/* Diagram-type tabs raised into a notch straddling the header's top edge,
+   concave shoulders cut into the divider — see Claude Design
+   preview/toolbar-header-notch.html. */
+.notch {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Hangs DOWN from the top of the header, 32px tall inside a 40px band so
+     its bottom edge never reaches the work area below. border-top:0 keeps the
+     top edge open; drawing one there leaves two floating stubs, because the
+     side borders are still painted full height. */
+  top: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #E5E7EB;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+</style>

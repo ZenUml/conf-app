@@ -1,7 +1,6 @@
 import type { ForgeRequestData } from '../utils/authenticate';
 import {
   classifyViewerRelation,
-  deriveViewerKey,
   type RegistrationResult,
   type ViewerRelation,
 } from './domain';
@@ -14,7 +13,6 @@ import {
 
 export interface DiagramImpactEnv {
   DB?: D1Database;
-  DIAGRAM_IMPACT_HMAC_SECRET?: string;
 }
 
 export class DiagramImpactRequestError extends Error {
@@ -168,12 +166,9 @@ export async function registerDiagramImpactView(input: {
     };
   }
 
-  const secret = optionalString(input.env.DIAGRAM_IMPACT_HMAC_SECRET);
-  if (!secret) throw new DiagramImpactRequestError(503, 'impact_unavailable');
-  const viewerKey = await deriveViewerKey({ secret, cloudId: resolved.scope.cloudId, accountId: resolved.accountId });
   const result = await registerAudienceView(resolved.db, {
     ...resolved.scope,
-    viewerKey,
+    accountId: resolved.accountId,
     now: input.now ?? new Date(),
   });
   return { result, audienceCount: await countAudience(resolved.db, resolved.scope) };

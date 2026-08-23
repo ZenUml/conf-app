@@ -76,7 +76,7 @@ describe('diagram impact service', () => {
     vi.stubGlobal('fetch', vi.fn(async () => response({ ...content, authorId: 'viewer-a' })));
 
     await expect(registerDiagramImpactView({
-      env: { DB: fakeDb({ count: 9 }), DIAGRAM_IMPACT_HMAC_SECRET: 'secret' },
+      env: { DB: fakeDb({ count: 9 }) },
       data,
       forgeOAuthUser: 'token',
       customContentId: 'content-a',
@@ -84,12 +84,12 @@ describe('diagram impact service', () => {
     })).resolves.toEqual({ result: 'excluded_contributor', audienceCount: 9 });
   });
 
-  it('fails closed before storing an eligible viewer without the HMAC secret', async () => {
+  it('stores an eligible viewer without an audience secret', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(content)));
 
     await expect(registerDiagramImpactView({
       env: { DB: fakeDb() }, data, forgeOAuthUser: 'token', customContentId: 'content-a', now: new Date(),
-    })).rejects.toMatchObject<Partial<DiagramImpactRequestError>>({ status: 503, code: 'impact_unavailable' });
+    })).resolves.toEqual({ result: 'new_unique', audienceCount: 7 });
   });
 
   it('rejects missing or malformed identity and content inputs', async () => {

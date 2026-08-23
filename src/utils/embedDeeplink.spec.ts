@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { parseEmbedDeeplink, deeplinkHostForProductType, buildEmbedDeeplink } from './embedDeeplink';
+import {
+  parseEmbedDeeplink,
+  deeplinkHostForProductType,
+  buildEmbedDeeplink,
+  resolveLocalContentId,
+  newlyCreatedId,
+  buildDiagramDeeplink,
+  parseDiagramDeeplink,
+  resolveLocalTypedContentId,
+} from './embedDeeplink';
 
 const CLOUD = '494a0c9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
 
@@ -65,5 +74,101 @@ describe('buildEmbedDeeplink', () => {
       const url = buildEmbedDeeplink(host, CLOUD, '42');
       expect(parseEmbedDeeplink(url)).toEqual({ cloudId: CLOUD, contentId: '42' });
     }
+  });
+});
+
+describe('resolveLocalContentId', () => {
+  it('resolves a link minted for this site', () => {
+    expect(resolveLocalContentId(`https://conf-lite.zenuml.com/d/${CLOUD}/42`, CLOUD)).toBe('42');
+  });
+
+  it('compares cloudId case-insensitively', () => {
+    expect(resolveLocalContentId(`https://conf-lite.zenuml.com/d/${CLOUD.toUpperCase()}/42`, CLOUD))
+      .toBe('42');
+  });
+
+  it('refuses a link from another site — ids are per-site integers', () => {
+    const foreign = '11111111-2222-3333-4444-555555555555';
+    expect(resolveLocalContentId(`https://conf-lite.zenuml.com/d/${foreign}/42`, CLOUD))
+      .toBeUndefined();
+  });
+
+  it('is undefined with no cloudId, a non-string, or a non-deeplink', () => {
+    expect(resolveLocalContentId(`https://conf-lite.zenuml.com/d/${CLOUD}/42`, undefined))
+      .toBeUndefined();
+    expect(resolveLocalContentId(undefined, CLOUD)).toBeUndefined();
+    expect(resolveLocalContentId('https://example.com/', CLOUD)).toBeUndefined();
+  });
+});
+
+describe('newlyCreatedId', () => {
+  it('finds the id that appeared while the modal was open', () => {
+    expect(newlyCreatedId(['1', '2'], ['1', '2', '3'])).toBe('3');
+  });
+
+  it('takes the last of several — a double save leaves the user on the newest', () => {
+    expect(newlyCreatedId(['1'], ['1', '2', '3'])).toBe('3');
+  });
+
+  it('is undefined when nothing was created', () => {
+    expect(newlyCreatedId(['1', '2'], ['1', '2'])).toBeUndefined();
+    expect(newlyCreatedId([], [])).toBeUndefined();
+  });
+
+  it('ignores order — identity is by id, not position', () => {
+    expect(newlyCreatedId(['1', '2'], ['2', '9', '1'])).toBe('9');
+  });
+});
+
+describe('typed diagram deeplinks', () => {
+  it('mints a 4-segment link per supported type', () => {
+    for (const type of ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi']) {
+      expect(buildDiagramDeeplink(type, CLOUD, '42'))
+        .toBe(`https://confluence.zenuml.com/d/${type}/${CLOUD}/42`);
+    }
+  });
+
+  // Minting must stay on the host the typed autoConvert matchers in
+  // manifest.yml list, or a pasted link silently fails to convert.
+  it('mints on the host the manifest matchers are written against', () => {
+    expect(buildDiagramDeeplink('graph', CLOUD, '42'))
+      .toContain('https://confluence.zenuml.com/');
+  });
+
+  it('refuses an unknown type or missing parts', () => {
+    expect(buildDiagramDeeplink('asyncapi', CLOUD, '42')).toBeUndefined();
+    expect(buildDiagramDeeplink('graph', '', '42')).toBeUndefined();
+    expect(buildDiagramDeeplink('graph', CLOUD, '')).toBeUndefined();
+  });
+
+  it('round-trips, and parses on every migrated host', () => {
+    for (const host of ['confluence', 'conf-lite', 'conf-full']) {
+      expect(parseDiagramDeeplink(`https://${host}.zenuml.com/d/graph/${CLOUD}/42`))
+        .toEqual({ type: 'graph', cloudId: CLOUD, contentId: '42' });
+    }
+  });
+
+  // The two forms are told apart by segment count alone: a matcher's * covers
+  // exactly one segment, so /d/*/* can never swallow /d/<type>/*/*.
+  it('does not confuse the 3-segment embed form with the 4-segment typed form', () => {
+    expect(parseDiagramDeeplink(`https://conf-lite.zenuml.com/d/${CLOUD}/42`)).toBeUndefined();
+    expect(parseEmbedDeeplink(`https://conf-lite.zenuml.com/d/graph/${CLOUD}/42`)).toBeUndefined();
+  });
+
+  it('rejects an unknown type segment, http, and foreign hosts', () => {
+    expect(parseDiagramDeeplink(`https://conf-lite.zenuml.com/d/asyncapi/${CLOUD}/42`))
+      .toBeUndefined();
+    expect(parseDiagramDeeplink(`http://conf-lite.zenuml.com/d/graph/${CLOUD}/42`)).toBeUndefined();
+    expect(parseDiagramDeeplink(`https://evil.example.com/d/graph/${CLOUD}/42`)).toBeUndefined();
+  });
+
+  it('guards resolveLocalTypedContentId on cloudId', () => {
+    const foreign = '11111111-2222-3333-4444-555555555555';
+    expect(resolveLocalTypedContentId(`https://conf-lite.zenuml.com/d/graph/${CLOUD}/42`, CLOUD))
+      .toBe('42');
+    expect(resolveLocalTypedContentId(`https://conf-lite.zenuml.com/d/graph/${foreign}/42`, CLOUD))
+      .toBeUndefined();
+    expect(resolveLocalTypedContentId(`https://conf-lite.zenuml.com/d/graph/${CLOUD}/42`, undefined))
+      .toBeUndefined();
   });
 });

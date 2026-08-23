@@ -23,6 +23,7 @@ import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
@@ -254,7 +255,10 @@ async function initializeMacro() {
   
   // Ensure session is initialized
   getOrCreateSession();
-  const customContentId = context.extension?.config?.customContentId;
+  // See forge-graph-viewer: a pasted graph macro carries its id only in the
+  // autoConvert link, so the editor must resolve it the same way or it opens
+  // a new blank diagram instead of the linked one.
+  const customContentId = resolveEffectiveCustomContentId(context);
   originalCustomContentId = customContentId;
   recoveryPageId = context.extension?.content?.id;
 
@@ -413,7 +417,7 @@ async function initializeMacro() {
   }
 
   const isNew = await MacroUtil.isCreateNew();
-  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_opened', {
+  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'graph',
@@ -421,4 +425,4 @@ async function initializeMacro() {
   });
 }
 
-export default initializeMacro(); 
+export default initializeMacro();

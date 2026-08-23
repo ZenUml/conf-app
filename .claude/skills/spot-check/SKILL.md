@@ -3,7 +3,7 @@ name: spot-check
 description: >
   Ad hoc, AI-driven verification of a specific behavior — not a checked-in E2E test.
   Use after developing a feature, fixing a bug, validating a branch, or post-release.
-  Drives Playwright MCP for Forge iframe UI, or CLI for backend/analytics signals.
+  Drives agent-browser for Forge iframe UI, or CLI for backend/analytics signals.
   Triggers on "spot check", "run a spot check on X", "spot check this fix",
   "spot check on staging", "spot check zenuml-lite@stg", "verify on staging".
 ---
@@ -17,7 +17,7 @@ A **spot check** is an ad hoc, AI-driven, ephemeral verification of a specific b
 ## Key principles
 
 - **Lightweight** — reuse what already exists. If a page with the relevant macro is already available, use it. Navigate directly to the macro when you know which one matters.
-- **AI-driven** — use Playwright MCP (`mcp__playwright__*`) to improvise steps. It is the only tool that reliably reaches inside Forge cross-origin iframes. Claude in Chrome / cursor-ide-browser can handle Confluence page chrome outside the iframe only. No script is checked in.
+- **AI-driven** — use `agent-browser --session conf-app --restore=stg` to improvise steps. It reaches inside Forge cross-origin iframes (including nested ones); ego lite and Playwright MCP also work, Kimi WebBridge / Claude in Chrome / cursor-ide-browser reach page chrome only. No script is checked in.
 - **Ephemeral** — test steps are not saved for future use.
 - **Targeted** — verify the specific behavior being checked, not a full regression.
 - **Real world** — verify the behaviour on a confluence site, not a local fixture or unit test.
@@ -104,7 +104,7 @@ Use whichever signals the behavior requires. Mix freely — e.g. drive the brows
 
 | Signal                          | How                                                                                |
 |---------------------------------|------------------------------------------------------------------------------------|
-| UI behavior                     | Playwright MCP (`mcp__playwright__*`) — use `frameLocator()` inside Forge iframes  |
+| UI behavior                     | `agent-browser` — `frame "@<ref>"` per iframe layer, then plain `eval` / `click`  |
 | Analytics events                | `mcp__mixpanel__Run-Query` with `project_id=3373228`                               |
 | Forge logs                      | `forge logs --environment staging` / `forge logs --environment production`         |
 | Cloudflare Pages Functions logs | `wrangler pages deployment tail --project-name <project> --environment production` |
@@ -125,17 +125,34 @@ Analytics reference: [docs/analytics-reference.md](../../../docs/analytics-refer
 
 ## Forge iframe tooling
 
-Forge Custom UI renders in sandboxed cross-origin iframes (OOPIFs). Only Playwright reliably crosses that boundary.
+Forge Custom UI renders in sandboxed cross-origin iframes (OOPIFs). Three tools cross that boundary.
+
+**Default to `agent-browser`** — it is the only one without a global single-pairing failure mode (see `CLAUDE.md` § "Browser automation and Forge iframes" for the measured comparison):
+
+```bash
+agent-browser --session conf-app --restore=stg open <url>
+agent-browser --session conf-app --restore=stg snapshot          # find the Iframe ref
+agent-browser --session conf-app --restore=stg frame "@e151"     # enter the OOPIF
+agent-browser --session conf-app --restore=stg eval "location.host"   # verify you are inside
+agent-browser --session conf-app --restore=stg console           # includes OOPIF logs
+```
 
 | Tool                    | Forge iframe access      |
 |-------------------------|--------------------------|
-| **Playwright MCP**      | ✅ Yes — `frameLocator()` |
+| **agent-browser**       | ✅ Yes — `frame @<ref>` (default) |
+| **ego lite**            | ✅ Yes — `cdp` + `sessionId` |
+| **Playwright MCP**      | ✅ Yes — `frameLocator()` / snapshot `ref` as `target` |
+| **Kimi WebBridge**      | ❌ No — snapshot omits OOPIFs, `cdp` rejects `Target.*` |
 | **chrome-devtools-mcp** | ❌ No                     |
 | **cursor-ide-browser**  | ❌ No — page chrome only  |
 | **claude-in-chrome**    | ❌ No                     |
 
 **Common gotchas:**
 
+- `--restore=stg` is required on every agent-browser call — without it the session starts blank and lands on the Atlassian login page.
+- Confirm frame entry with `eval "location.host"` — it must return the `cdn.prod.atlassian-dev.net` host, not `*.atlassian.net`. Older agent-browser builds reported `✓ Done` while staying in the top frame.
+- Nested frames (a DrawIO editor inside the macro OOPIF) need one `frame` call per layer, with a fresh `snapshot` between them — refs are scoped to the frame they were read in.
+- `@e` refs are per-snapshot. Re-read the ref after any navigation.
 - Selectors from the top frame miss Forge UI — scope to the iframe.
 - Paywall state: use the macro toolbar `Preset:` dropdown (Bystander/Owner/etc.) for deterministic variants.
 - Version label in the macro toolbar confirms which build you hit (`vYYYY.MM…` = public deploy; branch SHA = tunnel/dev).

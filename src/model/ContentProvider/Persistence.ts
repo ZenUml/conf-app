@@ -10,7 +10,7 @@ import forgeGlobal from '@/model/globals/forgeGlobal';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
-import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason } from '@/model/SnapshotAttachment';
+import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason, snapshotFailureDetail } from '@/model/SnapshotAttachment';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -149,7 +149,13 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         }
       }
     } catch (e) {
-      const failure_reason = String(e instanceof Error ? e.message : e).substring(0, 200);
+      // #398 (remaining site): extract the Confluence exception class BEFORE
+      // truncating to 200 chars — the raw v1 error envelope alone is ~180
+      // chars, so a plain substring here (the original defect) cut every
+      // reason off mid-sentence inside the wrapper. SnapshotAttachment.ts's
+      // maybeBackfillSnapshot path already fixed this; reuse its extractor
+      // rather than re-deriving the parse here.
+      const { failure_reason, confluence_error_class } = snapshotFailureDetail(e);
       // On save the editor has write permission, so a 404 here is the expected
       // "page not published yet" draft case (the save-path/backfill self-heals
       // after publish) — record it as a skip, not a failure. Anything else,
@@ -164,6 +170,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
           custom_content_id: savedId,
           snapshot_skip_reason: 'page_not_published',
           failure_reason,
+          confluence_error_class,
         });
       } else {
         trackAnalyticsEvent('snapshot_create_failed', {
@@ -173,6 +180,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
           snapshot_trigger: 'save',
           custom_content_id: savedId,
           failure_reason,
+          confluence_error_class,
         });
       }
     }

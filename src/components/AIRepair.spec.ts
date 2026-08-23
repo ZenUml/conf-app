@@ -18,14 +18,19 @@ const COMPLETED_STATUS = {
   status: 'COMPLETED',
   message: 'Done',
   progress: 100,
-  output: { diagramCode: 'A->B: fixed' },
+  output: {
+    diagramCode: 'A->B: fixed',
+    repairAttempts: 1,
+    durationMs: 12_000,
+    reasoningDisabled: true,
+  },
 }
 
 const FAILED_STATUS = {
   status: 'FAILED',
   message: 'Failed',
   progress: 0,
-  output: null,
+  output: { durationMs: 8_000, repairAttempts: 2, timedOut: false },
   error: 'Unknown error',
 }
 
@@ -73,6 +78,8 @@ describe('AIRepair analytics', () => {
       surface: 'modal',
       macro_type: 'sequence',
       prompt_length: ORIGINAL_CODE.length,
+      poll_interval_ms: 1000,
+      timeout_budget_ms: 60_000,
     }))
     wrapper.unmount()
   })
@@ -88,6 +95,10 @@ describe('AIRepair analytics', () => {
       feature_area: 'ai',
       surface: 'modal',
       macro_type: 'sequence',
+      poll_count: 1,
+      backend_duration_ms: 12_000,
+      repair_attempts: 1,
+      reasoning_disabled: true,
     }))
     wrapper.unmount()
   })
@@ -103,7 +114,10 @@ describe('AIRepair analytics', () => {
       feature_area: 'ai',
       surface: 'modal',
       macro_type: 'sequence',
-      failure_reason: expect.stringContaining('failed'),
+      failure_reason: 'server_failed',
+      failure_phase: 'server',
+      backend_duration_ms: 8_000,
+      repair_attempts: 2,
     }))
     wrapper.unmount()
   })
@@ -117,7 +131,8 @@ describe('AIRepair analytics', () => {
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_failed', expect.objectContaining({
       feature_area: 'ai',
       surface: 'modal',
-      failure_reason: 'network error',
+      failure_reason: 'start_failed',
+      failure_phase: 'start',
     }))
     wrapper.unmount()
   })
@@ -172,6 +187,76 @@ describe('AIRepair analytics', () => {
 
     const eventNames = vi.mocked(trackAnalyticsEvent).mock.calls.map(c => c[0])
     expect(eventNames).not.toContain('ai_repair_dismissed')
+    wrapper.unmount()
+  })
+
+  it('polls again after one second so completed repairs become visible promptly', async () => {
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
+    vi.mocked(getFixDiagramStatus as any)
+      .mockResolvedValueOnce({ status: 'PROCESSING', message: 'Working', progress: 30 })
+      .mockResolvedValueOnce(COMPLETED_STATUS)
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await flushPromises()
+
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(2)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_repair_succeeded',
+      expect.objectContaining({ duration_ms: 1000, poll_count: 2 }),
+    )
+    wrapper.unmount()
+  })
+
+  it('uses one wall-clock budget instead of a fixed poll-attempt limit', async () => {
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({
+      status: 'PROCESSING',
+      message: 'Working',
+      progress: 30,
+    })
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(60)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_repair_failed',
+      expect.objectContaining({
+        failure_reason: 'client_timeout',
+        failure_phase: 'timeout',
+        duration_ms: 60_000,
+        timeout_budget_ms: 60_000,
+      }),
+    )
+    wrapper.unmount()
+  })
+
+  it('ignores an in-flight poll response after the dialog is closed', async () => {
+    let resolveStatus: (value: typeof COMPLETED_STATUS) => void = () => {}
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
+    vi.mocked(getFixDiagramStatus as any).mockImplementation(
+      () => new Promise(resolve => { resolveStatus = resolve }),
+    )
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+    const closeBtn = wrapper.find('[data-testid="ai-repair-dialog-content"] button')
+    await closeBtn.trigger('click')
+
+    resolveStatus(COMPLETED_STATUS)
+    await flushPromises()
+
+    const eventNames = vi.mocked(trackAnalyticsEvent).mock.calls.map(c => c[0])
+    expect(eventNames).not.toContain('ai_repair_succeeded')
+    expect(wrapper.emitted('close')).toHaveLength(1)
     wrapper.unmount()
   })
 })

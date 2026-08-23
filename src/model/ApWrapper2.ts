@@ -32,8 +32,19 @@ const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph']
 // Querying for sequence/graph keys here would return 400 from the v1/v2
 // search APIs ("Unsupported value for type").
 const ASYNCAPI_CUSTOM_CONTENT_TYPES = ['async-api-doc'];
+// Diagramly stores EVERY diagram under one key, `gpt-custom-content-key`
+// (package.json `forge:deploy:diagramly:*`), where lite/full split theirs across
+// zenuml-content-sequence/-graph. Omitting this branch made the search CQL ask
+// for two types the variant never writes, so every diagram-discovery caller came
+// back empty on Diagramly: the homepage feed card rendered only example rows and
+// Agent Link's search_diagrams / list_diagrams listed nothing (#524, observed on
+// production 2026-08-21). getMacroContentTypes() carries the same branch — the
+// two must stay in lockstep.
+const DIAGRAMLY_CUSTOM_CONTENT_TYPES = ['gpt-custom-content-key'];
 function customContentTypesForVariant(): string[] {
-  return forgeGlobal.isAsyncApi ? ASYNCAPI_CUSTOM_CONTENT_TYPES : CUSTOM_CONTENT_TYPES;
+  if (forgeGlobal.isAsyncApi) return ASYNCAPI_CUSTOM_CONTENT_TYPES;
+  if (forgeGlobal.isDiagramly) return DIAGRAMLY_CUSTOM_CONTENT_TYPES;
+  return CUSTOM_CONTENT_TYPES;
 }
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 
@@ -352,11 +363,24 @@ export default class ApWrapper2 implements IApWrapper {
     if (!response?.errors && isValidCustomContentId(response?.id)) {
       return response as ICustomContentResponseBodyV2;
     }
-    const detail = response?.errors
-      ? JSON.stringify(response.errors).substring(0, 500)
+    const errorsArr = Array.isArray(response?.errors) ? response.errors : undefined;
+    const detail = errorsArr
+      ? JSON.stringify(errorsArr).substring(0, 500)
       : `no id in response (id=${JSON.stringify(response?.id)})`;
     trackEvent(`${op}_custom_content_no_id`, `${op}_custom_content_no_id`, 'error', { detail });
-    throw new Error(`${op}CustomContentV2: save returned no usable customContentId: ${detail}`);
+    const err: any = new Error(`${op}CustomContentV2: save returned no usable customContentId: ${detail}`);
+    // Surface the Atlassian error envelope on the thrown Error so downstream
+    // telemetry (buildStructuredErrorProps) and recovery routing
+    // (saveCustomContentV2's 404 create-fallback) can read the real status/code
+    // instead of logging http_status='unknown'. The body comes back HTTP-200
+    // with an { errors: [...] } array, so the status is not on any HTTP error.
+    const first = errorsArr?.[0];
+    if (first) {
+      err.status = first.status;
+      err.code = first.code;
+    }
+    err.responseErrors = errorsArr;
+    throw err;
   }
 
   async updateCustomContent(contentObj: ICustomContent, newBody: Diagram) {
@@ -392,11 +416,31 @@ export default class ApWrapper2 implements IApWrapper {
     return msg.includes('Version must be incremented');
   }
 
-  private buildStructuredErrorProps(error: any): { error_message: string; http_status: string | number } {
+  private buildStructuredErrorProps(error: any): { error_message: string; http_status: string | number; error_code?: string } {
     return {
       error_message: String(error?.message || error?.responseText || error).substring(0, 500),
       http_status: error?.status || error?.statusCode || error?.xhr?.status || 'unknown',
+      // Atlassian error envelope code (e.g. INVALID_REQUEST_BODY, NOT_FOUND),
+      // surfaced by assertSavedCustomContent. Lets the update_custom_content_error
+      // dashboard segment failure classes without regex on error_message — the
+      // 400-trashed vs 404-missing split was previously invisible because both
+      // logged http_status='unknown'.
+      error_code: error?.code || error?.errorCode || undefined,
     };
+  }
+
+  // The Confluence v2 custom-content UPDATE endpoint accepts EXACTLY ONE value
+  // for `status`: `current`. (Verified live 2026-08 on staging — the rejection
+  // body reads "CustomContentUpdateAllowedStatus is one of [CURRENT]"; both
+  // `trashed` AND `draft` are rejected with 400 INVALID_REQUEST_BODY.) A macro
+  // whose backing custom content has been moved to Confluence trash reports
+  // status `trashed`, and echoing that back verbatim on the PUT made the save
+  // fail so the edit could never persist and every retry re-failed. Always send
+  // `current`, which for a trashed record also un-trashes it and lands the edit.
+  // See the 2026-08 update_custom_content_error incident (issue #500; 124 errors,
+  // one stuck enterprise user).
+  private normalizeUpdatableStatus(_status: string | undefined): 'current' {
+    return 'current';
   }
 
   private sanitizeCustomContentBody(content: Diagram): Diagram {
@@ -405,6 +449,11 @@ export default class ApWrapper2 implements IApWrapper {
     delete body.recoveredFromOrphanId;
     delete body.legacyLoadBlocked;
     delete body.loadError;
+    // Editor-session state: which surface asked for this diagram's type. It
+    // answers a question that only exists while the editor is open, so writing
+    // it into the stored body would put a permanent flag on customer content to
+    // record a decision made once, seconds earlier.
+    delete body.typeRequested;
 
     // Legacy graph records used `compressed: true` with an LZUTF8 graphXml
     // body. DrawIO saves now emit plain XML, so persisting a stale true flag
@@ -431,7 +480,7 @@ export default class ApWrapper2 implements IApWrapper {
     const buildData = (versionNumber: number) => ({
       "id": content.id,
       "type": content.type,
-      "status": content.status,
+      "status": this.normalizeUpdatableStatus(content.status),
       "pageId": content.pageId,
       "title": sanitizedBody.title || content.title,
       "body": {
@@ -659,6 +708,16 @@ export default class ApWrapper2 implements IApWrapper {
    * duplicates on this page" and wave a shared-id macro straight into the
    * editor — the exact silent fork it exists to stop.
    */
+  /**
+   * The customContentIds this page's macros reference, in document order, or
+   * `undefined` when the page ADF could not be read. One ADF GET for the whole
+   * page — see AtlasPage.referencedCustomContentIds for why the byline needs the
+   * ordered form rather than N countMacrosReferencing calls.
+   */
+  async referencedCustomContentIds(): Promise<string[] | undefined> {
+    return this._page.referencedCustomContentIds();
+  }
+
   async countMacrosReferencing(id: string): Promise<number | undefined> {
     return this._page.countMacrosOrUnknown((m) => {
       //TODO: filter by macro type
@@ -785,6 +844,38 @@ export default class ApWrapper2 implements IApWrapper {
         pageChildrenTotal: 0,
         probeError: e?.message ? String(e.message) : String(e),
       };
+    }
+  }
+
+  // Lite byline modal: the page's diagram custom-content children, raw.
+  //
+  // Deliberately thin — it returns the REST responses untouched (including
+  // error-shaped ones) and leaves every interpretation to
+  // utils/byline/pageDiagrams.ts, which is pure and unit-tested against the
+  // malformed bodies that occur in real customer data.
+  //
+  // Reads only. The byline item renders on every page, including pages with no
+  // diagram at all, so the empty result is the expected common case, not a
+  // failure. `Promise.all` over the two Lite content types mirrors
+  // probeOrphanRecovery: graph macros stored under the Connect-era
+  // `zenuml-content-graph` type are invisible to a sequence-typed listing.
+  async listPageDiagramContents(pageId: string): Promise<Array<any>> {
+    const limit = 100;
+    const types = customContentTypesForVariant().map(t => this.customContentType(t));
+    try {
+      return await Promise.all(
+        types.map(t =>
+          this.makeRequest(
+            `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
+          ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
+        ),
+      );
+    } catch (e: any) {
+      // Promise.all itself failing means every type failed; the modal shows its
+      // empty state, which is indistinguishable to the user from a page with no
+      // diagrams — acceptable for a read-only affordance.
+      console.error('[byline] listPageDiagramContents failed', e);
+      return [];
     }
   }
 
@@ -1599,8 +1690,22 @@ export default class ApWrapper2 implements IApWrapper {
     if (existing && samePage && countAllowsUpdate) {
       try {
         result = await this.updateCustomContentV2(existing, saveValue);
-      } catch (error) {
-        trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
+      } catch (error: any) {
+        // updateCustomContentV2 already emitted update_custom_content_error;
+        // don't re-track here (the redundant second emit doubled the error
+        // counts on the dashboard). When the in-place update failed because the
+        // backing record vanished (404 NOT_FOUND) between the existence check
+        // and the PUT — a TOCTOU race, or content trashed/purged mid-edit —
+        // recreate it on the current page so the user's edit is not lost rather
+        // than dead-ending the save. A 404 means the id is gone, so recreating
+        // cannot mint a duplicate of it.
+        if (Number(error?.status) === 404) {
+          trackEvent('update_recreate_fallback', 'update_recreate_fallback', 'info', {
+            content_id: String(existing.id),
+          });
+          result = await this.createCustomContentV2(saveValue);
+          return result;
+        }
         throw error;
       }
     } else {

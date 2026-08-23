@@ -26,10 +26,10 @@ describe('Header', () => {
     const sequenceButton = tabButtons[0];
     const mermaidButton = tabButtons[1];
 
-    // pre-condition - sequence tab should be active (amber filled-tint style)
-    expect(sequenceButton.classes()).toContain('bg-amber-100');
-    expect(sequenceButton.classes()).toContain('text-amber-800');
-    expect(mermaidButton.classes()).not.toContain('bg-emerald-100');
+    // Sequence tab starts selected with its accent underline.
+    expect(sequenceButton.classes()).toContain('after:bg-[#0094D9]')
+    expect(sequenceButton.classes()).toContain('text-[#054E76]')
+    expect(mermaidButton.classes()).not.toContain('after:bg-[#FF3670]')
 
     // click to switch to mermaid
     expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
@@ -37,8 +37,37 @@ describe('Header', () => {
     await headerWrapper.vm.$nextTick()
 
     expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
-    expect(mermaidButton.classes()).toContain('bg-emerald-100');
-    expect(mermaidButton.classes()).toContain('text-emerald-800');
+    expect(mermaidButton.classes()).toContain('after:bg-[#FF3670]')
+    expect(mermaidButton.classes()).toContain('text-[#8E0F33]')
+  })
+
+  describe('the remembered diagram type', () => {
+    function mountWith(diagram: Record<string, unknown>) {
+      store.state.diagram = { ...store.state.diagram, ...diagram } as any;
+      return mount(Header, { global: { plugins: [store] } });
+    }
+
+    afterEach(() => localStorage.removeItem('zenuml-preferred-diagram-type'));
+
+    it('still applies to a new diagram nobody asked a type for', async () => {
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
+      const w = mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });
+      await w.vm.$nextTick();
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
+    it('never overrules a type the user just picked', async () => {
+      // The byline's picker (and a pasted /new/<type> link) seed the doc and set
+      // typeRequested. Without this guard the preference won, so choosing
+      // Flowchart opened a Sequence editor for anyone whose last diagram was a
+      // sequence — which is most people.
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Sequence);
+      const w = mountWith({ isNew: true, typeRequested: true, diagramType: DiagramType.Mermaid });
+      await w.vm.$nextTick();
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
   })
 })
 
@@ -64,7 +93,44 @@ describe('Header — starter-template gallery (#334)', () => {
       surface: 'editor',
       macro_type: DiagramType.Sequence,
       is_new_macro: true,
+      template_gallery_trigger: 'manual',
     }))
+  })
+
+  it('fires editor_starter_shown once when the gallery opens on an empty new macro', async () => {
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+
+    const templatesButton = wrapper.findAll('button').find(b => b.text().includes('Templates'))!
+    await templatesButton.trigger('click')
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_starter_shown', expect.objectContaining({
+      feature_area: 'macro',
+      surface: 'editor',
+      macro_type: DiagramType.Sequence,
+      entry_point: 'macro_toolbar',
+      trigger: 'manual',
+    }))
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(c => c[0] === 'editor_starter_shown')).toHaveLength(1)
+  })
+
+  it('does not fire editor_starter_shown when opening the gallery for an existing macro', async () => {
+    store.state.diagram.id = 'existing-cc-id'
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+
+    const templatesButton = wrapper.findAll('button').find(b => b.text().includes('Templates'))!
+    await templatesButton.trigger('click')
+
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_starter_shown', expect.anything())
+  })
+
+  it('does not fire editor_starter_shown when a new macro already has code (e.g. a restored draft)', async () => {
+    store.state.diagram.code = 'A->B: hi'
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+
+    const templatesButton = wrapper.findAll('button').find(b => b.text().includes('Templates'))!
+    await templatesButton.trigger('click')
+
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_starter_shown', expect.anything())
   })
 
   it('applying a template writes its DSL into the store code field, fires editor_template_applied, and closes the gallery', async () => {

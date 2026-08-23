@@ -11,6 +11,7 @@ firebase-debug.log
 tests/e2e-tests/screenshots
 
 dist
+storybook-static
 .cache
 .wrangler
 wrangler.toml
@@ -94,3 +95,9 @@ tmp/
 .pnpm-store
 
 output/playwright
+
+# Generated D1 cache: contains real tenant installation history.
+/.claude/skills/new-customers/scripts/d1_first_seen.json
+.container-service-assets/local-account
+
+Profile 8

@@ -5,8 +5,8 @@ description: >
   Reuses an existing fresh draft release when available (the common case after a recent merge),
   composes delta-derived release notes (replacing the auto-draft placeholder), publishes it to
   production, verifies with PVT, then runs a spot check — targeted coverage for what shipped this
-  iteration (not keyword→skill matching alone). Falls back to triggering a
-  fresh build via a changelog push only when no recent draft exists.
+  iteration (not keyword→skill matching alone). Falls back to manually
+  triggering a fresh build only when no recent draft exists.
   Use when the user wants to release, deploy, ship, or push the lite, full, diagramly, or asyncapi Forge app to
   production. Triggers on "release lite", "release full", "release diagramly", "release asyncapi", "deploy to prod",
   "ship forge app", "push to production", "release forge app", "release app", or any request to
@@ -92,7 +92,7 @@ gh release list --repo ZenUml/conf-app --limit 20 \
   | awk '$2=="Draft" && $1 ~ /-{variant}$/ {print $1; exit}'
 ```
 
-If a draft tag is returned, confirm it's recent (within the last hour or two) and that its source workflow run succeeded:
+If a draft tag is returned, confirm it's recent (within the last 24 hours) and that its source workflow run succeeded:
 
 ```bash
 # Get the run that produced the draft (drafts are created at the end of build-test-deploy.yml)
@@ -106,22 +106,22 @@ gh run list --repo ZenUml/conf-app --workflow=build-test-deploy.yml --branch=mai
 
 Use `gh run view <run-id> --json jobs` to inspect per-variant job conclusions when there's any doubt.
 
-#### 1.2 Fallback — trigger a fresh build with a changelog push
+#### 1.2 Fallback — manually trigger a fresh build
 
-Only do this if 1.1 found no usable draft. "Build, Test and Draft Release" has no `workflow_dispatch`, so a push to main is the only way to retrigger it.
+Only do this if 1.1 found no usable draft. Trigger the workflow on `main` so
+the resulting drafts are created from the current production branch:
 
-1. `cd` to the conf-app project root
-2. Append to `CHANGELOG.md` with today's date and a release entry:
-   ```
-   ## [YYYY-MM-DD] - Release
-   - Triggered release pipeline for {variants}
-   ```
-3. Stage, commit (message: `chore: trigger release pipeline`), and push to main **only after explicit user confirmation**
-4. Proceed to 1.3
+```bash
+gh workflow run build-test-deploy.yml --repo ZenUml/conf-app --ref main
+```
+
+This dispatch starts the normal build, staging deploy, E2E, and draft-release
+jobs without changing `main`. Show the user that a fresh build is needed and
+obtain explicit confirmation before dispatching it, then proceed to 1.3.
 
 #### 1.3 Wait for the build workflow
 
-Whether triggered by a real merge (1.1) or your changelog push (1.2), wait for it to complete:
+Whether triggered by a real merge (1.1) or manual dispatch (1.2), wait for it to complete:
 
 1. `gh run list --workflow=build-test-deploy.yml --branch=main -L 1` to find the run
 2. `gh run watch <run-id>` (foreground) or `gh run watch <run-id> --exit-status` with `run_in_background: true` so you get a single completion notification
@@ -193,20 +193,34 @@ Set the notes on the still-draft release, then show them to the user as part of 
 gh release edit <new-draft-tag> --repo ZenUml/conf-app --notes-file release-notes-{variant}.md
 ```
 
-#### 2.4 Publish, then wait for the release workflow
+#### 2.4 Publish, then start PVT as soon as the deploy job is green
 
 ```bash
 gh release edit <new-draft-tag> --repo ZenUml/conf-app --draft=false
 ```
 
-This triggers the Release workflow (`release.yml`): it builds and publishes to Cloudflare production, then deploys to Forge production. Monitor it:
+This triggers the Release workflow (`release.yml`), which runs two distinct phases in one run:
 
-1. `gh run list --workflow=release.yml -L 1` then `gh run watch <run-id>`
-2. Verify it succeeded — if it failed, report and stop (the draft was already published, so the user may need to investigate manually)
+1. **Deploy** — `Deploy Cron Worker to Production` and `v{tag} to production` (Cloudflare production publish + Forge production deploy). **This is the gate for PVT.**
+2. **Prod smoke** — `Smoke Test (Prod) — {variant} / auth bootstrap` and four `shard N/4` jobs, which take several more minutes.
+
+**Do not wait for the whole run before starting 2.5.** The new code is live the moment the deploy job reports `success`; the smoke shards afterwards test that same live deployment, so blocking PVT on them only delays validation of a build that is already serving users.
+
+```bash
+# Poll job-level state, not run-level. Start PVT when the "to production" job is success.
+gh run view <run-id> --repo ZenUml/conf-app --json status,jobs \
+  -q '"run=\(.status)", (.jobs[] | "\(.conclusion // .status)\t\(.name)")'
+```
+
+- **Deploy job `success`** → **go straight to 2.5** and run PVT while the smoke shards continue.
+- **Deploy job `failure`** → report and stop. Nothing was deployed; PVT would test the previous version.
+- In parallel, keep watching the run to completion (`gh run watch <run-id> --exit-status` in the background) and fold the smoke result into the Step 3 report.
+
+**Judge by job, not by run.** A run whose deploy jobs are green and whose only red is a prod-smoke shard **did deploy successfully** — report the shard failure as a separate line item, do not describe the release as failed. Read the failing shard's log before characterizing it (`gh api repos/ZenUml/conf-app/actions/jobs/<jobId>/logs`); a `page.waitForResponse` timeout in a smoke spec is a test-side failure, distinct from a broken deployment.
 
 #### 2.5 Validate — PVT (MANDATORY)
 
-**Not optional. Always run immediately after the release workflow succeeds. Do NOT ask the user whether to run it — just do it.**
+**Not optional. Start it as soon as the 2.4 deploy job reports `success` — do not wait for the prod smoke shards, and do NOT ask the user whether to run it.**
 
 - **Lite**: `/pvt lite`
 - **Full**: `/pvt full`
@@ -290,7 +304,8 @@ Summarize each released variant:
 ## Release Report: v{version}-{variant}
 - Release notes set (replaced placeholder): ✓
 - Draft published: ✓
-- Release workflow: ✓
+- Release workflow — deploy jobs: ✓
+- Release workflow — prod smoke shards: ✓ | <N/4 failed: shard + one-line cause>
 - PVT (Mermaid smoke): PASS | FAIL
 - Release delta (one line): <themes / surfaces touched>
 - Focused tests (targeted coverage for this delta):
@@ -309,9 +324,9 @@ Summarize each released variant:
 
 - **Never release by default.** If no variant is named, ASK. Release only the variant(s) the user explicitly names; an explicit variant does NOT authorize any other tier (releasing lite does not license releasing full afterward).
 - **Never publish the placeholder body (2.3).** Always replace the auto-draft `"This is a draft release…"` body with delta-derived notes before `--draft=false`. Notes and spot check share the one delta from 2.2.
-- **Always check for a fresh draft first (1.1).** A merge to main that completed in the last hour or so already produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` commit when fresh drafts exist wastes ~15 min of CI, pollutes main history, and gains nothing.
-- The build workflow has no `workflow_dispatch` — a push to main (1.2) is the only fallback if no fresh draft exists.
+- **Always check for a fresh draft first (1.1).** A merge to main that completed in the last 24 hours may already have produced the drafts you need — reuse them. A manual dispatch when fresh drafts exist wastes ~15 min of CI and gains nothing.
+- The build workflow supports `workflow_dispatch`; use it on `main` only when no usable draft exists.
 - Draft releases are only created on `main` (not on PRs or other branches).
 - lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped; manual PVT per 2.5, gated on e2e account access).
-- Always confirm with the user before pushing to main or publishing releases.
+- Always confirm with the user before manually dispatching a fresh build or publishing releases.
 - All order/timing rules live in **"Variants & gates"** — the canary order (diagramly → lite → full), the lite-needs-diagramly prerequisite, and the full ≥ 1-week soak. Don't restate them; reference that section.

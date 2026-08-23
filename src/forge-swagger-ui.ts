@@ -10,12 +10,18 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import type { Diagram } from "@/model/Diagram/Diagram";
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { openDocument } from '@/utils/documentOpening/openDocument';
+// resolveOpenApiId carries the pasted-deeplink fallback this file used to do
+// inline — see openApiTarget.ts.
 import { buildOpenApiViewerTarget, resolveOpenApiId } from '@/utils/documentOpening/targets/openApiTarget';
 import { mapOpenErrorToLoadError } from '@/utils/viewerLoadOutcome';
+// Still needed by the `edit` handler below, which forwards the macro's id into
+// the editor modal — that path is not part of the openDocument refactor.
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { guardEditClick } from '@/utils/guardEditClick';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
+
   const pageId = context.extension?.content?.id;
   const outcome = await openDocument({
     policy: 'read',
@@ -74,10 +80,13 @@ EventBus.$on('edit', async () => {
   // sequence-editor pattern in forgeIndex.ts). Without this, viewer-launched
   // edits arrive at forge-swagger-editor.ts with no customContentId and are
   // mistakenly treated as new-macro sessions.
-  const customContentId = ctx.extension?.config?.customContentId;
+  // Resolved (not a raw config read) so a pasted macro forwards its real id
+  // instead of opening the editor as a new-macro session.
+  const customContentId = resolveEffectiveCustomContentId(ctx);
   // Same-page duplicate gate — see forge-graph-viewer.ts. Memoized, so the
   // shared forgeIndex listener firing on this same click costs no extra GET.
   if (!(await guardEditClick({ customContentId, macroType: 'openapi' }))) return;
+
 
   await openModal({
     resource: 'main',

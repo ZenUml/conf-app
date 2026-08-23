@@ -19,6 +19,8 @@
  * corrected the moment the background fetch returns a different hash.
  */
 
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
+
 const NS = 'zenuml:ccache:';
 const INDEX_KEY = NS + '__index__'; // LRU, oldest first
 const MAX_ENTRIES = 32;
@@ -43,6 +45,14 @@ export interface CachedContent {
   doc: string;
   /** hashContent(doc) — for cheap change-detection against a background revalidate. */
   hash: string;
+  /**
+   * Viewer attribution for this macro (author account ids). Cached because the
+   * cache-hit render path mounts and returns without ever running the fetch that
+   * derives it — without this the attribution footer is absent on every revisit.
+   * Absent on entries written before this field existed; the next revalidate
+   * rewrites them.
+   */
+  attribution?: DiagramAttribution;
 }
 
 function keyFor(customContentId: string): string {
@@ -78,7 +88,11 @@ export function getCachedContent(customContentId: string): CachedContent | undef
     const index = readIndex().filter((k) => k !== key);
     index.push(key);
     writeIndex(index);
-    return { doc: parsed.doc, hash: parsed.hash };
+    const attribution =
+      parsed.attribution && typeof parsed.attribution.customContentId === 'string'
+        ? (parsed.attribution as DiagramAttribution)
+        : undefined;
+    return { doc: parsed.doc, hash: parsed.hash, ...(attribution && { attribution }) };
   } catch {
     return undefined;
   }
@@ -88,13 +102,17 @@ export function getCachedContent(customContentId: string): CachedContent | undef
  * Store a macro's content (best-effort, bounded). `doc` is the serialized diagram.
  * Returns true if stored. Never throws; purges its namespace on quota error.
  */
-export function putCachedContent(customContentId: string, doc: string): boolean {
+export function putCachedContent(
+  customContentId: string,
+  doc: string,
+  attribution?: DiagramAttribution | null,
+): boolean {
   if (!customContentId || typeof doc !== 'string' || doc.length === 0 || doc.length > MAX_DOC_BYTES) {
     return false;
   }
   try {
     const key = keyFor(customContentId);
-    const entry: CachedContent = { doc, hash: hashContent(doc) };
+    const entry: CachedContent = { doc, hash: hashContent(doc), ...(attribution && { attribution }) };
     localStorage.setItem(key, JSON.stringify(entry));
     const index = readIndex().filter((k) => k !== key);
     index.push(key);

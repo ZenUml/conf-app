@@ -223,7 +223,7 @@ async function initializeMacro() {
   }
 
   const isNew = await MacroUtil.isCreateNew();
-  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_opened', {
+  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'embed',

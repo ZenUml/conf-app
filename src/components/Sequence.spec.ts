@@ -95,4 +95,32 @@ describe('Sequence render-failure telemetry', () => {
     await vi.waitFor(() => expect(zenumlInstance.render).toHaveBeenCalledTimes(1));
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
+
+  // #373: the foreign-dialect hint (ForeignDialectHint.vue) is a separate,
+  // additive component — it must never change what actually gets rendered.
+  // This locks in that zenuml.render() still receives PlantUML source
+  // verbatim, unmodified, exactly as it did before the hint existed.
+  it('renders PlantUML-looking source unchanged — the #373 hint does not alter rendering', async () => {
+    const plantUmlLookingSource = [
+      '@startuml',
+      'autonumber',
+      'actor Customer',
+      'participant "Global API" as API',
+      'Customer -> API: POST /shipments (Payload)',
+      'activate API',
+      'deactivate API',
+      '@enduml',
+    ].join('\n');
+    store.state.diagram = {
+      ...store.state.diagram,
+      code: plantUmlLookingSource,
+    };
+
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(zenumlInstance.render).toHaveBeenCalledTimes(1));
+    const [renderedCode] = zenumlInstance.render.mock.calls[0];
+    expect(renderedCode).toBe(plantUmlLookingSource);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
 });

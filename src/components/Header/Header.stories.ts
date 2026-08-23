@@ -1,8 +1,17 @@
-import type { Meta, StoryObj } from '@storybook/vue3-vite'
+import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
+import type { App } from 'vue'
 import Header from './Header.vue'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import forgeGlobal from '@/model/globals/forgeGlobal'
+
+// The `{ template: '<story/>', app: (app) => app.use(store) }` decorator
+// idiom (still used below for the per-story diagram-state setup) does NOT
+// install a plugin on @storybook/vue3-vite 10.4's actual root app — see
+// GenericViewer.stories.ts. `setup()` is the real extension point.
+setup((app: App) => {
+  app.use(store)
+})
 
 type Story = StoryObj<typeof Header>
 
@@ -60,12 +69,6 @@ const meta: Meta<typeof Header> = {
     },
   },
   decorators: [
-    // Provide Vuex store as a Vue plugin so mapState / mapMutations resolve in Header.
-    () => ({
-      template: '<story />',
-      // @ts-expect-error — Storybook Vue3 decorator `app` param; not in the TS overload
-      app: (app: import('vue').App) => app.use(store),
-    }),
     // Reset forge globals before each story.
     () => {
       stubForge()

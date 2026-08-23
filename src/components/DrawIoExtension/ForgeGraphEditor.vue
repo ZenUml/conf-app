@@ -42,7 +42,7 @@ import DrawIoExtension from "@/components/DrawIoExtension/DrawIoExtension.vue";
 import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import { setupCloseGuard } from "@/utils/closeGuard";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
@@ -207,9 +207,9 @@ export default {
     // Restore prompt if a newer draft exists in localStorage.
     const draft = await loadDraft(this.draftScope);
     if (draft) {
-      const updatedAt = Number(this.$store?.state?.diagram?.updatedAt) || 0;
       const baseline = this.graphXml || '';
-      if (draft.savedAt > updatedAt && draft.code !== baseline) {
+      const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store?.state?.diagram?.updatedAt;
+      if (isDraftNewerThanSaved(draft, savedVersionUpdatedAt) && draft.code !== baseline) {
         EventBus.$emit('draft-available', { scope: this.draftScope, draft });
       } else {
         await clearDraft(this.draftScope);
@@ -229,7 +229,10 @@ export default {
     });
 
     // Clear draft after successful publish.
-    this.savedListener = () => clearDraft(this.draftScope);
+    this.savedListener = () => {
+      this.draftSaver?.cancel();
+      clearDraft(this.draftScope);
+    };
     EventBus.$on('saved', this.savedListener);
 
     // Restore handler: re-load the draft XML into the DrawIO iframe.

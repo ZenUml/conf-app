@@ -35,6 +35,7 @@ vi.mock('@forge/bridge', () => ({
 }));
 
 import { mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createStore } from 'vuex';
 import Header from '@/components/Header/Header.vue';
 import { DiagramType } from '@/model/Diagram/Diagram';
@@ -190,6 +191,23 @@ describe('Test 3 — re-mount surfaces banner via draft-available event', () => 
     // And should have been cleared from storage.
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
   });
+
+  it('treats the ISO updatedAt written by Forge publish as the saved-version timestamp', async () => {
+    const savedAt = Date.now();
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({ code: 'stale', title: '', savedAt: savedAt - 60_000 }),
+    );
+
+    const emitted: any[] = [];
+    EventBus.$on('draft-available', (payload: any) => emitted.push(payload));
+
+    await mountHeader(makeStore({ updatedAt: new Date(savedAt).toISOString() }));
+
+    EventBus.$off('draft-available');
+    expect(emitted).toHaveLength(0);
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -265,6 +283,19 @@ describe('Test 5 — saved event removes the draft from localStorage', () => {
     // clearDraft is async — allow microtasks to flush.
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
+
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it('does not let a pending debounced write resurrect the draft after publish', async () => {
+    const store = makeStore();
+    await mountHeader(store);
+    vi.useFakeTimers();
+
+    store.commit('updateCode2', 'A->B: published change');
+    await nextTick();
+    EventBus.$emit('saved');
+    await vi.runAllTimersAsync();
 
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
   });

@@ -278,7 +278,12 @@ describe('snapshotFailureDetail', () => {
   it('passes through a non-Confluence body unchanged (HTML page, transport error)', () => {
     const d = snapshotFailureDetail(new Error('network down'));
     expect(d.failure_reason).toBe('network down');
-    expect(d.confluence_error_class).toBeUndefined();
+    // Explicit 'none', never undefined. An omitted property and an unparseable
+    // class are indistinguishable in a Mixpanel query — the same ambiguity #398
+    // was filed about, and the reason #435 chose macro_type:'none' over omission.
+    // Recording it explicitly also separates "no class in this envelope" from
+    // "event predates the change".
+    expect(d.confluence_error_class).toBe('none');
   });
 
   it('handles a non-Error throwable', () => {

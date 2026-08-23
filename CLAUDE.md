@@ -17,20 +17,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The `DiagramType` enum (`src/model/Diagram/Diagram.ts`) defines seven user-facing diagram types (`Unknown` is only a sentinel fallback):
 
-- **Sequence** — ZenUML sequence diagrams (the namesake renderer)
-- **Mermaid** — multi-purpose Mermaid renderer
-- **PlantUml** — multi-purpose PlantUML renderer
-- **Graph** — DrawIO-powered graph diagrams
-- **OpenApi** — OpenAPI/Swagger specifications via swagger-ui
+Six of the seven (`Sequence`, `Mermaid`, `PlantUml`, `Graph`, `OpenApi`, `Embed`) are self-describing from the enum. The seventh carries variant rules that the enum does not state:
+
 - **AsyncApi** — AsyncAPI specifications via the bundled AsyncAPI Studio build (`vendor/asyncapi-studio` submodule). Ships **only** in the asyncapi variant — the `zenuml-asyncapi-*` macros and `async-api-doc` custom content are stripped from lite/full/diagramly manifests (see `manifest.yml` comments and `.github/workflows/release.yml`)
-- **Embed** — embeds an existing diagram, graph, or API spec
 
-The project is built as a full-stack application with:
-
-- **Frontend**: Vue 3 with TypeScript, Vite build system, Forge Custom UI
-- **Backend**: Cloudflare Workers with D1 database (accessed via Forge remotes)
-- **Deployment**: Cloudflare Pages (backend API — `functions/` Workers + D1) + Forge CLI (manifest, Custom UI static assets → Atlassian's Forge CDN, and Forge Functions → Atlassian's Forge runtime)
-- **Platform**: Atlassian Forge (Connect runtime was removed; `app.connect` migration bridge in manifest.yml is kept for backward compatibility)
+Stack, build system, and deployment targets are stated in `package.json`, `wrangler.toml`, and `manifest.yml`. The one platform fact those files do not make obvious is under **Pure Forge — no Connect code** below.
 
 ### Product variants
 
@@ -214,17 +205,60 @@ see the **bug-report-framing** skill.
 
 ## Browser automation and Forge iframes
 
-Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Only Playwright can reliably access content inside them.
+Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Three tools reach inside them; the rest cannot.
 
-| Tool | Forge iframe access | Notes |
-|---|---|---|
-| **Playwright** | ✅ Yes | Use `frameLocator()` |
-| **chrome-devtools-mcp** | ❌ No | Feature not implemented ([issue #703](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/703)) |
-| **browser-use** | ❌ No | `cross_origin_iframes` flag exists but fix was reverted |
-| **agent-browser** | ❌ No | Built on browser-use, same limitation |
-| **claude-in-chrome** | ❌ No | Cannot cross origin iframe boundary |
+**Default to `agent-browser`** for ad hoc Forge macro work (spot checks, PVT, UI inspection). Checked-in E2E specs stay on standalone `@playwright/test` — that is a test-runner choice, unrelated to the MCP server below.
 
-Always use Playwright for E2E tests that interact with Forge app UI.
+```bash
+agent-browser --session conf-app --restore=stg <command>
+```
+
+`--session conf-app --restore=stg` loads a saved login state from `~/.agent-browser/sessions/stg-conf-app.json` (robot1yanhui, `cloud.session.token` valid to 2026-09-15). Without it every invocation starts on a blank profile and lands on the Atlassian login page. The SSO token covers any `*.atlassian.net` site the account belongs to; a site's first visit costs one redirect, then its cookie is cached.
+
+| Tool | OOPIF snapshot | OOPIF `eval` | OOPIF console | snapshot token |
+|---|---|---|---|---|
+| **agent-browser** | ✅ | ✅ | ✅ | 9,048 |
+| **ego lite** (`ego-browser`) | ✅ | ✅ (`cdp` + `sessionId`) | ✅ (`Runtime.enable` + `drainEvents`) | 12,246 |
+| **Playwright MCP** | ✅ | ✅ (snapshot `ref` as `target`) | ✅ (`console-*.log`) | 17,914 |
+| **Kimi WebBridge** | ❌ | ❌ | ❌ | 17,888 |
+| chrome-devtools-mcp | ❌ | ❌ | ❌ | — |
+| browser-use | ❌ | ❌ | ❌ | — |
+| claude-in-chrome | ❌ | ❌ | ❌ | — |
+
+Measured 2026-08-16 on lite-stg page 211026061; token counts are one accessibility snapshot of the same page (`cl100k_base`). Wall-clock for a 3-step flow was 13.5–15.7 s for all three capable tools — no measurable speed difference.
+
+**Why agent-browser is the default, and it is not token cost.** Playwright MCP drives one Chrome extension relay with a single global pairing: every concurrent Claude Code session competes for it, the loser's calls hang for 120 s, and recovery needs `/mcp` → Reconnect, which only the user can run. Over 2026-08-10..16 that produced 27 timeouts, 14 `PROFILE_BUSY`, 19 `Target … has been closed`, and **14 forced user interventions**. agent-browser gives each session its own `user-data-dir`, so the failure mode does not exist. Token saving is a rounding error by comparison (~1% of daily spend).
+
+**Nested iframes work as of the 2026-08-17 patch** (`ab-src` `d2d8dbd`). A DrawIO editor inside a Forge macro OOPIF is two `frame` calls deep, and both `frame` and `eval` reach it. Take the ref from a snapshot in the *current* frame's context — `@e` refs are per-snapshot and per-frame, so re-read after every `frame` and every navigation:
+
+```bash
+A(){ agent-browser --session conf-app --restore=stg "$@"; }
+A frame "@e42"                      # layer 1: editor OOPIF
+A snapshot | grep Iframe            # re-read the ref HERE
+A frame "@e1"                       # layer 2: DrawIO
+A eval "typeof window.mxClient"     # -> "object"
+```
+
+Older builds fail two ways worth recognising: `frame @<ref>` reported `✓ Done` while `eval` silently stayed in the top frame (verify with `location.host` — it must be the `cdn.prod.atlassian-dev.net` host), and second-layer `eval` was rejected by the inner frame's CSP for lacking `unsafe-eval`. Both are fixed; the CSP one only ever affected same-origin nested frames.
+
+The DrawIO **instance** is a separate matter: the deployed build keeps its UI object in a closure, so `window.editorUi` does not exist and `graph-macro/SKILL.md`'s `editorUi.editor.graph.insertVertex(...)` fallback has no entry point. Reaching it in the current build is unsolved — use that skill's UI-click primary path.
+
+Kimi WebBridge cannot be used for Forge work at all: its snapshot omits OOPIF subtrees, and its `cdp` passthrough is `chrome.debugger`, which rejects `Target.getTargets` and `Target.attachToTarget` with `Not allowed`.
+
+**This section overrides the skills.** Twelve `.claude/skills/*/SKILL.md` files still spell their browser steps as `mcp__playwright__*` calls. Their *logic* (which page, which selector, which assertion) is still correct — translate the mechanics to agent-browser as you go:
+
+| Playwright MCP | agent-browser (prefix every call with `--session conf-app --restore=stg`) |
+|---|---|
+| `browser_navigate({url})` | `open <url>` |
+| `browser_snapshot()` | `snapshot` |
+| `browser_evaluate({function})` | `eval "<expr>"` |
+| `browser_click({target})` | `click "@<ref>"` |
+| `browser_type` / `browser_fill_form` | `fill "@<ref>" "<value>"` |
+| `browser_take_screenshot({filename})` | `screenshot <path>` |
+| `frameLocator()` / snapshot `ref` as `target` | `frame "@<ref>"`, then plain `eval` / `click` |
+| `browser_console_messages()` | `console` |
+
+Reach for Playwright MCP only when a skill needs something agent-browser lacks, or when agent-browser itself fails. Standalone `@playwright/test` under `tests/e2e-tests/` is unaffected by any of this.
 
 ## Agent skills
 

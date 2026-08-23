@@ -2,11 +2,21 @@ import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackEvent } from '@/utils/window';
 import globals from '@/model/globals';
 import type { LegacyFallback, ResolvedTarget, TargetSpec } from '@/utils/documentOpening/types';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 
+/**
+ * Third source, after config and modal: a pasted typed deeplink. A macro created
+ * by autoConvert has NO config at all — the id lives only in the matched URL,
+ * which Confluence persists in the page ADF — so reading config/modal alone left
+ * a pasted OpenAPI link rendering an empty viewer forever.
+ *
+ * `source` stays 'config' | 'modal' for the two stored forms; a deeplink is
+ * reported as 'modal' because it is likewise not a saved macro config, and the
+ * downstream legacy-fallback logic branches only on 'config'.
+ */
 export function resolveOpenApiId(context: any): ResolvedTarget | undefined {
   const configId = context.extension?.config?.customContentId;
-  const modalId = context.extension?.modal?.customContentId;
-  const contentId = configId || modalId;
+  const contentId = resolveEffectiveCustomContentId(context);
   if (!contentId) return undefined;
   return { contentId, source: configId ? 'config' : 'modal' };
 }

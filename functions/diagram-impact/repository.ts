@@ -30,13 +30,13 @@ export async function isHistoricalContributor(
 
 export async function registerAudienceView(
   db: D1Database,
-  input: DiagramAudienceScope & { viewerKey: string; now: Date },
+  input: DiagramAudienceScope & { accountId: string; now: Date },
 ): Promise<'new_unique' | 'repeat'> {
   const existing = await db.prepare(
     `SELECT lastViewedAt
      FROM DiagramAudience
-     WHERE cloudId = ?1 AND forgeAppId = ?2 AND customContentId = ?3 AND viewerKey = ?4`,
-  ).bind(input.cloudId, input.forgeAppId, input.customContentId, input.viewerKey).first<{ lastViewedAt: string }>();
+     WHERE cloudId = ?1 AND forgeAppId = ?2 AND customContentId = ?3 AND accountId = ?4`,
+  ).bind(input.cloudId, input.forgeAppId, input.customContentId, input.accountId).first<{ lastViewedAt: string }>();
 
   const nowIso = input.now.toISOString();
   const dayStart = utcDayStart(input.now);
@@ -44,13 +44,13 @@ export async function registerAudienceView(
   if (!existing) {
     const result = await db.prepare(
       `INSERT OR IGNORE INTO DiagramAudience (
-         cloudId, forgeAppId, customContentId, viewerKey, firstViewedAt, lastViewedAt, viewDays
+         cloudId, forgeAppId, customContentId, accountId, firstViewedAt, lastViewedAt, viewDays
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)`,
     ).bind(
       input.cloudId,
       input.forgeAppId,
       input.customContentId,
-      input.viewerKey,
+      input.accountId,
       nowIso,
       nowIso,
     ).run();
@@ -64,14 +64,14 @@ export async function registerAudienceView(
   await db.prepare(
     `UPDATE DiagramAudience
      SET lastViewedAt = ?1, viewDays = viewDays + 1
-     WHERE cloudId = ?2 AND forgeAppId = ?3 AND customContentId = ?4 AND viewerKey = ?5
+     WHERE cloudId = ?2 AND forgeAppId = ?3 AND customContentId = ?4 AND accountId = ?5
        AND lastViewedAt < ?6`,
   ).bind(
     nowIso,
     input.cloudId,
     input.forgeAppId,
     input.customContentId,
-    input.viewerKey,
+    input.accountId,
     dayStart,
   ).run();
   return 'repeat';

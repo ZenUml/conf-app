@@ -9,9 +9,13 @@ vi.mock('../service/paywallExtensionService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../service/paywallExtensionService')>();
   return { ...actual, createOrReplayPaywallExtension: vi.fn() };
 });
+vi.mock('../service/marketplaceContactResolution', () => ({
+  resolveMarketplaceAdminRoute: vi.fn(),
+}));
 
 import { onRequest } from './paywall-extension';
 import { createOrReplayPaywallExtension } from '../service/paywallExtensionService';
+import { resolveMarketplaceAdminRoute } from '../service/marketplaceContactResolution';
 
 const validBody = {
   spaceKey: 'ENG',
@@ -44,6 +48,7 @@ function context(options: {
     }),
     env: {
       DB: {} as D1Database,
+      MARKETPLACE_CONTACT_ENCRYPTION_KEY: 'test-only-secret-that-is-at-least-32-characters',
       confluence_plugin_features: {
         get: vi.fn().mockResolvedValue({
           domain: 'example',
@@ -83,6 +88,10 @@ describe('paywall-extension API', () => {
         expiresAt: '2026-08-30T00:00:00.000Z',
         extensionDays: 7,
       },
+    });
+    vi.mocked(resolveMarketplaceAdminRoute).mockResolvedValue({
+      routingOutcome: 'automatic', reasonCodes: ['technical_contact_unique'],
+      overrideUsed: false, cacheAgeHours: 1,
     });
   });
 
@@ -179,6 +188,25 @@ describe('paywall-extension API', () => {
     });
     const response = await onRequest(context());
     expect(response.headers.get('content-type')).toContain('application/json');
-    expect(await response.json()).toMatchObject({ status: 'granted', isReplay: true });
+    expect(await response.json()).toMatchObject({
+      status: 'granted', isReplay: true,
+      adminContactRouting: {
+        routingOutcome: 'automatic', reasonCodes: ['technical_contact_unique'],
+        overrideUsed: false, cacheAgeHours: 1,
+      },
+    });
+  });
+
+  it('never blocks an eligible extension when contact routing fails', async () => {
+    vi.mocked(resolveMarketplaceAdminRoute).mockRejectedValueOnce(new Error('fixture D1 read failure'));
+    const response = await onRequest(context());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: 'granted',
+      adminContactRouting: {
+        routingOutcome: 'manual', reasonCodes: ['contact_resolution_failed'],
+        overrideUsed: false, cacheAgeHours: null,
+      },
+    });
   });
 });

@@ -15,13 +15,24 @@ import {
   normalizeClientDomain,
   type DomainMetrics,
 } from '../metrics-cache/snapshot/common';
+import {
+  resolveMarketplaceAdminRoute,
+  type MarketplaceAdminRoute,
+} from '../service/marketplaceContactResolution';
 
 interface Env {
   DB: D1Database;
   confluence_plugin_features: KVNamespace;
+  MARKETPLACE_CONTACT_ENCRYPTION_KEY?: string;
 }
 
 const AUTHORITATIVE_COUNT_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const MANUAL_ROUTE_FALLBACK: MarketplaceAdminRoute = {
+  routingOutcome: 'manual',
+  reasonCodes: ['contact_resolution_failed'],
+  overrideUsed: false,
+  cacheAgeHours: null,
+};
 
 interface ConfluenceSpace {
   id?: unknown;
@@ -126,7 +137,20 @@ export const onRequest: PagesFunction<Env, string, ForgeRequestData> = async ({
       spaceId: space.id,
       spaceKey: space.key,
     }, input);
-    return OkResponse(result);
+    // Contact resolution is a D1-only best-effort lookup after the extension
+    // authority has decided. Failure can change outreach routing, never the
+    // eligible user's grant. The API returns metadata, not the contact.
+    let adminContactRouting: MarketplaceAdminRoute;
+    try {
+      adminContactRouting = await resolveMarketplaceAdminRoute(
+        env.DB,
+        cloudId,
+        env.MARKETPLACE_CONTACT_ENCRYPTION_KEY,
+      );
+    } catch {
+      adminContactRouting = MANUAL_ROUTE_FALLBACK;
+    }
+    return OkResponse({ ...result, adminContactRouting });
   } catch (error) {
     if (error instanceof PaywallExtensionValidationError) {
       return response(400, error.message);

@@ -75,7 +75,14 @@ export interface PaywallExtensionSubmission {
   };
 }
 
-export type PaywallExtensionResponse =
+export interface PaywallAdminContactRouting {
+  routingOutcome: 'automatic' | 'manual' | 'suppressed';
+  reasonCodes: string[];
+  overrideUsed: boolean;
+  cacheAgeHours: number | null;
+}
+
+type PaywallExtensionResult =
   | {
       status: 'granted';
       requestId: string;
@@ -94,6 +101,12 @@ export type PaywallExtensionResponse =
       priorGrantCount: 1;
       message: string;
     };
+
+export type PaywallExtensionResponse = PaywallExtensionResult & {
+  // Optional during a rolling backend/frontend deployment. Current backend
+  // responses always include metadata and never include the contact address.
+  adminContactRouting?: PaywallAdminContactRouting;
+};
 
 export type SubmitPaywallExtension = (
   submission: PaywallExtensionSubmission,

@@ -267,6 +267,15 @@ async function advance() {
       answers: answers.value as PaywallExtensionSubmission['answers'],
     });
     result.value = response;
+    if (response.adminContactRouting) {
+      const route = response.adminContactRouting;
+      trackUpgradeEvent(UpgradeEventName.PAYWALL_ADMIN_CONTACT_ROUTED, {
+        routing_outcome: route.routingOutcome === 'manual' ? 'manual_review' : route.routingOutcome,
+        reason_codes: route.reasonCodes.join('|'),
+        ...(route.cacheAgeHours == null ? {} : { cache_age_hours: route.cacheAgeHours }),
+        override_used: route.overrideUsed,
+      });
+    }
     if (response.status === 'granted') {
       trackUpgradeEvent(UpgradeEventName.PAYWALL_EXTENSION_GRANTED, {
         outcome: response.isReplay ? 'replay' : 'created',

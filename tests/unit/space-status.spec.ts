@@ -433,7 +433,7 @@ describe('space-status API (KV-only)', () => {
   // cloudId also has a recent Full or Diagramly Forge install — very likely
   // an in-flight trial evaluation. Uses our own D1 (ForgeInstallation), not
   // the Marketplace API. Checked ONLY after both the user- and space-scoped
-  // license checks miss.
+  // confirmed license and user-extension checks miss.
   describe('paid-rail suppression (D1 ForgeInstallation, 45-day trial window)', () => {
     function forgeHeaders() {
       return { 'x-forge-oauth-user': 'user-123', Authorization: 'Bearer forge-jwt' };
@@ -509,7 +509,7 @@ describe('space-status API (KV-only)', () => {
       expect(body.isPaid).toBe(false);
     });
 
-    it('a user license still wins over paid_rail (order: user → space → paid_rail)', async () => {
+    it('a user license still wins over paid_rail (order: space → user → paid_rail)', async () => {
       (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
       (validateContextToken as any).mockResolvedValue({
         payload: { context: { cloudId: 'cloud-abc' }, principal: 'user-abc' },
@@ -583,6 +583,67 @@ describe('space-status API (KV-only)', () => {
       const response = await onRequest(ctx);
       const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
+    });
+  });
+
+  describe('D1 seven-day user+Space extension', () => {
+    function extensionDb(expiresAt: string | null) {
+      const calls: Array<{ sql: string; args: unknown[] }> = [];
+      const prepare = vi.fn((sql: string) => ({
+        bind: vi.fn((...args: unknown[]) => {
+          calls.push({ sql, args });
+          return {
+            first: vi.fn(async () => {
+              if (sql.includes('PaywallExtensionGrant')) {
+                return expiresAt ? { expiresAt } : null;
+              }
+              return null;
+            }),
+          };
+        }),
+      }));
+      return { db: { prepare } as unknown as D1Database, calls, prepare };
+    }
+
+    it('returns the matching active D1 grant and its authoritative expiry', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue({
+        payload: { context: { cloudId: 'cloud-abc' }, principal: 'user-abc' },
+      });
+      const { db, calls } = extensionDb('2099-01-01T00:00:00.000Z');
+      const response = await onRequest(createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: { Authorization: 'Bearer forge-jwt' },
+        env: makeEnv({ DB: db }),
+      }));
+
+      expect(await response.json()).toEqual({
+        isPaid: true,
+        source: 'user_license',
+        extensionExpiresAt: '2099-01-01T00:00:00.000Z',
+      });
+      const extensionCall = calls.find((call) => call.sql.includes('PaywallExtensionGrant'));
+      expect(extensionCall?.args.slice(0, 3)).toEqual(['cloud-abc', 'user-abc', 'ENG']);
+    });
+
+    it('a confirmed paid Space license wins without querying the extension table', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue({
+        payload: { context: { cloudId: 'cloud-abc' }, principal: 'user-abc' },
+      });
+      kv._set('license:cloud-abc:ENG', {
+        status: 'active',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      });
+      const { db, prepare } = extensionDb('2099-01-01T00:00:00.000Z');
+      const response = await onRequest(createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: { Authorization: 'Bearer forge-jwt' },
+        env: makeEnv({ DB: db }),
+      }));
+
+      expect(await response.json()).toEqual({ isPaid: true, source: 'space_license' });
+      expect(prepare).not.toHaveBeenCalled();
     });
   });
 });

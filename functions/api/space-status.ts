@@ -2,6 +2,7 @@ import { getAuthorizationHeader } from '../utils/requestUtils';
 import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import type { SpaceLicenseRecord } from './space-license';
+import { getActivePaywallExtension } from '../service/paywallExtensionService';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
@@ -16,6 +17,7 @@ interface Env {
 export interface SpaceStatusResponse {
   isPaid: boolean;
   source?: 'user_license' | 'space_license' | 'paid_rail';
+  extensionExpiresAt?: string;
 }
 
 // Full and Diagramly Forge app identifiers (our own app IDs, not tenant
@@ -91,18 +93,26 @@ function jsonResponse(
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-/**
- * The shared tail for both "no active license" exits: a missing space-level
- * KV record, and a record that's present but inactive/expired. Both must
- * check the D1 paid-rail fallback before finally reporting not-paid — the
- * user- and space-license checks above this still win when they hit.
- */
-async function notPaidOrPaidRail(env: Env, cloudId: string): Promise<Response> {
-  const paidRail = await checkPaidRail(env.DB, cloudId);
-  if (paidRail) {
-    return jsonResponse(200, paidRail, 'short');
+async function checkD1UserExtension(
+  db: D1Database | undefined,
+  cloudId: string,
+  accountId: string | undefined,
+  spaceKey: string,
+): Promise<SpaceStatusResponse | null> {
+  if (!db || !accountId) return null;
+  try {
+    const grant = await getActivePaywallExtension(db, { cloudId, accountId, spaceKey });
+    return grant
+      ? { isPaid: true, source: 'user_license', extensionExpiresAt: grant.expiresAt }
+      : null;
+  } catch (error) {
+    // Entitlement lookup fails open to the existing not-paid behavior. Never
+    // expose or log the tenant/user/Space tuple.
+    console.error('space-status: D1 extension lookup failed', {
+      reason: error instanceof Error ? error.message : 'unknown_error',
+    });
+    return null;
   }
-  return jsonResponse(200, { isPaid: false }, 'short');
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -148,7 +158,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const cloudId = typeof rawCloudId === 'string' ? rawCloudId : undefined;
     // Derived from the Forge-validated token, never a client query param — a
     // query param would let any user claim another user's accountId.
-    const accountId = payload?.payload?.principal;
+    const rawAccountId = payload?.payload?.principal;
+    const accountId = typeof rawAccountId === 'string' && rawAccountId ? rawAccountId : undefined;
     const spaceKey = url.searchParams.get('spaceKey') || undefined;
 
     if (!cloudId || !spaceKey) {
@@ -161,8 +172,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse(200, { isPaid: false }, 'short');
     }
 
-    // User-scoped extension (checked first): only when the token carries a
-    // real accountId — never build/match a key on a missing one.
+    // Paid Space entitlement is authoritative and deliberately checked before
+    // either the new D1 grant or the legacy user-scoped KV extension.
+    const licenseRaw = await env.SPACE_LICENSE_KV.get(`license:${cloudId}:${spaceKey}`);
+    if (licenseRaw) {
+      const record = JSON.parse(licenseRaw) as SpaceLicenseRecord;
+      const isActive = record.status === 'active';
+      const isExpired = new Date(record.expiresAt) < new Date();
+      if (isActive && !isExpired) {
+        return jsonResponse(200, { isPaid: true, source: 'space_license' }, 'short');
+      }
+    }
+
+    // Compatibility for support-created user extensions that predate the D1
+    // request/grant model. It stays after the paid Space entitlement but before
+    // paid_rail: paid_rail is a time-boxed trial suppression, not a confirmed
+    // purchase, so it must not mask a real user extension.
     if (accountId) {
       const userLicenseRaw = await env.SPACE_LICENSE_KV.get(`license:${cloudId}:${spaceKey}:${accountId}`);
       if (userLicenseRaw) {
@@ -170,42 +195,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const userIsActive = userRecord.status === 'active';
         const userIsExpired = new Date(userRecord.expiresAt) < new Date();
         if (userIsActive && !userIsExpired) {
-          return jsonResponse(200, { isPaid: true, source: 'user_license' }, 'short');
+          return jsonResponse(200, {
+            isPaid: true,
+            source: 'user_license',
+            extensionExpiresAt: userRecord.expiresAt,
+          }, 'short');
         }
       }
     }
 
-    const licenseRaw = await env.SPACE_LICENSE_KV.get(`license:${cloudId}:${spaceKey}`);
+    const d1Extension = await checkD1UserExtension(env.DB, cloudId, accountId, spaceKey);
+    if (d1Extension) return jsonResponse(200, d1Extension, 'short');
 
-    if (!licenseRaw) {
-      console.log('space-status: no license found for', `license:${cloudId}:${spaceKey}`);
-      return await notPaidOrPaidRail(env, cloudId);
-    }
+    const paidRail = await checkPaidRail(env.DB, cloudId);
+    if (paidRail) return jsonResponse(200, paidRail, 'short');
 
-    const record = JSON.parse(licenseRaw) as SpaceLicenseRecord;
-
-    const isActive = record.status === 'active';
-    const isExpired = new Date(record.expiresAt) < new Date();
-    const isPaid = isActive && !isExpired;
-
-    console.log('space-status: license check', {
-      key: `license:${cloudId}:${spaceKey}`,
-      status: record.status,
-      expiresAt: record.expiresAt,
-      isActive,
-      isExpired,
-      isPaid,
-    });
-
-    if (isPaid) {
-      return jsonResponse(
-        200,
-        { isPaid: true, source: 'space_license' },
-        'short'
-      );
-    }
-
-    return await notPaidOrPaidRail(env, cloudId);
+    return jsonResponse(200, { isPaid: false }, 'short');
   } catch (error) {
     console.error('Error checking space status:', error);
     captureError(error);

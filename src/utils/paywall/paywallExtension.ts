@@ -78,7 +78,7 @@ export interface LegacyPaywallExtensionSubmission {
     diagramAudience: ExtensionAudience;
     aiAndDiagrams: { tools: AiTool[]; diagramUsage: AiDiagramUsage };
     workflowConstraints: { processRequirement: ProcessRequirement; cloudAiPolicy: CloudAiPolicy };
-    unblockNeed: { scope: Exclude<ExtensionScope, 'not_sure'>; urgency: Exclude<ExtensionUrgency, 'no_hard_deadline' | 'planning_ahead'> };
+    unblockNeed: { scope: Exclude<ExtensionScope, 'not_sure'>; urgency: Exclude<ExtensionUrgency, 'no_hard_deadline'> };
   };
 }
 

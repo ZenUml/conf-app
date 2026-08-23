@@ -11,8 +11,8 @@
         </div>
         <div data-testid="journey-inventory" class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs">
           <p class="font-semibold text-slate-900">Implementation inventory</p>
-          <p class="mt-1"><span class="font-semibold text-emerald-700">7 Implemented</span> · production components or purchase paths</p>
-          <p><span class="font-semibold text-amber-700">9 Concept</span> · local fixtures, no analytics or external calls</p>
+          <p class="mt-1"><span class="font-semibold text-emerald-700">8 Implemented</span> · production components or purchase paths</p>
+          <p><span class="font-semibold text-amber-700">8 Concept</span> · local fixtures, no analytics or external calls</p>
         </div>
       </div>
     </header>
@@ -98,7 +98,7 @@
               <span data-testid="extension-question-count" class="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">3 questions</span>
             </div>
             <div data-testid="extension-disclosure" class="mb-5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
-              Your answers do not affect whether you qualify. ZenUML may notify your organisation's registered technical or site contact with this Space, its approximate diagram count, and the scope and timing you select. Your optional product-research answer is not shared with your organisation.
+              If this is your first eligible request, your 7-day access starts as soon as you submit. Your answers do not affect whether you qualify. ZenUML may notify your organisation's registered technical or site contact with this Space, its approximate diagram count, and the scope and timing you select. Your optional product-research answer is not shared with your organisation.
             </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <fieldset data-testid="extension-question" data-question-id="long_term_access" class="rounded-lg border border-slate-200 p-3">
@@ -129,6 +129,7 @@
               <fieldset data-testid="extension-question" data-question-id="ai_diagram_use" class="rounded-lg border border-slate-200 p-3 sm:col-span-2">
                 <legend class="px-1 text-sm font-semibold">3. Optional: do you use AI tools to create or edit diagrams?</legend>
                 <select v-model="answers.aiDiagramUse" aria-label="AI diagram use" class="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <option value="">Skip this optional question</option>
                   <option value="regularly">Yes, regularly</option>
                   <option value="occasionally">Yes, occasionally</option>
                   <option value="interested">No, but I’d like to</option>
@@ -255,7 +256,7 @@ const stages: Stage[] = [
   { id: 'paywall-2', group: 'Paywall', title: '2 continues', status: 'Implemented', note: 'Loss-preview copy makes the approaching block explicit.', attempts: 2 },
   { id: 'paywall-1', group: 'Paywall', title: 'Last continue', status: 'Implemented', note: 'The production commitment beat replaces duplicate purchase and advocacy rails.', attempts: 1 },
   { id: 'paywall-0', group: 'Paywall', title: 'Editing paused', status: 'Implemented', note: 'Existing diagrams remain safe while new edits pause.', attempts: 0 },
-  { id: 'intake', group: 'Extension intake', title: 'Three questions', status: 'Concept', note: 'Two required operational questions plus one optional AI research question, with transparent administrator-contact disclosure.' },
+  { id: 'intake', group: 'Extension intake', title: 'Three questions', status: 'Implemented', note: 'The production intake uses two required operational questions plus one optional AI research question, with transparent administrator-contact disclosure.' },
   { id: 'granted', group: 'Granted', title: '7-day access', status: 'Concept', note: 'A server-authoritative user + Space grant, shown here as a fixed fixture.' },
   { id: 'admin-auto', group: 'Admin outreach', title: 'Automatic route', status: 'Concept', note: 'Fresh direct-customer contacts can be notified without exposing an address.' },
   { id: 'admin-manual', group: 'Admin outreach', title: 'Manual route', status: 'Concept', note: 'Uncertain, stale, missing, or partner contacts are held for review.' },
@@ -273,7 +274,7 @@ const editorReturned = ref(false)
 const answers = reactive({
   scope: 'self',
   urgency: 'today',
-  aiDiagramUse: 'regularly',
+  aiDiagramUse: '',
 })
 
 const selectedIndex = computed(() => Math.max(0, stages.findIndex((stage) => stage.id === selectedId.value)))
@@ -308,7 +309,7 @@ function reset() {
   selectedId.value = stages[0].id
   editorReturned.value = false
   Object.assign(answers, {
-    scope: 'self', urgency: 'today', aiDiagramUse: 'regularly',
+    scope: 'self', urgency: 'today', aiDiagramUse: '',
   })
 }
 

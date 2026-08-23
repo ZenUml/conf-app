@@ -95,7 +95,11 @@ Forge frontends continue to work after the Pages backend updates. Version-one ur
 backend before the new Forge frontend; the new frontend does not send fabricated version-one fields
 to an old backend.
 
-The D1 request table continues storing coded JSON. No migration is needed for the JSON shape.
+The D1 request table stores the coded answers in constrained columns, rather than in one JSON
+column. A data-preserving migration must therefore add the questionnaire version and optional
+version-two AI answer, make version-one-only columns nullable, and widen the scope and urgency
+checks. Existing rows, indexes, uniqueness constraints, and notification foreign keys must remain
+valid after the migration.
 
 ## Administrator-message boundary
 

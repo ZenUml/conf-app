@@ -116,7 +116,7 @@
           <div class="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
             <div class="flex items-center justify-between gap-3">
               <p class="text-xs text-blue-950 leading-5">
-                Need to finish the work in front of you? Answer five short questions for a one-time 7-day extension.
+                Need to finish the work in front of you? Answer two short questions, plus one optional, for a one-time 7-day extension.
               </p>
               <button
                 data-testid="request-extension-btn"

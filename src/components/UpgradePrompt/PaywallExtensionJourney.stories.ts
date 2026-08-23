@@ -89,8 +89,8 @@ export const CompleteProcess: Story = {
     const body = within(document.body)
 
     await expect(await body.findByTestId('paywall-extension-journey')).toBeVisible()
-    await expect(await body.findByTestId('journey-inventory')).toHaveTextContent('7 Implemented')
-    await expect(await body.findByTestId('journey-inventory')).toHaveTextContent('9 Concept')
+    await expect(await body.findByTestId('journey-inventory')).toHaveTextContent('8 Implemented')
+    await expect(await body.findByTestId('journey-inventory')).toHaveTextContent('8 Concept')
 
     for (const group of ['Paywall', 'Extension intake', 'Granted', 'Admin outreach', 'Expiry / repeat', 'Upgrade']) {
       await expect(body.getByRole('heading', { name: group })).toBeVisible()
@@ -114,7 +114,7 @@ export const CompleteProcess: Story = {
     await expect(body.queryByTestId('continue-editing-btn')).toBeNull()
 
     await userEvent.click(body.getByTestId('journey-stage-intake'))
-    await expect(await body.findByTestId('journey-stage-status')).toHaveTextContent('Concept')
+    await expect(await body.findByTestId('journey-stage-status')).toHaveTextContent('Implemented')
     await expect(await body.findByTestId('extension-disclosure')).toHaveTextContent('registered technical or site contact')
     await expect(await body.findByTestId('extension-question-count')).toHaveTextContent('3 questions')
     await expect(body.getAllByTestId('extension-question')).toHaveLength(3)

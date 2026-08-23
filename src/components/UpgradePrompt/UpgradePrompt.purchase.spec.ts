@@ -137,6 +137,8 @@ describe('UpgradePrompt — purchase surface', () => {
   it('keeps the existing escape hatches intact', () => {
     const wrapper = mountModal({ remainingContinueAttempts: 15 })
     expect(wrapper.find('[data-testid="request-extension-btn"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Answer two short questions, plus one optional')
+    expect(wrapper.text()).not.toContain('Answer five short questions')
     expect(wrapper.find('[data-testid="continue-editing-btn"]').exists()).toBe(true)
   })
 })

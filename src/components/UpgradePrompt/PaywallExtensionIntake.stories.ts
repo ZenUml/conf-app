@@ -41,7 +41,9 @@ const meta: Meta<typeof PaywallExtensionIntake> = {
       },
     },
   },
-  decorators: [() => ({ template: '<div style="width:680px;background:white;border:1px solid #ddd;border-radius:12px"><story /></div>' })],
+  decorators: [() => ({
+    template: '<div style="width:min(680px,calc(100vw - 32px));background:white;border:1px solid #ddd;border-radius:12px"><story /></div>',
+  })],
 };
 
 export default meta;

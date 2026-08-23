@@ -204,6 +204,27 @@ describe('parsePaywallExtensionInput', () => {
     })).toThrow('questionnaireVersion is invalid');
   });
 
+  it('keeps version-specific scope and urgency values isolated', () => {
+    expect(() => parsePaywallExtensionInput({
+      ...input,
+      answers: {
+        ...input.answers,
+        unblockNeed: { scope: 'not_sure', urgency: 'today' },
+      },
+    })).toThrow('answers.unblockNeed.scope is invalid');
+    expect(() => parsePaywallExtensionInput({
+      ...input,
+      answers: {
+        ...input.answers,
+        unblockNeed: { scope: 'space', urgency: 'no_hard_deadline' },
+      },
+    })).toThrow('answers.unblockNeed.urgency is invalid');
+    expect(() => parsePaywallExtensionInput({
+      ...v2Input,
+      answers: { unblockNeed: { scope: 'not_sure', urgency: 'planning_ahead' } },
+    })).toThrow('answers.unblockNeed.urgency is invalid');
+  });
+
   it('rejects the limit itself, under-limit, free-form, and malformed input', () => {
     expect(() => parsePaywallExtensionInput({ ...input, macroCount: 100 }))
       .toThrow(PaywallExtensionValidationError);

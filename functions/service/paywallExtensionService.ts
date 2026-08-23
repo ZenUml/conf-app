@@ -55,8 +55,10 @@ export const CLOUD_AI_POLICY_VALUES = [
   'not_sure',
 ] as const;
 
+export const LEGACY_EXTENSION_SCOPE_VALUES = ['self', 'space', 'site'] as const;
+export const LEGACY_EXTENSION_URGENCY_VALUES = ['today', 'this_week', 'planning_ahead'] as const;
 export const EXTENSION_SCOPE_VALUES = ['self', 'space', 'site', 'not_sure'] as const;
-export const EXTENSION_URGENCY_VALUES = ['today', 'this_week', 'planning_ahead', 'no_hard_deadline'] as const;
+export const EXTENSION_URGENCY_VALUES = ['today', 'this_week', 'no_hard_deadline'] as const;
 export const AI_DIAGRAM_USE_VALUES = ['regularly', 'occasionally', 'interested', 'no'] as const;
 
 type ValueOf<T extends readonly string[]> = T[number];
@@ -81,8 +83,8 @@ export interface LegacyPaywallExtensionInput extends PaywallExtensionInputBase {
       cloudAiPolicy: ValueOf<typeof CLOUD_AI_POLICY_VALUES>;
     };
     unblockNeed: {
-      scope: ValueOf<typeof EXTENSION_SCOPE_VALUES>;
-      urgency: ValueOf<typeof EXTENSION_URGENCY_VALUES>;
+      scope: ValueOf<typeof LEGACY_EXTENSION_SCOPE_VALUES>;
+      urgency: ValueOf<typeof LEGACY_EXTENSION_URGENCY_VALUES>;
     };
   };
 }
@@ -259,8 +261,8 @@ export function parsePaywallExtensionInput(value: unknown): PaywallExtensionInpu
         ),
       },
       unblockNeed: {
-        scope: enumValue(answers.unblockNeed.scope, EXTENSION_SCOPE_VALUES, 'answers.unblockNeed.scope'),
-        urgency: enumValue(answers.unblockNeed.urgency, EXTENSION_URGENCY_VALUES, 'answers.unblockNeed.urgency'),
+        scope: enumValue(answers.unblockNeed.scope, LEGACY_EXTENSION_SCOPE_VALUES, 'answers.unblockNeed.scope'),
+        urgency: enumValue(answers.unblockNeed.urgency, LEGACY_EXTENSION_URGENCY_VALUES, 'answers.unblockNeed.urgency'),
       },
     },
   };

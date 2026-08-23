@@ -8,6 +8,7 @@ import {
   _awaitableTrackAnalyticsEvent,
   _resetForTesting,
   trackAnalyticsEvent,
+  trackAnalyticsEventBeforeUnload,
 } from "./trackAnalyticsEvent";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { normalizeProductType } from "./productType";
@@ -732,6 +733,67 @@ describe("trackAnalyticsEvent", () => {
         })
       );
     });
+  });
+
+  // A caller that navigates immediately after tracking (the load-failed
+  // panel's "Try again" reloads the iframe) loses a plain XHR-transported
+  // event: production emitted 1 load_failed_retry_resolved and 0
+  // load_failed_retry_clicked on 2026-08-23, because the reload aborted the
+  // in-flight request. sendBeacon is the transport that survives unload.
+  describe("trackAnalyticsEventBeforeUnload", () => {
+    it("sends with the sendBeacon transport", async () => {
+      await trackAnalyticsEventBeforeUnload("load_failed_retry_clicked", {
+        feature_area: "macro",
+        surface: "viewer",
+        retry_attempt: 1,
+      });
+
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "load_failed_retry_clicked",
+        expect.objectContaining({ retry_attempt: 1 }),
+        { transport: "sendBeacon" }
+      );
+    });
+
+    it("resolves only after the event has been handed to mixpanel", async () => {
+      const order: string[] = [];
+      vi.mocked(mixpanel.track).mockImplementation(() => {
+        order.push("track");
+      });
+
+      await trackAnalyticsEventBeforeUnload("load_failed_retry_clicked", {
+        feature_area: "macro",
+        surface: "viewer",
+      });
+      order.push("await-resolved");
+
+      expect(order).toEqual(["track", "await-resolved"]);
+    });
+
+    it("does not throw when mixpanel.track throws", async () => {
+      vi.mocked(mixpanel.track).mockImplementation(() => {
+        throw new Error("mixpanel down");
+      });
+
+      await expect(
+        trackAnalyticsEventBeforeUnload("load_failed_retry_clicked", {
+          feature_area: "macro",
+          surface: "viewer",
+        })
+      ).resolves.not.toThrow();
+    });
+  });
+
+  it("keeps the default transport for ordinary events", async () => {
+    await _awaitableTrackAnalyticsEvent("upgrade_modal_shown", {
+      feature_area: "upgrade",
+      surface: "modal",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "upgrade_modal_shown",
+      expect.any(Object)
+    );
   });
 
   it("does not throw when mixpanel.track throws", async () => {

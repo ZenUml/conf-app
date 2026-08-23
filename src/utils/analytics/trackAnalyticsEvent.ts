@@ -278,9 +278,18 @@ async function _getDemoPageTelemetry(
   }
 }
 
+/**
+ * Extra options handed straight to mixpanel.track. Only the transport override
+ * is used today — see trackAnalyticsEventBeforeUnload.
+ */
+interface TrackTransportOptions {
+  transport: "sendBeacon";
+}
+
 export async function _awaitableTrackAnalyticsEvent(
   eventName: AnalyticsEventName,
-  callerProps: AnalyticsProperties
+  callerProps: AnalyticsProperties,
+  options?: TrackTransportOptions
 ): Promise<void> {
   try {
     // Volume sampling first: a dropped event must not pay the init cost — the
@@ -324,7 +333,11 @@ export async function _awaitableTrackAnalyticsEvent(
       ...authoringReplayProperties,
     };
 
-    mixpanel.track(eventName, enriched);
+    if (options) {
+      mixpanel.track(eventName, enriched, options);
+    } else {
+      mixpanel.track(eventName, enriched);
+    }
   } catch (e) {
     console.error("[analytics] trackAnalyticsEvent failed", e);
   }
@@ -335,6 +348,27 @@ export function trackAnalyticsEvent(
   properties: AnalyticsProperties
 ): void {
   void _awaitableTrackAnalyticsEvent(eventName, properties);
+}
+
+/**
+ * For a caller that navigates away immediately after tracking — the load-failed
+ * panel's "Try again" reloads the iframe on the next line. The default XHR
+ * transport is aborted by that navigation, so the event never arrives:
+ * production recorded 1 `load_failed_retry_resolved` and 0
+ * `load_failed_retry_clicked` on 2026-08-23. sendBeacon is queued by the
+ * browser and survives unload.
+ *
+ * Await it: the enrichment itself is async (Mixpanel init, macro uuid, space
+ * telemetry), so firing and navigating would lose the event before it ever
+ * reaches the transport.
+ */
+export async function trackAnalyticsEventBeforeUnload(
+  eventName: AnalyticsEventName,
+  properties: AnalyticsProperties
+): Promise<void> {
+  await _awaitableTrackAnalyticsEvent(eventName, properties, {
+    transport: "sendBeacon",
+  });
 }
 
 export function _resetForTesting(): void {

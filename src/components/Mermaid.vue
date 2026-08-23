@@ -19,6 +19,7 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
+import { hasLayout, awaitLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 
 export default {
@@ -65,26 +66,60 @@ export default {
     }
   },
   methods: {
-    async render(code) {
+    async runMermaid(code) {
       // Generate a unique ID to avoid conflicts
       this.renderId = `mermaid-${crypto.randomUUID()}`;
+      const mermaid = await loadMermaid();
+      // Use the unique ID to render, avoiding creating extra elements in the body
+      const { svg } = await mermaid.render(this.renderId, code);
+      return svg;
+    },
+    removeTempNode() {
+      if (!this.renderId) return;
+      document.getElementById(`d${this.renderId}`)?.remove();
+    },
+    reportCrash(error) {
+      console.error('mermaid render error', error);
+      // reliability-audit-2026-08-06 §3/§12.1: a mermaid.js exception used to
+      // be console.error-only — the blank result still got recorded as a
+      // successful macro_viewed by mounted()'s unconditional trackRenderTime.
+      // This adds the missing failure signal without changing that existing
+      // (silent-degrade) UX.
+      trackViewerRenderCrash('mermaid', this.isDisplayMode, error);
+      this.removeTempNode();
+    },
+    async render(code) {
       try {
-        const mermaid = await loadMermaid();
-        // Use the unique ID to render, avoiding creating extra elements in the body
-        const { svg } = await mermaid.render(this.renderId, code);
-        return svg;
+        return await this.runMermaid(code);
       } catch (error) {
-        console.error('mermaid render error', error);
-        // reliability-audit-2026-08-06 §3/§12.1: a mermaid.js exception used to
-        // be console.error-only — the blank result below still got recorded as
-        // a successful macro_viewed by mounted()'s unconditional trackRenderTime.
-        // This adds the missing failure signal without changing that existing
-        // (silent-degrade) UX.
-        trackViewerRenderCrash('mermaid', this.isDisplayMode, error);
-        if (this.renderId) {
-          const tempElement = document.getElementById(`d${this.renderId}`);
-          tempElement?.remove();
+        this.removeTempNode();
+        // mermaid measures a temp node with getBBox. In a document with no
+        // layout box that measurement throws `svg element not in render tree`
+        // and the same input renders cleanly once the box exists (reproduced
+        // against mermaid 11.12.2 in Chrome — see renderGate/documentLayout).
+        // Retry rather than leave the reader with a permanently blank diagram.
+        if (!hasLayout()) {
+          // Off the awaited path on purpose: the wait can last until a hidden
+          // iframe is shown, and folding that into the caller would report it
+          // as render_ms. The retry assigns this.svg when it lands.
+          this.retryAfterLayout(code);
+          return;
         }
+        // With a layout box present the failure is deterministic (bad syntax,
+        // an unsupported diagram type); a retry would only repeat it.
+        this.reportCrash(error);
+      }
+    },
+    async retryAfterLayout(code) {
+      await awaitLayout();
+      try {
+        const svg = await this.runMermaid(code);
+        // The diagram may have been edited or switched away during the wait.
+        if (this.mermaidCode === code) {
+          this.svg = svg;
+        }
+      } catch (error) {
+        this.reportCrash(error);
       }
     }
   }

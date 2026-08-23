@@ -20,6 +20,16 @@ import { validateMermaidSyntaxForStore } from "@/utils/mermaid/validate";
 import { validateSequenceSyntaxForStore } from "@/utils/sequence/validate";
 import { validatePlantUmlSyntaxForStore } from "@/utils/plantuml/validate";
 import { debounce } from 'lodash';
+import {
+  recordEditorTransaction,
+  resetEditorMutationSession,
+  startEditorMutationSession,
+} from '@/utils/analytics/editorMutationTelemetry';
+import {
+  getEditJourneyId,
+  getEditJourneyStartTime,
+  getOrCreateSession,
+} from '@/utils/journeyTracking';
 
 const store = useStore();
 const rootElement = ref();
@@ -74,7 +84,7 @@ watch(code, (newVal) => {
   })
 })
 
-const baseExtensions = computed(() => baseExtensionsFactory(onEditorCodeChange));
+const baseExtensions = computed(() => baseExtensionsFactory(onEditorCodeChange, recordEditorTransaction));
 
 watch(diagramType, () => {
   cmView.value.dispatch({
@@ -96,6 +106,15 @@ onBeforeMount(async () => {
 })
 
 onMounted(() => {
+  startEditorMutationSession({
+    initialCode: code.value,
+    macroType: diagramType.value,
+    operationMode: store.state.diagram.id ? 'edit' : 'create',
+    customContentId: store.state.diagram.id,
+    journeyId: getEditJourneyId(),
+    sessionId: getOrCreateSession(),
+    openedAt: getEditJourneyStartTime() ?? Date.now(),
+  });
   cmView.value = new EditorView({
     state: EditorState.create({
       doc: code.value,
@@ -113,6 +132,7 @@ onBeforeUnmount(() => {
   // Cancel the debounced validation function to avoid memory leaks
   debouncedValidate.cancel();
   cmView.value.destroy();
+  resetEditorMutationSession();
   // Clear error state when component is unmounted
   store.dispatch('updateError', null);
 })

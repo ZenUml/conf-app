@@ -121,7 +121,10 @@ function customIndent(context: IndentContext, pos: number) {
 
 const customIndentExtension = indentService.of((context, pos) => customIndent(context, pos));
 
-const baseExtensionsFactory = (onEditorCodeChange: (code: string) => void) => [
+const baseExtensionsFactory = (
+  onEditorCodeChange: (code: string) => void,
+  onTransaction?: (transaction: Transaction) => void,
+) => [
   dracula,
   closeBrackets(),
   lineNumbers(),
@@ -141,6 +144,9 @@ const baseExtensionsFactory = (onEditorCodeChange: (code: string) => void) => [
   ]),
   EditorView.lineWrapping,
   EditorView.updateListener.of((update) => {
+    if (onTransaction) {
+      for (const transaction of update.transactions) onTransaction(transaction);
+    }
     if (update.docChanged) {
       const updatedCode = update.state.doc.toString();
       onEditorCodeChange(updatedCode)
@@ -208,15 +214,14 @@ const plantUmlReadonlyDecoration = ViewPlugin.fromClass(
 const plantUmlReadonlyFilter = EditorState.transactionFilter.of((tr) => {
   if (!tr.docChanged) return tr;
   // Allow programmatic changes (tab switching, store updates, AI generation)
-  if (!tr.annotation(Transaction.userEvent)) return tr;
+  const userEvent = tr.annotation(Transaction.userEvent);
+  if (!userEvent) return tr;
   
   const doc = tr.startState.doc;
   if (doc.lines < 2) return tr;
   
   const first = doc.line(1);
   const last = doc.line(doc.lines);
-  const firstText = first.text;
-  const lastText = last.text;
   
   // Calculate the editable range in the original document
   const editableStart = first.to + 1; // After first line and its newline
@@ -273,7 +278,8 @@ const plantUmlReadonlyFilter = EditorState.transactionFilter.of((tr) => {
           from: first.to + 1,
           to: first.to + 1,
           insert: insertText + '\n'
-        }
+        },
+        annotations: Transaction.userEvent.of(userEvent),
       };
     }
     // If no content to insert (pure deletion), document is already minimal
@@ -286,7 +292,8 @@ const plantUmlReadonlyFilter = EditorState.transactionFilter.of((tr) => {
       from: editableStart,
       to: editableEnd,
       insert: insertText
-    }
+    },
+    annotations: Transaction.userEvent.of(userEvent),
   };
 });
 

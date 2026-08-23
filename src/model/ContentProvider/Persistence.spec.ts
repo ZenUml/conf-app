@@ -6,6 +6,12 @@ import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { syncCustomContent } from "@/services/CustomContent";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import macroMetrics from "@/services/MacroMetrics";
+import { EditorState, Transaction } from '@codemirror/state';
+import {
+  recordEditorTransaction,
+  resetEditorMutationSession,
+  startEditorMutationSession,
+} from '@/utils/analytics/editorMutationTelemetry';
 
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
@@ -52,6 +58,7 @@ describe('Persistence', function () {
     vi.mocked(syncCustomContent).mockClear();
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
+    resetEditorMutationSession();
   });
 
   it('does NOT report macro metrics on save — the editor iframe is torn down on submit/close, which would kill a long enumeration; reporting is moved to editor-open', async () => {
@@ -148,6 +155,43 @@ describe('Persistence', function () {
         macro_type: expect.any(String),
         operation_mode: "edit",
       })
+    );
+  })
+
+  it('macro_save_succeeded carries the text editor replacement-session summary', async () => {
+    const oldDoc = 'A -> B: hello';
+    startEditorMutationSession({
+      initialCode: oldDoc,
+      macroType: 'sequence',
+      operationMode: 'edit',
+      customContentId: 'existing-id',
+      journeyId: 'journey-1',
+      sessionId: 'session-1',
+      openedAt: 1_000,
+    }, {
+      now: () => 1_500,
+      readAttribution: () => null,
+    });
+    const transaction = EditorState.create({ doc: oldDoc }).update({
+      changes: { from: 0, to: oldDoc.length, insert: 'A -> B: goodbye' },
+      annotations: Transaction.userEvent.of('input.paste'),
+    });
+    recordEditorTransaction(transaction);
+    vi.mocked(trackAnalyticsEvent).mockClear();
+
+    await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'macro_save_succeeded',
+      expect.objectContaining({
+        journey_id: 'journey-1',
+        session_id: 'session-1',
+        had_global_replace: true,
+        global_replace_count: 1,
+        post_replace_local_edit_count: 0,
+        net_delta_from_open_bucket: 'medium',
+        delta_from_last_replace_bucket: 'none',
+      }),
     );
   })
 

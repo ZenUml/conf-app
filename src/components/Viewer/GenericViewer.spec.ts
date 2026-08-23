@@ -14,6 +14,7 @@ import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import { toast } from '@/utils/toast'
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
+import { readCopyAttribution } from '@/utils/analytics/copyAttribution'
 import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFailedRetry'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -453,11 +454,24 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
 
       expect(writeText).toHaveBeenCalledWith(SOURCE_DSL)
-      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('viewer_source_copied', {
-        feature_area: 'macro',
-        surface: 'viewer',
-        macro_type: DiagramType.Sequence,
-        has_edit_permission: true,
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'viewer_source_copied',
+        expect.objectContaining({
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+          has_edit_permission: true,
+          outcome: 'copied',
+          copy_source: 'view_source',
+          copy_id: expect.any(String),
+        }),
+      )
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls
+        .find(([event]) => event === 'viewer_source_copied')
+      expect(readCopyAttribution('content-123')).toMatchObject({
+        copy_id: (call?.[1] as any).copy_id,
+        copy_source: 'view_source',
+        custom_content_id: 'content-123',
       })
     })
 
@@ -579,6 +593,50 @@ describe('GenericViewer (chrome-less)', () => {
       delete (document as any).execCommand
     })
 
+    it('fires one eligible-viewer impression for the Copy for AI CTA', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      mountViewer()
+      await flushPromises()
+
+      const calls = vi.mocked(trackAnalyticsEvent).mock.calls
+        .filter(([event]) => event === 'copy_for_ai_impression')
+      expect(calls).toHaveLength(1)
+      expect(calls[0][1]).toMatchObject({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Sequence,
+        has_edit_permission: true,
+        instance_nonce: expect.any(String),
+      })
+    })
+
+    it('does not fire an impression when viewer chrome hides the CTA', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { hideHeader: true },
+      })
+      await flushPromises()
+
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls
+        .some(([event]) => event === 'copy_for_ai_impression')).toBe(false)
+    })
+
+    it('fires once if the CTA becomes eligible after the viewer recovers from a load-failed state', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      store.state.viewerLoadState = 'failed_with_source'
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls
+        .some(([event]) => event === 'copy_for_ai_impression')).toBe(false)
+
+      store.state.viewerLoadState = 'ready'
+      await wrapper.vm.$nextTick()
+
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls
+        .filter(([event]) => event === 'copy_for_ai_impression')).toHaveLength(1)
+    })
+
     it.each([
       DiagramType.Sequence,
       DiagramType.Mermaid,
@@ -640,6 +698,30 @@ describe('GenericViewer (chrome-less)', () => {
       })
       expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
       expect((call![1] as any).page_bytes).toBeGreaterThan(0)
+    })
+
+    it('writes same-tab attribution metadata after a successful Copy for AI action', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls
+        .find(([event]) => event === 'copy_for_ai_clicked')
+      expect(call?.[1]).toMatchObject({
+        outcome: 'copied',
+        copy_source: 'copy_for_ai',
+        copy_job: 'generic',
+        copy_id: expect.any(String),
+      })
+      expect(readCopyAttribution('content-123')).toMatchObject({
+        copy_id: (call?.[1] as any).copy_id,
+        copy_source: 'copy_for_ai',
+        copy_job: 'generic',
+        custom_content_id: 'content-123',
+      })
     })
 
     // The button must show its transient "copying" state (disabled,
@@ -794,6 +876,8 @@ describe('GenericViewer (chrome-less)', () => {
         expect(activeCopyLabel(wrapper)).toBe('Copy failed')
         const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
         expect(call![1]).toMatchObject({ outcome: 'clipboard_failed' })
+        expect(call![1]).not.toHaveProperty('copy_id')
+        expect(readCopyAttribution('content-123')).toBeNull()
       })
     })
 
@@ -1041,6 +1125,27 @@ describe('GenericViewer (chrome-less)', () => {
         expect(wrapper.find('[data-testid="copy-for-ai-job-implement"]').text()).toContain('Implement this design')
         expect(wrapper.find('[data-testid="copy-for-ai-job-audit"]').text()).toContain('Check against my codebase')
         expect(wrapper.find('[data-testid="copy-for-ai-job-tests"]').text()).toContain('Generate test cases')
+      })
+
+      it('fires copy_for_ai_menu_opened on every closed-to-open transition', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+        vi.mocked(trackAnalyticsEvent).mockClear()
+
+        const menuBtn = wrapper.find('[data-testid="copy-for-ai-menu-btn"]')
+        await menuBtn.trigger('click')
+        await menuBtn.trigger('click')
+        await menuBtn.trigger('click')
+
+        const calls = vi.mocked(trackAnalyticsEvent).mock.calls
+          .filter(([event]) => event === 'copy_for_ai_menu_opened')
+        expect(calls).toHaveLength(2)
+        expect(calls[0][1]).toMatchObject({
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+        })
       })
 
       it('clicking a job item copies that job\'s preamble, fires copy_for_ai_clicked with its job + outcome copied, and drives the PRIMARY segment\'s state machine (no toast)', async () => {

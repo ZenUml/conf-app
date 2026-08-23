@@ -161,7 +161,7 @@
                     </span>
                   </span>
                 </button>
-                <CopyForAiMenu @select="copyForAi" />
+                <CopyForAiMenu @select="copyForAi" @opened="onCopyForAiMenuOpened" />
                 <!-- Mintlify-style inline feedback: the button's own label already
                      shows Copying…/Copied/Copy failed/Nothing to copy visibly, but a
                      visually-hidden live region also announces the terminal states
@@ -420,6 +420,8 @@ import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readRetryMarker, startRetryMarker, settleRetryMarker, clearRetryMarker, reloadViewer } from '@/utils/loadFailedRetry'
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink'
 import DiagramAttributionFooter from '@/components/Viewer/DiagramAttributionFooter.vue'
+import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
+import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 
 const DEFAULT_TITLE = 'Untitled diagram'
@@ -446,6 +448,8 @@ export default {
     copyForAiLabel: '',
     copyForAiAnnouncement: '',
     copyForAiRevertTimer: null,
+    copyForAiImpressionTracked: false,
+    copyForAiPermissionResolved: false,
     // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
     // master flag, resolved async in mounted(). Defaults false so the flag
     // controls the ENTIRE feature — until it resolves true, this macro
@@ -590,6 +594,13 @@ export default {
     showViewSource() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
     },
+    copyForAiImpressionEligible() {
+      return this.copyForAiPermissionResolved
+        && this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed
+        && this.showViewSource;
+    },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
     },
@@ -692,6 +703,20 @@ export default {
     },
   },
   watch: {
+    copyForAiImpressionEligible: {
+      immediate: true,
+      handler(eligible) {
+        if (!eligible || this.copyForAiImpressionTracked) return;
+        this.copyForAiImpressionTracked = true;
+        trackAnalyticsEvent('copy_for_ai_impression', {
+          feature_area: 'macro',
+          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+          macro_type: this.diagramType,
+          has_edit_permission: !!this.canUserEdit,
+          instance_nonce: getRenderIdentity().instance_nonce,
+        });
+      },
+    },
     // Fire viewer_load_failed when the error store slot becomes truthy while
     // the macro is in display (viewer) mode. The isDisplayMode guard prevents
     // false positives from editor-context syntax validation errors, which also
@@ -764,6 +789,8 @@ export default {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
       console.error('canUserEdit failed', e);
+    } finally {
+      this.copyForAiPermissionResolved = true;
     }
     try {
       // SecondDiagramPrompt's author-match display condition — fails closed
@@ -995,11 +1022,25 @@ export default {
       });
     },
     onViewSourceCopied() {
+      const attribution = recordSuccessfulCopyAttribution({
+        customContentId: getForgeCustomContentId(),
+        source: 'view_source',
+      });
       trackAnalyticsEvent('viewer_source_copied', {
         feature_area: 'macro',
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
         has_edit_permission: !!this.canUserEdit,
+        outcome: 'copied',
+        copy_source: 'view_source',
+        ...(attribution ? { copy_id: attribution.copy_id } : {}),
+      });
+    },
+    onCopyForAiMenuOpened() {
+      trackAnalyticsEvent('copy_for_ai_menu_opened', {
+        feature_area: 'macro',
+        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+        macro_type: this.diagramType ?? 'none',
       });
     },
     // Connect-to-Agent affordance (design §5.1, §9): kicks off this mount's
@@ -1341,6 +1382,14 @@ export default {
         this.setCopyForAiState('failed', 'Copy failed');
       }
 
+      const attribution = ok
+        ? recordSuccessfulCopyAttribution({
+            customContentId: getForgeCustomContentId(),
+            source: 'copy_for_ai',
+            job,
+          })
+        : null;
+
       trackAnalyticsEvent('copy_for_ai_clicked', {
         feature_area: 'macro',
         surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
@@ -1349,6 +1398,9 @@ export default {
         dsl_bytes: result.dslBytes,
         page_bytes: result.pageBytes,
         job,
+        copy_source: 'copy_for_ai',
+        copy_job: job,
+        ...(attribution ? { copy_id: attribution.copy_id } : {}),
       });
     },
   },

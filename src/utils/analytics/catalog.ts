@@ -83,6 +83,22 @@ export type EntryPoint =
 
 export type OperationMode = "create" | "edit" | "unknown";
 
+// Text-editor mutation telemetry. Replacement scope describes how much of the
+// editable OLD document a user transaction covered; content delta describes
+// how different the resulting text is. Keeping the two axes separate avoids
+// treating a whole-document paste with a tiny textual change as a local edit.
+export type EditorReplaceScope = "full" | "near_full";
+export type EditorInputMethod =
+  | "paste"
+  | "typing"
+  | "delete"
+  | "drop"
+  | "undo"
+  | "redo"
+  | "unknown";
+export type ContentDeltaBucket = "none" | "tiny" | "small" | "medium" | "large";
+export type CopySource = "copy_for_ai" | "view_source";
+
 // Format slice selected on the dual-format ("My API Documents") dashboard's
 // tab / Format filter. "all" shows both AsyncAPI and OpenAPI docs.
 export type DashboardFormatFilter = "all" | "asyncapi" | "openapi";
@@ -359,6 +375,10 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
+  // instance; menu_opened fires on every closed -> open transition.
+  | "copy_for_ai_impression"
+  | "copy_for_ai_menu_opened"
   // "Copy for AI" demand-test button in the viewer top-actions row (alongside
   // View Source): a split button — a one-click primary segment (job:
   // 'generic') plus a chevron menu of five job-framed entry points (explain /
@@ -369,6 +389,11 @@ export type AnalyticsEventName =
   // diagram-only fallback (page context unavailable) and an outright
   // clipboard-write failure.
   | "copy_for_ai_clicked"
+  // Every accepted, user-attributed CodeMirror transaction that replaces at
+  // least 95% of the editable OLD document. This is an operation signal; a
+  // saved outcome is established separately by macro_save_succeeded carrying
+  // the same journey_id and the edit-session summary properties.
+  | "editor_global_replace_observed"
   // Bottom-pill "Copy diagram link" action (task 6, docs/superpowers/sdd/
   // 2026-07-26-embed-deeplink-productization): mints and copies the bare
   // embed deeplink (https://<host>/d/<cloudId>/<contentId>) for the diagram

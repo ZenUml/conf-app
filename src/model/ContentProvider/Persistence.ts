@@ -11,6 +11,7 @@ import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropert
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason, snapshotFailureDetail } from '@/model/SnapshotAttachment';
+import { getEditorMutationSummary } from '@/utils/analytics/editorMutationTelemetry';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -121,6 +122,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         macro_type: macroType,
         operation_mode: "edit",
         save_duration_ms,
+        ...getEditorMutationSummary(),
         ...savedIdProps,
       });
     }

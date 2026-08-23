@@ -261,8 +261,11 @@
       </div>
     </div>
 
-    <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
-    <div class="byline__footer">
+    <!-- Footer. Pinned in every state; only the hint and the right slot vary.
+         The testid exists for the E2E containment assertion — "pinned" is the
+         property that broke twice, and a class selector would go quiet if the
+         class were renamed rather than failing the test. -->
+    <div class="byline__footer" data-testid="byline-footer">
       <span class="byline__hint">
         <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the diagram is already saved.</template>
         <template v-else-if="createdLink">Saved either way — paste it any time.</template>

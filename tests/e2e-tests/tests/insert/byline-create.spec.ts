@@ -96,6 +96,91 @@ test.describe.serial(`Byline create path - ${testConfig.productType}`, () => {
     await expect(byline.locator('[data-testid="byline-empty"]')).toHaveCount(0);
     await expect(byline.locator('[data-testid="byline-failed"]')).toHaveCount(0);
 
+    // The pinned footer group, asserted against a list long enough to overflow.
+    //
+    // This is regression cover for a bug that shipped TWICE, because both fixes
+    // were verified against a harness rather than the real mount. `height:100%`
+    // resolved to content height (nothing in the Forge mount chain —
+    // body > div.mx-auto > #app — has a height), so the iframe scrolled as a
+    // whole and the "Add a diagram" band + footer went off the bottom.
+    // `height:100vh` then tracked the iframe, which Forge auto-resizes to
+    // content, so the cap dissolved again the moment the list outgrew the
+    // modal. Only an absolute max-height survives both, and only a list that
+    // actually overflows can tell the difference — which is exactly what no
+    // unit test can do (jsdom has no layout) and what the 1-macro page this
+    // spec publishes cannot reach on its own.
+    //
+    // Rows are cloned rather than seeding a many-macro page: containment is a
+    // property of the shell's CSS, the thing under test is "tall list => footer
+    // still inside the modal", and cloning reproduces that exactly without
+    // minutes of extra setup. The clones are removed before measuring stops
+    // mattering, so the create flow below sees the original DOM.
+    const layout = await byline.evaluate(() => {
+      const q = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T | null;
+      const list = q('[data-testid="byline-list"]');
+      const shell = q('.byline');
+      const footer = q('[data-testid="byline-footer"]');
+      const addrow = q('[data-testid="byline-type-strip"]');
+      const row = list?.querySelector('[data-testid="byline-item"]');
+      if (!list || !shell || !footer || !addrow || !row) return null;
+
+      const clones: Element[] = [];
+      for (let i = 0; i < 24; i++) {
+        const c = row.cloneNode(true) as Element;
+        list.appendChild(c);
+        clones.push(c);
+      }
+
+      const box = (el: HTMLElement) => el.getBoundingClientRect();
+      const measured = {
+        shellHeight: Math.round(box(shell).height),
+        shellBottom: Math.round(box(shell).bottom),
+        footerBottom: Math.round(box(footer).bottom),
+        addrowBottom: Math.round(box(addrow).bottom),
+        // The LIST absorbs the overflow — not the document, not the shell.
+        listScrolls: list.scrollHeight > list.clientHeight,
+        docScrolls: document.documentElement.scrollHeight > shell.clientHeight + 1,
+      };
+
+      clones.forEach((c) => c.remove());
+      return measured;
+    });
+
+    expect(layout, 'byline shell/footer/addrow not found — selectors drifted').not.toBeNull();
+    const l = layout!;
+    expect(l.listScrolls, 'the diagram list did not become scrollable under overflow').toBe(true);
+    // The assertion that would have caught both regressions: with the list
+    // overflowing, the footer must still sit inside the shell rather than
+    // below it.
+    expect(
+      l.footerBottom,
+      `footer bottom ${l.footerBottom} fell outside the panel (bottom ${l.shellBottom}) — the pinned footer is not contained`,
+    ).toBeLessThanOrEqual(l.shellBottom + 1);
+    expect(
+      l.addrowBottom,
+      'the "Add a diagram" band is not pinned above the footer',
+    ).toBeLessThanOrEqual(l.footerBottom + 1);
+    // viewportSize: medium is 618x529; the shell must never exceed the modal
+    // no matter how tall the content gets.
+    expect(
+      l.shellHeight,
+      `panel grew to ${l.shellHeight}px — the modal-height cap is not holding`,
+    ).toBeLessThanOrEqual(529);
+
+    // The 5b footer styling: a heading and real buttons, not a grey caption
+    // over ghost chips. Asserted on the rendered result rather than the CSS
+    // source so a build that ships stale assets fails here.
+    const strip = byline.locator('[data-testid="byline-type-strip"]');
+    await expect(strip.locator('.addrow__label')).toHaveText('Add a diagram');
+    await expect(
+      strip.locator('.chip__plus').first(),
+      'the blue "+" create affordance is missing from the type buttons',
+    ).toBeVisible();
+    await expect(
+      strip.locator('img.chip__icon'),
+      'the per-type glyph the "+" replaced is still rendering',
+    ).toHaveCount(0);
+
     await createDiagramFromByline(page, byline, 'sequence', 'Byline created (view)');
 
     await expect(

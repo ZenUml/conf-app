@@ -44,6 +44,17 @@ export interface SessionRecord {
   /** Last bump-worthy agent activity (spec 2026-07-13 §3); starts = issuedAtMs. */
   lastActivityMs: number;
   state: SessionState;
+  /** Highest-ranked MCP-relay connection stage reported so far (2026-08-15
+   * connection-experience spec §3, Task 3). Optional: absent until the first
+   * `GET /session?presence=` call, and absent on any record persisted before
+   * this change — both rehydrate cleanly via ensureSession(). Monotonic:
+   * only ever advances, never regresses (see AgentLinkSession's
+   * PRESENCE_RANK). */
+  presenceStage?: 'initialized' | 'discovered' | 'verified' | 'working';
+  /** The MCP client name reported alongside the first 'initialized' presence
+   * call (Task 2 sends it only then, capped at 64 chars relay-side). Optional
+   * for the same reasons as presenceStage. */
+  clientName?: string;
 }
 
 /** Sliding-TTL policy (spec 2026-07-13 §3, user-decided): each bump-worthy
@@ -60,14 +71,15 @@ function randomSegment(length: number): string {
   crypto.getRandomValues(bytes);
   let out = '';
   for (let i = 0; i < length; i++) {
-    out += TOKEN_ALPHABET[bytes[i] % TOKEN_ALPHABET.length];
+    // 32 divides 256 exactly, so masking keeps every character equiprobable.
+    out += TOKEN_ALPHABET[bytes[i] & 31];
   }
   return out;
 }
 
-/** Mints an opaque, URL-safe, human-pasteable session token, e.g. "CL-7F3K-Q9M2". */
+/** Mints an opaque, URL-safe, pasteable 130-bit session/linking capability. */
 export function mintToken(): string {
-  return `CL-${randomSegment(4)}-${randomSegment(4)}`;
+  return `CL-${randomSegment(5)}-${randomSegment(5)}-${randomSegment(5)}-${randomSegment(5)}-${randomSegment(6)}`;
 }
 
 /** The server-authoritative deadline: min(idle window, absolute cap). */

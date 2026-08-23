@@ -1494,6 +1494,43 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
+    it('keeps the Fullscreen Agent Link workspace wide for an intrinsically sized sequence diagram', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="zenuml"><div class="intrinsic-diagram" style="width: 1600px" /></div>' },
+      })
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--agent-link')
+      expect(wrapper.find('.generic').classes()).toContain('generic--agent-link-workspace')
+    })
+
+    it('tracks which fixed-setup or pairing instruction was copied', async () => {
+      setFullscreen(true)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      wrapper.findComponent({ name: 'ConnectPanel' }).vm.$emit('instruction-copied', 'pairing_prompt')
+
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_connection_instruction_copied',
+        {
+          feature_area: 'agent_link',
+          surface: 'fullscreen',
+          macro_type: DiagramType.Sequence,
+          pairing_method: 'linking_code',
+          instruction_kind: 'pairing_prompt',
+        },
+      )
+    })
+
     it('does not mount the Fullscreen rail when the flag resolves false', async () => {
       setFullscreen(true)
       const wrapper = mountViewer()

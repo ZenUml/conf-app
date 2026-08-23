@@ -149,6 +149,25 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // works" once further bumps no longer move the deadline (SessionTtl.vue).
   // Absent ⇒ not (yet) capped.
   hitCap?: boolean
+  // Presence display state (2026-08-15 connection-experience §3, Task 5):
+  // mirrors useAgentLinkSession.ts's own `progressStage`/`agentClientName`
+  // refs so the Fullscreen instance shows the same "agent is
+  // initializing/discovering/verifying/working" stage as the relay owner —
+  // display-only, never drives AgentLinkHandoffState. Absent before the
+  // first agent_presence status push arrives.
+  progressStage?: 'initialized' | 'discovered' | 'verified' | 'working'
+  agentClientName?: string
+  // Why the session is stuck in 'suspended' (2026-08-15 connection-experience
+  // §3, Task 7): 'connection_lost' means relayClient.ts's own backoff gave up
+  // (or a socket error arrived while already down), so the banner must stop
+  // implying a retry is still in flight. The relay owner is the only instance
+  // that sees those transport events, so — exactly like progressStage — a
+  // display-only Fullscreen instance can only learn it from this record.
+  // Absent ⇒ no notice (the owner is either healthy or still retrying); unlike
+  // progressStage this is NOT monotonic, so hydrateFrom must CLEAR the mirror
+  // when the field is absent, or a resumed session would keep showing "gave
+  // up" into its next suspend cycle.
+  noticeReason?: 'connection_lost'
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -164,9 +183,107 @@ interface PersistedHandoff extends AgentLinkHandoffSession {
 export const HANDOFF_TTL_MS = 10 * 60 * 1000
 
 const STORAGE_KEY_PREFIX = 'agentLinkSession:'
+const DISCONNECT_REQUEST_KEY_PREFIX = 'agentLinkDisconnectRequest:'
+const DISCONNECT_REQUEST_TTL_MS = 30_000
 
 function storageKey(pageId: string): string {
   return `${STORAGE_KEY_PREFIX}${pageId}`
+}
+
+function disconnectRequestStorageKey(pageId: string): string {
+  return `${DISCONNECT_REQUEST_KEY_PREFIX}${pageId}`
+}
+
+export interface AgentLinkSessionDisconnectRequest {
+  pageId: string
+  token: string
+  requestId: string
+  requestedAt: number
+}
+
+export function publishSessionDisconnectRequest(pageId: string, token: string): void {
+  try {
+    const request: AgentLinkSessionDisconnectRequest = {
+      pageId,
+      token,
+      requestId:
+        globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      requestedAt: Date.now(),
+    }
+    localStorage.setItem(disconnectRequestStorageKey(pageId), JSON.stringify(request))
+  } catch (e) {
+    console.warn('[agent-link] failed to publish session disconnect request', e)
+  }
+}
+
+export function readSessionDisconnectRequest(
+  pageId: string,
+  now: number = Date.now()
+): AgentLinkSessionDisconnectRequest | null {
+  try {
+    const raw = localStorage.getItem(disconnectRequestStorageKey(pageId))
+    if (!raw) return null
+    const request = JSON.parse(raw) as Partial<AgentLinkSessionDisconnectRequest>
+    if (
+      request.pageId !== pageId ||
+      typeof request.token !== 'string' ||
+      !request.token ||
+      typeof request.requestId !== 'string' ||
+      !request.requestId ||
+      typeof request.requestedAt !== 'number' ||
+      now - request.requestedAt > DISCONNECT_REQUEST_TTL_MS
+    ) {
+      return null
+    }
+    return request as AgentLinkSessionDisconnectRequest
+  } catch (e) {
+    console.warn('[agent-link] failed to read session disconnect request', e)
+    return null
+  }
+}
+
+export function subscribeToSessionDisconnectRequest(
+  pageId: string,
+  onRequest: (request: AgentLinkSessionDisconnectRequest) => boolean | void
+): () => void {
+  const key = disconnectRequestStorageKey(pageId)
+  let active = true
+  let lastRequestId: string | null = null
+
+  function tryDeliver(): void {
+    if (!active) return
+    const request = readSessionDisconnectRequest(pageId)
+    if (!request || request.requestId === lastRequestId) return
+    if (onRequest(request) === false) return
+    lastRequestId = request.requestId
+    try {
+      const current = readSessionDisconnectRequest(pageId)
+      if (current?.requestId === request.requestId) localStorage.removeItem(key)
+    } catch (e) {
+      console.warn('[agent-link] failed to consume session disconnect request', e)
+    }
+  }
+
+  function handleStorage(event: StorageEvent): void {
+    if (event.key === key) tryDeliver()
+  }
+
+  try {
+    window.addEventListener('storage', handleStorage)
+    // Covers a request published just before this owner finished mounting.
+    tryDeliver()
+  } catch (e) {
+    console.warn('[agent-link] failed to subscribe to session disconnect requests', e)
+  }
+
+  return () => {
+    active = false
+    try {
+      window.removeEventListener('storage', handleStorage)
+    } catch (e) {
+      console.warn('[agent-link] failed to unsubscribe from session disconnect requests', e)
+    }
+  }
 }
 
 export function persistSession(session: AgentLinkHandoffSession): void {
@@ -238,6 +355,20 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
     lockExpiresAt: typeof parsed.lockExpiresAt === 'number' ? parsed.lockExpiresAt : undefined,
     // Amendment F: only present once the DO reported the deadline is cap-bound.
     hitCap: typeof parsed.hitCap === 'boolean' ? parsed.hitCap : undefined,
+    // Task 5: only present once the relay owner has seen a real agent_presence
+    // push; a stale/pre-Task-5 record normalizes to undefined.
+    progressStage:
+      parsed.progressStage === 'initialized' ||
+      parsed.progressStage === 'discovered' ||
+      parsed.progressStage === 'verified' ||
+      parsed.progressStage === 'working'
+        ? parsed.progressStage
+        : undefined,
+    agentClientName:
+      typeof parsed.agentClientName === 'string' ? parsed.agentClientName : undefined,
+    // Task 7: only present while the owner has genuinely given up reconnecting;
+    // anything else (including a pre-Task-7 record) normalizes to undefined.
+    noticeReason: parsed.noticeReason === 'connection_lost' ? parsed.noticeReason : undefined,
   }
 }
 
@@ -290,8 +421,12 @@ export function readAnySession(now: number = Date.now()): AgentLinkHandoffSessio
   }
 }
 
-export function clearSession(pageId: string): void {
+export function clearSession(pageId: string, expectedToken?: string): void {
   try {
+    if (expectedToken) {
+      const current = readSession(pageId)
+      if (current && current.token !== expectedToken) return
+    }
     localStorage.removeItem(storageKey(pageId))
   } catch (e) {
     console.warn('[agent-link] failed to clear session handoff', e)
@@ -400,6 +535,17 @@ function subscribeToHandoffCore(
       // must be in the fingerprint to reach the Fullscreen modal.
       session.lockExpiresAt != null ? String(session.lockExpiresAt) : '',
       session.hitCap != null ? String(session.hitCap) : '',
+      // Task 5: a presence-only push (stage/clientName change) touches none of
+      // state/dsl/thinking/feed — without these in the fingerprint it would
+      // silently never reach the Fullscreen modal, same gap as expiresAt/feed
+      // above.
+      session.progressStage ?? '',
+      session.agentClientName ?? '',
+      // Task 7: reconnect_failed republishes a record that is otherwise
+      // identical to the 'suspended' one the 'close' branch already delivered
+      // (same state/feed/token) — without this the "gave up" banner would
+      // never reach the Fullscreen modal.
+      session.noticeReason ?? '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {
       lastDeliveredFingerprint = fingerprint

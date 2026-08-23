@@ -603,6 +603,12 @@ export type AnalyticsEventName =
   | "agent_link_edit_applied"
   | "agent_link_edit_failed"
   | "agent_link_disconnected"
+  | "agent_link_stage_reached"
+  // One-time MCP pairing (2026-08-23): setup/pairing copy friction and the
+  // successful code -> MCP-session bind. Request/issue/abandonment already use
+  // connect_clicked / session_created / session_expired respectively.
+  | "agent_link_connection_instruction_copied"
+  | "agent_link_pairing_completed"
   // Planned ahead of implementation (2026-07-09 charter §6/§7/§4-C — project
   // rule: events before features). Not fired by any code yet; registered so
   // Tracks F (thinking-state UX), G (session lifecycle), and C (update_diagram
@@ -781,3 +787,12 @@ export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "e
 // estate (no space/page filter). Search (agent_link_search_performed) is always
 // site-wide by design, so it has no scope field.
 export type AgentLinkListScope = "page" | "space" | "site";
+
+// Agent Link V1 uses a short-lived code to bind an already-installed Remote
+// MCP transport session. Kept as a union so a staged bearer-header comparison
+// can be represented without overloading an unrelated property.
+export type AgentLinkPairingMethod = "bearer_header" | "linking_code";
+
+// Which connection instruction the user copied. The setup command is stable
+// and credential-free; the pairing prompt carries one ephemeral linking code.
+export type AgentLinkInstructionKind = "setup_command" | "pairing_prompt";

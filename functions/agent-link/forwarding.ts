@@ -147,10 +147,30 @@ export function reattachEvent(peer: Peer, wasSuspended: boolean): SessionEvent {
  * (spec 2026-07-13 §4): 'agent_request' = a bump-worthy MCP request;
  * 'guardrail_rejected' = mcp.ts's update_diagram guard refused a write the
  * macro never saw; 'turn' = a host-side hook bracket (PR3, reserved). */
-export interface StatusActivity {
+export interface BumpActivity {
   type: 'agent_request' | 'guardrail_rejected' | 'turn';
   detail?: string;
 }
+
+/** Relay-originated presence descriptor (2026-08-15 connection-experience
+ * spec §3): the highest-ranked stage the MCP relay has reported for this
+ * agent session (`GET /session?presence=<stage>&client=<name>`, Task 2).
+ * Distinct from StatusActivity's other variants in one crucial way: presence
+ * is NOT bump-worthy agent activity — it must never slide the TTL (see
+ * AgentLinkSession.handleSessionInfo). `clientName` only ever arrives on the
+ * 'initialized' stage (mcp.ts sends it once, on the first request) and is
+ * carried forward here so every later presence push still identifies the
+ * client. */
+export interface AgentPresenceActivity {
+  type: 'agent_presence';
+  stage: 'initialized' | 'discovered' | 'verified' | 'working';
+  clientName?: string;
+}
+
+/** Everything that can ride the `{kind:'status'}` envelope's `activity`
+ * field: bump-worthy activity reports (agent_request/guardrail_rejected/
+ * turn) plus the presence-only variant above. */
+export type StatusActivity = BumpActivity | AgentPresenceActivity;
 
 /** Builds the ONE relay-originated envelope kind (macro-bound, never routed
  * between peers — parseEnvelope deliberately keeps rejecting a peer-sent

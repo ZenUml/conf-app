@@ -25,6 +25,8 @@ import type {
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
+  AgentLinkPairingMethod,
+  AgentLinkInstructionKind,
   ActivationPath,
   ViewerRelation,
   SessionReplayEventSource,
@@ -568,6 +570,20 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  // Presence (agent_link_stage_reached only, 2026-08-15 connection-experience
+  // §3, Task 5). `stage` = the MCP relay's highest-ranked presence stage
+  // (initialized/discovered/verified/working); `ms_since_connect_clicked` =
+  // elapsed ms since this instance's own Connect click, or -1 when unknown
+  // (a display-only hydrated instance that never clicked Connect itself);
+  // `client_name` = the connecting agent's self-reported name, first seen on
+  // the 'initialized' stage and carried forward on every later push.
+  stage?: string;
+  ms_since_connect_clicked?: number;
+  client_name?: string;
+  // One-time Remote MCP pairing (2026-08-23). Both copy and completion carry
+  // pairing_method; only the copy event carries instruction_kind.
+  pairing_method?: AgentLinkPairingMethod;
+  instruction_kind?: AgentLinkInstructionKind;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

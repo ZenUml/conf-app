@@ -47,7 +47,10 @@ import {
   readSession,
   subscribeToHandoff,
   subscribeToAnyHandoff,
+  publishSessionDisconnectRequest,
+  subscribeToSessionDisconnectRequest,
   type AgentLinkHandoffSession,
+  type AgentLinkHandoffState,
   type AgentLinkHandoffThinking,
 } from './sessionHandoff'
 
@@ -96,6 +99,13 @@ function listFeedSummary(scope: 'page' | 'space' | 'site', hits: number): string
 // to 'idle'. Long enough to read, short enough to not nag. UI-only, so it
 // lives here rather than in the pure state module. Exported for tests.
 export const ERROR_FLASH_MS = 4000
+
+// A user-initiated revoke closes the relay before minting its replacement,
+// but the Durable Object's content-lock release is asynchronous. Absorb that
+// narrow propagation window without weakening the normal already-linked
+// signal for an unrelated Connect click.
+export const RELINK_MINT_RETRY_DELAY_MS = 250
+const RELINK_MINT_CONFLICT_RETRIES = 4
 
 // Injectable clock so the ~20s setup-timeout and duration/latency
 // measurements are testable with fake timers instead of a real 20s wait.
@@ -173,6 +183,17 @@ export interface AgentLinkSessionApi {
   // components derive the activity pulse/resting copy from this and
   // ACTIVITY_LINGER_MS; it does not drive the session FSM.
   lastActivityAt: Ref<number | null>
+  // Presence display state (2026-08-15 connection-experience §3, Task 5) —
+  // see the field's own doc comment inside useAgentLinkSession() for the full
+  // rationale. Display-only; the FSM (`state` above) is untouched by these.
+  progressStage: Ref<'initialized' | 'discovered' | 'verified' | 'working' | null>
+  agentClientName: Ref<string | null>
+  // Task 7: 'connection_lost' once relayClient.ts's own reconnect backoff has
+  // given up (or a socket error arrives while already down) — see the field's
+  // doc comment inside useAgentLinkSession() for the full rationale. Null
+  // whenever 'suspended' is still a genuinely-in-progress retry, or the
+  // session isn't 'suspended' at all. Display-only; never read by the FSM.
+  noticeReason: Ref<'connection_lost' | null>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
   // orthogonal to `state` (a paired session is `connected` the whole time an
@@ -252,6 +273,24 @@ export function useAgentLinkSession(
   // across the iframe via the handoff record.
   const atCap = ref(false)
   const lastActivityAt = ref<number | null>(null)
+  // Presence display state (2026-08-15 connection-experience §3, Task 5):
+  // mirrors the highest-ranked stage the MCP relay reported for this agent
+  // session (`{kind:'status', activity:{type:'agent_presence', stage,
+  // clientName?}}` — see relayClient.ts's RelayStatusActivity). Display-only:
+  // never fed into agentLinkState's FSM (the 'waiting' -> 'connected' flip
+  // still happens only on the first forwarded op, per onAgentConnected()).
+  const progressStage = ref<'initialized' | 'discovered' | 'verified' | 'working' | null>(null)
+  const agentClientName = ref<string | null>(null)
+  // Task 7 (connection-experience §3): display-only reason surfaced alongside
+  // `state` when 'suspended' needs to say WHY it's stuck there. relayClient.ts
+  // itself retries a dropped socket for ~15.5s (5 backoff attempts) before
+  // giving up ({type:'reconnect_failed'}) — the "Connection paused —
+  // reconnecting…" banner is honest while that retry is genuinely in flight,
+  // but once it gives up (or a socket error arrives while already down) the
+  // banner must stop implying an ongoing retry. Deliberately NOT a new FSM
+  // state (hard constraint) — 'suspended' still covers both "retrying" and
+  // "gave up"; this ref is the only thing that distinguishes them for the UI.
+  const noticeReason = ref<'connection_lost' | null>(null)
   const thinkingState = ref<AgentLinkThinkingState>('idle') as Ref<AgentLinkThinkingState>
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
     AgentLinkActivityEntry[]
@@ -265,6 +304,7 @@ export function useAgentLinkSession(
   // clearSession calls below, since a handoff record is keyed by pageId and
   // scoped to {cloudId, pageId, contentId}.
   const boundContext = options.relay?.boundContext ?? null
+  let hydratedContext: AgentLinkBoundContext | null = null
 
   // Shared by every persistSession() call site below (bug 2 fix, spot-check
   // #3): attaches the current bounded activity feed + known token TTL onto
@@ -276,7 +316,17 @@ export function useAgentLinkSession(
   // omitted while unknown, matching the existing dsl/thinking
   // present-only-when-known convention.
   function handoffFeedFields(): Pick<AgentLinkHandoffSession, 'feed'> &
-    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'lastActivityAt' | 'hitCap'>> {
+    Partial<
+      Pick<
+        AgentLinkHandoffSession,
+        | 'expiresAt'
+        | 'lastActivityAt'
+        | 'hitCap'
+        | 'progressStage'
+        | 'agentClientName'
+        | 'noticeReason'
+      >
+    > {
     return {
       feed: activityFeed.value,
       ...(expiresAt.value != null ? { expiresAt: expiresAt.value } : {}),
@@ -284,6 +334,14 @@ export function useAgentLinkSession(
       // Amendment F: only carried once actually capped — a fresh session
       // hydrates atCap=false and only flips it on a real capped status envelope.
       ...(atCap.value ? { hitCap: true } : {}),
+      // Task 5: only carried once a real agent_presence push has been seen —
+      // matches the present-only-when-known convention above.
+      ...(progressStage.value != null ? { progressStage: progressStage.value } : {}),
+      ...(agentClientName.value != null ? { agentClientName: agentClientName.value } : {}),
+      // Task 7: same present-only-when-known convention — carried only while
+      // the owner has actually given up reconnecting, so a healthy record keeps
+      // its exact pre-Task-7 shape.
+      ...(noticeReason.value != null ? { noticeReason: noticeReason.value } : {}),
     }
   }
 
@@ -291,6 +349,24 @@ export function useAgentLinkSession(
   let lastAppliedDsl = ''
   let editsCount = 0
   let relayClient: RelayClient | null = null
+  let disconnectRequestUnsubscribe: (() => void) | null = null
+
+  function stopDisconnectRequestSubscription(): void {
+    disconnectRequestUnsubscribe?.()
+    disconnectRequestUnsubscribe = null
+  }
+
+  function ensureDisconnectRequestSubscription(): void {
+    if (!boundContext || disconnectRequestUnsubscribe) return
+    disconnectRequestUnsubscribe = subscribeToSessionDisconnectRequest(
+      boundContext.pageId,
+      (request) => {
+        if (!relayClient || request.token !== token.value) return false
+        disconnect('user')
+        return true
+      }
+    )
+  }
 
   // --- Track F perceived-latency ("AI is thinking") internals --------------
   // opReceivedAt: transport-stamped instant the in-flight update_diagram op
@@ -343,6 +419,13 @@ export function useAgentLinkSession(
   // FIRST real extension always fires — 0 is >60s before any real clock).
   let lastHitCap = false
   let lastExtendedFiredAt = 0
+  // Task 5 (agent_link_stage_reached's ms_since_connect_clicked): the instant
+  // THIS instance's own startConnect() ran — distinct from connectStartedAt
+  // (which a hydrated/display-only Fullscreen instance never sets) only in
+  // spirit; kept as its own module-level `let` per the task brief rather than
+  // reusing connectStartedAt, since it specifically anchors the presence
+  // funnel's "time since the user clicked Connect" metric.
+  let connectClickedAt: number | null = null
 
   // The wire protocol (relayClient.ts) has no dedicated "agent paired"
   // envelope — the only observable proxy that the agent has joined is it
@@ -395,6 +478,40 @@ export function useAgentLinkSession(
           { summary: GUARDRAIL_REJECTED_FEED_SUMMARY, at: now() },
         ]
       }
+      // Task 5 (connection-experience §3): presence pushes are NOT bump-worthy
+      // (Task 3's AgentLinkSession.handleSessionInfo never slides the TTL for
+      // them — see the `expiresAt` branch above, unaffected by this block) —
+      // display-only progress for the Fullscreen rail. Only reacts to a
+      // genuinely NEW stage (the MCP relay can push the same highest-ranked
+      // stage repeatedly per request), so agent_link_stage_reached fires
+      // exactly once per distinct stage.
+      if (event.activity?.type === 'agent_presence') {
+        const stage = event.activity.stage
+        if (stage !== progressStage.value) {
+          progressStage.value = stage
+          if (event.activity.clientName) agentClientName.value = event.activity.clientName
+          trackAnalyticsEvent('agent_link_stage_reached', {
+            feature_area: 'agent_link',
+            surface: 'fullscreen',
+            macro_type: macroType,
+            stage,
+            ms_since_connect_clicked:
+              connectClickedAt != null ? now() - connectClickedAt : -1,
+            client_name: agentClientName.value ?? undefined,
+          })
+          if (stage === 'verified') {
+            trackAnalyticsEvent('agent_link_pairing_completed', {
+              feature_area: 'agent_link',
+              surface: 'fullscreen',
+              macro_type: macroType,
+              pairing_method: 'linking_code',
+              client_name: agentClientName.value ?? undefined,
+              time_to_connect_ms:
+                connectClickedAt != null ? now() - connectClickedAt : -1,
+            })
+          }
+        }
+      }
       // Republish so a separate Fullscreen mirror gets the new deadline + feed
       // row through the existing handoff path (no new plumbing — spec §4.4);
       // currentThinkingFlag() preserves any genuinely in-flight thinking cue.
@@ -423,6 +540,10 @@ export function useAgentLinkSession(
       if (state.value !== 'connected') return
       suspendedAt = now()
       state.value = nextClientState(state.value, 'ws_drop')
+      // A fresh drop is about to be retried by relayClient.ts's own backoff
+      // (scheduleReconnect) — any stale "gave up" notice from an EARLIER
+      // suspend/reconnect_failed cycle no longer applies.
+      noticeReason.value = null
       activityFeed.value = [...activityFeed.value, { summary: SUSPENDED_FEED_SUMMARY, at: now() }]
       if (boundContext && token.value) {
         persistSession({ ...boundContext, token: token.value, state: 'suspended', ...handoffFeedFields() })
@@ -446,6 +567,7 @@ export function useAgentLinkSession(
       const resumeLatencyMs = suspendedAt != null ? Math.max(0, now() - suspendedAt) : undefined
       suspendedAt = null
       state.value = nextClientState(state.value, 'resumed')
+      noticeReason.value = null
       activityFeed.value = [...activityFeed.value, { summary: RESUMED_FEED_SUMMARY, at: now() }]
       if (boundContext && token.value) {
         persistSession({
@@ -462,6 +584,59 @@ export function useAgentLinkSession(
         macro_type: macroType,
         ...(resumeLatencyMs != null ? { resume_latency_ms: resumeLatencyMs } : {}),
       })
+      return
+    }
+
+    // Task 7: relayClient.ts's own backoff (scheduleReconnect) has given up
+    // after maxReconnectAttempts (~15.5s) — the transport will not retry
+    // again on its own. In practice this always arrives AFTER the 'close'
+    // branch above already moved 'connected' -> 'suspended', so this mostly
+    // just updates the notice; the `state.value === 'connected'` fallback
+    // covers the (test-only) case of a caller emitting it directly, still
+    // routing through the SAME 'ws_drop' transition — no new FSM state.
+    if (event.type === 'reconnect_failed') {
+      if (state.value !== 'connected' && state.value !== 'suspended') return
+      if (state.value === 'connected') {
+        suspendedAt = now()
+        state.value = nextClientState(state.value, 'ws_drop')
+      }
+      noticeReason.value = 'connection_lost'
+      if (boundContext && token.value) {
+        persistSession({ ...boundContext, token: token.value, state: 'suspended', ...handoffFeedFields() })
+      }
+      return
+    }
+
+    // Socket-level transport error (relayClient.ts's WebSocket onerror).
+    // While still 'connected' (the error arrived before any close), this is
+    // treated like a failed op — reuse the existing 4s error-flash affordance
+    // (thinkingState 'error' + ERROR_FLASH_MS auto-clear). Once already down
+    // ('suspended'), an auto-clearing flash would misleadingly suggest the
+    // connection recovered on its own — show the persistent connection_lost
+    // notice instead (only actually cleared by a real 'open'/reconnect_failed
+    // no-op-on-already-set below, or a fresh 'close').
+    if (event.type === 'error') {
+      if (state.value === 'suspended') {
+        noticeReason.value = 'connection_lost'
+        // Task 7: republish so the display-only Fullscreen mirror stops
+        // showing "reconnecting…" too — same reason the reconnect_failed
+        // branch persists (this branch previously updated the owner's UI only).
+        if (boundContext && token.value) {
+          persistSession({
+            ...boundContext,
+            token: token.value,
+            state: 'suspended',
+            ...handoffFeedFields(),
+          })
+        }
+        return
+      }
+      if (state.value === 'connected') {
+        thinkingState.value = 'error'
+        publishThinking('error')
+        scheduleErrorFlashClear()
+      }
+      return
     }
   }
 
@@ -544,15 +719,48 @@ export function useAgentLinkSession(
   // record too, without erasing a thinking/error cue that's genuinely still
   // in flight from a concurrently-interleaved update_diagram op.
   function publishThinking(thinking?: AgentLinkHandoffThinking): void {
-    if (!boundContext || !token.value) return
+    const handoffState = currentHandoffState()
+    if (!boundContext || !token.value || handoffState === null) return
     persistSession({
       ...boundContext,
       token: token.value,
-      state: 'connected',
+      state: handoffState,
       ...(lastAppliedDsl ? { dsl: lastAppliedDsl } : {}),
       ...(thinking ? { thinking } : {}),
       ...handoffFeedFields(),
     })
+  }
+
+  // Which handoff state publishThinking() should stamp on the record it
+  // republishes. This used to be the literal 'connected', which was safe while
+  // every caller genuinely ran in a connected context — but Task 5's presence
+  // branch republishes on EVERY status envelope, including the ones that
+  // arrive while this instance is still 'waiting' (the agent has announced
+  // itself but has not sent its first op yet). Stamping 'connected' there made
+  // a hydrating Fullscreen instance jump straight to the green connected
+  // panel, so the presence ladder it was meant to light up never rendered.
+  // Returns null when there is no session worth mirroring, in which case
+  // publishThinking() writes nothing at all:
+  //   'timeout'  -> 'waiting': the minted token is still live and the agent
+  //                 can still pair late — exactly the presence-ladder case —
+  //                 and 'timeout' has no handoff-record equivalent.
+  //   'idle'/'closed' -> null: no live session. 'closed' also stops a late
+  //                 timer (e.g. the error-flash clear) from re-persisting a
+  //                 record that disconnect()'s clearSession() just removed.
+  function currentHandoffState(): AgentLinkHandoffState | null {
+    const s = state.value
+    if (
+      s === 'waiting' ||
+      s === 'connected' ||
+      s === 'suspended' ||
+      s === 'already_linked' ||
+      s === 'failed' ||
+      s === 'expired'
+    ) {
+      return s
+    }
+    if (s === 'timeout') return 'waiting'
+    return null
   }
 
   // The three existing publishThinking() call sites (beginThinking,
@@ -942,7 +1150,7 @@ export function useAgentLinkSession(
     })
   }
 
-  function startConnect(): void {
+  function startConnectWithMintConflictRetries(mintConflictRetries: number): void {
     // A click is a click regardless of current state — track it, then only
     // bootstrap a new session if it actually moved idle → waiting (a repeat
     // click while already waiting/connected is a no-op transition, so it
@@ -957,6 +1165,7 @@ export function useAgentLinkSession(
     if (prev !== 'idle' || state.value !== 'waiting') return
 
     connectStartedAt = now()
+    connectClickedAt = now()
     editsCount = 0
     lastAppliedDsl = ''
     activityFeed.value = []
@@ -966,6 +1175,13 @@ export function useAgentLinkSession(
     // and cap flag.
     alreadyLinkedUntil.value = null
     atCap.value = false
+    // Task 5: a fresh connect must not inherit a prior session's presence
+    // stage/client name.
+    progressStage.value = null
+    agentClientName.value = null
+    // Task 7: a fresh connect must not inherit a prior session's "gave up
+    // reconnecting" notice.
+    noticeReason.value = null
     // PR1 sliding-TTL status-bus state is per-session — a fresh connect must not
     // inherit a prior session's cap flag or extended-event throttle timestamp.
     lastHitCap = false
@@ -995,37 +1211,58 @@ export function useAgentLinkSession(
     if (relayOptions) {
       const requestSession = relayOptions.requestSession ?? mintAgentLinkSession
       const startedForThisClick = connectStartedAt
-      requestSession(relayOptions.boundContext)
-        .then((mintResult) => {
-          const { token: realToken } = mintResult
-          // A disconnect, or a NEWER startConnect() click, may have already
-          // moved on while this mint was in flight — don't resurrect a
-          // channel over a session that's no longer the current one.
-          if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
-          token.value = realToken
-          // Track H: capture the token TTL (design contract's rail TTL meter /
-          // toolbar chip countdown). Absent on the pre-relay/dev mint mocks, so
-          // it stays null there and the meter/chip-countdown simply don't show.
-          if (typeof mintResult.expiresInSec === 'number') {
-            expiresAt.value = now() + mintResult.expiresInSec * 1000
-            // #314: arm the TTL watchdog against the real deadline now that
-            // it's known — see scheduleExpiry()'s own doc comment.
-            scheduleExpiry()
-          }
-          // Hand the real token off to the (as-yet-idle) Fullscreen instance
-          // — see sessionHandoff.ts. Only the real, relay-minted token is
-          // persisted, never the local `pending-<ts>` placeholder: a
-          // Fullscreen mount that reads nothing yet (this mint hasn't
-          // resolved) falls back to today's blank-panel behavior, which is
-          // strictly better than hydrating a token that will never resolve.
-          if (boundContext) {
-            persistSession({ ...boundContext, token: realToken, state: 'waiting', ...handoffFeedFields() })
-          }
-          openRelayChannel(realToken, relayOptions)
-        })
-        .catch((e) => {
-          handleMintFailure(e, startedForThisClick)
-        })
+      const mintAndOpen = (retriesRemaining: number): void => {
+        requestSession(relayOptions.boundContext)
+          .then((mintResult) => {
+            const { token: realToken } = mintResult
+            // A disconnect, or a NEWER startConnect() click, may have already
+            // moved on while this mint was in flight — don't resurrect a
+            // channel over a session that's no longer the current one.
+            if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
+            token.value = realToken
+            // Track H: capture the token TTL (design contract's rail TTL meter /
+            // toolbar chip countdown). Absent on the pre-relay/dev mint mocks, so
+            // it stays null there and the meter/chip-countdown simply don't show.
+            if (typeof mintResult.expiresInSec === 'number') {
+              expiresAt.value = now() + mintResult.expiresInSec * 1000
+              // #314: arm the TTL watchdog against the real deadline now that
+              // it's known — see scheduleExpiry()'s own doc comment.
+              scheduleExpiry()
+            }
+            // Hand the real token off to the (as-yet-idle) Fullscreen instance
+            // — see sessionHandoff.ts. Only the real, relay-minted token is
+            // persisted, never the local `pending-<ts>` placeholder: a
+            // Fullscreen mount that reads nothing yet (this mint hasn't
+            // resolved) falls back to today's blank-panel behavior, which is
+            // strictly better than hydrating a token that will never resolve.
+            if (boundContext) {
+              persistSession({
+                ...boundContext,
+                token: realToken,
+                state: 'waiting',
+                ...handoffFeedFields(),
+              })
+            }
+            openRelayChannel(realToken, relayOptions)
+            ensureDisconnectRequestSubscription()
+          })
+          .catch((e) => {
+            if (
+              retriesRemaining > 0 &&
+              isAlreadyLinkedMintFailure(e) &&
+              connectStartedAt === startedForThisClick &&
+              state.value !== 'closed'
+            ) {
+              scheduleTimeout(() => {
+                if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
+                mintAndOpen(retriesRemaining - 1)
+              }, RELINK_MINT_RETRY_DELAY_MS)
+              return
+            }
+            handleMintFailure(e, startedForThisClick)
+          })
+      }
+      mintAndOpen(mintConflictRetries)
     }
 
     scheduleTimeout(() => {
@@ -1039,6 +1276,10 @@ export function useAgentLinkSession(
         macro_type: macroType,
       })
     }, SETUP_TIMEOUT_MS)
+  }
+
+  function startConnect(): void {
+    startConnectWithMintConflictRetries(0)
   }
 
   // Track G: called once at mount by the INLINE (non-Fullscreen) macro
@@ -1086,9 +1327,19 @@ export function useAgentLinkSession(
     if (persisted.state !== 'connected' && persisted.state !== 'suspended') return
 
     connectStartedAt = now()
+    connectClickedAt = now()
     editsCount = 0
     lastAppliedDsl = typeof persisted.dsl === 'string' ? persisted.dsl : ''
     activityFeed.value = []
+    progressStage.value =
+      typeof persisted.progressStage === 'string' ? persisted.progressStage : null
+    agentClientName.value =
+      typeof persisted.agentClientName === 'string' ? persisted.agentClientName : null
+    // Task 7: adopt whatever notice the persisted record carries. A record
+    // written before the owner gave up carries none (fresh start, as before);
+    // one written after reconnect_failed carries 'connection_lost', and a
+    // reattaching mount must not silently drop it.
+    noticeReason.value = persisted.noticeReason ?? null
     // Same per-session reset as startConnect: a reattach on a fresh mount starts
     // the status-bus cap flag / extended-event throttle clean (spec §4.4).
     lastHitCap = false
@@ -1114,7 +1365,10 @@ export function useAgentLinkSession(
     }
 
     const relayOptions = options.relay
-    if (relayOptions) openRelayChannel(persisted.token, relayOptions)
+    if (relayOptions) {
+      openRelayChannel(persisted.token, relayOptions)
+      ensureDisconnectRequestSubscription()
+    }
   }
 
   function onAgentConnected(): void {
@@ -1154,6 +1408,7 @@ export function useAgentLinkSession(
   }
 
   function disconnect(reason: AgentLinkDisconnectReason = 'user'): void {
+    const disconnectedToken = token.value
     const prev = state.value
     state.value = nextClientState(state.value, 'disconnect')
     if (prev === state.value) return // nothing was connected — no-op
@@ -1164,6 +1419,9 @@ export function useAgentLinkSession(
     // Amendment D/F: a teardown clears any already-linked countdown and cap flag.
     alreadyLinkedUntil.value = null
     atCap.value = false
+    // Task 7: an explicit teardown leaves nothing "suspended" to have a
+    // connection_lost notice about.
+    noticeReason.value = null
     // #314: an explicit disconnect (including out of 'expired' — see
     // agentLinkState.ts's `expired: { disconnect: 'closed' }`) makes any
     // still-pending TTL watchdog moot; clearing it here prevents a stale
@@ -1177,9 +1435,10 @@ export function useAgentLinkSession(
     // relayClient.ts's close()/disconnect() split).
     relayClient?.disconnect()
     relayClient = null
+    stopDisconnectRequestSubscription()
     // Clear the handoff record so a future Fullscreen mount doesn't hydrate
     // a session that's already been disconnected here.
-    if (boundContext) clearSession(boundContext.pageId)
+    if (boundContext) clearSession(boundContext.pageId, disconnectedToken ?? undefined)
 
     trackAnalyticsEvent('agent_link_disconnected', {
       feature_area: 'agent_link',
@@ -1193,17 +1452,23 @@ export function useAgentLinkSession(
   }
 
   // "Revoke & re-link" (design decision #1's escape hatch for a dead first
-  // agent, or for a session stuck 'suspended'): closes the current session
-  // (same explicit-disconnect path as disconnect()) and immediately mints a
-  // fresh token, in one action. Resets to 'idle' directly rather than relying
+  // agent, or for a session stuck 'suspended'): asks the inline relay owner to
+  // close the old session when this is a display-only Fullscreen instance,
+  // then closes local state and mints a fresh token in one action. Resets to
+  // 'idle' directly rather than relying
   // on a natural FSM transition out of the just-set terminal 'closed' —
   // startConnect() requires prev === 'idle' to actually mint/connect (see its
   // own guard), and this action IS a deliberate fresh start, not a
   // resurrection of the old (closed) session.
   function revokeAndRelink(): void {
+    const previousToken = token.value
+    const previousContext = boundContext ?? hydratedContext
+    if (!relayClient && previousToken && previousContext) {
+      publishSessionDisconnectRequest(previousContext.pageId, previousToken)
+    }
     disconnect('user')
     state.value = 'idle'
-    startConnect()
+    startConnectWithMintConflictRetries(RELINK_MINT_CONFLICT_RETRIES)
   }
 
   // Fullscreen-side hydration (sessionHandoff.ts): shows a session persisted
@@ -1211,6 +1476,11 @@ export function useAgentLinkSession(
   // new token or opening a rival relay socket — the instance that persisted
   // it keeps owning the one live WS (design §3 decision #8).
   function hydrateFrom(session: AgentLinkHandoffSession): void {
+    hydratedContext = {
+      cloudId: session.cloudId,
+      pageId: session.pageId,
+      contentId: session.contentId,
+    }
     // --- session STATE (token + waiting/connected) -----------------------
     // Only a fresh (idle) instance may adopt the token/state — guards against
     // clobbering a session this very instance is itself driving (re-entrant
@@ -1285,6 +1555,30 @@ export function useAgentLinkSession(
     if (typeof session.lastActivityAt === 'number') {
       lastActivityAt.value = session.lastActivityAt
     }
+
+    // --- Task 5: presence display state mirror ----------------------------
+    // The relay owner is the only instance that ever receives a
+    // {kind:'status', activity:{type:'agent_presence', ...}} push (it owns
+    // the socket); mirror its progressStage/agentClientName here the same way
+    // expiresAt/lastActivityAt are mirrored above — unconditional (not gated
+    // to the idle branch), since the reactive handoff watcher may deliver
+    // this record more than once for the same session, and a later stage must
+    // overwrite an earlier one on this display-only instance too.
+    if (typeof session.progressStage === 'string') {
+      progressStage.value = session.progressStage
+    }
+    if (typeof session.agentClientName === 'string') {
+      agentClientName.value = session.agentClientName
+    }
+
+    // --- Task 7: connection-lost notice mirror ---------------------------
+    // Deliberately NOT set-only (unlike progressStage above, which is
+    // monotonic): the owner clears this ref on a real reconnect and persists a
+    // record WITHOUT the field, so mirroring must clear too. A set-only mirror
+    // would leave this display-only instance claiming "gave up reconnecting"
+    // through the next healthy suspend cycle, while the owner is still
+    // actively retrying.
+    noticeReason.value = session.noticeReason ?? null
 
     // --- Amendment D: honest already-linked countdown mirror -------------
     // The relay owner (inline) learns the lock release time from the mint
@@ -1393,6 +1687,9 @@ export function useAgentLinkSession(
     alreadyLinkedUntil,
     atCap,
     lastActivityAt,
+    progressStage,
+    agentClientName,
+    noticeReason,
     thinkingState,
     activityFeed,
     startConnect,

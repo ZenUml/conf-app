@@ -21,6 +21,11 @@ function mountPanel(props: {
   activityFeed?: AgentLinkActivityEntry[]
   lastActivityAt?: number | null
   thinking?: 'idle' | 'thinking' | 'error'
+  progressStage?: 'initialized' | 'discovered' | 'verified' | 'working' | null
+  clientName?: string
+  noticeReason?: 'connection_lost' | null
+  expiresAt?: number | null
+  atCap?: boolean
 }) {
   return mount(ConnectPanel, {
     props: {
@@ -39,18 +44,29 @@ describe('ConnectPanel', () => {
     })
   })
 
-  it('waiting: shows the paste-prompt block with the token', () => {
+  it('waiting: shows a connect tool prompt with the one-time code', () => {
     const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
 
     expect(wrapper.find('[data-testid="agent-link-waiting"]').exists()).toBe(true)
     const prompt = wrapper.find('[data-testid="agent-link-prompt"]').text()
-    expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
-    expect(prompt).toContain('session: tok-123')
-    expect(prompt).toContain('reads this page · edits this diagram · 10 min idle / 60 min max')
+    expect(prompt).toContain('Using conf-agent, call connect')
+    expect(prompt).toContain('code: tok-123')
     expect(wrapper.find('[data-testid="agent-link-waiting-status"]').text()).toContain(
       'Waiting for your agent to connect'
     )
     expect(wrapper.find('[data-testid="agent-link-setup-disclosure"]').exists()).toBe(true)
+  })
+
+  it('waiting: the TTL countdown is live from mint (idle/max window starts at issuedAt, not at "connected")', () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123', expiresAt: Date.now() + 9 * 60 * 1000 })
+    const ttl = wrapper.find('[data-testid="agent-link-ttl"]')
+    expect(ttl.exists()).toBe(true)
+    expect(ttl.text()).toContain('Session expires in')
+  })
+
+  it('waiting: no expiresAt yet (mint still in flight) renders no TTL meter, not a fake one', () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
+    expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(false)
   })
 
   it('connected: shows the activity feed entries and a Disconnect button', () => {
@@ -153,18 +169,99 @@ describe('ConnectPanel', () => {
     expect(connectPanelSource).toContain('border-color: var(--agent-link-green)')
   })
 
+  it('waiting state shows the stage ladder once the agent is seen', () => {
+    const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: 'initialized', clientName: 'claude-code' })
+    const ladder = w.find('[data-testid="agent-link-progress"]')
+    expect(ladder.text()).toContain('claude-code connected')
+    expect(ladder.text()).toContain('Diagram tools loaded')
+    expect(ladder.text()).toContain('Link verified')
+    expect(w.find('[data-testid="agent-link-setup"]').exists()).toBe(false) // setup hidden after handshake
+  })
+
+  it("waiting state with no presence keeps today's pulse + collapsed setup", () => {
+    const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: null })
+    expect(w.find('[data-testid="agent-link-waiting-status"]').text()).toContain('Waiting for your agent')
+    expect(w.find('[data-testid="agent-link-setup"]').exists()).toBe(true)
+  })
+
+  // Anchored on the hint ELEMENT and on wording unique to it. The earlier
+  // version asserted only that the panel text contained '/mcp', which the
+  // setup command's own URL (…/agent-link/mcp) already satisfies — deleting
+  // the whole hint paragraph left that assertion green (final-review fix 4).
+  it('timeout copy names a wrong/stale paste as a possible cause', () => {
+    const w = mountPanel({ state: 'timeout', token: 'CL-T', progressStage: null })
+    const hint = w.find('[data-testid="agent-link-timeout-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('already running')
+    expect(hint.text()).toContain('run /mcp')
+    expect(hint.text()).toContain('linking code expired')
+  })
+
+  it('timeout: offers a re-mint action, distinct from re-pasting the prompt or re-running setup', async () => {
+    const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
+    const btn = wrapper.find('[data-testid="agent-link-timeout-remint-btn"]')
+    expect(btn.exists()).toBe(true)
+    await btn.trigger('click')
+    expect(wrapper.emitted('reconnect')).toBeTruthy()
+  })
+
   it('timeout: shows the setup command', () => {
     const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
 
     expect(wrapper.find('[data-testid="agent-link-timeout"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain(
-      'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
-    )
+    const cmd = wrapper.find('[data-testid="agent-link-setup-command"]').text()
+    expect(cmd).toContain('claude mcp add --transport http conf-agent')
+    expect(cmd).toContain('/agent-link/mcp')
+    expect(cmd).not.toContain('Authorization')
+    expect(cmd).not.toContain('tok-123')
     // The dead "Add to Cursor" button (no click handler) and the dead
     // "Use the no-install bridge instead" link (href="#") were removed —
     // the working `claude mcp add` command is the single setup path.
     expect(wrapper.find('[data-testid="agent-link-add-cursor-btn"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="agent-link-no-install-link"]').exists()).toBe(false)
+  })
+
+  it('setup command is stable and contains no session credential', () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'CL-TEST-1234' })
+    const cmd = wrapper.find('[data-testid="agent-link-setup-command"]').text()
+    expect(cmd).not.toContain('Authorization')
+    expect(cmd).not.toContain('CL-TEST-1234')
+    expect(cmd).toContain('/agent-link/mcp')
+    expect(cmd).not.toContain('zenapi.zenuml.com') // env-derived in tests, not hardcoded prod
+    expect(cmd).not.toContain('claude -p')
+  })
+
+  it('rail: waiting with no presence shows the browser-Worker leg up and the Worker-agent leg pending', () => {
+    const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: null })
+    const rail = w.find('[data-testid="agent-link-rail"]')
+    expect(rail.exists()).toBe(true)
+    expect(rail.find('.agent-link-rail__seg--up').exists()).toBe(true)
+    expect(rail.find('.agent-link-rail__seg--pending').exists()).toBe(true)
+  })
+
+  it('rail: waiting with presence shows the Worker-agent leg connecting', () => {
+    const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: 'discovered' })
+    const rail = w.find('[data-testid="agent-link-rail"]')
+    expect(rail.find('.agent-link-rail__seg--connecting').exists()).toBe(true)
+  })
+
+  it('rail: connected shows both legs up', () => {
+    const w = mountPanel({ state: 'connected', token: 'CL-T' })
+    const rail = w.find('[data-testid="agent-link-rail"]')
+    const segs = rail.findAll('.agent-link-rail__seg--up')
+    expect(segs).toHaveLength(2)
+  })
+
+  it('rail: suspended shows both legs down, not just the socket leg', () => {
+    const w = mountPanel({ state: 'suspended', token: 'CL-T' })
+    const rail = w.find('[data-testid="agent-link-rail"]')
+    const segs = rail.findAll('.agent-link-rail__seg--down')
+    expect(segs).toHaveLength(2)
+  })
+
+  it('rail: hidden on terminal notice states (session already over)', () => {
+    const w = mountPanel({ state: 'closed', token: 'CL-T' })
+    expect(w.find('[data-testid="agent-link-rail"]').exists()).toBe(false)
   })
 
   it('Copy prompt failure: shows "Copy failed — select the text above" on the button', async () => {
@@ -189,8 +286,21 @@ describe('ConnectPanel', () => {
     await wrapper.vm.$nextTick()
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      expect.stringContaining('session: tok-123')
+      expect.stringContaining('code: tok-123')
     )
+    expect(wrapper.emitted('instruction-copied')).toEqual([['pairing_prompt']])
+  })
+
+  it('copies the stable setup command separately from the pairing code', async () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
+
+    await wrapper.find('[data-testid="agent-link-copy-setup-btn"]').trigger('click')
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      expect.stringContaining('claude mcp add --transport http conf-agent')
+    )
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('tok-123'))
+    expect(wrapper.emitted('instruction-copied')).toEqual([['setup_command']])
   })
 
   it('Disconnect emits the disconnect event', async () => {
@@ -235,6 +345,28 @@ describe('ConnectPanel', () => {
 
     expect(wrapper.emitted('disconnect')).toHaveLength(1)
     expect(wrapper.emitted('revoke')).toHaveLength(1)
+  })
+
+  // Task 7: relayClient.ts's own reconnect backoff gave up — the composable
+  // surfaces noticeReason:'connection_lost' instead of a new FSM state, and
+  // the 'suspended' banner must stop implying an ongoing retry.
+  it('suspended + connection_lost notice: shows "Connection lost" with a manual Reconnect action instead of the reconnecting spinner copy', async () => {
+    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123', noticeReason: 'connection_lost' })
+
+    expect(wrapper.text()).toContain('Connection lost')
+    expect(wrapper.text()).not.toContain('Connection paused — reconnecting…')
+    expect(wrapper.find('[data-testid="agent-link-suspended-status"]').text()).toContain(
+      'We could not reconnect automatically'
+    )
+    await wrapper.find('[data-testid="agent-link-suspended-reconnect-btn"]').trigger('click')
+    expect(wrapper.emitted('revoke')).toHaveLength(1)
+    // The icon must be static (jsdom can't evaluate CSS animations, but
+    // .agent-link-banner__spin is the class that carries the infinite-spin
+    // rule — asserting its absence is the right level of check). A spinning
+    // icon on a "gave up retrying" notice would visually contradict the copy.
+    expect(wrapper.find('[data-testid="agent-link-suspended"] svg').classes()).not.toContain(
+      'agent-link-banner__spin'
+    )
   })
 
   it('already_linked: renders the rejected notice with honest (no-fake-time) copy and actions', async () => {

@@ -30,6 +30,21 @@ import type { AgentLinkBridgeOps } from './bridgeOps'
 
 export type RelayEnvelopeKind = 'op' | 'result' | 'error' | 'ping' | 'disconnect' | 'status'
 
+// Mirrors functions/agent-link/forwarding.ts's StatusActivity (BumpActivity |
+// AgentPresenceActivity) — kept as a separate type here rather than imported
+// since src/ (Vue app) and functions/ (Workers backend) don't share a build
+// graph. Extended 2026-08-15 (connection-experience §3) to include the
+// presence-only variant: 'agent_presence' carries `stage`/`clientName`
+// instead of `detail`, and — unlike the other three — is NOT bump-worthy (it
+// must never be read as a reason to slide the TTL).
+export type RelayStatusActivity =
+  | { type: 'agent_request' | 'guardrail_rejected' | 'turn'; detail?: string }
+  | {
+      type: 'agent_presence'
+      stage: 'initialized' | 'discovered' | 'verified' | 'working'
+      clientName?: string
+    }
+
 export interface RelayEnvelope {
   kind: RelayEnvelopeKind
   id?: string
@@ -40,7 +55,7 @@ export interface RelayEnvelope {
   // itself — the macro never sends these.
   expiresAt?: number
   hitCap?: boolean
-  activity?: { type: string; detail?: string }
+  activity?: RelayStatusActivity
 }
 
 export type RelayConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed'
@@ -83,7 +98,7 @@ export type RelayStateEvent =
       type: 'status'
       expiresAt?: number
       hitCap?: boolean
-      activity?: { type: string; detail?: string }
+      activity?: RelayStatusActivity
     }
 
 // Mirrors useAgentLinkSession.ts's AgentLinkClock injection pattern so the

@@ -1,7 +1,26 @@
 <template>
   <div class="agent-link-panel" :class="`agent-link-panel--${state}`" data-testid="agent-link-panel">
+    <!-- Persistent link-status rail: browser <-> Worker <-> local agent.
+         Shown for every in-session state (waiting/connected/suspended/timeout)
+         so the user always sees which leg is up, without opening any details.
+         Terminal notice states (closed/expired/already_linked/failed) render
+         their own SessionNotice takeover instead — the session is over, there
+         is no live leg left to show. -->
+    <div v-if="showRail" class="agent-link-rail" data-testid="agent-link-rail">
+      <span class="agent-link-rail__node agent-link-rail__node--up">Browser</span>
+      <span class="agent-link-rail__seg" :class="`agent-link-rail__seg--${railBrowserWorker}`" aria-hidden="true"></span>
+      <span class="agent-link-rail__node agent-link-rail__node--up">Worker</span>
+      <span class="agent-link-rail__seg" :class="`agent-link-rail__seg--${railWorkerAgent}`" aria-hidden="true"></span>
+      <span class="agent-link-rail__node" :class="`agent-link-rail__node--${railAgentNodeState}`">Agent</span>
+    </div>
+
     <div class="agent-link-panel__scroll">
-      <!-- waiting: paste prompt + copy + pulsing status + collapsed setup -->
+      <!-- waiting: paste pairing prompt + copy + pulsing status + collapsed setup.
+           Once the relay reports presence (progressStage != null — Task 5's
+           useAgentLinkSession), the setup block is replaced by a staged
+           ladder: the agent has already claimed the linking code, so re-showing the
+           setup command would be confusing/redundant. Copy is honest about
+           what each stage actually proves — see the `verified` row below. -->
       <template v-if="state === 'waiting'">
         <div data-testid="agent-link-waiting">
           <h3 class="agent-link-panel__heading">Edit with your agent</h3>
@@ -19,9 +38,24 @@
             <span class="agent-link-panel__pulse-dot" aria-hidden="true"></span>
             Waiting for your agent to connect…
           </p>
+          <!-- The idle/max window starts when the linking code is minted
+               (functions/agent-link/sessionToken.ts's
+               lastActivityMs = issuedAtMs), not at first agent contact — so
+               this counts down for real from the moment the token exists,
+               matching SessionTtl's own default 600s (10-minute) bar. -->
+          <SessionTtl :expires-at="expiresAt" :at-cap="atCap" />
 
-          <details class="agent-link-panel__disclosure" data-testid="agent-link-setup-disclosure">
-            <summary>First time? Set up the connector (once)</summary>
+          <ol v-if="progressStage != null" class="agent-link-panel__progress" data-testid="agent-link-progress">
+            <li
+              v-for="row in progressRows"
+              :key="row.stage"
+              class="agent-link-panel__progress-row"
+              :class="{ 'agent-link-panel__progress-row--dim': row.rank > progressRank }"
+            >{{ row.text }}</li>
+          </ol>
+
+          <details v-if="progressStage === null" class="agent-link-panel__disclosure" data-testid="agent-link-setup-disclosure">
+            <summary>First time? Install the connector once</summary>
             <SetupInstructions />
           </details>
         </div>
@@ -97,7 +131,36 @@
             :last-activity-at="lastActivityAt"
           />
 
-          <div class="agent-link-banner agent-link-banner--warn">
+          <!-- Task 7: relayClient.ts's own backoff gives up after ~15.5s
+               (reconnect_failed) — the composable surfaces that as
+               noticeReason:'connection_lost' instead of a new FSM state.
+               Once given up, the amber banner must stop implying an ongoing
+               retry (that was the eternal-"reconnecting…" bug) and offer the
+               same manual Reconnect CTA the terminal notices use. -->
+          <div v-if="noticeReason === 'connection_lost'" class="agent-link-banner agent-link-banner--warn">
+            <!-- Static icon — deliberately NOT agent-link-banner__spin. That
+                 class carries the infinite spin animation (this file's
+                 .agent-link-banner__spin / .agent-link-banner--warn rules
+                 below); using it here would visually imply an ongoing retry,
+                 exactly the impression this notice exists to remove now that
+                 relayClient.ts has genuinely given up. -->
+            <svg class="agent-link-banner__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <div class="agent-link-banner__body">
+              <h3 class="agent-link-banner__title agent-link-panel__heading--warning">Connection lost</h3>
+              <p class="agent-link-banner__sub" data-testid="agent-link-suspended-status">
+                We could not reconnect automatically. Your diagram is saved — reconnect to link a new agent session
+              </p>
+              <button
+                type="button"
+                class="agent-link-panel__btn agent-link-panel__btn--primary"
+                data-testid="agent-link-suspended-reconnect-btn"
+                @click="emit('revoke')"
+              >Reconnect</button>
+            </div>
+          </div>
+          <div v-else class="agent-link-banner agent-link-banner--warn">
             <svg class="agent-link-banner__spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
@@ -137,7 +200,7 @@
       </template>
 
       <!-- expired (#314, terminal): the client-side TTL watchdog noticed the
-           minted token's own lapse (the relay already 403s the agent
+           linking capability's lapse (the relay already rejects the agent
            server-side). SessionNotice already ships an "expired" variant
            (verbatim design-contract copy) — reuse it and the SAME reconnect
            emit the closed/failed notices use, rather than inventing a new
@@ -164,23 +227,50 @@
         <SessionNotice variant="failed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
       </template>
 
-      <!-- timeout: warning + expanded setup -->
+      <!-- timeout: no agent seen yet — two labeled, independent options, each
+           with its own retry hint directly beneath it (final-review fix: the
+           old flat prompt→copy→setup→hint→hint stack left "Then paste the
+           prompt again" reading as if it applied to the setup command shown
+           just above it, when it actually applies to the prompt block). -->
       <template v-else-if="state === 'timeout'">
         <div data-testid="agent-link-timeout">
           <h3 class="agent-link-panel__heading agent-link-panel__heading--warning">No agent yet — first time here?</h3>
+          <SessionTtl :expires-at="expiresAt" :at-cap="atCap" />
 
-          <pre class="agent-link-panel__prompt" data-testid="agent-link-prompt">{{ promptText }}</pre>
+          <div class="agent-link-panel__option" data-testid="agent-link-option-prompt">
+            <p class="agent-link-panel__option-label">Already have an agent connected? Paste this</p>
+            <pre class="agent-link-panel__prompt" data-testid="agent-link-prompt">{{ promptText }}</pre>
+            <button
+              type="button"
+              class="agent-link-panel__btn agent-link-panel__btn--primary"
+              data-testid="agent-link-copy-prompt-btn"
+              @click="onCopyPrompt"
+            >{{ copyButtonLabel }}</button>
+            <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">No response yet — paste the pairing prompt again while this code is still live.</p>
+          </div>
 
+          <div class="agent-link-panel__option" data-testid="agent-link-option-setup">
+            <p class="agent-link-panel__option-label">First time? Run this in your terminal</p>
+            <SetupInstructions />
+            <p class="agent-link-panel__hint" data-testid="agent-link-timeout-hint">
+              Pasted into a session that is already running? Restart it or run /mcp.
+              If the linking code expired, get a fresh one below.
+            </p>
+          </div>
+
+          <!-- Neither option above re-mints: pasting the prompt again reuses
+               the same still-embedded token, and the setup command's token is
+               baked in at render time too — if the session itself has gone
+               bad (expired, wrong token copied, stale terminal), no amount of
+               retrying either block helps. This is the one action that
+               actually gets a new token: same revokeAndRelink() path as the
+               connected/suspended rail's "Revoke & re-link". -->
           <button
             type="button"
-            class="agent-link-panel__btn agent-link-panel__btn--primary"
-            data-testid="agent-link-copy-prompt-btn"
-            @click="onCopyPrompt"
-          >{{ copyButtonLabel }}</button>
-
-          <SetupInstructions />
-
-          <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">Then paste the prompt again.</p>
+            class="agent-link-panel__link"
+            data-testid="agent-link-timeout-remint-btn"
+            @click="emit('reconnect')"
+          >Session not working? Get a fresh one</button>
         </div>
       </template>
     </div>
@@ -199,14 +289,11 @@
 import { computed, defineComponent, h, onBeforeUnmount, ref, watch } from 'vue'
 import type { AgentLinkClientState, AgentLinkThinkingState } from '@/composables/agentLink/agentLinkState'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
+import { agentLinkMcpUrl } from '@/composables/agentLink/relayUrl'
 import AgentStatusHeader from './AgentStatusHeader.vue'
 import SessionTtl from './SessionTtl.vue'
 import RailActions from './RailActions.vue'
 import SessionNotice from './SessionNotice.vue'
-
-// The MCP command from the design doc (§9 / relay host decision §14.3 —
-// zenapi.zenuml.com to avoid a new egress host / re-consent).
-const MCP_ADD_COMMAND = 'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
 
 const props = withDefaults(
   defineProps<{
@@ -220,9 +307,12 @@ const props = withDefaults(
     //  - clientName: connected agent identity (falls back to "Connected agent")
     //  - expiresAt: absolute ms token expiry → TTL meter + resume countdown
     //  - lastActivityAt: newest agent signal → header/badge activity pulse
+    //  - progressStage: Task 5's display-only handshake presence (null while
+    //    unpaired) — drives the waiting-state ladder, see progressRows below.
     thinking?: AgentLinkThinkingState
     diagramTitle?: string
     clientName?: string
+    progressStage?: 'initialized' | 'discovered' | 'verified' | 'working' | null
     expiresAt?: number | null
     lastActivityAt?: number | null
     // Amendment D: absolute ms epoch when the existing lock on an
@@ -233,8 +323,14 @@ const props = withDefaults(
     // forwarded to SessionTtl so it drops the "extends while your agent works"
     // hint once bumps no longer move the meter.
     atCap?: boolean
+    // Task 7: 'connection_lost' once relayClient.ts's own reconnect backoff
+    // has given up (or a socket error arrived while already down) — swaps the
+    // 'suspended' banner from the "reconnecting…" spinner (still a genuinely
+    // in-progress retry) to a persistent "Connection lost" notice with a
+    // manual Reconnect CTA, instead of spinning forever.
+    noticeReason?: 'connection_lost' | null
   }>(),
-  { thinking: 'idle', diagramTitle: '', clientName: '', expiresAt: null, lastActivityAt: null, lockExpiresAt: null, atCap: false }
+  { thinking: 'idle', diagramTitle: '', clientName: '', progressStage: null, expiresAt: null, lastActivityAt: null, lockExpiresAt: null, atCap: false, noticeReason: null }
 )
 
 const emit = defineEmits<{
@@ -248,7 +344,24 @@ const emit = defineEmits<{
   // Track H rejected notice secondary action. The host decides whether this
   // closes the Fullscreen surface or simply leaves the notice visible.
   (e: 'cancel'): void
+  (e: 'instruction-copied', kind: 'setup_command' | 'pairing_prompt'): void
 }>()
+
+// Stable, credential-free setup: install the Remote MCP endpoint once. Each
+// Macro session is paired later through the connect tool and a one-time code,
+// so no expiring secret is left behind in Claude's MCP configuration.
+const mcpAddCommand = computed(
+  () => `claude mcp add --transport http conf-agent ${agentLinkMcpUrl()}`
+)
+
+// The idle/max TTL is session metadata, not part of what the user pastes into
+// their agent — it used to live inside promptText and got copy-pasted along
+// with the chat instruction, which is noise for the agent and easy to miss
+// for the human. Removed from promptText entirely; SessionTtl.vue now renders
+// the real countdown in every state (waiting/timeout/connected) instead of a
+// static string, since the idle/max window starts at mint, not at "connected"
+// — sessionToken.ts's lastActivityMs is seeded to issuedAtMs, so the clock is
+// already running while the panel still reads "Waiting for your agent".
 
 // Shared "setup the connector" block used by both the waiting-state collapsed
 // <details> and the always-expanded timeout state, so the copy and markup only
@@ -263,18 +376,80 @@ const SetupInstructions = defineComponent({
         h(
           'pre',
           { class: 'agent-link-panel__command', 'data-testid': 'agent-link-setup-command' },
-          MCP_ADD_COMMAND
+          mcpAddCommand.value
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'agent-link-panel__btn',
+            'data-testid': 'agent-link-copy-setup-btn',
+            onClick: onCopySetup,
+          },
+          'Copy setup command'
         ),
       ])
   },
 })
 
+// --- Waiting-state presence ladder --------------------------------------------
+// Ranks mirror the relay's presence stages (agentLinkState.ts's progressStage
+// on useAgentLinkSession). 'working' has no row of its own — the FSM flips the
+// whole panel to the `connected` state once real work starts, so by the time
+// 'working' could render here the ladder is already gone.
+const PROGRESS_RANK: Record<'initialized' | 'discovered' | 'verified' | 'working', number> = {
+  initialized: 1,
+  discovered: 2,
+  verified: 3,
+  working: 4,
+}
+
+const progressRank = computed(() => (props.progressStage ? PROGRESS_RANK[props.progressStage] : 0))
+
+// --- Persistent link-status rail -----------------------------------------
+// Two independent legs, browser<->Worker and Worker<->agent. Rendered for
+// every in-session state so the user always sees which leg is up — the
+// terminal notice states (closed/expired/already_linked/failed) end the
+// session outright and render their own SessionNotice takeover instead.
+const RAIL_STATES: ReadonlyArray<AgentLinkClientState> = ['waiting', 'connected', 'suspended', 'timeout']
+const showRail = computed(() => RAIL_STATES.includes(props.state))
+
+// The browser<->Worker leg IS the relay WebSocket: 'suspended' is the FSM's
+// own name for that socket being down (Track G), everything else in
+// RAIL_STATES means it is open.
+const railBrowserWorker = computed<'up' | 'down'>(() => (props.state === 'suspended' ? 'down' : 'up'))
+
+// The Worker<->agent leg has no dedicated FSM state — it is read off
+// progressStage (Task 5's display-only handshake presence) and 'connected'.
+// 'suspended' drops both legs: once the relay socket itself is down, no
+// agent traffic can reach it either, regardless of the last-known presence.
+const railWorkerAgent = computed<'up' | 'down' | 'pending' | 'connecting'>(() => {
+  if (props.state === 'suspended') return 'down'
+  if (props.state === 'connected') return 'up'
+  return props.progressStage === null ? 'pending' : 'connecting'
+})
+
+const railAgentNodeState = computed<'up' | 'down' | 'pending'>(() => {
+  const leg = railWorkerAgent.value
+  return leg === 'connecting' ? 'pending' : leg
+})
+
+// Copy is deliberately conservative: a `claude -p` one-shot handshake proves
+// the relay + token round-trip, NOT that the interactive session is bound —
+// so 'verified' says "Link verified", never anything that reads as "connected
+// to your session". English throughout, matching every other string in this
+// panel (final-review ruling, 2026-08-15).
+const progressRows = computed(() => [
+  { stage: 'initialized' as const, rank: PROGRESS_RANK.initialized, text: `✓ ${props.clientName || 'Agent'} connected` },
+  { stage: 'discovered' as const, rank: PROGRESS_RANK.discovered, text: '✓ Diagram tools loaded' },
+  { stage: 'verified' as const, rank: PROGRESS_RANK.verified, text: '✓ Link verified' },
+])
+
 const promptText = computed(() => {
   const sessionToken = props.token ?? ''
   return [
-    'Connect to my ZenUML diagram via the conf-agent MCP.',
-    `session: ${sessionToken}`,
-    '# reads this page · edits this diagram · 10 min idle / 60 min max',
+    'Using conf-agent, call connect with this one-time linking code.',
+    `code: ${sessionToken}`,
   ].join('\n')
 })
 
@@ -292,6 +467,7 @@ async function onCopyPrompt() {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(promptText.value)
+      emit('instruction-copied', 'pairing_prompt')
       copyState.value = 'copied'
       if (copyRevertTimer) clearTimeout(copyRevertTimer)
       copyRevertTimer = setTimeout(() => {
@@ -303,6 +479,17 @@ async function onCopyPrompt() {
     console.warn('[agent-link] failed to copy connect prompt', e)
   }
   copyState.value = 'failed'
+}
+
+async function onCopySetup() {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(mcpAddCommand.value)
+      emit('instruction-copied', 'setup_command')
+    }
+  } catch (e) {
+    console.warn('[agent-link] failed to copy setup command', e)
+  }
 }
 
 function formatTime(at: number): string {
@@ -460,6 +647,68 @@ const resumeText = computed(() => {
   box-sizing: border-box;
 }
 
+/* persistent link-status rail: browser <-> Worker <-> agent */
+.agent-link-rail {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--agent-link-border);
+  background: var(--agent-link-surface-muted);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--agent-link-muted);
+}
+
+.agent-link-rail__node {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.agent-link-rail__node::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--agent-link-faint);
+  flex: 0 0 auto;
+}
+
+.agent-link-rail__node--up::before { background: var(--agent-link-green); }
+.agent-link-rail__node--down::before { background: var(--agent-link-amber); }
+.agent-link-rail__node--pending::before { background: var(--agent-link-faint); }
+
+.agent-link-rail__seg {
+  flex: 1 1 16px;
+  min-width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--agent-link-faint);
+}
+
+.agent-link-rail__seg--up { background: var(--agent-link-green); }
+.agent-link-rail__seg--down { background: var(--agent-link-amber); }
+.agent-link-rail__seg--pending { background: var(--agent-link-faint); }
+.agent-link-rail__seg--connecting {
+  background: linear-gradient(90deg, var(--agent-link-blue) 0%, var(--agent-link-faint) 60%, var(--agent-link-blue) 100%);
+  background-size: 200% 100%;
+  animation: agent-link-rail-connecting 1.2s linear infinite;
+}
+
+@keyframes agent-link-rail-connecting {
+  from { background-position: 0% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-link-rail__seg--connecting {
+    animation: none;
+  }
+}
+
 .agent-link-panel__scroll {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -500,8 +749,25 @@ const resumeText = computed(() => {
 }
 
 .agent-link-panel__prompt,
-.agent-link-panel__command {
+:deep(.agent-link-panel__command) {
+  /* :deep() on .agent-link-panel__command only: SetupInstructions is a
+     defineComponent+h() mini-component, not compiled <template> markup, so
+     Vue's scoped-CSS attribute propagates only to its ROOT element
+     (.agent-link-panel__setup) — the <pre> one level inside never carries
+     the scope attribute, so a plain (non-deep) selector silently never
+     matched it. Every rule in this block was dead code for that element
+     until this changed — it only looked styled because of Tailwind's `pre`
+     element reset happening to resemble the intended box. */
   margin: 0;
+  /* min-width:0 defeats flexbox's automatic-minimum-size floor: as a flex
+     item (this sits inside .agent-link-panel__setup and, for the setup
+     command, an extra .agent-link-panel__option layer above that), a <pre>
+     with visible overflow keeps its min-content width as a hard floor under
+     `stretch` unless this is set — the URL in the setup command is long
+     enough to hit that floor and run off the panel edge unwrapped. */
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 6px;
   border: 1px solid var(--agent-link-border);
@@ -510,6 +776,7 @@ const resumeText = computed(() => {
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   color: var(--agent-link-ink);
 }
@@ -587,6 +854,46 @@ const resumeText = computed(() => {
   }
 }
 
+.agent-link-panel__progress {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-link-panel__progress-row {
+  font-size: 12px;
+  color: var(--agent-link-ink);
+}
+
+.agent-link-panel__progress-row--dim {
+  color: var(--agent-link-faint);
+}
+
+.agent-link-panel__option {
+  display: flex;
+  flex-direction: column;
+  /* Same reasoning as .agent-link-panel__setup above — no flex-start here. */
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--agent-link-border);
+  min-width: 0;
+}
+
+.agent-link-panel__option:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.agent-link-panel__option-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--agent-link-ink);
+}
+
 .agent-link-panel__disclosure {
   font-size: 12px;
   color: var(--agent-link-muted);
@@ -600,9 +907,13 @@ const resumeText = computed(() => {
 .agent-link-panel__setup {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  /* NOT align-items: flex-start — that sizes children (the <pre> command
+     block) to their content instead of stretching to the panel width, which
+     defeats pre-wrap and lets the command run off the edge unwrapped. The
+     button still self-aligns via its own .agent-link-panel__btn rule. */
   gap: 8px;
   margin-top: 8px;
+  min-width: 0;
 }
 
 .agent-link-panel__divider {
@@ -612,8 +923,20 @@ const resumeText = computed(() => {
 }
 
 .agent-link-panel__link {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
   font-size: 12px;
-  color: var(--agent-link-blue);
+  color: var(--agent-link-muted);
+  cursor: pointer;
+  transition: color 200ms ease;
+}
+.agent-link-panel__link:hover {
+  color: var(--agent-link-ink);
+  text-decoration: underline;
 }
 
 /* bound-diagram line */
@@ -647,11 +970,14 @@ const resumeText = computed(() => {
   padding: 12px;
   border-radius: 6px;
 }
-.agent-link-banner__spin {
+.agent-link-banner__spin,
+.agent-link-banner__icon {
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
   margin-top: 1px;
+}
+.agent-link-banner__spin {
   animation: agent-link-banner-spin 1s linear infinite;
 }
 .agent-link-banner--warn .agent-link-banner__spin {

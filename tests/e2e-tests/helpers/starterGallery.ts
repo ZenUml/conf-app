@@ -1,4 +1,4 @@
-import { Page, FrameLocator } from '@playwright/test';
+import { Page, FrameLocator, Frame, Locator } from '@playwright/test';
 
 /**
  * Dismiss the onboarding starter-template gallery (TemplateGallery.vue) when
@@ -7,13 +7,18 @@ import { Page, FrameLocator } from '@playwright/test';
  * A new macro whose code is still blank/seed auto-opens this gallery on
  * mount (Header.vue, "auto_first_open"). Its `fixed inset-0 z-50` backdrop
  * intercepts pointer events on everything behind it, including the format
- * tab switcher — so any test that switches tabs (e.g. Sequence -> PlantUML)
- * right after inserting a fresh macro must close it first, the same way
- * dismissPaywallGate handles the Lite over-limit gate.
+ * tab switcher and the Publish button — so any test that opens a brand-new
+ * macro (via the insert-elements combobox OR the byline's create tiles) must
+ * close it first, the same way dismissPaywallGate handles the Lite
+ * over-limit gate.
+ *
+ * Accepts either a `FrameLocator` (Forge OOPIF path) or a raw `Frame` (the
+ * byline's create flow resolves its editor as a `Frame` via `page.frames()`)
+ * — both expose the same `.locator()` shape this only needs.
  */
 export async function dismissStarterGalleryIfPresent(
   page: Page,
-  frame: FrameLocator,
+  frame: FrameLocator | Frame | { locator(selector: string): Locator },
   { appearTimeout = 4000 }: { appearTimeout?: number } = {},
 ): Promise<boolean> {
   const closeBtn = frame.locator('[data-testid="template-gallery-close"]');

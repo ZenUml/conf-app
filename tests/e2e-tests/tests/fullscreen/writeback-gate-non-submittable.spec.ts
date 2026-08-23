@@ -35,6 +35,7 @@ import {
   expectModalVisible,
   expectModalClosed,
 } from '../../helpers/FullscreenModalHelper.js';
+import { dismissStarterGalleryIfPresent } from '../../helpers/starterGallery.js';
 
 const SEQUENCE_MACRO_BASE = 'Diagram (Mermaid, PlantUML & ZenUML)';
 const FORGE_IFRAME = '[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]';
@@ -58,6 +59,7 @@ async function insertAndPublishMacroPage(page: Page): Promise<string> {
   await expectModalVisible(page, 'edit');
   await page.waitForTimeout(1500);
   await dismissPaywall(page);
+  await dismissStarterGalleryIfPresent(page, modalContentFrame(page, 'edit'));
   await fillEditorTitle(page, `Gate170 ${Date.now()}`);
   await clickEditorPublish(page);
   await expectModalClosed(page, 'edit');

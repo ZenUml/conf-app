@@ -32,6 +32,7 @@ import {
   expectModalVisible,
   expectModalClosed,
 } from '../../helpers/FullscreenModalHelper.js';
+import { dismissStarterGalleryIfPresent } from '../../helpers/starterGallery.js';
 
 const SEQUENCE_MACRO_BASE = 'Diagram (Mermaid, PlantUML & ZenUML)';
 
@@ -74,6 +75,7 @@ test.describe('REGRESSION #169 — draft-only binding updates in place (no fork)
     await expectModalVisible(page, 'edit');
     await page.waitForTimeout(1500);
     await dismissPaywall(page);
+    await dismissStarterGalleryIfPresent(page, modalContentFrame(page, 'edit'));
     await fillEditorTitle(page, `Repro169 ${Date.now()}`);
     await clickEditorPublish(page);
     await expectModalClosed(page, 'edit');

@@ -15,8 +15,16 @@ import { toast } from '@/utils/toast'
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readCopyAttribution } from '@/utils/analytics/copyAttribution'
+import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFailedRetry'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
+
+// Real marker behaviour (it is the thing under test), stubbed reload — jsdom's
+// location.reload throws "Not implemented" and would navigate the runner.
+vi.mock('@/utils/loadFailedRetry', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/loadFailedRetry')>()
+  return { ...actual, reloadViewer: vi.fn() }
+})
 
 // Live Agent Link master flag defaults to resolved-false here so every
 // EXISTING test in this file below exercises the flag-off ("renders exactly
@@ -110,6 +118,10 @@ const mountViewer = () => mount(GenericViewer, { global: { plugins: [store] } })
 describe('GenericViewer (chrome-less)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Before the store assignments below: wrappers mounted by earlier tests in
+    // this file stay mounted and still watch viewerLoadState, so a retry marker
+    // left in sessionStorage would make one of them report a retry outcome
+    // against the NEXT test's state change.
     sessionStorage.clear()
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.source = DataSource.CustomContent
@@ -1419,6 +1431,81 @@ describe('GenericViewer (chrome-less)', () => {
       } finally {
         vi.useRealTimers()
       }
+    })
+
+    // Retry telemetry. `retry()` reloads the iframe, so the click and its
+    // result are two separate page lifetimes joined by the sessionStorage
+    // marker; these tests drive each half separately. The marker key falls back
+    // to the custom content id here because the forgeContext fixture carries no
+    // localId.
+    describe('retry outcome', () => {
+      // The store is a singleton and these tests drive it directly, so a
+      // wrapper left mounted keeps watching viewerLoadState and reacts to the
+      // NEXT test's state change with its own marker still in storage.
+      const mounted: ReturnType<typeof mountViewer>[] = []
+      const mountTracked = () => {
+        const wrapper = mountViewer()
+        mounted.push(wrapper)
+        return wrapper
+      }
+
+      afterEach(() => {
+        while (mounted.length) mounted.pop()?.unmount()
+      })
+
+      it('tracks the retry click and reloads the viewer', async () => {
+        store.state.viewerLoadState = 'failed_with_source'
+        const wrapper = mountTracked()
+        await wrapper.find('[data-testid="load-failed-retry"]').trigger('click')
+        expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+          'load_failed_retry_clicked',
+          expect.objectContaining({
+            feature_area: 'macro',
+            surface: 'viewer',
+            content_id: 'content-123',
+            retry_attempt: 1,
+          }),
+        )
+        expect(reloadViewer).toHaveBeenCalledOnce()
+      })
+
+      it('reports a diagram that came back after the reload', async () => {
+        startRetryMarker('content-123')
+        store.state.viewerLoadState = 'ready'
+        mountTracked()
+        await new Promise(resolve => setTimeout(resolve, 0))
+        expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+          'load_failed_retry_resolved',
+          expect.objectContaining({ retry_outcome: 'recovered', retry_attempt: 1 }),
+        )
+        expect(readRetryMarker('content-123')).toBeNull()
+      })
+
+      it('reports a failure that survived the reload and numbers the next retry 2', async () => {
+        startRetryMarker('content-123')
+        store.state.viewerLoadState = 'failed_with_source'
+        const wrapper = mountTracked()
+        await new Promise(resolve => setTimeout(resolve, 0))
+        expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+          'load_failed_retry_resolved',
+          expect.objectContaining({ retry_outcome: 'failed_again', retry_attempt: 1 }),
+        )
+        await wrapper.find('[data-testid="load-failed-retry"]').trigger('click')
+        expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+          'load_failed_retry_clicked',
+          expect.objectContaining({ retry_attempt: 2 }),
+        )
+      })
+
+      it('reports nothing when the viewer remounts without a retry', async () => {
+        store.state.viewerLoadState = 'ready'
+        mountTracked()
+        await new Promise(resolve => setTimeout(resolve, 0))
+        expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+          'load_failed_retry_resolved',
+          expect.anything(),
+        )
+      })
     })
   })
 

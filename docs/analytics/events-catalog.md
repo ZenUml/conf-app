@@ -200,13 +200,13 @@ The frontend's `attachment_upload_queued` is the denominator: every queued uploa
 
 ### `ai_generation_requested`
 
-**Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts`.
+**Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts` for Sequence/Mermaid/PlantUML, Graph and OpenAPI editors.
 
 | Property | Notes |
 |---|---|
 | `feature_area` | `"ai"` |
 | `surface` | `"editor"` |
-| `macro_type` | Diagram type (Mermaid sub-type string for Mermaid diagrams, e.g. `"flow chart"`) |
+| `macro_type` | Diagram type (`sequence`, `mermaid`, `plantuml`, `graph`, or `openapi`) |
 | `generation_source` | `"init"` (auto on editor open), `"user"` (manual click), `"regenerate"` (user clicked a second time after auto-generate) |
 | `prompt_length` | Character count of the diagram DSL sent to the AI |
 
@@ -244,7 +244,7 @@ Same properties as `ai_generation_requested`.
 
 ### `ai_title_accepted`
 
-**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired in `useAutoTitle.ts::notifyAiTitleSaved`, called from the `save` EventBus handler in `forgeIndex.ts`.
+**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths.
 
 | Property | Notes |
 |---|---|
@@ -506,6 +506,39 @@ Backend-declared event. Not currently emitted by client code.
 | `surface` | `"viewer"` |
 | `macro_type` | Diagram type that failed to render |
 | `failure_reason` | Error message string |
+
+---
+
+### `load_failed_retry_clicked`
+
+**Trigger:** User clicks "Try again" on the load-failed recovery panel. Fired in `GenericViewer.vue::retry`, before the reload it triggers.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"macro"` |
+| `surface` | `"viewer"` |
+| `macro_type` | Diagram type that failed to load |
+| `content_id` | Custom content ID the viewer could not load |
+| `retry_attempt` | 1 for the first retry of this macro in this browser tab, 2 for the next, … |
+
+---
+
+### `load_failed_retry_resolved`
+
+**Trigger:** The viewer reaches a terminal state on the page load that a "Try again" click started. Fired in `GenericViewer.vue`'s `viewerLoadState` watcher, once per retry.
+
+`retry()` is a bare `location.reload()`, so the click and its result sit in two different page lifetimes. A `sessionStorage` marker (`utils/loadFailedRetry.ts`, keyed on the macro's `localId`, 10-minute TTL) carries the attempt across the reload; the marker stops owing an outcome once reported, so an iframe remount without a retry emits nothing.
+
+Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08-18..22: 391 external impressions across 128 macros, with the transient-vs-permanent split unresolvable from telemetry.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"macro"` |
+| `surface` | `"viewer"` |
+| `macro_type` | Diagram type |
+| `content_id` | Custom content ID |
+| `retry_attempt` | Attempt number the resolution belongs to |
+| `retry_outcome` | `"recovered"` = the diagram rendered; `"failed_again"` = the terminal panel came back |
 
 ---
 

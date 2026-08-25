@@ -42,9 +42,20 @@ downstream of this audit.
 
 ## Purpose
 
-Test whether a single, current Mermaid source can safely yield static
-Flowchart-node locators. This is evidence gathering only: it must never write
-D1, Confluence, token bindings, or user-visible content.
+Measure two deliberately separate product flows against a bounded D1 mirror:
+
+- **Flow A — initial ingestion:** a current Mermaid source passes public syntax,
+  owned Flowchart parsing, canonical node/occurrence extraction, UTF-8 locator
+  audit, and static fingerprint facts. History is not required and is never
+  its denominator.
+- **Flow B — later save/change handling:** a separate subset with a current
+  body and a deterministic prior version is allowed to exercise staged source
+  diff, candidate, scoring, assignment, topology, split/merge, and
+  delete/recreate evidence. It remains evidence only and never confirms an
+  identity or transfers a binding.
+
+Both flows are evidence gathering only: the harness must never write D1,
+Confluence, token bindings, analytics events, or user-visible content.
 
 Architecture Tokens are source-agnostic: diagrams, Confluence prose/ADF,
 specifications, and later code/config are future evidence adapters. This
@@ -64,19 +75,21 @@ best-effort projection and may be incomplete, delayed, or unavailable.
   isomorphic parser. No Mermaid AST internals are read.
 - Canonicalisation, UTF-8 locators, and static fingerprint facts reuse the
   Architecture Tokens domain modules. They do not migrate an identity here.
-- The experiment uses only `SELECT`/`WITH` statements against current
-  `CustomContent` bodies. It does not read `CustomContentVersion` in this
-  phase.
+- The experiment uses only one guarded `SELECT`/`WITH` statement per D1 query.
+  Static mode reads current `CustomContent` bodies. Explicit
+  `--historical-pairs` mode additionally pages one read-only CTE that joins a
+  current body to its latest prior mirrored `CustomContentVersion` body; both
+  bodies are held in memory only.
 - A bounded general current-content sample supplies static locator coverage. A
   separately labelled, bounded `flowchart`/`graph` text-candidate sample may
   enrich supported syntax. It is not a prevalence sample and must never be
   compared as one.
-- Version-change reconciliation, relocation, relationship discovery, global
-  matching, topology, split/merge, AI, and user confirmation are deferred.
-  The sole exception is a pure source-diff helper that classifies
-  `unchanged`/`insert`/`delete`/`replace` hunks and can map an old UTF-8 span
-  wholly inside an unchanged hunk to its new address at confidence `1.0`.
-  That evidence has no element ID, Mermaid ID, binding, or retention decision.
+- The current source-only mode stops after static fingerprint facts. The
+  explicit historical-pairs mode runs the implemented source-diff relocation,
+  exact native-ID candidate, fingerprint scoring, global assignment,
+  structural/topology, split/merge, and delete/recreate policy stages. These
+  are evidence gates only; the harness never calls `reconcileFlowchartNodes`
+  and never emits transfer/confirmation decisions.
 
 ## Static locator contract
 
@@ -240,10 +253,10 @@ For the dangerous same-native-ID case, the policy classifies an
 present: changed label, changed container, zero mapped-topology similarity, and
 a non-adjacent revision. Otherwise same native ID remains explicitly
 insufficient evidence. Confidence bands follow the source design's example:
-high (`>=0.90`), medium (`>=0.65`), and low. In this implementation even high
-confidence is only `requires_human_confirmation`; low confidence remains
-unresolved. No result confirms identity, moves/retains a TokenBinding, invokes
-AI, or implements a confirmation workflow.
+high (`>=0.90`), medium (`>=0.65`), and low. The shadow aggregates the
+policy's review-required result as `requires_review`; it does not expose that
+as a confirmation action. No result confirms identity, moves/retains a
+TokenBinding, invokes AI, or implements a confirmation workflow.
 
 ## Reproducible execution
 
@@ -265,13 +278,25 @@ Run sequence:
 
 1. `node --experimental-strip-types --experimental-loader ./scripts/architecture-token-shadow-loader.mjs scripts/architecture-token-shadow.mjs --dry-run`
 2. Review schema/count output and the mirror-coverage caveat.
-3. Run a bounded general static audit with
-   `--run --limit 250 --batch-size 25`.
-4. Run a separate, bounded prefiltered static audit with
-   `--flowchart-candidates --state-dir <new-local-dir>`.
-   The prefilter is only `body LIKE '%flowchart%' OR body LIKE '%graph%'`; the
-   public parser, canonical parser, and locator audit still decide eligibility.
-5. Read aggregate reports only. Do not inspect or copy captured source.
+3. For the dual-flow experiment, run a bounded general cohort with
+   `--run --historical-pairs --limit 100 --batch-size 25 --state-dir <new-local-dir>`.
+   This always reports Flow A current-source static ingestion separately from
+   Flow B current/prior change handling.
+4. Run the separate, bounded text-candidate cohort with
+   `--run --historical-pairs --flowchart-candidates --limit 100 --batch-size 25 --state-dir <new-local-dir>`.
+   The prefilter is only `body LIKE '%flowchart%' OR body LIKE '%graph%'`;
+   it is candidate enrichment, not a prevalence filter. The public parser,
+   canonical parser, and locator audit still decide eligibility.
+5. Read aggregate reports only. Do not inspect or copy captured source, IDs,
+   titles, labels, locators, or fingerprints.
+
+For approved internal manual review only, add `--spot-check` to a bounded
+historical-pairs run. It creates a separate local
+`spot-check-audit.json` in the chosen state directory. That artifact may
+contain a small set of real Before/After Mermaid sources plus structural stage
+evidence, but deliberately excludes database/customer identifiers. It is
+private local material: never commit, push, upload, or treat it as the
+deidentified aggregate report.
 
 ## Measures
 
@@ -289,6 +314,47 @@ The report records only counts/rates for:
 No outcome in this report is token confirmation, retention, or reconciliation
 precision. Without manual review or external identity ground truth, every
 precision/recall interpretation remains unverified and out of scope.
+
+## Staged dual-flow shadow evidence (2026-08-25)
+
+The guarded dry run found 45,001 Mermaid current-content rows, 117,511
+mirrored version rows, and 12,454 Mermaid current rows with at least one prior
+mirrored version. These are mirror counts, not canonical Confluence coverage.
+Two independent read-only cohorts then ran with a 100-row cap each. Bodies,
+content IDs, titles, native IDs, labels, locators, and fingerprints were held
+only in process memory; the reports and checkpoints under `/private/tmp`
+contain aggregates only.
+
+| Cohort (not prevalence) | Flow A current sources: public-valid / static-eligible | Flow B pairs: static-eligible | Flow B Stage 2 candidates | Flow B Stage 3 scored | Flow B Stage 4 selected | Flow B policy: review / unresolved |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 general Mermaid current rows | 100 / 30 | 24 | 218 | 218 | 218 | 202 / 16 |
+| 100 `flowchart`/`graph` text candidates | 100 / 55 | 35 | 311 | 311 | 311 | 289 / 22 |
+
+Flow A's denominator is all sampled current Mermaid sources, not the rows
+with history. Its main support gap was
+`unsupported_flowchart_statement` (11 general and 31 text-candidate current
+sources); the static locator audit found zero unsafe sources among the 30 and
+55 owned-parser-supported current Flowcharts respectively.
+
+Flow B's denominator is separately the 100 selected current/prior mirror
+pairs. In the general cohort, 24 pairs passed both revisions' public parse,
+owned parser, and locator gates; in the text-candidate cohort, 35 did. The
+largest exclusion remains unsupported Flowchart syntax in either revision.
+Among eligible pairs, Stage 1 recorded 199/285 exact source-diff relocations
+and 19/28 `locator_intersects_change` outcomes; Stage 2 recorded zero/two
+missing exact-native-ID candidates; Stage 3 recorded no additional static-fact
+unresolved cases beyond those Stage 2 inputs. Stage 5 topology was unavailable
+or incomplete for 11/15 candidate facts, and topology iteration remained
+`deferred_requires_confirmed_neighbor_mappings` in every eligible pair.
+No split/merge pattern was emitted by this exact-native-ID candidate pipeline
+in either bounded cohort.
+
+The policy layer deliberately produced no automatic identity or binding
+transfer: all assessed candidates were either `requires_review` (aggregated
+from `requires_human_confirmation`) or unresolved. This is evidence about
+the current staged implementation on a bounded, non-ground-truth mirror
+sample—not precision, recall, semantic identity accuracy, product readiness,
+or a claim that source-diff/native-ID/fingerprint evidence is correct.
 
 ## Coverage limitations
 

@@ -1,24 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import {
-  analyzePair,
+  analyzeHistoricalPair,
+  analyzeHistoricalPairRow,
   analyzeCurrentBody,
   auditStaticLocators,
   assertReadOnlySql,
   deriveUniqueExactNodeSpanRelocations,
   idShape,
   newMetrics,
+  newHistoricalMetrics,
   parseStoredBody,
 } from './architecture-token-shadow.mjs';
 import { parseFlowchartSource } from '../src/domain/architectureTokens/mermaidFlowchart';
 import { sliceUtf8ByteSpan, utf8ByteSpanFor } from '../src/domain/architectureTokens/utf8Locator';
-import { fingerprintFlowchartNode, reconcileFlowchartNodes } from '../src/domain/architectureTokens/reconcileFlowchartNodes';
 import { fingerprintStaticFlowchartNode } from '../src/domain/architectureTokens/flowchartStaticFingerprint';
+import { prepareSourceDiffRelocation } from '../src/domain/architectureTokens/sourceDiffRelocation';
+import { assessExactNativeIdNodeCandidates } from '../src/domain/architectureTokens/nativeIdCandidate';
+import { scoreFingerprintCandidates } from '../src/domain/architectureTokens/fingerprintScoring';
+import { assignMaximumWeightCandidates } from '../src/domain/architectureTokens/globalAssignment';
+import { assessStructuralTopology } from '../src/domain/architectureTokens/structuralTopologyAssessment';
+import { assessSplitMergePatterns } from '../src/domain/architectureTokens/splitMergeAssessment';
+import { classifyDeleteRecreateConfidence } from '../src/domain/architectureTokens/deleteRecreatePolicy';
 
 describe('Architecture Token shadow experiment helpers', () => {
   it('only accepts a single read-only query', () => {
     expect(assertReadOnlySql('SELECT * FROM CustomContent')).toBe('SELECT * FROM CustomContent');
+    expect(assertReadOnlySql('WITH prior AS (SELECT 1) SELECT * FROM prior')).toContain('WITH prior');
     expect(() => assertReadOnlySql('SELECT 1; DELETE FROM CustomContent')).toThrow('read-only');
     expect(() => assertReadOnlySql('UPDATE CustomContent SET body = body')).toThrow('read-only');
+    expect(() => assertReadOnlySql('WITH x AS (SELECT 1) INSERT INTO x VALUES (1)')).toThrow('read-only');
   });
 
   it('extracts only expected stored body shapes', () => {
@@ -131,30 +141,67 @@ describe('Architecture Token shadow experiment helpers', () => {
       .toEqual(expect.arrayContaining([{ diagramElementId: 'shadow-0', newNativeId: 'A' }]));
   });
 
-  it('keeps same-ID delete/recreate as a confirmation candidate without relocation evidence', async () => {
+  it('runs the staged pair pipeline without producing identity or transfer decisions', async () => {
     const domain = {
       parseFlowchartSource,
       sliceUtf8ByteSpan,
-      fingerprintFlowchartNode,
-      reconcileFlowchartNodes,
+      fingerprintStaticFlowchartNode,
+      prepareSourceDiffRelocation,
+      assessExactNativeIdNodeCandidates,
+      scoreFingerprintCandidates,
+      assignMaximumWeightCandidates,
+      assessStructuralTopology,
+      assessSplitMergePatterns,
+      classifyDeleteRecreateConfidence,
       validateMermaid: async () => ({ ok: true }),
     };
-    const result = await analyzePair({
-      oldSource: 'flowchart TD\nA[Old label]',
-      newSource: 'flowchart TD\nA[Old label]',
+    const result = await analyzeHistoricalPair({
+      oldSource: 'flowchart TD\nA[Old label] --> B',
+      newSource: 'flowchart TD\nA[New label] --> B',
+      oldVersionNumber: 4,
+      newVersionNumber: 5,
       domain,
     });
     if (result.kind !== 'ok') throw new Error('fixture must be eligible');
-    expect(result.decisions[0]).toMatchObject({ status: 'confirmed_automatic' });
-    expect(result.sameNativeIdCandidates).toBe(1);
+    expect(result.transfer).toBeNull();
+    expect(result).not.toHaveProperty('decisions');
+    expect(result.nativeIds.candidates).toHaveLength(2);
+    expect(result.scoring.scored[0].score).toBe(0.85);
+    expect(result.assignment.selected).toHaveLength(2);
+    expect(result.policy.outcomes).toHaveLength(2);
+    expect(result.policy.outcomes.every((outcome) => outcome.outcome !== 'orphaned')).toBe(true);
+  });
 
-    const old = parseFlowchartSource('flowchart TD\nA[Old label]');
-    const newer = parseFlowchartSource('flowchart TD\nA[Old label]');
-    if (old.kind !== 'ok' || newer.kind !== 'ok') throw new Error('fixture must parse');
-    expect(reconcileFlowchartNodes({
-      oldElements: [{ diagramElementId: 'shadow-0', fingerprint: fingerprintFlowchartNode(old.model.nodes[0]) }],
-      newNodes: newer.model.nodes,
-      relocatedPairs: [],
-    }).decisions[0]).toMatchObject({ status: 'needs_confirmation', reasons: ['native_id_is_insufficient'] });
+  it('aggregates only deidentified evidence for a current/prior fixture pair', async () => {
+    const metrics = newHistoricalMetrics();
+    const domain = {
+      parseFlowchartSource,
+      sliceUtf8ByteSpan,
+      fingerprintStaticFlowchartNode,
+      prepareSourceDiffRelocation,
+      assessExactNativeIdNodeCandidates,
+      scoreFingerprintCandidates,
+      assignMaximumWeightCandidates,
+      assessStructuralTopology,
+      assessSplitMergePatterns,
+      classifyDeleteRecreateConfidence,
+      validateMermaid: async () => ({ ok: true }),
+    };
+    const body = (code: string) => JSON.stringify({ mermaidCode: code });
+    const result = await analyzeHistoricalPairRow({
+      priorBody: body('flowchart TD\nA[Orders] --> B'),
+      currentBody: body('flowchart TD\n%% note\nA[Payments] --> B'),
+      priorVersionNumber: 7,
+      currentVersionNumber: 8,
+    }, metrics, domain);
+
+    expect(result.transfer).toBeNull();
+    expect(metrics.pairRows).toBe(1);
+    expect(metrics.pairFunnel.static_eligible_pair).toBe(1);
+    expect(metrics.pairFunnel.stage1_source_diff_prepared).toBe(1);
+    expect(metrics.pairFunnel.stage7_confidence_policy_assessed).toBe(1);
+    expect(metrics.revisionDistance).toEqual({ adjacent: 1 });
+    expect(metrics).not.toHaveProperty('contentId');
+    expect(metrics).not.toHaveProperty('nativeIds');
   });
 });

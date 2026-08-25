@@ -146,11 +146,9 @@ Never echo a secret's value; prove access with a status code instead.
 
 ### Forge deployment
 
-```bash
-# Deploy to Forge staging
-pnpm forge:deploy:lite:staging
-pnpm forge:deploy:full:prod
+**Staging deployment rule:** staging is deployed only by the GitHub Actions CI/CD pipeline triggered by pushing the candidate branch. Do **not** run `pnpm forge:deploy:*:staging` from a local shell; use the pipeline run as the deployment authority and verify its completion before staging checks. Local Forge use is limited to development tunnels and read-only diagnostics.
 
+```bash
 # Forge tunnel for local development
 pnpm forge:tunnel
 ```

@@ -98,7 +98,12 @@ export function parseFlowchartSource(source: string): FlowchartParseResult {
       continue;
     }
     if (STYLE.test(trimmed)) continue;
-    if (containers.length > 0 && SUBGRAPH_DIRECTION.test(trimmed)) continue;
+    if (containers.length > 0 && SUBGRAPH_DIRECTION.test(trimmed)) {
+      if (!isStandaloneSourceLine(source, statement.span)) {
+        return { kind: 'unsupported', reason: 'unsupported_flowchart_statement' };
+      }
+      continue;
+    }
 
     const subgraph = parseSubgraph(trimmed, statement);
     if (subgraph) {
@@ -351,4 +356,12 @@ function unquote(value: string): string {
 
 function isComment(text: string): boolean {
   return /^\s*%%/.test(text);
+}
+
+function isStandaloneSourceLine(source: string, span: CharSpan): boolean {
+  const lineStart = source.lastIndexOf('\n', Math.max(0, span.start - 1)) + 1;
+  const nextLine = source.indexOf('\n', span.end);
+  const lineEnd = nextLine === -1 ? source.length : nextLine;
+  return source.slice(lineStart, span.start).trim() === ''
+    && source.slice(span.end, lineEnd).trim() === '';
 }

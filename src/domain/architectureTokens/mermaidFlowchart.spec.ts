@@ -148,6 +148,15 @@ describe('parseFlowchartSource', () => {
     expect(result.model.nodes.flatMap((node) => node.occurrences).some((occurrence) => occurrence.span.startByte === 29)).toBe(false);
   });
 
+  it('keeps a standalone CRLF subgraph direction as a non-element statement', () => {
+    const result = parseFlowchartSource('flowchart TD\r\nsubgraph Platform\r\ndirection LR\r\nOrders --> Events\r\nend');
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.model.nodes.map((node) => node.nativeId)).toEqual(['Orders', 'Events']);
+    expect(result.model.nodes.flatMap((node) => node.occurrences)).toHaveLength(2);
+  });
+
   it('fails closed for an out-of-context direction statement', () => {
     expect(parseFlowchartSource('flowchart TD\ndirection LR\nOrders --> Events')).toMatchObject({
       kind: 'unsupported',

@@ -41,6 +41,7 @@ import type {
   ArchitectureCandidateCountBucket,
   ArchitectureConfidenceBucket,
   ArchitectureAmbiguityReason,
+  ArchitectureBindingReadState,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -74,6 +75,7 @@ export type AnalyticsProperties = {
   architecture_candidate_count_bucket?: ArchitectureCandidateCountBucket;
   architecture_confidence_bucket?: ArchitectureConfidenceBucket;
   architecture_ambiguity_reason?: ArchitectureAmbiguityReason;
+  architecture_binding_read_state?: ArchitectureBindingReadState;
   architecture_algorithm_version?: string;
   // Session Replay policy. `macro_create_started` / `macro_edit_started` set
   // source=authoring and percent=100 after the SDK start call returns. The call

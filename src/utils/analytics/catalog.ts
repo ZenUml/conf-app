@@ -205,6 +205,8 @@ export type ArchitectureReconciliationStatus =
 export type ArchitectureCandidateCountBucket = "zero" | "one" | "two" | "three_plus";
 export type ArchitectureConfidenceBucket = "high" | "medium" | "low" | "none";
 export type ArchitectureAmbiguityReason = "multiple_plausible_candidates" | "one_to_one_conflict" | "split_or_merge";
+/** Closed-vocabulary, source-free editor read state for a stored binding envelope. */
+export type ArchitectureBindingReadState = "available" | "stale" | "untrusted";
 
 export type AnalyticsEventName =
   | "macro_viewed"
@@ -226,6 +228,9 @@ export type AnalyticsEventName =
   | "architecture_source_revision_failed"
   | "architecture_reconciliation_completed"
   | "architecture_binding_requires_confirmation"
+  // Read-only editor indication; no source, token, native Mermaid ID, hash,
+  // label, or customer data may be attached.
+  | "architecture_binding_read_state_presented"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a

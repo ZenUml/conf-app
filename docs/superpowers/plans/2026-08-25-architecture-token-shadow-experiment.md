@@ -26,8 +26,11 @@ pipeline is a set of strict preconditions:
 9. **Structural/topology assessment** compares directed neighbors through Gate
    4's provisional assignments only. It still does not identify an element or
    retain a binding.
-10. **Identity resolution (deferred)**: iterative topology using confirmed
-    mappings, split/merge, AI suggestions, and user confirmation.
+10. **Split/merge assessment** detects ambiguous medium-score 1→many and
+    many→1 patterns only. It still does not identify an element or retain a
+    binding.
+11. **Identity resolution (deferred)**: iterative topology using confirmed
+    mappings, delete/recreate handling, AI suggestions, and user confirmation.
 
 The Source Binding Engine's Stage 0 is a precondition to later version work.
 The Stage 1 helper is a source-address preparation seam only; it is not a
@@ -203,6 +206,21 @@ stage creates none, so it reports zero rounds and
 `deferred_requires_confirmed_neighbor_mappings`. Its output is evidence for
 the next split/merge assessment only—not rename acceptance, identity
 confirmation, a TokenBinding action, or an iterative topology result.
+
+## Split/merge assessment (after structural topology only)
+
+`splitMergeAssessment.ts` implements the authoritative detector rather than a
+resolver: a split is one old node with two or more distinct new candidates in
+the medium-score range `[0.65, 0.90)`; a merge is the inverse. It returns
+`ambiguous_split` or `ambiguous_merge`, the full scored-candidate evidence, and
+any related Gate 4 selection for audit. Its only prescribed outcome is
+`requiredAction: human_confirmation`; this task adds no UI or confirmation
+workflow.
+
+Scores outside that medium band do not form a split/merge pattern. Invalid or
+duplicate scored edges fail closed as unresolved input, rather than being
+counted twice or selected. A pattern is never a rename, identity confirmation,
+binding transfer/retention, AI request, or persistence action.
 
 ## Reproducible execution
 

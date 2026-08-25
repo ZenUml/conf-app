@@ -67,6 +67,7 @@ type MutableNode = {
 
 const HEADER = /^\s*(?:flowchart|graph)(?:\s+([A-Za-z]{2}))?\s*(?:%%.*)?$/i;
 const NODE_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]*/;
+const EDGE_ARROW = /^(?:<-->|-+>|=+>|-\.+->|\.+->|-{3,}|={3,}|-\.+-)/;
 
 /**
  * Parses only the supported Flowchart-node subset. `unsupported` is a
@@ -234,7 +235,7 @@ function splitEdgeEndpoints(statement: Statement): CharSpan[] {
     if ('[({'.includes(char)) depth += 1;
     if ('])}'.includes(char)) depth -= 1;
     if (depth !== 0) continue;
-    const arrow = source.slice(index).match(/^(?:<-->|-->|==>|---|-\.->)/);
+    const arrow = source.slice(index).match(EDGE_ARROW);
     if (arrow) {
       arrows.push(index);
       index += arrow[0].length - 1;
@@ -245,12 +246,58 @@ function splitEdgeEndpoints(statement: Statement): CharSpan[] {
   const segments: CharSpan[] = [];
   let segmentStart = 0;
   for (const arrowAt of arrows) {
-    segments.push(trimSpan(source, { start: segmentStart, end: arrowAt }, statement.span.start));
-    const arrow = source.slice(arrowAt).match(/^(?:<-->|-->|==>|---|-\.->)/);
+    const textLabelStart = findWhitespaceDelimitedTextLabel(source, segmentStart, arrowAt);
+    segments.push(trimSpan(source, {
+      start: segmentStart,
+      end: textLabelStart ?? arrowAt,
+    }, statement.span.start));
+    const arrow = source.slice(arrowAt).match(EDGE_ARROW);
     segmentStart = arrowAt + (arrow?.[0].length ?? 0);
+    if (source[segmentStart] === '|') {
+      const labelEnd = findUnescapedPipe(source, segmentStart + 1);
+      if (labelEnd !== -1) segmentStart = labelEnd + 1;
+    }
   }
   segments.push(trimSpan(source, { start: segmentStart, end: source.length }, statement.span.start));
   return segments.filter((span) => span.start < span.end);
+}
+
+/**
+ * Mermaid also permits `A -- label --> B`. We accept only the whitespace
+ * delimited form so an identifier containing `--` cannot be reinterpreted as
+ * an edge. Other label spellings remain unsupported until explicitly modelled.
+ */
+function findWhitespaceDelimitedTextLabel(source: string, start: number, end: number): number | null {
+  const terminal = source.slice(end).match(EDGE_ARROW)?.[0];
+  if (!terminal) return null;
+  const labelConnector = terminal.startsWith('=') ? '==' : terminal.startsWith('.') ? '-.' : '--';
+  let quote = false;
+  let depth = 0;
+  for (let index = start; index < end - labelConnector.length; index += 1) {
+    const char = source[index];
+    if (char === '"' && source[index - 1] !== '\\') quote = !quote;
+    if (quote) continue;
+    if ('[({'.includes(char)) depth += 1;
+    if ('])}'.includes(char)) depth -= 1;
+    if (depth !== 0 || source.slice(index, index + labelConnector.length) !== labelConnector) continue;
+    const before = source[index - 1];
+    const after = source[index + labelConnector.length];
+    if (
+      /\s/.test(before ?? '')
+      && /\s/.test(after ?? '')
+      && source.slice(index + labelConnector.length, end).trim()
+    ) {
+      return index;
+    }
+  }
+  return null;
+}
+
+function findUnescapedPipe(source: string, start: number): number {
+  for (let index = start; index < source.length; index += 1) {
+    if (source[index] === '|' && source[index - 1] !== '\\') return index;
+  }
+  return -1;
 }
 
 function splitStatements(source: string): Statement[] {

@@ -68,10 +68,57 @@ describe('parseFlowchartSource', () => {
     expect(result.model.nodes.find((node) => node.nativeId === 'A')?.occurrences).toHaveLength(2);
   });
 
+  it('keeps a pipe-labelled edge as two endpoint nodes', () => {
+    const result = parseFlowchartSource('flowchart TD\n  Orders -->|publishes| Events');
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    expect(result.model.nodes.map((node) => node.nativeId)).toEqual(['Orders', 'Events']);
+    expect(result.model.edges).toMatchObject([{ endpointNativeIds: ['Orders', 'Events'] }]);
+  });
+
+  it('keeps a text-labelled arrow edge as two endpoint nodes', () => {
+    const result = parseFlowchartSource('flowchart TD\n  Orders -- publishes --> Events');
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    expect(result.model.nodes.map((node) => node.nativeId)).toEqual(['Orders', 'Events']);
+    expect(result.model.edges).toMatchObject([{ endpointNativeIds: ['Orders', 'Events'] }]);
+  });
+
+  it('keeps a lengthened arrow edge as two endpoint nodes', () => {
+    const result = parseFlowchartSource('flowchart TD\n  Orders ----> Events');
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    expect(result.model.nodes.map((node) => node.nativeId)).toEqual(['Orders', 'Events']);
+    expect(result.model.edges).toMatchObject([{ endpointNativeIds: ['Orders', 'Events'] }]);
+  });
+
+  it('keeps a dotted text-labelled edge as two endpoint nodes', () => {
+    const result = parseFlowchartSource('flowchart TD\n  Orders -. publishes .-> Events');
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    expect(result.model.nodes.map((node) => node.nativeId)).toEqual(['Orders', 'Events']);
+    expect(result.model.edges).toMatchObject([{ endpointNativeIds: ['Orders', 'Events'] }]);
+  });
+
   it('fails closed for a Mermaid family outside the Flowchart-node v1 boundary', () => {
     expect(parseFlowchartSource('sequenceDiagram\n  Alice->>Bob: hello')).toEqual({
       kind: 'unsupported',
       reason: 'not_a_flowchart',
+    });
+  });
+
+  it('fails closed for newer node-shape syntax that this slice does not model', () => {
+    expect(parseFlowchartSource('flowchart TD\n  A@{ shape: rect } --> B')).toEqual({
+      kind: 'unsupported',
+      reason: 'unsupported_edge_endpoint',
     });
   });
 });

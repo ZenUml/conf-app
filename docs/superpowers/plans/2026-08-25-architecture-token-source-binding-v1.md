@@ -105,6 +105,21 @@ edge. It accepts the Flowchart subset above and recognises unsupported syntax
 rather than guessing. Its input/output is deterministic and has no DOM,
 network, Vue, Forge, or D1 dependency.
 
+### Implemented edge subset (Phase 1 parser slice)
+
+For node extraction, an edge is context rather than a bindable element. The
+parser currently accepts direct normal, thick, and dotted links (including
+documented length modifiers); `A -->|label| B`; and whitespace-delimited text
+labels in normal, thick, and dotted arrow links such as `A -- label --> B`.
+It records only the endpoint nodes and the original statement context, so the
+label never becomes a node or a binding target.
+
+It deliberately still returns `unsupported` for Mermaid's `@{…}` expanded
+shape syntax, circle/cross edge forms, edge IDs, styling/class/link directives,
+and any connector/label spelling not explicitly covered above. The public
+Mermaid parser remains the first syntax gate; passing it does not widen this
+owned canonical subset.
+
 ### Elements versus occurrences
 
 One `CanonicalNode` represents one semantic node per **native Mermaid ID** in

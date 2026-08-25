@@ -8,6 +8,11 @@ const node = (nativeId: string, overrides: Partial<CanonicalNode> = {}): Canonic
   label: 'Orders API',
   shape: 'square',
   containerPath: ['Platform'],
+  primaryOccurrence: {
+    span: { startByte: 0, endByte: nativeId.length },
+    statementSpan: { startByte: 0, endByte: nativeId.length },
+    role: 'declaration',
+  },
   occurrences: [],
   incidentNativeIds: ['Gateway'],
   statementContexts: ['A --> B'],

@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   analyzePair,
+  auditStaticLocators,
   assertReadOnlySql,
   deriveUniqueExactNodeSpanRelocations,
   idShape,
   parseStoredBody,
 } from './architecture-token-shadow.mjs';
 import { parseFlowchartSource } from '../src/domain/architectureTokens/mermaidFlowchart';
-import { sliceUtf8ByteSpan } from '../src/domain/architectureTokens/utf8Locator';
+import { sliceUtf8ByteSpan, utf8ByteSpanFor } from '../src/domain/architectureTokens/utf8Locator';
 import { fingerprintFlowchartNode, reconcileFlowchartNodes } from '../src/domain/architectureTokens/reconcileFlowchartNodes';
 
 describe('Architecture Token shadow experiment helpers', () => {
@@ -29,6 +30,78 @@ describe('Architecture Token shadow experiment helpers', () => {
     expect(idShape('123')).toBe('numeric_only');
     expect(idShape('A')).toBe('very_short');
     expect(idShape('orders_api')).toBe('identifier_like');
+  });
+
+  it('audits source-derived UTF-8 locators for Flowchart node occurrences only', () => {
+    const source = [
+      'flowchart TD',
+      'subgraph Platform[Platform]',
+      '  A[服务 API] -->|publishes| B[Events]',
+      'end',
+      '  C[Standalone]',
+    ].join('\n');
+    const parsed = parseFlowchartSource(source);
+    if (parsed.kind !== 'ok') throw new Error('fixture must parse');
+
+    const audit = auditStaticLocators({
+      source,
+      model: parsed.model,
+      parseFlowchartSource,
+      sliceUtf8ByteSpan,
+    });
+
+    expect(audit.kind).toBe('ok');
+    if (audit.kind !== 'ok') return;
+    expect(audit.locators.map((locator) => ({
+      nativeId: locator.nativeId,
+      role: locator.role,
+      fragment: sliceUtf8ByteSpan(source, locator.span),
+    }))).toEqual([
+      { nativeId: 'A', role: 'edge_endpoint', fragment: 'A[服务 API]' },
+      { nativeId: 'B', role: 'edge_endpoint', fragment: 'B[Events]' },
+      { nativeId: 'C', role: 'declaration', fragment: 'C[Standalone]' },
+    ]);
+  });
+
+  it('fails closed when a locator is changed to a label span', () => {
+    const source = 'flowchart TD\nA[A] --> B';
+    const parsed = parseFlowchartSource(source);
+    if (parsed.kind !== 'ok') throw new Error('fixture must parse');
+    const labelStart = source.lastIndexOf('A]');
+    const labelSpan = utf8ByteSpanFor(source, labelStart, labelStart + 1);
+    const tampered = {
+      ...parsed.model,
+      nodes: parsed.model.nodes.map((node) => node.nativeId !== 'A' ? node : {
+        ...node,
+        occurrences: node.occurrences.map((occurrence, index) => index === 0 ? {
+          ...occurrence,
+          span: labelSpan,
+        } : occurrence),
+      }),
+    };
+
+    const audit = auditStaticLocators({
+      source,
+      model: tampered,
+      parseFlowchartSource,
+      sliceUtf8ByteSpan,
+    });
+    expect(audit.kind).toBe('unsafe');
+    if (audit.kind !== 'unsafe') return;
+    expect(audit.reasons).toContain('locator_not_syntax_derived');
+  });
+
+  it('round-trips a reserved word only in its edge-endpoint syntax role', () => {
+    const source = 'flowchart TD\nA --> end';
+    const parsed = parseFlowchartSource(source);
+    if (parsed.kind !== 'ok') throw new Error('fixture must parse');
+
+    expect(auditStaticLocators({
+      source,
+      model: parsed.model,
+      parseFlowchartSource,
+      sliceUtf8ByteSpan,
+    })).toMatchObject({ kind: 'ok' });
   });
 
   it('derives relocation evidence only where an exact node span is unique', () => {

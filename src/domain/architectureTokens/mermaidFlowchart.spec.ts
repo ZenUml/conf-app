@@ -17,6 +17,20 @@ describe('parseFlowchartSource', () => {
     expect(result.model.nodes.map((node) => node.occurrences)).toHaveLength(2);
   });
 
+  it('prefers an explicit declaration as the primary locator while retaining all occurrences', () => {
+    const source = 'flowchart TD\nA --> B\nA[Public API]';
+    const result = parseFlowchartSource(source);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    const api = result.model.nodes.find((node) => node.nativeId === 'A');
+    expect(api).toBeDefined();
+    expect(api!.occurrences).toHaveLength(2);
+    expect(api!.primaryOccurrence.role).toBe('declaration');
+    expect(sliceUtf8ByteSpan(source, api!.primaryOccurrence.span)).toBe('A[Public API]');
+  });
+
   it('keeps a chained edge as three node elements and records the subgraph path', () => {
     const result = parseFlowchartSource([
       'flowchart TD',

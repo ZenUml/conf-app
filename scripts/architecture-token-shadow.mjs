@@ -1,5 +1,5 @@
 /*
- * Architecture Tokens D1 shadow experiment.
+ * Architecture Tokens static locator D1 shadow experiment.
  *
  * This script intentionally has no write path. It processes stored source
  * bodies in memory and emits only aggregate/deidentified metrics. See the
@@ -79,6 +79,104 @@ export function deriveUniqueExactNodeSpanRelocations(oldSource, oldNodes, newSou
   return pairs;
 }
 
+function locatorKey(nativeId, occurrence) {
+  return [
+    nativeId,
+    occurrence.role,
+    occurrence.span.startByte,
+    occurrence.span.endByte,
+    occurrence.statementSpan.startByte,
+    occurrence.statementSpan.endByte,
+  ].join(':');
+}
+
+/**
+ * Verifies the static, revision-scoped node addresses produced by the owned
+ * Flowchart parser. It never returns source text; callers may count locators
+ * and reason buckets without retaining a diagram body.
+ */
+export function auditStaticLocators({ source, model, parseFlowchartSource, sliceUtf8ByteSpan }) {
+  const reparsed = parseFlowchartSource(source);
+  if (reparsed.kind !== 'ok') return { kind: 'unsafe', reasons: ['source_not_canonically_supported'] };
+
+  const syntaxDerived = new Set(
+    reparsed.model.nodes.flatMap((node) => node.occurrences.map((occurrence) => locatorKey(node.nativeId, occurrence))),
+  );
+  const edgeStatements = new Map(
+    model.edges.map((edge) => [`${edge.span.startByte}:${edge.span.endByte}`, new Set(edge.endpointNativeIds)]),
+  );
+  const reasons = new Set();
+  const seen = new Set();
+  const locators = [];
+
+  for (const node of model.nodes) {
+    const primaryKey = locatorKey(node.nativeId, node.primaryOccurrence);
+    if (!syntaxDerived.has(primaryKey)) reasons.add('primary_locator_not_syntax_derived');
+    if (!node.occurrences.some((occurrence) => locatorKey(node.nativeId, occurrence) === primaryKey)) {
+      reasons.add('primary_locator_not_an_occurrence');
+    }
+    for (const [occurrenceIndex, occurrence] of node.occurrences.entries()) {
+      const key = locatorKey(node.nativeId, occurrence);
+      if (seen.has(key)) reasons.add('locator_collision');
+      seen.add(key);
+      if (!syntaxDerived.has(key)) reasons.add('locator_not_syntax_derived');
+
+      let fragment = '';
+      try {
+        fragment = sliceUtf8ByteSpan(source, occurrence.span);
+      } catch {
+        reasons.add('invalid_utf8_span');
+      }
+      if (!fragment.trim()) reasons.add('empty_node_span');
+
+      let statementFragment = '';
+      try {
+        statementFragment = sliceUtf8ByteSpan(source, occurrence.statementSpan);
+      } catch {
+        reasons.add('invalid_utf8_statement_span');
+      }
+
+      const fragmentParse = fragment
+        ? parseFlowchartSource(
+          occurrence.role === 'edge_endpoint'
+            ? `flowchart TD\n__locator_audit__ --> ${fragment}`
+            : `flowchart TD\n${fragment}`,
+        )
+        : { kind: 'unsupported' };
+      if (
+        fragmentParse.kind !== 'ok'
+        || !fragmentParse.model.nodes.some((candidate) =>
+          candidate.nativeId === node.nativeId
+          && candidate.occurrences.some((candidateOccurrence) => candidateOccurrence.role === occurrence.role),
+        )
+      ) {
+        reasons.add('node_fragment_not_round_trippable');
+      }
+
+      if (occurrence.role === 'declaration' && statementFragment.trim() !== fragment) {
+        reasons.add('declaration_fragment_is_not_statement');
+      }
+      if (occurrence.role === 'edge_endpoint') {
+        const endpoints = edgeStatements.get(`${occurrence.statementSpan.startByte}:${occurrence.statementSpan.endByte}`);
+        if (!endpoints?.has(node.nativeId)) reasons.add('edge_endpoint_without_edge_context');
+      }
+
+      locators.push({
+        nativeId: node.nativeId,
+        occurrenceIndex,
+        isPrimary: key === primaryKey,
+        role: occurrence.role,
+        span: occurrence.span,
+        statementSpan: occurrence.statementSpan,
+      });
+    }
+  }
+
+  return reasons.size === 0
+    ? { kind: 'ok', locators }
+    : { kind: 'unsafe', reasons: [...reasons].sort() };
+}
+
 function increment(counter, key, amount = 1) {
   counter[key] = (counter[key] ?? 0) + amount;
 }
@@ -150,16 +248,6 @@ function queryD1(sql) {
   return result;
 }
 
-function sqlString(value) {
-  return `'${String(value).replaceAll("'", "''")}'`;
-}
-
-function rowsForVersions(keys) {
-  if (keys.length === 0) return [];
-  const predicate = keys.map(({ contentId, appId }) => `(contentId = ${sqlString(contentId)} AND appId = ${sqlString(appId)})`).join(' OR ');
-  return queryD1(`SELECT contentId, appId, versionNumber, body FROM CustomContentVersion WHERE ${predicate} ORDER BY contentId, appId, versionNumber DESC`);
-}
-
 async function loadState(stateFile) {
   try {
     const parsed = JSON.parse(await readFile(stateFile, 'utf8'));
@@ -182,19 +270,17 @@ function newMetrics() {
     contents: 0,
     storedBodies: {},
     publicParse: {},
-    flowchartEligibility: {},
+    flowchartSyntax: {},
+    locatorEligibility: {},
+    locatorFailureReasons: {},
+    locatorRoles: {},
     unsupportedReasons: {},
     nativeIdShapes: {},
     canonicalNodes: 0,
     nodeOccurrences: 0,
     repeatedNodeOccurrences: 0,
-    adjacentVersionPairs: 0,
-    pairOutcomes: {},
-    pairUnsupported: {},
-    decisions: {},
-    relocationEvidence: 0,
-    topologyComparableNodes: 0,
-    sameNativeIdCandidates: 0,
+    primaryLocators: 0,
+    staticFingerprints: 0,
   };
 }
 
@@ -207,7 +293,6 @@ async function importDomain() {
     parseFlowchartSource: flowchart.parseFlowchartSource,
     sliceUtf8ByteSpan: locator.sliceUtf8ByteSpan,
     fingerprintFlowchartNode: reconciliation.fingerprintFlowchartNode,
-    reconcileFlowchartNodes: reconciliation.reconcileFlowchartNodes,
     validateMermaid: (source) => parser.parseDsl('mermaid', source),
   };
 }
@@ -217,56 +302,41 @@ async function analyzeCurrentBody(body, metrics, domain) {
   increment(metrics.storedBodies, stored.kind);
   if (stored.kind !== 'ok') return;
 
-  const parsed = domain.parseFlowchartSource(stored.code);
   const validation = await domain.validateMermaid(stored.code);
   increment(metrics.publicParse, validation.ok ? 'valid' : 'invalid');
+  if (!validation.ok) return;
+
+  const parsed = domain.parseFlowchartSource(stored.code);
   if (parsed.kind !== 'ok') {
-    increment(metrics.flowchartEligibility, 'unsupported');
+    increment(metrics.flowchartSyntax, 'unsupported');
     increment(metrics.unsupportedReasons, parsed.reason);
     return;
   }
-  if (!validation.ok) {
-    increment(metrics.flowchartEligibility, 'invalid_mermaid');
+  increment(metrics.flowchartSyntax, 'supported');
+
+  const locatorAudit = auditStaticLocators({
+    source: stored.code,
+    model: parsed.model,
+    parseFlowchartSource: domain.parseFlowchartSource,
+    sliceUtf8ByteSpan: domain.sliceUtf8ByteSpan,
+  });
+  if (locatorAudit.kind !== 'ok') {
+    increment(metrics.locatorEligibility, 'unsafe');
+    for (const reason of locatorAudit.reasons) increment(metrics.locatorFailureReasons, reason);
     return;
   }
-  increment(metrics.flowchartEligibility, 'eligible');
+  increment(metrics.locatorEligibility, 'eligible');
   for (const node of parsed.model.nodes) {
+    void domain.fingerprintFlowchartNode(node);
+    metrics.primaryLocators += 1;
+    metrics.staticFingerprints += 1;
     increment(metrics.nativeIdShapes, idShape(node.nativeId));
     metrics.canonicalNodes += 1;
-    metrics.nodeOccurrences += node.occurrences.length;
+    for (const occurrence of node.occurrences) {
+      metrics.nodeOccurrences += 1;
+      increment(metrics.locatorRoles, occurrence.role);
+    }
     if (node.occurrences.length > 1) metrics.repeatedNodeOccurrences += 1;
-  }
-}
-
-async function analyzeVersions(versionRows, metrics, domain) {
-  const groups = new Map();
-  for (const row of versionRows) {
-    const key = `${row.contentId}\u0000${row.appId}`;
-    const list = groups.get(key) ?? [];
-    list.push(row);
-    groups.set(key, list);
-  }
-  for (const rows of groups.values()) {
-    if (rows.length < 2) continue;
-    const [newer, older] = rows;
-    const oldStored = parseStoredBody(older.body);
-    const newStored = parseStoredBody(newer.body);
-    if (oldStored.kind !== 'ok' || newStored.kind !== 'ok') {
-      increment(metrics.pairUnsupported, oldStored.kind !== 'ok' ? `old_${oldStored.kind}` : `new_${newStored.kind}`);
-      continue;
-    }
-    metrics.adjacentVersionPairs += 1;
-    const result = await analyzePair({ oldSource: oldStored.code, newSource: newStored.code, domain });
-    if (result.kind !== 'ok') {
-      increment(metrics.pairOutcomes, 'unsupported');
-      increment(metrics.pairUnsupported, `${result.oldKind}_to_${result.newKind}`);
-      continue;
-    }
-    increment(metrics.pairOutcomes, 'eligible');
-    metrics.relocationEvidence += result.relocationEvidenceCount;
-    metrics.topologyComparableNodes += result.topologyComparable;
-    metrics.sameNativeIdCandidates += result.sameNativeIdCandidates;
-    for (const decision of result.decisions) increment(metrics.decisions, decision.status);
   }
 }
 
@@ -295,8 +365,8 @@ function parseOptions(argv) {
 
 export async function main(argv = process.argv.slice(2)) {
   const options = parseOptions(argv);
-  const schema = queryD1("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name IN ('CustomContent', 'CustomContentVersion') ORDER BY name");
-  const counts = queryD1("SELECT COUNT(*) AS mermaid_contents, SUM(CASE WHEN latestVersionNumber > 1 THEN 1 ELSE 0 END) AS contents_with_history, SUM(latestVersionNumber) AS mirrored_versions FROM CustomContent WHERE diagramType = 'mermaid'");
+  const schema = queryD1("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name = 'CustomContent'");
+  const counts = queryD1("SELECT COUNT(*) AS mermaid_contents FROM CustomContent WHERE diagramType = 'mermaid'");
   const preflight = { mode: options.run ? 'run' : 'dry_run', schemaTables: schema.map((row) => row.name).sort(), corpus: counts[0] };
   if (!options.run) {
     console.log(JSON.stringify(preflight, null, 2));
@@ -325,13 +395,12 @@ export async function main(argv = process.argv.slice(2)) {
       state.metrics.contents += 1;
       await analyzeCurrentBody(content.body, state.metrics, domain);
     }
-    await analyzeVersions(rowsForVersions(contents), state.metrics, domain);
     state.offset += contents.length;
     await saveJson(stateFile, state);
   }
 
   const report = {
-    experiment: 'architecture_tokens_flowchart_shadow_v1',
+    experiment: 'architecture_tokens_static_flowchart_locator_audit_v1',
     generatedAt: new Date().toISOString(),
     corpus: counts[0],
     sample: { scope: queryScope, requestedContents: options.limit, processedContents: state.metrics.contents, finalOffset: state.offset },
@@ -341,11 +410,10 @@ export async function main(argv = process.argv.slice(2)) {
       canonicalStore: 'confluence_custom_content',
       mirrorCaveat: 'D1 is a best-effort mirror; missing rows are not proof that Confluence lacks a revision',
     },
-    algorithmScope: {
-      autoConfirm: 'unique exact UTF-8 node-span relocation plus exact fingerprint',
-      nativeId: 'candidate evidence only; never automatic proof',
-      topology: 'signal availability only; global weighted assignment is not implemented in this experiment',
-      precision: 'unverified without manual review or external identity ground truth',
+    phaseScope: {
+      staticLocator: 'single current Flowchart source only; source-derived UTF-8 node-occurrence spans and role/context round trips',
+      parsing: 'public Mermaid parse plus owned canonical Flowchart subset, each reported separately',
+      deferred: 'historical versions, reconciliation, retention, global matching, and topology are out of scope for this phase',
     },
     metrics: state.metrics,
   };

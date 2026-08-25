@@ -22,6 +22,7 @@ export type CanonicalNode = Readonly<{
   label: string | null;
   shape: string | null;
   containerPath: readonly string[];
+  primaryOccurrence: NodeOccurrence;
   occurrences: readonly NodeOccurrence[];
   incidentNativeIds: readonly string[];
   statementContexts: readonly string[];
@@ -144,6 +145,8 @@ export function parseFlowchartSource(source: string): FlowchartParseResult {
         label: node.label,
         shape: node.shape,
         containerPath: node.containerPath,
+        primaryOccurrence: node.occurrences.find((occurrence) => occurrence.role === 'declaration')
+          ?? node.occurrences[0],
         occurrences: node.occurrences,
         incidentNativeIds: [...node.incidentNativeIds].sort(),
         statementContexts: [...node.statementContexts].sort(),

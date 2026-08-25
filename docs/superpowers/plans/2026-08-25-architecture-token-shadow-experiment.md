@@ -1,18 +1,35 @@
-# Architecture Tokens: read-only reconciliation shadow experiment
+# Architecture Tokens: read-only static Flowchart locator audit
+
+## Authoritative phase order
+
+This phase follows the task-provided **Source Binding Engine** design. Its
+pipeline is a set of strict preconditions:
+
+1. **Official syntax check** through Mermaid's public `parse()` API.
+2. **Flowchart Source Parser** without Mermaid AST internals.
+3. **Canonical elements**: nodes, edges, and subgraphs, with nodes as the only
+   current binding candidates.
+4. **Locator + Fingerprint** as static revision evidence.
+5. **Revision update (deferred)**: compare previous revision, text diff, exact
+   relocation, native-ID candidates, fingerprint/structural matching, global
+   assignment, split/merge, AI suggestions, and user confirmation.
+
+The Source Binding Engine's revision-update Stage 0 and later stages are
+downstream of this audit. They are not a Phase 1 acceptance criterion or
+output.
 
 ## Purpose
 
-Test whether the existing D1 mirror contains enough **Mermaid Flowchart**
-source and adjacent historical revisions to justify further work on
-locator/fingerprint/topology reconciliation. This is evidence gathering only:
-it must never write D1, Confluence, token bindings, or user-visible content.
+Test whether a single, current Mermaid source can safely yield static
+Flowchart-node locators. This is evidence gathering only: it must never write
+D1, Confluence, token bindings, or user-visible content.
 
 Architecture Tokens are source-agnostic: diagrams, Confluence prose/ADF,
 specifications, and later code/config are future evidence adapters. This
-experiment tests one adapter (`mermaid_flowchart`) only. Its eligibility and
-outcome distribution cannot establish token coverage, token precision, or the
-quality of other adapters; a source occurrence remains an extracted candidate
-until separately confirmed as a logical token.
+experiment tests one adapter (`mermaid_flowchart`) only. Its syntax and locator
+eligibility cannot establish token coverage, token precision, or the quality
+of other adapters; a source occurrence remains an extracted candidate until
+separately confirmed as a logical token.
 
 The product remains Confluence-first. Future source and binding metadata is
 canonical in Confluence custom content; the D1 mirror is an optional,
@@ -23,22 +40,35 @@ best-effort projection and may be incomplete, delayed, or unavailable.
 - Mermaid only; Flowchart nodes only.
 - Syntax is checked through Mermaid's public `parse()` API via the existing
   isomorphic parser. No Mermaid AST internals are read.
-- Canonicalisation, UTF-8 locators, fingerprints, and stage-one reconciliation
-  reuse the Architecture Tokens domain modules.
-- The experiment uses only `SELECT`/`WITH` statements against
-  `CustomContent` and `CustomContentVersion`.
-- A bounded general current-content sample supplies eligibility and ID-shape
-  metrics; adjacent version pairs from the same sample supply historical
-  simulations. A separately labelled, bounded `flowchart`/`graph`
-  text-candidate sample may enrich historical Flowchart pairs. It is not a
-  prevalence sample and must never be compared as one.
-- The current reconciler can auto-confirm only a unique exact node-span
-  relocation plus an exact fingerprint. Native Mermaid IDs are evidence only.
-  Delete/recreate, split/merge, conflicts, and uncertainty remain
-  fail-closed.
-- Topology is measured as signal availability and exact-neighbour agreement.
-  The planned global maximum-weight and iterative topology assignment is not
-  implemented by this experiment, so it cannot be claimed validated.
+- Canonicalisation, UTF-8 locators, and static fingerprint facts reuse the
+  Architecture Tokens domain modules. They do not migrate an identity here.
+- The experiment uses only `SELECT`/`WITH` statements against current
+  `CustomContent` bodies. It does not read `CustomContentVersion` in this
+  phase.
+- A bounded general current-content sample supplies static locator coverage. A
+  separately labelled, bounded `flowchart`/`graph` text-candidate sample may
+  enrich supported syntax. It is not a prevalence sample and must never be
+  compared as one.
+- Version-change reconciliation, relocation, relationship discovery, global
+  matching, topology, split/merge, AI, and user confirmation are deferred.
+
+## Static locator contract
+
+One `CanonicalNode` represents the logical node for one native Mermaid ID in a
+revision and may have multiple `NodeOccurrence`s. A locator records its
+UTF-8 node span, enclosing statement span, and syntax role
+(`declaration` or `edge_endpoint`). The canonical node is the primary element;
+the locators are its source occurrences. Its primary locator is deterministic:
+the first explicit declaration when one exists, otherwise the first
+edge-endpoint occurrence. All remaining occurrences stay attached as evidence.
+
+The static audit verifies every supplied locator against a fresh parse of the
+same source, decodes its UTF-8 span, reparses the decoded fragment as exactly
+one expected node, and checks its declaration/edge-endpoint statement context.
+It also verifies that the primary locator is one of that node's syntax-derived
+occurrences. It rejects an unsafe locator with an explicit reason. Edge labels, style/class
+references, subgraph labels, edges, subgraphs, and other non-node text are
+never node locators or v1 binding targets. Unsupported syntax fails closed.
 
 ## Reproducible execution
 
@@ -60,11 +90,12 @@ Run sequence:
 
 1. `node --experimental-strip-types --experimental-loader ./scripts/architecture-token-shadow-loader.mjs scripts/architecture-token-shadow.mjs --dry-run`
 2. Review schema/count output and the mirror-coverage caveat.
-3. Run a bounded general sample with `--run --limit 250 --batch-size 25`.
-4. If eligible historical pairs are insufficient, run a separate, bounded
-   prefiltered sample with `--flowchart-candidates --state-dir <new-local-dir>`.
+3. Run a bounded general static audit with
+   `--run --limit 250 --batch-size 25`.
+4. Run a separate, bounded prefiltered static audit with
+   `--flowchart-candidates --state-dir <new-local-dir>`.
    The prefilter is only `body LIKE '%flowchart%' OR body LIKE '%graph%'`; the
-   public parser and canonical parser still decide eligibility.
+   public parser, canonical parser, and locator audit still decide eligibility.
 5. Read aggregate reports only. Do not inspect or copy captured source.
 
 ## Measures
@@ -72,29 +103,80 @@ Run sequence:
 The report records only counts/rates for:
 
 - stored-body JSON availability and `code` extraction;
-- public Mermaid parseability and Flowchart canonical-parser eligibility;
-- node/occurrence counts, repeated source occurrences per logical node, and
-  explicitly labelled heuristic native-ID shapes;
-- same-content adjacent-version availability and pair coverage;
-- reconciliation outcomes: `confirmed_automatic`, `needs_confirmation`,
-  `ambiguous`, `orphaned`, and `unsupported`;
-- relocation evidence availability and topology-signal availability.
+- public Mermaid parseability, owned canonical-parser support, and unsupported
+  syntax reason buckets as separate measures;
+- safe versus unsafe static locator sources, unsafe-locator reason buckets,
+  primary-locator count, and declaration/edge-endpoint occurrence counts;
+- logical-node/occurrence counts, repeated source occurrences per logical
+  node, static base-fingerprint count, and explicitly labelled heuristic
+  native-ID shapes.
 
-`confirmed_automatic` in this report means only the current narrow algorithm
-could prove continuity for a Mermaid-source candidate. It is **not token
-confirmation or precision**. Without manual review or external identity ground
-truth, every precision/recall interpretation remains unverified.
+No outcome in this report is token confirmation, retention, or reconciliation
+precision. Without manual review or external identity ground truth, every
+precision/recall interpretation remains unverified and out of scope.
 
 ## Coverage limitations
 
 The D1 rows are a best-effort mirror written after a Confluence refetch. A
-missing row/version/body is therefore mirror coverage evidence, not evidence
-that the canonical Confluence revision never existed. The report distinguishes
+missing row/body is therefore mirror coverage evidence, not evidence that the
+canonical Confluence revision never existed. The report distinguishes
 missing/unreadable stored bodies, Mermaid parse failures, non-Flowchart
-sources, and canonical-parser unsupported syntax so future product design does
-not overgeneralise from the mirror.
+sources, canonical-parser unsupported syntax, and unsafe locators so future
+product design does not overgeneralise from the mirror.
 
-## Sanitized run evidence (2026-08-25)
+## Static locator audit evidence (2026-08-25)
+
+The revised harness completed a current-body-only dry run against the
+production D1 mirror using guarded read-only queries. It found 44,968 Mermaid
+contents in that optional mirror. It then ran two bounded, separate cohorts.
+No source body, content ID, title, tenant, native ID, locator, or fingerprint
+was retained outside process memory; local reports/checkpoints contain
+aggregate counts only.
+
+| Cohort | Body extraction | Public Mermaid valid | Owned syntax supported | Safe locator sources | Unsafe locator sources |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 250 recent Mermaid bodies (general, not Flowchart prevalence) | 250/250 | 241/250 | 68/241 | 68/68 | 0/68 |
+| 500 `flowchart`/`graph` text candidates (candidate-enriched, **not prevalence**) | 500/500 | 499/500 | 253/499 | 253/253 | 0/253 |
+
+For every source that passed both syntax gates, the static audit found no
+unsafe locator reason. It decoded and round-tripped 1,711 source occurrences
+in the general cohort (292 `declaration`, 1,419 `edge_endpoint`) and 6,241 in
+the candidate cohort (1,023 `declaration`, 5,218 `edge_endpoint`). The audit
+also produced one static base fingerprint per canonical node: 700 in the
+general cohort and 2,594 in the candidate cohort, together with the same
+number of verified primary locators. These are static evidence facts only; no
+fingerprint was used to compare revisions, retain a binding, or confirm a
+token.
+
+The audit initially exposed two harness-context errors, corrected before the
+reported run with public fixtures: declarations may be indented within their
+statement, and an edge endpoint such as `end` must be round-tripped in its
+edge-endpoint syntax role rather than as a standalone statement. The final
+audit keeps both checks explicit and still rejects a span tampered to a label
+as `locator_not_syntax_derived`. Thus zero unsafe results mean “no failure of
+this tested source-derived locator contract in these bounded cohorts,” not a
+claim of complete Mermaid grammar coverage or externally verified semantic
+identity.
+
+The remaining public-valid but owned-parser-unsupported current sources have
+these explicit fail-closed buckets:
+
+| Cohort | Not a Flowchart | Unsupported Flowchart statement | Unsupported edge endpoint |
+| --- | ---: | ---: | ---: |
+| General | 123 | 47 | 3 |
+| Text candidate | 37 | 195 | 14 |
+
+`unsupported_flowchart_statement` is the largest remaining static syntax gap.
+The next parser slice must classify it with sanitized fixtures before adding
+support. It must not be relaxed into a locator guess.
+
+## Pre-gate historical context — deferred, not a Phase 1 result (2026-08-25)
+
+These read-only aggregate results were gathered before the static-locator gate
+was restored. They are retained only because no source or identifier was
+persisted, but they do **not** demonstrate locator correctness and must not
+guide version-change implementation. The current harness no longer fetches
+historical versions or emits reconciliation metrics.
 
 The harness completed its schema/count dry run against the production D1
 mirror using only read-only queries. At the time of the run it reported 44,958
@@ -128,18 +210,85 @@ experiment has not implemented weighted global assignment or topology scoring.
 They must not be read as precision, recall, token-confirmation, or token
 coverage measurements.
 
-### Decision interpretation
+### Superseded interpretation
 
-The D1 mirror has ample Mermaid content and historical-edit volume to continue
-the experiment, and the 18 supported historical pairs establish a preliminary
-fail-closed reconciliation seam. It does **not** yet establish production
-viability: the parser accepts only 16% of the candidate-enriched sample and
-the supported historical set is too small to validate ambiguity/topology
-distributions. Before productising reconciliation, broaden the owned parser's
-explicit Flowchart subset (starting with the observed endpoint/statement
-classes), add fixture tests, then repeat a larger stratified experiment. Keep
-the general and candidate-enriched samples separate, and retain the
-Confluence-first storage boundary throughout.
+The historical-pair and reconciler values above are explicitly deferred. They
+do not establish a reconciliation seam, identity continuity, ambiguity
+distribution, or production viability. The only still-relevant static evidence
+is bounded parser coverage; the next required evidence is the current-source
+locator audit described above.
+
+## Parser-slice static syntax context — pre-locator-audit (2026-08-25)
+
+After the labelled-edge parser slice, the same guarded harness was run again
+against the production D1 mirror. It first completed the schema/count dry run,
+then processed two independent bounded cohorts: a 250-content general Mermaid
+sample and a 500-content `flowchart`/`graph` text-candidate sample. The latter
+is candidate-enriched and is **not** a prevalence sample. The harness issued
+only its single-statement `SELECT` queries; source bodies, content IDs, titles,
+tenants, and native IDs remained in memory and only local aggregate
+checkpoints/reports were written under `/private/tmp`.
+
+The fresh mirror dry run reported 44,965 Mermaid contents. It describes the
+optional D1 mirror rather than canonical Confluence.
+
+| Cohort | Extractable body | Public Mermaid valid | Current canonical parser eligible |
+| --- | ---: | ---: | ---: |
+| 250 recent Mermaid contents (general, not Flowchart prevalence) | 250/250 | 241/250 | 68/250 |
+| 500 `flowchart`/`graph` text candidates (candidate-enriched, **not prevalence**) | 500/500 | 499/500 | 253/500 |
+
+For context, the first run using the prior parser reported 15/250 eligible in
+the general cohort and 80/500 in the candidate-enriched cohort. The second run
+therefore observed +53 and +173 eligible current sources respectively under
+the same bounded sampling framing. This is a compatible live-mirror comparison,
+not a controlled replay of an identical stored corpus: the mirror grew from
+44,958 to 44,965 Mermaid rows between runs, and the privacy-preserving harness
+does not retain row identifiers or bodies. It supports the limited conclusion
+that the parser slice materially improved observed eligibility; it does not
+establish an exact causal percentage for a fixed population.
+
+### Deferred reconciliation simulation counts
+
+These pre-gate counts are retained only as local aggregate context. They are
+not parsed as static-locator success, must not be compared or extended in this
+phase, and do not justify change handling.
+
+| Cohort | Pair outcomes (eligible / unsupported) | `confirmed_automatic` | `needs_confirmation` | `ambiguous` | `orphaned` | Relocation evidence | Same-native-ID candidates | Nodes with topology signal |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| General | 21 / 59 | 174 | 27 | 0 | 0 | 193 | 201 | 190 |
+| Text candidate | 70 / 101 | 498 | 159 | 8 | 5 | 634 | 663 | 655 |
+
+No manual review or external ground truth was used. These values make no
+precision, recall, token-confirmation, retention, or global-matching claim.
+
+### Remaining explicit parser gaps
+
+The owned parser rejected 182/250 current general sources and 247/500 current
+text candidates. Its explicit fail-closed buckets were:
+
+| Cohort | Not a Flowchart | Unsupported Flowchart statement | Unsupported edge endpoint |
+| --- | ---: | ---: | ---: |
+| General | 132 | 47 | 3 |
+| Text candidate | 38 | 195 | 14 |
+
+`unsupported_flowchart_statement` is now the largest owned-syntax gap in both
+cohorts and is the highest-value next investigation. It needs a separate,
+fixture-driven classification before support is added; this aggregate run does
+not retain source text and therefore cannot safely name a more granular syntax
+family. `unsupported_edge_endpoint` remains explicitly fail-closed rather
+than being relaxed. Public Mermaid validity stays intentionally separate from
+owned canonical-parser support (241/250 valid general sources and 499/500
+valid text candidates).
+
+### Corrected decision interpretation after the second run
+
+The parser enhancement makes static locator measurement practical: the
+candidate-enriched cohort has 253 current parser-eligible sources. It does not
+yet prove a safe locator, justify version-change handling, product persistence,
+UI, backend indexing, or a change to the Confluence-first boundary. The next
+output is the static locator coverage and failure taxonomy from the revised
+harness. Keep the general and text-prefiltered cohorts separate and do not
+treat D1 mirror data as Confluence ground truth.
 
 ## Safe committed artifacts
 

@@ -56,10 +56,26 @@ comp gets treated as a 1st.
 ```bash
 NS=8969e8528105403bb2d9adca9fc16567
 CLOUD=$(curl -s https://<tenant>.atlassian.net/_edge/tenant_info | python3 -c "import sys,json;print(json.load(sys.stdin)['cloudId'])")
-npx wrangler kv key list --namespace-id=$NS --remote 2>/dev/null \
-  | python3 -c "import sys,json;raw=sys.stdin.read();i=raw.find('[');print('\n'.join(k['name'] for k in json.loads(raw[i:]) if '$CLOUD' in k['name']))"
+# --prefix filters server-side: the response is this tenant's keys only, not all ~1,300.
+# Wall-clock is the same (~3s either way), but the unfiltered response is ~97 KB of JSON
+# that has to pass through the agent's context. Always pass --prefix.
+npx wrangler kv key list --namespace-id=$NS --remote --prefix "license:$CLOUD"
 # then read each one for its expiresAt / activatedBy (which should name the ticket)
 ```
+
+**If `npx wrangler` dies with `MODULE_NOT_FOUND` on `node_modules/wrangler/bin/wrangler.js`:**
+the top-level `node_modules/wrangler` symlink is dangling — pnpm points it at a sibling
+worktree's store, and removing that worktree breaks it (104 top-level links were dangling
+in the main checkout on 2026-08-25, all aimed at a deleted `.worktrees/…` path). The package
+itself is still in the local store. Repoint the one link instead of a full reinstall:
+
+```bash
+ln -sfn ".pnpm/wrangler@<version>_<hash>/node_modules/wrangler" node_modules/wrangler
+```
+
+The script also honours `WRANGLER_CMD` (e.g. `WRANGLER_CMD="npx --yes wrangler@4"`) as a
+fallback when the local install cannot be repaired — that path downloads the package and
+costs ~2.5 s more per call.
 
 Also note **who** asked each time. Requests arrive per-person, so a per-tenant
 "don't renew again" rule is structurally defeatable: three vin3s tickets came from

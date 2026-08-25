@@ -18,6 +18,10 @@ import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentI
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { guardEditClick } from '@/utils/guardEditClick';
 import { attributionFromCustomContent } from '@/model/DiagramAttribution';
+import {
+  GRAPH_EDITOR_MODE_CONFIG_KEY,
+  normalizeGraphEditorMode,
+} from '@/utils/graph/graphEditorMode';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
@@ -166,9 +170,14 @@ function afterLoad(doc: Diagram | undefined) {
 
 async function initializeMacro() {
   await ensureDrawioViewerLoaded();
+  const context = await initForgeContext();
+  const graphEditorMode = normalizeGraphEditorMode(
+    context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY],
+  );
   await bootstrapForgeViewer({
     macroKind: 'graph',
     content: ForgeGraphViewer,
+    contentProps: { graphEditorMode },
     loadDiagram,
     afterLoad,
     // Same id `loadDiagram` reads off `context.extension.config` above.

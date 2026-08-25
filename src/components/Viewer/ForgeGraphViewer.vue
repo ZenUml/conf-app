@@ -46,13 +46,18 @@
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
+import { normalizeGraphEditorMode } from "@/utils/graph/graphEditorMode";
 export default {
   name: "ForgeGraphViewer",
   components: {
     GenericViewer
   },
   props: {
-    graphXml: String
+    graphXml: String,
+    graphEditorMode: {
+      type: String,
+      default: 'diagram',
+    },
   },
   data() {
     return {
@@ -66,7 +71,11 @@ export default {
   },
   computed: {
     effectiveGraphXml() {
-      return this.graphXml || this.$store.state.diagram?.graphXml;
+      const diagram = this.$store.state.diagram;
+      if (normalizeGraphEditorMode(this.graphEditorMode) === 'board' && diagram?.boardGraphXml) {
+        return diagram.boardGraphXml;
+      }
+      return this.graphXml || diagram?.graphXml;
     }
   },
   watch: {

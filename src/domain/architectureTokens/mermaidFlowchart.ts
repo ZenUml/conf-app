@@ -1,0 +1,300 @@
+import { utf8ByteSpanFor, type Utf8ByteSpan } from './utf8Locator';
+
+/**
+ * An intentionally small canonical model for Mermaid Flowchart source.
+ *
+ * Mermaid itself remains the syntax authority: callers must validate with its
+ * public `parse()` API before using this parser. This module never reads a
+ * Mermaid AST and intentionally returns `unsupported` instead of guessing.
+ */
+
+export type { Utf8ByteSpan } from './utf8Locator';
+
+export type NodeOccurrence = Readonly<{
+  span: Utf8ByteSpan;
+  statementSpan: Utf8ByteSpan;
+  role: 'declaration' | 'edge_endpoint';
+}>;
+
+export type CanonicalNode = Readonly<{
+  kind: 'node';
+  nativeId: string;
+  label: string | null;
+  shape: string | null;
+  containerPath: readonly string[];
+  occurrences: readonly NodeOccurrence[];
+  incidentNativeIds: readonly string[];
+  statementContexts: readonly string[];
+}>;
+
+export type CanonicalEdge = Readonly<{
+  kind: 'edge';
+  span: Utf8ByteSpan;
+  endpointNativeIds: readonly string[];
+}>;
+
+export type CanonicalSubgraph = Readonly<{
+  kind: 'subgraph';
+  nativeId: string | null;
+  title: string | null;
+  span: Utf8ByteSpan;
+  containerPath: readonly string[];
+}>;
+
+export type CanonicalFlowchart = Readonly<{
+  kind: 'flowchart';
+  direction: string | null;
+  nodes: readonly CanonicalNode[];
+  edges: readonly CanonicalEdge[];
+  subgraphs: readonly CanonicalSubgraph[];
+}>;
+
+export type FlowchartParseResult =
+  | Readonly<{ kind: 'ok'; model: CanonicalFlowchart }>
+  | Readonly<{ kind: 'unsupported'; reason: string }>;
+
+type CharSpan = Readonly<{ start: number; end: number }>;
+type Statement = Readonly<{ text: string; span: CharSpan }>;
+type MutableNode = {
+  nativeId: string;
+  label: string | null;
+  shape: string | null;
+  containerPath: string[];
+  occurrences: NodeOccurrence[];
+  incidentNativeIds: Set<string>;
+  statementContexts: Set<string>;
+};
+
+const HEADER = /^\s*(?:flowchart|graph)(?:\s+([A-Za-z]{2}))?\s*(?:%%.*)?$/i;
+const NODE_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]*/;
+
+/**
+ * Parses only the supported Flowchart-node subset. `unsupported` is a
+ * fail-closed result, never permission to infer identity from unfamiliar text.
+ */
+export function parseFlowchartSource(source: string): FlowchartParseResult {
+  const statements = splitStatements(source);
+  const first = statements.find((statement) => !isComment(statement.text));
+  if (!first) return { kind: 'unsupported', reason: 'missing_flowchart_header' };
+
+  const header = HEADER.exec(first.text);
+  if (!header) return { kind: 'unsupported', reason: 'not_a_flowchart' };
+
+  const nodes = new Map<string, MutableNode>();
+  const edges: CanonicalEdge[] = [];
+  const subgraphs: CanonicalSubgraph[] = [];
+  const containers: string[] = [];
+
+  for (const statement of statements.slice(statements.indexOf(first) + 1)) {
+    const trimmed = statement.text.trim();
+    if (!trimmed || isComment(trimmed)) continue;
+    if (/^end\s*$/i.test(trimmed)) {
+      if (containers.length === 0) return { kind: 'unsupported', reason: 'unmatched_subgraph_end' };
+      containers.pop();
+      continue;
+    }
+
+    const subgraph = parseSubgraph(trimmed, statement);
+    if (subgraph) {
+      subgraphs.push({
+        kind: 'subgraph',
+        nativeId: subgraph.nativeId,
+        title: subgraph.title,
+        span: toByteSpan(source, statement.span),
+        containerPath: [...containers],
+      });
+      containers.push(subgraph.nativeId ?? subgraph.title ?? `anonymous-${subgraphs.length}`);
+      continue;
+    }
+
+    const endpointSpans = splitEdgeEndpoints(statement);
+    if (endpointSpans.length > 1) {
+      const endpointIds: string[] = [];
+      for (const endpoint of endpointSpans) {
+        const parsed = parseNode(source.slice(endpoint.start, endpoint.end));
+        if (!parsed) return { kind: 'unsupported', reason: 'unsupported_edge_endpoint' };
+        endpointIds.push(parsed.nativeId);
+        recordNode(nodes, source, statement, endpoint, parsed, 'edge_endpoint', containers);
+      }
+      for (let index = 0; index < endpointIds.length - 1; index += 1) {
+        nodes.get(endpointIds[index])?.incidentNativeIds.add(endpointIds[index + 1]);
+        nodes.get(endpointIds[index + 1])?.incidentNativeIds.add(endpointIds[index]);
+      }
+      edges.push({ kind: 'edge', span: toByteSpan(source, statement.span), endpointNativeIds: endpointIds });
+      continue;
+    }
+
+    const declaration = trimSpan(source, statement.span);
+    const parsed = parseNode(source.slice(declaration.start, declaration.end));
+    if (!parsed) return { kind: 'unsupported', reason: 'unsupported_flowchart_statement' };
+    recordNode(nodes, source, statement, declaration, parsed, 'declaration', containers);
+  }
+
+  if (containers.length > 0) return { kind: 'unsupported', reason: 'unclosed_subgraph' };
+
+  return {
+    kind: 'ok',
+    model: {
+      kind: 'flowchart',
+      direction: header[1]?.toUpperCase() ?? null,
+      nodes: [...nodes.values()].map((node): CanonicalNode => ({
+        kind: 'node',
+        nativeId: node.nativeId,
+        label: node.label,
+        shape: node.shape,
+        containerPath: node.containerPath,
+        occurrences: node.occurrences,
+        incidentNativeIds: [...node.incidentNativeIds].sort(),
+        statementContexts: [...node.statementContexts].sort(),
+      })),
+      edges,
+      subgraphs,
+    },
+  };
+}
+
+function recordNode(
+  nodes: Map<string, MutableNode>,
+  source: string,
+  statement: Statement,
+  nodeSpan: CharSpan,
+  parsed: { nativeId: string; label: string | null; shape: string | null },
+  role: NodeOccurrence['role'],
+  containers: readonly string[],
+): void {
+  let node = nodes.get(parsed.nativeId);
+  if (!node) {
+    node = {
+      nativeId: parsed.nativeId,
+      label: parsed.label,
+      shape: parsed.shape,
+      containerPath: [...containers],
+      occurrences: [],
+      incidentNativeIds: new Set(),
+      statementContexts: new Set(),
+    };
+    nodes.set(parsed.nativeId, node);
+  } else if (parsed.label !== null || parsed.shape !== null) {
+    node.label = parsed.label;
+    node.shape = parsed.shape;
+  }
+  node.occurrences.push({
+    span: toByteSpan(source, nodeSpan),
+    statementSpan: toByteSpan(source, statement.span),
+    role,
+  });
+  node.statementContexts.add(normalizeStatementContext(statement.text));
+}
+
+function parseSubgraph(text: string, statement: Statement): { nativeId: string | null; title: string | null } | null {
+  if (!/^subgraph\b/i.test(text)) return null;
+  const body = text.replace(/^subgraph\s+/i, '').trim();
+  if (!body) return { nativeId: null, title: null };
+  const node = parseNode(body);
+  if (node) return { nativeId: node.nativeId, title: node.label ?? node.nativeId };
+  if (/^[^[\](){}]+$/.test(body)) return { nativeId: null, title: body };
+  void statement;
+  return null;
+}
+
+function parseNode(text: string): { nativeId: string; label: string | null; shape: string | null } | null {
+  const trimmed = text.trim();
+  const id = NODE_ID.exec(trimmed);
+  if (!id) return null;
+  const nativeId = id[0];
+  const suffix = trimmed.slice(nativeId.length).trim();
+  if (!suffix) return { nativeId, label: null, shape: null };
+
+  const forms: ReadonlyArray<readonly [string, string, string]> = [
+    ['((', '))', 'double_circle'],
+    ['[[', ']]', 'subroutine'],
+    ['[(', ')]', 'cylinder'],
+    ['[', ']', 'square'],
+    ['(', ')', 'round'],
+    ['{', '}', 'diamond'],
+  ];
+  for (const [open, close, shape] of forms) {
+    if (suffix.startsWith(open) && suffix.endsWith(close)) {
+      const label = suffix.slice(open.length, suffix.length - close.length).trim();
+      return { nativeId, label: unquote(label), shape };
+    }
+  }
+  return null;
+}
+
+function splitEdgeEndpoints(statement: Statement): CharSpan[] {
+  const source = statement.text;
+  const arrows: number[] = [];
+  let quote = false;
+  let depth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '"' && source[index - 1] !== '\\') quote = !quote;
+    if (quote) continue;
+    if ('[({'.includes(char)) depth += 1;
+    if ('])}'.includes(char)) depth -= 1;
+    if (depth !== 0) continue;
+    const arrow = source.slice(index).match(/^(?:<-->|-->|==>|---|-\.->)/);
+    if (arrow) {
+      arrows.push(index);
+      index += arrow[0].length - 1;
+    }
+  }
+  if (arrows.length === 0) return [];
+
+  const segments: CharSpan[] = [];
+  let segmentStart = 0;
+  for (const arrowAt of arrows) {
+    segments.push(trimSpan(source, { start: segmentStart, end: arrowAt }, statement.span.start));
+    const arrow = source.slice(arrowAt).match(/^(?:<-->|-->|==>|---|-\.->)/);
+    segmentStart = arrowAt + (arrow?.[0].length ?? 0);
+  }
+  segments.push(trimSpan(source, { start: segmentStart, end: source.length }, statement.span.start));
+  return segments.filter((span) => span.start < span.end);
+}
+
+function splitStatements(source: string): Statement[] {
+  const statements: Statement[] = [];
+  let start = 0;
+  let quote = false;
+  let depth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '"' && source[index - 1] !== '\\') quote = !quote;
+    if (!quote) {
+      if ('[({'.includes(char)) depth += 1;
+      if ('])}'.includes(char)) depth -= 1;
+      if ((char === '\n' || char === ';') && depth === 0) {
+        const end = char === '\n' && source[index - 1] === '\r' ? index - 1 : index;
+        statements.push({ text: source.slice(start, end), span: { start, end } });
+        start = index + 1;
+      }
+    }
+  }
+  if (start < source.length) statements.push({ text: source.slice(start), span: { start, end: source.length } });
+  return statements;
+}
+
+function trimSpan(source: string, span: CharSpan, offset = 0): CharSpan {
+  let start = offset + span.start;
+  let end = offset + span.end;
+  while (start < end && /\s/.test(source[start - offset])) start += 1;
+  while (end > start && /\s/.test(source[end - 1 - offset])) end -= 1;
+  return { start, end };
+}
+
+function toByteSpan(source: string, span: CharSpan): Utf8ByteSpan {
+  return utf8ByteSpanFor(source, span.start, span.end);
+}
+
+function normalizeStatementContext(statement: string): string {
+  return statement.trim().replace(/\s+/g, ' ');
+}
+
+function unquote(value: string): string {
+  return value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+}
+
+function isComment(text: string): boolean {
+  return /^\s*%%/.test(text);
+}

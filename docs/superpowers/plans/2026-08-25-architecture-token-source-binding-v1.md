@@ -22,11 +22,11 @@ claims to reconcile them.
 | Finding | Evidence | Consequence |
 | --- | --- | --- |
 | Mermaid diagram source is the `mermaidCode` field. | `src/model/Diagram/Diagram.ts:21-39` | Source capture must use that field, not `code`. |
-| The normal save seam is `saveToPlatform`, which saves custom content before post-save telemetry and D1 mirroring. | `src/model/ContentProvider/Persistence.ts:36-168` | Revision capture belongs after a successful custom-content save, and must never make that save unavailable. |
+| The normal save seam is `saveToPlatform`, which saves custom content before post-save telemetry and its optional D1 mirror. | `src/model/ContentProvider/Persistence.ts:36-168` | Binding state must be prepared for the custom-content write; any later projection must never make that save unavailable. |
 | Mermaid has an existing public-API validation path: `mermaid.parse(code)`; the Worker-safe parser also does so behind a DOM shim. | `src/utils/mermaid/validate.ts:10-72`; `functions/agent-link/parseDsl.ts:78-116,145-164` | Validate with Mermaid's public parser. Do not inspect Mermaid parser/renderer AST objects. |
 | The Worker parser module is explicitly isomorphic and uses lazy imports. | `functions/agent-link/parseDsl.ts:1-39` | A pure canonical Flowchart parser can be shared independently; validation stays an adapter around public Mermaid parsing. |
-| Existing D1 data is tenant/app/content scoped and tested for that scope. | `functions/migrations/0018_add_diagram_audience.sql:3-15`; `functions/diagram-impact/repository.ts:3-20` | Every new persistent row must include `cloudId`, `forgeAppId`, and `customContentId`; no cross-tenant lookup is allowed. |
-| A Pages Function route must be explicitly included. | `public/_routes.json:1-40` | Any future `/api/architecture-tokens/*` route requires an allowlist entry. |
+| The Diagram's `metadata` object is serialized into the raw custom-content body; sanitization removes only explicit UI-only fields. | `src/model/Diagram/Diagram.ts:70-84`; `src/model/ApWrapper2.ts:446-472`; `src/model/ApWrapper2.ts:474-500` | A namespaced metadata field can carry v1 binding/revision state without a backend dependency, but must preserve unrelated metadata. |
+| Custom-content source versions can be fetched from Confluence. | `src/model/ApWrapper2.ts:1890-1938` | Historical source/mappings remain recoverable from Confluence versions rather than a backend copy. |
 | Unit tests run through Vitest. | `package.json:6-8` | Parser, canonical-model, reconciliation, repository, and service tests are unit-testable without a browser or cloud access. |
 | SHA-256 using UTF-8 `TextEncoder` and Web Crypto is established in this codebase. | `src/services/debugBundle.ts:74-84`; `functions/metrics-cache/snapshot/common.ts:353-355` | Use the same primitives for normalized-source hashes and byte locators. |
 
@@ -60,10 +60,11 @@ claims to reconcile them.
    identities. A native ID is evidence, not a durable identity.
 2. All persisted source positions are offsets in the UTF-8 byte sequence;
    JavaScript UTF-16 string indexes never cross a persistence or API boundary.
-3. Confluence custom content remains the system of record for diagram source.
-   D1 stores binding/reconciliation metadata, never a required source-recovery
-   copy. If a needed source revision cannot be read, reconciliation fails
-   closed.
+3. Confluence custom content is the canonical v1 store for diagram source,
+   binding state, current revision locators, fingerprints, and reconciliation
+   provenance. Core editing, rendering, recovery, and binding continuity make
+   no backend request. If a needed Confluence source revision cannot be read,
+   reconciliation fails closed.
 4. The same Mermaid native ID after deletion and recreation is a candidate only,
    never automatic proof of identity continuity.
 5. A split, merge, tied best candidate, or candidate below the confirmation
@@ -146,19 +147,22 @@ returns a locator it converts every boundary through a single UTF-8 byte-offset
 index (`TextEncoder`-based), and tests use astral-plane and combining-character
 labels to prove no UTF-16 index leaks through.
 
-## Persistent model
+## Canonical Confluence storage model
 
-All records are scoped by `(cloudId, forgeAppId, customContentId)`. IDs below
-are generated opaque UUID/ULID values; Mermaid IDs and token IDs remain plain
-data, never primary keys for logical elements.
+The raw custom-content body is the canonical v1 envelope. Store an
+`architectureTokenBindingV1` namespace inside `Diagram.metadata`, preserving
+all existing metadata keys. IDs below are generated opaque UUID/ULID values;
+Mermaid IDs and token IDs remain plain data, never primary keys for logical
+elements. Do not copy Mermaid source into this namespace: its sibling
+`mermaidCode` remains authoritative.
 
 | Record | Required fields | Purpose |
 | --- | --- | --- |
-| `SourceRevision` | scope, `sourceRevisionId`, `parentSourceRevisionId?`, `confluenceVersion?`, `normalizedSourceSha256`, `parserVersion`, `validationStatus`, timestamps | Immutable fact that one source version was observed and classified. The source body stays in Confluence; the reconciliation job receives readable old/new bodies. |
-| `DiagramElement` | scope, `diagramElementId`, `kind = node`, `createdInRevisionId`, lifecycle status | Stable logical element identity. It is not a source address or a token. |
+| `SourceRevision` | `sourceRevisionId`, `parentSourceRevisionId?`, `confluenceVersion?`, `normalizedSourceSha256`, `parserVersion`, `validationStatus`, timestamps | Immutable fact that one source version was observed and classified. The source body is its sibling `mermaidCode`; Confluence content versions retain earlier state. |
+| `DiagramElement` | `diagramElementId`, `kind = node`, `createdInRevisionId`, lifecycle status | Stable logical element identity. It is not a source address or a token. |
 | `RevisionLocator` | `sourceRevisionId`, `diagramElementId`, `kind`, UTF-8 `spanStartByte`/`spanEndByte`, statement span, occurrence role, `nativeId?` | Revision-specific address(es) for one element. A logical node can have multiple rows for its occurrences. |
 | `ElementFingerprint` | revision + element, normalized label/shape, container path, native ID, statement context signature, neighbor signature | Explainable matching evidence. No raw full source in the fingerprint. |
-| `TokenBinding` | scope, `tokenBindingId`, `diagramElementId`, opaque external `tokenId`, `status`, confirmation method, timestamps | The user intent: a token is bound to an element. Only an explicit bind or a safe reconciliation can produce `confirmed`. |
+| `TokenBinding` | `tokenBindingId`, `diagramElementId`, opaque external `tokenId`, `status`, confirmation method, timestamps | The user intent: a token is bound to an element. Only an explicit bind or a safe reconciliation can produce `confirmed`. |
 | `ReconciliationRun` + `ReconciliationDecision` | old/new revision IDs, algorithm/parser versions, candidate scores, outcome, reasons, timestamps | Immutable audit provenance, including rejected alternatives and a user decision if one is later supplied. |
 
 `TokenBinding.status` is one of `confirmed`, `unresolved`, `orphaned`, or
@@ -167,19 +171,48 @@ data, never primary keys for logical elements.
 `unsupported_source`. The latter records a decision about a specific revision
 transition; it does not overwrite historical evidence.
 
-The initial migration should use a dedicated sequence number (next is `0021`
-at the time of writing), foreign keys where D1 supports them, and indexes for:
+The current body needs only the latest revision mapping, its stable elements,
+active bindings, and a bounded reconciliation audit. On a later source edit,
+the editor reconciles the loaded current mapping against the new source and
+replaces that latest mapping in the same custom-content body write. Earlier
+source/mapping states are retained by Confluence custom-content version history
+and can be read on demand for a future retry; v1 does not duplicate an
+unbounded revision ledger in the current body.
 
-- scope + latest source revision;
-- revision + locator byte span;
-- element + latest fingerprint;
-- active binding + element;
-- run + old element and run + candidate new element.
+Do not issue a second backend write after a successful diagram save. The state
+is part of the custom-content write itself. A state serialization/validation
+failure must fail closed (keep the editor open and leave the old content
+unchanged), rather than save Mermaid source while silently discarding bindings.
 
-Do not write the new source revision, locators, or binding state until the
-custom-content save has succeeded. A post-save capture failure records a
-non-fatal telemetry failure and schedules no implicit transfer; it must not
-turn a successful diagram save into an error.
+### Size and shape trade-offs
+
+- **Shape:** a raw custom-content body already serializes `Diagram` as JSON,
+  and `sanitizeCustomContentBody` retains non-UI metadata. The v1 codec must
+  merge only `metadata.architectureTokenBindingV1`; replacing `metadata` as a
+  whole would risk unrelated data. The state must be schema-versioned and
+  decoded defensively: malformed/unknown state is read-only/unresolved, never
+  erased by a normal save.
+- **Versions and conflicts:** binding actions and source saves update one raw
+  custom-content document, so each creates a Confluence content version and
+  can encounter the existing optimistic version conflict/retry path. This is
+  the cost of atomic source-plus-binding continuity, but avoids a separate
+  availability dependency.
+- **Bounded footprint:** store hashes, byte locators, compact fingerprints,
+  stable element IDs, token IDs, and bounded audit summaries—not raw source,
+  full candidate matrices, or duplicate historical revisions. Enforce an
+  application-level UTF-8 metadata budget before writing; the exact Confluence
+  custom-content body limit was not found in the consulted official REST/module
+  documentation, so it must be verified before selecting a production cap.
+- **Content properties:** per-content properties are a possible secondary
+  canonical location, but are a worse v1 fit: they require a separate,
+  versioned write and are not coupled atomically to the raw source body.
+  Prefer the namespaced custom-content metadata envelope. Do not use page or
+  space properties for per-diagram bindings.
+- **Optional backend projection:** D1/KV/search indexes may later consume a
+  best-effort projection of canonical Confluence state for cross-diagram
+  search, team graphing, heavyweight reconciliation, or analytics. Projection
+  absence/staleness/outage must be invisible to core editing, rendering,
+  recovery, and binding continuity.
 
 ## Reconciliation algorithm and safety policy
 
@@ -279,43 +312,38 @@ Tests precede persistence and must demonstrate:
 - every confirmed result is one-to-one and every decision contains auditable
   reasons, policy version, and alternatives.
 
-### 3. D1 metadata persistence and protected backend service
+### 3. Confluence custom-content state codec and atomic save integration
 
-Add migration `functions/migrations/0021_add_architecture_token_binding.sql`,
-repository code under `functions/architecture-tokens/`, and unit tests with
-the repository's parameterized-SQL/fake-D1 style. Reuse the verified Forge
-request-scoping pattern in `functions/diagram-impact/service.ts`; never accept
-scope identity from request query/body fields.
+Create a typed `ArchitectureTokenBindingStateV1` codec that reads/writes only
+`Diagram.metadata.architectureTokenBindingV1`. Tests must prove it preserves
+unrelated metadata, rejects malformed or oversized state, carries the current
+revision/element/locator/fingerprint/binding/audit records, and never writes a
+UTF-16 locator. Add an explicit byte-budget constant only after confirming the
+upstream custom-content limit; until then, measure and report the serialized
+size in development without relying on an undocumented ceiling.
 
-Expose only the minimum authenticated mutation/read endpoints after the domain
-tests are green. Add their paths to `public/_routes.json` in the same change.
-The service must:
+Integrate the codec before `saveToPlatform` serializes the Diagram so the
+Mermaid source and its updated canonical state travel in one Confluence
+custom-content PUT. On source changes, reconcile the loaded current state to
+the new valid supported canonical source. On unchanged source, bind/unbind can
+update state without inventing a new source revision. Do not add a backend
+call, a migration, a Pages route, or a background job to this vertical slice.
 
-- derive tenant/app/account scope from Forge request data;
-- verify the target custom content is readable and Mermaid Flowchart before a
-  binding or capture can be written;
-- persist source revision + node metadata transactionally;
-- make revision capture idempotent by normalized-source hash within scope;
-- refuse source capture/reconciliation on invalid or unsupported source;
-- write a reconciliation run and preserve unresolved bindings;
-- never use D1 source bodies as a diagram recovery mechanism.
-
-### 4. Save integration (feature-flagged)
-
-At the existing `saveToPlatform` seam, queue a post-save capture with the
-saved custom-content ID and version. The custom-content save remains the
-success boundary: capture is best-effort and observable, and it must not
-affect the existing save event or macro-config writeback. Initially gate the
-call behind a dedicated Forge feature flag and enable it only for internal
-testing after unit and authenticated-service tests pass.
-
-### 5. Binding UX and confirmation (later vertical slice)
+### 4. Binding UX and confirmation (later vertical slice)
 
 Only after the data/reconciliation contract is proven, add a Flowchart-node
 selection surface and explicit confirmation UI for ambiguous results. The UI
 must show a human-readable reason and retain the old binding as unresolved.
 There is no v1 AI control. A later AI suggestion API may write a candidate with
 `suggested_by = ai`; its state must require an explicit user decision.
+
+### 5. Optional backend projection (explicitly later)
+
+Only after core Confluence-backed binding is proven, consider a separate,
+authenticated and allowlisted projection service. It reads canonical state and
+may fail, be delayed, or be disabled without changing the behavior of a macro
+that is edited, rendered, recovered, or reconciled locally. It is never an
+authoritative write path.
 
 ## Verification gates
 

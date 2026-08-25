@@ -1,0 +1,181 @@
+<template>
+  <aside
+    v-if="visible"
+    class="architecture-binding-status"
+    :class="`architecture-binding-status--${effectiveKind}`"
+    data-testid="architecture-token-binding-status"
+    role="status"
+    aria-live="polite"
+  >
+    <span
+      class="architecture-binding-status__marker"
+      aria-hidden="true"
+    >
+      <span v-if="effectiveKind === 'available'">✓</span>
+      <span v-else-if="effectiveKind === 'stale'">!</span>
+      <span v-else>•</span>
+    </span>
+    <span class="architecture-binding-status__copy">
+      <strong data-testid="architecture-token-binding-status-title">{{ copy.title }}</strong>
+      <span data-testid="architecture-token-binding-status-detail">{{ copy.detail }}</span>
+    </span>
+  </aside>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { useStore } from 'vuex'
+import { DiagramType } from '@/model/Diagram/Diagram'
+import type { ArchitectureTokenBindingReadState } from '@/services/architectureTokens/readMermaidArchitectureTokenBinding'
+import type { ArchitectureBindingReadState } from '@/utils/analytics/catalog'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+
+type PresentedState = Extract<ArchitectureBindingReadState, 'available' | 'stale' | 'untrusted'>
+
+const store = useStore()
+
+function currentSource(): string {
+  const source = store.state.diagram?.mermaidCode
+  return typeof source === 'string' ? source : ''
+}
+
+const sourceAtMount = ref(currentSource())
+
+const diagramType = computed(() => store.state.diagram?.diagramType)
+const mermaidSource = computed(() => currentSource())
+const savedReadState = computed<ArchitectureTokenBindingReadState | undefined>(
+  () => store.state.diagram?.architectureTokenBindingReadState,
+)
+
+function presentedState(kind: unknown): PresentedState | null {
+  return kind === 'available' || kind === 'stale' || kind === 'untrusted'
+    ? kind
+    : null
+}
+
+const savedKind = computed<PresentedState | null>(() => presentedState(savedReadState.value?.kind))
+const sourceChanged = computed(() => mermaidSource.value !== sourceAtMount.value)
+
+// The persisted reader result is intentionally read-only. During an editing
+// session, changing Mermaid source makes an otherwise available snapshot
+// stale until the user returns to the exact source that was loaded. This is a
+// presentation guard only: it does not mutate the stored metadata or claim a
+// reconciliation result.
+const effectiveKind = computed<PresentedState | null>(() => {
+  if (savedKind.value === 'available' && sourceChanged.value) return 'stale'
+  return savedKind.value
+})
+
+const visible = computed(
+  () => diagramType.value === DiagramType.Mermaid && effectiveKind.value !== null,
+)
+
+const presentedKind = computed<PresentedState | null>(() =>
+  visible.value ? effectiveKind.value : null,
+)
+
+const copy = computed(() => {
+  switch (presentedKind.value) {
+    case 'available':
+      return {
+        title: 'Architecture Token evidence available',
+        detail: 'Saved evidence matches this diagram. No changes were made.',
+      }
+    case 'stale':
+      return {
+        title: 'Architecture Token evidence needs review',
+        detail: 'The diagram source has changed since the saved evidence. No changes were made.',
+      }
+    case 'untrusted':
+      return {
+        title: 'Architecture Token evidence unavailable',
+        detail: 'Saved evidence could not be trusted and was left unchanged.',
+      }
+    default:
+      return { title: '', detail: '' }
+  }
+})
+
+watch(
+  presentedKind,
+  (kind, previousKind) => {
+    if (!kind || kind === previousKind) return
+    trackAnalyticsEvent('architecture_binding_read_state_presented', {
+      feature_area: 'architecture_tokens',
+      surface: 'editor',
+      macro_type: 'mermaid',
+      architecture_element_kind: 'node',
+      architecture_binding_read_state: kind,
+      architecture_algorithm_version: 'architecture-token-binding-v1',
+    })
+  },
+  { immediate: true },
+)
+
+defineExpose({ effectiveKind, visible })
+</script>
+
+<style scoped>
+.architecture-binding-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 12px;
+  padding: 8px 10px;
+  border: 1px solid;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.architecture-binding-status__marker {
+  display: inline-flex;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.architecture-binding-status__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.architecture-binding-status--available {
+  border-color: #abf3d0;
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.architecture-binding-status--available .architecture-binding-status__marker {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.architecture-binding-status--stale {
+  border-color: #f8d477;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.architecture-binding-status--stale .architecture-binding-status__marker {
+  background: #f59e0b;
+  color: #ffffff;
+}
+
+.architecture-binding-status--untrusted {
+  border-color: #e9d5ff;
+  background: #faf5ff;
+  color: #6b21a8;
+}
+
+.architecture-binding-status--untrusted .architecture-binding-status__marker {
+  background: #9333ea;
+  color: #ffffff;
+}
+</style>

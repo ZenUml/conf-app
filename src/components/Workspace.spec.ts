@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { vi } from "vitest";
 import Workspace from "@/components/Workspace.vue";
-import { DiagramType } from "@/model/Diagram/Diagram";
+import { DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2/";
 
 vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
@@ -48,6 +48,7 @@ describe("Workspace wiring (#373)", () => {
   beforeEach(() => {
     store.commit("updateDiagramType", DiagramType.Sequence);
     store.commit("updateCode2", "");
+    store.state.diagram.architectureTokenBindingReadState = undefined;
   });
 
   afterEach(() => {
@@ -80,5 +81,19 @@ describe("Workspace wiring (#373)", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+  });
+
+  it("wires the read-only Architecture Token evidence indication into the Mermaid editor", async () => {
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: 'flowchart TD\n  A --> B',
+      architectureTokenBindingReadState: { kind: 'available' },
+    };
+    const wrapper = activeWrapper = mountWorkspace();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="architecture-token-binding-status"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Architecture Token evidence available');
   });
 });

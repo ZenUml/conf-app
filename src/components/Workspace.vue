@@ -15,6 +15,7 @@
         </div>
       </div>
       <div id="syntax-error-box" class="sticky bottom-0 left-0 right-0 z-[1000] bg-white flex-shrink-0" style="position: sticky !important;">
+        <ArchitectureTokenBindingStatus />
         <ForeignDialectHint />
         <SyntaxErrorBox />
       </div>
@@ -29,6 +30,7 @@
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
   import ForeignDialectHint from '@/components/ForeignDialectHint.vue'
+  import ArchitectureTokenBindingStatus from '@/components/ArchitectureTokens/ArchitectureTokenBindingStatus.vue'
 
   export default {
     name: 'Workspace',
@@ -46,7 +48,8 @@
       Header,
       Editor,
       SyntaxErrorBox,
-      ForeignDialectHint
+      ForeignDialectHint,
+      ArchitectureTokenBindingStatus
     }
   }
 </script>

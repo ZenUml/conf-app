@@ -23,8 +23,11 @@ pipeline is a set of strict preconditions:
 8. **Global maximum-weight assignment (Stage 4)** makes one-to-one candidate
    selection evidence from Stage 3 scores only. It still does not identify an
    element or retain a binding.
-9. **Identity resolution (deferred)**: iterative topology, split/merge, AI
-   suggestions, and user confirmation.
+9. **Structural/topology assessment** compares directed neighbors through Gate
+   4's provisional assignments only. It still does not identify an element or
+   retain a binding.
+10. **Identity resolution (deferred)**: iterative topology using confirmed
+    mappings, split/merge, AI suggestions, and user confirmation.
 
 The Source Binding Engine's Stage 0 is a precondition to later version work.
 The Stage 1 helper is a source-address preparation seam only; it is not a
@@ -181,6 +184,25 @@ selection. A unique selection records its component maximum score and proof
 `unique_maximum_weight_assignment`, then stops at
 `nextRequiredGate: structural_topology_assessment`. It is not a logical
 identity, binding retention/transfer, status update, or split/merge result.
+
+## Structural/topology assessment (after Gate 4 only)
+
+`structuralTopologyAssessment.ts` derives directed incoming and outgoing
+neighbors from the owned Flowchart canonical edges, then maps old neighbor IDs
+through Gate 4's one-to-one selected assignments. It compares each non-empty
+direction with the corresponding new neighbor set using Jaccard similarity and
+emits the mapped old and new sets for audit. The Gate 4 mapping is explicitly
+labelled *provisional assignment evidence*, not an identity or a confirmed
+mapping.
+
+The stage fails closed if its supplied Gate 4 selections are no longer
+one-to-one, either revision lacks a unique canonical node, a node has no
+topology, or one of its old neighbors lacks provisional assignment evidence.
+The design's recursive rounds require **confirmed** neighbor mappings; this
+stage creates none, so it reports zero rounds and
+`deferred_requires_confirmed_neighbor_mappings`. Its output is evidence for
+the next split/merge assessment only—not rename acceptance, identity
+confirmation, a TokenBinding action, or an iterative topology result.
 
 ## Reproducible execution
 

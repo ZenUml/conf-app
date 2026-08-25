@@ -9,6 +9,7 @@ import {
   modalContentFrame,
 } from '../../helpers/FullscreenModalHelper.js';
 import { insertAndPublishMacro, openEditModal } from '../../helpers/MacroFlowHelper.js';
+import { MacroPage } from '../../pages/MacroPage.js';
 import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
@@ -143,6 +144,66 @@ test.describe('Graph (DrawIO) — Edit flow', () => {
       { event: 'save', hasXml: true },
     ]);
     await expectModalClosed(page, 'edit');
+  });
+
+  // graph-edit:7 — Board is a real edit/publish/view lifecycle, not only a
+  // button smoke test.  The palette click is intentionally kept as a real
+  // DrawIO interaction: Board starts as an independent empty document, so a
+  // vertex in boardGraphXml proves that the new surface was edited rather
+  // than the legacy Diagram document being re-used.
+  test('graph-edit:7 — add Board content, Publish, and render it in the viewer', async ({ page }) => {
+    await seed(page, `graph-board-view-${Date.now()}`);
+    await openEditModal(page, 'graph');
+
+    const outerFrame = modalContentFrame(page, 'edit');
+    let drawioFrame = outerFrame.locator('iframe').contentFrame();
+    await drawioFrame.locator('.graph-mode-switch button').nth(1).click();
+    await expect(outerFrame.locator('iframe')).toHaveAttribute('src', /ui=sketch&sketch=1/);
+
+    drawioFrame = outerFrame.locator('iframe').contentFrame();
+    await outerFrame.locator('body').evaluate(() => {
+      const target = window as unknown as { __latestBoardAutosave?: string; __boardAutosaveListener?: (event: MessageEvent) => void };
+      target.__latestBoardAutosave = undefined;
+      target.__boardAutosaveListener = (event: MessageEvent) => {
+        let payload: unknown = event.data;
+        if (typeof payload === 'string') {
+          try { payload = JSON.parse(payload); } catch { return; }
+        }
+        if (payload && typeof payload === 'object' && (payload as { event?: unknown }).event === 'autosave') {
+          const xml = (payload as { xml?: unknown }).xml;
+          if (typeof xml === 'string') target.__latestBoardAutosave = xml;
+        }
+      };
+      window.addEventListener('message', target.__boardAutosaveListener);
+    });
+    const sidebarShape = drawioFrame.locator('.geSidebarContainer a').nth(2);
+    await expect(sidebarShape).toBeVisible({ timeout: 30_000 });
+    await sidebarShape.click();
+    // The freshly inserted palette cell is selected by DrawIO.  Typing its
+    // label is the same interaction a user performs after dropping a shape;
+    // it gives the viewer assertion a Board-specific marker.
+    await drawioFrame.locator('body').press('F2');
+    await drawioFrame.locator('body').pressSequentially('Board lifecycle');
+    await drawioFrame.locator('body').press('Enter');
+
+    // DrawIO emits the active mode's XML through the editor bridge.  Require
+    // an actual vertex before publishing; an empty Board would make this
+    // test a false positive for the old "Publish only" coverage.
+    await expect.poll(async () => outerFrame.locator('body').evaluate(() => {
+      const boardXml = (window as unknown as { __latestBoardAutosave?: unknown }).__latestBoardAutosave;
+      return typeof boardXml === 'string' && /vertex=["']1["']/.test(boardXml);
+    }), { timeout: 15_000 }).toBe(true);
+
+    await drawioFrame.locator('.geButtonContainer .geEmbedBtn').click();
+    await expectModalClosed(page, 'edit');
+
+    // The editor close handler reloads the viewer after save.  Assert the
+    // published Board document is rendered, not merely that save closed.
+    const viewer = new MacroPage(page);
+    const graphFrame = viewer.getGraphMacroFrame();
+    await expect(graphFrame.locator('body')).toBeVisible({ timeout: 30_000 });
+    await expect(graphFrame.locator('svg').first()).toBeVisible({ timeout: 30_000 });
+    await expect(graphFrame.getByText('Board lifecycle', { exact: false }).first()).toBeVisible({ timeout: 30_000 });
   });
 
   // graph-edit:3 — Close clean.

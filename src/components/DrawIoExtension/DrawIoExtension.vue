@@ -11,6 +11,7 @@
     :spark-fading-out="sparkFadingOut"
     :show-dismiss="showDismiss"
     :auto-name-animation-done="autoNameAnimationDone"
+    :editor-mode="editorMode"
     @titleChange="handleTitleChange"
     @titleConfirm="handleTitleConfirm"
     @manualGenerate="onManualGenerate"
@@ -41,6 +42,10 @@ export default defineComponent({
     currentXml: {
       type: String,
       default: ""
+    },
+    editorMode: {
+      type: String,
+      default: "diagram"
     }
   },
   setup(props) {

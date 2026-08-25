@@ -15,7 +15,7 @@
          plugin's filename placement). The right offset clears DrawIO's
          Save & Exit button. currentXml feeds the AI auto-title watcher with the
          live diagram content (initial body, then each DrawIO autosave). -->
-    <DrawIoExtension :doc="doc" :current-xml="currentXml" />
+    <DrawIoExtension :doc="doc" :current-xml="currentXml" :editor-mode="editorMode" />
     <!-- Publishing overlay. The graph macro's Publish button lives INSIDE the
          DrawIO iframe (Save & Exit, relabeled), so unlike the other editors it
          can't show the PublishButton "Publishing…" spinner. Without this,

@@ -69,8 +69,8 @@ async function runGeneration(title = TITLE) {
   await flushPromises()
 }
 
-function mountGraphTitle(currentXml: string) {
-  return mount(DrawIoExtension, { props: { doc: {}, currentXml } })
+function mountGraphTitle(currentXml: string, editorMode: 'diagram' | 'board' = 'diagram') {
+  return mount(DrawIoExtension, { props: { doc: {}, currentXml, editorMode } })
 }
 
 describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
@@ -89,6 +89,14 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     const wrapper = mountGraphTitle(EMPTY_GRAPH)
     await flushPromises()
     expect(wrapper.find(SPARK).exists()).toBe(true)
+  })
+
+  it('keeps the title clear of DrawIO sketch Publish chrome in Board mode', async () => {
+    const wrapper = mountGraphTitle(EMPTY_GRAPH, 'board')
+    await flushPromises()
+    const header = wrapper.find('[data-editor-mode="board"]')
+    expect(header.exists()).toBe(true)
+    expect(header.classes()).toContain('drawio-header--board')
   })
 
   it('hides the spark button when the flag is disabled', async () => {

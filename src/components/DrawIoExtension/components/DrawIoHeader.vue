@@ -2,7 +2,11 @@
   <!-- Compact overlay anchored on DrawIO's menubar row, right-aligned.
        Save & Exit / fullscreen / sidebar buttons sit on row 2 below, so
        the menubar row's right side is empty — title can hug the edge. -->
-  <div class="absolute top-[1px] right-[12px] z-50 pointer-events-auto">
+  <div
+    class="drawio-header absolute top-[1px] right-[12px] z-50 pointer-events-auto"
+    :class="{ 'drawio-header--board': editorMode === 'board' }"
+    :data-editor-mode="editorMode"
+  >
     <div class="flex items-center w-72 max-w-md border rounded-md transition-colors duration-200 h-7 bg-white"
       :class="error ? 'border-red-400 bg-red-50' : 'border-gray-300 hover:border-gray-400 focus-within:border-blue-500'">
       <span class="pl-3 pr-2 text-[10px] font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
@@ -59,6 +63,7 @@ export default defineComponent({
     sparkFadingOut: { type: Boolean, default: false },
     showDismiss: { type: Boolean, default: false },
     autoNameAnimationDone: { type: Boolean, default: false },
+    editorMode: { type: String, default: 'diagram' },
   },
   emits: ["titleChange", "titleConfirm", "manualGenerate", "dismiss"],
   setup(props, { emit }) {
@@ -103,4 +108,11 @@ export default defineComponent({
 
 .autoname-dismiss { width: 18px; height: 18px; border-radius: 4px; background: transparent; color: #42526E; }
 .autoname-dismiss:hover { background: #EBECF0; color: #172B4D; }
+
+/* Sketch chrome puts Publish in the top-right toolbar. Leave both its width and
+   a small gap clear; Diagram mode keeps the existing right-aligned placement. */
+.drawio-header--board {
+  right: 96px;
+  max-width: calc(100vw - 108px);
+}
 </style>

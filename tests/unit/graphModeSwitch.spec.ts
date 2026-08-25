@@ -122,6 +122,25 @@ describe('injectGraphModeSwitch', () => {
     expect(root.style.left).toBe('50%')
   })
 
+  it('mounts the sketch switch outside the transient toolbar overflow boundary', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const sketchToolbar = doc.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    sketchToolbar.style.overflow = 'hidden'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 180, height: 44, top: 10, left: 10, right: 190, bottom: 54, x: 10, y: 10, toJSON() { return {} } }),
+    })
+    doc.body.appendChild(sketchToolbar)
+
+    const root = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+    sketchToolbar.remove()
+
+    expect(root.parentElement).toBe(doc.body)
+    expect(root.style.position).toBe('fixed')
+    expect(root.style.height).toBe('44px')
+    expect(doc.querySelector('.graph-mode-switch')).toBe(root)
+  })
+
   it('shrinks horizontally instead of overlapping reserved TITLE space', () => {
     const menubar = menubarFixture(30, 700)
     injectGraphModeSwitch(menubar, {
@@ -170,6 +189,25 @@ describe('findDrawioMenubar', () => {
       value: () => ({ width: 900, height: 44, top: 0, left: 0, right: 900, bottom: 44, x: 0, y: 0, toJSON() { return {} } }),
     })
     doc.body.append(picker, topBar)
+    expect(findDrawioMenubar(doc)).toBe(topBar)
+  })
+
+  it('ignores a hidden classic menubar with stale CSS dimensions in sketch chrome', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const hiddenClassic = doc.createElement('div')
+    hiddenClassic.className = 'geMenubarContainer'
+    hiddenClassic.style.display = 'none'
+    hiddenClassic.style.width = '1200px'
+    hiddenClassic.style.height = '44px'
+    hiddenClassic.appendChild(doc.createElement('div')).className = 'geMenubar'
+
+    const topBar = doc.createElement('div')
+    topBar.className = 'geToolbarContainer'
+    Object.defineProperty(topBar, 'getBoundingClientRect', {
+      value: () => ({ width: 138, height: 44, top: 10, left: 10, right: 148, bottom: 54, x: 10, y: 10, toJSON() { return {} } }),
+    })
+    doc.body.append(hiddenClassic, topBar)
+
     expect(findDrawioMenubar(doc)).toBe(topBar)
   })
 })

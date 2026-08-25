@@ -121,6 +121,9 @@ function ensureStyle(doc: Document, id: string, css: string) {
 }
 
 function isVisibleMenubar(el: HTMLElement): boolean {
+  const computed = el.ownerDocument.defaultView?.getComputedStyle(el)
+    || (typeof getComputedStyle === 'function' ? getComputedStyle(el) : undefined)
+  if (computed?.display === 'none' || computed?.visibility === 'hidden') return false
   const rect = el.getBoundingClientRect()
   const height = rect.height || el.offsetHeight || parseFloat(el.style.height) || 0
   return height > 8
@@ -176,11 +179,22 @@ function activate(mode: GraphEditorMode, current: GraphEditorMode, onSelect: Gra
 export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSwitchOptions): HTMLElement {
   const doc = menubar.ownerDocument
   ensureStyle(doc, GRAPH_MODE_SWITCH_STYLE_ID, SWITCH_CSS)
-  menubar.querySelector(`.${GRAPH_MODE_SWITCH_CLASS}`)?.remove()
+  // The sketch UI's toolbars are transient and have `overflow: hidden`; DrawIO
+  // may replace them while the editor finishes booting. Remove an earlier
+  // switch from either the old toolbar or the stable document host before
+  // mounting the replacement.
+  doc.querySelector(`.${GRAPH_MODE_SWITCH_CLASS}`)?.remove()
 
   const box = measureBox(menubar)
-  const looksLikeTopBar = box.height > 8 && box.height <= 80 && box.width >= 200
-  const height = looksLikeTopBar ? box.height : NOTCH_REF_HEIGHT
+  const isShortToolbar = box.height > 8 && box.height <= 80
+  const looksLikeTopBar = isShortToolbar && box.width >= 200
+  const isClassicMenubar = menubar.classList.contains('geMenubarContainer')
+    && !!menubar.querySelector('.geMenubar')
+  const mountTarget = isClassicMenubar || !isShortToolbar
+    ? menubar
+    : (doc.body || doc.documentElement)
+  const mountOutsideToolbar = mountTarget !== menubar
+  const height = isShortToolbar ? box.height : NOTCH_REF_HEIGHT
   const heightScale = height / NOTCH_REF_HEIGHT
   let width = NOTCH_REF_WIDTH * heightScale
 
@@ -195,7 +209,10 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   root.className = GRAPH_MODE_SWITCH_CLASS
   root.setAttribute('role', 'group')
   root.setAttribute('aria-label', 'Editor mode')
-  root.style.position = looksLikeTopBar ? 'absolute' : 'fixed'
+  // Classic DrawIO keeps its menubar stable, so preserve the original
+  // relative/absolute placement. Sketch/Board toolbars are replaced during
+  // startup and clip descendants; a fixed body-level host survives both.
+  root.style.position = mountOutsideToolbar ? 'fixed' : (looksLikeTopBar ? 'absolute' : 'fixed')
   root.style.zIndex = '10'
   root.style.top = '0px'
   root.style.left = '50%'
@@ -265,10 +282,12 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   controls.append(diagramBtn, divider, boardBtn)
   root.appendChild(controls)
 
-  const computed = getComputedStyle(menubar)
-  if (computed.position === 'static' || !computed.position) {
-    menubar.style.position = 'relative'
+  if (!mountOutsideToolbar) {
+    const computed = getComputedStyle(menubar)
+    if (computed.position === 'static' || !computed.position) {
+      menubar.style.position = 'relative'
+    }
   }
-  menubar.appendChild(root)
+  mountTarget.appendChild(root)
   return root
 }

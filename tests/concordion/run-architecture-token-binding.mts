@@ -19,6 +19,7 @@ const reportCss = `
   th { background: #f4f5f7; font-weight: 650; }
   tr:nth-child(even) { background: #fafbfc; }
   code { background: #f1f2f4; border-radius: 3px; padding: 0.1rem 0.25rem; }
+  pre { margin: 0; overflow-x: auto; white-space: pre-wrap; }
   [data-concordion-result="success"], .concordion-success { color: #0f6b3a; background: #dcfce7; font-weight: 650; }
   [data-concordion-result="failure"], .concordion-failure { color: #b42318; background: #fee4e2; font-weight: 650; }
   [data-concordion-result="exception"], .concordion-exception { color: #5925dc; background: #f4f3ff; font-weight: 650; }
@@ -27,6 +28,21 @@ const reportCss = `
 function applyReportStyles(html: string): string {
   if (!html.includes('</head>')) throw new Error('Concordion report has no </head> for report styles')
   return html.replace('</head>', `<style data-concordion-architecture-token-styles>${reportCss}</style></head>`)
+}
+
+function verifyReaderFacingExplanation(html: string): void {
+  for (const phrase of [
+    'A binding is to a logical node',
+    'Move an unchanged Orders API node',
+    'Delete and recreate a node with the same Mermaid ID',
+    'Split one node into two nodes',
+    'Merge two nodes into one node',
+    'Remove a node without a replacement',
+    'Use syntax this release does not support',
+    'A node-label rename is not yet an automatic case',
+  ]) {
+    if (!html.includes(phrase)) throw new Error(`Rendered report is missing reader-facing explanation: ${phrase}`)
+  }
 }
 
 const { runSpecification } = await import(
@@ -45,6 +61,7 @@ const result = await runSpecification({
     },
   },
 })
+verifyReaderFacingExplanation(result.html)
 
 console.log(`Concordion Architecture Tokens report: ${reportPath}`)
 console.log(`Summary: ${JSON.stringify(result.summary)}`)

@@ -7,10 +7,11 @@
   <body>
     <h1>Architecture Token bindings: Flowchart node safety</h1>
     <p>
-      A Flowchart binding belongs to a stable logical node, never to a Mermaid
-      native ID or a source offset. This specification executes the production
-      canonical Flowchart parser and fail-closed reconciler without Confluence,
-      D1, or a ZenUML backend.
+      <strong>A binding is to a logical node</strong>, never to a source offset
+      and never merely to a Mermaid native ID. A locator only says where the
+      node appeared in one source revision; it is not the node's identity. This
+      specification executes the production canonical Flowchart parser and
+      fail-closed reconciler without Confluence, D1, or a ZenUML backend.
     </p>
     <p>
       In this first release, strong evidence means a unique source-diff
@@ -19,50 +20,83 @@
       remains for human confirmation until stronger matching is implemented.
     </p>
 
+    <h2>How to read an outcome</h2>
+    <table>
+      <tr><th>Reader-facing result</th><th>What happens to the existing binding</th></tr>
+      <tr><td><strong>Auto retained</strong></td><td>Only unique strong evidence proves the same logical node continues.</td></tr>
+      <tr><td><strong>Needs human confirmation</strong></td><td>A plausible candidate exists, but the system does not transfer the binding itself.</td></tr>
+      <tr><td><strong>Ambiguous</strong></td><td>A split, merge, or one-to-one conflict has more than one safe interpretation.</td></tr>
+      <tr><td><strong>Orphaned</strong></td><td>No safe replacement exists; the old binding is retained as unresolved evidence.</td></tr>
+      <tr><td><strong>Unsupported</strong></td><td>The source is outside the owned Flowchart subset, so no identity is guessed.</td></tr>
+    </table>
+
     <h2>Executable examples</h2>
     <table data-concordion-execute="evaluateScenario(#ROW)">
       <tr>
         <th>Scenario</th>
-        <th>Source change</th>
-        <th>Evidence / safety rule</th>
-        <th data-concordion-assert-equals="status()">Outcome</th>
+        <th>Before → after Mermaid source</th>
+        <th>Evidence available</th>
+        <th>Why this outcome is safe</th>
+        <th>Reader-facing result</th>
+        <th data-concordion-assert-equals="status()">Executed system status</th>
         <th data-concordion-assert-equals="bindingTransferred()">Binding automatically retained</th>
         <th data-concordion-assert-equals="reason()">Why</th>
       </tr>
       <tr>
-        <td>safe_relocation</td>
-        <td><code>Orders[Orders API]</code> is relocated after a comment is added.</td>
-        <td>Unique source-diff relocation and exact fingerprint.</td>
+        <td>Move an unchanged Orders API node</td>
+        <td><pre><code>Before: Orders[Orders API] --> Events[Events]
+After:  %% deployment view
+        Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td>A unique source-diff relocation and an exact node fingerprint.</td>
+        <td>The address moved, but independent evidence proves the same logical node.</td>
+        <td><strong>Auto retained</strong></td>
         <td>confirmed_automatic</td><td>true</td><td>fingerprint_exact, source_diff_relocated</td>
       </tr>
       <tr>
-        <td>same_id_recreated</td>
-        <td><code>Orders</code> is deleted/recreated with a new label.</td>
-        <td>Same native ID alone is only a candidate.</td>
+        <td>Delete and recreate a node with the same Mermaid ID</td>
+        <td><pre><code>Before: Orders[Orders API] --> Events[Events]
+After:  Orders[Recreated Orders API] --> Events[Events]</code></pre></td>
+        <td>The new node still uses <code>Orders</code>, but no source-diff relocation exists.</td>
+        <td>An ID can be reused for a different logical element after delete/recreate.</td>
+        <td><strong>Needs human confirmation</strong></td>
         <td>needs_confirmation</td><td>false</td><td>native_id_is_insufficient</td>
       </tr>
       <tr>
-        <td>split</td>
-        <td><code>Orders</code> becomes <code>OrdersRead</code> and <code>OrdersWrite</code>.</td>
-        <td>One old node has multiple equally plausible replacements.</td>
+        <td>Split one node into two nodes</td>
+        <td><pre><code>Before: Orders[Orders API] --> Gateway[Gateway]
+After:  OrdersRead[Orders API] --> Gateway[Gateway]
+        OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
+        <td>Both replacements have the same label, shape, and container context.</td>
+        <td>Choosing one branch would silently lose the meaning of the split.</td>
+        <td><strong>Ambiguous — human confirmation required</strong></td>
         <td>ambiguous</td><td>false</td><td>multiple_plausible_candidates</td>
       </tr>
       <tr>
-        <td>merge</td>
-        <td><code>OrdersRead</code> and <code>OrdersWrite</code> become <code>Orders</code>.</td>
-        <td>Two logical elements cannot claim one replacement.</td>
+        <td>Merge two nodes into one node</td>
+        <td><pre><code>Before: OrdersRead[Orders API] --> Gateway[Gateway]
+        OrdersWrite[Orders API] --> Gateway[Gateway]
+After:  Orders[Orders API] --> Gateway[Gateway]</code></pre></td>
+        <td>One new candidate is plausible for two former logical nodes.</td>
+        <td>Two bindings cannot both claim one replacement automatically.</td>
+        <td><strong>Ambiguous — human confirmation required</strong></td>
         <td>ambiguous</td><td>false</td><td>one_to_one_conflict</td>
       </tr>
       <tr>
-        <td>removed</td>
-        <td><code>Orders</code> no longer has a safe replacement.</td>
-        <td>No candidate means the binding is preserved as orphaned.</td>
+        <td>Remove a node without a replacement</td>
+        <td><pre><code>Before: Orders[Orders API] --> Events[Events]
+After:  Events[Events]</code></pre></td>
+        <td>No node has enough matching evidence to be a replacement.</td>
+        <td>Keeping the old binding unresolved is safer than attaching it to a guess.</td>
+        <td><strong>Orphaned — no automatic transfer</strong></td>
         <td>orphaned</td><td>false</td><td>no_safe_candidate</td>
       </tr>
       <tr>
-        <td>unsupported</td>
-        <td>The next revision uses the unmodelled <code>@{ shape: rect }</code> syntax.</td>
-        <td>Unsupported or uncertain source is never guessed.</td>
+        <td>Use syntax this release does not support</td>
+        <td><pre><code>Before: Orders[Orders API] --> Events[Events]
+After:  Orders@{ shape: rect } --> Events[Events]</code></pre></td>
+        <td>The public Mermaid syntax may be valid, but this release does not model <code>@{ ... }</code>.</td>
+        <td>Unsupported or uncertain source is never guessed as a binding target.</td>
+        <td><strong>Unsupported — no automatic transfer</strong></td>
         <td>unsupported_source</td><td>false</td><td>unsupported_edge_endpoint</td>
       </tr>
     </table>

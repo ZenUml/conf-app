@@ -60,6 +60,15 @@ const scenarios: Readonly<Record<ScenarioId, Scenario>> = {
   },
 }
 
+const readerFacingScenarioIds: Readonly<Record<string, ScenarioId>> = {
+  'Move an unchanged Orders API node': 'safe_relocation',
+  'Delete and recreate a node with the same Mermaid ID': 'same_id_recreated',
+  'Split one node into two nodes': 'split',
+  'Merge two nodes into one node': 'merge',
+  'Remove a node without a replacement': 'removed',
+  'Use syntax this release does not support': 'unsupported',
+}
+
 /**
  * Fixture for the executable user-facing Flowchart binding safety contract.
  * It has no Confluence, backend, or D1 dependency: the public-domain parser
@@ -109,8 +118,9 @@ export class ArchitectureTokenBindingFixture {
 }
 
 function asScenarioId(value: string): ScenarioId {
-  if (!(value in scenarios)) throw new Error(`Unknown Architecture Tokens scenario: ${value}`)
-  return value as ScenarioId
+  const scenarioId = readerFacingScenarioIds[value]
+  if (!scenarioId) throw new Error(`Unknown Architecture Tokens scenario: ${value}`)
+  return scenarioId
 }
 
 function parseSupported(source: string) {

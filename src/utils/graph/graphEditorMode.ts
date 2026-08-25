@@ -5,8 +5,13 @@ export const DEFAULT_GRAPH_EDITOR_MODE: GraphEditorMode = 'diagram'
 /** Macro config key. Single source of truth for persisted chrome mode. */
 export const GRAPH_EDITOR_MODE_CONFIG_KEY = 'graphEditorMode'
 
+// Do not pass offline=1 here. DrawIO v31 treats the embedded editor as a
+// standalone app in that mode and hides its existing embed button container;
+// the Publish button is still created, but becomes zero-sized/inaccessible.
+// The editor assets are bundled locally, so omitting the flag preserves the
+// same local embed while keeping Publish visible in both Diagram and Board.
 const DRAWIO_EDITOR_BASE_QUERY =
-  'embed=1&spin=1&proto=json&noSaveBtn=1&saveAndExit=1&publishClose=1&noExitBtn=1&libraries=1&offline=1'
+  'embed=1&spin=1&proto=json&noSaveBtn=1&saveAndExit=1&publishClose=1&noExitBtn=1&libraries=1'
 
 let currentMode: GraphEditorMode = DEFAULT_GRAPH_EDITOR_MODE
 

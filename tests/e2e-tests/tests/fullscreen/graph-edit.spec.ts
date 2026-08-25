@@ -1,6 +1,6 @@
 // graph-edit:0..4 — Edit flow for an existing Graph (DrawIO) macro.
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type FrameLocator } from '@playwright/test';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,
@@ -21,6 +21,42 @@ test.describe('Graph (DrawIO) — Edit flow', () => {
 
   async function seed(page: import('@playwright/test').Page, title: string) {
     return insertAndPublishMacro(page, 'graph', { title });
+  }
+
+  async function installDrawioSaveProbe(frame: FrameLocator): Promise<void> {
+    await frame.locator('body').evaluate(() => {
+      const target = window as unknown as {
+        __drawioSaveEvents?: Array<{ event: 'save'; hasXml: boolean }>;
+        __drawioSaveListener?: (event: MessageEvent) => void;
+      };
+      target.__drawioSaveEvents = [];
+      target.__drawioSaveListener = (event: MessageEvent) => {
+        let payload: unknown = event.data;
+        if (typeof payload === 'string') {
+          try {
+            payload = JSON.parse(payload);
+          } catch {
+            return;
+          }
+        }
+        if (!payload || typeof payload !== 'object' || (payload as { event?: unknown }).event !== 'save') {
+          return;
+        }
+        target.__drawioSaveEvents?.push({
+          event: 'save',
+          hasXml: typeof (payload as { xml?: unknown }).xml === 'string',
+        });
+      };
+      window.addEventListener('message', target.__drawioSaveListener);
+    });
+  }
+
+  async function readDrawioSaveEvents(frame: FrameLocator) {
+    return frame.locator('body').evaluate(() => (
+      (window as unknown as {
+        __drawioSaveEvents?: Array<{ event: 'save'; hasXml: boolean }>;
+      }).__drawioSaveEvents ?? []
+    ));
   }
 
   // graph-edit:0 — Edit button opens fullscreen modal.
@@ -55,6 +91,57 @@ test.describe('Graph (DrawIO) — Edit flow', () => {
     await seed(page, `graph-publish-${Date.now()}`);
     await openEditModal(page, 'graph');
     await clickEditorPublish(page, { nested: 'drawio' });
+    await expectModalClosed(page, 'edit');
+  });
+
+  // graph-edit:5 — v31's embed action container is visible in Diagram mode.
+  // This is intentionally asserted inside the nested DrawIO frame: the
+  // publish action is DrawIO's save/publish protocol, not our outer Vue UI.
+  test('graph-edit:5 — Diagram Publish is visible and closes the modal', async ({ page }) => {
+    await seed(page, `graph-diagram-publish-${Date.now()}`);
+    await openEditModal(page, 'graph');
+
+    const outerFrame = modalContentFrame(page, 'edit');
+    await installDrawioSaveProbe(outerFrame);
+    const drawioFrame = outerFrame.locator('iframe').contentFrame();
+    const publish = drawioFrame.locator('.geButtonContainer .geEmbedBtn');
+    await expect(publish).toBeVisible();
+    await expect(publish).toHaveText('Publish');
+    await expect(publish).toBeEnabled();
+
+    await publish.click();
+    await expect.poll(() => readDrawioSaveEvents(outerFrame)).toEqual([
+      { event: 'save', hasXml: true },
+    ]);
+    await expectModalClosed(page, 'edit');
+  });
+
+  // graph-edit:6 — the same action survives the Board/sketch reload.
+  test('graph-edit:6 — Board Publish is visible and closes the modal', async ({ page }) => {
+    await seed(page, `graph-board-publish-${Date.now()}`);
+    await openEditModal(page, 'graph');
+
+    const outerFrame = modalContentFrame(page, 'edit');
+    let drawioFrame = outerFrame.locator('iframe').contentFrame();
+    await expect(drawioFrame.locator('.graph-mode-switch button').nth(1)).toBeVisible();
+    await drawioFrame.locator('.graph-mode-switch button').nth(1).click();
+    await expect(outerFrame.locator('iframe')).toHaveAttribute('src', /ui=sketch&sketch=1/);
+
+    // FrameLocator is dynamic, so this resolves against the reloaded Board
+    // document rather than retaining the old Diagram document.
+    drawioFrame = outerFrame.locator('iframe').contentFrame();
+    // Install after the Board reload so the probe observes only the user's
+    // Publish action, not any init/load traffic from the mode switch.
+    await installDrawioSaveProbe(outerFrame);
+    const publish = drawioFrame.locator('.geButtonContainer .geEmbedBtn');
+    await expect(publish).toBeVisible();
+    await expect(publish).toHaveText('Publish');
+    await expect(publish).toBeEnabled();
+
+    await publish.click();
+    await expect.poll(() => readDrawioSaveEvents(outerFrame)).toEqual([
+      { event: 'save', hasXml: true },
+    ]);
     await expectModalClosed(page, 'edit');
   });
 

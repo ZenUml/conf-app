@@ -24,7 +24,7 @@ describe('normalizeGraphEditorMode', () => {
 })
 
 describe('buildDrawioEditorSrc', () => {
-  it('keeps the existing embed chrome params in diagram mode and omits board-only params', () => {
+  it('keeps the embed chrome visible in diagram mode and omits board-only params', () => {
     const src = buildDrawioEditorSrc('diagram')
     expect(src.startsWith('./drawio/index.html?')).toBe(true)
     expect(src).toContain('embed=1')
@@ -34,7 +34,9 @@ describe('buildDrawioEditorSrc', () => {
     expect(src).toContain('publishClose=1')
     expect(src).toContain('noExitBtn=1')
     expect(src).toContain('libraries=1')
-    expect(src).toContain('offline=1')
+    // The v31 embed button container is hidden when the standalone/offline
+    // flag is present, even though the Publish button is still created.
+    expect(src).not.toContain('offline=1')
     expect(src).not.toContain('sketch=1')
     expect(src).not.toContain('ui=sketch')
   })
@@ -45,6 +47,7 @@ describe('buildDrawioEditorSrc', () => {
     expect(src).toContain('ui=sketch')
     expect(src).toContain('embed=1')
     expect(src).toContain('publishClose=1')
+    expect(src).not.toContain('offline=1')
   })
 
   it('treats unknown mode as diagram URL params', () => {

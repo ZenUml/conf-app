@@ -9,6 +9,7 @@
     "test:concordion:architecture-token-source-diff": "node --experimental-default-type=module --experimental-strip-types --experimental-loader ./tests/concordion/ts-extension-loader.mjs tests/concordion/run-architecture-token-source-diff.mts",
     "test:concordion:architecture-token-native-id": "node --experimental-default-type=module --experimental-strip-types --experimental-loader ./tests/concordion/ts-extension-loader.mjs tests/concordion/run-architecture-token-native-id.mts",
     "test:concordion:architecture-token-fingerprint-scoring": "node --experimental-default-type=module --experimental-strip-types --experimental-loader ./tests/concordion/ts-extension-loader.mjs tests/concordion/run-architecture-token-fingerprint-scoring.mts",
+    "test:architecture-token-jison-adapter": "node --experimental-default-type=module --experimental-strip-types --experimental-loader ./tests/concordion/ts-extension-loader.mjs --test tests/prototypes/architectureTokens/jisonFlowchartLocatorAdapter.contract.test.mts",
     "test:export-modal": "playwright test -c tests/export-modal/playwright.config.ts",
     "test:e2e": "cd tests/e2e-tests && pnpm test",
     "test:e2e:lite:stg": "cd tests/e2e-tests && pnpm test:lite:stg",

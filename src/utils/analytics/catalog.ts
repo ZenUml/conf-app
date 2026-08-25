@@ -10,6 +10,7 @@ export type FeatureArea =
   | "feedback"
   | "system"
   | "agent_link"
+  | "architecture_tokens"
   // The confluence:contentBylineItem entry point under the page title. Its own
   // area because it is an activation surface, not part of a macro's lifecycle:
   // it renders on every page, including pages with no diagram at all.
@@ -191,6 +192,20 @@ export type SessionReplayEventSource =
 // event is the outcome evidence.
 export type SessionReplayStartCallOutcome = "returned" | "threw";
 
+/** Architecture Tokens source binding is Flowchart-node-only in v1. */
+export type ArchitectureTokenElementKind = "node";
+export type ArchitectureSourceRevisionState = "captured" | "unchanged" | "invalid" | "unsupported" | "failed";
+export type ArchitectureReconciliationStatus =
+  | "confirmed_automatic"
+  | "needs_confirmation"
+  | "ambiguous"
+  | "orphaned"
+  | "invalid_source"
+  | "unsupported_source";
+export type ArchitectureCandidateCountBucket = "zero" | "one" | "two" | "three_plus";
+export type ArchitectureConfidenceBucket = "high" | "medium" | "low" | "none";
+export type ArchitectureAmbiguityReason = "multiple_plausible_candidates" | "one_to_one_conflict" | "split_or_merge";
+
 export type AnalyticsEventName =
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
@@ -202,6 +217,15 @@ export type AnalyticsEventName =
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
+  // Architecture Tokens source binding. Properties deliberately exclude
+  // Mermaid source, labels, Mermaid IDs, token names/IDs, and tenant data.
+  | "architecture_token_bind_requested"
+  | "architecture_token_bind_succeeded"
+  | "architecture_token_bind_failed"
+  | "architecture_source_revision_captured"
+  | "architecture_source_revision_failed"
+  | "architecture_reconciliation_completed"
+  | "architecture_binding_requires_confirmation"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a

@@ -35,6 +35,12 @@ import type {
   EditorInputMethod,
   ContentDeltaBucket,
   CopySource,
+  ArchitectureTokenElementKind,
+  ArchitectureSourceRevisionState,
+  ArchitectureReconciliationStatus,
+  ArchitectureCandidateCountBucket,
+  ArchitectureConfidenceBucket,
+  ArchitectureAmbiguityReason,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -59,6 +65,16 @@ export type AnalyticsProperties = {
   macro_uuid?: string;
   // Lifecycle
   operation_mode?: OperationMode;
+  // Architecture Token binding/reconciliation. The event contract carries only
+  // closed-vocabulary outcome data; never send source text, labels, Mermaid
+  // native IDs, token identifiers/names, page titles, or tenant identity here.
+  architecture_element_kind?: ArchitectureTokenElementKind;
+  architecture_source_revision_state?: ArchitectureSourceRevisionState;
+  architecture_reconciliation_status?: ArchitectureReconciliationStatus;
+  architecture_candidate_count_bucket?: ArchitectureCandidateCountBucket;
+  architecture_confidence_bucket?: ArchitectureConfidenceBucket;
+  architecture_ambiguity_reason?: ArchitectureAmbiguityReason;
+  architecture_algorithm_version?: string;
   // Session Replay policy. `macro_create_started` / `macro_edit_started` set
   // source=authoring and percent=100 after the SDK start call returns. The call
   // outcome is intentionally distinct from actual capture: only a later

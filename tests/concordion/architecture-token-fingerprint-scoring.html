@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Architecture Token fingerprint scoring</title>
+  </head>
+  <body>
+    <h1>Source Binding Engine: Stage 3 fingerprint scoring</h1>
+    <p>
+      This stage compares static facts for a parser-confirmed Mermaid Flowchart
+      node candidate and produces a transparent evidence score. A score is not
+      identity confirmation, logical-node continuity, Architecture Token
+      retention, or binding transfer. The following stage is global
+      maximum-weight assignment, which still has to enforce one-to-one and
+      fail-closed rules.
+    </p>
+    <p>
+      The score is built from revision-local facts: native ID, node kind,
+      normalized label, shape, neighborhood, and container path. Source-diff
+      relocation and statement-context facts are displayed separately because
+      they are evidence at this gate but are not weighted score components.
+      Missing or ambiguous static facts cannot be scored safely and remain
+      unresolved.
+    </p>
+
+    <h2>Executable examples</h2>
+    <table data-concordion-execute="evaluateScenario(#ROW)">
+        <tr>
+          <th>Scenario</th>
+          <th>Before source</th>
+          <th>After source</th>
+          <th>Candidate evidence</th>
+          <th>Score breakdown</th>
+          <th>Visible but unweighted evidence</th>
+          <th>Result</th>
+          <th class="fixture-key" data-concordion-assert-equals="status()">Executed status</th>
+          <th class="fixture-key" data-concordion-assert-equals="candidateEvidence()">Executed candidate evidence</th>
+          <th class="fixture-key" data-concordion-assert-equals="scoreBreakdown()">Executed score breakdown</th>
+          <th class="fixture-key" data-concordion-assert-equals="unweightedEvidence()">Executed unweighted evidence</th>
+          <th class="fixture-key" data-concordion-assert-equals="result()">Executed result</th>
+        </tr>
+        <tr>
+          <td>Exact static facts agree after an independent source relocation</td>
+          <td class="source-cell"><pre><code>flowchart TD
+A[Orders API] --> B[Database]</code></pre></td>
+          <td class="source-cell"><pre><code>%% deployment view
+flowchart TD
+A[Orders API] --> B[Database]</code></pre></td>
+          <td>
+            <strong>Stage 2 candidate:</strong> node <code>A</code> → node
+            <code>A</code><br>
+            Exact native ID and kind (<code>node</code>) admit this candidate to
+            fingerprint scoring.
+          </td>
+          <td>
+            <strong>Total: 1.00</strong><br>
+            native ID <code>0.35/0.35</code> · kind <code>0.20/0.20</code> ·
+            normalized label <code>0.15/0.15</code> · shape <code>0.10/0.10</code>
+            · neighborhood <code>0.15/0.15</code> · container path
+            <code>0.05/0.05</code>
+          </td>
+          <td>
+            Statement context: <strong>exact</strong><br>
+            Source-diff relocation: <strong>present, confidence 1.0</strong><br>
+            These facts are visible evidence, not a continuity decision.
+          </td>
+          <td class="fingerprint-scoring-result">
+            <strong>Scored evidence: 1.00</strong><br>
+            Evidence proceeds to <code>global_assignment</code>; no identity
+            confirmation or binding transfer occurs here.
+          </td>
+          <td class="fixture-key">scored</td>
+          <td class="fixture-key">Stage 2 candidate: node A → node A · exact native ID and kind (node) · next gate fingerprint_scoring</td>
+          <td class="fixture-key">Score A: 1.00 · native_id 0.35/0.35 (exact) · kind 0.20/0.20 (exact) · normalized_label 0.15/0.15 (exact) · shape 0.10/0.10 (exact) · neighborhood 0.15/0.15 (raw_native_id_jaccard) · container_path 0.05/0.05 (exact) · available weight 1.00</td>
+          <td class="fixture-key">Statement context: exact · source-diff relocation: present · next gate: global_assignment</td>
+          <td class="fixture-key">Scored evidence 1.00 — evidence only; no identity confirmation or binding transfer; next gate global_assignment</td>
+        </tr>
+        <tr>
+          <td>Same native ID but the node label is renamed</td>
+          <td class="source-cell"><pre><code>flowchart TD
+A[Orders API] --> B[Database]</code></pre></td>
+          <td class="source-cell"><pre><code>flowchart TD
+A[Payments API] --> B[Database]</code></pre></td>
+          <td>
+            <strong>Stage 2 candidate:</strong> node <code>A</code> → node
+            <code>A</code><br>
+            Native ID and kind match, but that alone never confirms the logical
+            node.
+          </td>
+          <td>
+            <strong>Total: 0.85</strong><br>
+            native ID <code>0.35/0.35</code> · kind <code>0.20/0.20</code> ·
+            normalized label <code>0.00/0.15</code> (different) · shape
+            <code>0.10/0.10</code> · neighborhood <code>0.15/0.15</code> ·
+            container path <code>0.05/0.05</code>
+          </td>
+          <td>
+            Statement context: <strong>different</strong><br>
+            Source-diff relocation: <strong>absent</strong> because the saved
+            node span crosses the label replacement.<br>
+            Relocation does not repair the changed label evidence.
+          </td>
+          <td class="fingerprint-scoring-result">
+            <strong>Scored evidence: 0.85</strong><br>
+            The score proceeds to <code>global_assignment</code>; it does not
+            confirm identity or transfer a binding.
+          </td>
+          <td class="fixture-key">scored</td>
+          <td class="fixture-key">Stage 2 candidate: node A → node A · exact native ID and kind (node) · next gate fingerprint_scoring</td>
+          <td class="fixture-key">Score A: 0.85 · native_id 0.35/0.35 (exact) · kind 0.20/0.20 (exact) · normalized_label 0.00/0.15 (different) · shape 0.10/0.10 (exact) · neighborhood 0.15/0.15 (raw_native_id_jaccard) · container_path 0.05/0.05 (exact) · available weight 1.00</td>
+          <td class="fixture-key">Statement context: different · source-diff relocation: absent · next gate: global_assignment</td>
+          <td class="fixture-key">Scored evidence 0.85 — evidence only; no identity confirmation or binding transfer; next gate global_assignment</td>
+        </tr>
+        <tr>
+          <td>Required static facts are missing</td>
+          <td class="source-cell"><pre><code>flowchart TD
+A[Orders API] --> B[Database]</code></pre></td>
+          <td class="source-cell"><pre><code>%% same diagram, new revision
+flowchart TD
+A[Orders API] --> B[Database]</code></pre></td>
+          <td>
+            <strong>Stage 2 candidate:</strong> node <code>A</code> → node
+            <code>A</code><br>
+            Candidate input exists, but the old static fingerprint facts are
+            unavailable to this gate.
+          </td>
+          <td>
+            <strong>No score</strong><br>
+            <code>missing_old_static_fingerprint</code>; no component is
+            guessed or filled from the native ID alone.
+          </td>
+          <td>
+            Statement context: <strong>not scored</strong><br>
+            Source-diff relocation: <strong>present, confidence 1.0</strong><br>
+            Address evidence cannot substitute for missing static facts.
+          </td>
+          <td class="fingerprint-scoring-result">
+            <strong>Unresolved — fail closed</strong><br>
+            No identity confirmation or binding transfer; human/later handling
+            remains required.
+          </td>
+          <td class="fixture-key">unresolved</td>
+          <td class="fixture-key">Stage 2 candidate: node A → node A · exact native ID and kind (node) · next gate fingerprint_scoring</td>
+          <td class="fixture-key">No score · missing_old_static_fingerprint · fail closed</td>
+          <td class="fixture-key">Statement context: not scored until fingerprints exist · source-diff relocation: present · next gate: global_assignment</td>
+          <td class="fixture-key">Unresolved — missing_old_static_fingerprint · fail closed; no identity confirmation or binding transfer</td>
+        </tr>
+        <tr>
+          <td>Duplicate static facts make the score ambiguous</td>
+          <td class="source-cell"><pre><code>flowchart TD
+A[Orders API] --> B[Database]</code></pre></td>
+          <td class="source-cell"><pre><code>%% same diagram, new revision
+flowchart TD
+A[Orders API] --> B[Database]</code></pre></td>
+          <td>
+            <strong>Stage 2 candidate:</strong> node <code>A</code> → node
+            <code>A</code><br>
+            The candidate is real, but two static fact records for old
+            <code>A</code> make its evidence ambiguous.
+          </td>
+          <td>
+            <strong>No score</strong><br>
+            <code>ambiguous_old_static_fingerprint</code>; choosing one record
+            would invent certainty.
+          </td>
+          <td>
+            Statement context: <strong>not scored</strong><br>
+            Source-diff relocation: <strong>present, confidence 1.0</strong><br>
+            Independent address evidence cannot resolve duplicate facts.
+          </td>
+          <td class="fingerprint-scoring-result">
+            <strong>Unresolved — fail closed</strong><br>
+            No identity confirmation or binding transfer; the ambiguity stays
+            visible for a later gate or human handling.
+          </td>
+          <td class="fixture-key">unresolved</td>
+          <td class="fixture-key">Stage 2 candidate: node A → node A · exact native ID and kind (node) · next gate fingerprint_scoring</td>
+          <td class="fixture-key">No score · ambiguous_old_static_fingerprint · fail closed</td>
+          <td class="fixture-key">Statement context: not scored until fingerprints exist · source-diff relocation: present · next gate: global_assignment</td>
+          <td class="fixture-key">Unresolved — ambiguous_old_static_fingerprint · fail closed; no identity confirmation or binding transfer</td>
+        </tr>
+    </table>
+
+    <h2>Stage boundary</h2>
+    <p>
+      This document covers Mermaid Flowchart <strong>nodes only</strong>. It
+      exercises the parser, UTF-8 source-diff preparation, exact native-ID
+      candidate assessment, static fingerprint extraction, and Stage 3 scoring.
+      It does not perform global assignment, topology iteration, split/merge or
+      delete/recreate resolution, user confirmation, AI suggestions, logical
+      identity confirmation, Architecture Token retention, Confluence writes,
+      backend indexing, or cloud access.
+    </p>
+    <p>
+      The duplicate-facts example starts with real fingerprints produced from
+      parsed nodes, then intentionally repeats one fact record to represent
+      ambiguous stored evidence. The decision still comes from the real
+      fail-closed scorer; no outcome is mocked.
+    </p>
+  </body>
+</html>

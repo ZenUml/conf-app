@@ -32,7 +32,7 @@ export function buildDrawioEditorSrc(mode: unknown): string {
   const normalized = normalizeGraphEditorMode(mode)
   const base = `./drawio/index.html?${DRAWIO_EDITOR_BASE_QUERY}`
   if (normalized === 'board') {
-    return `${base}&ui=sketch&sketch=1`
+    return `${base}&ui=sketch&sketch=1&format=0`
   }
   return base
 }

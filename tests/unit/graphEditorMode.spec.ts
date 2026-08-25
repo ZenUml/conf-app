@@ -40,12 +40,14 @@ describe('buildDrawioEditorSrc', () => {
     expect(src).not.toContain('offline=1')
     expect(src).not.toContain('sketch=1')
     expect(src).not.toContain('ui=sketch')
+    expect(src).not.toContain('format=0')
   })
 
   it('includes sketch=1 and sketch chrome for board mode', () => {
     const src = buildDrawioEditorSrc('board')
     expect(src).toContain('sketch=1')
     expect(src).toContain('ui=sketch')
+    expect(src).toContain('format=0')
     expect(src).toContain('embed=1')
     expect(src).toContain('publishClose=1')
     expect(src).toContain('lockdown=1')
@@ -56,6 +58,7 @@ describe('buildDrawioEditorSrc', () => {
     const src = buildDrawioEditorSrc('whiteboard' as never)
     expect(src).not.toContain('sketch=1')
     expect(src).not.toContain('ui=sketch')
+    expect(src).not.toContain('format=0')
   })
 })
 

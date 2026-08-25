@@ -34,8 +34,9 @@ describe('buildDrawioEditorSrc', () => {
     expect(src).toContain('publishClose=1')
     expect(src).toContain('noExitBtn=1')
     expect(src).toContain('libraries=1')
-    // The v31 embed button container is hidden when the standalone/offline
-    // flag is present, even though the Publish button is still created.
+    // Keep DrawIO's external-data capability locked down without triggering
+    // v31's standalone-app chrome path, which hides the Publish container.
+    expect(src).toContain('lockdown=1')
     expect(src).not.toContain('offline=1')
     expect(src).not.toContain('sketch=1')
     expect(src).not.toContain('ui=sketch')
@@ -47,6 +48,7 @@ describe('buildDrawioEditorSrc', () => {
     expect(src).toContain('ui=sketch')
     expect(src).toContain('embed=1')
     expect(src).toContain('publishClose=1')
+    expect(src).toContain('lockdown=1')
     expect(src).not.toContain('offline=1')
   })
 

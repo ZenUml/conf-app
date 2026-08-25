@@ -24,6 +24,7 @@ import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { readMermaidArchitectureTokenBinding } from '@/services/architectureTokens/readMermaidArchitectureTokenBinding';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 // AsyncAPI variant only registers `async-api-doc` in its manifest — the
@@ -449,6 +450,7 @@ export default class ApWrapper2 implements IApWrapper {
     delete body.recoveredFromOrphanId;
     delete body.legacyLoadBlocked;
     delete body.loadError;
+    delete body.architectureTokenBindingReadState;
     // Editor-session state: which surface asked for this diagram's type. It
     // answers a question that only exists while the editor is open, so writing
     // it into the stored body would put a permanent flag on customer content to
@@ -665,6 +667,12 @@ export default class ApWrapper2 implements IApWrapper {
     }
     let diagram = JSON.parse(rawValue);
     diagram.source = DataSource.CustomContent;
+    if (diagram.diagramType === DiagramType.Mermaid) {
+      // This is deliberately a read-only interpretation: malformed, oversized,
+      // or source-stale state remains in metadata unchanged and is exposed only
+      // as an untrusted/stale session result for a later UI to handle safely.
+      diagram.architectureTokenBindingReadState = await readMermaidArchitectureTokenBinding(diagram);
+    }
 
     const verdict = opts?.copyCheckMode === 'cross-page-only'
       ? await this.detectCrossPageCopy(customContent?.pageId)

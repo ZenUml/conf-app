@@ -1,3 +1,5 @@
+import type { ArchitectureTokenBindingReadState } from '@/services/architectureTokens/readMermaidArchitectureTokenBinding';
+
 export enum DataSource {
   MacroBody = 'macro-body',
   ContentProperty = 'content-property',
@@ -82,6 +84,11 @@ export class Diagram {
   source?: DataSource = DataSource.Unknown;
   isNew?: boolean = undefined; // whether it is a new diagram
   metadata?: object = undefined; // additional metadata
+  // Read-only, session-scoped interpretation of metadata.architectureTokenBindingV1.
+  // The persisted namespace remains the source of truth; this result gives
+  // later editor UI a fail-closed available/stale/untrusted state without
+  // ever repairing or rewriting stored evidence during load.
+  architectureTokenBindingReadState?: ArchitectureTokenBindingReadState = undefined;
   // ZEN-1170 Defect 1: set when a legacy content-property read failed in a
   // non-404 way (403/HTTP error/parse error) OR returned an unexpected value
   // shape (e.g. a string body on a graph macro). The persistence layer

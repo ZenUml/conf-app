@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import ApWrapper2 from './ApWrapper2';
+import { DiagramType, type Diagram } from '@/model/Diagram/Diagram';
+import { prepareMermaidStaticIngestion } from '@/services/architectureTokens/prepareMermaidStaticIngestion';
 import { trackEvent } from '@/utils/window';
 import { forgeRequest } from '@/utils/requestUtil';
 import { requestConfluence } from '@forge/bridge';
@@ -58,6 +60,51 @@ function buildDiagram() {
     diagramType: 'sequence',
     title: 'Test',
   } as any;
+}
+
+async function capturedMermaidDiagram(metadata?: object): Promise<Diagram> {
+  const diagram = {
+    diagramType: DiagramType.Mermaid,
+    mermaidCode: 'flowchart TD\n  A[Orders API] --> B[Database]',
+    metadata,
+  } as Diagram;
+  await prepareMermaidStaticIngestion(diagram, {
+    validate: async () => ({
+      kind: 'ok',
+      model: {
+        kind: 'flowchart',
+        direction: 'TD',
+        edges: [],
+        subgraphs: [],
+        nodes: ['A', 'B'].map((nativeId) => ({
+          kind: 'node' as const,
+          nativeId,
+          label: nativeId === 'A' ? 'Orders API' : 'Database',
+          shape: 'square',
+          containerPath: [],
+          primaryOccurrence: testOccurrence(),
+          occurrences: [testOccurrence()],
+          incidentNativeIds: [],
+          statementContexts: [nativeId],
+        })),
+      },
+      parserEvidence: { kind: 'jison_verified', adapterVersion: 'test', verifiedOccurrenceCount: 2 },
+    }),
+    createId: (() => {
+      let count = 0;
+      return () => `id-${++count}`;
+    })(),
+    now: () => '2026-08-25T00:00:00.000Z',
+  });
+  return diagram;
+}
+
+function testOccurrence() {
+  return {
+    role: 'edge_endpoint' as const,
+    span: { startByte: 0, endByte: 1 },
+    statementSpan: { startByte: 0, endByte: 1 },
+  };
 }
 
 describe('ApWrapper2', () => {
@@ -126,6 +173,23 @@ describe('ApWrapper2', () => {
       const serializedBody = JSON.parse(payload.body.value);
       expect(serializedBody.graphXml).toBe('<mxfile><diagram /></mxfile>');
       expect(serializedBody.compressed).toBeUndefined();
+    });
+
+    it('never persists the transient Architecture Token binding read result', async () => {
+      const content = buildContent(5);
+      const diagram = {
+        ...buildDiagram(),
+        metadata: { keep: 'unrelated-metadata' },
+        architectureTokenBindingReadState: { kind: 'untrusted', reason: 'invalid_state' },
+      } as any;
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      const serializedBody = JSON.parse(payload.body.value);
+      expect(serializedBody.architectureTokenBindingReadState).toBeUndefined();
+      expect(serializedBody.metadata).toEqual({ keep: 'unrelated-metadata' });
     });
 
     it('should retry on version conflict and succeed', async () => {
@@ -296,6 +360,63 @@ describe('ApWrapper2', () => {
         'GET',
         undefined,
       );
+    });
+
+    it('exposes only a source-current Architecture Token binding envelope on a Mermaid load', async () => {
+      const diagram = await capturedMermaidDiagram({ keep: 'unrelated-metadata' });
+      const metadataBeforeLoad = structuredClone(diagram.metadata);
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        id: '321',
+        body: { raw: { value: JSON.stringify(diagram) } },
+      });
+
+      const result = await wrapper.getCustomContentByIdV2('321');
+
+      expect(result?.value?.architectureTokenBindingReadState).toMatchObject({
+        kind: 'available',
+        state: { schemaVersion: 'architectureTokenBindingV1' },
+        sourceRevision: { validationStatus: 'valid' },
+      });
+      expect(result?.value?.metadata).toEqual(metadataBeforeLoad);
+    });
+
+    it('surfaces stale binding metadata as unresolved without rewriting it', async () => {
+      const diagram = await capturedMermaidDiagram({ keep: 'unrelated-metadata' });
+      diagram.mermaidCode = 'flowchart TD\n  A[Orders API] --> C[New Database]';
+      const metadataBeforeLoad = structuredClone(diagram.metadata);
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        id: '321',
+        body: { raw: { value: JSON.stringify(diagram) } },
+      });
+
+      const result = await wrapper.getCustomContentByIdV2('321');
+
+      expect(result?.value?.architectureTokenBindingReadState).toEqual(expect.objectContaining({
+        kind: 'stale',
+        reason: 'source_hash_mismatch',
+      }));
+      expect(result?.value?.metadata).toEqual(metadataBeforeLoad);
+    });
+
+    it('does not trust malformed Architecture Token binding metadata on load', async () => {
+      const diagram = {
+        diagramType: DiagramType.Mermaid,
+        mermaidCode: 'flowchart TD\n  A --> B',
+        metadata: { keep: 'unrelated-metadata', architectureTokenBindingV1: { schemaVersion: 'unknown' } },
+      };
+      const metadataBeforeLoad = structuredClone(diagram.metadata);
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        id: '321',
+        body: { raw: { value: JSON.stringify(diagram) } },
+      });
+
+      const result = await wrapper.getCustomContentByIdV2('321');
+
+      expect(result?.value?.architectureTokenBindingReadState).toEqual({
+        kind: 'untrusted',
+        reason: 'invalid_state',
+      });
+      expect(result?.value?.metadata).toEqual(metadataBeforeLoad);
     });
 
     it('returns undefined when the v2 API responds 404 with an errors array', async () => {

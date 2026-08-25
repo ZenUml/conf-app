@@ -12,6 +12,11 @@ import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason, snapshotFailureDetail } from '@/model/SnapshotAttachment';
 import { getEditorMutationSummary } from '@/utils/analytics/editorMutationTelemetry';
+import {
+  ArchitectureTokenStaticIngestionError,
+  prepareMermaidStaticIngestion,
+  type MermaidStaticIngestionOutcome,
+} from '@/services/architectureTokens/prepareMermaidStaticIngestion';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -42,6 +47,20 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   if (diagram.legacyLoadBlocked) {
     reportSaveRefusedLegacyLoadBlocked(String(diagram.diagramType), diagram.source);
     throw new LegacyLoadBlockedSaveError();
+  }
+
+  // Architecture Tokens v1 is Confluence-first: static source facts are put
+  // into the same Diagram body that this save persists. This intentionally
+  // happens before CustomContentStorageProvider.save(), so a malformed state
+  // or a changed bound source cannot produce a partial custom-content write.
+  let architectureStaticIngestion: MermaidStaticIngestionOutcome;
+  try {
+    architectureStaticIngestion = await prepareMermaidStaticIngestion(diagram);
+  } catch (error) {
+    if (error instanceof ArchitectureTokenStaticIngestionError) {
+      trackArchitectureStaticIngestion(error.reason, 'failed');
+    }
+    throw error;
   }
 
   // Publish/save latency: start the clock at the top of the real save work so
@@ -126,6 +145,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         ...savedIdProps,
       });
     }
+    trackArchitectureStaticIngestionOutcome(architectureStaticIngestion);
     markRecentMacroActivity(isNew ? 'create' : 'edit');
     markCsatPending();
 
@@ -195,4 +215,38 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   await syncCustomContent(customContent, diagram.diagramType, macroUuid);
 
   return String(customContent.id);
+}
+
+function trackArchitectureStaticIngestionOutcome(outcome: MermaidStaticIngestionOutcome): void {
+  if (outcome.kind === 'not_applicable') return;
+  if (outcome.kind === 'captured' || outcome.kind === 'unchanged') {
+    trackArchitectureStaticIngestion(outcome.sourceRevisionState, outcome.sourceRevisionState);
+    return;
+  }
+  trackArchitectureStaticIngestion(outcome.kind === 'invalid' ? 'mermaid_invalid' : 'unsupported_flowchart', outcome.sourceRevisionState);
+}
+
+/**
+ * This intentionally sends only closed-vocabulary operational state. Source,
+ * Mermaid IDs, labels, locators, hashes, and token data stay in Confluence
+ * custom content and never enter analytics.
+ */
+function trackArchitectureStaticIngestion(
+  result: string,
+  state: 'captured' | 'unchanged' | 'invalid' | 'unsupported' | 'failed',
+): void {
+  trackAnalyticsEvent(
+    state === 'captured' || state === 'unchanged'
+      ? 'architecture_source_revision_captured'
+      : 'architecture_source_revision_failed',
+    {
+      feature_area: 'architecture_tokens',
+      surface: 'editor',
+      macro_type: 'mermaid',
+      architecture_element_kind: 'node',
+      architecture_source_revision_state: state,
+      architecture_algorithm_version: 'architecture-token-binding-v1',
+      result,
+    },
+  );
 }

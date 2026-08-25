@@ -45,7 +45,11 @@ import {
   reportLegacyContentPropertyValueUnexpected,
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
-import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
+import {
+  InvalidSavedContentIdError,
+  LegacyLoadBlockedSaveError,
+} from '@/model/ContentProvider/Persistence';
+import { ArchitectureTokenStaticIngestionError } from '@/services/architectureTokens/prepareMermaidStaticIngestion';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
@@ -1267,6 +1271,13 @@ EventBus.$on('save', async () => {
       });
       return;
     }
+    if (error instanceof ArchitectureTokenStaticIngestionError) {
+      toast({
+        message: 'Architecture Token source state could not be verified, so this save was not applied. The diagram remains open.',
+        duration: 8000,
+      });
+      return;
+    }
     console.error('save failed', error);
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
@@ -1523,6 +1534,10 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
       // unhandled rejection. The macro config is never written from autosave.
       if (error instanceof InvalidSavedContentIdError) {
         console.debug('updateContent save produced no usable customContentId; skipping');
+        return;
+      }
+      if (error instanceof ArchitectureTokenStaticIngestionError) {
+        console.debug('updateContent save refused: Architecture Token source state is unsafe');
         return;
       }
       throw error;

@@ -13,6 +13,18 @@ import {
   startEditorMutationSession,
 } from '@/utils/analytics/editorMutationTelemetry';
 
+const architectureTokenMocks = vi.hoisted(() => {
+  class StaticIngestionError extends Error {
+    constructor(readonly reason: string) {
+      super(reason);
+    }
+  }
+  return {
+    prepare: vi.fn(),
+    StaticIngestionError,
+  };
+});
+
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
 const mockSave = vi.fn(() => ({id: "mocked_custom_content_id"}));
@@ -42,6 +54,11 @@ vi.mock("@/services/MacroMetrics", () => ({
   },
 }));
 
+vi.mock('@/services/architectureTokens/prepareMermaidStaticIngestion', () => ({
+  prepareMermaidStaticIngestion: architectureTokenMocks.prepare,
+  ArchitectureTokenStaticIngestionError: architectureTokenMocks.StaticIngestionError,
+}));
+
 vi.mock("@/model/ContentProvider/CustomContentStorageProvider", () => {
   return {
     CustomContentStorageProvider: class CustomContentStorageProvider {
@@ -56,6 +73,7 @@ describe('Persistence', function () {
     mockSave.mockClear();
     vi.mocked(trackAnalyticsEvent).mockClear();
     vi.mocked(syncCustomContent).mockClear();
+    architectureTokenMocks.prepare.mockResolvedValue({ kind: 'not_applicable' });
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
     resetEditorMutationSession();
@@ -219,6 +237,60 @@ describe('Persistence', function () {
     await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Embed }, mockApWrapper);
     expect(trackAnalyticsEvent).not.toHaveBeenCalled();
   })
+
+  it('persists captured Flowchart state in the same custom-content Diagram save without exposing source facts to analytics', async () => {
+    architectureTokenMocks.prepare.mockImplementationOnce(async (diagram) => {
+      diagram.metadata = {
+        preserved: 'existing-metadata',
+        architectureTokenBindingV1: { schemaVersion: 'architectureTokenBindingV1' },
+      };
+      return { kind: 'captured', sourceRevisionState: 'captured' };
+    });
+    const diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: 'flowchart TD\n  private-node-42[private label] --> other-node',
+    };
+
+    await saveToPlatform(diagram, mockApWrapper);
+
+    expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({
+        preserved: 'existing-metadata',
+        architectureTokenBindingV1: { schemaVersion: 'architectureTokenBindingV1' },
+      }),
+    }));
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'architecture_source_revision_captured',
+      expect.objectContaining({
+        feature_area: 'architecture_tokens',
+        macro_type: 'mermaid',
+        architecture_element_kind: 'node',
+        architecture_source_revision_state: 'captured',
+      }),
+    );
+    const [, properties] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'architecture_source_revision_captured')!;
+    expect(JSON.stringify(properties)).not.toContain('private label');
+    expect(JSON.stringify(properties)).not.toContain('private-node-42');
+  });
+
+  it('refuses the custom-content write when static binding state is unsafe', async () => {
+    architectureTokenMocks.prepare.mockRejectedValueOnce(new architectureTokenMocks.StaticIngestionError('invalid_state'));
+
+    await expect(saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid }, mockApWrapper)).rejects.toMatchObject({
+      reason: 'invalid_state',
+    });
+
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(syncCustomContent).not.toHaveBeenCalled();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'architecture_source_revision_failed',
+      expect.objectContaining({
+        architecture_source_revision_state: 'failed',
+        result: 'invalid_state',
+      }),
+    );
+  });
 
   // ZEN-1170 Defect 1
   describe('legacyLoadBlocked sentinel', () => {

@@ -128,6 +128,25 @@ describe('ApWrapper2', () => {
       expect(serializedBody.compressed).toBeUndefined();
     });
 
+    it('persists the independent Board XML alongside the legacy Diagram XML', async () => {
+      const content = buildContent(5);
+      const diagram = {
+        id: '123',
+        title: 'Graph',
+        diagramType: 'graph',
+        graphXml: '<mxfile><diagram name="Diagram" /></mxfile>',
+        boardGraphXml: '<mxfile><diagram name="Board" /></mxfile>',
+      } as any;
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      const serializedBody = JSON.parse(payload.body.value);
+      expect(serializedBody.graphXml).toContain('Diagram');
+      expect(serializedBody.boardGraphXml).toContain('Board');
+    });
+
     it('should retry on version conflict and succeed', async () => {
       const content = buildContent(5);
       const diagram = buildDiagram();

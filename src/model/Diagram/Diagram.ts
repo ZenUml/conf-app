@@ -75,6 +75,11 @@ export class Diagram {
   plantUmlCode?: string = '';
   graphXml?: string = '';
   /**
+   * Optional independent DrawIO Board document. Legacy records only have
+   * graphXml, which remains the Diagram-mode document for compatibility.
+   */
+  boardGraphXml?: string = '';
+  /**
    * No diagrams need to be compressed anymore. This is kept for backward compatibility.
    * @deprecated This will be removed soon.
    */

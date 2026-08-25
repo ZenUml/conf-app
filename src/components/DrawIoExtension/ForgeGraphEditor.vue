@@ -48,7 +48,6 @@ import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
 import {
   buildDrawioEditorSrc,
-  captureXmlForModeSwitch,
   normalizeGraphEditorMode,
   setGraphEditorMode,
   wasContentPreserved,
@@ -77,6 +76,7 @@ export default {
   },
   props: {
     graphXml: String,
+    boardGraphXml: String,
     saveGraphAndExit: Function,
     doc: Object,
     customContentId: { type: String, default: undefined },
@@ -84,9 +84,9 @@ export default {
   },
   computed: {
     // Live diagram content for the AI auto-title watcher: the latest DrawIO
-    // autosave xml once the user starts editing, otherwise the initial body.
+    // autosave xml for the active mode, otherwise that mode's saved body.
     currentXml() {
-      return this.latestXml || this.graphXml || "";
+      return this.xmlForMode(this.editorMode);
     },
     iframeSrc() {
       return buildDrawioEditorSrc(this.editorMode);
@@ -99,13 +99,26 @@ export default {
       }
     },
     xmlForLoad() {
-      return this.pendingModeSwitch?.xml
-        || captureXmlForModeSwitch({ latestXml: this.latestXml, graphXml: this.graphXml })
-        || EMPTY_GRAPH;
+      return this.xmlForMode(this.editorMode) || EMPTY_GRAPH;
+    },
+    xmlForMode(mode) {
+      return mode === 'board' ? this.boardXml : this.diagramXml;
+    },
+    setXmlForMode(mode, xml) {
+      if (typeof xml !== 'string') return;
+      if (mode === 'board') this.boardXml = xml;
+      else this.diagramXml = xml;
+    },
+    draftScopeForMode(mode) {
+      const diagramId = this.$store?.state?.diagram?.id;
+      const base = diagramId ? `edit:${diagramId}` : 'new:graph';
+      return `${base}:${normalizeGraphEditorMode(mode)}`;
     },
     onFrameLoad() {
-      // Send the live (possibly captured-pre-switch) XML. autosave:1 makes
-      // DrawIO emit 'autosave' events on every model change.
+      // Send the XML belonging to the active mode. Diagram and Board are
+      // intentionally independent, so a reload never borrows the other
+      // surface's document. autosave:1 makes DrawIO emit 'autosave' events on
+      // every model change.
       const xml = this.xmlForLoad();
       if (xml) {
         this.sendToFrame({ action: 'load', xml, autosave: 1 });
@@ -124,24 +137,24 @@ export default {
       const to = normalizeGraphEditorMode(toMode);
       const from = this.editorMode;
       if (to === from) return;
-      const xml = captureXmlForModeSwitch({ latestXml: this.latestXml, graphXml: this.graphXml });
-      if (!xml) {
-        trackAnalyticsEvent('graph_editor_mode_switch_failed', this.modeSwitchProps({
-          from_mode: from,
-          to_mode: to,
-          failure_stage: 'capture',
-          error_code: 'missing_xml',
-        }));
-        return;
-      }
-      const hasUnsaved = !!(this.drawioModified || (this.latestXml && this.latestXml !== this.graphXml));
+      const currentXml = this.xmlForMode(from) || '';
+      const savedXml = (from === 'board' ? this.boardGraphXml : this.graphXml) || '';
+      const hasUnsaved = !!this.drawioModified || currentXml !== savedXml;
       trackAnalyticsEvent('graph_editor_mode_switch_requested', this.modeSwitchProps({
         from_mode: from,
         to_mode: to,
         has_unsaved_changes: hasUnsaved,
       }));
-      this.pendingModeSwitch = { from, to, xml, startedAt: Date.now() };
-      this.latestXml = xml;
+      this.pendingModeSwitch = {
+        from,
+        to,
+        expectedXml: this.xmlForMode(to) || '',
+        startedAt: Date.now(),
+      };
+      this.drawioModified = false;
+      this.draftSaver?.flush();
+      this.draftScope = this.draftScopeForMode(to);
+      this.draftSaver = makeDebouncedDraftSaver(this.draftScope, 500);
       setGraphEditorMode(to);
       this.editorMode = to;
     },
@@ -177,11 +190,14 @@ export default {
     finishPendingModeSwitch(loadedXml) {
       const pending = this.pendingModeSwitch;
       if (!pending) return;
+      const contentPreserved = pending.expectedXml
+        ? wasContentPreserved(pending.expectedXml, loadedXml)
+        : !!loadedXml;
       trackAnalyticsEvent('graph_editor_mode_switch_succeeded', this.modeSwitchProps({
         from_mode: pending.from,
         to_mode: pending.to,
         reload_duration_ms: Date.now() - pending.startedAt,
-        content_preserved: wasContentPreserved(pending.xml, loadedXml),
+        content_preserved: contentPreserved,
       }));
       this.pendingModeSwitch = null;
     },
@@ -197,7 +213,8 @@ export default {
       drawioModified: false,
       publishing: false,
       closeGuardOff: null,
-      latestXml: null,
+      diagramXml: this.graphXml || '',
+      boardXml: this.boardGraphXml || '',
       draftSaver: null,
       savedListener: null,
       draftScope: null,
@@ -217,10 +234,10 @@ export default {
     // empty canvas over the customer's real diagram (silent data loss).
     // autosave:1 tells DrawIO to postMessage an 'autosave' event (with the
     // current xml) on every model change. Without it DrawIO only speaks on the
-    // explicit 'save', so `latestXml` (and the AI auto-title watcher + local
-    // draft saver + close-guard, which all consume these events) would never
-    // see live edits. Confluence persistence is unaffected — that still runs
-    // only on the 'save' event.
+    // explicit 'save', so the active mode's XML (and the AI auto-title watcher
+    // + local draft saver + close-guard, which all consume these events) would
+    // never see live edits. Confluence persistence is unaffected — that still
+    // runs only on the 'save' event.
     const loadGraph = (xml) => this.sendToFrame({ action: 'load', xml, autosave: 1 });
     this.messageListener = async ({ data }) => {
       if (!data) {
@@ -251,7 +268,7 @@ export default {
       else if (payload.event === 'autosave') {
         this.drawioModified = !!payload.modified;
         if (payload.xml) {
-          this.latestXml = payload.xml;
+          this.setXmlForMode(this.editorMode, payload.xml);
           if (this.drawioModified && this.draftSaver) {
             this.draftSaver.save({
               code: payload.xml,
@@ -269,7 +286,9 @@ export default {
         // raw <mxGraphModel> still open — DrawIO's embed setFileData
         // and the GraphViewer used in the read path both accept either
         // <mxfile> or raw <mxGraphModel>.
-        window.graphXml = payload.xml;
+        this.setXmlForMode(this.editorMode, payload.xml);
+        window.graphXml = this.diagramXml;
+        window.boardGraphXml = this.boardXml;
         // ensureTitle may block on user input (title prompt) — only show the
         // "Publishing…" overlay once a title exists and the actual upload starts.
         await window.ensureTitle();
@@ -281,7 +300,10 @@ export default {
           contentId: this.$store?.state?.diagram?.id,
         });
         this.publishing = true;
-        const published = await this.saveGraphAndExit(window.graphXml);
+        const published = await this.saveGraphAndExit({
+          graphXml: this.diagramXml,
+          boardGraphXml: this.boardXml,
+        });
         // On success the redirect (view.submit/close) tears down this modal, so
         // the overlay stays up until it closes. On failure saveGraphAndExit has
         // already toasted and kept the editor open — clear the overlay to retry.
@@ -307,16 +329,19 @@ export default {
   },
   async mounted() {
     await primeCloudId();
-    const diagramId = this.$store?.state?.diagram?.id;
-    this.draftScope = diagramId ? `edit:${diagramId}` : 'new:graph';
+    this.draftScope = this.draftScopeForMode(this.editorMode);
     this.draftSaver = makeDebouncedDraftSaver(this.draftScope, 500);
 
     // Restore prompt if a newer draft exists in localStorage.
     const draft = await loadDraft(this.draftScope);
     if (draft) {
-      const baseline = this.graphXml || '';
+      const baseline = this.xmlForMode(this.editorMode) || '';
       const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store?.state?.diagram?.updatedAt;
-      if (isDraftNewerThanSaved(draft, savedVersionUpdatedAt) && draft.code !== baseline) {
+      if (
+        (!draft.graphEditorMode || draft.graphEditorMode === this.editorMode)
+        && isDraftNewerThanSaved(draft, savedVersionUpdatedAt)
+        && draft.code !== baseline
+      ) {
         EventBus.$emit('draft-available', { scope: this.draftScope, draft });
       } else {
         await clearDraft(this.draftScope);
@@ -325,11 +350,11 @@ export default {
 
     // view.onClose: synchronously persist the latest XML if dirty.
     this.closeGuardOff = setupCloseGuard(() => {
-      if (!this.drawioModified || !this.latestXml) return;
+      if (!this.drawioModified || !this.xmlForMode(this.editorMode)) return;
       const cloudId = getCachedCloudId();
       if (cloudId) {
         saveDraftSync(this.draftScope, cloudId, {
-          code: this.latestXml,
+          code: this.xmlForMode(this.editorMode),
           title: this.$store?.state?.diagram?.title || '',
           graphEditorMode: this.editorMode,
         });
@@ -340,20 +365,23 @@ export default {
     this.savedListener = () => {
       this.draftSaver?.cancel();
       clearDraft(this.draftScope);
+      // A publish writes both mode documents. Clear the inactive mode's
+      // draft as well so a previously edited surface is not offered again
+      // after its content is already durable.
+      const otherMode = this.editorMode === 'board' ? 'diagram' : 'board';
+      clearDraft(this.draftScopeForMode(otherMode));
     };
     EventBus.$on('saved', this.savedListener);
 
     // Restore handler: re-load the draft XML into the DrawIO iframe.
     this.restoreListener = (payload) => {
       if (payload?.scope !== this.draftScope || !payload?.draft) return;
+      if (payload.draft.graphEditorMode && payload.draft.graphEditorMode !== this.editorMode) return;
       try {
         this.sendToFrame({ action: 'load', xml: payload.draft.code, autosave: 1 });
         if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
         this.drawioModified = true;
-        this.latestXml = payload.draft.code;
-        if (payload.draft.graphEditorMode && payload.draft.graphEditorMode !== this.editorMode) {
-          this.switchGraphEditorMode(payload.draft.graphEditorMode);
-        }
+        this.setXmlForMode(this.editorMode, payload.draft.code);
         clearDraft(this.draftScope);
       } catch (e) {
         console.error('[draft-restore] graph restore failed', e);

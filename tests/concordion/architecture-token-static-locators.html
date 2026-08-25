@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Architecture Tokens — static Flowchart locators</title>
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">Architecture Tokens · Source Binding Engine · Phase 1</p>
+      <h1>Static syntax-based locator correctness</h1>
+      <p class="lede">
+        A Flowchart node binding starts with a safe address into one source
+        revision. This product specification shows how the address is earned:
+        Mermaid validates the syntax, the owned Flowchart parser identifies
+        node syntax, and the UTF-8 byte span round-trips to the exact source
+        fragment.
+      </p>
+    </header>
+
+    <section class="scope" aria-labelledby="scope-heading">
+      <h2 id="scope-heading">What this phase owns</h2>
+      <div class="scope-grid">
+        <div>
+          <h3>Included</h3>
+          <p>Mermaid Flowchart nodes, declarations, endpoint occurrences, syntax-derived primary locators, and byte-safe source selection.</p>
+        </div>
+        <div>
+          <h3>Evidence only</h3>
+          <p>Native IDs, labels, shapes, container paths, statement context, and neighbouring IDs are static fingerprint facts—not identity decisions.</p>
+        </div>
+        <div>
+          <h3>Explicitly deferred</h3>
+          <p>No revision comparison, migration, reconciliation, token matching, Confluence persistence, UI, backend, D1, or cloud dependency is exercised here.</p>
+        </div>
+      </div>
+    </section>
+
+    <h2>Exact stage order</h2>
+    <ol class="stage-order">
+      <li><strong>Official Mermaid syntax validation.</strong> Invalid Mermaid stops the pipeline.</li>
+      <li><strong>Flowchart source parsing.</strong> The owned parser accepts only its explicit node subset.</li>
+      <li><strong>Canonical elements versus source occurrences.</strong> One logical node may have several appearances.</li>
+      <li><strong>Primary locator plus occurrences.</strong> The first syntax occurrence is primary; every occurrence remains available as evidence.</li>
+      <li><strong>UTF-8 byte-span round trip.</strong> A locator selects the exact source bytes, including CJK and emoji.</li>
+      <li><strong>Static fingerprint facts.</strong> Facts explain the observation; this phase does not match identity across revisions.</li>
+    </ol>
+
+    <h2>Product contract</h2>
+    <p>
+      A locator is not a Mermaid ID, label, edge label, style reference, or
+      subgraph title. It is a syntax-derived UTF-8 byte span attached to a
+      canonical Flowchart node. A forged or byte-unaligned span is rejected
+      rather than selecting an arbitrary fragment.
+    </p>
+    <p class="single-revision-note">
+      This is intentionally a single-revision specification, so there are no
+      Before/After columns. The examples describe what the Source Binding
+      Engine can safely observe before any future version comparison exists.
+    </p>
+
+    <h2>Executable product scenarios</h2>
+    <table data-concordion-execute="evaluateScenario(#ROW)">
+      <tr>
+        <th>Scenario</th>
+        <th>Source revision</th>
+        <th>Reader-facing product result</th>
+        <th>Static evidence</th>
+        <th class="fixture-key" data-concordion-assert-equals="validationStatus()">Validation status</th>
+        <th class="fixture-key" data-concordion-assert-equals="locatorCount()">Primary locator count</th>
+        <th class="fixture-key" data-concordion-assert-equals="occurrenceCount()">Occurrence count</th>
+        <th class="fixture-key" data-concordion-assert-equals="primaryFragments()">Primary fragments</th>
+        <th class="fixture-key" data-concordion-assert-equals="allFragments()">All fragments</th>
+        <th class="fixture-key" data-concordion-assert-equals="roundTripStatus()">UTF-8 round trip</th>
+        <th class="fixture-key" data-concordion-assert-equals="excludedTextStatus()">Non-node text guard</th>
+        <th class="fixture-key" data-concordion-assert-equals="tamperedSpanStatus()">Tampered span guard</th>
+        <th class="fixture-key" data-concordion-assert-equals="fingerprintFacts()">Fingerprint facts</th>
+        <th class="fixture-key" data-concordion-assert-equals="elementOccurrenceStatus()">Element/occurrence distinction</th>
+      </tr>
+      <tr>
+        <td>A valid Flowchart yields one primary locator plus endpoint occurrences</td>
+        <td><pre><code>flowchart LR
+  Orders[订单🙂 API]
+  Orders --&gt; Events[事件🚀]
+  Orders -- publishes --&gt; Audit[Audit log]</code></pre></td>
+        <td class="locator-result">
+          <strong>Three node locators, five syntax occurrences</strong><br>
+          <code>Orders</code> is one logical element with one declaration and two endpoint occurrences. Its first occurrence is primary; the other two are not duplicate elements.
+        </td>
+        <td>
+          <strong>Primary:</strong> <code>Orders[订单🙂 API]</code>, <code>Events[事件🚀]</code>, <code>Audit[Audit log]</code><br>
+          <strong>Fingerprint evidence:</strong> native ID, normalized label, shape, container path, and occurrence count only.
+          <details><summary>What is deliberately absent</summary>No version comparison, identity match, binding transfer, or migration decision.</details>
+        </td>
+        <td class="fixture-key">valid</td><td class="fixture-key">3</td><td class="fixture-key">5</td>
+        <td class="fixture-key">Orders[订单🙂 API] | Events[事件🚀] | Audit[Audit log]</td>
+        <td class="fixture-key">Orders[订单🙂 API] | Orders | Orders | Events[事件🚀] | Audit[Audit log]</td>
+        <td class="fixture-key">all_exact</td><td class="fixture-key">not_run</td><td class="fixture-key">not_run</td>
+        <td class="fixture-key">Orders|订单🙂 api|square|root|3;Events|事件🚀|square|root|1;Audit|audit log|square|root|1</td>
+        <td class="fixture-key">Orders=1 element/3 occurrences</td>
+      </tr>
+      <tr>
+        <td>Every locator round-trips exact UTF-8 source bytes</td>
+        <td><pre><code>flowchart LR
+  A[订单🙂 API] --&gt; B[事件🚀]</code></pre></td>
+        <td class="locator-result">
+          <strong>Exact source selection</strong><br>
+          The byte spans include the complete node syntax. CJK characters and astral emoji do not shift a locator or split a code point.
+        </td>
+        <td>
+          <strong>Selected fragments:</strong> <code>A[订单🙂 API]</code> and <code>B[事件🚀]</code><br>
+          JavaScript UTF-16 indexes never become persisted locator offsets.
+        </td>
+        <td class="fixture-key">valid</td><td class="fixture-key">2</td><td class="fixture-key">2</td>
+        <td class="fixture-key">A[订单🙂 API] | B[事件🚀]</td><td class="fixture-key">A[订单🙂 API] | B[事件🚀]</td>
+        <td class="fixture-key">all_exact</td><td class="fixture-key">not_run</td><td class="fixture-key">not_run</td>
+        <td class="fixture-key">A|订单🙂 api|square|root|1;B|事件🚀|square|root|1</td><td class="fixture-key">none</td>
+      </tr>
+      <tr>
+        <td>Invalid Mermaid stops before any locator is emitted</td>
+        <td><pre><code>flowchart LR
+  Orders[订单🙂 API] --&gt;</code></pre></td>
+        <td class="locator-result">
+          <strong>No locator</strong><br>
+          Official Mermaid syntax validation fails first, so no partial node or source span is exposed to the binding layer.
+        </td>
+        <td>
+          Validation is <code>invalid_mermaid</code>; locator count is <code>0</code>.<br>
+          The safe result is an empty observation, not a best-effort fragment.
+        </td>
+        <td class="fixture-key">invalid_mermaid</td><td class="fixture-key">0</td><td class="fixture-key">0</td>
+        <td class="fixture-key">none</td><td class="fixture-key">none</td><td class="fixture-key">not_run</td>
+        <td class="fixture-key">not_run</td><td class="fixture-key">not_run</td><td class="fixture-key">none</td><td class="fixture-key">none</td>
+      </tr>
+      <tr>
+        <td>Labels, edge text, and subgraph titles stay outside node locators</td>
+        <td><pre><code>flowchart TD
+  subgraph Platform[平台服务]
+    Orders["订单 API"] -- publishes --&gt; Events[事件]
+  end</code></pre></td>
+        <td class="locator-result">
+          <strong>Only the two endpoint nodes are locatable</strong><br>
+          <code>订单 API</code> stays inside its owning node syntax fragment; <code>publishes</code> and <code>平台服务</code> remain syntax context. None becomes a separate node-binding locator.
+        </td>
+        <td>
+          <strong>Node fragments:</strong> <code>Orders["订单 API"]</code> and <code>Events[事件]</code><br>
+          The subgraph is recorded as container context, not as a node element.
+        </td>
+        <td class="fixture-key">valid</td><td class="fixture-key">2</td><td class="fixture-key">2</td>
+        <td class="fixture-key">Orders["订单 API"] | Events[事件]</td><td class="fixture-key">Orders["订单 API"] | Events[事件]</td>
+        <td class="fixture-key">all_exact</td><td class="fixture-key">none</td><td class="fixture-key">not_run</td>
+        <td class="fixture-key">Orders|订单 api|square|platform|1;Events|事件|square|platform|1</td><td class="fixture-key">none</td>
+      </tr>
+      <tr>
+        <td>A style reference is not silently converted into a node</td>
+        <td><pre><code>flowchart TD
+  Orders[Orders] --&gt; Events[Events]
+  style Orders fill:#f00,stroke:#333,stroke-width:4px</code></pre></td>
+        <td class="locator-result">
+          <strong>No partial locator set</strong><br>
+          Mermaid accepts the document, but this owned node subset does not model style directives. The whole observation is unsupported and fails closed.
+        </td>
+        <td>
+          The style line is neither a node declaration nor an endpoint occurrence.<br>
+          Unsupported syntax cannot leak a made-up locator from a neighbouring node.
+        </td>
+        <td class="fixture-key">unsupported_after_official_validation</td><td class="fixture-key">0</td><td class="fixture-key">0</td>
+        <td class="fixture-key">none</td><td class="fixture-key">none</td><td class="fixture-key">not_run</td>
+        <td class="fixture-key">none</td><td class="fixture-key">not_run</td><td class="fixture-key">none</td><td class="fixture-key">none</td>
+      </tr>
+      <tr>
+        <td>A tampered or non-syntax-derived span fails closed</td>
+        <td><pre><code>flowchart LR
+  A[订单🙂 API] --&gt; B[事件🚀]</code></pre></td>
+        <td class="locator-result">
+          <strong>Forged span rejected</strong><br>
+          A byte-aligned span that is not one of the parser's occurrences is rejected, and a span beginning inside a CJK code point is rejected by the UTF-8 slicer.
+        </td>
+        <td>
+          <strong>Known primary:</strong> <code>A[订单🙂 API]</code><br>
+          <strong>Tampered selection:</strong> <code>rejected</code>. No arbitrary source fragment is accepted as a node.
+        </td>
+        <td class="fixture-key">valid</td><td class="fixture-key">2</td><td class="fixture-key">2</td>
+        <td class="fixture-key">A[订单🙂 API] | B[事件🚀]</td><td class="fixture-key">A[订单🙂 API] | B[事件🚀]</td>
+        <td class="fixture-key">all_exact</td><td class="fixture-key">not_run</td><td class="fixture-key">rejected</td>
+        <td class="fixture-key">A|订单🙂 api|square|root|1;B|事件🚀|square|root|1</td><td class="fixture-key">none</td>
+      </tr>
+    </table>
+
+    <h2>Boundary statement</h2>
+    <p>
+      Passing this document proves static locator correctness for the owned
+      Flowchart subset. It does not prove that a node is the same node in a
+      later revision, that a user intended a token binding, or that a token
+      exists outside this source. Those are separate product decisions and
+      are intentionally not part of this first phase.
+    </p>
+  </body>
+</html>

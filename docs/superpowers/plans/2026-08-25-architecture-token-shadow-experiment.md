@@ -29,8 +29,11 @@ pipeline is a set of strict preconditions:
 10. **Split/merge assessment** detects ambiguous medium-score 1→many and
     many→1 patterns only. It still does not identify an element or retain a
     binding.
-11. **Identity resolution (deferred)**: iterative topology using confirmed
-    mappings, delete/recreate handling, AI suggestions, and user confirmation.
+11. **Delete/recreate and confidence policy** classifies staged evidence as
+    orphaned, unresolved, or requiring human confirmation only. It still does
+    not identify an element or retain a binding.
+12. **Identity resolution (deferred)**: iterative topology using confirmed
+    mappings, AI suggestions, and user confirmation workflow.
 
 The Source Binding Engine's Stage 0 is a precondition to later version work.
 The Stage 1 helper is a source-address preparation seam only; it is not a
@@ -221,6 +224,26 @@ Scores outside that medium band do not form a split/merge pattern. Invalid or
 duplicate scored edges fail closed as unresolved input, rather than being
 counted twice or selected. A pattern is never a rename, identity confirmation,
 binding transfer/retention, AI request, or persistence action.
+
+## Delete/recreate and confidence policy (after split/merge only)
+
+`deleteRecreatePolicy.ts` consumes a Stage 3 candidate's label/container
+component evidence, the structural stage's topology similarity, and an
+explicit revision-distance fact: `adjacent`, `non_adjacent`, or `unavailable`.
+The policy deliberately does not invent a calendar or revision-count threshold;
+the revision adapter must supply that fact later. Missing/invalid label,
+container, topology, score, or revision-distance evidence fails closed as
+`unresolved_insufficient_evidence`.
+
+For the dangerous same-native-ID case, the policy classifies an
+`orphaned` identity break only when **all** prescribed break signals are
+present: changed label, changed container, zero mapped-topology similarity, and
+a non-adjacent revision. Otherwise same native ID remains explicitly
+insufficient evidence. Confidence bands follow the source design's example:
+high (`>=0.90`), medium (`>=0.65`), and low. In this implementation even high
+confidence is only `requires_human_confirmation`; low confidence remains
+unresolved. No result confirms identity, moves/retains a TokenBinding, invokes
+AI, or implements a confirmation workflow.
 
 ## Reproducible execution
 

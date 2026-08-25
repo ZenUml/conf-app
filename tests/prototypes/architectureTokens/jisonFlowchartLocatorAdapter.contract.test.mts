@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
 import { sliceUtf8ByteSpan } from '../../../src/domain/architectureTokens/utf8Locator.ts';
-import { locateFlowchartNodeOccurrences } from '../../../src/domain/architectureTokens/jisonFlowchartLocatorAdapter.ts';
+import { extractFlowchartNodeOccurrenceEvidence } from '../../../src/domain/architectureTokens/jisonFlowchartLocatorAdapter.ts';
 import { mermaid112JisonParserFactory } from './mermaid112JisonParserFactory.mts';
 
 const supportedRaw = [
@@ -49,7 +49,7 @@ test('pins the generated Mermaid parser host to the installed 11.12.2 contract',
 for (const fixture of fixtures) {
   test(`public Mermaid and adapter contract: ${fixture.name}`, async () => {
     assert.equal(await publicMermaidParses(fixture.source), fixture.publicValid);
-    const result = locateFlowchartNodeOccurrences(fixture.source, mermaid112JisonParserFactory());
+  const result = extractFlowchartNodeOccurrenceEvidence(fixture.source, mermaid112JisonParserFactory());
 
     if (fixture.outcome === 'ok') {
       assert.equal(result.kind, 'ok');

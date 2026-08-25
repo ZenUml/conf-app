@@ -1,10 +1,11 @@
 import { sliceUtf8ByteSpan, utf8ByteSpanFor, type Utf8ByteSpan } from './utf8Locator';
 
 /**
- * Experimental, version-pinned Flowchart source-locator adapter.
+ * Version-pinned Flowchart occurrence/position evidence adapter.
  *
- * It is intentionally unreferenced by product code. A host supplies an exact
- * Mermaid Jison parser only after checking its package/source-map contract.
+ * It does not produce product Locators. A host supplies an exact Mermaid Jison
+ * parser only after checking its package/source-map contract; the distinct
+ * Locator domain layer decides how accepted evidence becomes a locator.
  */
 
 export type JisonReductionLocation = Readonly<{ range?: readonly [number, number] }>;
@@ -23,7 +24,7 @@ export type VersionPinnedJisonParserFactory = Readonly<{
   createParser(): VersionPinnedJisonParser;
 }>;
 
-export type JisonNodeOccurrence = Readonly<{
+export type JisonNodeOccurrenceEvidence = Readonly<{
   nativeId: string;
   role: 'declaration' | 'edge_endpoint';
   span: Utf8ByteSpan;
@@ -33,8 +34,8 @@ export type JisonNodeOccurrence = Readonly<{
   fragment: string;
 }>;
 
-export type JisonLocatorAdapterResult =
-  | Readonly<{ kind: 'ok'; adapterVersion: string; occurrences: readonly JisonNodeOccurrence[] }>
+export type JisonOccurrenceEvidenceResult =
+  | Readonly<{ kind: 'ok'; adapterVersion: string; occurrences: readonly JisonNodeOccurrenceEvidence[] }>
   | Readonly<{
       kind: 'unsupported_preprocessing';
       reason:
@@ -61,6 +62,11 @@ type PreparedSource = Readonly<{
 type CapturedVertex = Readonly<{ nativeId: string; parserRange: readonly [number, number] }>;
 type CapturedStatement = Readonly<{ parserRange: readonly [number, number]; isEdge: boolean }>;
 
+/** @deprecated Use JisonNodeOccurrenceEvidence: this type is evidence, not a Locator. */
+export type JisonNodeOccurrence = JisonNodeOccurrenceEvidence;
+/** @deprecated Use JisonOccurrenceEvidenceResult: this result is evidence, not a Locator. */
+export type JisonLocatorAdapterResult = JisonOccurrenceEvidenceResult;
+
 /**
  * Extract node occurrences from an injected, version-pinned Jison parser.
  *
@@ -68,10 +74,10 @@ type CapturedStatement = Readonly<{ parserRange: readonly [number, number]; isEd
  * Mermaid preprocessing rewrite is rejected before parser coordinates are
  * considered, so callers can fall back without receiving a guessed locator.
  */
-export function locateFlowchartNodeOccurrences(
+export function extractFlowchartNodeOccurrenceEvidence(
   rawSource: string,
   factory: VersionPinnedJisonParserFactory,
-): JisonLocatorAdapterResult {
+): JisonOccurrenceEvidenceResult {
   const prepared = prepareRawSource(rawSource);
   if ('kind' in prepared) return prepared;
 
@@ -110,7 +116,7 @@ export function locateFlowchartNodeOccurrences(
     return { kind: 'parse_failure', reason: 'jison_parse_failure' };
   }
 
-  const occurrences: JisonNodeOccurrence[] = [];
+  const occurrences: JisonNodeOccurrenceEvidence[] = [];
   for (const vertex of vertices) {
     const rawRange = mapParserRangeToRaw(prepared, vertex.parserRange);
     if (!rawRange) return { kind: 'mapping_failure', reason: 'unmappable_jison_span' };
@@ -139,7 +145,7 @@ export function locateFlowchartNodeOccurrences(
   return { kind: 'ok', adapterVersion: factory.adapterVersion, occurrences };
 }
 
-function prepareRawSource(raw: string): PreparedSource | Exclude<JisonLocatorAdapterResult, { kind: 'ok' | 'adapter_unavailable' | 'parse_failure' }> {
+function prepareRawSource(raw: string): PreparedSource | Exclude<JisonOccurrenceEvidenceResult, { kind: 'ok' | 'adapter_unavailable' | 'parse_failure' }> {
   if (/\r(?!\n)/.test(raw)) return { kind: 'unsupported_preprocessing', reason: 'lone_carriage_return' };
   if (/^---(?:\r?\n|$)/.test(raw)) return { kind: 'unsupported_preprocessing', reason: 'frontmatter' };
   if (/^\s*%%/m.test(raw)) return { kind: 'unsupported_preprocessing', reason: 'directive_or_comment' };
@@ -166,6 +172,13 @@ function prepareRawSource(raw: string): PreparedSource | Exclude<JisonLocatorAda
   }
   return { parserText, rawOrigin };
 }
+
+/**
+ * @deprecated Compatibility export during the migration from the misleading
+ * “locator adapter” name. New product code must consume occurrence evidence
+ * through `extractFlowchartNodeOccurrenceEvidence` and the Locator layer.
+ */
+export const locateFlowchartNodeOccurrences = extractFlowchartNodeOccurrenceEvidence;
 
 function inspectProductionKinds(parser: VersionPinnedJisonParser): { vertex: ReadonlySet<number>; vertexStatement: ReadonlySet<number> } | null {
   if (!parser.lexer?.options || typeof parser.performAction !== 'function' || typeof parser.parse !== 'function') return null;

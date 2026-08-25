@@ -1,6 +1,6 @@
 import { sliceUtf8ByteSpan } from './utf8Locator';
 import type { CanonicalFlowchart, NodeOccurrence } from './mermaidFlowchart';
-import type { JisonNodeOccurrence } from './jisonFlowchartLocatorAdapter';
+import type { JisonNodeOccurrenceEvidence } from './jisonFlowchartLocatorAdapter';
 
 export type JisonFlowchartEvidenceVerification =
   | Readonly<{ kind: 'verified'; verifiedOccurrenceCount: number }>
@@ -15,9 +15,9 @@ export type JisonFlowchartEvidenceVerification =
 export function verifyJisonFlowchartEvidence(
   source: string,
   model: CanonicalFlowchart,
-  jisonOccurrences: readonly JisonNodeOccurrence[],
+  jisonOccurrences: readonly JisonNodeOccurrenceEvidence[],
 ): JisonFlowchartEvidenceVerification {
-  const byNativeId = new Map<string, JisonNodeOccurrence[]>();
+  const byNativeId = new Map<string, JisonNodeOccurrenceEvidence[]>();
   for (const occurrence of jisonOccurrences) {
     const group = byNativeId.get(occurrence.nativeId) ?? [];
     group.push(occurrence);
@@ -34,11 +34,11 @@ export function verifyJisonFlowchartEvidence(
 
     for (let index = 0; index < locators.length; index += 1) {
       const locator = locators[index];
-      const parserEvidence = evidence[index];
-      if (locator.role !== parserEvidence.role
-        || sliceUtf8ByteSpan(source, parserEvidence.span) !== parserEvidence.fragment
-        || sliceUtf8ByteSpan(source, locator.span) !== parserEvidence.fragment
-        || !isSyntacticClauseOf(locator, parserEvidence, source)) {
+      const jisonOccurrenceEvidence = evidence[index];
+      if (locator.role !== jisonOccurrenceEvidence.role
+        || sliceUtf8ByteSpan(source, jisonOccurrenceEvidence.span) !== jisonOccurrenceEvidence.fragment
+        || sliceUtf8ByteSpan(source, locator.span) !== jisonOccurrenceEvidence.fragment
+        || !isSyntacticClauseOf(locator, jisonOccurrenceEvidence, source)) {
         return { kind: 'rejected', reason: 'canonical_occurrence_mismatch' };
       }
     }
@@ -47,7 +47,7 @@ export function verifyJisonFlowchartEvidence(
   return { kind: 'verified', verifiedOccurrenceCount: expectedCount };
 }
 
-function isSyntacticClauseOf(locator: NodeOccurrence, evidence: JisonNodeOccurrence, source: string): boolean {
+function isSyntacticClauseOf(locator: NodeOccurrence, evidence: JisonNodeOccurrenceEvidence, source: string): boolean {
   const locatorStatement = sliceUtf8ByteSpan(source, locator.statementSpan).trim();
   const parserStatement = sliceUtf8ByteSpan(source, evidence.statementSpan).trim();
   // A chained edge may reduce as a clause (`C --> D`) within the source line

@@ -122,7 +122,7 @@ async function capturedDiagram(metadata?: object): Promise<Diagram> {
         subgraphs: [],
         nodes: [node('A', 'Orders API'), node('B', 'Database')],
       },
-      parserEvidence: { kind: 'jison_verified', adapterVersion: 'test', verifiedOccurrenceCount: 2 },
+      locatorEvidence: { kind: 'jison_preferred', adapterVersion: 'test', occurrenceCount: 2 },
     }),
     createId: (() => {
       let count = 0;

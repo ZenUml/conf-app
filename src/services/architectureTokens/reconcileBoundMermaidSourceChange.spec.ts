@@ -137,7 +137,7 @@ function testDependencies() {
       return {
         kind: 'ok' as const,
         model: parsed.model,
-        parserEvidence: { kind: 'jison_verified' as const, adapterVersion: 'test', verifiedOccurrenceCount: parsed.model.nodes.length },
+        locatorEvidence: { kind: 'jison_preferred' as const, adapterVersion: 'test', occurrenceCount: parsed.model.nodes.length },
       };
     },
     createId: () => `id-${++sequence}`,

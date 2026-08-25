@@ -11,7 +11,7 @@ import type { CanonicalFlowchart, CanonicalNode, NodeOccurrence } from '@/domain
 import { sha256NormalizedSource } from '@/domain/architectureTokens/sourceRevision';
 import {
   validateMermaidFlowchart,
-  type FlowchartParserEvidence,
+  type FlowchartLocatorEvidence,
   type ValidatedFlowchartResult,
 } from '@/domain/architectureTokens/validateMermaidFlowchart';
 import { reconcileBoundMermaidSourceChange } from './reconcileBoundMermaidSourceChange';
@@ -91,7 +91,7 @@ export async function prepareMermaidStaticIngestion(
   const now = dependencies.now ?? (() => new Date().toISOString());
   const state = buildCurrentRevisionState(
     validation.model,
-    validation.parserEvidence.kind,
+    validation.locatorEvidence.kind,
     sourceHash,
     current?.sourceId ?? `source-${createId()}`,
     createId,
@@ -105,7 +105,7 @@ export async function prepareMermaidStaticIngestion(
 
 export function buildCurrentRevisionState(
   model: CanonicalFlowchart,
-  parserEvidence: FlowchartParserEvidence['kind'],
+  locatorEvidence: FlowchartLocatorEvidence['kind'],
   normalizedSourceSha256: string,
   sourceId: string,
   createId: () => string,
@@ -178,7 +178,7 @@ export function buildCurrentRevisionState(
       kind: 'static_ingestion',
       sourceRevisionId,
       outcome: 'accepted',
-      reasons: ['public_syntax_valid', 'flowchart_nodes_located', parserEvidenceReason(parserEvidence)],
+      reasons: ['public_syntax_valid', 'flowchart_nodes_located', locatorEvidenceReason(locatorEvidence)],
       algorithmVersion: POLICY_VERSION,
       recordedAt,
     }],
@@ -214,6 +214,6 @@ function indexOfPrimaryOccurrence(node: CanonicalNode): number {
     && occurrence.span.endByte === node.primaryOccurrence.span.endByte);
 }
 
-function parserEvidenceReason(parserEvidence: 'jison_verified' | 'jison_rejected'): 'jison_verified' | 'jison_rejected' {
-  return parserEvidence;
+function locatorEvidenceReason(locatorEvidence: 'jison_preferred' | 'legacy_handwritten'): 'jison_preferred' | 'legacy_handwritten' {
+  return locatorEvidence;
 }

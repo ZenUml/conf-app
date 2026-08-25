@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateMermaidSyntax } from '@/utils/mermaid/validate';
-import { locateFlowchartNodeOccurrences } from './jisonFlowchartLocatorAdapter';
+import { extractFlowchartNodeOccurrenceEvidence } from './jisonFlowchartLocatorAdapter';
 import { mermaid112JisonParserFactory } from './mermaid112JisonParserFactory';
-import { parseFlowchartSource } from './mermaidFlowchart';
+import { parseFlowchartSource, type CanonicalFlowchart } from './mermaidFlowchart';
 import { sliceUtf8ByteSpan } from './utf8Locator';
 import { validateMermaidFlowchart } from './validateMermaidFlowchart';
 
@@ -34,7 +34,7 @@ describe('validateMermaidFlowchart', () => {
     }));
   });
 
-  it('records pinned Jison position evidence while preserving domain Locator values for CRLF source with Unicode and repeated occurrences', async () => {
+  it('makes pinned Jison the preferred source-position evidence while Locator retains its domain value', async () => {
     validate.mockResolvedValue({ valid: true, error: null, location: null });
     const source = [
       'flowchart TD',
@@ -48,14 +48,19 @@ describe('validateMermaidFlowchart', () => {
     expect(result.kind).toBe('ok');
     const handwritten = parseFlowchartSource(source);
     if (result.kind !== 'ok' || handwritten.kind !== 'ok') return;
-    expect(result.parserEvidence).toEqual(expect.objectContaining({ kind: 'jison_verified', verifiedOccurrenceCount: 7 }));
-    expect(result.model).toEqual(handwritten.model);
+    expect(result.locatorEvidence).toEqual(expect.objectContaining({ kind: 'jison_preferred', occurrenceCount: 7 }));
+    expect(locatorIndependentFacts(result.model)).toEqual(locatorIndependentFacts(handwritten.model));
     const occurrences = result.model.nodes.find(({ nativeId }) => nativeId === 'A')?.occurrences ?? [];
     expect(occurrences).toHaveLength(2);
     expect(occurrences.map(({ span }) => sliceUtf8ByteSpan(source, span))).toEqual(['A[Start 😀]', 'A']);
+    // The public model remains the Locator, but its preferred provider has
+    // supplied the syntax-derived statement position for this occurrence.
+    const legacyA = handwritten.model.nodes.find(({ nativeId }) => nativeId === 'A')?.occurrences[0];
+    expect(occurrences[0].statementSpan.startByte).toBe(occurrences[0].span.startByte);
+    expect(legacyA?.statementSpan.startByte).toBeLessThan(occurrences[0].statementSpan.startByte);
   });
 
-  it('falls back as one complete handwritten model for an unmodelled preprocessing form', async () => {
+  it('keeps a Mermaid-accepted source valid when the preferred evidence provider rejects preprocessing', async () => {
     validate.mockResolvedValue({ valid: true, error: null, location: null });
     const source = '%% existing Mermaid comment\nflowchart TD\n  A[Start] --> B[End]';
     const handwritten = parseFlowchartSource(source);
@@ -65,8 +70,8 @@ describe('validateMermaidFlowchart', () => {
 
     expect(result).toMatchObject({
       kind: 'ok',
-      parserEvidence: {
-        kind: 'jison_rejected',
+      locatorEvidence: {
+        kind: 'legacy_handwritten',
         reason: 'unsupported_preprocessing:directive_or_comment',
       },
     });
@@ -74,19 +79,24 @@ describe('validateMermaidFlowchart', () => {
     expect(result.model).toEqual(handwritten.model);
   });
 
-  it('falls back when the version-pinned factory gate fails', async () => {
+  it('does not let source-position provider selection change Mermaid validity', async () => {
     validate.mockResolvedValue({ valid: true, error: null, location: null });
+    const source = 'flowchart TD\n  A --> B';
+    const preferred = await validateMermaidFlowchart(source);
 
-    const result = await validateMermaidFlowchart('flowchart TD\n  A --> B', {
-      createJisonFactory: () => {
+    const legacy = await validateMermaidFlowchart(source, {
+      createJisonEvidenceFactory: () => {
         throw new Error('simulated artifact hash mismatch');
       },
     });
 
-    expect(result).toMatchObject({
+    expect(preferred).toMatchObject({ kind: 'ok' });
+    expect(legacy).toMatchObject({
       kind: 'ok',
-      parserEvidence: { kind: 'jison_rejected', reason: 'factory_contract_failure' },
+      locatorEvidence: { kind: 'legacy_handwritten', reason: 'factory_contract_failure' },
     });
+    if (preferred.kind !== 'ok' || legacy.kind !== 'ok') return;
+    expect(locatorIndependentFacts(legacy.model)).toEqual(locatorIndependentFacts(preferred.model));
   });
 
   it('rejects incorrect Jison span evidence without mixing it into the domain Locator', async () => {
@@ -96,8 +106,8 @@ describe('validateMermaidFlowchart', () => {
     expect(handwritten.kind).toBe('ok');
 
     const result = await validateMermaidFlowchart(source, {
-      locateJisonEvidence: (rawSource, factory) => {
-        const actual = locateFlowchartNodeOccurrences(rawSource, factory);
+      extractJisonOccurrenceEvidence: (rawSource, factory) => {
+        const actual = extractFlowchartNodeOccurrenceEvidence(rawSource, factory);
         if (actual.kind !== 'ok') return actual;
         return {
           ...actual,
@@ -106,14 +116,36 @@ describe('validateMermaidFlowchart', () => {
             : occurrence),
         };
       },
-      createJisonFactory: mermaid112JisonParserFactory,
+      createJisonEvidenceFactory: mermaid112JisonParserFactory,
     });
 
     expect(result).toMatchObject({
       kind: 'ok',
-      parserEvidence: { kind: 'jison_rejected', reason: 'canonical_occurrence_mismatch' },
+      locatorEvidence: { kind: 'legacy_handwritten', reason: 'canonical_occurrence_mismatch' },
     });
     if (result.kind !== 'ok' || handwritten.kind !== 'ok') return;
     expect(result.model).toEqual(handwritten.model);
   });
 });
+
+function locatorIndependentFacts(model: CanonicalFlowchart) {
+  return {
+    kind: model.kind,
+    direction: model.direction,
+    nodes: model.nodes.map((node) => ({
+      nativeId: node.nativeId,
+      label: node.label,
+      shape: node.shape,
+      containerPath: node.containerPath,
+      incidentNativeIds: node.incidentNativeIds,
+      statementContexts: node.statementContexts,
+      occurrenceRoles: node.occurrences.map((occurrence) => occurrence.role),
+    })),
+    edges: model.edges.map((edge) => edge.endpointNativeIds),
+    subgraphs: model.subgraphs.map((subgraph) => ({
+      nativeId: subgraph.nativeId,
+      title: subgraph.title,
+      containerPath: subgraph.containerPath,
+    })),
+  };
+}

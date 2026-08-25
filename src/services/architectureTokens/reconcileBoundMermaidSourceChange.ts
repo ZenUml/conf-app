@@ -95,7 +95,7 @@ export async function reconcileBoundMermaidSourceChange(input: Readonly<{
   const nextHash = await sha256NormalizedSource(input.nextSource);
   const nextStatic = buildCurrentRevisionState(
     input.nextValidation.model,
-    input.nextValidation.parserEvidence.kind,
+    input.nextValidation.locatorEvidence.kind,
     nextHash,
     current.sourceId,
     createId,

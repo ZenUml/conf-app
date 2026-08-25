@@ -1,4 +1,4 @@
-# Version-pinned Jison Flowchart parser-evidence adapter — first slice
+# Version-pinned Jison Flowchart occurrence-evidence adapter — first slice
 
 Status: local draft. The first production-path integration is deliberately
 narrow: Jison supplies parser-derived structure/position evidence; it does not
@@ -10,16 +10,19 @@ Architecture Tokens needs syntax-derived evidence for its raw-source UTF-8
 Locators. The boundary is:
 
 ```
-public Mermaid syntax validation → version-pinned Jison parser-evidence adapter
-                                      ↓ (verified evidence only)
-                               owned domain Locator / canonical model
-                                      ↓ (Jison rejects or disagrees)
-                         unchanged owned Locator + rejection provenance
+public Mermaid syntax validation (the only syntax authority)
+                                      ↓
+                  Jison occurrence/position evidence provider (preferred)
+                                      ↓ (rejected or unavailable)
+                  legacy handwritten occurrence evidence provider
+                                      ↓
+                         owned domain Locator / canonical model
 ```
 
 The adapter owns only static, single-revision node occurrence extraction. The
-Locator owns product spans, syntax roles, statement context, occurrence
-identity, and all future locator value beyond a raw span. The adapter does not
+Locator consumes an evidence-provider result and owns the conversion into
+product spans, syntax roles, statement context, occurrence identity, and all
+future locator value beyond a raw span. The adapter does not
 bind tokens, reconcile revisions, persist data, invoke UI/backend code, or
 confirm identity. `validateMermaidFlowchart` invokes it after public validation
 and records either verified parser evidence or its explicit rejection.
@@ -47,8 +50,8 @@ dependency:
 | Jison location capability | ranges plus `vertex` / `vertexStatement` reductions | adapter unavailable |
 
 An upgrade must deliberately update the pin only after the full contract
-fixture matrix and a source-map review pass. The fallback remains active while
-the adapter is unavailable.
+fixture matrix and a source-map review pass. The legacy handwritten evidence
+provider remains active while the Jison provider is unavailable.
 
 ## Raw-source mapping: first supported transform only
 
@@ -72,9 +75,9 @@ parse, sources containing any currently known transform outside that one:
 | lone CR | `lone_carriage_return` | not the supported CRLF transform |
 
 This is deliberately an allow-list. “Public Mermaid parses” is not equivalent
-to “adapter has position evidence.” Any unsupported preprocessing category
-fails closed: the domain Locator remains unchanged and receives a rejection
-reason, never a guessed Jison span.
+to “Jison has position evidence.” Any unsupported preprocessing category
+selects the legacy provider with an explicit rejection reason; it never changes
+the public Mermaid validity decision or creates a guessed Jison span.
 
 ## Occurrence model and fallback migration
 
@@ -87,23 +90,26 @@ and raw fragment. Repeated native IDs remain separate occurrences. A
 statement makes a declaration. Edge/subgraph objects remain outside v1 binding
 targets.
 
-The current domain Locator remains unchanged. The adapter may be recorded as
-verified evidence only after these gates are met:
+The domain Locator remains a distinct layer. After whole-model verification it
+consumes Jison positions as its preferred evidence; it retains ownership of
+logical occurrence identity and locator semantics. The preferred provider may
+be recorded only after these gates are met:
 
 1. the version/source/hash/Jison-shape contract passes;
 2. public Mermaid validation passes independently;
 3. the complete fixture matrix passes with exact byte round trips or explicit
    refusal;
-4. the complete Jison evidence set agrees with every domain Locator occurrence
-   without modifying any Locator value; and
+4. the complete Jison evidence set agrees with every legacy occurrence before
+the Locator applies it; and
 5. a controlled corpus comparison shows no accepted evidence violating the
    static locator audit; and
 6. product telemetry/audit fields can name adapter version and rejection reason.
 
-The adapter is now called in the validation path but is not a product Locator
-replacement. Any future Locator implementation may consume the same evidence
-through this boundary; removing the handwritten implementation requires a
-separate Locator-equivalence and upgrade protocol review.
+The adapter is now called in the validation path as an evidence provider, not
+a product Locator replacement. Provider selection may change only the
+position-evidence input to Locator; it must never change whether public Mermaid
+accepts the source. Removing the handwritten provider requires a separate
+Locator-equivalence and upgrade protocol review; the Locator itself remains.
 
 ## First-slice fixture contract
 

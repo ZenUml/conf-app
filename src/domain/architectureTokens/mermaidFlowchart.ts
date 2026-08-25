@@ -16,6 +16,18 @@ export type NodeOccurrence = Readonly<{
   role: 'declaration' | 'edge_endpoint';
 }>;
 
+/**
+ * Parser-derived source-position evidence consumed by the product Locator.
+ * It deliberately carries no parser-specific identity: a Jison adapter and
+ * the legacy handwritten extractor can both supply this shape.
+ */
+export type NodeOccurrenceSourcePositionEvidence = Readonly<{
+  nativeId: string;
+  role: NodeOccurrence['role'];
+  span: Utf8ByteSpan;
+  statementSpan: Utf8ByteSpan;
+}>;
+
 export type CanonicalNode = Readonly<{
   kind: 'node';
   nativeId: string;
@@ -54,6 +66,47 @@ export type FlowchartParseResult =
   | Readonly<{ kind: 'ok'; model: CanonicalFlowchart }>
   | Readonly<{ kind: 'unsupported'; reason: string }>;
 
+/**
+ * The Locator owns the canonical model and decides how parser evidence becomes
+ * a product locator. The parser is never the Locator: node facts, occurrence
+ * identity, roles, statement context, and all future locator semantics remain
+ * in this domain layer. It fails closed if supplied evidence cannot account
+ * for every existing occurrence exactly once.
+ */
+export function applyNodeOccurrenceSourcePositionEvidence(
+  model: CanonicalFlowchart,
+  evidence: readonly NodeOccurrenceSourcePositionEvidence[],
+): CanonicalFlowchart | null {
+  const byNativeId = new Map<string, NodeOccurrenceSourcePositionEvidence[]>();
+  for (const occurrence of evidence) {
+    const entries = byNativeId.get(occurrence.nativeId) ?? [];
+    entries.push(occurrence);
+    byNativeId.set(occurrence.nativeId, entries);
+  }
+
+  if (model.nodes.reduce((count, node) => count + node.occurrences.length, 0) !== evidence.length) return null;
+
+  const nodes = model.nodes.map((node) => {
+    const existing = [...node.occurrences].sort(compareNodeOccurrence);
+    const supplied = [...(byNativeId.get(node.nativeId) ?? [])].sort(compareNodeOccurrence);
+    if (existing.length !== supplied.length) return null;
+    const occurrences = existing.map((locator, index) => {
+      const position = supplied[index];
+      if (locator.role !== position.role) return null;
+      return { ...locator, span: position.span, statementSpan: position.statementSpan };
+    });
+    if (occurrences.some((occurrence) => occurrence === null)) return null;
+    const primaryIndex = existing.findIndex((occurrence) => occurrence === node.primaryOccurrence);
+    return {
+      ...node,
+      occurrences: occurrences as NodeOccurrence[],
+      primaryOccurrence: occurrences[primaryIndex < 0 ? 0 : primaryIndex] as NodeOccurrence,
+    };
+  });
+  if (nodes.some((node) => node === null)) return null;
+  return { ...model, nodes: nodes as CanonicalNode[] };
+}
+
 type CharSpan = Readonly<{ start: number; end: number }>;
 type Statement = Readonly<{ text: string; span: CharSpan }>;
 type MutableNode = {
@@ -71,6 +124,13 @@ const NODE_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]*/;
 const EDGE_ARROW = /^(?:<-->|-+>|=+>|-\.+->|\.+->|-{3,}|={3,}|-\.+-)/;
 const STYLE = /^style\s+[A-Za-z_][A-Za-z0-9_-]*\s+[A-Za-z-][A-Za-z0-9-]*\s*:\s*[^,;]+(?:\s*,\s*[A-Za-z-][A-Za-z0-9-]*\s*:\s*[^,;]+)*\s*;?$/i;
 const SUBGRAPH_DIRECTION = /^direction\s+(?:TB|TD|BT|RL|LR)\s*$/i;
+
+function compareNodeOccurrence(
+  left: Pick<NodeOccurrence, 'span'>,
+  right: Pick<NodeOccurrence, 'span'>,
+): number {
+  return left.span.startByte - right.span.startByte || left.span.endByte - right.span.endByte;
+}
 
 /**
  * Parses only the supported Flowchart-node subset. `unsupported` is a

@@ -27,6 +27,13 @@ nodes**. It records subgraphs and edges in the canonical model only as context
 for nodes and future support. It neither creates token bindings for them nor
 claims to reconcile them.
 
+Mermaid public `parse()` is the sole syntax/acceptance authority. A version-
+pinned Jison provider and the legacy handwritten provider supply only
+parser-derived source-position evidence to the distinct Locator domain layer.
+Selecting either provider must never change whether Mermaid accepts the same
+source; it affects only the evidence that Locator converts into its typed,
+UTF-8 product locator.
+
 ## Repository evidence
 
 | Finding | Evidence | Consequence |

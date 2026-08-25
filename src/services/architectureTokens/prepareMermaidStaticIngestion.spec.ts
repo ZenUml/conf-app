@@ -24,7 +24,7 @@ describe('prepareMermaidStaticIngestion', () => {
     expect(decoded.value.revisions[0]).toMatchObject({ validationStatus: 'valid', normalizedSourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(decoded.value.elements.map(({ kind }) => kind)).toEqual(['node', 'node']);
     expect(decoded.value.revisionElements.flatMap(({ locators }) => locators).every(({ locatorKind }) => locatorKind === 'utf8_byte_span')).toBe(true);
-    expect(decoded.value.audit[0].reasons).toContain('jison_verified');
+    expect(decoded.value.audit[0].reasons).toContain('jison_preferred');
   });
 
   it('does not invent a new revision when the current source hash is unchanged', async () => {
@@ -42,12 +42,12 @@ describe('prepareMermaidStaticIngestion', () => {
   it('records a rejected Jison adapter as static evidence without changing canonical locator facts', async () => {
     const diagram = mermaidDiagram();
 
-    await prepareMermaidStaticIngestion(diagram, dependencies({ parserEvidence: 'jison_rejected' }));
+    await prepareMermaidStaticIngestion(diagram, dependencies({ locatorEvidence: 'legacy_handwritten' }));
 
     const decoded = readArchitectureTokenBindingState(diagram.metadata);
     expect(decoded.kind).toBe('ok');
     if (decoded.kind !== 'ok' || !decoded.value) return;
-    expect(decoded.value.audit[0].reasons).toContain('jison_rejected');
+    expect(decoded.value.audit[0].reasons).toContain('legacy_handwritten');
     expect(decoded.value.revisionElements).toHaveLength(2);
   });
 
@@ -106,7 +106,7 @@ describe('prepareMermaidStaticIngestion', () => {
 
 function dependencies(options: Readonly<{
   validationKind?: 'ok' | 'invalid' | 'unsupported';
-  parserEvidence?: 'jison_verified' | 'jison_rejected';
+  locatorEvidence?: 'jison_preferred' | 'legacy_handwritten';
 }> = {}) {
   const validationKind = options.validationKind ?? 'ok';
   return {
@@ -126,9 +126,9 @@ function dependencies(options: Readonly<{
               node('B', 'Database', 32, 43),
             ],
           },
-          parserEvidence: options.parserEvidence === 'jison_rejected'
-            ? { kind: 'jison_rejected' as const, reason: 'test_adapter_rejected' }
-            : { kind: 'jison_verified' as const, adapterVersion: 'test', verifiedOccurrenceCount: 2 },
+          locatorEvidence: options.locatorEvidence === 'legacy_handwritten'
+            ? { kind: 'legacy_handwritten' as const, reason: 'test_adapter_rejected' }
+            : { kind: 'jison_preferred' as const, adapterVersion: 'test', occurrenceCount: 2 },
         },
     createId: (() => {
       let count = 0;

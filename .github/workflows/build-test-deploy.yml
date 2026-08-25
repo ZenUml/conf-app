@@ -136,6 +136,25 @@ jobs:
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
+  staging-lite-fullscreen-e2e:
+    # Keep the DrawIO Publish checks focused on graph-edit.spec.ts. Like the
+    # main Lite E2E, run them for the default branch and ready-for-review PRs,
+    # but not for draft/branch iteration pushes.
+    if: |
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    needs: [staging-lite, build]
+    name: "E2E: Lite DrawIO Publish"
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-lite@stg
+      suite: graph-publish
+      artifact-suffix: lite-stg-graph-publish
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
   staging-full:
     # Lite is representative for feature-branch validation. Full + Diagramly
     # only run on the default branch to catch variant-specific regressions before release;
@@ -234,7 +253,7 @@ jobs:
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the default branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-lite-e2e]
+    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: write

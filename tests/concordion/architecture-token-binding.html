@@ -33,71 +33,160 @@
     <h2>Executable examples</h2>
     <table data-concordion-execute="evaluateScenario(#ROW)">
       <tr>
-        <th>Scenario</th>
-        <th>Before → after Mermaid source</th>
-        <th>Evidence available</th>
-        <th>Why this outcome is safe</th>
-        <th>Reader-facing result</th>
-        <th data-concordion-assert-equals="status()">Executed system status</th>
-        <th data-concordion-assert-equals="bindingTransferred()">Binding automatically retained</th>
-        <th data-concordion-assert-equals="reason()">Why</th>
+        <th class="fixture-key">Scenario</th>
+        <th>Before</th>
+        <th>After</th>
+        <th>Saved binding evidence</th>
+        <th>Result</th>
+        <th class="fixture-key" data-concordion-assert-equals="status()">Executed status check</th>
+        <th class="fixture-key" data-concordion-assert-equals="bindingTransferred()">Automatic retention check</th>
+        <th class="fixture-key" data-concordion-assert-equals="reason()">Safety reason check</th>
       </tr>
       <tr>
-        <td>Move an unchanged Orders API node</td>
-        <td><pre><code>Before: Orders[Orders API] --> Events[Events]
-After:  %% deployment view
-        Orders[Orders API] --> Events[Events]</code></pre></td>
-        <td>A unique source-diff relocation and an exact node fingerprint.</td>
-        <td>The address moved, but independent evidence proves the same logical node.</td>
-        <td><strong>Auto retained</strong></td>
-        <td>confirmed_automatic</td><td>true</td><td>fingerprint_exact, source_diff_relocated</td>
+        <td class="fixture-key">Move an unchanged Orders API node</td>
+        <td><strong>Move an unchanged Orders API node</strong><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td><pre><code>%% deployment view
+Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td>
+          <strong>Logical node: Orders API</strong><br>
+          Saved logical element: <code>element-Orders</code><br>
+          Mermaid native ID: <code>Orders</code><br>
+          Fingerprint: exact match<br>
+          Source relocation: uniquely verified
+          <details><summary>Technical evidence</summary>
+            Same native ID, normalized label, square shape, container path,
+            statement context, and neighbours match the prior revision.
+          </details>
+        </td>
+        <td>
+          <strong>Auto retained</strong><br>
+          Executed status: <code>confirmed_automatic</code><br>
+          Automatic retention: <code>true</code><br>
+          Safety reason: <code>fingerprint_exact, source_diff_relocated</code><br>
+          The source address changed, but independent evidence proves one continuing logical node.
+        </td>
+        <td class="fixture-key">confirmed_automatic</td><td class="fixture-key">true</td><td class="fixture-key">fingerprint_exact, source_diff_relocated</td>
       </tr>
       <tr>
-        <td>Delete and recreate a node with the same Mermaid ID</td>
-        <td><pre><code>Before: Orders[Orders API] --> Events[Events]
-After:  Orders[Recreated Orders API] --> Events[Events]</code></pre></td>
-        <td>The new node still uses <code>Orders</code>, but no source-diff relocation exists.</td>
-        <td>An ID can be reused for a different logical element after delete/recreate.</td>
-        <td><strong>Needs human confirmation</strong></td>
-        <td>needs_confirmation</td><td>false</td><td>native_id_is_insufficient</td>
+        <td class="fixture-key">Delete and recreate a node with the same Mermaid ID</td>
+        <td><strong>Delete and recreate a node with the same Mermaid ID</strong><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td><pre><code>Orders[Recreated Orders API] --> Events[Events]</code></pre></td>
+        <td>
+          <strong>Logical node: Orders API</strong><br>
+          Saved logical element: <code>element-Orders</code><br>
+          Mermaid native ID: <code>Orders</code> is reused<br>
+          Fingerprint: changed label<br>
+          No source-diff relocation was recorded.
+          <details><summary>Technical evidence</summary>
+            The same native ID yields one candidate, but native ID alone is
+            deliberately insufficient after delete/recreate.
+          </details>
+        </td>
+        <td>
+          <strong>Needs human confirmation</strong><br>
+          Executed status: <code>needs_confirmation</code><br>
+          Automatic retention: <code>false</code><br>
+          Safety reason: <code>native_id_is_insufficient</code><br>
+          A reused ID could name a different logical node, so the binding is not transferred.
+        </td>
+        <td class="fixture-key">needs_confirmation</td><td class="fixture-key">false</td><td class="fixture-key">native_id_is_insufficient</td>
       </tr>
       <tr>
-        <td>Split one node into two nodes</td>
-        <td><pre><code>Before: Orders[Orders API] --> Gateway[Gateway]
-After:  OrdersRead[Orders API] --> Gateway[Gateway]
-        OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
-        <td>Both replacements have the same label, shape, and container context.</td>
-        <td>Choosing one branch would silently lose the meaning of the split.</td>
-        <td><strong>Ambiguous — human confirmation required</strong></td>
-        <td>ambiguous</td><td>false</td><td>multiple_plausible_candidates</td>
+        <td class="fixture-key">Split one node into two nodes</td>
+        <td><strong>Split one node into two nodes</strong><pre><code>Orders[Orders API] --> Gateway[Gateway]</code></pre></td>
+        <td><pre><code>OrdersRead[Orders API] --> Gateway[Gateway]
+OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
+        <td>
+          <strong>Logical node: Orders API</strong><br>
+          Saved logical element: <code>element-Orders</code><br>
+          Candidate native IDs: <code>OrdersRead</code>, <code>OrdersWrite</code><br>
+          Fingerprint: two equally plausible candidates<br>
+          No source-diff relocation was recorded.
+          <details><summary>Technical evidence</summary>
+            Both candidates match the normalized label, square shape, and
+            container path. One saved binding cannot choose a branch itself.
+          </details>
+        </td>
+        <td>
+          <strong>Ambiguous — human confirmation required</strong><br>
+          Executed status: <code>ambiguous</code><br>
+          Automatic retention: <code>false</code><br>
+          Safety reason: <code>multiple_plausible_candidates</code><br>
+          Selecting a branch automatically would silently lose the meaning of the split.
+        </td>
+        <td class="fixture-key">ambiguous</td><td class="fixture-key">false</td><td class="fixture-key">multiple_plausible_candidates</td>
       </tr>
       <tr>
-        <td>Merge two nodes into one node</td>
-        <td><pre><code>Before: OrdersRead[Orders API] --> Gateway[Gateway]
-        OrdersWrite[Orders API] --> Gateway[Gateway]
-After:  Orders[Orders API] --> Gateway[Gateway]</code></pre></td>
-        <td>One new candidate is plausible for two former logical nodes.</td>
-        <td>Two bindings cannot both claim one replacement automatically.</td>
-        <td><strong>Ambiguous — human confirmation required</strong></td>
-        <td>ambiguous</td><td>false</td><td>one_to_one_conflict</td>
+        <td class="fixture-key">Merge two nodes into one node</td>
+        <td><strong>Merge two nodes into one node</strong><pre><code>OrdersRead[Orders API] --> Gateway[Gateway]
+OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
+        <td><pre><code>Orders[Orders API] --> Gateway[Gateway]</code></pre></td>
+        <td>
+          <strong>Logical nodes: Orders API (read and write)</strong><br>
+          Saved logical elements: <code>element-OrdersRead</code>, <code>element-OrdersWrite</code><br>
+          Candidate native ID: <code>Orders</code><br>
+          Fingerprint: one candidate claimed by two bindings<br>
+          No source-diff relocation was recorded.
+          <details><summary>Technical evidence</summary>
+            One-to-one assignment prevents two saved logical elements from
+            automatically claiming the same new node.
+          </details>
+        </td>
+        <td>
+          <strong>Ambiguous — human confirmation required</strong><br>
+          Executed status: <code>ambiguous</code><br>
+          Automatic retention: <code>false</code><br>
+          Safety reason: <code>one_to_one_conflict</code><br>
+          Two bindings cannot both claim one replacement automatically.
+        </td>
+        <td class="fixture-key">ambiguous</td><td class="fixture-key">false</td><td class="fixture-key">one_to_one_conflict</td>
       </tr>
       <tr>
-        <td>Remove a node without a replacement</td>
-        <td><pre><code>Before: Orders[Orders API] --> Events[Events]
-After:  Events[Events]</code></pre></td>
-        <td>No node has enough matching evidence to be a replacement.</td>
-        <td>Keeping the old binding unresolved is safer than attaching it to a guess.</td>
-        <td><strong>Orphaned — no automatic transfer</strong></td>
-        <td>orphaned</td><td>false</td><td>no_safe_candidate</td>
+        <td class="fixture-key">Remove a node without a replacement</td>
+        <td><strong>Remove a node without a replacement</strong><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td><pre><code>Events[Events]</code></pre></td>
+        <td>
+          <strong>Logical node: Orders API</strong><br>
+          Saved logical element: <code>element-Orders</code><br>
+          Candidate native ID: none<br>
+          Fingerprint: no match<br>
+          No source-diff relocation was recorded.
+          <details><summary>Technical evidence</summary>
+            No new node has enough evidence to be a safe replacement.
+          </details>
+        </td>
+        <td>
+          <strong>Orphaned — no automatic transfer</strong><br>
+          Executed status: <code>orphaned</code><br>
+          Automatic retention: <code>false</code><br>
+          Safety reason: <code>no_safe_candidate</code><br>
+          Keeping the binding unresolved is safer than attaching it to a guess.
+        </td>
+        <td class="fixture-key">orphaned</td><td class="fixture-key">false</td><td class="fixture-key">no_safe_candidate</td>
       </tr>
       <tr>
-        <td>Use syntax this release does not support</td>
-        <td><pre><code>Before: Orders[Orders API] --> Events[Events]
-After:  Orders@{ shape: rect } --> Events[Events]</code></pre></td>
-        <td>The public Mermaid syntax may be valid, but this release does not model <code>@{ ... }</code>.</td>
-        <td>Unsupported or uncertain source is never guessed as a binding target.</td>
-        <td><strong>Unsupported — no automatic transfer</strong></td>
-        <td>unsupported_source</td><td>false</td><td>unsupported_edge_endpoint</td>
+        <td class="fixture-key">Use syntax this release does not support</td>
+        <td><strong>Use syntax this release does not support</strong><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td><pre><code>Orders@{ shape: rect } --> Events[Events]</code></pre></td>
+        <td>
+          <strong>Logical node: Orders API</strong><br>
+          Saved logical element: <code>element-Orders</code><br>
+          Candidate native ID: not evaluated<br>
+          Fingerprint: not evaluated<br>
+          Source relocation: not evaluated
+          <details><summary>Technical evidence</summary>
+            Mermaid may accept this syntax, but this Flowchart-node release
+            intentionally does not model <code>@{ ... }</code>.
+          </details>
+        </td>
+        <td>
+          <strong>Unsupported — no automatic transfer</strong><br>
+          Executed status: <code>unsupported_source</code><br>
+          Automatic retention: <code>false</code><br>
+          Safety reason: <code>unsupported_edge_endpoint</code><br>
+          Unsupported or uncertain source is never guessed as a binding target.
+        </td>
+        <td class="fixture-key">unsupported_source</td><td class="fixture-key">false</td><td class="fixture-key">unsupported_edge_endpoint</td>
       </tr>
     </table>
 

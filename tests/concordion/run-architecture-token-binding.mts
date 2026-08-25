@@ -20,6 +20,9 @@ const reportCss = `
   tr:nth-child(even) { background: #fafbfc; }
   code { background: #f1f2f4; border-radius: 3px; padding: 0.1rem 0.25rem; }
   pre { margin: 0; overflow-x: auto; white-space: pre-wrap; }
+  .fixture-key { display: none; }
+  details { margin-top: 0.45rem; color: #44546f; }
+  summary { cursor: pointer; font-size: 0.9em; }
   [data-concordion-result="success"], .concordion-success { color: #0f6b3a; background: #dcfce7; font-weight: 650; }
   [data-concordion-result="failure"], .concordion-failure { color: #b42318; background: #fee4e2; font-weight: 650; }
   [data-concordion-result="exception"], .concordion-exception { color: #5925dc; background: #f4f3ff; font-weight: 650; }
@@ -40,6 +43,12 @@ function verifyReaderFacingExplanation(html: string): void {
     'Remove a node without a replacement',
     'Use syntax this release does not support',
     'A node-label rename is not yet an automatic case',
+    'Saved binding evidence',
+    'Logical node: Orders API',
+    'No source-diff relocation was recorded',
+    'Before',
+    'After',
+    'Result',
   ]) {
     if (!html.includes(phrase)) throw new Error(`Rendered report is missing reader-facing explanation: ${phrase}`)
   }

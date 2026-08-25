@@ -33,6 +33,17 @@ function applyReportStyles(html: string): string {
   return html.replace('</head>', `<style data-concordion-architecture-token-styles>${reportCss}</style></head>`)
 }
 
+function decorateVisibleResultCells(html: string): string {
+  return html.replace(/<tr\b[\s\S]*?<\/tr>/g, (row) => {
+    const status = row.match(/data-concordion-result="(success|failure|exception)"/)?.[1]
+    if (!status) return row
+    return row.replace(
+      '<td class="binding-result">',
+      `<td class="binding-result concordion-${status} ${status}" data-concordion-result="${status}">`,
+    )
+  })
+}
+
 function verifyReaderFacingExplanation(html: string): void {
   for (const phrase of [
     'A binding is to a logical node',
@@ -46,11 +57,20 @@ function verifyReaderFacingExplanation(html: string): void {
     'Saved binding evidence',
     'Logical node: Orders API',
     'No source-diff relocation was recorded',
+    '<th>Scenario</th>',
+    '<td class="binding-result concordion-success success" data-concordion-result="success">',
+    'data-concordion-architecture-token-styles',
+    'background: #dcfce7',
     'Before',
     'After',
     'Result',
   ]) {
     if (!html.includes(phrase)) throw new Error(`Rendered report is missing reader-facing explanation: ${phrase}`)
+  }
+
+  const visibleSuccesses = html.match(/<td class="binding-result concordion-success success" data-concordion-result="success">/g) ?? []
+  if (visibleSuccesses.length !== 6) {
+    throw new Error(`Rendered report should have six visibly successful Result cells, found ${visibleSuccesses.length}`)
   }
 }
 
@@ -66,11 +86,11 @@ const result = await runSpecification({
   output: {
     path: reportPath,
     async write(resource: { path: string; content: string | Uint8Array }) {
-      await writeFile(resource.path, applyReportStyles(String(resource.content)))
+      await writeFile(resource.path, applyReportStyles(decorateVisibleResultCells(String(resource.content))))
     },
   },
 })
-verifyReaderFacingExplanation(result.html)
+verifyReaderFacingExplanation(await readFile(reportPath, 'utf8'))
 
 console.log(`Concordion Architecture Tokens report: ${reportPath}`)
 console.log(`Summary: ${JSON.stringify(result.summary)}`)

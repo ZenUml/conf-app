@@ -33,7 +33,7 @@
     <h2>Executable examples</h2>
     <table data-concordion-execute="evaluateScenario(#ROW)">
       <tr>
-        <th class="fixture-key">Scenario</th>
+        <th>Scenario</th>
         <th>Before</th>
         <th>After</th>
         <th>Saved binding evidence</th>
@@ -43,8 +43,8 @@
         <th class="fixture-key" data-concordion-assert-equals="reason()">Safety reason check</th>
       </tr>
       <tr>
-        <td class="fixture-key">Move an unchanged Orders API node</td>
-        <td><strong>Move an unchanged Orders API node</strong><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td>Move an unchanged Orders API node</td>
+        <td><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
         <td><pre><code>%% deployment view
 Orders[Orders API] --> Events[Events]</code></pre></td>
         <td>
@@ -58,7 +58,7 @@ Orders[Orders API] --> Events[Events]</code></pre></td>
             statement context, and neighbours match the prior revision.
           </details>
         </td>
-        <td>
+        <td class="binding-result">
           <strong>Auto retained</strong><br>
           Executed status: <code>confirmed_automatic</code><br>
           Automatic retention: <code>true</code><br>
@@ -68,8 +68,8 @@ Orders[Orders API] --> Events[Events]</code></pre></td>
         <td class="fixture-key">confirmed_automatic</td><td class="fixture-key">true</td><td class="fixture-key">fingerprint_exact, source_diff_relocated</td>
       </tr>
       <tr>
-        <td class="fixture-key">Delete and recreate a node with the same Mermaid ID</td>
-        <td><strong>Delete and recreate a node with the same Mermaid ID</strong><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td>Delete and recreate a node with the same Mermaid ID</td>
+        <td><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
         <td><pre><code>Orders[Recreated Orders API] --> Events[Events]</code></pre></td>
         <td>
           <strong>Logical node: Orders API</strong><br>
@@ -82,7 +82,7 @@ Orders[Orders API] --> Events[Events]</code></pre></td>
             deliberately insufficient after delete/recreate.
           </details>
         </td>
-        <td>
+        <td class="binding-result">
           <strong>Needs human confirmation</strong><br>
           Executed status: <code>needs_confirmation</code><br>
           Automatic retention: <code>false</code><br>
@@ -92,8 +92,8 @@ Orders[Orders API] --> Events[Events]</code></pre></td>
         <td class="fixture-key">needs_confirmation</td><td class="fixture-key">false</td><td class="fixture-key">native_id_is_insufficient</td>
       </tr>
       <tr>
-        <td class="fixture-key">Split one node into two nodes</td>
-        <td><strong>Split one node into two nodes</strong><pre><code>Orders[Orders API] --> Gateway[Gateway]</code></pre></td>
+        <td>Split one node into two nodes</td>
+        <td><pre><code>Orders[Orders API] --> Gateway[Gateway]</code></pre></td>
         <td><pre><code>OrdersRead[Orders API] --> Gateway[Gateway]
 OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
         <td>
@@ -107,7 +107,7 @@ OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
             container path. One saved binding cannot choose a branch itself.
           </details>
         </td>
-        <td>
+        <td class="binding-result">
           <strong>Ambiguous — human confirmation required</strong><br>
           Executed status: <code>ambiguous</code><br>
           Automatic retention: <code>false</code><br>
@@ -117,8 +117,8 @@ OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
         <td class="fixture-key">ambiguous</td><td class="fixture-key">false</td><td class="fixture-key">multiple_plausible_candidates</td>
       </tr>
       <tr>
-        <td class="fixture-key">Merge two nodes into one node</td>
-        <td><strong>Merge two nodes into one node</strong><pre><code>OrdersRead[Orders API] --> Gateway[Gateway]
+        <td>Merge two nodes into one node</td>
+        <td><pre><code>OrdersRead[Orders API] --> Gateway[Gateway]
 OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
         <td><pre><code>Orders[Orders API] --> Gateway[Gateway]</code></pre></td>
         <td>
@@ -132,7 +132,7 @@ OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
             automatically claiming the same new node.
           </details>
         </td>
-        <td>
+        <td class="binding-result">
           <strong>Ambiguous — human confirmation required</strong><br>
           Executed status: <code>ambiguous</code><br>
           Automatic retention: <code>false</code><br>
@@ -142,8 +142,8 @@ OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
         <td class="fixture-key">ambiguous</td><td class="fixture-key">false</td><td class="fixture-key">one_to_one_conflict</td>
       </tr>
       <tr>
-        <td class="fixture-key">Remove a node without a replacement</td>
-        <td><strong>Remove a node without a replacement</strong><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td>Remove a node without a replacement</td>
+        <td><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
         <td><pre><code>Events[Events]</code></pre></td>
         <td>
           <strong>Logical node: Orders API</strong><br>
@@ -155,7 +155,7 @@ OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
             No new node has enough evidence to be a safe replacement.
           </details>
         </td>
-        <td>
+        <td class="binding-result">
           <strong>Orphaned — no automatic transfer</strong><br>
           Executed status: <code>orphaned</code><br>
           Automatic retention: <code>false</code><br>
@@ -165,8 +165,8 @@ OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
         <td class="fixture-key">orphaned</td><td class="fixture-key">false</td><td class="fixture-key">no_safe_candidate</td>
       </tr>
       <tr>
-        <td class="fixture-key">Use syntax this release does not support</td>
-        <td><strong>Use syntax this release does not support</strong><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
+        <td>Use syntax this release does not support</td>
+        <td><pre><code>Orders[Orders API] --> Events[Events]</code></pre></td>
         <td><pre><code>Orders@{ shape: rect } --> Events[Events]</code></pre></td>
         <td>
           <strong>Logical node: Orders API</strong><br>
@@ -179,7 +179,7 @@ OrdersWrite[Orders API] --> Gateway[Gateway]</code></pre></td>
             intentionally does not model <code>@{ ... }</code>.
           </details>
         </td>
-        <td>
+        <td class="binding-result">
           <strong>Unsupported — no automatic transfer</strong><br>
           Executed status: <code>unsupported_source</code><br>
           Automatic retention: <code>false</code><br>

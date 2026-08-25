@@ -99,6 +99,20 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     expect(header.classes()).toContain('drawio-header--board')
   })
 
+  it('reserves the complete Board action area instead of overlapping Publish', async () => {
+    const wrapper = mountGraphTitle(EMPTY_GRAPH, 'board')
+    await flushPromises()
+    const header = wrapper.find('[data-editor-mode="board"]')
+    const style = header.element.style
+
+    // Sketch keeps its native Publish/Close group at the top-right. The
+    // title overlay must end before that group; 164px is the measured native
+    // action footprint (12px right inset + 152px action group) at the
+    // Storybook/Confluence editor width.
+    expect(Number.parseFloat(style.right)).toBeGreaterThanOrEqual(164)
+    expect(header.element.querySelector('div')?.classList.contains('w-72')).toBe(true)
+  })
+
   it('hides the spark button when the flag is disabled', async () => {
     vi.mocked(isAiTitleEnabled).mockResolvedValueOnce(false)
     const wrapper = mountGraphTitle(EMPTY_GRAPH)

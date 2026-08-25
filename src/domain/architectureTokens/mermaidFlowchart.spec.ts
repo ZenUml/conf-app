@@ -122,6 +122,21 @@ describe('parseFlowchartSource', () => {
     expect(result.model.edges).toMatchObject([{ endpointNativeIds: ['Orders', 'Events'] }]);
   });
 
+  it('ignores a complete style directive without creating a node or locator', () => {
+    const result = parseFlowchartSource([
+      'flowchart TD',
+      '  style Orders fill:#f96,stroke:#333,stroke-width:2px',
+      '  Orders[Orders API] --> Events[Events]',
+    ].join('\n'));
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    expect(result.model.nodes.map((node) => node.nativeId)).toEqual(['Orders', 'Events']);
+    expect(result.model.edges).toMatchObject([{ endpointNativeIds: ['Orders', 'Events'] }]);
+    expect(result.model.nodes.some((node) => node.nativeId === 'style')).toBe(false);
+  });
+
   it('fails closed for a Mermaid family outside the Flowchart-node v1 boundary', () => {
     expect(parseFlowchartSource('sequenceDiagram\n  Alice->>Bob: hello')).toEqual({
       kind: 'unsupported',
@@ -133,6 +148,13 @@ describe('parseFlowchartSource', () => {
     expect(parseFlowchartSource('flowchart TD\n  A@{ shape: rect } --> B')).toEqual({
       kind: 'unsupported',
       reason: 'unsupported_edge_endpoint',
+    });
+  });
+
+  it('fails closed for an incomplete style directive', () => {
+    expect(parseFlowchartSource('flowchart TD\n  style Orders fill:#f96,\n  Orders --> Events')).toEqual({
+      kind: 'unsupported',
+      reason: 'unsupported_flowchart_statement',
     });
   });
 });

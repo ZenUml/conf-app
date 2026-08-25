@@ -69,6 +69,7 @@ type MutableNode = {
 const HEADER = /^\s*(?:flowchart|graph)(?:\s+([A-Za-z]{2}))?\s*(?:%%.*)?$/i;
 const NODE_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]*/;
 const EDGE_ARROW = /^(?:<-->|-+>|=+>|-\.+->|\.+->|-{3,}|={3,}|-\.+-)/;
+const STYLE = /^style\s+[A-Za-z_][A-Za-z0-9_-]*\s+[A-Za-z-][A-Za-z0-9-]*\s*:\s*[^,;]+(?:\s*,\s*[A-Za-z-][A-Za-z0-9-]*\s*:\s*[^,;]+)*\s*;?$/i;
 
 /**
  * Parses only the supported Flowchart-node subset. `unsupported` is a
@@ -95,6 +96,7 @@ export function parseFlowchartSource(source: string): FlowchartParseResult {
       containers.pop();
       continue;
     }
+    if (STYLE.test(trimmed)) continue;
 
     const subgraph = parseSubgraph(trimmed, statement);
     if (subgraph) {

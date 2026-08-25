@@ -51,6 +51,24 @@ describe('parseFlowchartSource', () => {
     expect(result.model.subgraphs).toMatchObject([{ nativeId: 'Platform', title: 'Platform' }]);
   });
 
+  it.each(['TB', 'TD', 'BT', 'RL', 'LR'])('ignores a line-only subgraph direction %s without creating an element', (direction) => {
+    const result = parseFlowchartSource([
+      'flowchart TD',
+      '  subgraph Platform[Platform]',
+      `    direction ${direction}`,
+      '    API[Public API]',
+      '  end',
+    ].join('\n'));
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    expect(result.model.nodes).toMatchObject([
+      { nativeId: 'API', containerPath: ['Platform'] },
+    ]);
+    expect(result.model.nodes.some((node) => node.nativeId === 'direction')).toBe(false);
+  });
+
   it('emits UTF-8 byte locators even when a node label contains an astral character', () => {
     const source = 'flowchart LR\n  A[服务🙂] --> B';
     const result = parseFlowchartSource(source);
@@ -120,6 +138,39 @@ describe('parseFlowchartSource', () => {
 
     expect(result.model.nodes.map((node) => node.nativeId)).toEqual(['Orders', 'Events']);
     expect(result.model.edges).toMatchObject([{ endpointNativeIds: ['Orders', 'Events'] }]);
+  });
+
+  it('ignores a supported direction statement inside a subgraph without creating a locator', () => {
+    const result = parseFlowchartSource('flowchart TD\nsubgraph Platform\ndirection LR\nOrders --> Events\nend');
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.model.nodes.map((node) => node.nativeId)).toEqual(['Orders', 'Events']);
+    expect(result.model.nodes.flatMap((node) => node.occurrences).some((occurrence) => occurrence.span.startByte === 29)).toBe(false);
+  });
+
+  it('fails closed for an out-of-context direction statement', () => {
+    expect(parseFlowchartSource('flowchart TD\ndirection LR\nOrders --> Events')).toMatchObject({
+      kind: 'unsupported',
+      reason: 'unsupported_flowchart_statement',
+    });
+  });
+
+  it('fails closed when a direction statement is embedded in a semicolon-delimited line', () => {
+    expect(parseFlowchartSource('flowchart TD\nsubgraph Platform\nOrders --> Events; direction LR\nend')).toMatchObject({
+      kind: 'unsupported',
+      reason: 'unsupported_flowchart_statement',
+    });
+    expect(parseFlowchartSource('flowchart TD\nsubgraph Platform\ndirection LR; Orders --> Events\nend')).toMatchObject({
+      kind: 'unsupported',
+      reason: 'unsupported_flowchart_statement',
+    });
+  });
+
+  it('fails closed for malformed subgraph direction syntax', () => {
+    expect(parseFlowchartSource('flowchart TD\nsubgraph Platform\ndirection LEFT\nOrders --> Events\nend')).toMatchObject({
+      kind: 'unsupported',
+      reason: 'unsupported_flowchart_statement',
+    });
   });
 
   it('ignores a complete style directive without creating a node or locator', () => {

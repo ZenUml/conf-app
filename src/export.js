@@ -142,6 +142,55 @@ export function extractExportContext(payload) {
   return { format, cloudId, clientDomain, spaceKey, accountId, pageId, customContentId, attachmentName, macroType: 'none' };
 }
 
+// ---------------------------------------------------------------------------
+// TEMPORARY DIAGNOSTIC (#554) — identify what triggers `exportType: 'other'`.
+//
+// Measured on production 2026-08-19..25: `other` is 87,608 of 93,786 adfExport
+// invocations and 46,417 of 47,878 export failures. Atlassian documents
+// `exportType` only as `pdf`, `word` or `other`, with `other` as the catch-all,
+// and the Developer Console groups invocations by our own function name, so
+// nothing we hold today names the caller. Several tenants fire this on a fixed
+// schedule (one alternates 20/10 invocations every hour around the clock;
+// another fires ~3,100 inside a single hour each day), and two accounts swept
+// 262 and 257 distinct spaces in a week — the shape of a scheduled export tool.
+//
+// Delete this block, `redactPayloadShape`, and its call site once #554 names
+// the trigger.
+// ---------------------------------------------------------------------------
+
+/** Sample rate for the #554 payload-shape log. 1% of ~12,500 invocations/day. */
+const OTHER_EXPORT_SHAPE_SAMPLE_RATE = 0.01;
+
+/**
+ * Keys whose values can carry page or diagram content rather than structure.
+ * Their subtrees are reduced to key names only, so the diagnostic never copies
+ * customer content into the app log.
+ */
+const SHAPE_LOG_CONTENT_KEYS = new Set([
+  'parameters', 'body', 'value', 'title', 'text', 'content', 'macroParams',
+]);
+
+/**
+ * Reduces a payload to a shape-only view for diagnostic logging: object keys
+ * survive, long strings collapse to `String(<length>)`, arrays report their
+ * length and first entries, and recursion stops at depth 4. Short strings are
+ * kept because the identifying signal we are looking for is one — an app key,
+ * a module key, or an enum value.
+ */
+export function redactPayloadShape(value, depth = 0, key = '') {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value.length > 80 ? `String(${value.length})` : value;
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    if (depth >= 4) return `Array(${value.length})`;
+    return { _len: value.length, _sample: value.slice(0, 2).map((v) => redactPayloadShape(v, depth + 1)) };
+  }
+  const entries = Object.entries(value);
+  if (depth >= 4) return `Object(${entries.length})`;
+  if (SHAPE_LOG_CONTENT_KEYS.has(key)) return { _keys: entries.map(([k]) => k) };
+  return Object.fromEntries(entries.map(([k, v]) => [k, redactPayloadShape(v, depth + 1, k)]));
+}
+
 /**
  * Common join-key fields included on every export tracking event so we can
  * left-join to the frontend `attachment_upload_*` events on
@@ -310,6 +359,11 @@ async function fetchPngDimensions(linksBase, downloadLink, attachmentName, pageI
 export const handler = async (payload) => {
   const ctx = extractExportContext(payload);
   const { pageId, customContentId, attachmentName } = ctx;
+
+  // #554 diagnostic — see redactPayloadShape above. Sampled, shape only.
+  if (ctx.format === 'other' && Math.random() < OTHER_EXPORT_SHAPE_SAMPLE_RATE) {
+    console.log(`Export #554: exportType=other payload shape ${JSON.stringify(redactPayloadShape(payload))}`);
+  }
 
   // NO custom-content read on the success path. Measured on Lite production
   // 2026-08-16: `exportMacro` runs 12,407 times/day, 40.3% of ALL Forge

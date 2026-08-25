@@ -137,8 +137,27 @@ describe('injectGraphModeSwitch', () => {
 
     expect(root.parentElement).toBe(doc.body)
     expect(root.style.position).toBe('fixed')
-    expect(root.style.height).toBe('44px')
+    expect(root.style.height).toBe('30px')
     expect(doc.querySelector('.graph-mode-switch')).toBe(root)
+  })
+
+  it('keeps Board notch dimensions equal to Diagram despite the taller sketch toolbar', () => {
+    const diagramMenubar = menubarFixture(30, 1200)
+    const diagramRoot = injectGraphModeSwitch(diagramMenubar, { mode: 'diagram', onSelect: vi.fn() })
+    const diagramSize = {
+      width: diagramRoot.style.width,
+      height: diagramRoot.style.height,
+    }
+
+    const sketchToolbar = document.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 900, height: 44, top: 10, left: 10, right: 910, bottom: 54, x: 10, y: 10, toJSON() { return {} } }),
+    })
+    document.body.appendChild(sketchToolbar)
+
+    const boardRoot = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+    expect({ width: boardRoot.style.width, height: boardRoot.style.height }).toEqual(diagramSize)
   })
 
   it('shrinks horizontally instead of overlapping reserved TITLE space', () => {

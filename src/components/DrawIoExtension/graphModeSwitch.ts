@@ -6,6 +6,10 @@ export const DRAWIO_FILENAME_STYLE_ID = 'zenuml-hide-drawio-filename'
 
 const NOTCH_REF_WIDTH = 252
 const NOTCH_REF_HEIGHT = 31
+// The classic Diagram menubar renders the switch at 30px in the editor. Keep
+// Board's body-mounted switch on that same visual baseline; the sketch toolbar
+// itself is 44px tall, but its chrome size must not change our control.
+const DIAGRAM_SWITCH_HEIGHT = 30
 const NOTCH_REF_INSET = 37.5
 const MIN_VISIBLE_WIDTH = 100
 
@@ -194,13 +198,20 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
     ? menubar
     : (doc.body || doc.documentElement)
   const mountOutsideToolbar = mountTarget !== menubar
-  const height = isShortToolbar ? box.height : NOTCH_REF_HEIGHT
+  const height = mountOutsideToolbar
+    ? DIAGRAM_SWITCH_HEIGHT
+    : (isShortToolbar ? box.height : NOTCH_REF_HEIGHT)
   const heightScale = height / NOTCH_REF_HEIGHT
   let width = NOTCH_REF_WIDTH * heightScale
 
   const reservedLeft = options.reservedLeftPx ?? 0
   const reservedRight = options.reservedRightPx ?? 0
-  const available = box.width > 0 ? box.width - reservedLeft - reservedRight : width
+  // A body-mounted sketch control is independent of the transient toolbar's
+  // dimensions and its overflow boundary. Keep the canonical Diagram width;
+  // only stable, in-toolbar mounts participate in reserved-space fitting.
+  const available = mountOutsideToolbar
+    ? width
+    : (box.width > 0 ? box.width - reservedLeft - reservedRight : width)
   if (available > 0 && width > available) {
     width = available
   }
@@ -219,7 +230,7 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   root.style.transform = 'translateX(-50%)'
   root.style.width = `${width}px`
   root.style.height = `${height}px`
-  if (available > 0 && available < MIN_VISIBLE_WIDTH) {
+  if (!mountOutsideToolbar && available > 0 && available < MIN_VISIBLE_WIDTH) {
     root.style.display = 'none'
   }
 

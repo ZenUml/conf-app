@@ -4,13 +4,21 @@
 
 ## Decision summary
 
-V1 binds an enterprise Architecture Token to a **stable DiagramElement**, not
-to a Mermaid locator and not to a Mermaid node ID. A locator is a
-revision-specific address into a UTF-8 Mermaid source revision. Each saved,
-valid Flowchart revision contributes locators and fingerprints for its logical
-nodes. A binding is retained only when reconciliation produces an unambiguous,
-one-to-one, policy-qualified match. Otherwise the existing binding remains
-visible as `orphaned` or `unresolved`; it is never silently transferred.
+Architecture Tokens are not diagram-only: Confluence prose/ADF pages,
+specifications (including OpenAPI), and later code/config are potential
+**source adapters**. Each adapter emits revision-scoped extracted candidates
+with locators, confidence, and provenance. Candidates are evidence, not
+confirmed tokens; no adapter may auto-confirm an enterprise Architecture Token
+solely from extraction.
+
+This v1 slice implements only the Mermaid Flowchart-node adapter. Within that
+adapter, a candidate refers to a stable **DiagramElement**, not to a Mermaid
+locator and not to a Mermaid node ID. A locator is a revision-specific address
+into a UTF-8 Mermaid source revision. Each saved, valid Flowchart revision
+contributes locators and fingerprints for its logical nodes. A binding is
+retained only when reconciliation produces an unambiguous, one-to-one,
+policy-qualified match. Otherwise the existing binding remains visible as
+`orphaned` or `unresolved`; it is never silently transferred.
 
 The first vertical slice is deliberately restricted to **Mermaid Flowchart
 nodes**. It records subgraphs and edges in the canonical model only as context
@@ -53,11 +61,16 @@ claims to reconcile them.
 - A user-facing confirmation UI, token catalogue integration, or AI matching.
   The domain statuses and audit records are designed so those can be added
   later without changing confirmed identity.
+- Adapters for Confluence prose/ADF pages, specifications, OpenAPI, code, or
+  configuration. They are future evidence producers, not alternative automatic
+  confirmation paths.
 
 ### Non-negotiable invariants
 
-1. `diagramElementId`, `tokenId`, and a Mermaid native ID are three distinct
-   identities. A native ID is evidence, not a durable identity.
+1. A confirmed logical token, an extracted candidate, `diagramElementId`,
+   `tokenId`, and a Mermaid native ID are distinct identities. A native ID is
+   evidence, not a durable identity; a diagram is one evidence source, not the
+   sole origin of a token.
 2. All persisted source positions are offsets in the UTF-8 byte sequence;
    JavaScript UTF-16 string indexes never cross a persistence or API boundary.
 3. Confluence custom content is the canonical v1 store for diagram source,
@@ -147,22 +160,41 @@ returns a locator it converts every boundary through a single UTF-8 byte-offset
 index (`TextEncoder`-based), and tests use astral-plane and combining-character
 labels to prove no UTF-16 index leaks through.
 
-## Canonical Confluence storage model
+## Source-agnostic evidence model and canonical Confluence storage
 
-The raw custom-content body is the canonical v1 envelope. Store an
-`architectureTokenBindingV1` namespace inside `Diagram.metadata`, preserving
-all existing metadata keys. IDs below are generated opaque UUID/ULID values;
-Mermaid IDs and token IDs remain plain data, never primary keys for logical
-elements. Do not copy Mermaid source into this namespace: its sibling
+The cross-source architecture has one deliberately narrow rule: source
+adapters produce evidence, while confirmation is a separate governed action.
+For v1, only `sourceType = mermaid_flowchart` is implemented and its candidate
+points at a `DiagramElement`. The future model must not force ADF, OpenAPI, or
+code/config locators into a Mermaid-shaped schema.
+
+| Record | Required fields | Purpose |
+| --- | --- | --- |
+| `Source` | `sourceId`, `sourceType`, Confluence/content reference or future external reference | Identifies an evidence origin without claiming it is a token. |
+| `SourceRevision` | `sourceRevisionId`, `sourceId`, parent, normalized-source hash, parser/extractor version, validation status | Immutable observed revision for any source adapter. |
+| `SourceLocator` | `sourceRevisionId`, locator kind/payload, extracted-candidate ID | Revision-specific address. Mermaid uses UTF-8 byte spans; ADF/spec/code adapters define their own typed locator. |
+| `ExtractedCandidate` | `candidateId`, source/revision/locator reference, candidate kind, confidence, provenance, extraction status | A fallible observation from a source adapter. It remains unconfirmed until an explicit policy/user action. |
+| `ConfirmedLogicalToken` | `logicalTokenId`, external `tokenId?`, confirmation method/status, audit reference | Stable confirmed architectural concept, distinct from every source occurrence and locator. |
+
+The raw custom-content body is the canonical v1 envelope for the Mermaid
+adapter's source, bindings, and evidence. Future adapters use their own
+canonical Confluence content/page representations; a backend remains only an
+optional projection/index and never a recovery dependency.
+
+Store an `architectureTokenBindingV1` namespace inside `Diagram.metadata`,
+preserving all existing metadata keys. IDs below are generated opaque UUID/ULID
+values; Mermaid IDs and token IDs remain plain data, never primary keys for
+logical elements. Do not copy Mermaid source into this namespace: its sibling
 `mermaidCode` remains authoritative.
 
 | Record | Required fields | Purpose |
 | --- | --- | --- |
-| `SourceRevision` | `sourceRevisionId`, `parentSourceRevisionId?`, `confluenceVersion?`, `normalizedSourceSha256`, `parserVersion`, `validationStatus`, timestamps | Immutable fact that one source version was observed and classified. The source body is its sibling `mermaidCode`; Confluence content versions retain earlier state. |
+| `SourceRevision` | `sourceRevisionId`, `sourceId`, `parentSourceRevisionId?`, `confluenceVersion?`, `normalizedSourceSha256`, `parserVersion`, `validationStatus`, timestamps | Mermaid-adapter instance of the source-agnostic revision fact. The source body is its sibling `mermaidCode`; Confluence content versions retain earlier state. |
 | `DiagramElement` | `diagramElementId`, `kind = node`, `createdInRevisionId`, lifecycle status | Stable logical element identity. It is not a source address or a token. |
-| `RevisionLocator` | `sourceRevisionId`, `diagramElementId`, `kind`, UTF-8 `spanStartByte`/`spanEndByte`, statement span, occurrence role, `nativeId?` | Revision-specific address(es) for one element. A logical node can have multiple rows for its occurrences. |
+| `RevisionLocator` | `sourceRevisionId`, `diagramElementId`, `kind`, UTF-8 `spanStartByte`/`spanEndByte`, statement span, occurrence role, `nativeId?` | Mermaid-specific `SourceLocator`. A logical node can have multiple rows for its occurrences. |
 | `ElementFingerprint` | revision + element, normalized label/shape, container path, native ID, statement context signature, neighbor signature | Explainable matching evidence. No raw full source in the fingerprint. |
-| `TokenBinding` | `tokenBindingId`, `diagramElementId`, opaque external `tokenId`, `status`, confirmation method, timestamps | The user intent: a token is bound to an element. Only an explicit bind or a safe reconciliation can produce `confirmed`. |
+| `ExtractedCandidate` | `candidateId`, `diagramElementId`, source/revision/locator references, confidence, provenance, status | Mermaid node evidence that may be associated with a logical token later; never auto-confirms it. |
+| `TokenBinding` | `tokenBindingId`, `diagramElementId`, `logicalTokenId`, opaque external `tokenId`, `status`, confirmation method, timestamps | The user intent: a confirmed logical token is associated with a diagram element. Only an explicit bind or a safe reconciliation can preserve `confirmed`. |
 | `ReconciliationRun` + `ReconciliationDecision` | old/new revision IDs, algorithm/parser versions, candidate scores, outcome, reasons, timestamps | Immutable audit provenance, including rejected alternatives and a user decision if one is later supplied. |
 
 `TokenBinding.status` is one of `confirmed`, `unresolved`, `orphaned`, or

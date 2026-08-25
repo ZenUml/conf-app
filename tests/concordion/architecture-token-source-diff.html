@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Architecture Token source-diff relocation evidence</title>
+  </head>
+  <body>
+    <h1>Source Binding Engine: Stage 1 relocation evidence</h1>
+    <p>
+      This stage compares <strong>two source revisions</strong>. It can prove
+      that a saved UTF-8 source address moved only through unchanged text. It
+      produces <strong>relocation evidence only</strong>: it never confirms
+      logical identity and never transfers or retains an Architecture Token
+      binding. Those decisions are deliberately later stages.
+    </p>
+    <p>
+      A locator is an address in one revision, not an identity. When its exact
+      byte span is entirely inside an unchanged diff hunk, Stage 1 records the
+      corresponding new byte span at confidence <code>1.0</code>. Any changed,
+      invalid, empty, or duplicate saved locator is unresolved rather than
+      guessed.
+    </p>
+
+    <h2>Exact unchanged source relocation</h2>
+    <table data-concordion-execute="evaluateScenario(#ROW)">
+      <tr>
+        <th>Before source</th>
+        <th>After source</th>
+        <th>Saved locator</th>
+        <th>Relocation evidence</th>
+        <th>Result</th>
+        <th class="fixture-key">Scenario</th>
+        <th class="fixture-key" data-concordion-assert-equals="status()">Executed status</th>
+        <th class="fixture-key" data-concordion-assert-equals="relocationEvidence()">Executed relocation evidence</th>
+        <th class="fixture-key" data-concordion-assert-equals="result()">Executed result</th>
+      </tr>
+      <tr>
+        <td><pre><code>flowchart TD
+A[服务🙂] --&gt; B</code></pre></td>
+        <td><pre><code>%% title
+flowchart TD
+A[服务🙂] --&gt; B</code></pre></td>
+        <td>
+          <strong>Occurrence:</strong> <code>node-a-occurrence-0</code><br>
+          <strong>Before address:</strong> <code>bytes 13–26</code><br>
+          Node syntax: <code>A[服务🙂]</code>
+        </td>
+        <td>
+          <strong>Exact relocated address:</strong> <code>bytes 22–35</code><br>
+          Unchanged source fragment, UTF-8 byte spans, confidence <code>1.0</code>.
+        </td>
+        <td class="relocation-result">
+          <strong>Evidence prepared</strong><br>
+          The insertion shifts the address but does not make an identity claim
+          or transfer a binding.
+        </td>
+        <td class="fixture-key">Insert UTF-8 text before an unchanged node</td>
+        <td class="fixture-key">relocation_evidence_only</td>
+        <td class="fixture-key">bytes 13–26 → bytes 22–35 · confidence 1.0 · unchanged UTF-8 text</td>
+        <td class="fixture-key">Exact relocation evidence only — no identity confirmation or binding transfer</td>
+      </tr>
+    </table>
+
+    <h2>Fail closed when the saved address is not safe</h2>
+    <table data-concordion-execute="evaluateScenario(#ROW)">
+      <tr>
+        <th>Before source</th>
+        <th>After source</th>
+        <th>Saved locator</th>
+        <th>Relocation evidence</th>
+        <th>Result</th>
+        <th class="fixture-key">Scenario</th>
+        <th class="fixture-key" data-concordion-assert-equals="status()">Executed status</th>
+        <th class="fixture-key" data-concordion-assert-equals="relocationEvidence()">Executed relocation evidence</th>
+        <th class="fixture-key" data-concordion-assert-equals="result()">Executed result</th>
+      </tr>
+      <tr>
+        <td><pre><code>flowchart TD
+A[Orders API] --&gt; B</code></pre></td>
+        <td><pre><code>flowchart TD
+A[Payments API] --&gt; B</code></pre></td>
+        <td><strong>Occurrence:</strong> <code>node-a-occurrence-0</code><br><strong>Before address:</strong> <code>A[Orders API]</code></td>
+        <td>The saved bytes cross a replacement hunk; no new address is inferred.</td>
+        <td class="relocation-result"><strong>Unresolved</strong><br>A changed fragment cannot be relocated exactly.</td>
+        <td class="fixture-key">Replace text inside the saved locator</td>
+        <td class="fixture-key">unresolved</td>
+        <td class="fixture-key">No exact relocation: locator_intersects_change</td>
+        <td class="fixture-key">Unresolved — no identity confirmation or binding transfer</td>
+      </tr>
+      <tr>
+        <td><pre><code>flowchart TD
+A[Orders API]</code></pre></td>
+        <td><pre><code>flowchart TD
+A[Orders API]</code></pre></td>
+        <td><strong>Occurrence:</strong> <code>node-a-occurrence-0</code><br><strong>Before address:</strong> <code>bytes -1–2</code> (outside source)</td>
+        <td>The saved byte range is invalid, so the source cannot be sliced safely.</td>
+        <td class="relocation-result"><strong>Unresolved</strong><br>An invalid saved address is never repaired by guessing.</td>
+        <td class="fixture-key">Saved locator is outside the source bytes</td>
+        <td class="fixture-key">unresolved</td>
+        <td class="fixture-key">No exact relocation: invalid_old_locator_span</td>
+        <td class="fixture-key">Unresolved — no identity confirmation or binding transfer</td>
+      </tr>
+      <tr>
+        <td><pre><code>flowchart TD
+A[Orders API]</code></pre></td>
+        <td><pre><code>flowchart TD
+A[Orders API]</code></pre></td>
+        <td><strong>Occurrence:</strong> <code>node-a-occurrence-0</code><br><strong>Before address:</strong> <code>bytes 13–13</code> (empty)</td>
+        <td>An empty address has no source fragment that can be proved unchanged.</td>
+        <td class="relocation-result"><strong>Unresolved</strong><br>An empty saved address carries no relocation evidence.</td>
+        <td class="fixture-key">Saved locator has no source bytes</td>
+        <td class="fixture-key">unresolved</td>
+        <td class="fixture-key">No exact relocation: empty_old_locator_span</td>
+        <td class="fixture-key">Unresolved — no identity confirmation or binding transfer</td>
+      </tr>
+      <tr>
+        <td><pre><code>flowchart TD
+A[Orders API]
+B[Events]</code></pre></td>
+        <td><pre><code>flowchart TD
+A[Orders API]
+B[Events]</code></pre></td>
+        <td><strong>Occurrence key:</strong> <code>node-occurrence-0</code> is saved twice<br><strong>Before addresses:</strong> <code>A[Orders API]</code> and <code>B[Events]</code></td>
+        <td>The repeated occurrence key is ambiguous; both saved addresses are rejected.</td>
+        <td class="relocation-result"><strong>Unresolved</strong><br>One occurrence key must not point to two source addresses.</td>
+        <td class="fixture-key">Two saved locators reuse one occurrence key</td>
+        <td class="fixture-key">unresolved</td>
+        <td class="fixture-key">No exact relocation: duplicate_locator_id (2 locators)</td>
+        <td class="fixture-key">Unresolved — no identity confirmation or binding transfer</td>
+      </tr>
+    </table>
+
+    <h2>Stage boundary</h2>
+    <p>
+      This document covers Mermaid Flowchart source-address evidence only.
+      It does not parse an identity, use Mermaid native IDs or fingerprints,
+      compare candidates, assign matches, retain a binding, write Confluence
+      content, call a backend, or create an index.
+    </p>
+  </body>
+</html>

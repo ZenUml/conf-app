@@ -10,13 +10,18 @@ pipeline is a set of strict preconditions:
 3. **Canonical elements**: nodes, edges, and subgraphs, with nodes as the only
    current binding candidates.
 4. **Locator + Fingerprint** as static revision evidence.
-5. **Revision update (deferred)**: compare previous revision, text diff, exact
-   relocation, native-ID candidates, fingerprint/structural matching, global
-   assignment, split/merge, AI suggestions, and user confirmation.
+5. **Revision update** begins only after those static gates: Stage 0 validates
+   both revisions; Stage 1 prepares Git-style source-diff hunks and exact
+   UTF-8 source-address relocation evidence. It neither identifies an element
+   nor retains a binding.
+6. **Identity resolution (deferred)**: native-ID candidates,
+   fingerprint/structural matching, global assignment, split/merge, AI
+   suggestions, and user confirmation.
 
-The Source Binding Engine's revision-update Stage 0 and later stages are
-downstream of this audit. They are not a Phase 1 acceptance criterion or
-output.
+The Source Binding Engine's Stage 0 is a precondition to later version work.
+The Stage 1 helper is a source-address preparation seam only; it is not a
+Phase 1 identity, binding, or retention outcome. All semantic stages remain
+downstream of this audit.
 
 ## Purpose
 
@@ -51,6 +56,10 @@ best-effort projection and may be incomplete, delayed, or unavailable.
   compared as one.
 - Version-change reconciliation, relocation, relationship discovery, global
   matching, topology, split/merge, AI, and user confirmation are deferred.
+  The sole exception is a pure source-diff helper that classifies
+  `unchanged`/`insert`/`delete`/`replace` hunks and can map an old UTF-8 span
+  wholly inside an unchanged hunk to its new address at confidence `1.0`.
+  That evidence has no element ID, Mermaid ID, binding, or retention decision.
 
 ## Static locator contract
 
@@ -94,6 +103,22 @@ The audit reports `locatorEligibility` separately from
 source address; the latter records available facts once that address is safe.
 Neither metric measures logical identity, binding retention, precision, or
 recall. Cross-revision comparison remains a later, explicitly gated stage.
+
+## Source-diff relocation preparation (Stage 1 only)
+
+`sourceDiffRelocation.ts` operates on two source texts and caller-supplied old
+UTF-8 locator spans, after each revision has independently passed the earlier
+syntax/parser/locator gates. It tokenizes only on Unicode code-point boundaries
+and uses a Git-style array diff to retain valid UTF-8 byte boundaries. It emits
+`unchanged`, `insert`, `delete`, and `replace` hunks. A locator produces an
+exact relocation evidence record only when its full old span is inside one
+`unchanged` hunk and the mapped new bytes decode to exactly the same text.
+
+Any locator that is invalid, empty, duplicated, crosses a changed hunk, or
+fails the final byte-for-byte check is unresolved with a reason. The result is
+address evidence (`source_diff_unchanged`, confidence `1.0`) only. It must not
+be consumed as a logical-element match, native-ID match, fingerprint match, or
+binding transfer; those are separate later stages in the authoritative design.
 
 ## Reproducible execution
 

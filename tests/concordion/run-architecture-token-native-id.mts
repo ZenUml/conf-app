@@ -1,12 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ArchitectureTokenSourceDiffFixture } from './architecture-token-source-diff.fixture.mts'
+import { ArchitectureTokenNativeIdFixture } from './architecture-token-native-id.fixture.mts'
 
 const concordionCore = process.env.CONCORDION_CORE
   ?? '/Users/pengxiao/workspaces/zenuml/concordion/packages/core'
-const sourcePath = resolve(process.cwd(), 'tests/concordion/architecture-token-source-diff.html')
-const reportPath = resolve(process.cwd(), '.tmp/concordion/architecture-token-source-diff.html')
+const sourcePath = resolve(process.cwd(), 'tests/concordion/architecture-token-native-id.html')
+const reportPath = resolve(process.cwd(), '.tmp/concordion/architecture-token-native-id.html')
 
 const reportCss = `
   :root { color: #172b4d; background: #f7f8fa; font-family: ui-sans-serif, system-ui, sans-serif; }
@@ -27,7 +27,7 @@ const reportCss = `
 
 function applyReportStyles(html: string): string {
   if (!html.includes('</head>')) throw new Error('Concordion report has no </head> for report styles')
-  return html.replace('</head>', `<style data-concordion-source-diff-styles>${reportCss}</style></head>`)
+  return html.replace('</head>', `<style data-concordion-architecture-token-native-id-styles>${reportCss}</style></head>`)
 }
 
 function decorateVisibleResultCells(html: string): string {
@@ -35,8 +35,8 @@ function decorateVisibleResultCells(html: string): string {
     const status = row.match(/data-concordion-result="(success|failure|exception)"/)?.[1]
     if (!status) return row
     return row.replace(
-      '<td class="relocation-result">',
-      `<td class="relocation-result concordion-${status} ${status}" data-concordion-result="${status}">`,
+      '<td class="native-id-result">',
+      `<td class="native-id-result concordion-${status} ${status}" data-concordion-result="${status}">`,
     )
   })
 }
@@ -50,38 +50,39 @@ function decorateResponsiveTables(html: string): string {
 function verifyReaderFacingDocument(html: string): void {
   const whitespaceNormalized = html.replace(/\s+/g, ' ')
   for (const phrase of [
-    'Stage 1 relocation evidence',
-    'relocation evidence only',
-    'never confirms logical identity',
+    'Stage 2 exact native-ID candidate assessment',
+    'candidate assessment only',
+    'never confirms',
+    'retains an Architecture Token',
+    'transfers a binding',
+    '<th>Scenario</th>',
     '<th>Before source</th>',
     '<th>After source</th>',
-    '<th>Saved locator</th>',
-    '<th>Relocation evidence</th>',
+    '<th>Native-ID evidence</th>',
+    '<th>Source-diff evidence</th>',
     '<th>Result</th>',
-    'bytes 13–26',
-    'bytes 22–35',
-    'confidence <code>1.0</code>',
+    'Candidate:</strong> node <code>A</code>',
+    'fingerprint_scoring',
     'locator_intersects_change',
-    'invalid_old_locator_span',
-    'empty_old_locator_span',
-    'duplicate_locator_id',
+    'no_exact_native_id_candidate',
+    'duplicate_native_id_candidate',
     '<pre><code>flowchart TD',
-    'data-concordion-source-diff-styles',
+    'data-concordion-architecture-token-native-id-styles',
     'background: #dcfce7',
     'white-space: pre;',
     'overflow-x: auto;',
     'min-width: 1120px',
     'class="table-scroll"',
-    '<td class="relocation-result concordion-success success" data-concordion-result="success">',
+    '<td class="native-id-result concordion-success success" data-concordion-result="success">',
   ]) {
     if (!whitespaceNormalized.includes(phrase)) {
-      throw new Error(`Rendered report is missing reader-facing content: ${phrase}`)
+      throw new Error(`Rendered native-ID report is missing reader-facing content: ${phrase}`)
     }
   }
 
-  const visibleSuccesses = html.match(/<td class="relocation-result concordion-success success" data-concordion-result="success">/g) ?? []
-  if (visibleSuccesses.length !== 5) {
-    throw new Error(`Rendered report should have five visibly successful Result cells, found ${visibleSuccesses.length}`)
+  const visibleSuccesses = html.match(/<td class="native-id-result concordion-success success" data-concordion-result="success">/g) ?? []
+  if (visibleSuccesses.length !== 4) {
+    throw new Error(`Rendered native-ID report should have four visibly successful Result cells, found ${visibleSuccesses.length}`)
   }
 }
 
@@ -93,7 +94,7 @@ await mkdir(resolve(process.cwd(), '.tmp/concordion'), { recursive: true })
 
 const result = await runSpecification({
   source,
-  fixture: new ArchitectureTokenSourceDiffFixture(),
+  fixture: new ArchitectureTokenNativeIdFixture(),
   output: {
     path: reportPath,
     async write(resource: { path: string; content: string | Uint8Array }) {
@@ -104,7 +105,7 @@ const result = await runSpecification({
 })
 verifyReaderFacingDocument(await readFile(reportPath, 'utf8'))
 
-console.log(`Concordion Architecture Tokens source-diff report: ${reportPath}`)
+console.log(`Concordion Architecture Tokens native-ID report: ${reportPath}`)
 console.log(`Summary: ${JSON.stringify(result.summary)}`)
 
 if (result.summary.failures + result.summary.exceptions > 0) {

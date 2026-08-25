@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Architecture Token exact native-ID candidate assessment</title>
+  </head>
+  <body>
+    <h1>Source Binding Engine: Stage 2 exact native-ID candidate assessment</h1>
+    <p>
+      This stage compares two parser-confirmed revisions of a Mermaid Flowchart
+      and looks for an exact native Mermaid ID with the same element kind.
+      It produces a <strong>candidate assessment only</strong>: it never confirms
+      logical identity, retains an Architecture Token, or transfers a binding.
+      Those decisions require the later fingerprint and assignment gates.
+    </p>
+    <p>
+      A native ID is revision-local evidence, not a stable logical identity.
+      Even when an ID is unchanged, a candidate must continue to later gates.
+      A changed label has no exact source-diff relocation for the changed node,
+      and duplicate or absent IDs fail closed rather than being guessed.
+    </p>
+
+    <h2>Executable examples</h2>
+    <table data-concordion-execute="evaluateScenario(#ROW)">
+      <tr>
+        <th>Scenario</th>
+        <th>Before source</th>
+        <th>After source</th>
+        <th>Native-ID evidence</th>
+        <th>Source-diff evidence</th>
+        <th>Result</th>
+        <th class="fixture-key" data-concordion-assert-equals="status()">Executed status</th>
+        <th class="fixture-key" data-concordion-assert-equals="nativeIdEvidence()">Executed native-ID evidence</th>
+        <th class="fixture-key" data-concordion-assert-equals="sourceDiffEvidence()">Executed source-diff evidence</th>
+        <th class="fixture-key" data-concordion-assert-equals="result()">Executed result</th>
+      </tr>
+      <tr>
+        <td>Same node ID survives unchanged</td>
+        <td><pre><code>flowchart TD
+A[Orders API]</code></pre></td>
+        <td><pre><code>%% deployment view
+flowchart TD
+A[Orders API]</code></pre></td>
+        <td>
+          <strong>Candidate:</strong> node <code>A</code> → node <code>A</code><br>
+          Exact native ID and kind: <code>node</code><br>
+          Next gate: <code>fingerprint_scoring</code>
+        </td>
+        <td>
+          <strong>Independent evidence:</strong> exact source relocation<br>
+          The saved node occurrence moved through unchanged text at confidence
+          <code>1.0</code>.
+        </td>
+        <td class="native-id-result">
+          <strong>Candidate only</strong><br>
+          The matching ID plus relocation evidence does not confirm identity or
+          transfer a binding.
+        </td>
+        <td class="fixture-key">candidate_only</td>
+        <td class="fixture-key">Candidate: node A → node A · exact native ID and kind (node) · next gate fingerprint_scoring</td>
+        <td class="fixture-key">Exact relocation evidence: confidence 1.0 · source_diff_unchanged</td>
+        <td class="fixture-key">Candidate only — no identity confirmation or binding transfer</td>
+      </tr>
+      <tr>
+        <td>Same ID remains but the label changes</td>
+        <td><pre><code>flowchart TD
+A[Orders API]</code></pre></td>
+        <td><pre><code>flowchart TD
+A[Payments API]</code></pre></td>
+        <td>
+          <strong>Candidate:</strong> node <code>A</code> → node <code>A</code><br>
+          Exact native ID and kind still match; label changes are not decided here.<br>
+          Next gate: <code>fingerprint_scoring</code>
+        </td>
+        <td>
+          <strong>No relocation evidence:</strong> the saved node span crosses a
+          replacement hunk. The unchanged ID does not repair that missing proof.
+        </td>
+        <td class="native-id-result">
+          <strong>Candidate only</strong><br>
+          Label change requires later fingerprint assessment; no binding transfer
+          occurs at this stage.
+        </td>
+        <td class="fixture-key">candidate_only</td>
+        <td class="fixture-key">Candidate: node A → node A · exact native ID and kind (node) · next gate fingerprint_scoring</td>
+        <td class="fixture-key">No relocation evidence: locator_intersects_change</td>
+        <td class="fixture-key">Candidate only — changed label has no relocation evidence; no identity confirmation or binding transfer</td>
+      </tr>
+      <tr>
+        <td>The old node ID is absent</td>
+        <td><pre><code>flowchart TD
+A[Orders API]</code></pre></td>
+        <td><pre><code>flowchart TD
+B[Orders API]</code></pre></td>
+        <td>
+          <strong>Unmatched old node:</strong> <code>A</code><br>
+          No exact native-ID candidate exists: <code>A</code> is not present in
+          the new revision.
+        </td>
+        <td>
+          No exact relocation for the saved <code>A</code> occurrence; its source
+          span changed with the ID.
+        </td>
+        <td class="native-id-result">
+          <strong>Unmatched — fail closed</strong><br>
+          An ID change is not treated as identity evidence, so no binding is
+          confirmed or transferred.
+        </td>
+        <td class="fixture-key">unmatched</td>
+        <td class="fixture-key">Unmatched old node A · no_exact_native_id_candidate</td>
+        <td class="fixture-key">No relocation evidence: locator_intersects_change</td>
+        <td class="fixture-key">Unmatched — no exact native ID; no identity confirmation or binding transfer</td>
+      </tr>
+      <tr>
+        <td>Duplicate native-ID candidate facts are supplied</td>
+        <td><pre><code>flowchart TD
+A[Orders API]</code></pre></td>
+        <td><pre><code>flowchart TD
+A[Orders API]
+A[Orders API]</code></pre></td>
+        <td>
+          <strong>Unmatched old node:</strong> <code>A</code><br>
+          Duplicate new candidate facts for ID <code>A</code> are rejected; Stage 2
+          never chooses between them.
+        </td>
+        <td>
+          Exact relocation evidence is available for the first unchanged
+          occurrence, but it cannot resolve duplicate native-ID candidates.
+        </td>
+        <td class="native-id-result">
+          <strong>Unmatched — fail closed</strong><br>
+          Duplicate ID evidence is unsafe even with relocation evidence; no
+          identity confirmation or binding transfer occurs.
+        </td>
+        <td class="fixture-key">unmatched</td>
+        <td class="fixture-key">Unmatched old node A · duplicate_native_id_candidate</td>
+        <td class="fixture-key">Exact relocation evidence: confidence 1.0 · source_diff_unchanged</td>
+        <td class="fixture-key">Unmatched — duplicate native-ID candidate; fail closed; no identity confirmation or binding transfer</td>
+      </tr>
+    </table>
+
+    <h2>Stage boundary</h2>
+    <p>
+      This document covers Mermaid Flowchart <strong>nodes only</strong>. The
+      parser remains the source authority and source-diff relocation remains a
+      separate evidence stream. Stage 2 does not score fingerprints, perform
+      global assignment, resolve split/merge or delete/recreate, confirm a
+      logical element, retain a token, write Confluence content, call a backend,
+      or create an index.
+    </p>
+    <p>
+      The duplicate example deliberately supplies the same parser-confirmed
+      node fact twice to the Stage 2 candidate assessor. This makes the
+      one-to-many input explicit while keeping the decision under the real
+      fail-closed native-ID logic.
+    </p>
+  </body>
+</html>

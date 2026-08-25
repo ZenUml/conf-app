@@ -7,6 +7,7 @@
     "test:unit": "vitest --run",
     "test:concordion:architecture-tokens": "node --experimental-default-type=module --experimental-strip-types --experimental-loader ./tests/concordion/ts-extension-loader.mjs tests/concordion/run-architecture-token-binding.mts",
     "test:concordion:architecture-token-source-diff": "node --experimental-default-type=module --experimental-strip-types --experimental-loader ./tests/concordion/ts-extension-loader.mjs tests/concordion/run-architecture-token-source-diff.mts",
+    "test:concordion:architecture-token-native-id": "node --experimental-default-type=module --experimental-strip-types --experimental-loader ./tests/concordion/ts-extension-loader.mjs tests/concordion/run-architecture-token-native-id.mts",
     "test:export-modal": "playwright test -c tests/export-modal/playwright.config.ts",
     "test:e2e": "cd tests/e2e-tests && pnpm test",
     "test:e2e:lite:stg": "cd tests/e2e-tests && pnpm test:lite:stg",

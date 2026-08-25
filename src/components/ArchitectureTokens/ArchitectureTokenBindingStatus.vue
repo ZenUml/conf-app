@@ -18,6 +18,21 @@
     <span class="architecture-binding-status__copy">
       <strong data-testid="architecture-token-binding-status-title">{{ copy.title }}</strong>
       <span data-testid="architecture-token-binding-status-detail">{{ copy.detail }}</span>
+      <ul
+        v-if="reconciliationHistory.length"
+        class="architecture-binding-status__history"
+        data-testid="architecture-token-binding-history"
+        aria-label="Saved reconciliation history"
+      >
+        <li
+          v-for="(entry, index) in reconciliationHistory"
+          :key="`${entry.outcome}-${entry.categories.join('-')}-${index}`"
+          data-testid="architecture-token-binding-history-entry"
+        >
+          <strong>{{ reconciliationOutcomeCopy(entry.outcome) }}</strong>
+          <span>{{ reconciliationCategoryCopy(entry.categories) }}</span>
+        </li>
+      </ul>
     </span>
   </aside>
 </template>
@@ -45,6 +60,12 @@ const diagramType = computed(() => store.state.diagram?.diagramType)
 const mermaidSource = computed(() => currentSource())
 const savedReadState = computed<ArchitectureTokenBindingReadState | undefined>(
   () => store.state.diagram?.architectureTokenBindingReadState,
+)
+
+const reconciliationHistory = computed(() =>
+  savedReadState.value?.kind === 'available'
+    ? savedReadState.value.reconciliationHistory ?? []
+    : [],
 )
 
 function presentedState(kind: unknown): PresentedState | null {
@@ -96,6 +117,30 @@ const copy = computed(() => {
   }
 })
 
+function reconciliationOutcomeCopy(outcome: 'accepted' | 'rejected' | 'unresolved'): string {
+  switch (outcome) {
+    case 'accepted': return 'Saved outcome: evidence recorded'
+    case 'unresolved': return 'Saved outcome: needs human confirmation'
+    case 'rejected': return 'Saved outcome: not applied'
+  }
+}
+
+function reconciliationCategoryCopy(categories: readonly string[]): string {
+  const labels: Record<string, string> = {
+    binding_retained: 'Binding retained',
+    exact_relocation: 'Exact source relocation',
+    fingerprint_match: 'Static facts unchanged',
+    no_safe_relocation: 'Source change needs review',
+    relocation_unresolved: 'Source relocation unresolved',
+    candidate_unresolved: 'Matching evidence incomplete',
+    assignment_unresolved: 'Assignment evidence incomplete',
+    topology_unresolved: 'Topology evidence incomplete',
+    ambiguous_structure: 'Ambiguous structure',
+    binding_orphaned: 'Binding orphaned',
+  }
+  return categories.map((category) => labels[category]).filter(Boolean).join(' · ')
+}
+
 watch(
   presentedKind,
   (kind, previousKind) => {
@@ -144,6 +189,20 @@ defineExpose({ effectiveKind, visible })
   min-width: 0;
   flex-direction: column;
   gap: 2px;
+}
+
+.architecture-binding-status__history {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.architecture-binding-status__history li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .architecture-binding-status--available {

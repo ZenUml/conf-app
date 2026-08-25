@@ -20,6 +20,13 @@ const SENSITIVE_STATE = {
   sourceRevision: { normalizedSourceSha256: 'private-hash-789' },
 } as any
 
+const SAFE_RECONCILIATION_HISTORY = [
+  {
+    outcome: 'unresolved',
+    categories: ['ambiguous_structure', 'candidate_unresolved'],
+  },
+] as const
+
 describe('ArchitectureTokenBindingStatus', () => {
   enableAutoUnmount(afterEach)
 
@@ -116,6 +123,30 @@ describe('ArchitectureTokenBindingStatus', () => {
     expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('private-hash-789')
     expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('token-id-123')
     expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('Customer label')
+  })
+
+  it('shows only privacy-safe saved reconciliation outcome categories', () => {
+    const wrapper = mountStatus({
+      ...SENSITIVE_STATE,
+      reconciliationHistory: SAFE_RECONCILIATION_HISTORY,
+      state: {
+        ...SENSITIVE_STATE.state,
+        audit: [{
+          reasons: ['ambiguous_split_merge', 'private-reason-should-not-render'],
+          auditId: 'private-audit-id',
+          sourceRevisionId: 'private-revision-id',
+        }],
+      },
+    })
+
+    expect(wrapper.find('[data-testid="architecture-token-binding-history"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Saved outcome: needs human confirmation')
+    expect(wrapper.text()).toContain('Ambiguous structure')
+    expect(wrapper.text()).toContain('Matching evidence incomplete')
+    expect(wrapper.text()).not.toContain('private-reason-should-not-render')
+    expect(wrapper.text()).not.toContain('private-audit-id')
+    expect(wrapper.text()).not.toContain('private-revision-id')
+    expect(wrapper.findAll('button')).toHaveLength(0)
   })
 
   it.each([

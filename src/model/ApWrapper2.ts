@@ -451,6 +451,7 @@ export default class ApWrapper2 implements IApWrapper {
     delete body.legacyLoadBlocked;
     delete body.loadError;
     delete body.architectureTokenBindingReadState;
+    delete body.architectureTokenBindingLoadedSource;
     // Editor-session state: which surface asked for this diagram's type. It
     // answers a question that only exists while the editor is open, so writing
     // it into the stored body would put a permanent flag on customer content to
@@ -672,6 +673,9 @@ export default class ApWrapper2 implements IApWrapper {
       // or source-stale state remains in metadata unchanged and is exposed only
       // as an untrusted/stale session result for a later UI to handle safely.
       diagram.architectureTokenBindingReadState = await readMermaidArchitectureTokenBinding(diagram);
+      if (diagram.architectureTokenBindingReadState.kind === 'available') {
+        diagram.architectureTokenBindingLoadedSource = diagram.mermaidCode;
+      }
     }
 
     const verdict = opts?.copyCheckMode === 'cross-page-only'

@@ -14,6 +14,7 @@ import {
   type FlowchartParserEvidence,
   type ValidatedFlowchartResult,
 } from '@/domain/architectureTokens/validateMermaidFlowchart';
+import { reconcileBoundMermaidSourceChange } from './reconcileBoundMermaidSourceChange';
 
 const PARSER_VERSION = 'mermaid-flowchart-canonical-v1';
 const POLICY_VERSION = 'architecture-token-binding-v1';
@@ -30,7 +31,8 @@ export type MermaidStaticIngestionOutcome =
   | Readonly<{ kind: 'captured'; sourceRevisionState: 'captured' }>
   | Readonly<{ kind: 'unchanged'; sourceRevisionState: 'unchanged' }>
   | Readonly<{ kind: 'invalid'; sourceRevisionState: 'invalid' }>
-  | Readonly<{ kind: 'unsupported'; sourceRevisionState: 'unsupported' }>;
+  | Readonly<{ kind: 'unsupported'; sourceRevisionState: 'unsupported' }>
+  | Readonly<{ kind: 'reconciled'; sourceRevisionState: 'reconciled'; bindingOutcome: 'accepted' | 'unresolved' }>;
 
 export type MermaidStaticIngestionDependencies = Readonly<{
   validate?: (source: string) => Promise<ValidatedFlowchartResult>;
@@ -40,8 +42,9 @@ export type MermaidStaticIngestionDependencies = Readonly<{
 
 /**
  * Captures only the current, valid Flowchart revision before Diagram persistence.
- * It never reconciles a changed bound source: that later stage must provide a
- * complete audit and explicit terminal policy before it can alter bindings.
+ * A changed, already-bound source is delegated to the separate reconciliation
+ * seam. It receives only an in-memory load-time source snapshot, and persists
+ * no binding transfer unless the stronger exact-relocation gate is met.
  */
 export async function prepareMermaidStaticIngestion(
   diagram: Diagram,
@@ -61,7 +64,27 @@ export async function prepareMermaidStaticIngestion(
   const current = existing?.revisions.find((revision) => revision.sourceRevisionId === existing.currentRevisionId);
   if (current?.normalizedSourceSha256 === sourceHash) return { kind: 'unchanged', sourceRevisionState: 'unchanged' };
   if (existing && existing.bindings.length > 0) {
-    throw new ArchitectureTokenStaticIngestionError('source_change_requires_reconciliation');
+    if (typeof diagram.architectureTokenBindingLoadedSource !== 'string') {
+      throw new ArchitectureTokenStaticIngestionError('source_change_requires_reconciliation');
+    }
+    const reconciliation = await reconcileBoundMermaidSourceChange({
+      previousState: existing,
+      previousSource: diagram.architectureTokenBindingLoadedSource,
+      nextSource: diagram.mermaidCode ?? '',
+      nextValidation: validation,
+      dependencies,
+    });
+    if (reconciliation.kind === 'unavailable') {
+      throw new ArchitectureTokenStaticIngestionError('source_change_requires_reconciliation');
+    }
+    const merged = mergeArchitectureTokenBindingMetadata(diagram.metadata ?? {}, reconciliation.state);
+    if (merged.kind !== 'ok') throw new ArchitectureTokenStaticIngestionError(merged.reason);
+    diagram.metadata = merged.value;
+    return {
+      kind: 'reconciled',
+      sourceRevisionState: 'reconciled',
+      bindingOutcome: reconciliation.outcome,
+    };
   }
 
   const createId = dependencies.createId ?? (() => crypto.randomUUID());
@@ -80,7 +103,7 @@ export async function prepareMermaidStaticIngestion(
   return { kind: 'captured', sourceRevisionState: 'captured' };
 }
 
-function buildCurrentRevisionState(
+export function buildCurrentRevisionState(
   model: CanonicalFlowchart,
   parserEvidence: FlowchartParserEvidence['kind'],
   normalizedSourceSha256: string,

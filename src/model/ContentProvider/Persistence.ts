@@ -219,6 +219,20 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
 
 function trackArchitectureStaticIngestionOutcome(outcome: MermaidStaticIngestionOutcome): void {
   if (outcome.kind === 'not_applicable') return;
+  if (outcome.kind === 'reconciled') {
+    trackAnalyticsEvent('architecture_reconciliation_completed', {
+      feature_area: 'architecture_tokens',
+      surface: 'editor',
+      macro_type: 'mermaid',
+      architecture_element_kind: 'node',
+      architecture_reconciliation_status: outcome.bindingOutcome === 'accepted'
+        ? 'confirmed_automatic'
+        : 'needs_confirmation',
+      architecture_algorithm_version: 'architecture-token-binding-v1',
+      result: outcome.bindingOutcome,
+    });
+    return;
+  }
   if (outcome.kind === 'captured' || outcome.kind === 'unchanged') {
     trackArchitectureStaticIngestion(outcome.sourceRevisionState, outcome.sourceRevisionState);
     return;

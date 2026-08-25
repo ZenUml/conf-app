@@ -181,6 +181,7 @@ describe('ApWrapper2', () => {
         ...buildDiagram(),
         metadata: { keep: 'unrelated-metadata' },
         architectureTokenBindingReadState: { kind: 'untrusted', reason: 'invalid_state' },
+        architectureTokenBindingLoadedSource: 'flowchart TD\n  A --> B',
       } as any;
       vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
 
@@ -189,6 +190,7 @@ describe('ApWrapper2', () => {
       const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
       const serializedBody = JSON.parse(payload.body.value);
       expect(serializedBody.architectureTokenBindingReadState).toBeUndefined();
+      expect(serializedBody.architectureTokenBindingLoadedSource).toBeUndefined();
       expect(serializedBody.metadata).toEqual({ keep: 'unrelated-metadata' });
     });
 
@@ -377,6 +379,7 @@ describe('ApWrapper2', () => {
         state: { schemaVersion: 'architectureTokenBindingV1' },
         sourceRevision: { validationStatus: 'valid' },
       });
+      expect(result?.value?.architectureTokenBindingLoadedSource).toBe(diagram.mermaidCode);
       expect(result?.value?.metadata).toEqual(metadataBeforeLoad);
     });
 

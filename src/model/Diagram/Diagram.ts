@@ -89,6 +89,10 @@ export class Diagram {
   // later editor UI a fail-closed available/stale/untrusted state without
   // ever repairing or rewriting stored evidence during load.
   architectureTokenBindingReadState?: ArchitectureTokenBindingReadState = undefined;
+  // The authoritative Mermaid text as loaded with an available binding state.
+  // This session-only snapshot is the only acceptable `before` source for a
+  // later save-time source-diff assessment; it is never persisted.
+  architectureTokenBindingLoadedSource?: string = undefined;
   // ZEN-1170 Defect 1: set when a legacy content-property read failed in a
   // non-404 way (403/HTTP error/parse error) OR returned an unexpected value
   // shape (e.g. a string body on a graph macro). The persistence layer

@@ -274,6 +274,25 @@ describe('Persistence', function () {
     expect(JSON.stringify(properties)).not.toContain('private-node-42');
   });
 
+  it('records only a closed-vocabulary reconciliation result after a safe bound-source save', async () => {
+    architectureTokenMocks.prepare.mockResolvedValueOnce({
+      kind: 'reconciled',
+      sourceRevisionState: 'reconciled',
+      bindingOutcome: 'accepted',
+    });
+
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid }, mockApWrapper);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'architecture_reconciliation_completed',
+      expect.objectContaining({
+        feature_area: 'architecture_tokens',
+        architecture_reconciliation_status: 'confirmed_automatic',
+        result: 'accepted',
+      }),
+    );
+  });
+
   it('refuses the custom-content write when static binding state is unsafe', async () => {
     architectureTokenMocks.prepare.mockRejectedValueOnce(new architectureTokenMocks.StaticIngestionError('invalid_state'));
 

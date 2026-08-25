@@ -1,6 +1,8 @@
 # Architecture Tokens source binding — Mermaid Flowchart v1
 
-**Status:** discovery and implementation plan. No production code or data migration is included in this slice.
+**Status:** staged implementation plan. Static ingestion/load and the first
+Confluence-first save-time reconciliation seam are implemented; no migration,
+backend index, or user binding workflow is included.
 
 ## Decision summary
 
@@ -230,6 +232,27 @@ Do not issue a second backend write after a successful diagram save. The state
 is part of the custom-content write itself. A state serialization/validation
 failure must fail closed (keep the editor open and leave the old content
 unchanged), rather than save Mermaid source while silently discarding bindings.
+
+### Implemented first reconciliation seam
+
+On an `available` Mermaid load, conf-app retains the authoritative loaded
+`mermaidCode` only in editor-session memory; sanitization removes it from the
+outgoing custom-content body. If that same diagram is later saved with changed
+source, the save path validates both revisions and runs source-diff, exact-ID,
+fingerprint, global-assignment, topology, split/merge, and delete/recreate
+policy modules as **audit evidence**.
+
+The only automatic retention currently allowed is narrower than candidate
+matching: every stored occurrence for a previously confirmed node must have a
+confidence-1 exact source-diff relocation to one unique new canonical node,
+and its full static fingerprint must be unchanged. Only then may the binding
+move to the new `diagramElementId` and record reconciliation provenance. Same
+native ID, a fingerprint score, assignment, or topology alone never moves it.
+All other outcomes retain the old binding record as `unresolved` (or
+`orphaned` when a later policy gate establishes that state), write a compact
+source-free reconciliation audit, and do not transfer a token. A missing or
+hash-mismatched session snapshot fails the save before any custom-content
+write.
 
 ### Size and shape trade-offs
 

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Architecture Token Flowchart binding safety</title>
+  </head>
+  <body>
+    <h1>Architecture Token bindings: Flowchart node safety</h1>
+    <p>
+      A Flowchart binding belongs to a stable logical node, never to a Mermaid
+      native ID or a source offset. This specification executes the production
+      canonical Flowchart parser and fail-closed reconciler without Confluence,
+      D1, or a ZenUML backend.
+    </p>
+    <p>
+      In this first release, strong evidence means a unique source-diff
+      relocation plus an exact node fingerprint. A harmless relocation can
+      retain a binding. A node-label rename is not yet an automatic case; it
+      remains for human confirmation until stronger matching is implemented.
+    </p>
+
+    <h2>Executable examples</h2>
+    <table data-concordion-execute="evaluateScenario(#ROW)">
+      <tr>
+        <th>Scenario</th>
+        <th>Source change</th>
+        <th>Evidence / safety rule</th>
+        <th data-concordion-assert-equals="status()">Outcome</th>
+        <th data-concordion-assert-equals="bindingTransferred()">Binding automatically retained</th>
+        <th data-concordion-assert-equals="reason()">Why</th>
+      </tr>
+      <tr>
+        <td>safe_relocation</td>
+        <td><code>Orders[Orders API]</code> is relocated after a comment is added.</td>
+        <td>Unique source-diff relocation and exact fingerprint.</td>
+        <td>confirmed_automatic</td><td>true</td><td>fingerprint_exact, source_diff_relocated</td>
+      </tr>
+      <tr>
+        <td>same_id_recreated</td>
+        <td><code>Orders</code> is deleted/recreated with a new label.</td>
+        <td>Same native ID alone is only a candidate.</td>
+        <td>needs_confirmation</td><td>false</td><td>native_id_is_insufficient</td>
+      </tr>
+      <tr>
+        <td>split</td>
+        <td><code>Orders</code> becomes <code>OrdersRead</code> and <code>OrdersWrite</code>.</td>
+        <td>One old node has multiple equally plausible replacements.</td>
+        <td>ambiguous</td><td>false</td><td>multiple_plausible_candidates</td>
+      </tr>
+      <tr>
+        <td>merge</td>
+        <td><code>OrdersRead</code> and <code>OrdersWrite</code> become <code>Orders</code>.</td>
+        <td>Two logical elements cannot claim one replacement.</td>
+        <td>ambiguous</td><td>false</td><td>one_to_one_conflict</td>
+      </tr>
+      <tr>
+        <td>removed</td>
+        <td><code>Orders</code> no longer has a safe replacement.</td>
+        <td>No candidate means the binding is preserved as orphaned.</td>
+        <td>orphaned</td><td>false</td><td>no_safe_candidate</td>
+      </tr>
+      <tr>
+        <td>unsupported</td>
+        <td>The next revision uses the unmodelled <code>@{ shape: rect }</code> syntax.</td>
+        <td>Unsupported or uncertain source is never guessed.</td>
+        <td>unsupported_source</td><td>false</td><td>unsupported_edge_endpoint</td>
+      </tr>
+    </table>
+
+    <h2>Release boundary</h2>
+    <p>
+      These are Mermaid Flowchart <strong>node</strong> examples only.
+      Subgraphs and edges are context, not binding targets. No part of this
+      contract writes Confluence content, calls a backend, or creates a global
+      token index.
+    </p>
+  </body>
+</html>

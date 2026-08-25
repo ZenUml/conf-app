@@ -73,15 +73,29 @@ function verifyReaderFacingExplanation(html: string): void {
     'Primary locator plus occurrences',
     'UTF-8 byte-span round trip',
     'Static fingerprint facts',
+    'How to read the tables',
+    'Valid source and stored locator',
+    'Multiple occurrences and UTF-8',
+    'Rejected and unsafe cases',
+    'Locator data model',
+    'Fail-closed boundary',
+    'Saved locator',
+    'Logical node',
+    'Primary role',
+    'UTF-8 byte range',
+    'Round-tripped fragment',
     'Every locator round-trips exact UTF-8 source bytes',
     'Invalid Mermaid stops before any locator is emitted',
     'Labels, edge text, and subgraph titles stay outside node locators',
     'A style reference is not silently converted into a node',
     'A tampered or non-syntax-derived span fails closed',
     'single-revision specification',
-    'No version comparison, identity match, binding transfer, or migration decision',
+    'No revision comparison',
+    'binding transfer',
     'data-concordion-static-locator-styles',
     'background: #dcfce7',
+    'white-space: pre-wrap',
+    'overflow-x: auto',
   ]) {
     if (!html.includes(phrase)) throw new Error(`Rendered report is missing reader-facing explanation: ${phrase}`)
   }
@@ -89,6 +103,16 @@ function verifyReaderFacingExplanation(html: string): void {
   const visibleSuccesses = html.match(/<td class="locator-result concordion-success success" data-concordion-result="success">/g) ?? []
   if (visibleSuccesses.length !== 6) {
     throw new Error(`Rendered report should have six visibly successful product results, found ${visibleSuccesses.length}`)
+  }
+
+  const savedLocatorHeaders = html.match(/>Saved locator<\/th>/g) ?? []
+  if (savedLocatorHeaders.length !== 3) {
+    throw new Error(`Rendered report should have three focused Saved locator columns, found ${savedLocatorHeaders.length}`)
+  }
+
+  const sourceFragmentBlocks = html.match(/class="source-fragment"/g) ?? []
+  if (sourceFragmentBlocks.length < 10) {
+    throw new Error(`Rendered report should preserve source fragments as block code, found ${sourceFragmentBlocks.length} blocks`)
   }
 }
 

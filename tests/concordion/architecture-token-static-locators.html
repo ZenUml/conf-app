@@ -58,13 +58,50 @@
       Engine can safely observe before any future version comparison exists.
     </p>
 
+    <section class="table-guide" aria-labelledby="table-guide-heading">
+      <h2 id="table-guide-heading">How to read the tables</h2>
+      <div class="scope-grid">
+        <div>
+          <h3>Valid source and stored locator</h3>
+          <p>Mermaid-valid Flowchart node syntax produces a primary locator. The saved facts show the logical node, occurrence role, UTF-8 byte range, and exact fragment.</p>
+        </div>
+        <div>
+          <h3>Multiple occurrences and UTF-8</h3>
+          <p>One logical element can retain several syntax occurrences. Labels stay inside their owning node fragment; edge text and subgraph titles have no node locator.</p>
+        </div>
+        <div>
+          <h3>Rejected and unsafe cases</h3>
+          <p>Invalid Mermaid, unsupported constructs, and tampered spans produce no arbitrary saved locator. The pipeline fails closed.</p>
+        </div>
+      </div>
+
+      <h3>Locator data model</h3>
+      <table class="model-table">
+        <tr><th>Saved fact</th><th>Meaning</th><th>Example</th></tr>
+        <tr><td>Logical node</td><td>Canonical Flowchart element, not a Mermaid ID identity claim.</td><td><code>Orders</code></td></tr>
+        <tr><td>Primary role</td><td>Role of the first syntax occurrence: <code>declaration</code> or <code>endpoint</code>.</td><td><code>declaration</code></td></tr>
+        <tr><td>UTF-8 byte range</td><td>End-exclusive source span, written as <code>[startByte, endByte)</code>.</td><td><code>[15, 37)</code></td></tr>
+        <tr><td>Round-tripped fragment</td><td>Exact source text selected from that byte range.</td><td><pre class="source-fragment"><code>Orders[订单🙂 API]</code></pre></td></tr>
+        <tr><td>Fingerprint facts</td><td>Static evidence only: label, shape, container, context, and occurrence facts.</td><td><code>square · root · 3 occurrences</code></td></tr>
+      </table>
+
+      <h3>Fail-closed boundary</h3>
+      <p>
+        Official Mermaid syntax validation comes first. The owned parser then
+        accepts only its Flowchart-node subset. A span must be one of the
+        parser's occurrences and must start and end on UTF-8 code-point
+        boundaries. No revision comparison, identity match, binding transfer,
+        migration decision, persistence, or backend request is part of this
+        single-revision phase.
+      </p>
+    </section>
+
     <h2>Executable product scenarios</h2>
+
+    <h3>Valid source and stored locator</h3>
     <table data-concordion-execute="evaluateScenario(#ROW)">
       <tr>
-        <th>Scenario</th>
-        <th>Source revision</th>
-        <th>Reader-facing product result</th>
-        <th>Static evidence</th>
+        <th>Scenario</th><th>Source revision</th><th>Saved locator</th><th>Outcome</th>
         <th class="fixture-key" data-concordion-assert-equals="validationStatus()">Validation status</th>
         <th class="fixture-key" data-concordion-assert-equals="locatorCount()">Primary locator count</th>
         <th class="fixture-key" data-concordion-assert-equals="occurrenceCount()">Occurrence count</th>
@@ -78,19 +115,23 @@
       </tr>
       <tr>
         <td>A valid Flowchart yields one primary locator plus endpoint occurrences</td>
-        <td><pre><code>flowchart LR
+        <td><pre class="source-fragment"><code>flowchart LR
   Orders[订单🙂 API]
   Orders --&gt; Events[事件🚀]
   Orders -- publishes --&gt; Audit[Audit log]</code></pre></td>
-        <td class="locator-result">
-          <strong>Three node locators, five syntax occurrences</strong><br>
-          <code>Orders</code> is one logical element with one declaration and two endpoint occurrences. Its first occurrence is primary; the other two are not duplicate elements.
+        <td class="saved-locator">
+          <strong>Logical node:</strong> <code>Orders</code><br>
+          <strong>Primary role:</strong> <code>declaration</code><br>
+          <strong>UTF-8 byte range:</strong> <code>[15, 37)</code><br>
+          <strong>Round-tripped fragment:</strong><pre class="source-fragment"><code>Orders[订单🙂 API]</code></pre>
+          <details><summary>All saved occurrences</summary><pre class="source-fragment"><code>Orders | declaration | [15, 37) | Orders[订单🙂 API]
+Orders | endpoint    | [40, 46) | Orders
+Orders | endpoint    | [72, 78) | Orders
+Events | endpoint    | [51, 69) | Events[事件🚀]
+Audit  | endpoint    | [96, 112) | Audit[Audit log]</code></pre></details>
+          <details><summary>Fingerprint evidence</summary><code>Orders · 订单🙂 api · square · root · 3 occurrences</code></details>
         </td>
-        <td>
-          <strong>Primary:</strong> <code>Orders[订单🙂 API]</code>, <code>Events[事件🚀]</code>, <code>Audit[Audit log]</code><br>
-          <strong>Fingerprint evidence:</strong> native ID, normalized label, shape, container path, and occurrence count only.
-          <details><summary>What is deliberately absent</summary>No version comparison, identity match, binding transfer, or migration decision.</details>
-        </td>
+        <td class="locator-result"><strong>Valid</strong><br><code>3 locators · 5 occurrences</code><br><code>Orders</code>: 1 element / 3 occurrences</td>
         <td class="fixture-key">valid</td><td class="fixture-key">3</td><td class="fixture-key">5</td>
         <td class="fixture-key">Orders[订单🙂 API] | Events[事件🚀] | Audit[Audit log]</td>
         <td class="fixture-key">Orders[订单🙂 API] | Orders | Orders | Events[事件🚀] | Audit[Audit log]</td>
@@ -98,87 +139,110 @@
         <td class="fixture-key">Orders|订单🙂 api|square|root|3;Events|事件🚀|square|root|1;Audit|audit log|square|root|1</td>
         <td class="fixture-key">Orders=1 element/3 occurrences</td>
       </tr>
+    </table>
+
+    <h3>Multiple occurrences and UTF-8</h3>
+    <table data-concordion-execute="evaluateScenario(#ROW)">
+      <tr>
+        <th>Scenario</th><th>Source revision</th><th>Saved locator</th><th>Outcome</th>
+        <th class="fixture-key" data-concordion-assert-equals="validationStatus()">Validation status</th>
+        <th class="fixture-key" data-concordion-assert-equals="locatorCount()">Primary locator count</th>
+        <th class="fixture-key" data-concordion-assert-equals="occurrenceCount()">Occurrence count</th>
+        <th class="fixture-key" data-concordion-assert-equals="primaryFragments()">Primary fragments</th>
+        <th class="fixture-key" data-concordion-assert-equals="allFragments()">All fragments</th>
+        <th class="fixture-key" data-concordion-assert-equals="roundTripStatus()">UTF-8 round trip</th>
+        <th class="fixture-key" data-concordion-assert-equals="excludedTextStatus()">Non-node text guard</th>
+        <th class="fixture-key" data-concordion-assert-equals="tamperedSpanStatus()">Tampered span guard</th>
+        <th class="fixture-key" data-concordion-assert-equals="fingerprintFacts()">Fingerprint facts</th>
+        <th class="fixture-key" data-concordion-assert-equals="elementOccurrenceStatus()">Element/occurrence distinction</th>
+      </tr>
       <tr>
         <td>Every locator round-trips exact UTF-8 source bytes</td>
-        <td><pre><code>flowchart LR
+        <td><pre class="source-fragment"><code>flowchart LR
   A[订单🙂 API] --&gt; B[事件🚀]</code></pre></td>
-        <td class="locator-result">
-          <strong>Exact source selection</strong><br>
-          The byte spans include the complete node syntax. CJK characters and astral emoji do not shift a locator or split a code point.
+        <td class="saved-locator">
+          <strong>Logical node:</strong> <code>A</code><br>
+          <strong>Primary role:</strong> <code>endpoint</code><br>
+          <strong>UTF-8 byte range:</strong> <code>[15, 32)</code><br>
+          <strong>Round-tripped fragment:</strong><pre class="source-fragment"><code>A[订单🙂 API]</code></pre>
+          <details><summary>Second saved occurrence</summary><pre class="source-fragment"><code>B | endpoint | [37, 50) | B[事件🚀]</code></pre></details>
         </td>
-        <td>
-          <strong>Selected fragments:</strong> <code>A[订单🙂 API]</code> and <code>B[事件🚀]</code><br>
-          JavaScript UTF-16 indexes never become persisted locator offsets.
-        </td>
+        <td class="locator-result"><strong>Valid</strong><br><code>2 locators · 2 exact UTF-8 round trips</code></td>
         <td class="fixture-key">valid</td><td class="fixture-key">2</td><td class="fixture-key">2</td>
         <td class="fixture-key">A[订单🙂 API] | B[事件🚀]</td><td class="fixture-key">A[订单🙂 API] | B[事件🚀]</td>
         <td class="fixture-key">all_exact</td><td class="fixture-key">not_run</td><td class="fixture-key">not_run</td>
         <td class="fixture-key">A|订单🙂 api|square|root|1;B|事件🚀|square|root|1</td><td class="fixture-key">none</td>
       </tr>
       <tr>
-        <td>Invalid Mermaid stops before any locator is emitted</td>
-        <td><pre><code>flowchart LR
-  Orders[订单🙂 API] --&gt;</code></pre></td>
-        <td class="locator-result">
-          <strong>No locator</strong><br>
-          Official Mermaid syntax validation fails first, so no partial node or source span is exposed to the binding layer.
-        </td>
-        <td>
-          Validation is <code>invalid_mermaid</code>; locator count is <code>0</code>.<br>
-          The safe result is an empty observation, not a best-effort fragment.
-        </td>
-        <td class="fixture-key">invalid_mermaid</td><td class="fixture-key">0</td><td class="fixture-key">0</td>
-        <td class="fixture-key">none</td><td class="fixture-key">none</td><td class="fixture-key">not_run</td>
-        <td class="fixture-key">not_run</td><td class="fixture-key">not_run</td><td class="fixture-key">none</td><td class="fixture-key">none</td>
-      </tr>
-      <tr>
         <td>Labels, edge text, and subgraph titles stay outside node locators</td>
-        <td><pre><code>flowchart TD
+        <td><pre class="source-fragment"><code>flowchart TD
   subgraph Platform[平台服务]
     Orders["订单 API"] -- publishes --&gt; Events[事件]
   end</code></pre></td>
-        <td class="locator-result">
-          <strong>Only the two endpoint nodes are locatable</strong><br>
-          <code>订单 API</code> stays inside its owning node syntax fragment; <code>publishes</code> and <code>平台服务</code> remain syntax context. None becomes a separate node-binding locator.
+        <td class="saved-locator">
+          <strong>Logical node:</strong> <code>Orders</code><br>
+          <strong>Primary role:</strong> <code>endpoint</code><br>
+          <strong>UTF-8 byte range:</strong> <code>[51, 71)</code><br>
+          <strong>Round-tripped fragment:</strong><pre class="source-fragment"><code>Orders["订单 API"]</code></pre>
+          <details><summary>Second saved occurrence</summary><pre class="source-fragment"><code>Events | endpoint | [89, 103) | Events[事件]</code></pre></details>
         </td>
-        <td>
-          <strong>Node fragments:</strong> <code>Orders["订单 API"]</code> and <code>Events[事件]</code><br>
-          The subgraph is recorded as container context, not as a node element.
-        </td>
+        <td class="locator-result"><strong>Valid</strong><br><code>2 endpoint locators</code><br>Edge text and subgraph title: <code>not saved</code></td>
         <td class="fixture-key">valid</td><td class="fixture-key">2</td><td class="fixture-key">2</td>
         <td class="fixture-key">Orders["订单 API"] | Events[事件]</td><td class="fixture-key">Orders["订单 API"] | Events[事件]</td>
         <td class="fixture-key">all_exact</td><td class="fixture-key">none</td><td class="fixture-key">not_run</td>
         <td class="fixture-key">Orders|订单 api|square|platform|1;Events|事件|square|platform|1</td><td class="fixture-key">none</td>
       </tr>
+    </table>
+
+    <h3>Rejected and unsafe cases</h3>
+    <table data-concordion-execute="evaluateScenario(#ROW)">
+      <tr>
+        <th>Scenario</th><th>Source revision</th><th>Saved locator</th><th>Outcome</th>
+        <th class="fixture-key" data-concordion-assert-equals="validationStatus()">Validation status</th>
+        <th class="fixture-key" data-concordion-assert-equals="locatorCount()">Primary locator count</th>
+        <th class="fixture-key" data-concordion-assert-equals="occurrenceCount()">Occurrence count</th>
+        <th class="fixture-key" data-concordion-assert-equals="primaryFragments()">Primary fragments</th>
+        <th class="fixture-key" data-concordion-assert-equals="allFragments()">All fragments</th>
+        <th class="fixture-key" data-concordion-assert-equals="roundTripStatus()">UTF-8 round trip</th>
+        <th class="fixture-key" data-concordion-assert-equals="excludedTextStatus()">Non-node text guard</th>
+        <th class="fixture-key" data-concordion-assert-equals="tamperedSpanStatus()">Tampered span guard</th>
+        <th class="fixture-key" data-concordion-assert-equals="fingerprintFacts()">Fingerprint facts</th>
+        <th class="fixture-key" data-concordion-assert-equals="elementOccurrenceStatus()">Element/occurrence distinction</th>
+      </tr>
+      <tr>
+        <td>Invalid Mermaid stops before any locator is emitted</td>
+        <td><pre class="source-fragment"><code>flowchart LR
+  Orders[订单🙂 API] --&gt;</code></pre></td>
+        <td class="saved-locator"><strong>None</strong><br><code>0 saved locators</code></td>
+        <td class="locator-result"><strong>Rejected</strong><br><code>invalid_mermaid</code><br><code>0 locators</code></td>
+        <td class="fixture-key">invalid_mermaid</td><td class="fixture-key">0</td><td class="fixture-key">0</td>
+        <td class="fixture-key">none</td><td class="fixture-key">none</td><td class="fixture-key">not_run</td>
+        <td class="fixture-key">not_run</td><td class="fixture-key">not_run</td><td class="fixture-key">none</td><td class="fixture-key">none</td>
+      </tr>
       <tr>
         <td>A style reference is not silently converted into a node</td>
-        <td><pre><code>flowchart TD
+        <td><pre class="source-fragment"><code>flowchart TD
   Orders[Orders] --&gt; Events[Events]
   style Orders fill:#f00,stroke:#333,stroke-width:4px</code></pre></td>
-        <td class="locator-result">
-          <strong>No partial locator set</strong><br>
-          Mermaid accepts the document, but this owned node subset does not model style directives. The whole observation is unsupported and fails closed.
-        </td>
-        <td>
-          The style line is neither a node declaration nor an endpoint occurrence.<br>
-          Unsupported syntax cannot leak a made-up locator from a neighbouring node.
-        </td>
+        <td class="saved-locator"><strong>None</strong><br><code>unsupported source</code></td>
+        <td class="locator-result"><strong>Rejected</strong><br><code>unsupported_after_official_validation</code><br><code>no partial locator set</code></td>
         <td class="fixture-key">unsupported_after_official_validation</td><td class="fixture-key">0</td><td class="fixture-key">0</td>
         <td class="fixture-key">none</td><td class="fixture-key">none</td><td class="fixture-key">not_run</td>
         <td class="fixture-key">none</td><td class="fixture-key">not_run</td><td class="fixture-key">none</td><td class="fixture-key">none</td>
       </tr>
       <tr>
         <td>A tampered or non-syntax-derived span fails closed</td>
-        <td><pre><code>flowchart LR
+        <td><pre class="source-fragment"><code>flowchart LR
   A[订单🙂 API] --&gt; B[事件🚀]</code></pre></td>
-        <td class="locator-result">
-          <strong>Forged span rejected</strong><br>
-          A byte-aligned span that is not one of the parser's occurrences is rejected, and a span beginning inside a CJK code point is rejected by the UTF-8 slicer.
+        <td class="saved-locator">
+          <strong>Logical node:</strong> <code>A</code><br>
+          <strong>Primary role:</strong> <code>endpoint</code><br>
+          <strong>UTF-8 byte range:</strong> <code>[15, 32)</code><br>
+          <strong>Round-tripped fragment:</strong><pre class="source-fragment"><code>A[订单🙂 API]</code></pre>
+          <details><summary>Tampered candidate</summary><pre class="source-fragment"><code>known span + forged start byte | rejected
+unaligned UTF-8 start byte       | rejected</code></pre></details>
         </td>
-        <td>
-          <strong>Known primary:</strong> <code>A[订单🙂 API]</code><br>
-          <strong>Tampered selection:</strong> <code>rejected</code>. No arbitrary source fragment is accepted as a node.
-        </td>
+        <td class="locator-result"><strong>Rejected</strong><br><code>valid source · forged span rejected</code></td>
         <td class="fixture-key">valid</td><td class="fixture-key">2</td><td class="fixture-key">2</td>
         <td class="fixture-key">A[订单🙂 API] | B[事件🚀]</td><td class="fixture-key">A[订单🙂 API] | B[事件🚀]</td>
         <td class="fixture-key">all_exact</td><td class="fixture-key">not_run</td><td class="fixture-key">rejected</td>

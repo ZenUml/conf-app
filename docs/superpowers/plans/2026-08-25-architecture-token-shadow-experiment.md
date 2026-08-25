@@ -20,8 +20,11 @@ pipeline is a set of strict preconditions:
 7. **Fingerprint scoring (Stage 3)** records transparent component evidence
    for Stage 2 candidates only. It still does not identify an element or
    retain a binding.
-8. **Identity resolution (deferred)**: global assignment, iterative topology,
-   split/merge, AI suggestions, and user confirmation.
+8. **Global maximum-weight assignment (Stage 4)** makes one-to-one candidate
+   selection evidence from Stage 3 scores only. It still does not identify an
+   element or retain a binding.
+9. **Identity resolution (deferred)**: iterative topology, split/merge, AI
+   suggestions, and user confirmation.
 
 The Source Binding Engine's Stage 0 is a precondition to later version work.
 The Stage 1 helper is a source-address preparation seam only; it is not a
@@ -159,6 +162,25 @@ a partial score. Known-but-empty label, shape, or neighborhood evidence remains
 visible as `unavailable` with zero weight contribution. The returned score is
 an audit value with `nextRequiredGate: global_assignment`, never an acceptance,
 logical identity, TokenBinding transfer, or user-facing status.
+
+## Global maximum-weight assignment (Stage 4 only)
+
+`globalAssignment.ts` accepts Stage 3 scored candidates and solves each
+connected bipartite candidate component as a maximum-weight one-to-one
+assignment. It uses the design's `< 0.65` unresolved band as an assignment
+eligibility floor, not an acceptance threshold. Scores are scaled to fixed
+integer precision for the solver. Candidate edges below that floor, non-finite
+or absent at runtime, and duplicate old/new candidate edges are explicit
+unresolved evidence.
+
+For every proposed solution, the solver reruns each selected edge as forbidden.
+If any equally weighted optimum remains, that connected component is a
+non-unique maximum and all of its candidate edges are unresolved as an
+assignment tie. Independent components can still yield their own unique
+selection. A unique selection records its component maximum score and proof
+`unique_maximum_weight_assignment`, then stops at
+`nextRequiredGate: structural_topology_assessment`. It is not a logical
+identity, binding retention/transfer, status update, or split/merge result.
 
 ## Reproducible execution
 

@@ -17,8 +17,11 @@ pipeline is a set of strict preconditions:
 6. **Exact native-ID candidates (Stage 2)** are node-kind-checked evidence
    only. A same native Mermaid ID proceeds to fingerprint scoring; it does not
    identify an element or retain a binding.
-7. **Identity resolution (deferred)**: fingerprint/structural matching, global
-   assignment, split/merge, AI suggestions, and user confirmation.
+7. **Fingerprint scoring (Stage 3)** records transparent component evidence
+   for Stage 2 candidates only. It still does not identify an element or
+   retain a binding.
+8. **Identity resolution (deferred)**: global assignment, iterative topology,
+   split/merge, AI suggestions, and user confirmation.
 
 The Source Binding Engine's Stage 0 is a precondition to later version work.
 The Stage 1 helper is a source-address preparation seam only; it is not a
@@ -138,6 +141,24 @@ or duplicate IDs are explicit unmatched evidence; it does not select among
 duplicates. A source-diff record and a same native ID remain independent
 signals: neither confirms logical-element identity, transfers a TokenBinding,
 or changes a binding status.
+
+## Fingerprint scoring (Stage 3 only)
+
+`fingerprintScoring.ts` consumes only the Stage 2 candidate assessment plus
+the versioned, single-revision static fingerprints. Each score has six visible
+components from the authoritative design: native ID (0.35), kind (0.20),
+normalized label (0.15), shape (0.10), raw native-ID neighborhood Jaccard
+(0.15), and ordered container path (0.05). Statement-context comparison and
+the presence or absence of an independently proven Stage 1 relocation are
+also emitted, but neither adds an unapproved weight.
+
+The neighborhood score deliberately compares only the static native-ID sets;
+it does not use mapped neighbors or iterate topology. A missing, duplicate, or
+invalid static fingerprint produces an explicit unresolved result rather than
+a partial score. Known-but-empty label, shape, or neighborhood evidence remains
+visible as `unavailable` with zero weight contribution. The returned score is
+an audit value with `nextRequiredGate: global_assignment`, never an acceptance,
+logical identity, TokenBinding transfer, or user-facing status.
 
 ## Reproducible execution
 

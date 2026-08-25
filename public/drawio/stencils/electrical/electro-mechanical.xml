@@ -1,9 +1,9 @@
 <shapes name="mxgraph.electrical.electro-mechanical">
 <shape aspect="variable" h="26" name="2-Way Switch" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.885"/>
-        <constraint name="out1" perimeter="0" x="1" y="0.115"/>
-        <constraint name="out2" perimeter="0" x="1" y="0.885"/>
+        <constraint name="in" perimeter="0" x="0" y="0.8846"/>
+        <constraint name="out1" perimeter="0" x="1" y="0.1154"/>
+        <constraint name="out2" perimeter="0" x="1" y="0.8846"/>
     </connections>
     <foreground>
         <path>
@@ -218,8 +218,8 @@
 <shape aspect="variable" h="60" name="Buzzer" strokewidth="inherit" w="45">
     <connections>
         <constraint name="in" perimeter="0" x="0" y="0.5"/>
-        <constraint name="out1" perimeter="0" x="1" y="0.335"/>
-        <constraint name="out2" perimeter="0" x="1" y="0.665"/>
+        <constraint name="out1" perimeter="0" x="1" y="0.3333"/>
+        <constraint name="out2" perimeter="0" x="1" y="0.6667"/>
     </connections>
     <background>
         <path>
@@ -278,10 +278,10 @@
 </shape>
 <shape aspect="variable" h="32" name="DPDT" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="NW" perimeter="0" x="0" y="0.28"/>
-        <constraint name="NE" perimeter="0" x="1" y="0.28"/>
-        <constraint name="SW" perimeter="0" x="0" y="0.905"/>
-        <constraint name="SE" perimeter="0" x="1" y="0.905"/>
+        <constraint name="NW" perimeter="0" x="0" y="0.2812"/>
+        <constraint name="NE" perimeter="0" x="1" y="0.2812"/>
+        <constraint name="SW" perimeter="0" x="0" y="0.9062"/>
+        <constraint name="SE" perimeter="0" x="1" y="0.9062"/>
     </connections>
     <foreground>
         <ellipse h="6" w="6" x="54" y="6"/>
@@ -322,12 +322,12 @@
 </shape>
 <shape aspect="variable" h="62.25" name="DPDT2" strokewidth="inherit" w="57.75">
     <connections>
-        <constraint name="NW" perimeter="0" x="0" y="0.227"/>
-        <constraint name="NE" perimeter="0" x="1" y="0.05"/>
-        <constraint name="E1" perimeter="0" x="1" y="0.39"/>
-        <constraint name="E2" perimeter="0" x="1" y="0.61"/>
+        <constraint name="NW" perimeter="0" x="0" y="0.2289"/>
+        <constraint name="NE" perimeter="0" x="1" y="0.0482"/>
+        <constraint name="E1" perimeter="0" x="1" y="0.3896"/>
+        <constraint name="E2" perimeter="0" x="1" y="0.6104"/>
         <constraint name="SW" perimeter="0" x="0" y="0.793"/>
-        <constraint name="SE" perimeter="0" x="1" y="0.95"/>
+        <constraint name="SE" perimeter="0" x="1" y="0.9518"/>
     </connections>
     <foreground>
         <rect/>
@@ -374,10 +374,10 @@
 </shape>
 <shape aspect="variable" h="26" name="DPST" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="NW" perimeter="0" x="0" y="0.115"/>
-        <constraint name="SW" perimeter="0" x="0" y="0.885"/>
-        <constraint name="NE" perimeter="0" x="1" y="0.115"/>
-        <constraint name="SE" perimeter="0" x="1" y="0.885"/>
+        <constraint name="NW" perimeter="0" x="0" y="0.1154"/>
+        <constraint name="SW" perimeter="0" x="0" y="0.8846"/>
+        <constraint name="NE" perimeter="0" x="1" y="0.1154"/>
+        <constraint name="SE" perimeter="0" x="1" y="0.8846"/>
     </connections>
     <foreground>
         <path>
@@ -406,8 +406,8 @@
 </shape>
 <shape aspect="variable" h="31" name="Flow Actuated" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.095"/>
-        <constraint name="E" perimeter="0" x="1" y="0.095"/>
+        <constraint name="W" perimeter="0" x="0" y="0.0968"/>
+        <constraint name="E" perimeter="0" x="1" y="0.0968"/>
     </connections>
     <foreground>
         <path>
@@ -493,8 +493,8 @@
 </shape>
 <shape aspect="variable" h="19" name="Inertia Switch" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.84"/>
-        <constraint name="E" perimeter="0" x="1" y="0.84"/>
+        <constraint name="W" perimeter="0" x="0" y="0.842"/>
+        <constraint name="E" perimeter="0" x="1" y="0.842"/>
     </connections>
     <foreground>
         <path>
@@ -556,8 +556,8 @@
 </shape>
 <shape aspect="variable" h="13" name="Limit Switch NC" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.31"/>
-        <constraint name="E" perimeter="0" x="1" y="0.31"/>
+        <constraint name="W" perimeter="0" x="0" y="0.308"/>
+        <constraint name="E" perimeter="0" x="1" y="0.308"/>
     </connections>
     <foreground>
         <path>
@@ -579,8 +579,8 @@
 </shape>
 <shape aspect="variable" h="24.3" name="Limit Switch NO" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.12"/>
-        <constraint name="E" perimeter="0" x="1" y="0.12"/>
+        <constraint name="W" perimeter="0" x="0" y="0.1235"/>
+        <constraint name="E" perimeter="0" x="1" y="0.1235"/>
     </connections>
     <foreground>
         <path>
@@ -602,8 +602,8 @@
 </shape>
 <shape aspect="variable" h="28" name="Liquid Level Actuated" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.14"/>
-        <constraint name="E" perimeter="0" x="1" y="0.14"/>
+        <constraint name="W" perimeter="0" x="0" y="0.143"/>
+        <constraint name="E" perimeter="0" x="1" y="0.143"/>
     </connections>
     <foreground>
         <path>
@@ -812,8 +812,8 @@
 </shape>
 <shape aspect="variable" h="60.09" name="Motor 2" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.5"/>
-        <constraint name="out" perimeter="0" x="1" y="0.5"/>
+        <constraint name="in" perimeter="0" x="0" y="0.4999"/>
+        <constraint name="out" perimeter="0" x="1" y="0.4999"/>
     </connections>
     <background>
         <path>
@@ -845,8 +845,8 @@
 </shape>
 <shape aspect="variable" h="23" name="Passing Make Contact" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.7"/>
-        <constraint name="E" perimeter="0" x="1" y="0.7"/>
+        <constraint name="W" perimeter="0" x="0" y="0.6957"/>
+        <constraint name="E" perimeter="0" x="1" y="0.6957"/>
     </connections>
     <foreground>
         <path>
@@ -910,8 +910,8 @@
 </shape>
 <shape aspect="variable" h="31" name="Pressure Actuated" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.1"/>
-        <constraint name="E" perimeter="0" x="1" y="0.1"/>
+        <constraint name="W" perimeter="0" x="0" y="0.0968"/>
+        <constraint name="E" perimeter="0" x="1" y="0.0968"/>
     </connections>
     <foreground>
         <path>
@@ -967,10 +967,10 @@
 </shape>
 <shape aspect="variable" h="73" name="Pushbutton 2 Circuit" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.685"/>
-        <constraint name="SW" perimeter="0" x="0" y="0.96"/>
-        <constraint name="E" perimeter="0" x="1" y="0.685"/>
-        <constraint name="SE" perimeter="0" x="1" y="0.96"/>
+        <constraint name="W" perimeter="0" x="0" y="0.6849"/>
+        <constraint name="SW" perimeter="0" x="0" y="0.9589"/>
+        <constraint name="E" perimeter="0" x="1" y="0.6849"/>
+        <constraint name="SE" perimeter="0" x="1" y="0.9589"/>
     </connections>
     <foreground>
         <path>
@@ -1000,8 +1000,8 @@
 </shape>
 <shape aspect="variable" h="54" name="Pushbutton Break" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.925"/>
-        <constraint name="E" perimeter="0" x="1" y="0.925"/>
+        <constraint name="W" perimeter="0" x="0" y="0.9259"/>
+        <constraint name="E" perimeter="0" x="1" y="0.9259"/>
     </connections>
     <foreground>
         <path>
@@ -1023,8 +1023,8 @@
 </shape>
 <shape aspect="variable" h="53" name="Pushbutton Make" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.945"/>
-        <constraint name="E" perimeter="0" x="1" y="0.945"/>
+        <constraint name="W" perimeter="0" x="0" y="0.9434"/>
+        <constraint name="E" perimeter="0" x="1" y="0.9434"/>
     </connections>
     <foreground>
         <path>
@@ -1071,8 +1071,8 @@
 </shape>
 <shape aspect="variable" h="19" name="Push Switch NO" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.84"/>
-        <constraint name="out" perimeter="0" x="1" y="0.84"/>
+        <constraint name="in" perimeter="0" x="0" y="0.842"/>
+        <constraint name="out" perimeter="0" x="1" y="0.842"/>
     </connections>
     <foreground>
         <path>
@@ -1307,8 +1307,8 @@
 </shape>
 <shape aspect="variable" h="37" name="Safety Interlock" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.405"/>
-        <constraint name="E" perimeter="0" x="1" y="0.405"/>
+        <constraint name="W" perimeter="0" x="0" y="0.4054"/>
+        <constraint name="E" perimeter="0" x="1" y="0.4054"/>
     </connections>
     <foreground>
         <path>
@@ -1334,10 +1334,10 @@
 <shape aspect="variable" h="66" name="Selector Switch" strokewidth="inherit" w="75">
     <connections>
         <constraint name="W" perimeter="0" x="0" y="0.5"/>
-        <constraint name="NE" perimeter="0" x="1" y="0.045"/>
-        <constraint name="E1" perimeter="0" x="1" y="0.35"/>
-        <constraint name="E2" perimeter="0" x="1" y="0.65"/>
-        <constraint name="SE" perimeter="0" x="1" y="0.955"/>
+        <constraint name="NE" perimeter="0" x="1" y="0.0455"/>
+        <constraint name="E1" perimeter="0" x="1" y="0.3485"/>
+        <constraint name="E2" perimeter="0" x="1" y="0.6515"/>
+        <constraint name="SE" perimeter="0" x="1" y="0.9545"/>
     </connections>
     <foreground>
         <path>
@@ -1378,9 +1378,9 @@
 <shape aspect="variable" h="46" name="Selector Switch 3 position" strokewidth="inherit" w="75">
     <connections>
         <constraint name="W" perimeter="0" x="0" y="0.5"/>
-        <constraint name="NE" perimeter="0" x="1" y="0.065"/>
+        <constraint name="NE" perimeter="0" x="1" y="0.0652"/>
         <constraint name="E" perimeter="0" x="1" y="0.5"/>
-        <constraint name="SE" perimeter="0" x="1" y="0.935"/>
+        <constraint name="SE" perimeter="0" x="1" y="0.9348"/>
     </connections>
     <foreground>
         <path>
@@ -1417,12 +1417,12 @@
 <shape aspect="variable" h="106" name="Selector Switch 6 position" strokewidth="inherit" w="74.85">
     <connections>
         <constraint name="W" perimeter="0" x="0" y="0.5"/>
-        <constraint name="NE" perimeter="0" x="1" y="0.025"/>
-        <constraint name="E1" perimeter="0" x="1" y="0.22"/>
-        <constraint name="E2" perimeter="0" x="1" y="0.405"/>
-        <constraint name="E3" perimeter="0" x="1" y="0.595"/>
-        <constraint name="E4" perimeter="0" x="1" y="0.78"/>
-        <constraint name="SE" perimeter="0" x="1" y="0.97"/>
+        <constraint name="NE" perimeter="0" x="1" y="0.0283"/>
+        <constraint name="E1" perimeter="0" x="1" y="0.217"/>
+        <constraint name="E2" perimeter="0" x="1" y="0.40566"/>
+        <constraint name="E3" perimeter="0" x="1" y="0.59434"/>
+        <constraint name="E4" perimeter="0" x="1" y="0.783"/>
+        <constraint name="SE" perimeter="0" x="1" y="0.9717"/>
     </connections>
     <background>
         <path>
@@ -1509,8 +1509,8 @@
 </shape>
 <shape aspect="variable" h="19" name="Simple Switch" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.84"/>
-        <constraint name="out" perimeter="0" x="1" y="0.84"/>
+        <constraint name="in" perimeter="0" x="0" y="0.842"/>
+        <constraint name="out" perimeter="0" x="1" y="0.842"/>
     </connections>
     <foreground>
         <path>
@@ -1551,8 +1551,8 @@
 </shape>
 <shape aspect="variable" h="19" name="Spring Return 2" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.845"/>
-        <constraint name="E" perimeter="0" x="1" y="0.845"/>
+        <constraint name="W" perimeter="0" x="0" y="0.842"/>
+        <constraint name="E" perimeter="0" x="1" y="0.842"/>
     </connections>
     <foreground>
         <path>
@@ -1574,8 +1574,8 @@
 </shape>
 <shape aspect="variable" h="7" name="Stay Put" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.43"/>
-        <constraint name="E" perimeter="0" x="1" y="0.43"/>
+        <constraint name="W" perimeter="0" x="0" y="0.429"/>
+        <constraint name="E" perimeter="0" x="1" y="0.429"/>
     </connections>
     <foreground>
         <path>
@@ -1608,8 +1608,8 @@
 </shape>
 <shape aspect="variable" h="19" name="Switch Disconnector" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.845"/>
-        <constraint name="E" perimeter="0" x="1" y="0.845"/>
+        <constraint name="W" perimeter="0" x="0" y="0.842"/>
+        <constraint name="E" perimeter="0" x="1" y="0.842"/>
     </connections>
     <foreground>
         <path>
@@ -1628,8 +1628,8 @@
 </shape>
 <shape aspect="variable" h="31" name="Temperature Actuated" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.1"/>
-        <constraint name="E" perimeter="0" x="1" y="0.1"/>
+        <constraint name="W" perimeter="0" x="0" y="0.0968"/>
+        <constraint name="E" perimeter="0" x="1" y="0.0968"/>
     </connections>
     <foreground>
         <path>
@@ -1675,8 +1675,8 @@
 </shape>
 <shape aspect="variable" h="7" name="Thermostat" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.57"/>
-        <constraint name="E" perimeter="0" x="1" y="0.57"/>
+        <constraint name="W" perimeter="0" x="0" y="0.571"/>
+        <constraint name="E" perimeter="0" x="1" y="0.571"/>
     </connections>
     <foreground>
         <path>
@@ -1722,8 +1722,8 @@
 </shape>
 <shape aspect="variable" h="30" name="Time Delay Break 2" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.33"/>
-        <constraint name="E" perimeter="0" x="1" y="0.33"/>
+        <constraint name="W" perimeter="0" x="0" y="0.3333"/>
+        <constraint name="E" perimeter="0" x="1" y="0.3333"/>
     </connections>
     <foreground>
         <path>
@@ -1745,8 +1745,8 @@
 </shape>
 <shape aspect="variable" h="31" name="Time Delay Make" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.1"/>
-        <constraint name="E" perimeter="0" x="1" y="0.1"/>
+        <constraint name="W" perimeter="0" x="0" y="0.0968"/>
+        <constraint name="E" perimeter="0" x="1" y="0.0968"/>
     </connections>
     <foreground>
         <path>
@@ -1772,8 +1772,8 @@
 </shape>
 <shape aspect="variable" h="36" name="Time Delay Make 2" strokewidth="inherit" w="75">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.445"/>
-        <constraint name="E" perimeter="0" x="1" y="0.445"/>
+        <constraint name="W" perimeter="0" x="0" y="0.4444"/>
+        <constraint name="E" perimeter="0" x="1" y="0.4444"/>
     </connections>
     <foreground>
         <path>

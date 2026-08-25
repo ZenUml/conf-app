@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2006-2015, JGraph Ltd
+ * Copyright (c) 2006-2015, JGraph Holdings Ltd
  */
 
 /**
@@ -7,6 +7,58 @@
  */
 (function()
 {
+	// Adds support for conditional label bounds in stencils. A stencil may
+	// contain labelBounds nodes with an if attribute that contains the name
+	// of a style key and x, y, w and h attributes in stencil coordinates,
+	// eg. <labelBounds if="boundedLbl" x="0" y="10" w="78" h="47"/>. The
+	// first node whose style key is 1 in the current cell style defines
+	// the label bounds for the shape. Direction and flip styles are
+	// handled in mxShape.getLabelBounds via mxUtils.getDirectedBounds.
+	var shapeGetLabelMargins = mxShape.prototype.getLabelMargins;
+	mxShape.prototype.getLabelMargins = function(rect)
+	{
+		if (this.stencil != null && this.stencil.desc != null &&
+			this.style != null)
+		{
+			if (this.stencil.labelBounds == null)
+			{
+				var nodes = this.stencil.desc.getElementsByTagName('labelBounds');
+				var temp = [];
+
+				for (var i = 0; i < nodes.length; i++)
+				{
+					temp.push({condition: nodes[i].getAttribute('if'),
+						x: Number(nodes[i].getAttribute('x') || 0),
+						y: Number(nodes[i].getAttribute('y') || 0),
+						w: Number(nodes[i].getAttribute('w') || this.stencil.w0),
+						h: Number(nodes[i].getAttribute('h') || this.stencil.h0)});
+				}
+
+				this.stencil.labelBounds = temp;
+			}
+
+			for (var i = 0; i < this.stencil.labelBounds.length; i++)
+			{
+				var lb = this.stencil.labelBounds[i];
+
+				if (lb.condition == null ||
+					mxUtils.getValue(this.style, lb.condition, '0') == '1')
+				{
+					var aspect = this.stencil.computeAspect(this.style,
+						rect.x, rect.y, rect.width, rect.height);
+					var x0 = aspect.x - rect.x + lb.x * aspect.width;
+					var y0 = aspect.y - rect.y + lb.y * aspect.height;
+
+					return new mxRectangle(x0, y0,
+						rect.width - x0 - lb.w * aspect.width,
+						rect.height - y0 - lb.h * aspect.height);
+				}
+			}
+		}
+
+		return shapeGetLabelMargins.apply(this, arguments);
+	};
+
 	function TableLineShape(line, stroke, strokewidth)
 	{
 		mxShape.call(this);
@@ -244,20 +296,8 @@
 	
 	mxUtils.extend(TableShape, mxSwimlane);
 
-	TableShape.prototype.getLabelBounds = function(rect)
-	{
-		var start = this.getTitleSize();
-		
-		if (start == 0)
-		{
-			return mxShape.prototype.getLabelBounds.apply(this, arguments);
-		}
-		else
-		{
-			return mxSwimlane.prototype.getLabelBounds.apply(this, arguments);
-		}
-	};
-	
+	TableShape.prototype.fixedHeaderDefault = false;
+
 	TableShape.prototype.paintVertexShape = function(c, x, y, w, h)
 	{
 		// LATER: Split background to add striping, paint rows and cells
@@ -266,8 +306,21 @@
 			isCellCollapsed(this.state.cell) : false;
 		var horizontal = this.isHorizontal();
 		var start = this.getTitleSize();
-		
-		if (start == 0 || this.outline)
+		var fixedHeader = mxUtils.getValue(this.style,
+			mxConstants.STYLE_FIXED_HEADER, this.fixedHeaderDefault);
+
+		if (start == 0 && this.isRounded && !this.outline)
+		{
+			// Headerless rounded table: PartialRectangleShape has no arc
+			// support and the swimlane path derives its arc from the title
+			// size (0 here), so both paint square corners. Paint the
+			// rounded background directly with the rectangle arc.
+			var r = mxShape.prototype.getArcSize.call(this, w, h);
+			c.begin();
+			c.roundrect(x, y, w, h, r, r);
+			c.fillAndStroke();
+		}
+		else if ((start == 0 && !fixedHeader) || this.outline)
 		{
 			PartialRectangleShape.prototype.paintVertexShape.apply(this, arguments);
 		}
@@ -353,6 +406,55 @@
 	};
 	
 	mxCellRenderer.registerShape('tableRow', TableRowShape);
+
+	// Repaints the grid lines a filled swimlane-shaped table cell (table, table
+	// row or lane) would otherwise hide with its fill. The table draws the lines
+	// centered on the cell boundaries and below its child cells, so the fill
+	// covers its half of them (see Graph.paintTableCellLines). mxSwimlane has
+	// translated the canvas to the shape origin, so the cell bounds are 0, 0,
+	// w, h here. TableShape/TableRowShape reach this via the super call.
+	var mxSwimlanePaintVertexShape = mxSwimlane.prototype.paintVertexShape;
+	mxSwimlane.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		mxSwimlanePaintVertexShape.apply(this, arguments);
+
+		if (this.state != null && !this.outline)
+		{
+			var graph = this.state.view.graph;
+			var filled = (this.fill != null && this.fill != mxConstants.NONE) ||
+				(this.laneFill != null && this.laneFill != mxConstants.NONE);
+
+			if (filled && graph.paintTableCellLines != null)
+			{
+				var cell = this.state.cell;
+
+				// A table row only fills its title strip, so the separators are
+				// only covered there. Restricting the repaint to the strip leaves
+				// the body lines to the lane cells and avoids drawing across
+				// rowspan gaps the table left in the body.
+				if (graph.isTableRow != null && graph.isTableRow(cell))
+				{
+					var start = this.getTitleSize();
+
+					if (this.isHorizontal())
+					{
+						graph.paintTableCellLines(c, cell, 0, 0, w,
+							Math.min(start, h), this.stroke, this.strokewidth);
+					}
+					else
+					{
+						graph.paintTableCellLines(c, cell, 0, 0,
+							Math.min(start, w), h, this.stroke, this.strokewidth);
+					}
+				}
+				else
+				{
+					graph.paintTableCellLines(c, cell, 0, 0, w, h,
+						this.stroke, this.strokewidth);
+				}
+			}
+		}
+	};
 
 	// Cube Shape, supports size style
 	function CubeShape()
@@ -916,6 +1018,11 @@
 
 	FolderShape.prototype.arcSize = 0.1;
 	
+	FolderShape.prototype.isRoundable = function()
+	{
+		return true;
+	};
+	
 	FolderShape.prototype.paintVertexShape = function(c, x, y, w, h)
 	{
 		c.translate(x, y);
@@ -1146,6 +1253,91 @@
 	};
 
 	mxCellRenderer.registerShape('umlState', UMLStateShape);
+
+	// Smiley face shape used by the mermaid journey renderer.
+	// Supports smileyType=happy (default), neutral, sad.
+	function SmileyFaceShape()
+	{
+		mxShape.call(this);
+	};
+
+	mxUtils.extend(SmileyFaceShape, mxShape);
+
+	SmileyFaceShape.prototype.featureColor = '#666666';
+
+	SmileyFaceShape.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		var smileyType = mxUtils.getValue(this.style, 'smileyType', 'happy');
+		var featureColor = mxUtils.getValue(this.style, 'smileyFeatureColor',
+			SmileyFaceShape.prototype.featureColor);
+
+		c.translate(x, y);
+
+		// Face circle uses cell's own fill/stroke + strokeWidth
+		var r = Math.min(w, h) / 2;
+		c.ellipse(w / 2 - r, h / 2 - r, r * 2, r * 2);
+		c.fillAndStroke();
+
+		var s = Math.min(w, h) / 30;
+		var cx = w / 2;
+		var cy = h / 2;
+
+		// Eyes: r=1.5 circles at (cx±5, cy-5) with fill & stroke = featureColor,
+		// stroke-width=2 to match mermaid's stroke-width="2" on the eye circles
+		c.setFillColor(featureColor);
+		c.setStrokeColor(featureColor);
+		c.setStrokeWidth(2 * s);
+
+		var eyeR = 1.5 * s;
+		var eyeXOffset = 5 * s;
+		var eyeYOffset = 5 * s;
+
+		c.ellipse(cx - eyeXOffset - eyeR, cy - eyeYOffset - eyeR, eyeR * 2, eyeR * 2);
+		c.fillAndStroke();
+		c.ellipse(cx + eyeXOffset - eyeR, cy - eyeYOffset - eyeR, eyeR * 2, eyeR * 2);
+		c.fillAndStroke();
+
+		// Mouth: happy/sad are filled crescents (default mermaid fill = black,
+		// stroke = #666 from .mouth CSS), neutral is a grey line
+		c.setStrokeWidth(1 * s);
+		c.setFillColor('#000000');
+
+		if (smileyType == 'happy')
+		{
+			var mcx = cx;
+			var mcy = cy + 2 * s;
+
+			c.begin();
+			c.moveTo(mcx + 7.5 * s, mcy);
+			c.arcTo(7.5 * s, 7.5 * s, 0, 1, 1, mcx - 7.5 * s, mcy);
+			c.lineTo(mcx - 6.818 * s, mcy);
+			c.arcTo(6.818 * s, 6.818 * s, 0, 1, 0, mcx + 6.818 * s, mcy);
+			c.close();
+			c.fillAndStroke();
+		}
+		else if (smileyType == 'sad')
+		{
+			var mcx = cx;
+			var mcy = cy + 7 * s;
+
+			c.begin();
+			c.moveTo(mcx - 7.5 * s, mcy);
+			c.arcTo(7.5 * s, 7.5 * s, 0, 1, 1, mcx + 7.5 * s, mcy);
+			c.lineTo(mcx + 6.818 * s, mcy);
+			c.arcTo(6.818 * s, 6.818 * s, 0, 1, 0, mcx - 6.818 * s, mcy);
+			c.close();
+			c.fillAndStroke();
+		}
+		else
+		{
+			c.begin();
+			c.moveTo(cx - 5 * s, cy + 7 * s);
+			c.lineTo(cx + 5 * s, cy + 7 * s);
+			c.stroke();
+		}
+	};
+
+	mxCellRenderer.registerShape('smileyFace', SmileyFaceShape);
 
 	// Card shape
 	function CardShape()
@@ -1775,14 +1967,24 @@
 			var w = rect.width;
 			var h = rect.height;
 			var r = new mxRectangle(rect.x, rect.y, w, h);
-	
-			var inset = w * Math.max(0, Math.min(1, parseFloat(mxUtils.getValue(this.style, 'size', this.size))));
-	
-			if (this.isRounded)
+
+			var isFixedSize = mxUtils.getValue(this.style, 'fixedSize', this.fixedSize);
+			var inset = parseFloat(mxUtils.getValue(this.style, 'size', this.size));
+			
+			if (isFixedSize)
 			{
-				var f = mxUtils.getValue(this.style, mxConstants.STYLE_ARCSIZE,
-					mxConstants.RECTANGLE_ROUNDING_FACTOR * 100) / 100;
-				inset = Math.max(inset, Math.min(w * f, h * f));
+				inset = Math.max(0, Math.min(w, inset * this.scale));
+			}
+			else
+			{
+				inset = w * Math.max(0, Math.min(1, inset));
+
+				if (this.isRounded)
+				{
+					var f = mxUtils.getValue(this.style, mxConstants.STYLE_ARCSIZE,
+						mxConstants.RECTANGLE_ROUNDING_FACTOR * 100) / 100;
+					inset = Math.max(inset, Math.min(w * f, h * f));
+				}
 			}
 			
 			r.x += Math.round(inset);
@@ -1894,6 +2096,165 @@
 
 	mxCellRenderer.registerShape('callout', CalloutShape);
 
+	// Wedge callout shape with a freely movable tip
+	function WedgeCalloutShape()
+	{
+		mxActor.call(this);
+	};
+
+	mxUtils.extend(WedgeCalloutShape, mxActor);
+
+	WedgeCalloutShape.prototype.tipX = -0.25;
+
+	WedgeCalloutShape.prototype.tipY = 1;
+
+	WedgeCalloutShape.prototype.base = 20;
+
+	// Limits the tip offset relative to width and height to keep
+	// bounding boxes finite for untrusted styles
+	WedgeCalloutShape.prototype.maxTipOffset = 100;
+
+	WedgeCalloutShape.prototype.isRoundable = function()
+	{
+		return true;
+	};
+
+	// Returns the clamped tip offset relative to width and height
+	// as seen from the center of the bubble
+	WedgeCalloutShape.prototype.getTipOffset = function()
+	{
+		var max = this.maxTipOffset;
+		var tx = parseFloat(mxUtils.getValue(this.style, 'tipX', this.tipX));
+		var ty = parseFloat(mxUtils.getValue(this.style, 'tipY', this.tipY));
+
+		return new mxPoint(Math.max(-max, Math.min(max, (isFinite(tx)) ? tx : this.tipX)),
+			Math.max(-max, Math.min(max, (isFinite(ty)) ? ty : this.tipY)));
+	};
+
+	// Returns the tail as {points: [base1, tip, base2], index: insertion
+	// index in the clockwise bubble path} in local coordinates, or null
+	// if the tip is inside of the bubble
+	WedgeCalloutShape.prototype.getTailPoints = function(w, h)
+	{
+		var tip = this.getTipOffset();
+		var dx = tip.x * w;
+		var dy = tip.y * h;
+
+		if (Math.abs(dx) <= w / 2 && Math.abs(dy) <= h / 2)
+		{
+			return null;
+		}
+
+		var arcSize = mxUtils.getValue(this.style, mxConstants.STYLE_ARCSIZE, mxConstants.LINE_ARCSIZE) / 2;
+		var base = parseFloat(mxUtils.getValue(this.style, 'base', this.base));
+		base = (isFinite(base)) ? Math.max(0, base) : this.base;
+		var inset = (this.isRounded) ? arcSize : 0;
+		var tp = new mxPoint(w / 2 + dx, h / 2 + dy);
+
+		if (Math.abs(dx) * h >= Math.abs(dy) * w && dx != 0)
+		{
+			// Tail exits through the left or right side
+			inset = Math.min(inset, h / 2);
+			var hb = Math.max(0, Math.min(base, h - 2 * inset)) / 2;
+			var ey = h / 2 + dy * (w / 2) / Math.abs(dx);
+			ey = Math.max(inset + hb, Math.min(h - inset - hb, ey));
+
+			return (dx > 0) ?
+				{points: [new mxPoint(w, ey - hb), tp, new mxPoint(w, ey + hb)], index: 2} :
+				{points: [new mxPoint(0, ey + hb), tp, new mxPoint(0, ey - hb)], index: 4};
+		}
+		else
+		{
+			// Tail exits through the top or bottom side
+			inset = Math.min(inset, w / 2);
+			var hb = Math.max(0, Math.min(base, w - 2 * inset)) / 2;
+			var ex = w / 2 + dx * (h / 2) / Math.abs(dy);
+			ex = Math.max(inset + hb, Math.min(w - inset - hb, ex));
+
+			return (dy > 0) ?
+				{points: [new mxPoint(ex + hb, h), tp, new mxPoint(ex - hb, h)], index: 3} :
+				{points: [new mxPoint(ex - hb, 0), tp, new mxPoint(ex + hb, 0)], index: 1};
+		}
+	};
+
+	WedgeCalloutShape.prototype.redrawPath = function(c, x, y, w, h)
+	{
+		var arcSize = mxUtils.getValue(this.style, mxConstants.STYLE_ARCSIZE, mxConstants.LINE_ARCSIZE) / 2;
+		var pts = [new mxPoint(0, 0), new mxPoint(w, 0), new mxPoint(w, h), new mxPoint(0, h)];
+		var tail = this.getTailPoints(w, h);
+		var exclude = null;
+
+		if (tail != null)
+		{
+			pts.splice.apply(pts, [tail.index, 0].concat(tail.points));
+			exclude = [tail.index, tail.index + 1, tail.index + 2];
+		}
+
+		this.addPoints(c, pts, this.isRounded, arcSize, true, exclude);
+	};
+
+	// Adds the tail tip to the bounding box so that exports and fit
+	// include the tail. Must apply the same transform as
+	// mxShape.updateTransform: mirror at the center of the unrotated
+	// paint bounds, then rotation by getShapeRotation around that center.
+	WedgeCalloutShape.prototype.getShapeBoundingBox = function()
+	{
+		var bbox = mxShape.prototype.getShapeBoundingBox.apply(this, arguments);
+
+		if (bbox != null && this.bounds != null)
+		{
+			// Tail points use unscaled coordinates like in redrawPath
+			var b = this.createBoundingBox();
+			var s = this.scale;
+			var w = b.width / s;
+			var h = b.height / s;
+			var tail = this.getTailPoints(w, h);
+
+			if (tail != null)
+			{
+				var tp = tail.points[1];
+				var cx = b.x + b.width / 2;
+				var cy = b.y + b.height / 2;
+				var rect = new mxRectangle(
+					cx + (tp.x - w / 2) * s * ((this.flipH) ? -1 : 1),
+					cy + (tp.y - h / 2) * s * ((this.flipV) ? -1 : 1), 0, 0);
+				this.augmentBoundingBox(rect);
+
+				// The miter join at an acute tip extends up to
+				// min(miterlimit, 1 / sin(a / 2)) * strokewidth / 2
+				// beyond the tip where a is the tip angle (the canvas
+				// miterlimit is 10, see mxAbstractCanvas2D.createState)
+				var v1x = tail.points[0].x - tp.x;
+				var v1y = tail.points[0].y - tp.y;
+				var v2x = tail.points[2].x - tp.x;
+				var v2y = tail.points[2].y - tp.y;
+				var n1 = Math.sqrt(v1x * v1x + v1y * v1y);
+				var n2 = Math.sqrt(v2x * v2x + v2y * v2y);
+
+				if (n1 > 0 && n2 > 0)
+				{
+					var cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (n1 * n2)));
+					var sinHalf = Math.sqrt((1 - cos) / 2);
+					var miter = (sinHalf > 0) ? Math.min(10, 1 / sinHalf) : 10;
+					rect.grow((miter - 1) * this.strokewidth * this.scale / 2);
+				}
+
+				var rot = this.getShapeRotation();
+
+				if (rot != 0)
+				{
+					rect = mxUtils.getBoundingBox(rect, rot, new mxPoint(cx, cy));
+				}
+
+				bbox.add(rect);
+			}
+		}
+
+		return bbox;
+	};
+
+	mxCellRenderer.registerShape('wedgeCallout', WedgeCalloutShape);
+
 	// Step shape
 	function StepShape()
 	{
@@ -1989,16 +2350,19 @@
 		{
 			var margin = (Math.max(2, this.strokewidth + 1) * 2 + parseFloat(
 				this.style[mxConstants.STYLE_MARGIN] || 0)) * this.scale;
-		
+
 			return new mxRectangle(rect.x + margin, rect.y + margin,
 				rect.width - 2 * margin, rect.height - 2 * margin);
 		}
-		
+
 		return rect;
 	};
 	mxRhombus.prototype.paintVertexShape = function(c, x, y, w, h)
 	{
 		mxRhombusPaintVertexShape.apply(this, arguments);
+
+		// Stash original bounds; double-handling below mutates x, y, w, h.
+		var gx = x, gy = y, gw = w, gh = h;
 
 		if (!this.outline && this.style['double'] == 1)
 		{
@@ -2008,15 +2372,93 @@
 			y += margin;
 			w -= 2 * margin;
 			h -= 2 * margin;
-			
+
 			if (w > 0 && h > 0)
 			{
 				c.setShadow(false);
-				
+
 				// Workaround for closure compiler bug where the lines with x and y above
 				// are removed if arguments is used as second argument in call below.
 				mxRhombusPaintVertexShape.apply(this, [c, x, y, w, h]);
 			}
+		}
+
+		if (this.glass && !this.outline && this.fill != null && this.fill != mxConstants.NONE)
+		{
+			this.paintGlassEffect(c, gx, gy, gw, gh, 0);
+		}
+	};
+
+	// Refactors paintGlassEffect to delegate path drawing to a paintGlassEffectPath hook,
+	// allowing non-rectangular shapes (ellipse, rhombus) to provide silhouette-matching paths.
+	mxShape.prototype.paintGlassEffect = function(c, x, y, w, h, arc)
+	{
+		var sw = Math.ceil(this.strokewidth / 2);
+		c.setGradient('#ffffff', '#ffffff', x, y, w, h * 0.6, 'south', 0.9, 0.1);
+		c.begin();
+		this.paintGlassEffectPath(c, x, y, w, h, sw, arc);
+		c.close();
+		c.fill();
+	};
+
+	mxShape.prototype.paintGlassEffectPath = function(c, x, y, w, h, sw, arc)
+	{
+		arc += 2 * sw;
+
+		if (this.isRounded)
+		{
+			c.moveTo(x - sw + arc, y - sw);
+			c.quadTo(x - sw, y - sw, x - sw, y - sw + arc);
+			c.lineTo(x - sw, y + h * 0.4);
+			c.quadTo(x + w * 0.5, y + h * 0.7, x + w + sw, y + h * 0.4);
+			c.lineTo(x + w + sw, y - sw + arc);
+			c.quadTo(x + w + sw, y - sw, x + w + sw - arc, y - sw);
+		}
+		else
+		{
+			c.moveTo(x - sw, y - sw);
+			c.lineTo(x - sw, y + h * 0.4);
+			c.quadTo(x + w * 0.5, y + h * 0.7, x + w + sw, y + h * 0.4);
+			c.lineTo(x + w + sw, y - sw);
+		}
+	};
+
+	// Cubic bezier approximation of the top half of the ellipse, then a wave back through
+	// the middle to close the highlight (matches the dip in the rectangular variant).
+	mxEllipse.prototype.paintGlassEffectPath = function(c, x, y, w, h, sw, arc)
+	{
+		var kappa = 0.5522847498;
+		var rx = w / 2 + sw;
+		var ry = h / 2 + sw;
+		var cx = x + w / 2;
+		var cy = y + h / 2;
+
+		c.moveTo(cx - rx, cy);
+		c.curveTo(cx - rx, cy - ry * kappa, cx - rx * kappa, cy - ry, cx, cy - ry);
+		c.curveTo(cx + rx * kappa, cy - ry, cx + rx, cy - ry * kappa, cx + rx, cy);
+		c.quadTo(cx, cy + h * 0.2, cx - rx, cy);
+	};
+
+	mxRhombus.prototype.paintGlassEffectPath = function(c, x, y, w, h, sw, arc)
+	{
+		var hw = w / 2;
+		var hh = h / 2;
+		var arcSize = mxUtils.getValue(this.style, mxConstants.STYLE_ARCSIZE, mxConstants.LINE_ARCSIZE) / 2;
+
+		this.addPoints(c, [new mxPoint(x, y + hh), new mxPoint(x + hw, y), new mxPoint(x + w, y + hh)],
+			this.isRounded, arcSize, false);
+
+		c.quadTo(x + hw, y + h * 0.7, x, y + hh);
+	};
+
+	var mxEllipsePaintVertexShape = mxEllipse.prototype.paintVertexShape;
+	mxEllipse.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		mxEllipsePaintVertexShape.apply(this, arguments);
+
+		if (this.glass && !this.outline && this.fill != null && this.fill != mxConstants.NONE)
+		{
+			this.paintGlassEffect(c, x, y, w, h, 0);
 		}
 	};
 
@@ -2333,6 +2775,237 @@
 	// Replaces existing actor shape
 	mxCellRenderer.registerShape('umlControl', UmlControlShape);
 
+	// Sequence-diagram participant icon shapes (mermaid `participant Foo
+	// @{"type":"boundary"}` etc.). The standalone umlBoundary/umlControl/
+	// umlEntity shapes stretch to fill their bounding box, which inside a
+	// 150px-wide lifeline header produces a giant ellipse. The seq*
+	// variants paint the existing icon at a fixed pixel size centered
+	// horizontally so it reads as a small circle (~44 px) above the
+	// participant label, matching mermaid v11's drawActorTypeBoundary /
+	// drawActorTypeControl / drawActorTypeEntity output.
+	function makeSeqIcon(IconCtor, iconSize)
+	{
+		function S() { mxShape.call(this); };
+		mxUtils.extend(S, mxShape);
+		S.prototype.iconSize = iconSize;
+		S.prototype.paintBackground = function(c, x, y, w, h)
+		{
+			var size = Math.min(this.iconSize, w, h);
+			var cx = x + (w - size) / 2;
+			// Some icon shapes override paintVertexShape directly (e.g.
+			// UmlEntityShape extends mxEllipse and adds the bottom line
+			// in paintVertexShape — it has no paintBackground). Prefer
+			// the override when present, fall back to the
+			// paintBackground/paintForeground pair otherwise.
+			if (IconCtor.prototype.hasOwnProperty('paintVertexShape'))
+			{
+				IconCtor.prototype.paintVertexShape.call(this, c, cx, y, size, size);
+			}
+			else
+			{
+				IconCtor.prototype.paintBackground.call(this, c, cx, y, size, size);
+				if (typeof IconCtor.prototype.paintForeground === 'function')
+				{
+					IconCtor.prototype.paintForeground.call(this, c, cx, y, size, size);
+				}
+			}
+		};
+		return S;
+	};
+
+	// Mermaid's drawActorTypeBoundary renders a wider non-square icon:
+	// a 20-px-tall vertical bar with a 40-px horizontal handler joining
+	// it to a 44-px-diameter circle on the right. Total width ≈ 84,
+	// total height = circle diameter = 44 (centered vertically). The
+	// generic UmlBoundaryShape is a single square cell that bakes the
+	// handler at w/6, which collapses the visible handler to ~7 px when
+	// hosted inside makeSeqIcon's 44×44 square — visibly different from
+	// the ref. The custom shape below mirrors mermaid's proportions.
+	function SeqBoundaryShape() { mxShape.call(this); };
+	mxUtils.extend(SeqBoundaryShape, mxShape);
+	SeqBoundaryShape.prototype.iconSize = 44;
+	SeqBoundaryShape.prototype.paintBackground = function(c, x, y, w, h)
+	{
+		var size = Math.min(this.iconSize, w, h);
+		var circleR = size / 2;
+		// Handler ~ size*0.9 — close to mermaid's 40 px on a 44 px icon.
+		var handlerW = size * 0.9;
+		// Bar ~ size*0.45 (mermaid: 20 on 44).
+		var barH = size * 0.45;
+		// Mermaid centers the CIRCLE on the lifeline (cx = actor.centerX).
+		// The bar+handler extend to the LEFT of the circle. Anchor the
+		// circle's center on the cell's horizontal center so the lifeline
+		// — drawn at x+w/2 by UmlLifeline — passes through the circle's
+		// midpoint. Previously the whole shape (bar+handler+circle) was
+		// centered on the cell, putting the circle ~handlerW/2 right of
+		// the lifeline, which read as misaligned.
+		var circleCx = x + w / 2;
+		var circleX = circleCx - circleR;
+		var cy = y + size / 2;
+		// Handler ends just inside the circle's left edge so the line
+		// visually meets the circle (mermaid: handler 40 wide, circle r=22,
+		// handler-end is ~7 px past circle's left edge).
+		var handlerEndX = circleX + handlerW * 0.175;
+		var leftX = handlerEndX - handlerW;
+
+		// Vertical bar at the left
+		c.begin();
+		c.moveTo(leftX, cy - barH / 2);
+		c.lineTo(leftX, cy + barH / 2);
+		c.end();
+		c.stroke();
+
+		// Horizontal handler from bar to circle
+		c.begin();
+		c.moveTo(leftX, cy);
+		c.lineTo(handlerEndX, cy);
+		c.end();
+		c.stroke();
+
+		// Circle centered on the cell's horizontal center
+		c.ellipse(circleX, y, size, size);
+		c.fillAndStroke();
+	};
+	mxCellRenderer.registerShape('seqBoundary', SeqBoundaryShape);
+	mxCellRenderer.registerShape('seqControl', makeSeqIcon(UmlControlShape, 44));
+	mxCellRenderer.registerShape('seqEntity', makeSeqIcon(UmlEntityShape, 44));
+
+	// Mermaid sequence-diagram queue actor type — horizontal cylinder
+	// rendered as a stadium pill with an inner arc on the right showing
+	// depth. Mirrors drawActorTypeQueue in mermaid.js: rx = ry/(2.5+h/50)
+	// where ry = h/2.
+	function SeqQueueShape() { mxShape.call(this); };
+	mxUtils.extend(SeqQueueShape, mxShape);
+	SeqQueueShape.prototype.paintBackground = function(c, x, y, w, h)
+	{
+		var ry = h / 2;
+		var rx = ry / (2.5 + h / 50);
+		c.save();
+		c.translate(x, y);
+
+		c.begin();
+		c.moveTo(rx, 0);
+		c.lineTo(w - rx, 0);
+		c.arcTo(rx, ry, 0, 0, 1, w - rx, h);
+		c.lineTo(rx, h);
+		c.arcTo(rx, ry, 0, 0, 1, rx, 0);
+		c.close();
+		c.fillAndStroke();
+		c.restore();
+	};
+	SeqQueueShape.prototype.paintForeground = function(c, x, y, w, h)
+	{
+		// Wrap in save/restore: paintBackground already accumulated a
+		// translate(x, y) on the canvas and mxShape.paintVertexShape does
+		// NOT save/restore between bg/fg, so without this guard the
+		// foreground curve was committed at (2x, 2y) — visible in
+		// docs-sequence-32 where the bottom queue's depth indicator
+		// landed at y≈355 instead of inside the y=182–247 bottom box.
+		var ry = h / 2;
+		var rx = ry / (2.5 + h / 50);
+		c.save();
+		c.translate(x, y);
+
+		c.begin();
+		c.moveTo(w - rx, 0);
+		c.arcTo(rx, ry, 0, 0, 0, w - rx, h);
+		c.stroke();
+		c.restore();
+	};
+	mxCellRenderer.registerShape('seqQueue', SeqQueueShape);
+
+	// Mermaid sequence-diagram collections actor type — two stacked
+	// rectangles with the back rect offset by (+6, -6) px (top-right)
+	// so the "stack of papers" look extends up-and-to-the-right of the
+	// labelled front rect.
+	function SeqCollectionsShape() { mxShape.call(this); };
+	mxUtils.extend(SeqCollectionsShape, mxShape);
+	SeqCollectionsShape.prototype.paintBackground = function(c, x, y, w, h)
+	{
+		var off = 6;
+		c.rect(x + off, y - off, w, h);
+		c.fillAndStroke();
+		c.rect(x, y, w, h);
+		c.fillAndStroke();
+	};
+	mxCellRenderer.registerShape('seqCollections', SeqCollectionsShape);
+
+	// Mermaid sequence-diagram database actor type — vertical cylinder
+	// painted at w/3 size (mirrors mermaid drawActorTypeDatabase: w4 = h3
+	// = w/3, rx = w4/2, ry = rx/(2.5+w4/50)). Cylinder centered horizontally;
+	// label sits below in the remaining height.
+	function SeqDatabaseShape() { mxShape.call(this); };
+	mxUtils.extend(SeqDatabaseShape, mxShape);
+	SeqDatabaseShape.prototype.paintBackground = function(c, x, y, w, h)
+	{
+		var iconW = w / 3;
+		var iconH = w / 3;
+		var rx = iconW / 2;
+		var ry = rx / (2.5 + iconW / 50);
+		var cx = x + (w - iconW) / 2;
+
+		// Mermaid path: M(0,ry) a(rx,ry,...,w,0) a(rx,ry,...,-w,0) l(0,h-2ry)
+		// a(rx,ry,...,w,0) l(0,-(h-2ry)). First two arcs draw the top "lid"
+		// (full ellipse), sides + bottom arc complete the cylinder.
+		c.translate(cx, y);
+
+		c.begin();
+		c.moveTo(0, ry);
+		c.arcTo(rx, ry, 0, 0, 0, iconW, ry);
+		c.arcTo(rx, ry, 0, 0, 0, 0, ry);
+		c.lineTo(0, iconH - ry);
+		c.arcTo(rx, ry, 0, 0, 0, iconW, iconH - ry);
+		c.lineTo(iconW, ry);
+		c.fillAndStroke();
+	};
+	mxCellRenderer.registerShape('seqDatabase', SeqDatabaseShape);
+
+	// Mermaid sequence-diagram actor (`actor Foo` — stick figure). The
+	// stock umlActor stretches with the cell, producing a 75-px-wide
+	// head + arms in a 150 px lifeline header. Mermaid renders a fixed
+	// ~50 x 60 px stick figure: head circle r=15 at the top, torso 20 px,
+	// arms 36 px wide at mid-torso, legs splaying to 17 px below torso.
+	function SeqActorStickShape() { mxShape.call(this); };
+	mxUtils.extend(SeqActorStickShape, mxShape);
+	SeqActorStickShape.prototype.paintBackground = function(c, x, y, w, h)
+	{
+		var headR = 15;
+		var torsoH = 20;
+		var armsW = 36;
+		var legsH = 15;
+		var legsW = 32;
+		var iconH = headR * 2 + torsoH + legsH;
+		var cx = x + w / 2;
+		// Mermaid's stick figure starts ~5 px above the actor cell top
+		// (head overflows upward) and ends well above the cell bottom,
+		// leaving the bottom band free for the label. Anchor to the top
+		// of the cell so callers can size cell.height = iconH + labelH
+		// and put the label in the empty bottom — this matches the ref
+		// instead of centering the figure (which makes the label
+		// overlap the legs when cell.h == iconH).
+		var topY = y;
+		var headCY = topY + headR;
+		var torsoTop = headCY + headR;
+		var torsoBot = torsoTop + torsoH;
+		var armsY = torsoTop + torsoH / 2;
+		var legsBot = torsoBot + legsH;
+
+		c.ellipse(cx - headR, headCY - headR, headR * 2, headR * 2);
+		c.fillAndStroke();
+
+		c.begin();
+		c.moveTo(cx, torsoTop);
+		c.lineTo(cx, torsoBot);
+		c.moveTo(cx - armsW / 2, armsY);
+		c.lineTo(cx + armsW / 2, armsY);
+		c.moveTo(cx, torsoBot);
+		c.lineTo(cx - legsW / 2, legsBot);
+		c.moveTo(cx, torsoBot);
+		c.lineTo(cx + legsW / 2, legsBot);
+		c.stroke();
+	};
+	mxCellRenderer.registerShape('seqActorStick', SeqActorStickShape);
+
 	// UML Lifeline Shape
 	function UmlLifeline()
 	{
@@ -2348,27 +3021,50 @@
 		return false;
 	};
 
+	// lifelineMirror=1 repeats the head (participant box or icon plus a
+	// painted copy of the label) at the foot of the cell, so a single
+	// lifeline cell renders both participant ends of a UML sequence
+	// column. Off by default for backward compatibility.
+	UmlLifeline.prototype.isMirrored = function()
+	{
+		return mxUtils.getValue(this.style, 'lifelineMirror', '0') == '1';
+	};
+
+	// Head (and mirrored foot) height. With lifelineMirror=1 the head is
+	// clamped to half the cell height so head and foot never overlap.
+	UmlLifeline.prototype.getHeadSize = function(h)
+	{
+		return Math.max(0, Math.min(this.isMirrored() ? h / 2 : h,
+			parseFloat(mxUtils.getValue(this.style, 'size', this.size))));
+	};
+
 	UmlLifeline.prototype.getLabelBounds = function(rect)
 	{
-		var size = Math.max(0, Math.min(rect.height, parseFloat(
-			mxUtils.getValue(this.style, 'size', this.size)) * this.scale));
-		
+		var size = Math.max(0, Math.min(this.isMirrored() ? rect.height / 2 : rect.height,
+			parseFloat(mxUtils.getValue(this.style, 'size', this.size)) * this.scale));
+
 		return new mxRectangle(rect.x, rect.y, rect.width, size);
 	};
 
 	UmlLifeline.prototype.paintBackground = function(c, x, y, w, h)
 	{
-		var size = Math.max(0, Math.min(h, parseFloat(mxUtils.getValue(this.style, 'size', this.size))));
+		var size = this.getHeadSize(h);
+		var mirror = this.isMirrored();
 		var participant = mxUtils.getValue(this.style, 'participant');
-		
+
 		if (participant == null || this.state == null)
 		{
 			mxRectangleShape.prototype.paintBackground.call(this, c, x, y, w, size);
+
+			if (mirror)
+			{
+				mxRectangleShape.prototype.paintBackground.call(this, c, x, y + h - size, w, size);
+			}
 		}
 		else
 		{
 			var ctor = this.state.view.graph.cellRenderer.getShape(participant);
-			
+
 			if (ctor != null && ctor != UmlLifeline)
 			{
 				var shape = new ctor();
@@ -2376,26 +3072,127 @@
 				c.save();
 				shape.paintVertexShape(c, x, y, w, size);
 				c.restore();
+
+				if (mirror)
+				{
+					c.save();
+					shape.paintVertexShape(c, x, y + h - size, w, size);
+					c.restore();
+				}
 			}
 		}
-		
-		if (size < h)
+
+		var lineEnd = mirror ? h - size : h;
+
+		if (size < lineEnd)
 		{
 			c.setDashed(mxUtils.getValue(this.style, 'lifelineDashed', '1') == '1');
 			c.begin();
 			c.moveTo(x + w / 2, y + size);
-			c.lineTo(x + w / 2, y + h);
+			c.lineTo(x + w / 2, y + lineEnd);
 			c.end();
 			c.stroke();
 		}
 	};
 	UmlLifeline.prototype.paintForeground = function(c, x, y, w, h)
 	{
-		var size = Math.max(0, Math.min(h, parseFloat(mxUtils.getValue(this.style, 'size', this.size))));
-		mxRectangleShape.prototype.paintForeground.call(this, c, x, y, w, Math.min(h, size));
+		// When a custom participant shape (seqQueue, seqCollections,
+		// seqDatabase, …) is rendering inside the head area, IT owns
+		// the outline — overlaying the default rectangle stroke leaves
+		// a stray rect around the icon (visible on docs-sequence-32's
+		// queue-typed Alice top vs the matching bottom box).
+		var participant = mxUtils.getValue(this.style, 'participant');
+		var size = this.getHeadSize(h);
+		var mirror = this.isMirrored();
+
+		if (participant == null)
+		{
+			mxRectangleShape.prototype.paintForeground.call(this, c, x, y, w, Math.min(h, size));
+
+			if (mirror)
+			{
+				mxRectangleShape.prototype.paintForeground.call(this, c, x, y + h - size, w, size);
+			}
+		}
+
+		if (mirror)
+		{
+			this.paintMirrorLabel(c, x, y + h - size, w, size);
+		}
+	};
+
+	// Paints a copy of the cell's label into the mirrored foot box. The
+	// regular (editable) label stays in the head via getLabelBounds; the
+	// copy follows the style's align/verticalAlign/spacing keys so the
+	// foot text lands exactly like the head text (e.g. typed sequence
+	// actors use verticalAlign=bottom;spacingBottom=4 to sit below the
+	// icon, capsule types center it).
+	UmlLifeline.prototype.paintMirrorLabel = function(c, x, y, w, h)
+	{
+		var label = (this.state != null) ?
+			this.state.view.graph.getLabel(this.state.cell) : null;
+
+		// Remember what was painted so the renderer invalidates the shape
+		// when only the value changes (see isShapeInvalid override below).
+		this.mirrorLabelValue = label;
+
+		if (label == null || label == '')
+		{
+			return;
+		}
+
+		c.setFontColor(mxUtils.getValue(this.style, mxConstants.STYLE_FONTCOLOR, 'black'));
+		c.setFontBackgroundColor(mxUtils.getValue(this.style, mxConstants.STYLE_LABEL_BACKGROUNDCOLOR, null));
+		c.setFontBorderColor(mxUtils.getValue(this.style, mxConstants.STYLE_LABEL_BORDERCOLOR, null));
+		c.setFontFamily(mxUtils.getValue(this.style, mxConstants.STYLE_FONTFAMILY, mxConstants.DEFAULT_FONTFAMILY));
+		c.setFontSize(parseFloat(mxUtils.getValue(this.style, mxConstants.STYLE_FONTSIZE, mxConstants.DEFAULT_FONTSIZE)));
+		c.setFontStyle(parseInt(mxUtils.getValue(this.style, mxConstants.STYLE_FONTSTYLE, 0)));
+
+		var align = mxUtils.getValue(this.style, mxConstants.STYLE_ALIGN, mxConstants.ALIGN_CENTER);
+		var valign = mxUtils.getValue(this.style, mxConstants.STYLE_VERTICAL_ALIGN, mxConstants.ALIGN_MIDDLE);
+		var spacing = parseInt(mxUtils.getValue(this.style, mxConstants.STYLE_SPACING, 2));
+		var spacingTop = parseFloat(mxUtils.getValue(this.style, mxConstants.STYLE_SPACING_TOP, 0)) + spacing;
+		var spacingBottom = parseFloat(mxUtils.getValue(this.style, mxConstants.STYLE_SPACING_BOTTOM, 0)) + spacing;
+		var spacingLeft = parseFloat(mxUtils.getValue(this.style, mxConstants.STYLE_SPACING_LEFT, 0)) + spacing;
+		var spacingRight = parseFloat(mxUtils.getValue(this.style, mxConstants.STYLE_SPACING_RIGHT, 0)) + spacing;
+
+		// Top/bottom anchors carry the same 1 px inset mxText applies to
+		// its label bounds, so the copy lines up with a real cell label.
+		var tx = (align == mxConstants.ALIGN_LEFT) ? x + spacingLeft :
+			((align == mxConstants.ALIGN_RIGHT) ? x + w - spacingRight : x + w / 2);
+		var ty = (valign == mxConstants.ALIGN_TOP) ? y + spacingTop + 1 :
+			((valign == mxConstants.ALIGN_BOTTOM) ? y + h - spacingBottom - 1 : y + h / 2);
+
+		var wrap = mxUtils.getValue(this.style, mxConstants.STYLE_WHITE_SPACE, null) == 'wrap';
+		var format = mxUtils.getValue(this.style, 'html', '0') == '1' ? 'html' : '';
+
+		// Painting the raw label straight onto the canvas bypasses the HTML
+		// sanitization the normal label path applies in getLabelValue, so a
+		// crafted html=1 label would inject script into the foot copy (XSS).
+		// Sanitize here to match the head label; plain text is escaped by
+		// the canvas and needs no extra handling.
+		if (format == 'html')
+		{
+			label = Graph.sanitizeHtml(label);
+		}
+
+		c.text(tx, ty, wrap ? w - spacingLeft - spacingRight : 0, 0, label,
+			align, valign, wrap, format, null, false, 0, null);
 	};
 
 	mxCellRenderer.registerShape('umlLifeline', UmlLifeline);
+
+	// Shape repaints are skipped when only the cell value changes, which
+	// would leave the painted foot copy of a lifelineMirror label stale
+	// after in-place edits. Only shapes that painted a mirror label carry
+	// mirrorLabelValue, so the extra check is a no-op everywhere else.
+	var cellRendererIsShapeInvalid = mxCellRenderer.prototype.isShapeInvalid;
+	mxCellRenderer.prototype.isShapeInvalid = function(state, shape)
+	{
+		return cellRendererIsShapeInvalid.apply(this, arguments) ||
+			(shape.mirrorLabelValue !== undefined && shape.mirrorLabelValue !=
+				state.view.graph.getLabel(state.cell));
+	};
 	
 	// UML Frame Shape
 	function UmlFrame()
@@ -2490,12 +3287,19 @@
 	mxPerimeter.LifelinePerimeter = function (bounds, vertex, next, orthogonal)
 	{
 		var size = UmlLifeline.prototype.size;
-		
+		var max = bounds.y + bounds.height;
+
 		if (vertex != null)
 		{
 			size = mxUtils.getValue(vertex.style, 'size', size) * vertex.view.scale;
+
+			// Connections stay on the body line, off the mirrored foot box
+			if (mxUtils.getValue(vertex.style, 'lifelineMirror', '0') == '1')
+			{
+				max -= size;
+			}
 		}
-		
+
 		var sw = (parseFloat(vertex.style[mxConstants.STYLE_STROKEWIDTH] || 1) * vertex.view.scale / 2) - 1;
 
 		if (next.x < bounds.getCenterX())
@@ -2503,8 +3307,8 @@
 			sw += 1;
 			sw *= -1;
 		}
-		
-		return new mxPoint(bounds.getCenterX() + sw, Math.min(bounds.y + bounds.height,
+
+		return new mxPoint(bounds.getCenterX() + sw, Math.min(max,
 				Math.max(bounds.y + size, next.y)));
 	};
 	
@@ -3203,6 +4007,19 @@
 	{
 		return true;
 	};
+
+	ManualInputShape.prototype.getLabelMargins = function(rect)
+	{
+		if (mxUtils.getValue(this.style, 'boundedLbl', false))
+		{
+			var s = parseFloat(mxUtils.getValue(this.style, 'size', this.size)) * this.scale;
+			
+			return new mxRectangle(0, s, 0, 0);
+		}
+		
+		return null;
+	};
+
 	ManualInputShape.prototype.redrawPath = function(c, x, y, w, h)
 	{
 		var s = Math.min(h, parseFloat(mxUtils.getValue(this.style, 'size', this.size)));
@@ -3273,6 +4090,11 @@
 
 	CornerShape.prototype.dy = 20;
 	
+	CornerShape.prototype.isRoundable = function()
+	{
+		return true;
+	};
+	
 	// Corner
 	CornerShape.prototype.redrawPath = function(c, x, y, w, h)
 	{
@@ -3325,6 +4147,11 @@
 
 	TeeShape.prototype.dy = 20;
 	
+	TeeShape.prototype.isRoundable = function()
+	{
+		return true;
+	};
+	
 	// Corner
 	TeeShape.prototype.redrawPath = function(c, x, y, w, h)
 	{
@@ -3354,6 +4181,11 @@
 
 	SingleArrowShape.prototype.arrowSize = 0.2;
 
+	SingleArrowShape.prototype.isRoundable = function()
+	{
+		return true;
+	};
+	
 	SingleArrowShape.prototype.redrawPath = function(c, x, y, w, h)
 	{
 		var aw = h * Math.max(0, Math.min(1, parseFloat(mxUtils.getValue(this.style, 'arrowWidth', this.arrowWidth))));
@@ -3378,6 +4210,11 @@
 
 	mxUtils.extend(DoubleArrowShape, mxActor);
 
+	DoubleArrowShape.prototype.isRoundable = function()
+	{
+		return true;
+	};
+	
 	DoubleArrowShape.prototype.redrawPath = function(c, x, y, w, h)
 	{
 		var aw = h * Math.max(0, Math.min(1, parseFloat(mxUtils.getValue(this.style, 'arrowWidth', SingleArrowShape.prototype.arrowWidth))));
@@ -3762,6 +4599,20 @@
 			else
 			{
 				c.setStrokeColor(this.stroke);
+			}
+		}
+
+		// Repaints the table grid lines hidden by the cell fill (see
+		// Graph.paintTableCellLines). No-op unless this is a filled table cell.
+		if (this.state != null && !this.outline &&
+			this.fill != null && this.fill != mxConstants.NONE)
+		{
+			var graph = this.state.view.graph;
+
+			if (graph.paintTableCellLines != null)
+			{
+				graph.paintTableCellLines(c, this.state.cell, x, y, w, h,
+					this.stroke, this.strokewidth);
 			}
 		}
 	};
@@ -5395,7 +6246,7 @@
 	mxUtils.extend(FilledEdge, mxConnector);
 	
 	FilledEdge.prototype.origPaintEdgeShape = FilledEdge.prototype.paintEdgeShape;
-	FilledEdge.prototype.paintEdgeShape = function(c, pts, rounded)
+	FilledEdge.prototype.paintEdgeShape = function(c, pts)
 	{
 		// Markers modify incoming points array
 		var temp = [];
@@ -5408,7 +6259,7 @@
 		// paintEdgeShape resets dashed to false
 		var dashed = c.state.dashed;
 		var fixDash = c.state.fixDash;
-		FilledEdge.prototype.origPaintEdgeShape.apply(this, [c, temp, rounded]);
+		FilledEdge.prototype.origPaintEdgeShape.apply(this, [c, temp]);
 
 		if (c.state.strokeWidth >= 3)
 		{
@@ -5420,13 +6271,181 @@
 				c.setStrokeWidth(c.state.strokeWidth - 2);
 				c.setDashed(dashed, fixDash);
 				
-				FilledEdge.prototype.origPaintEdgeShape.apply(this, [c, pts, rounded]);
+				FilledEdge.prototype.origPaintEdgeShape.apply(this, [c, pts]);
 			}
 		}
 	};
 
-	// Registers the link shape
+	// Registers the filledEdge shape
 	mxCellRenderer.registerShape('filledEdge', FilledEdge);
+
+	// Pipe shape
+	function PipeShape()
+	{
+		mxConnector.call(this);
+	};
+	
+	mxUtils.extend(PipeShape, mxConnector);
+	
+	PipeShape.prototype.defaultWidth = 4;
+
+	PipeShape.prototype.getEdgeWidth = function()
+	{
+		return  Math.max(0, mxUtils.getNumber(this.style, 'width', this.defaultWidth));
+	};
+
+	PipeShape.prototype.getFlowAnimationPath = function()
+	{
+		// The second line stroke (inner pipe) only exists when a fillColor
+		// is set - fall back to the casing stroke for hollow pipes.
+		return mxShape.prototype.getFlowAnimationPath.call(this, 2) ||
+			mxShape.prototype.getFlowAnimationPath.call(this);
+	};
+
+	PipeShape.prototype.origPaintEdgeShape = PipeShape.prototype.paintEdgeShape;
+	PipeShape.prototype.paintEdgeShape = function(c, pts)
+	{
+		// Markers modify incoming points array
+		var temp = [];
+		
+		for (var i = 0; i < pts.length; i++)
+		{
+			temp.push(mxUtils.clone(pts[i]));
+		}
+		
+		// paintEdgeShape resets dashed to false
+		var dashed = c.state.dashed;
+		var fixDash = c.state.fixDash;
+		var width = this.getEdgeWidth();
+		c.setStrokeWidth(width + 2 * this.strokewidth);
+		c.setDashed(false);
+
+		PipeShape.prototype.origPaintEdgeShape.apply(this, [c, temp]);
+
+		var fillClr = mxUtils.getValue(this.style, 'fillColor', null);
+		
+		if (fillClr != null)
+		{
+			c.setStrokeWidth(width);
+			c.setStrokeColor(fillClr);
+			c.setDashed(dashed, fixDash);
+			
+			PipeShape.prototype.origPaintEdgeShape.apply(this, [c, pts]);
+		}
+	};
+	
+	// Registers the pipe shape
+	mxCellRenderer.registerShape('pipe', PipeShape);
+
+	// Zigzag/Wave vertex shape
+	// size = half-wavelength in absolute graph units (controls tooth spacing)
+	// Height of shape sets amplitude. Rounded toggle switches zigzag/wave.
+	// Width adds/removes teeth without changing tooth size.
+	function ZigzagShape()
+	{
+		mxActor.call(this);
+	};
+
+	mxUtils.extend(ZigzagShape, mxRectangleShape);
+
+	ZigzagShape.prototype.size = 10;
+
+	ZigzagShape.prototype.isRoundable = function()
+	{
+		return true;
+	};
+
+	ZigzagShape.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		c.translate(x, y);
+
+		// Background fill
+		var fillClr = mxUtils.getValue(this.style, mxConstants.STYLE_FILLCOLOR, null);
+
+		if (fillClr != null && fillClr != mxConstants.NONE)
+		{
+			c.setStrokeColor('none');
+			c.begin();
+			c.rect(0, 0, w, h);
+			c.fillAndStroke();
+			c.setStrokeColor(this.stroke);
+		}
+
+		var size = Math.max(5, parseFloat(
+			mxUtils.getValue(this.style, 'size', this.size)));
+		var centerY = h / 2;
+
+		// Inset peaks so stroke stays within bounds
+		// Zigzag needs more margin due to miter joins at sharp peaks
+		var sw = this.strokewidth;
+		var inset = this.isRounded ? sw / 2 : sw;
+		var topY = inset;
+		var bottomY = h - inset;
+
+		// Number of full peak-to-peak segments, adjusted to fit width
+		var numFull = Math.max(1, Math.round(w / size) - 1);
+		var halfWave = w / (numFull + 1);
+		// End segments are half-width so angle matches middle segments
+		var halfEnd = halfWave / 2;
+
+		c.begin();
+		c.moveTo(0, centerY);
+
+		if (this.isRounded)
+		{
+			var k = 0.4;
+
+			// Start half-segment: (0, centerY) to (halfEnd, topY)
+			c.curveTo(
+				k * halfEnd, centerY - (centerY - topY) * k,
+				(1 - k) * halfEnd, topY,
+				halfEnd, topY);
+
+			// Full peak-to-peak segments
+			for (var j = 0; j < numFull; j++)
+			{
+				var sx = halfEnd + j * halfWave;
+				var ex = sx + halfWave;
+				var sy = (j % 2 == 0) ? topY : bottomY;
+				var ey = (j % 2 == 0) ? bottomY : topY;
+
+				c.curveTo(
+					sx + k * halfWave, sy,
+					ex - k * halfWave, ey,
+					ex, ey);
+			}
+
+			// End half-segment: last peak to (w, centerY)
+			var lastX = halfEnd + numFull * halfWave;
+			var lastY = (numFull % 2 == 0) ? topY : bottomY;
+			var dirSign = (lastY == topY) ? 1 : -1;
+
+			c.curveTo(
+				lastX + k * halfEnd, lastY,
+				w - k * halfEnd, centerY - dirSign * (centerY - topY) * k,
+				w, centerY);
+		}
+		else
+		{
+			// Start half-segment
+			c.lineTo(halfEnd, topY);
+
+			// Full peak-to-peak segments
+			for (var j = 0; j < numFull; j++)
+			{
+				var ex = halfEnd + (j + 1) * halfWave;
+				var ey = (j % 2 == 0) ? bottomY : topY;
+				c.lineTo(ex, ey);
+			}
+
+			// End half-segment
+			c.lineTo(w, centerY);
+		}
+
+		c.stroke();
+	};
+
+	mxCellRenderer.registerShape('zigzag', ZigzagShape);
 
 	// Implements custom colors for shapes
 	if (typeof StyleFormatPanel !== 'undefined')
@@ -5707,6 +6726,917 @@
 		};
 	}
 	
+	// CurvedTextShape - renders cell label along a curved path
+	function CurvedTextShape()
+	{
+		mxRectangleShape.call(this);
+	};
+
+	mxUtils.extend(CurvedTextShape, mxRectangleShape);
+
+	CurvedTextShape.prototype.arcStartY = 25;
+	CurvedTextShape.prototype.arcMidY = -25;
+	CurvedTextShape.prototype.arcEndY = 25;
+
+	CurvedTextShape.prototype.paintForeground = function(c, x, y, w, h)
+	{
+		mxRectangleShape.prototype.paintForeground.apply(this, arguments);
+
+		if (this.state == null)
+		{
+			return;
+		}
+
+		var graph = this.state.view.graph;
+
+		// Hide curved text while editing
+		if (graph.cellEditor != null &&
+			graph.cellEditor.editingCell == this.state.cell)
+		{
+			return;
+		}
+
+		var label = graph.convertValueToString(this.state.cell);
+
+		if (label == null || label.length == 0)
+		{
+			return;
+		}
+
+		var startY = parseFloat(mxUtils.getValue(this.style,
+			'arcStartY', this.arcStartY));
+		var midYOffset = parseFloat(mxUtils.getValue(this.style,
+			'arcMidY', this.arcMidY));
+		var endY = parseFloat(mxUtils.getValue(this.style,
+			'arcEndY', this.arcEndY));
+		var curveType = mxUtils.getValue(this.style, 'curveType', 'round');
+
+		// SVG textPath rendering (requires mxSvgCanvas2D)
+		if (c.root != null && typeof c.getBaseUrl === 'function')
+		{
+			// Remove previous custom group from prior repaint
+			if (this._curvedTextGroup != null && this._curvedTextGroup.parentNode != null)
+			{
+				this._curvedTextGroup.parentNode.removeChild(this._curvedTextGroup);
+			}
+
+			this._curvedTextGroup = null;
+
+			c.translate(x, y);
+			var s = c.state;
+
+			var fontSize = parseFloat(mxUtils.getValue(this.style,
+				mxConstants.STYLE_FONTSIZE, mxConstants.DEFAULT_FONTSIZE));
+
+			// Inset path by half font size to keep text inside bounds
+			var inset = fontSize / 2;
+
+			// Natural curve geometry (independent of cell height)
+			var chordMidY = (startY + endY) / 2;
+
+			// Clamp mid symmetrically: at least the default range,
+			// minor increase when height allows in both directions
+			var defaultMid = Math.abs(CurvedTextShape.prototype.arcMidY);
+			var maxMid = Math.max(defaultMid,
+				Math.min(chordMidY, h - chordMidY));
+			midYOffset = Math.max(-maxMid, Math.min(maxMid, midYOffset));
+
+			var naturalMidY = chordMidY + midYOffset;
+
+			// Curve's natural bounding box
+			var curveTopY = Math.min(startY, endY, naturalMidY);
+			var curveBottomY = Math.max(startY, endY, naturalMidY);
+			var curveNaturalHeight = curveBottomY - curveTopY;
+
+			// Vertical alignment positions curve within cell
+			var verticalAlign = mxUtils.getValue(this.style,
+				mxConstants.STYLE_VERTICAL_ALIGN, mxConstants.ALIGN_MIDDLE);
+			var padding = inset;
+			var yOffset;
+
+			if (verticalAlign == mxConstants.ALIGN_TOP)
+			{
+				yOffset = padding - curveTopY;
+			}
+			else if (verticalAlign == mxConstants.ALIGN_BOTTOM)
+			{
+				yOffset = (h - padding) - curveBottomY;
+			}
+			else // middle
+			{
+				yOffset = (h - curveNaturalHeight) / 2 - curveTopY;
+			}
+
+			// Store for handle synchronization
+			this._curveYOffset = yOffset;
+
+			// Control points with vertical offset (NOT clamped - curve
+			// shape is independent of cell height)
+			var lx0 = inset;
+			var ly0 = startY + yOffset;
+			var lx2 = w - inset;
+			var ly2 = endY + yOffset;
+			var lx1 = (lx0 + lx2) / 2;
+			var ly1 = naturalMidY + yOffset;
+
+
+
+			// Convert to screen coordinates
+			var sx0 = (lx0 + s.dx) * s.scale;
+			var sy0 = (ly0 + s.dy) * s.scale;
+			var sx1 = (lx1 + s.dx) * s.scale;
+			var sy1 = (ly1 + s.dy) * s.scale;
+			var sx2 = (lx2 + s.dx) * s.scale;
+			var sy2 = (ly2 + s.dy) * s.scale;
+
+			var pathD;
+			var pathLen;
+
+			if (curveType == 'round')
+			{
+				// Circular arc mode
+				var chord = Math.sqrt((sx2 - sx0) * (sx2 - sx0) + (sy2 - sy0) * (sy2 - sy0));
+				// Sagitta: perpendicular distance from chord midpoint to arc
+				var chordMidX = (sx0 + sx2) / 2;
+				var chordMidY = (sy0 + sy2) / 2;
+				var sag = Math.sqrt((sx1 - chordMidX) * (sx1 - chordMidX) +
+					(sy1 - chordMidY) * (sy1 - chordMidY));
+
+				if (sag < 0.5)
+				{
+					// Nearly straight - use a line
+					pathD = 'M ' + c.format(sx0) + ' ' + c.format(sy0) +
+						' L ' + c.format(sx2) + ' ' + c.format(sy2);
+					pathLen = chord;
+				}
+				else
+				{
+					var halfChord = chord / 2;
+					var radius = (halfChord * halfChord) / (2 * sag) + sag / 2;
+
+					// Sweep direction: arc must curve toward the control point
+					// Use cross product of chord vector and control offset to determine side
+					var cdx = sx2 - sx0, cdy = sy2 - sy0;
+					var pdx = sx1 - sx0, pdy = sy1 - sy0;
+					var cross = cdx * pdy - cdy * pdx;
+					var sweep = (cross > 0) ? 0 : 1;
+
+					// When sagitta exceeds half-chord, the arc spans > 180°
+					// and we need the major arc (large-arc-flag=1)
+					var largeArc = (sag > halfChord) ? 1 : 0;
+
+					pathD = 'M ' + c.format(sx0) + ' ' + c.format(sy0) +
+						' A ' + c.format(radius) + ' ' + c.format(radius) +
+						' 0 ' + largeArc + ' ' + sweep +
+						' ' + c.format(sx2) + ' ' + c.format(sy2);
+
+					// Arc length: R * theta
+					var sinVal = Math.min(1, halfChord / radius);
+					var theta = 2 * Math.asin(sinVal);
+
+					if (largeArc)
+					{
+						theta = 2 * Math.PI - theta;
+					}
+
+					pathLen = radius * theta;
+				}
+			}
+			else
+			{
+				// Quadratic Bezier mode
+				pathD = 'M ' + c.format(sx0) + ' ' + c.format(sy0) +
+					' Q ' + c.format(sx1) + ' ' + c.format(sy1) +
+					' ' + c.format(sx2) + ' ' + c.format(sy2);
+
+				var dx01 = sx1 - sx0, dy01 = sy1 - sy0;
+				var dx12 = sx2 - sx1, dy12 = sy2 - sy1;
+				var dx02 = sx2 - sx0, dy02 = sy2 - sy0;
+				pathLen = (Math.sqrt(dx01 * dx01 + dy01 * dy01) +
+					Math.sqrt(dx12 * dx12 + dy12 * dy12) +
+					Math.sqrt(dx02 * dx02 + dy02 * dy02)) / 2;
+			}
+
+			// Unique path ID (use object identity to avoid collisions across graphs)
+			var pathId = (c.idPrefix || '') + 'ctp-' + mxObjectIdentity.get(this);
+			var useBaseUrl = !mxClient.IS_CHROMEAPP && c.root.ownerDocument == document;
+			var base = useBaseUrl ? c.getBaseUrl().replace(/([\(\)])/g, '\\$1') : '';
+
+			// Create group with rotation/flip transform
+			var group = c.createElement('g');
+			var tr = s.transform || '';
+
+			if (tr.length > 0)
+			{
+				group.setAttribute('transform', tr);
+			}
+
+			if (s.alpha < 1)
+			{
+				group.setAttribute('opacity', s.alpha);
+			}
+
+			// Path definition in local defs
+			var defs = c.createElement('defs');
+			var path = c.createElement('path');
+			path.setAttribute('id', pathId);
+			path.setAttribute('d', pathD);
+			defs.appendChild(path);
+			group.appendChild(defs);
+
+			// Text element
+			var text = c.createElement('text');
+			var fontFamily = mxUtils.getValue(this.style,
+				mxConstants.STYLE_FONTFAMILY, mxConstants.DEFAULT_FONTFAMILY);
+			var fontColor = mxUtils.getValue(this.style,
+				mxConstants.STYLE_FONTCOLOR, '#000000');
+			var fontStyle = mxUtils.getValue(this.style,
+				mxConstants.STYLE_FONTSTYLE, 0);
+
+			text.setAttribute('font-size', (fontSize * s.scale) + 'px');
+			text.setAttribute('font-family', mxUtils.parseCssFontFamily(fontFamily));
+			text.setAttribute('fill', fontColor);
+
+			if ((fontStyle & mxConstants.FONT_BOLD) == mxConstants.FONT_BOLD)
+			{
+				text.setAttribute('font-weight', 'bold');
+			}
+
+			if ((fontStyle & mxConstants.FONT_ITALIC) == mxConstants.FONT_ITALIC)
+			{
+				text.setAttribute('font-style', 'italic');
+			}
+
+			var txtDecor = [];
+
+			if ((fontStyle & mxConstants.FONT_UNDERLINE) == mxConstants.FONT_UNDERLINE)
+			{
+				txtDecor.push('underline');
+			}
+
+			if ((fontStyle & mxConstants.FONT_STRIKETHROUGH) == mxConstants.FONT_STRIKETHROUGH)
+			{
+				txtDecor.push('line-through');
+			}
+
+			if (txtDecor.length > 0)
+			{
+				text.setAttribute('text-decoration', txtDecor.join(' '));
+
+				if ((fontStyle & mxConstants.FONT_UNDERLINE_DOTTED) == mxConstants.FONT_UNDERLINE_DOTTED)
+				{
+					text.style.textDecorationStyle = 'dotted';
+				}
+			}
+
+			// Alignment
+			var align = mxUtils.getValue(this.style,
+				mxConstants.STYLE_ALIGN, mxConstants.ALIGN_CENTER);
+			var anchor = 'middle';
+			var offset = '50%';
+
+			if (align == mxConstants.ALIGN_LEFT)
+			{
+				anchor = 'start';
+				offset = '0%';
+			}
+			else if (align == mxConstants.ALIGN_RIGHT)
+			{
+				anchor = 'end';
+				offset = '100%';
+			}
+
+			text.setAttribute('text-anchor', anchor);
+			text.setAttribute('dominant-baseline', 'central');
+
+			// textPath element
+			var textPath = c.createElement('textPath');
+			textPath.setAttribute('startOffset', offset);
+
+			var hrefVal = (useBaseUrl ? base : '') + '#' + pathId;
+			textPath.setAttribute('href', hrefVal);
+
+			if (useBaseUrl)
+			{
+				textPath.setAttributeNS('http://www.w3.org/1999/xlink',
+					'xlink:href', hrefVal);
+			}
+
+			// Always set textLength so spacing adjusts smoothly with path length
+			textPath.setAttribute('textLength', pathLen);
+			textPath.setAttribute('lengthAdjust', 'spacing');
+
+			mxUtils.write(textPath, label);
+			text.appendChild(textPath);
+			group.appendChild(text);
+			c.root.appendChild(group);
+			this._curvedTextGroup = group;
+		}
+		else
+		{
+			// Fallback for non-SVG canvas: render as plain centered text
+			c.text(x + w / 2, y + h / 2, 0, 0, label, mxConstants.ALIGN_CENTER,
+				mxConstants.ALIGN_MIDDLE, false, '', null, false, 0);
+		}
+	};
+
+	CurvedTextShape.prototype.destroy = function()
+	{
+		if (this._curvedTextGroup != null && this._curvedTextGroup.parentNode != null)
+		{
+			this._curvedTextGroup.parentNode.removeChild(this._curvedTextGroup);
+		}
+
+		this._curvedTextGroup = null;
+		mxRectangleShape.prototype.destroy.apply(this, arguments);
+	};
+
+	mxCellRenderer.registerShape('curvedText', CurvedTextShape);
+
+	// Gitgraph commit tag shape — a paper-tag silhouette with a pointed
+	// left tab and a pierce-hole circle, matching upstream mermaid's
+	// tag-label-bkg polygon. Params:
+	//   tabSize    — horizontal extent of the pointed tab (default 8)
+	//   tabInset   — height of the flat tip of the tab (default 4)
+	//   holeSize   — radius of the pierce hole (default 1.5)
+	//   holeColor  — fill color of the pierce hole (default #333)
+	function GitTagShape()
+	{
+		mxActor.call(this);
+	};
+
+	mxUtils.extend(GitTagShape, mxActor);
+
+	GitTagShape.prototype.tabSize = 8;
+	GitTagShape.prototype.tabInset = 4;
+	GitTagShape.prototype.holeSize = 1.0;
+
+	GitTagShape.prototype.isRoundable = function()
+	{
+		return false;
+	};
+
+	GitTagShape.prototype.redrawPath = function(c, x, y, w, h)
+	{
+		var tabSize = Math.max(0, Math.min(w,
+			parseFloat(mxUtils.getValue(this.style, 'tabSize', this.tabSize))));
+		var tabInset = Math.max(0, Math.min(h,
+			parseFloat(mxUtils.getValue(this.style, 'tabInset', this.tabInset))));
+		var tabY1 = (h - tabInset) / 2;
+		var tabY2 = tabY1 + tabInset;
+
+		c.moveTo(0, tabY1);
+		c.lineTo(0, tabY2);
+		c.lineTo(tabSize, h);
+		c.lineTo(w, h);
+		c.lineTo(w, 0);
+		c.lineTo(tabSize, 0);
+		c.close();
+		c.end();
+	};
+
+	// mxActor's paintVertexShape applies c.translate(x, y) then calls
+	// redrawPath + fillAndStroke, and does not invoke paintForeground. So
+	// we override paintVertexShape to call super and then draw the hole in
+	// the same translated frame (local coords starting at 0, 0).
+	GitTagShape.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		mxActor.prototype.paintVertexShape.apply(this, arguments);
+
+		var holeSize = Math.max(0,
+			parseFloat(mxUtils.getValue(this.style, 'holeSize', this.holeSize)));
+
+		if (holeSize <= 0)
+		{
+			return;
+		}
+
+		var tabSize = parseFloat(mxUtils.getValue(this.style, 'tabSize', this.tabSize));
+		var holeColor = mxUtils.getValue(this.style, 'holeColor',
+			mxUtils.getValue(this.style, mxConstants.STYLE_FONTCOLOR, '#333333'));
+
+		c.setFillColor(holeColor);
+		c.setStrokeColor(holeColor);
+		c.begin();
+		c.ellipse(tabSize / 2 - holeSize, h / 2 - holeSize, holeSize * 2, holeSize * 2);
+		c.fillAndStroke();
+	};
+
+	GitTagShape.prototype.getLabelBounds = function(rect)
+	{
+		// Label lives in the body (to the right of the tab), not the tab.
+		var tabSize = parseFloat(mxUtils.getValue(this.style, 'tabSize', this.tabSize)) * this.scale;
+		return new mxRectangle(rect.x + tabSize, rect.y, rect.width - tabSize, rect.height);
+	};
+
+	mxCellRenderer.registerShape('gitTag', GitTagShape);
+
+	// Gitgraph merge-commit shape — outer branch-colored circle with an
+	// inner lavender circle, rendered as a single cell (no group/children).
+	function GitMergeCommitShape()
+	{
+		mxShape.call(this);
+	};
+
+	mxUtils.extend(GitMergeCommitShape, mxShape);
+
+	GitMergeCommitShape.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		var innerColor = mxUtils.getValue(this.style, 'innerColor', '#ECECFF');
+
+		c.translate(x, y);
+
+		c.ellipse(0, 0, w, h);
+		c.fillAndStroke();
+
+		var innerD = Math.min(w, h) * 0.6;
+		var ix = (w - innerD) / 2;
+		var iy = (h - innerD) / 2;
+
+		c.setFillColor(innerColor);
+		c.setStrokeColor(innerColor);
+		c.ellipse(ix, iy, innerD, innerD);
+		c.fillAndStroke();
+	};
+
+	mxCellRenderer.registerShape('gitMergeCommit', GitMergeCommitShape);
+
+	// Gitgraph cherry-pick shape — dark circle with two white "eye"
+	// circles and two white stem lines forming an inverted V, matching
+	// upstream mermaid's cherry-pick bullet.
+	function GitCherryPickShape()
+	{
+		mxShape.call(this);
+	};
+
+	mxUtils.extend(GitCherryPickShape, mxShape);
+
+	GitCherryPickShape.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		var featureColor = mxUtils.getValue(this.style, 'featureColor', '#fff');
+
+		c.translate(x, y);
+
+		var cx = w / 2;
+		var cy = h / 2;
+		var s = Math.min(w, h) / 20;
+
+		c.ellipse(0, 0, w, h);
+		c.fillAndStroke();
+
+		c.setFillColor(featureColor);
+		c.setStrokeColor(featureColor);
+		c.setStrokeWidth(0);
+
+		var eyeR = 2.75 * s;
+
+		c.ellipse(cx - 3 * s - eyeR, cy + 2 * s - eyeR, eyeR * 2, eyeR * 2);
+		c.fillAndStroke();
+		c.ellipse(cx + 3 * s - eyeR, cy + 2 * s - eyeR, eyeR * 2, eyeR * 2);
+		c.fillAndStroke();
+
+		c.setStrokeWidth(1 * s);
+		c.begin();
+		c.moveTo(cx + 3 * s, cy + 1 * s);
+		c.lineTo(cx, cy - 5 * s);
+		c.stroke();
+		c.begin();
+		c.moveTo(cx - 3 * s, cy + 1 * s);
+		c.lineTo(cx, cy - 5 * s);
+		c.stroke();
+	};
+
+	mxCellRenderer.registerShape('gitCherryPick', GitCherryPickShape);
+
+	// Mermaid mindmap bang shape: starburst silhouette used for `id))label((`
+	// nodes. Drawn as a sequence of elliptical arcs forming 4 scallops on
+	// top, 3 on each side and 4 on bottom — direct port of mermaid's
+	// `bang.ts` shape (chunk-C7LX3TON.mjs). Mermaid's path occupies
+	// `1.25*W x ~1.30*H` outside its design (W,H), so we scale the
+	// drawio cell down to 80% and offset M to leave room for the
+	// outermost spike tips against the cell bounds.
+	function MindmapBangShape()
+	{
+		mxActor.call(this);
+	};
+
+	mxUtils.extend(MindmapBangShape, mxActor);
+
+	MindmapBangShape.prototype.isRoundable = function()
+	{
+		return false;
+	};
+
+	MindmapBangShape.prototype.redrawPath = function(c, x, y, w, h)
+	{
+		// Path natural bbox = 1.25*W wide × 1.25*H tall (corner spikes
+		// extend 0.10–0.15 in each direction). To fit the cell rect,
+		// cap design dims at 0.8 of cell and offset M by `0.10*W` /
+		// `0.10*H` so the outermost spike tips touch the cell edges
+		// without clipping.
+		var W = w * 0.8;
+		var H = h * 0.8;
+		var r = W * 0.15;
+		var r80 = r * 0.8;
+		var ox = W * 0.10;
+		var oy = H * 0.10;
+
+		// Start point — top-left of the design rectangle.
+		var px = ox;
+		var py = oy;
+		c.moveTo(px, py);
+
+		// Top: 4 arcs left→right; corners spike up by 0.1*H.
+		px += W * 0.25; py += -H * 0.10; c.arcTo(r, r, 0, 0, 0, px, py);
+		px += W * 0.25; py += 0;          c.arcTo(r, r, 0, 0, 0, px, py);
+		px += W * 0.25; py += 0;          c.arcTo(r, r, 0, 0, 0, px, py);
+		px += W * 0.25; py += H * 0.10;   c.arcTo(r, r, 0, 0, 0, px, py);
+
+		// Right: 3 arcs top→bottom; middle spike protrudes right.
+		px += W * 0.15; py += H * 0.33; c.arcTo(r, r, 0, 0, 0, px, py);
+		px += 0;         py += H * 0.34; c.arcTo(r80, r80, 0, 0, 0, px, py);
+		px += -W * 0.15; py += H * 0.33; c.arcTo(r, r, 0, 0, 0, px, py);
+
+		// Bottom: 4 arcs right→left; corners spike down by 0.15*H.
+		px += -W * 0.25; py += H * 0.15;  c.arcTo(r, r, 0, 0, 0, px, py);
+		px += -W * 0.25; py += 0;          c.arcTo(r, r, 0, 0, 0, px, py);
+		px += -W * 0.25; py += 0;          c.arcTo(r, r, 0, 0, 0, px, py);
+		px += -W * 0.25; py += -H * 0.15; c.arcTo(r, r, 0, 0, 0, px, py);
+
+		// Left: 3 arcs bottom→top; middle spike protrudes left.
+		px += -W * 0.10; py += -H * 0.33; c.arcTo(r, r, 0, 0, 0, px, py);
+		px += 0;          py += -H * 0.34; c.arcTo(r80, r80, 0, 0, 0, px, py);
+		px += W * 0.10;  py += -H * 0.33; c.arcTo(r, r, 0, 0, 0, px, py);
+
+		c.close();
+		c.end();
+	};
+
+	MindmapBangShape.prototype.getLabelBounds = function(rect)
+	{
+		// Constrain the label to the inner design rectangle (80%) so
+		// text doesn't spill onto the spike tips.
+		var insetX = rect.width * 0.10;
+		var insetY = rect.height * 0.10;
+		return new mxRectangle(rect.x + insetX, rect.y + insetY,
+			rect.width - insetX * 2, rect.height - insetY * 2);
+	};
+
+	mxCellRenderer.registerShape('mindmapBang', MindmapBangShape);
+
+	// Ishikawa fish-head shape — flat left edge with a quadratic-curve
+	// right side forming a pointed teardrop, matching upstream mermaid's
+	// ishikawa-head path: M 0 -h/2 L 0 h/2 Q 2w 0 0 -h/2 Z
+	function IshikawaHeadShape()
+	{
+		mxActor.call(this);
+	};
+
+	mxUtils.extend(IshikawaHeadShape, mxActor);
+
+	IshikawaHeadShape.prototype.isRoundable = function()
+	{
+		return false;
+	};
+
+	IshikawaHeadShape.prototype.redrawPath = function(c, x, y, w, h)
+	{
+		c.moveTo(0, 0);
+		c.lineTo(0, h);
+		c.quadTo(2 * w, h / 2, 0, 0);
+		c.close();
+		c.end();
+	};
+
+	mxCellRenderer.registerShape('ishikawaHead', IshikawaHeadShape);
+
+	// Mermaid "odd" / rect_left_inv_arrow shape: a rectangle with a
+	// left-pointing chevron on the left side.
+	function OddShape()
+	{
+		mxActor.call(this);
+	};
+
+	mxUtils.extend(OddShape, mxActor);
+
+	OddShape.prototype.isRoundable = function()
+	{
+		return false;
+	};
+
+	OddShape.prototype.redrawPath = function(c, x, y, w, h)
+	{
+		var notch = h / 4;
+
+		c.moveTo(0, 0);
+		c.lineTo(notch, h / 2);
+		c.lineTo(0, h);
+		c.lineTo(w, h);
+		c.lineTo(w, 0);
+		c.close();
+		c.end();
+	};
+
+	OddShape.prototype.getLabelBounds = function(rect)
+	{
+		var notch = rect.height / 4;
+		return new mxRectangle(rect.x + notch, rect.y,
+			rect.width - notch, rect.height);
+	};
+
+	mxCellRenderer.registerShape('mermaidOdd', OddShape);
+
+	// Block-arrow shape used by the mermaid block diagram. Verbatim port
+	// of mermaid's blockArrowHelper getArrowPoints — every direction
+	// combination renders as one closed polygon.
+	function MermaidBlockArrowShape()
+	{
+		mxActor.call(this);
+	};
+
+	mxUtils.extend(MermaidBlockArrowShape, mxActor);
+
+	MermaidBlockArrowShape.prototype.isRoundable = function()
+	{
+		return false;
+	};
+
+	MermaidBlockArrowShape.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		if (c.setLineJoin) c.setLineJoin('round');
+		mxActor.prototype.paintVertexShape.apply(this, arguments);
+	};
+
+	MermaidBlockArrowShape.prototype.redrawPath = function(c, x, y, w, h)
+	{
+		var dirsStr = mxUtils.getValue(this.style, 'dirs', 'right');
+		var directions = {};
+		dirsStr.split(/[,| ]+/).forEach(function (d)
+		{
+			d = d.trim().toLowerCase();
+			if (d === 'x') { directions.right = true; directions.left = true; }
+			else if (d === 'y') { directions.up = true; directions.down = true; }
+			else if (d) { directions[d] = true; }
+		});
+
+		var nodePad = parseFloat(mxUtils.getValue(this.style, 'nodePadding', '8'));
+		var midpoint = h / 2;
+		var pad = nodePad / 2;
+		var pts;
+
+		if (directions.right && directions.left && directions.up && directions.down)
+		{
+			pts = [
+				[0, 0], [midpoint, 0],
+				[w / 2, 2 * pad],
+				[w - midpoint, 0], [w, 0],
+				[w, -h / 3], [w + 2 * pad, -h / 2], [w, -2 * h / 3], [w, -h],
+				[w - midpoint, -h], [w / 2, -h - 2 * pad], [midpoint, -h],
+				[0, -h], [0, -2 * h / 3], [-2 * pad, -h / 2], [0, -h / 3]
+			];
+		}
+		else if (directions.right && directions.left && directions.up)
+		{
+			pts = [
+				[midpoint, 0], [w - midpoint, 0],
+				[w, -h / 2],
+				[w - midpoint, -h], [midpoint, -h],
+				[0, -h / 2]
+			];
+		}
+		else if (directions.right && directions.left && directions.down)
+		{
+			pts = [
+				[0, 0], [midpoint, -h], [w - midpoint, -h], [w, 0]
+			];
+		}
+		else if (directions.right && directions.up && directions.down)
+		{
+			pts = [
+				[0, 0], [w, -midpoint], [w, -h + midpoint], [0, -h]
+			];
+		}
+		else if (directions.left && directions.up && directions.down)
+		{
+			pts = [
+				[w, 0], [0, -midpoint], [0, -h + midpoint], [w, -h]
+			];
+		}
+		else if (directions.right && directions.left)
+		{
+			pts = [
+				[midpoint, 0], [midpoint, -pad],
+				[w - midpoint, -pad], [w - midpoint, 0],
+				[w, -h / 2],
+				[w - midpoint, -h], [w - midpoint, -h + pad],
+				[midpoint, -h + pad], [midpoint, -h],
+				[0, -h / 2]
+			];
+		}
+		else if (directions.up && directions.down)
+		{
+			pts = [
+				[w / 2, 0],
+				[0, -pad], [midpoint, -pad],
+				[midpoint, -h + pad], [0, -h + pad],
+				[w / 2, -h],
+				[w, -h + pad],
+				[w - midpoint, -h + pad], [w - midpoint, -pad],
+				[w, -pad]
+			];
+		}
+		else if (directions.right && directions.up)
+		{
+			pts = [[0, 0], [w, -midpoint], [0, -h]];
+		}
+		else if (directions.right && directions.down)
+		{
+			pts = [[0, 0], [w, 0], [0, -h]];
+		}
+		else if (directions.left && directions.up)
+		{
+			pts = [[w, 0], [0, -midpoint], [w, -h]];
+		}
+		else if (directions.left && directions.down)
+		{
+			pts = [[w, 0], [0, 0], [w, -h]];
+		}
+		else if (directions.right)
+		{
+			pts = [
+				[midpoint, -pad], [w - midpoint, -pad], [w - midpoint, 0],
+				[w, -h / 2],
+				[w - midpoint, -h], [w - midpoint, -h + pad],
+				[midpoint, -h + pad]
+			];
+		}
+		else if (directions.left)
+		{
+			pts = [
+				[midpoint, 0], [midpoint, -pad],
+				[w - midpoint, -pad], [w - midpoint, -h + pad],
+				[midpoint, -h + pad], [midpoint, -h],
+				[0, -h / 2]
+			];
+		}
+		else if (directions.up)
+		{
+			pts = [
+				[midpoint, -pad],
+				[midpoint, -h + pad], [0, -h + pad],
+				[w / 2, -h],
+				[w, -h + pad],
+				[w - midpoint, -h + pad], [w - midpoint, -pad]
+			];
+		}
+		else if (directions.down)
+		{
+			pts = [
+				[w / 2, 0],
+				[0, -pad], [midpoint, -pad],
+				[midpoint, -h + pad],
+				[w - midpoint, -h + pad], [w - midpoint, -pad],
+				[w, -pad]
+			];
+		}
+		else
+		{
+			pts = [[0, 0], [w, 0], [w, -h], [0, -h]];
+		}
+
+		c.moveTo(pts[0][0], h + pts[0][1]);
+
+		for (var i = 1; i < pts.length; i++)
+		{
+			c.lineTo(pts[i][0], h + pts[i][1]);
+		}
+
+		c.close();
+		c.end();
+	};
+
+	mxCellRenderer.registerShape('mermaidBlockArrow', MermaidBlockArrowShape);
+
+	// Sankey flow band used by the mermaid sankey renderer. d3-sankey
+	// draws each link as the cubic `M x0,y0 C mx,y0 mx,y1 x1,y1`
+	// (mx = horizontal midpoint between the terminals) stroked at the
+	// band thickness. mxGraph cannot put a fill gradient on an edge
+	// stroke, so this shape paints the equivalent ribbon outline
+	// instead: the curve is sampled and offset perpendicular to its
+	// tangent by ±width/2 (matching SVG stroke geometry), closed with
+	// the butt caps at the ends, and filled — fillColor/gradientColor
+	// with gradientDirection=east reproduce mermaid's source→target
+	// link gradient. Style `width` is the band thickness.
+	function MermaidSankeyLinkShape()
+	{
+		mxConnector.call(this);
+	};
+
+	mxUtils.extend(MermaidSankeyLinkShape, mxConnector);
+
+	MermaidSankeyLinkShape.prototype.defaultWidth = 10;
+
+	MermaidSankeyLinkShape.prototype.getEdgeWidth = function()
+	{
+		return Math.max(1, mxUtils.getNumber(this.style, 'width', this.defaultWidth));
+	};
+
+	// The band is a pure fill — skip the half-pixel crisp-stroke offset
+	// so it lands on exact model coordinates.
+	MermaidSankeyLinkShape.prototype.getSvgScreenOffset = function()
+	{
+		return 0;
+	};
+
+	MermaidSankeyLinkShape.prototype.augmentBoundingBox = function(bbox)
+	{
+		mxShape.prototype.augmentBoundingBox.apply(this, arguments);
+
+		// The band's x-extent ends exactly at the terminals (the end
+		// tangents are horizontal), so only grow vertically.
+		var grow = (this.getEdgeWidth() / 2 + this.strokewidth) * this.scale;
+		bbox.y -= grow;
+		bbox.height += 2 * grow;
+	};
+
+	MermaidSankeyLinkShape.prototype.paintEdgeShape = function(c, pts)
+	{
+		var p0 = pts[0];
+		var pe = pts[pts.length - 1];
+
+		if (p0 == null || pe == null)
+		{
+			return;
+		}
+
+		var x0 = p0.x, y0 = p0.y;
+		var x1 = pe.x, y1 = pe.y;
+		var mx = (x0 + x1) / 2;
+		var hw = this.getEdgeWidth() / 2;
+
+		// Control points are (mx, y0) and (mx, y1), so the derivative
+		// reduces to x'(t) = 3u²(mx-x0) + 3t²(x1-mx), y'(t) = 6ut(y1-y0).
+		var n = 32;
+		var side1 = [];
+		var side2 = [];
+
+		for (var i = 0; i <= n; i++)
+		{
+			var t = i / n;
+			var u = 1 - t;
+			var x = u * u * u * x0 + 3 * u * u * t * mx + 3 * u * t * t * mx + t * t * t * x1;
+			var y = u * u * u * y0 + 3 * u * u * t * y0 + 3 * u * t * t * y1 + t * t * t * y1;
+			var dx = 3 * u * u * (mx - x0) + 3 * t * t * (x1 - mx);
+			var dy = 6 * u * t * (y1 - y0);
+			var len = Math.sqrt(dx * dx + dy * dy);
+
+			if (len == 0)
+			{
+				dx = 1;
+				dy = 0;
+				len = 1;
+			}
+
+			var nx = -dy / len * hw;
+			var ny = dx / len * hw;
+
+			side1.push(new mxPoint(x + nx, y + ny));
+			side2.push(new mxPoint(x - nx, y - ny));
+		}
+
+		c.begin();
+		c.moveTo(side1[0].x, side1[0].y);
+
+		for (var i = 1; i <= n; i++)
+		{
+			c.lineTo(side1[i].x, side1[i].y);
+		}
+
+		for (var i = n; i >= 0; i--)
+		{
+			c.lineTo(side2[i].x, side2[i].y);
+		}
+
+		c.close();
+
+		// fillAndStroke nulls c.node, so grab the emitted <path> first.
+		var bandNode = c.node;
+		c.fillAndStroke();
+
+		// Mermaid composites overlapping bands with multiply so
+		// crossings darken. Only SVG canvases expose the emitted
+		// element; canvas2d/XML exports render without the blend.
+		if (bandNode != null && bandNode.setAttribute != null &&
+			bandNode.parentNode != null)
+		{
+			var prevStyle = bandNode.getAttribute('style');
+			bandNode.setAttribute('style', (prevStyle != null && prevStyle != '' ?
+				prevStyle + ';' : '') + 'mix-blend-mode:multiply');
+		}
+	};
+
+	mxCellRenderer.registerShape('mermaidSankeyLink', MermaidSankeyLinkShape);
+
 	// Handlers are only added if mxVertexHandler is defined (ie. not in embedded graph)
 	if (typeof mxVertexHandler !== 'undefined')
 	{
@@ -5992,8 +7922,8 @@
 				return new mxPoint(p0.x + nx * dist / 4 + ny * w / 2, p0.y + ny * dist / 4 - nx * w / 2);
 			}, function(dist, nx, ny, p0, p1, pt)
 			{
-				var w = Math.sqrt(mxUtils.ptSegDistSq(p0.x, p0.y, p1.x, p1.y, pt.x, pt.y));					
-				state.style['width'] = Math.round(w * 2) / state.view.scale - spacing;
+				var w = Math.sqrt(mxUtils.ptSegDistSq(p0.x, p0.y, p1.x, p1.y, pt.x, pt.y));
+				state.style['width'] = Math.round(Math.round(w * 2) / state.view.scale - spacing);
 			});
 		};
 		
@@ -6004,6 +7934,12 @@
 
 		var handleFactory = {
 			'link': function(state)
+			{
+				var spacing = 10;
+
+				return [createEdgeWidthHandle(state, true, spacing), createEdgeWidthHandle(state, false, spacing)];
+			},
+			'pipe': function(state)
 			{
 				var spacing = 10;
 
@@ -6028,10 +7964,10 @@
 					{
 						var w = Math.sqrt(mxUtils.ptSegDistSq(p0.x, p0.y, p1.x, p1.y, pt.x, pt.y));
 						var l = mxUtils.ptLineDist(p0.x, p0.y, p0.x + ny, p0.y - nx, pt.x, pt.y);
-						
-						state.style[mxConstants.STYLE_STARTSIZE] = Math.round((l - state.shape.strokewidth) * 100 / 3) / 100 / state.view.scale;
-						state.style['width'] = Math.round(w * 2) / state.view.scale;
-						
+
+						state.style[mxConstants.STYLE_STARTSIZE] = Math.round((l - state.shape.strokewidth) / 3 / state.view.scale);
+						state.style['width'] = Math.round(w * 2 / state.view.scale);
+
 						// Applies to opposite side
 						if (mxEvent.isShiftDown(me.getEvent()) || mxEvent.isControlDown(me.getEvent()))
 						{
@@ -6059,10 +7995,10 @@
 					{
 						var w = Math.sqrt(mxUtils.ptSegDistSq(p0.x, p0.y, p1.x, p1.y, pt.x, pt.y));
 						var l = mxUtils.ptLineDist(p0.x, p0.y, p0.x + ny, p0.y - nx, pt.x, pt.y);
-						
-						state.style[mxConstants.STYLE_STARTSIZE] = Math.round((l - state.shape.strokewidth) * 100 / 3) / 100 / state.view.scale;
-						state.style['startWidth'] = Math.max(0, Math.round(w * 2) - state.shape.getEdgeWidth()) / state.view.scale;
-						
+
+						state.style[mxConstants.STYLE_STARTSIZE] = Math.round((l - state.shape.strokewidth) / 3 / state.view.scale);
+						state.style['startWidth'] = Math.round(Math.max(0, Math.round(w * 2) - state.shape.getEdgeWidth()) / state.view.scale);
+
 						// Applies to opposite side
 						if (mxEvent.isShiftDown(me.getEvent()) || mxEvent.isControlDown(me.getEvent()))
 						{
@@ -6099,16 +8035,16 @@
 					{
 						var w = Math.sqrt(mxUtils.ptSegDistSq(p0.x, p0.y, p1.x, p1.y, pt.x, pt.y));
 						var l = mxUtils.ptLineDist(p0.x, p0.y, p0.x + ny, p0.y - nx, pt.x, pt.y);
-						
-						state.style[mxConstants.STYLE_ENDSIZE] = Math.round((l - state.shape.strokewidth) * 100 / 3) / 100 / state.view.scale;
-						state.style['width'] = Math.round(w * 2) / state.view.scale;
-						
+
+						state.style[mxConstants.STYLE_ENDSIZE] = Math.round((l - state.shape.strokewidth) / 3 / state.view.scale);
+						state.style['width'] = Math.round(w * 2 / state.view.scale);
+
 						// Applies to opposite side
 						if (mxEvent.isShiftDown(me.getEvent()) || mxEvent.isControlDown(me.getEvent()))
 						{
 							state.style[mxConstants.STYLE_STARTSIZE] = state.style[mxConstants.STYLE_ENDSIZE];
 						}
-					
+
 						// Snaps to start geometry
 						if (!mxEvent.isAltDown(me.getEvent()))
 						{
@@ -6130,10 +8066,10 @@
 					{
 						var w = Math.sqrt(mxUtils.ptSegDistSq(p0.x, p0.y, p1.x, p1.y, pt.x, pt.y));
 						var l = mxUtils.ptLineDist(p0.x, p0.y, p0.x + ny, p0.y - nx, pt.x, pt.y);
-						
-						state.style[mxConstants.STYLE_ENDSIZE] = Math.round((l - state.shape.strokewidth) * 100 / 3) / 100 / state.view.scale;
-						state.style['endWidth'] = Math.max(0, Math.round(w * 2) - state.shape.getEdgeWidth()) / state.view.scale;
-						
+
+						state.style[mxConstants.STYLE_ENDSIZE] = Math.round((l - state.shape.strokewidth) / 3 / state.view.scale);
+						state.style['endWidth'] = Math.round(Math.max(0, Math.round(w * 2) - state.shape.getEdgeWidth()) / state.view.scale);
+
 						// Applies to opposite side
 						if (mxEvent.isShiftDown(me.getEvent()) || mxEvent.isControlDown(me.getEvent()))
 						{
@@ -6392,7 +8328,32 @@
 				{
 					handles.push(createArcHandle(state));
 				}
-				
+
+				return handles;
+			},
+			'wedgeCallout': function(state)
+			{
+				var handles = [createHandle(state, ['tipX', 'tipY'], function(bounds)
+				{
+					var tip = (this.state.shape != null) ? this.state.shape.getTipOffset() :
+						new mxPoint(WedgeCalloutShape.prototype.tipX, WedgeCalloutShape.prototype.tipY);
+
+					return new mxPoint(bounds.getCenterX() + tip.x * bounds.width,
+						bounds.getCenterY() + tip.y * bounds.height);
+				}, function(bounds, pt)
+				{
+					var max = WedgeCalloutShape.prototype.maxTipOffset;
+					this.state.style['tipX'] = Math.round(1000 * Math.max(-max, Math.min(max,
+						(pt.x - bounds.getCenterX()) / Math.max(1, bounds.width)))) / 1000;
+					this.state.style['tipY'] = Math.round(1000 * Math.max(-max, Math.min(max,
+						(pt.y - bounds.getCenterY()) / Math.max(1, bounds.height)))) / 1000;
+				}, false)];
+
+				if (mxUtils.getValue(state.style, mxConstants.STYLE_ROUNDED, false))
+				{
+					handles.push(createArcHandle(state));
+				}
+
 				return handles;
 			},
 			'internalStorage': function(state)
@@ -6568,6 +8529,79 @@
 				
 				return handles;
 			},
+			'curvedText': function(state)
+			{
+				var inset = 10;
+
+				var getYOffset = function(st)
+				{
+					return (st.shape != null ? st.shape._curveYOffset : 0) || 0;
+				};
+
+				return [
+					createHandle(state, ['arcStartY'], function(bounds)
+					{
+						var val = parseFloat(mxUtils.getValue(this.state.style,
+							'arcStartY', CurvedTextShape.prototype.arcStartY));
+						var yOff = getYOffset(this.state);
+
+						return new mxPoint(bounds.x + inset,
+							bounds.y + Math.max(0, Math.min(bounds.height,
+							val + yOff)));
+					}, function(bounds, pt)
+					{
+						var yOff = getYOffset(this.state);
+						this.state.style['arcStartY'] = Math.round(
+							Math.max(0, Math.min(bounds.height,
+							pt.y - bounds.y)) - yOff);
+					}, false),
+					createHandle(state, ['arcMidY'], function(bounds)
+					{
+						var startVal = parseFloat(mxUtils.getValue(this.state.style,
+							'arcStartY', CurvedTextShape.prototype.arcStartY));
+						var endVal = parseFloat(mxUtils.getValue(this.state.style,
+							'arcEndY', CurvedTextShape.prototype.arcEndY));
+						var midOffset = parseFloat(mxUtils.getValue(this.state.style,
+							'arcMidY', CurvedTextShape.prototype.arcMidY));
+						var chordMidY = (startVal + endVal) / 2;
+						var yOff = getYOffset(this.state);
+
+						return new mxPoint(bounds.x + bounds.width / 2 + 10,
+							bounds.y + Math.max(0, Math.min(bounds.height,
+							chordMidY + midOffset + yOff)));
+					}, function(bounds, pt)
+					{
+						var startVal = parseFloat(mxUtils.getValue(this.state.style,
+							'arcStartY', CurvedTextShape.prototype.arcStartY));
+						var endVal = parseFloat(mxUtils.getValue(this.state.style,
+							'arcEndY', CurvedTextShape.prototype.arcEndY));
+						var chordMidY = (startVal + endVal) / 2;
+						var yOff = getYOffset(this.state);
+						var defaultMid = Math.abs(CurvedTextShape.prototype.arcMidY);
+						var maxMid = Math.max(defaultMid,
+							Math.min(chordMidY, bounds.height - chordMidY));
+						this.state.style['arcMidY'] = Math.round(Math.max(
+							-maxMid, Math.min(maxMid,
+							pt.y - bounds.y - yOff - chordMidY)));
+					}, false),
+					createHandle(state, ['arcEndY'], function(bounds)
+					{
+						var val = parseFloat(mxUtils.getValue(this.state.style,
+							'arcEndY', CurvedTextShape.prototype.arcEndY));
+						var yOff = getYOffset(this.state);
+
+						return new mxPoint(bounds.x + bounds.width - inset,
+							bounds.y + Math.max(0, Math.min(bounds.height,
+							val + yOff)));
+					}, function(bounds, pt)
+					{
+						var yOff = getYOffset(this.state);
+						this.state.style['arcEndY'] = Math.round(
+							Math.max(0, Math.min(bounds.height,
+							pt.y - bounds.y)) - yOff);
+					}, false)
+				];
+			},
 			'step': createDisplayHandleFunction(StepShape.prototype.size, true, null, true, StepShape.prototype.fixedSize),
 			'hexagon': createDisplayHandleFunction(HexagonShape.prototype.size, true, 0.5, true, HexagonShape.prototype.fixedSize),
 			'curlyBracket': createDisplayHandleFunction(CurlyBracketShape.prototype.size, false),
@@ -6576,9 +8610,24 @@
 			'card': createCubeHandleFunction(0.5, CardShape.prototype.size, true),
 			'loopLimit': createCubeHandleFunction(0.5, LoopLimitShape.prototype.size, true),
 			'trapezoid': createTrapezoidHandleFunction(0.5, TrapezoidShape.prototype.size, TrapezoidShape.prototype.fixedSize),
-			'parallelogram': createTrapezoidHandleFunction(1, ParallelogramShape.prototype.size, ParallelogramShape.prototype.fixedSize)
+			'parallelogram': createTrapezoidHandleFunction(1, ParallelogramShape.prototype.size, ParallelogramShape.prototype.fixedSize),
+			'zigzag': function(state)
+			{
+				// Handle at 2nd peak, half sensitivity (factor 3 = 1.5 for 2nd peak * 2 for half)
+				return [createHandle(state, ['size'], function(bounds)
+				{
+					var size = Math.max(5, parseFloat(
+						mxUtils.getValue(this.state.style, 'size', ZigzagShape.prototype.size)));
+
+					return new mxPoint(bounds.x + 3 * size, bounds.y);
+				}, function(bounds, pt)
+				{
+					this.state.style['size'] = Math.max(5,
+						Math.round((pt.x - bounds.x) / 3));
+				}, false)];
+			}
 		};
-		
+
 		// Exposes custom handles
 		Graph.createHandle = createHandle;
 		Graph.handleFactory = handleFactory;
@@ -6658,6 +8707,102 @@
 		// Dummy entries to avoid NPE in embed mode
 		Graph.createHandle = function() {};
 		Graph.handleFactory = {};
+	}
+
+	// Autosize for curvedText: measure straight text width and reduce
+	// by a portion to account for the arc being longer than its chord
+	var origGetPreferredSize = Graph.prototype.getPreferredSizeForCell;
+
+	Graph.prototype.getPreferredSizeForCell = function(cell, textWidth, gridEnabled)
+	{
+		var style = this.getCellStyle(cell);
+
+		if (style != null && style[mxConstants.STYLE_SHAPE] == 'curvedText')
+		{
+			var label = this.convertValueToString(cell);
+
+			if (label != null && label.length > 0)
+			{
+				var fontSize = parseFloat(mxUtils.getValue(style,
+					mxConstants.STYLE_FONTSIZE, mxConstants.DEFAULT_FONTSIZE));
+				var fontFamily = mxUtils.getValue(style,
+					mxConstants.STYLE_FONTFAMILY, mxConstants.DEFAULT_FONTFAMILY);
+				var fontStyle = mxUtils.getValue(style,
+					mxConstants.STYLE_FONTSTYLE, 0);
+
+				var size = mxUtils.getSizeForString(label, fontSize,
+					fontFamily, null, fontStyle);
+				var width = size.width * 0.85;
+				var geo = this.model.getGeometry(cell);
+				var h = (geo != null) ? geo.height : 60;
+				gridEnabled = (gridEnabled != null) ? gridEnabled : this.gridEnabled;
+
+				if (gridEnabled)
+				{
+					width = this.snap(width + this.gridSize / 2);
+				}
+
+				return new mxRectangle(0, 0, Math.max(width,
+					2 * fontSize) + 10, h);
+			}
+
+			return null;
+		}
+
+		return origGetPreferredSize.apply(this, arguments);
+	};
+
+	// Forces repaint of curvedText shapes when cell value changes
+	var origCheckPlaceholder = mxCellRenderer.prototype.checkPlaceholderStyles;
+
+	mxCellRenderer.prototype.checkPlaceholderStyles = function(state)
+	{
+		if (state.style != null && state.style[mxConstants.STYLE_SHAPE] == 'curvedText')
+		{
+			return true;
+		}
+
+		return origCheckPlaceholder.apply(this, arguments);
+	};
+
+	// Redraws curvedText shape when editing starts/stops
+	if (typeof mxCellEditor !== 'undefined')
+	{
+		var origStartEditing = mxCellEditor.prototype.startEditing;
+
+		mxCellEditor.prototype.startEditing = function(cell, trigger)
+		{
+			origStartEditing.apply(this, arguments);
+
+			var state = this.graph.view.getState(cell);
+
+			if (state != null && state.style != null &&
+				state.style[mxConstants.STYLE_SHAPE] == 'curvedText' &&
+				state.shape != null)
+			{
+				state.shape.redraw();
+			}
+		};
+
+		var origStopEditing = mxCellEditor.prototype.stopEditing;
+
+		mxCellEditor.prototype.stopEditing = function(cancel)
+		{
+			var cell = this.editingCell;
+			origStopEditing.apply(this, arguments);
+
+			if (cell != null)
+			{
+				var state = this.graph.view.getState(cell);
+
+				if (state != null && state.style != null &&
+					state.style[mxConstants.STYLE_SHAPE] == 'curvedText' &&
+					state.shape != null)
+				{
+					state.shape.redraw();
+				}
+			}
+		};
 	}
 
 	 var isoHVector = new mxPoint(1, 0);
@@ -6870,6 +9015,11 @@
 	mxSwimlane.prototype.constraints = mxRectangleShape.prototype.constraints;
 	PlusShape.prototype.constraints = mxRectangleShape.prototype.constraints;
 	mxLabel.prototype.constraints = mxRectangleShape.prototype.constraints;
+	GitTagShape.prototype.constraints = mxRectangleShape.prototype.constraints;
+	WedgeCalloutShape.prototype.constraints = mxRectangleShape.prototype.constraints;
+	MindmapBangShape.prototype.constraints = mxEllipse.prototype.constraints;
+	OddShape.prototype.constraints = mxEllipse.prototype.constraints;
+	SmileyFaceShape.prototype.constraints = mxEllipse.prototype.constraints;
 	
 	NoteShape.prototype.getConstraints = function(style, w, h)
 	{

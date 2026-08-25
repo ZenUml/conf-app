@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2017, JGraph Holdings Ltd
+ * Copyright (c) 2006-2017, draw.io AG
  */
 TrelloClient = function(editorUi)
 {
@@ -130,7 +130,7 @@ TrelloClient.prototype.getFile = function(id, success, error, denyConvert, asLib
 				// and make sure that only a proxy technique can work!
 				// Handles .vsdx, Gliffy and PNG+XML files by creating a temporary file
 				if (/\.v(dx|sdx?)$/i.test(meta.name) || /\.gliffy$/i.test(meta.name) ||
-					(!this.ui.useCanvasForExport && binary))
+					(!Editor.useCanvasForExport && binary))
 				{
 					this.ui.convertFile(PROXY_URL + '?url=' + encodeURIComponent(meta.url), meta.name, meta.mimeType,
 						this.extension, success, error, null, headers);
@@ -251,7 +251,7 @@ TrelloClient.prototype.insertFile = function(filename, data, success, error, asL
 			}), error);
 		});
 						
-		if (this.ui.useCanvasForExport && /(\.png)$/i.test(filename))
+		if (Editor.useCanvasForExport && /(\.png)$/i.test(filename))
 		{
 			this.ui.getEmbeddedPng(mxUtils.bind(this, function(pngData)
 			{
@@ -300,7 +300,7 @@ TrelloClient.prototype.saveFile = function(file, success, error)
 	
 	var callback = mxUtils.bind(this, function()
 	{
-		if (this.ui.useCanvasForExport && /(\.png)$/i.test(file.meta.name))
+		if (Editor.useCanvasForExport && /(\.png)$/i.test(file.meta.name))
 		{
 			this.ui.getEmbeddedPng(mxUtils.bind(this, function(data)
 			{
@@ -448,7 +448,6 @@ TrelloClient.prototype.showTrelloDialog = function(showFiles, fn)
 
 	var hd = document.createElement('h3');
 	mxUtils.write(hd, showFiles? mxResources.get('selectFile') : mxResources.get('selectCard'));
-	hd.style.cssText = 'width:100%;text-align:center;margin-top:0px;margin-bottom:12px';
 	content.appendChild(hd);
 
 	var div = document.createElement('div');
@@ -612,16 +611,19 @@ TrelloClient.prototype.showTrelloDialog = function(showFiles, fn)
 				{
 					if (page == 1)
 					{
-						div.appendChild(createLink(mxResources.get('filterCards') + '...', mxUtils.bind(this, function()
+						div.appendChild(createLink(mxResources.get('filterCards') + '...',
+							mxUtils.bind(this, function()
 						{
-							var dlg = new FilenameDialog(this.ui, filter, mxResources.get('ok'), mxUtils.bind(this, function(value)
+							var dlg = new FilenameDialog(this.ui, filter, mxResources.get('ok'),
+								mxUtils.bind(this, function(value)
 							{
 								if (value != null)
 								{
 									filter = value;
 									selectCard();
 								}
-							}), mxResources.get('filterCards'), null, null, 'http://help.trello.com/article/808-searching-for-cards-all-boards');
+							}), mxResources.get('filterCards'), null, null,
+								'http://help.trello.com/article/808-searching-for-cards-all-boards');
 							this.ui.showDialog(dlg.container, 300, 80, true, false);
 							dlg.init();
 						})));

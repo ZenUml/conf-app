@@ -650,7 +650,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#da4026"/>
+        <fillcolor color="fillColor2" default="#da4026"/>
         <path>
             <move x="25.65" y="33.53"/>
             <line x="26.26" y="33.16"/>
@@ -713,7 +713,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#2072b8"/>
+        <fillcolor color="fillColor2" default="#2072b8"/>
         <path>
             <move x="25.65" y="33.53"/>
             <line x="26.26" y="33.16"/>
@@ -741,7 +741,7 @@
     <connections/>
     <foreground>
         <strokecolor color="none"/>
-        <fillcolor color="#2072b8"/>
+        <fillcolor color="fillColor2" default="#2072b8"/>
         <path>
             <move x="20.71" y="41.83"/>
             <line x="21.81" y="41.16"/>
@@ -4051,7 +4051,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#da4026"/>
+        <fillcolor color="fillColor2" default="#da4026"/>
         <path>
             <move x="18.75" y="26.16"/>
             <line x="18.75" y="11.4"/>

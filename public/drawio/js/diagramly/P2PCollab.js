@@ -1,3 +1,7 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 function P2PCollab(ui, sync, channelId)
 {
 	var graph = ui.editor.graph;
@@ -13,17 +17,83 @@ function P2PCollab(ui, sync, channelId)
 		'#ffe119', '#42d4f4', '#bfef45', '#fabed4', '#dcbeff',
 		'#fffac8', '#aaffc3', '#ffd8b1'
 	];
-	var connectedSessions = {}, messageId = 1, clientLastMsgId = {}, clientsToSessions = {}, 
-		connectedClient = {}, sessionColors = {};
-	var myClientId, newClients = {}, p2pClients = {}, useSocket = true, fileJoined = false, destroyed = false;
+	// Null prototypes: all of these are keyed by session/client ids that come
+	// straight off the wire from other collaborators
+	var connectedSessions = Object.create(null), messageId = 1,
+		clientLastMsgId = Object.create(null), clientsToSessions = Object.create(null),
+		connectedClient = Object.create(null), sessionColors = Object.create(null);
+	var myClientId, newClients = Object.create(null), p2pClients = Object.create(null),
+		useSocket = true, fileJoined = false, destroyed = false;
+	// Roster of other clients connected to the channel, maintained via
+	// clientsList, newClient and clientLeft messages from the socket
+	// server; rosterKnown is false while the roster is unconfirmed
+	var socketPeers = Object.create(null), socketPeerCount = 0, rosterKnown = false;
 	var INACTIVE_TIMEOUT = 120000; //2 min
 	var SELECTION_OPACITY = 70; //The default opacity of 30 is not visible enough with all colors
 	var cursorDelay = 300;
 	// TODO: Avoid negation, move to Editor.ENABLE_P2P and use p2p=1 URL parameter
 	// add to Editor.configure
 	var NO_P2P = urlParams['no-p2p'] != '0';
+	// Skips sending cursor, selection and diff messages while no other
+	// client is connected to the channel (disable via alone-gate=0)
+	var ALONE_GATE = urlParams['alone-gate'] != '0';
 	var joinInProgress = false, joinId = 0;
 	var lastError = null;
+	// Linear backoff for rejoin attempts, stops after the maximum
+	// number of consecutive failures (~2 minutes), resumes when a
+	// new file is opened (new P2PCollab) or the window is reactivated
+	var REJOIN_DELAY = 2000;
+	var MAX_REJOIN_ATTEMPTS = 10;
+	var rejoinAttempts = 0, rejoinThread = null, rejoinStopped = false;
+
+	// Schedules a rejoin with linearly increasing delay and stops
+	// after the maximum number of consecutive failed attempts, the
+	// counter is reset when a session is established in clientsList
+	var scheduleRejoin = mxUtils.bind(this, function()
+	{
+		if (destroyed || rejoinThread != null) return;
+
+		if (rejoinAttempts >= MAX_REJOIN_ATTEMPTS)
+		{
+			if (!rejoinStopped)
+			{
+				rejoinStopped = true;
+				lastError = 'rejoinStopped';
+				EditorUi.debug('P2PCollab: rejoin stopped after',
+					rejoinAttempts, 'attempts');
+				sync.file.fireEvent(new mxEventObject('realtimeStateChanged'));
+			}
+		}
+		else
+		{
+			rejoinAttempts++;
+			var delay = rejoinAttempts * REJOIN_DELAY;
+			EditorUi.debug('P2PCollab: scheduling rejoin attempt',
+				rejoinAttempts, 'of', MAX_REJOIN_ATTEMPTS, 'delay', delay);
+
+			rejoinThread = window.setTimeout(mxUtils.bind(this, function()
+			{
+				rejoinThread = null;
+				this.joinFile(true);
+			}), delay);
+		}
+	});
+
+	// Restarts a stopped rejoin when the window is reactivated
+	var activationListener = mxUtils.bind(this, function()
+	{
+		if (!destroyed && rejoinStopped && !document.hidden)
+		{
+			EditorUi.debug('P2PCollab: rejoin restarted on activation');
+			rejoinStopped = false;
+			rejoinAttempts = 0;
+			lastError = null;
+			this.joinFile(true);
+		}
+	});
+
+	document.addEventListener('visibilitychange', activationListener);
+	window.addEventListener('focus', activationListener);
 	
 	var sendReply = mxUtils.bind(this, function(action, msg)
   	{
@@ -66,7 +136,34 @@ function P2PCollab(ui, sync, channelId)
 
 			var user = sync.file.getCurrentUser();
 
-			if (!fileJoined || user == null || user.displayName == null) return;
+			if (!fileJoined || user == null || user.displayName == null)
+			{
+				if (type != 'cursor')
+				{
+					EditorUi.debug('P2PCollab: message dropped, not joined',
+						[type], 'fileJoined', fileJoined);
+				}
+
+				return;
+			}
+
+			// Skips cursor, selection and diff messages while the server
+			// roster confirms that no other client is connected as they
+			// are consumed by currently connected clients only (fails
+			// open while the roster is unknown, late joiners converge
+			// via the file and the selection flush). Notify messages
+			// are always sent as they must reach clients that connect
+			// while the message is in-flight.
+			if (ALONE_GATE && rosterKnown && socketPeerCount == 0 &&
+				(type == 'cursor' || type == 'selectionChange' || type == 'diff'))
+			{
+				if (type != 'cursor')
+				{
+					EditorUi.debug('P2PCollab: skipped message while alone', [type]);
+				}
+
+				return;
+			}
 			
 			//Converting to a string such that webRTC works also
 			var msg = {from: myClientId, id: messageId,
@@ -138,6 +235,11 @@ function P2PCollab(ui, sync, channelId)
 	this.getLastError = function()
 	{
 		return lastError;
+	};
+
+	this.isFileJoined = function()
+	{
+		return fileJoined;
 	};
 
 	function debounce(func, wait) 
@@ -272,6 +374,57 @@ function P2PCollab(ui, sync, channelId)
 
 	graph.getSelectionModel().addListener(mxEvent.CHANGE, this.selectionChangeListener);
 
+	// Sends the full current selection when the first other client
+	// connects so that it sees the selection made while alone
+	var flushSelection = mxUtils.bind(this, function()
+	{
+		if (ALONE_GATE && !graph.isSelectionEmpty())
+		{
+			lastSelection = {};
+			this.selectionChangeListener();
+		}
+	});
+
+	// Adds a client to the peer roster (via clientsList, newClient,
+	// signal or a received message)
+	function addPeer(id)
+	{
+		if (id != null && id != myClientId && !socketPeers[id])
+		{
+			socketPeers[id] = true;
+			socketPeerCount++;
+
+			// First other client after being alone: everything the
+			// gate skipped while nobody was listening has to be
+			// caught up - the selection AND the document changes,
+			// which would otherwise only arrive with the next save
+			if (socketPeerCount == 1)
+			{
+				flushSelection();
+
+				if (ALONE_GATE && sync != null &&
+					typeof sync.sendUnconfirmedChanges === 'function')
+				{
+					sync.sendUnconfirmedChanges();
+				}
+			}
+
+			return true;
+		}
+
+		return false;
+	};
+
+	// Removes a client from the peer roster
+	function removePeer(id)
+	{
+		if (id != null && socketPeers[id])
+		{
+			delete socketPeers[id];
+			socketPeerCount--;
+		}
+	};
+
 	function updateCursor(entry, transition)
 	{
 		var pageId = (ui.currentPage != null) ?
@@ -350,15 +503,21 @@ function P2PCollab(ui, sync, channelId)
 			{
 				msg = sync.stringToObject(msg.bytes);
 			}
-			
+
 			if (NO_P2P && msg.type != 'cursor')
 			{
 				EditorUi.debug('P2PCollab: msg received', [msg]);
 			}
 
 			//Exclude P2P messages from duplicate messages test since p2p can arrive before socket and interrupt delivery
+			var peerAdded = false;
+
 			if (fromCId != null)
 			{
+				// Ensures the sender is in the peer roster in case its
+				// newClient message was not received
+				peerAdded = addPeer(fromCId);
+
 				//Safeguard from duplicate messages or receiving my own messages
 				if (msg.from == myClientId || clientLastMsgId[msg.from] >= msg.id)
 				{
@@ -446,6 +605,18 @@ function P2PCollab(ui, sync, channelId)
 			
 			switch (msg.type)
 			{
+				case 'join':
+					// Answers a previously unknown announcer so that both
+					// rosters heal when the join notifications were lost
+					// in both directions (true simultaneous join). The
+					// reply only goes out when the sender was newly
+					// added, and the sender already knows this client by
+					// then, so the exchange terminates.
+					if (peerAdded)
+					{
+						announceJoin();
+					}
+				break;
 				case 'cursor':
 					createCursor();
 					connectedSessions[sessionId].lastCursor = msgData;
@@ -508,6 +679,14 @@ function P2PCollab(ui, sync, channelId)
 
 									if (cell != null)
 									{	
+										// Replaces an existing highlight for duplicate
+										// added entries, eg. after a selection flush
+										// following a reconnect
+										if (selection[id] != null)
+										{
+											selection[id].destroy();
+										}
+
 										selection[id] = graph.highlightCell(cell,
 											connectedSessions[sessionId].color, 60000,
 											SELECTION_OPACITY, 3);
@@ -527,7 +706,7 @@ function P2PCollab(ui, sync, channelId)
 						msg = msgData.msg;
 					}
 
-					sync.handleMessageData(msg.d);
+					sync.handleMessageData(msg.d, msg.c);
 				break;
 			}
 
@@ -616,19 +795,50 @@ function P2PCollab(ui, sync, channelId)
 		return p;
 	};
 	
-	function clientsList(data) 
+	function clientsList(data)
 	{
 		myClientId = data.cId;
 		fileJoined = true;
 
-		for (var i = 0; i < data.list.length; i++)
+		// Successful session, resets the rejoin backoff
+		rejoinAttempts = 0;
+		rejoinStopped = false;
+		lastError = null;
+
+		// Resets the peer roster to the server-provided list
+		socketPeers = Object.create(null);
+		socketPeerCount = 0;
+		rosterKnown = data.list != null;
+
+		if (data.list != null)
 		{
-			createPeer(data.list[i], true);
+			for (var i = 0; i < data.list.length; i++)
+			{
+				addPeer(data.list[i]);
+				createPeer(data.list[i], true);
+			}
 		}
+
+		// Tells everyone already in the channel that this client is
+		// here (see announceJoin)
+		announceJoin();
+
+		// A single delayed repeat covers the loss of the first
+		// announce; receivers that already know this client ignore it
+		window.setTimeout(function()
+		{
+			if (!destroyed)
+			{
+				announceJoin();
+			}
+		}, 3000);
 	};
 	
-	function signal(data) 
+	function signal(data)
 	{
+		// Ensures the sender is in the peer roster
+		addPeer(data.from);
+
 		if (NO_P2P) return;
 
 		var p;
@@ -653,9 +863,30 @@ function P2PCollab(ui, sync, channelId)
 		connectedClient[data.to] = false; //TODO Should we call clientLeft?
 	};
 
-	function newClient(clientId) 
+	// Broadcasts our presence so every receiver adds this client to its
+	// roster in processMsg. The server's newClient notification is not
+	// reliably delivered to clients whose join overlaps this one
+	// (observed: a client joining 1.4s after another was never announced
+	// to it), and the alone gate then suppresses every message that
+	// could correct the stale roster - the resend hook never fires and
+	// the clients stay mutually invisible until the next save. The
+	// announce passes the gate on purpose (only cursor, selection and
+	// diff are skipped) and needs no server support; clients on older
+	// versions ignore the unknown type but still add the sender.
+	function announceJoin()
+	{
+		// Kill switch, same pattern as alone-gate; checked per call so
+		// tests can toggle it at runtime
+		if (urlParams['join-announce'] != '0')
+		{
+			sendMessage('join', {});
+		}
+	};
+
+	function newClient(clientId)
 	{
 		useSocket = true;
+		addPeer(clientId);
 	};
 	
 	function clientLeft(clientId, sessionId)
@@ -666,6 +897,7 @@ function P2PCollab(ui, sync, channelId)
 		{
 			delete clientsToSessions[clientId];
 			connectedClient[clientId] = false;
+			removePeer(clientId);
 		}
 	};
 
@@ -675,6 +907,10 @@ function P2PCollab(ui, sync, channelId)
 
 		try
 		{
+			// Peer roster is unknown until the server confirms it via
+			// a clientsList message on the new socket
+			rosterKnown = false;
+
 			if (joinInProgress)
 			{
 				EditorUi.debug('P2PCollab: joinInProgress on', joinInProgress);
@@ -697,17 +933,22 @@ function P2PCollab(ui, sync, channelId)
 				EditorUi.debug('P2PCollab: closing socket error', e);
 			} //Ignore
 			
-			var ws = new WebSocket(window.RT_WEBSOCKET_URL + '?id=' + channelId);
+			var ws = P2PCollab.createSocket(
+				window.RT_WEBSOCKET_URL + '?id=' + channelId);
+
+			// Stamped at creation so that close and error events of
+			// sockets that never open are attributed to this attempt
+			// and trigger a rejoin
+			ws.joinId = joinInProgress;
 
 			if (socket == null)
 			{
 				socket = ws;
 			}
-			
+
 			ws.addEventListener('open', function(event)
 			{
 				socket = ws;
-				socket.joinId = joinInProgress;
 				joinInProgress = false;
 				sync.file.fireEvent(new mxEventObject('realtimeStateChanged'));
 				EditorUi.debug('P2PCollab: open socket', socket.joinId);
@@ -795,7 +1036,7 @@ function P2PCollab(ui, sync, channelId)
 					{
 						EditorUi.debug('P2PCollab: calling rejoin on', ws.joinId);
 						rejoinCalled = true;
-						this.joinFile(true);
+						scheduleRejoin();
 					}
 				}
 
@@ -819,7 +1060,7 @@ function P2PCollab(ui, sync, channelId)
 					{
 						EditorUi.debug('P2PCollab: calling rejoin on', ws.joinId);
 						rejoinCalled = true;
-						this.joinFile(true);
+						scheduleRejoin();
 					}
 				}
 
@@ -867,6 +1108,12 @@ function P2PCollab(ui, sync, channelId)
 
 		EditorUi.debug('P2PCollab: destroyed');
 		destroyed = true;
+
+		// Stops pending rejoin and removes activation listeners
+		window.clearTimeout(rejoinThread);
+		rejoinThread = null;
+		document.removeEventListener('visibilitychange', activationListener);
+		window.removeEventListener('focus', activationListener);
 		//Remove selection and cursor
 		for (sessionId in connectedSessions)
 		{
@@ -892,10 +1139,8 @@ function P2PCollab(ui, sync, channelId)
 		if (this.cursorHandler != null)
 		{
 			mxEvent.removeListener(graph.container, 'scroll', this.cursorHandler);
-			graph.getView().removeListener(mxEvent.SCALE, this.cursorHandler);
-			graph.getView().removeListener(mxEvent.TRANSLATE, this.cursorHandler);
-			graph.getView().removeListener(mxEvent.SCALE_AND_TRANSLATE, this.cursorHandler);
-			ui.editor.removeListener('pageSelected', this.cursorHandler);
+			graph.view.removeListener(this.cursorHandler);
+			ui.editor.removeListener(this.cursorHandler);
 			ui.removeListener(this.cursorHandler);
 		}
 
@@ -917,4 +1162,14 @@ function P2PCollab(ui, sync, channelId)
 
 		sync.file.fireEvent(new mxEventObject('realtimeStateChanged'));
 	};
+};
+
+/**
+ * Creates the websocket for the realtime channel. Overridable hook so
+ * that tests can supply a fake socket and drive the roster and message
+ * protocol deterministically (same pattern as verifyWriteRevoked).
+ */
+P2PCollab.createSocket = function(url)
+{
+	return new WebSocket(url);
 };

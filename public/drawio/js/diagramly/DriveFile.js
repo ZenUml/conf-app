@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2017, JGraph Holdings Ltd
+ * Copyright (c) 2006-2017, draw.io AG
  */
 DriveFile = function(ui, data, desc)
 {
@@ -186,6 +186,8 @@ DriveFile.prototype.save = function(revision, success, error, unloading, overwri
  */
 DriveFile.prototype.saveFile = function(title, revision, success, error, unloading, overwrite)
 {
+	var wasSaving = this.savingFile;
+
 	try
 	{
 		if (!this.isEditable())
@@ -239,25 +241,15 @@ DriveFile.prototype.saveFile = function(title, revision, success, error, unloadi
 											this.saveDelay)));
 									this.desc = resp;
 									
-									// Shows possible errors but keeps the modified flag as the
-									// file was saved but the cache entry could not be written
-									if (token != null || !Editor.enableRealtimeCache)
+									this.fileSaved(savedData, lastDesc, mxUtils.bind(this, function()
 									{
-										this.fileSaved(savedData, lastDesc, mxUtils.bind(this, function()
+										this.contentChanged();
+
+										if (typeof success === 'function')
 										{
-											this.contentChanged();
-											
-											if (success != null)
-											{
-												success(resp);
-											}
-										}), error, token, pages, checksum);
-									}
-									else if (success != null)
-									{
-										// TODO: Fix possible saving state never being reset
-										success(resp);
-									}
+											success(resp);
+										}
+									}), error, token, pages, checksum);
 								}
 								else if (error != null)
 								{
@@ -350,12 +342,22 @@ DriveFile.prototype.saveFile = function(title, revision, success, error, unloadi
 					}
 				});
 				
-				doSave(overwrite, revision);				
+				doSave(overwrite, revision);
 			}));
+		}
+		else if (error != null)
+		{
+			error({code: App.ERROR_BUSY, message: mxResources.get('busy')});
 		}
 	}
 	catch (e)
 	{
+		// Resets saving state only if it was set by this call
+		if (!wasSaving)
+		{
+			this.savingFile = false;
+		}
+
 		if (error != null)
 		{
 			error(e);
@@ -370,7 +372,7 @@ DriveFile.prototype.saveFile = function(title, revision, success, error, unloadi
 /**
  * Shows a conflict dialog to the user.
  */
-DriveFile.prototype.copyFile = function(success, error)
+DriveFile.prototype.copyFile = function(success, error, filename)
 {
 	if (!this.isRestricted())
 	{
@@ -387,7 +389,7 @@ DriveFile.prototype.copyFile = function(success, error)
 					error(e);
 				}
 			}
-		}), error, true);
+		}), error, (filename != null) ? filename : this.ui.getCopyFilename(this, true));
 	}
 	else
 	{
@@ -398,29 +400,44 @@ DriveFile.prototype.copyFile = function(success, error)
 /**
  * Shows a conflict dialog to the user.
  */
-DriveFile.prototype.makeCopy = function(success, error, timestamp)
+DriveFile.prototype.makeCopy = function(success, error, filename)
 {
 	if (this.ui.spinner.spin(document.body, mxResources.get('saving')))
 	{
 		// Uses copyFile internally which is a remote REST call with the advantage of keeping
 		// the parents of the file in-place, but copies the remote file contents so needs to
 		// be updated as soon as we have the ID.
-		this.saveAs(this.ui.getCopyFilename(this, timestamp), mxUtils.bind(this, function(resp)
+		this.saveAs(filename, mxUtils.bind(this, function(resp)
 		{
+			// Disconnects sync from the original file's channel
+			// and restarts on the copy's channel
+			if (this.sync != null)
+			{
+				this.sync.stop();
+				this.sync.channelId = null;
+				this.sync.key = null;
+			}
+
 			this.desc = resp;
+
+			// Restarts sync on the copy's channel before save
+			// so that createToken uses the correct channel ID
+			if (this.sync != null)
+			{
+				this.sync.start();
+			}
+
 			this.ui.spinner.stop();
 			this.setModified(false);
-			
-			this.backupPatch = null;
 			this.invalidChecksum = false;
 			this.inConflictState = false;
-			
+
 			this.descriptorChanged();
 			success();
 		}), mxUtils.bind(this, function()
 		{
 			this.ui.spinner.stop();
-			
+
 			if (error != null)
 			{
 				error();
@@ -509,7 +526,7 @@ DriveFile.prototype.move = function(folderId, success, error)
  */
 DriveFile.prototype.share = function()
 {
-	this.ui.drive.showPermissions(this.getId());
+	this.ui.drive.showPermissions(this.getId(), this);
 };
 
 /**
@@ -841,47 +858,150 @@ DriveFile.prototype.commentsSupported = function()
 };
 
 /**
+ * Are comments anchored to shapes supported
+ */
+DriveFile.prototype.anchoredCommentsSupported = function()
+{
+	return true;
+};
+
+/**
+ * Are @mentions in comments supported
+ */
+DriveFile.prototype.mentionsSupported = function()
+{
+	return true;
+};
+
+/**
+ * Fields returned for comments and their replies. The v3 comments
+ * endpoints error without an explicit fields parameter.
+ */
+DriveFile.prototype.commentFields = 'id,content,createdTime,modifiedTime,deleted,resolved,anchor,' +
+	'author(displayName,photoLink,me),replies(id,content,createdTime,modifiedTime,deleted,' +
+	'author(displayName,photoLink,me))';
+
+/**
+ * Returns the URL for the v3 comments API of this file. path is appended
+ * to the comments collection (eg. '/id/replies'), fields is required for
+ * all v3 comments requests except DELETE.
+ */
+DriveFile.prototype.getCommentUrl = function(path, fields)
+{
+	return this.ui.drive.GDriveV3BaseUrl + '/files/' + this.getId() + '/comments' + path +
+		((fields != null) ? '?fields=' + encodeURIComponent(fields) : '');
+};
+
+/**
+ * Returns the Drive API anchor string for the given drawio anchor object.
+ * Drive stores anchors of third-party file types as opaque strings (such
+ * comments show as unanchored in the Drive UI). Anchors are immutable in
+ * the API so there is no re-anchoring.
+ */
+DriveFile.prototype.encodeCommentAnchor = function(anchor)
+{
+	return JSON.stringify({'r': 'head', 'a': [{'drawio': anchor}]});
+};
+
+/**
+ * Returns the drawio anchor object from the given Drive API anchor string
+ * or null. Malformed anchors and anchors written by other tools are
+ * ignored.
+ */
+DriveFile.prototype.decodeCommentAnchor = function(anchorStr)
+{
+	try
+	{
+		if (anchorStr != null)
+		{
+			var obj = JSON.parse(anchorStr);
+
+			if (obj != null && obj.a != null && obj.a.length > 0)
+			{
+				for (var i = 0; i < obj.a.length; i++)
+				{
+					if (obj.a[i] != null && typeof obj.a[i].drawio === 'object' &&
+						obj.a[i].drawio !== null)
+					{
+						return obj.a[i].drawio;
+					}
+				}
+			}
+		}
+	}
+	catch (e)
+	{
+		// ignore
+	}
+
+	return null;
+};
+
+/**
  * Get comments of the file
  */
 DriveFile.prototype.getComments = function(success, error)
 {
 	var currentUser = this.ui.getCurrentUser();
-	
-	function driveCommentToDrawio(file, gComment, pCommentId)
+	var file = this;
+
+	function driveCommentToDrawio(gComment, pCommentId)
 	{
 		if (gComment.deleted) return null; //skip deleted comments
-		
-		var comment = new DriveComment(file, gComment.commentId || gComment.replyId, gComment.content, 
-				gComment.modifiedDate, gComment.createdDate, gComment.status == 'resolved',
-				gComment.author.isAuthenticatedUser? currentUser :
-				new DrawioUser(gComment.author.permissionId, gComment.author.emailAddress,
-						gComment.author.displayName, gComment.author.picture.url), pCommentId);
-		
+
+		var comment = new DriveComment(file, gComment.id, gComment.content,
+				gComment.modifiedTime, gComment.createdTime, gComment.resolved == true,
+				(gComment.author != null && gComment.author.me) ? currentUser :
+				new DrawioUser(null, null, (gComment.author != null) ?
+						gComment.author.displayName : null, (gComment.author != null) ?
+						gComment.author.photoLink : null), pCommentId);
+
+		if (pCommentId == null)
+		{
+			comment.anchor = file.decodeCommentAnchor(gComment.anchor);
+		}
+
 		for (var i = 0; gComment.replies != null && i < gComment.replies.length; i++)
 		{
-			comment.addReplyDirect(driveCommentToDrawio(file, gComment.replies[i], gComment.commentId));
+			comment.addReplyDirect(driveCommentToDrawio(gComment.replies[i], gComment.id));
 		}
-		
+
 		return comment;
 	};
-	
-	this.ui.drive.executeRequest(
+
+	var comments = [];
+
+	var fetchPage = mxUtils.bind(this, function(pageToken)
 	{
-		url: '/files/' + this.getId() + '/comments'
-	},
-	mxUtils.bind(this, function(resp)
-	{
-		var comments = [];
-		
-		for (var i = 0; i < resp.items.length; i++)
+		this.ui.drive.executeRequest(
 		{
-			var comment = driveCommentToDrawio(this, resp.items[i]);
-			
-			if (comment != null) comments.push(comment);
-		}
-		
-		success(comments);
-	}), error);
+			fullUrl: this.getCommentUrl('', 'nextPageToken,comments(' + this.commentFields + ')') +
+				'&pageSize=100' + ((pageToken != null) ?
+				'&pageToken=' + encodeURIComponent(pageToken) : '')
+		},
+		mxUtils.bind(this, function(resp)
+		{
+			var items = (resp != null && resp.comments != null) ? resp.comments : [];
+
+			for (var i = 0; i < items.length; i++)
+			{
+				var comment = driveCommentToDrawio(items[i]);
+
+				if (comment != null) comments.push(comment);
+			}
+
+			if (resp != null && resp.nextPageToken != null)
+			{
+				fetchPage(resp.nextPageToken);
+			}
+			else
+			{
+				success(comments);
+			}
+		}), error);
+	});
+
+	fetchPage(null);
 };
 
 /**
@@ -890,17 +1010,80 @@ DriveFile.prototype.getComments = function(success, error)
 DriveFile.prototype.addComment = function(comment, success, error)
 {
 	var body = {'content': comment.content};
-	
+
+	if (comment.anchor != null)
+	{
+		body.anchor = this.encodeCommentAnchor(comment.anchor);
+	}
+
 	this.ui.drive.executeRequest(
 	{
-		url: '/files/' + this.getId() + '/comments',
+		fullUrl: this.getCommentUrl('', 'id'),
 		method: 'POST',
 		params: body
 	},
 	mxUtils.bind(this, function(resp)
 	{
-		success(resp.commentId); //pass comment id
+		success(resp.id); //pass comment id
 	}), error);
+};
+
+/**
+ * Get the people that can be mentioned in comments of the file. Mentions
+ * are limited to the people with access to the file as the API cannot
+ * start Drive's share-on-mention flow.
+ */
+DriveFile.prototype.getMentionCandidates = function(success, error)
+{
+	if (this.mentionCandidates != null)
+	{
+		success(this.mentionCandidates);
+
+		return;
+	}
+
+	var candidates = [];
+
+	var fetchPage = mxUtils.bind(this, function(pageToken)
+	{
+		this.ui.drive.executeRequest(
+		{
+			fullUrl: this.ui.drive.GDriveV3BaseUrl + '/files/' + this.getId() +
+				'/permissions?supportsAllDrives=true&pageSize=100&fields=' +
+				encodeURIComponent('nextPageToken,permissions(type,deleted,emailAddress,displayName,photoLink)') +
+				((pageToken != null) ? '&pageToken=' + encodeURIComponent(pageToken) : '')
+		},
+		mxUtils.bind(this, function(resp)
+		{
+			var items = (resp != null && resp.permissions != null) ? resp.permissions : [];
+
+			for (var i = 0; i < items.length; i++)
+			{
+				// Mentions need an email address so people and groups are
+				// included, not domain or anyone-with-the-link permissions
+				if ((items[i].type == 'user' || items[i].type == 'group') &&
+					!items[i].deleted && items[i].emailAddress != null)
+				{
+					var candidate = new DrawioUser(null, items[i].emailAddress,
+						items[i].displayName, items[i].photoLink);
+					candidate.isGroup = items[i].type == 'group';
+					candidates.push(candidate);
+				}
+			}
+
+			if (resp != null && resp.nextPageToken != null)
+			{
+				fetchPage(resp.nextPageToken);
+			}
+			else
+			{
+				this.mentionCandidates = candidates;
+				success(candidates);
+			}
+		}), error);
+	});
+
+	fetchPage(null);
 };
 
 /**

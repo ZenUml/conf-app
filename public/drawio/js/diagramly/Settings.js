@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2017, JGraph Holdings Ltd
+ * Copyright (c) 2006-2017, draw.io AG
  */
 /**
  * Contains current settings.
@@ -56,38 +56,36 @@ var mxSettings =
 		if (mxSettings.isMainSettings())
 		{
 			mxSettings.settings.ui = ui;
-
-			if (ui == 'kennedy' || ui == '')
-			{
-				mxSettings.settings.darkMode = false;
-			}
-
 			mxSettings.save();
 		}
 		else
 		{
 			var value = mxSettings.getMainSettings();
 			value.ui = ui;
-
-			if (ui == 'kennedy')
-			{
-				value.darkMode = false;
-			}
-
 			localStorage.setItem('.drawio-config', JSON.stringify(value));
 		}
 	},
-	getShowStartScreen: function()
+	getCurrentEdgeStyle: function()
 	{
-		return mxSettings.settings.showStartScreen;
+		return (mxSettings.settings != null) ? mxSettings.settings.currentEdgeStyle : null;
 	},
-	setShowStartScreen: function(showStartScreen)
+	setCurrentEdgeStyle: function(value)
 	{
-		mxSettings.settings.showStartScreen = showStartScreen;
+		mxSettings.settings.currentEdgeStyle = value;
+		mxSettings.save();
 	},
 	getGridColor: function(darkMode)
 	{
-		return (darkMode) ? mxSettings.settings.darkGridColor : mxSettings.settings.gridColor;
+		var result = (darkMode) ? mxSettings.settings.darkGridColor :
+			mxSettings.settings.gridColor;
+
+		if (mxUtils.isLightDarkColor(result))
+		{
+			var ld = mxUtils.getLightDarkColor(result);
+			result = (darkMode) ? ld.dark : ld.light;
+		}
+
+		return result;
 	},
 	setGridColor: function(gridColor, darkMode)
 	{
@@ -212,13 +210,52 @@ var mxSettings =
 	{
 		mxSettings.settings.formatWidth = formatWidth;
 	},
-	isCreateTarget: function()
+	getSidebarWidth: function()
 	{
-		return mxSettings.settings.createTarget;
+		return mxSettings.settings.sidebarWidth;
 	},
-	setCreateTarget: function(value)
+	setSidebarWidth: function(sidebarWidth)
 	{
-		mxSettings.settings.createTarget = value;
+		mxSettings.settings.sidebarWidth = sidebarWidth;
+	},
+	getCollapsedSections: function()
+	{
+		return mxSettings.settings.collapsedSections || {};
+	},
+	setCollapsedSections: function(collapsedSections)
+	{
+		mxSettings.settings.collapsedSections = collapsedSections;
+	},
+	getCollapsedLibraries: function()
+	{
+		return mxSettings.settings.collapsedLibraries || {};
+	},
+	setCollapsedLibraries: function(collapsedLibraries)
+	{
+		mxSettings.settings.collapsedLibraries = collapsedLibraries;
+	},
+	getLibraryOrder: function()
+	{
+		return mxSettings.settings.libraryOrder || null;
+	},
+	setLibraryOrder: function(order)
+	{
+		mxSettings.settings.libraryOrder = order;
+	},
+	getWindowState: function(name)
+	{
+		var states = mxSettings.settings.windowStates;
+
+		return (states != null) ? states[name] : null;
+	},
+	setWindowState: function(name, state)
+	{
+		if (mxSettings.settings.windowStates == null)
+		{
+			mxSettings.settings.windowStates = {};
+		}
+
+		mxSettings.settings.windowStates[name] = state;
 	},
 	getPageFormat: function()
 	{
@@ -263,12 +300,14 @@ var mxSettings =
 			plugins: [],
 			recentColors: [],
 			formatWidth: mxSettings.defaultFormatWidth,
-			createTarget: urlParams['sketch'] == '1',
+			sidebarWidth: null,
+			collapsedSections: {},
+			collapsedLibraries: {},
 			pageFormat: mxGraph.prototype.pageFormat,
 			search: true,
-			showStartScreen: true,
 			gridColor: mxGraphView.prototype.defaultGridColor,
 			darkGridColor: mxGraphView.prototype.defaultDarkGridColor,
+			darkMode: 'auto',
 			autosave: !EditorUi.isElectronApp,
 			resizeImages: null,
 			openCounter: 0,
@@ -276,7 +315,11 @@ var mxSettings =
 			// Only defined and true for new settings which haven't been saved
 			isNew: true,
 			unit: mxConstants.POINTS,
-			isRulerOn: false
+			isRulerOn: false,
+			windowStates: {},
+			// Persisted global current edge style (the toolbar dropdown's choice for
+			// new edges when nothing is selected). null => use the theme default.
+			currentEdgeStyle: null
 		};
 	},
 	init: function()
@@ -301,9 +344,19 @@ var mxSettings =
 	},
 	load: function()
 	{
-		if (isLocalStorage && typeof(JSON) !== 'undefined')
+		try
 		{
-			mxSettings.parse(localStorage.getItem(mxSettings.key));
+			if (isLocalStorage && typeof(JSON) !== 'undefined')
+			{
+				mxSettings.parse(localStorage.getItem(mxSettings.key));
+			}
+		}
+		catch (e)
+		{
+			if (window.console != null)
+			{
+				console.log('Error loading settings:', mxSettings.key, e);
+			}
 		}
 
 		if (mxSettings.settings == null)
@@ -365,11 +418,6 @@ var mxSettings =
 				delete mxSettings.settings.lastAlert;
 			}
 			
-			if (mxSettings.settings.createTarget == null)
-			{
-				mxSettings.settings.createTarget = false;
-			}
-			
 			if (mxSettings.settings.pageFormat == null)
 			{
 				mxSettings.settings.pageFormat = mxGraph.prototype.pageFormat;
@@ -379,11 +427,6 @@ var mxSettings =
 			{
 				mxSettings.settings.search = true;
 			}
-			
-			if (mxSettings.settings.showStartScreen == null)
-			{
-				mxSettings.settings.showStartScreen = true;
-			}		
 			
 			if (mxSettings.settings.gridColor == null)
 			{

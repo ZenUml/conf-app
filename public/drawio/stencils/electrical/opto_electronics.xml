@@ -288,8 +288,8 @@
 </shape>
 <shape aspect="variable" h="65" name="LED 1" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.54"/>
-        <constraint name="out" perimeter="0" x="1" y="0.54"/>
+        <constraint name="in" perimeter="0" x="0" y="0.5385"/>
+        <constraint name="out" perimeter="0" x="1" y="0.5385"/>
     </connections>
     <background>
         <path>
@@ -316,8 +316,8 @@
 </shape>
 <shape aspect="variable" h="70" name="LED 2" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.57"/>
-        <constraint name="out" perimeter="0" x="1" y="0.57"/>
+        <constraint name="in" perimeter="0" x="0" y="0.5714"/>
+        <constraint name="out" perimeter="0" x="1" y="0.5714"/>
     </connections>
     <background>
         <path>
@@ -352,8 +352,8 @@
 </shape>
 <shape aspect="variable" h="70" name="Light-activated SCR" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.57"/>
-        <constraint name="out" perimeter="0" x="1" y="0.57"/>
+        <constraint name="in" perimeter="0" x="0" y="0.5714"/>
+        <constraint name="out" perimeter="0" x="1" y="0.5714"/>
     </connections>
     <background>
         <path>
@@ -388,10 +388,10 @@
 </shape>
 <shape aspect="variable" h="60" name="Opto-coupler" strokewidth="inherit" w="99">
     <connections>
-        <constraint name="in1" perimeter="0" x="0.195" y="0"/>
-        <constraint name="in2" perimeter="0" x="0.8" y="0"/>
-        <constraint name="out1" perimeter="0" x="0.195" y="1"/>
-        <constraint name="out2" perimeter="0" x="0.8" y="1"/>
+        <constraint name="in1" perimeter="0" x="0.197" y="0"/>
+        <constraint name="in2" perimeter="0" x="0.803" y="0"/>
+        <constraint name="out1" perimeter="0" x="0.197" y="1"/>
+        <constraint name="out2" perimeter="0" x="0.803" y="1"/>
     </connections>
     <background>
         <rect h="60" w="99" x="0" y="0"/>
@@ -489,8 +489,8 @@
 </shape>
 <shape aspect="variable" h="70" name="Photodiode" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.57"/>
-        <constraint name="out" perimeter="0" x="1" y="0.57"/>
+        <constraint name="in" perimeter="0" x="0" y="0.5714"/>
+        <constraint name="out" perimeter="0" x="1" y="0.5714"/>
     </connections>
     <background>
         <path>
@@ -622,8 +622,8 @@
 </shape>
 <shape aspect="variable" h="70" name="Solar Cell" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.57"/>
-        <constraint name="out" perimeter="0" x="1" y="0.57"/>
+        <constraint name="in" perimeter="0" x="0" y="0.5714"/>
+        <constraint name="out" perimeter="0" x="1" y="0.5714"/>
     </connections>
     <background>
         <path>

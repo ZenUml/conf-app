@@ -1,3 +1,7 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 var __extends = (this && this.__extends) || function (d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
     function __() { this.constructor = d; }
@@ -200,6 +204,21 @@ var com;
 	                    {
 	                        var array122 = (function (m) { if (m.entries == null)
 	                            m.entries = []; return m.entries; })(pages);
+                            
+                            mxVsdxCodec.pageTitleMap = {};
+                            mxVsdxCodec.pageIdsSet = {};
+
+                            try
+                            {
+                                for (var i = 0; i < array122.length; i++)
+                                {
+                                    var entry = array122[i];
+                                    var page = entry.getValue();
+                                    mxVsdxCodec.pageTitleMap[page.getPageName()] = page.getPageNameU();
+                                    mxVsdxCodec.pageIdsSet[page.getPageNameU()] = true;
+                                }
+                            }
+                            catch(e) {}
 	                        var _loop_1 = function (index121, remaining) {
 	                            var entry = array122[index121];
 	                            {
@@ -261,9 +280,9 @@ var com;
                     var filesCount = 0;
                     var processedFiles = 0;
                     
-                    var doneCheck = function() 
+                    var doneCheck = function()
                     {
-	                    	if (processedFiles == filesCount) 
+	                    	if (processedFiles == filesCount)
 	                    	{
 	                    		var dateAfter = new Date();
 		                         //console.log(processedFiles + " File extracted in " + (dateAfter - dateBefore) + "ms");
@@ -288,8 +307,8 @@ var com;
 	                    	}
                     };
                     
-                    JSZip.loadAsync(file)                                   
-                    .then(function(zip) 
+                    JSZip.loadAsync(file)
+                    .then(function(zip)
                     {
                     	if (Object.keys(zip.files).length == 0)
                     	{
@@ -302,7 +321,6 @@ var com;
                     	{
 	                        var dateAfter = new Date();
 	                       	//console.log(" (loaded in " + (dateAfter - dateBefore) + "ms)");
-	                       	
 	                        zip.forEach(function (relativePath, zipEntry) 
 	                        {  
 	        					var filename = zipEntry.name;
@@ -358,67 +376,25 @@ var com;
 	                            else if (name.indexOf(mxVsdxCodec.vsdxPlaceholder + "/media") === 0)//binary files
 	                           	{
 	                            	filesCount++;
-	                            	if ((function (str, searchString) { var pos = str.length - searchString.length; var lastIndex = str.indexOf(searchString, pos); return lastIndex !== -1 && lastIndex === pos; })(name, ".emf")) 
+	                            	if ((function (str, searchString) { var pos = str.length - searchString.length; var lastIndex = str.indexOf(searchString, pos); return lastIndex !== -1 && lastIndex === pos; })(name, ".emf"))
 	                            	{
-                            			var emfDone = function()
-                            			{
-                            				processedFiles++;
-                            				
-		        	                    	doneCheck();
-                            			}
-                            			
-	                            		if (JSZip.support.blob && window.EMF_CONVERT_URL) 
-	                            		{
-	                            			zipEntry.async("blob").then(function (emfBlob)
-			           	                  	{
-	                            				//send to emf conversion service
-	                        					var formData = new FormData();
-	                        					formData.append('img', emfBlob, name);
-	                        					formData.append('inputformat', 'emf');
-	                        					formData.append('outputformat', 'png');
-	                        					
-	                        					var xhr = new XMLHttpRequest();
-	                        					xhr.open('POST', EMF_CONVERT_URL);
-	                        					xhr.responseType = 'blob';
-	                        					_this.editorUi.addRemoteServiceSecurityCheck(xhr);
-	                        					
-	                        					xhr.onreadystatechange = mxUtils.bind(this, function()
-	                        					{
-	                        						if (xhr.readyState == 4)
-	                        						{	
-	                        							if (xhr.status >= 200 && xhr.status <= 299)
-	                        							{
-	                        								try
-	                        								{
-	                        									var reader = new FileReader();
-	                        									reader.readAsDataURL(xhr.response); 
-	                        									reader.onloadend = function() 
-	                        									{
-	                        										var dataPos = reader.result.indexOf(',') + 1;
-	                        									    mediaData[filename] = reader.result.substr(dataPos);
-		                        									emfDone();
-	                        									}
-	                        								}
-	                        								catch (e)
-	                        								{
-	                        									console.log(e);
-	                        									emfDone();
-	                        								}
-	                        							}
-	                        							else
-	                        							{
-	                        								emfDone();
-	                        							}
-	                        						}
-	                        					});
-	                        					
-	                        					xhr.send(formData);
-			           	                  	});
-	                            		}
-	                            		else
-                            			{
-	                            			emfDone();
-                            			}
+                                        zipEntry.async("arraybuffer").then(function(buffer)
+                                        {
+                                            try
+                                            {
+                                                var svgStr = window['emfToSvg'](buffer);
+                                                mediaData[filename] = btoa(unescape(
+                                                    encodeURIComponent(svgStr)));
+                                            }
+                                            catch (e)
+                                            {
+                                                console.log('EMF conversion failed for ' +
+                                                    filename, e);
+                                            }
+
+                                            processedFiles++;
+                                            doneCheck();
+                                        });
 	                            	}
 	                            	else if ((function (str, searchString) { var pos = str.length - searchString.length; var lastIndex = str.indexOf(searchString, pos); return lastIndex !== -1 && lastIndex === pos; })(name, ".bmp")) {
 	                            		if (JSZip.support.uint8array) 
@@ -479,6 +455,7 @@ var com;
 	                            	}
 	                           	}
 	                        });
+
                     	}
                     }, function (e) {
                     		//console.log("Error!" + e.message);
@@ -935,35 +912,75 @@ var com;
                                     return;
                                 } m.entries.push({ key: k, value: v, getKey: function () { return this.key; }, getValue: function () { return this.value; } }); })(this.vertexShapeMap, new com.mxgraph.io.vsdx.ShapePageId(pageId, id), shape);
                             
-                            var lnkObj = shape.getHyperlink();
-                            
-                            if (lnkObj.extLink)
+                            if (v1 != null)
                             {
-                            	graph.setLinkForCell(v1, lnkObj.extLink);
+                                var lnkObj = shape.getHyperlink();
+
+                                if (lnkObj.pageLink)
+                                {
+                                    var pageId = lnkObj.pageLink;
+
+                                    if (!mxVsdxCodec.pageIdsSet[pageId] && mxVsdxCodec.pageTitleMap[pageId] != null)
+                                    {
+                                        pageId = mxVsdxCodec.pageTitleMap[pageId] + '';
+                                    }
+
+                                    graph.setLinkForCell(v1, 'data:page/id,' + pageId.replace(/\s/g, '_'));
+                                }
+                                else if (lnkObj.extLink)
+                                {
+                                    graph.setLinkForCell(v1, lnkObj.extLink);
+                                }
                             }
-                            else if (lnkObj.pageLink)
-                        	{
-                            	graph.setLinkForCell(v1, 'data:page/id,' + lnkObj.pageLink.replace(/\s/g, '_'));
-                        	}
-                            
+
 							// Add Shape properties
 							var props = shape.getProperties();
-							
+
 							for (var i = 0; i < props.length; i++)
 							{
 								try
 								{
-									graph.setAttributeForCell(v1, props[i].key, props[i].val);	
+									// Property keys are arbitrary Visio labels. They must be
+									// reduced to valid XML attribute names here: browsers'
+									// setAttribute accepts names that strict XML parsers
+									// reject (e.g. parentheses), and a single bad attribute
+									// makes the whole encoded model unparseable
+									var sanitizedKey = com.mxgraph.io.mxVsdxCodec.sanitizeAttributeName(props[i].key);
+									var sanitizedVal = props[i].val != null ? props[i].val.trim() : null;
+
+									if (sanitizedKey != null && sanitizedVal != null && sanitizedVal != '')
+									{
+										// Find unused attribute name (append -2, -3, ... if needed)
+										var finalKey = sanitizedKey;
+										var suffix = 2;
+										var valueElem = (v1.value != null && typeof(v1.value) == 'object') ? v1.value : null;
+
+										while (valueElem != null && valueElem.hasAttribute(finalKey))
+										{
+											finalKey = sanitizedKey + '-' + suffix;
+											suffix++;
+										}
+
+										graph.setAttributeForCell(v1, finalKey, sanitizedVal);
+									}
 								}
 								catch(e)
 								{
-									console.log('Attribute: "', props[i].key, '" with value "', props[i].val, '" not allowed in HTML');
+									console.log('Attribute: "', props[i].key, '" with value "', props[i].val, '" not allowed');
 								}
 							}
 							
                             return v1;
                         }
-                        else {
+                        else 
+                        {
+                            // When an edge is a group, we need to process the children (and keep the edge, so no fill (color) for the group)
+                            // TODO Not the best results (e.g, an extra edge is added in some cases), but covers most cases
+                            if (shape.isGroup()) 
+                            {
+                                this.addGroup(graph, shape, parent, pageId, parentHeight, true);
+                            }
+
                             shape.setShapeIndex(graph.getModel().getChildCount(parent));
                             /* put */ (function (m, k, v) { if (m.entries == null)
                                 m.entries = []; for (var i = 0; i < m.entries.length; i++)
@@ -991,16 +1008,16 @@ var com;
                  * @param {com.mxgraph.io.vsdx.VsdxShape} shape
                  * @param {number} pageId
                  */
-                mxVsdxCodec.prototype.addGroup = function (graph, shape, parent, pageId, parentHeight) {
+                mxVsdxCodec.prototype.addGroup = function (graph, shape, parent, pageId, parentHeight, forceNoFill) {
                     var d = shape.getDimensions();
                     var master = shape.getMaster();
                     var styleMap = shape.getStyleFromShape();
                     var geomList = shape.getGeomList();
-                    if (geomList.isNoFill()) {
+                    if (geomList.isNoFill() || forceNoFill) {
                         /* put */ (styleMap[mxConstants.STYLE_FILLCOLOR] = "none");
                         /* put */ (styleMap[mxConstants.STYLE_GRADIENTCOLOR] = "none");
                     }
-                    if (geomList.isNoLine()) {
+                    if (geomList.isNoLine() || forceNoFill) {
                         /* put */ (styleMap[mxConstants.STYLE_STROKECOLOR] = "none");
                     }
                     /* put */ (styleMap["html"] = "1");
@@ -1016,9 +1033,56 @@ var com;
                         group = graph.insertVertex(parent, null, null, Math.floor(Math.round(o.x * 100) / 100), Math.floor(Math.round(o.y * 100) / 100), Math.floor(Math.round(d.x * 100) / 100), Math.floor(Math.round(d.y * 100) / 100), style);
                     }
                     else {
-                        var textLabel = shape.getTextLabel();
+                        var textLabel = shape.noLabelGroup? null : shape.getTextLabel();
                         group = graph.insertVertex(parent, null, textLabel, Math.floor(Math.round(o.x * 100) / 100), Math.floor(Math.round(o.y * 100) / 100), Math.floor(Math.round(d.x * 100) / 100), Math.floor(Math.round(d.y * 100) / 100), style);
                     }
+                    // Visio containers and their sub-groups should not be connectable —
+                    // prevents container background shapes from interfering with
+                    // connector editing after import.
+                    // Check User.msvStructureType = "Container" on the master shape.
+                    // User section rows use N attribute: <Row N="msvStructureType">
+                    //   <Cell N="Value" V="Container"/></Row>
+                    var isContainer = false;
+
+                    if (shape.masterShape != null && shape.masterShape.sections != null &&
+                        shape.masterShape.sections["User"] != null)
+                    {
+                        var userElem = shape.masterShape.sections["User"].elem;
+                        var rows = com.mxgraph.io.vsdx.mxVsdxUtils.getDirectChildNamedElements(userElem, "Row");
+
+                        for (var ri = 0; ri < rows.length; ri++)
+                        {
+                            if (rows[ri].getAttribute("N") === "msvStructureType")
+                            {
+                                var cells = com.mxgraph.io.vsdx.mxVsdxUtils.getDirectChildNamedElements(rows[ri], "Cell");
+
+                                for (var ci = 0; ci < cells.length; ci++)
+                                {
+                                    if (cells[ci].getAttribute("N") === "Value")
+                                    {
+                                        isContainer = cells[ci].getAttribute("V") === "Container";
+                                        break;
+                                    }
+                                }
+
+                                break;
+                            }
+                        }
+                    }
+
+                    var isParentNonConnectable = parent != null && parent.style != null &&
+                        parent.style.indexOf('connectable=0') >= 0;
+
+                    if (isContainer || isParentNonConnectable)
+                    {
+                        group.style = group.style.replace(/points=[^;]*/g, 'points=[]');
+
+                        if (group.style.indexOf('connectable=') < 0)
+                        {
+                            group.style += 'connectable=0;';
+                        }
+                    }
+
                     var potH = group.geometry.height;
                     var entries = (function (a) { var i = 0; return { next: function () { return i < a.length ? a[i++] : null; }, hasNext: function () { return i < a.length; } }; })(/* entrySet */ (function (m) { if (m.entries == null)
                         m.entries = []; return m.entries; })(children));
@@ -1103,8 +1167,44 @@ var com;
                             }
                         }
                     }
+                    // If any child is an aspect-fixed image, constrain the group too
+                    // so the whole shape resizes coherently
+                    if (group.children)
+                    {
+                        for (var i = 0; i < group.children.length; i++)
+                        {
+                            var child = group.children[i];
+
+                            if (child.style && child.style.indexOf('aspect=fixed') >= 0)
+                            {
+                                group.style += ';aspect=fixed';
+                                break;
+                            }
+                        }
+                    }
                     if (subLabel) {
                         shape.createLabelSubShape(graph, group);
+                    }
+                    // Propagate connectable=0 to all children of non-connectable
+                    // container groups (vertices, sublabels) so they cannot be
+                    // targeted by connectors either
+                    if (group.style != null && group.style.indexOf('connectable=0') >= 0 &&
+                        group.children != null)
+                    {
+                        for (var i = 0; i < group.children.length; i++)
+                        {
+                            var child = group.children[i];
+
+                            if (child.style != null && child.style.indexOf('connectable=') < 0)
+                            {
+                                child.style += 'connectable=0;';
+                            }
+
+                            if (child.style != null && child.style.indexOf('points=') >= 0)
+                            {
+                                child.style = child.style.replace(/points=[^;]*/g, 'points=[]');
+                            }
+                        }
                     }
                     var rotation = shape.getRotation();
                     if (rotation !== 0) {
@@ -1211,34 +1311,75 @@ var com;
                     return new mxPoint(x, y);
                 }
                 
-				mxVsdxCodec.prototype.processEdgeGeo = function (edgeShape, edge) 
-				{
-					//Detect Line jumps (best effots)
-					try
-					{
-						var rows = edgeShape.geomList.geomList[0].rows;
-						
-						for (var i = 0; i < rows.length; i++)
-						{
-							if (rows[i] instanceof com.mxgraph.io.vsdx.geometry.ArcTo)
-							{
-								edge.style += 'jumpStyle=arc;';
-								break;
-							}
-						}
-						
-						//Handle NURBS
-						for (var i = 0; i < rows.length; i++)
-						{
-							if (rows[i] instanceof com.mxgraph.io.vsdx.geometry.NURBSTo)
-							{
-								//TODO HAndle NURBS points (convert to curved edge with these points)
-								//var str = rows[i].handle({}, edgeShape);
-							}
-						}
-					}
-					catch(e){} //Ignore
-				};
+                mxVsdxCodec.prototype.processEdgeGeo = function (edgeShape, edge, parentHeight)
+                {
+                    try
+                    {
+                        if (edgeShape.geomList == null || edgeShape.geomList.geomList == null ||
+                            edgeShape.geomList.geomList.length === 0)
+                        {
+                            return null;
+                        }
+
+                        // Convert curve geometry (NURBS, elliptical arcs, beziers, plain
+                        // arc edges) to a bezier edge; getControlPoints scans all
+                        // geometry sections and returns null if there is nothing curved
+                        var result = null;
+
+                        try
+                        {
+                            result = edgeShape.getControlPoints(parentHeight);
+                        }
+                        catch(e)
+                        {
+                            console.log(e);
+                        }
+
+                        if (result != null && result.points != null && result.points.length > 0)
+                        {
+                            // Use curved style - if isBezier, add bezier=1
+                            if (result.isBezier)
+                            {
+                                edge.style += 'curved=1;bezier=1;';
+                            }
+                            else
+                            {
+                                // Through-points - use regular curved style
+                                edge.style += 'curved=1;';
+                            }
+                            var geo = edge.getGeometry();
+
+                            if (geo != null)
+                            {
+                                geo.points = result.points;
+
+                                // Callers apply parent group transforms to these
+                                return result.points;
+                            }
+                        }
+                        else
+                        {
+                            // Detect Line jumps (best effort) on unconverted paths -
+                            // converted ones have any jump arcs baked into the curve
+                            var rows = edgeShape.geomList.geomList[0].rows;
+
+                            for (var i = 0; rows != null && i < rows.length; i++)
+                            {
+                                if (rows[i] instanceof com.mxgraph.io.vsdx.geometry.ArcTo)
+                                {
+                                    edge.style += 'jumpStyle=arc;';
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    catch(e)
+                    {
+                        console.log(e);
+                    }
+
+                    return null;
+                };
 				
                 function addEdgeSublabel(graph, edge, edgeShape, rotation, lblOffset)
                 {
@@ -1412,20 +1553,20 @@ var com;
                     }
                     
                     var edgeGeometry = graph.getModel().getGeometry(edge);
-                    
+                    var accX = 0;
+                    var accY = 0;
+                    var reparented = false;
+
                     //when source.parent != target.parent the front end will change the edge parent to parent 1 but waypoints are not corrected
                     if (source.parent != target.parent && parent != null && parent.id != 1 && source.parent.id == 1)
                 	{
-                    	var accX = 0;
-                    	var accY = 0;
-                    	
                     	var prnt = parent;
-                    	
-                    	do 
+
+                    	do
                     	{
                         	var prntGeo = prnt.geometry;
-                        	
-                            if (prntGeo != null) 
+
+                            if (prntGeo != null)
                             {
                             	accX += prntGeo.x;
                             	accY += prntGeo.y;
@@ -1433,29 +1574,66 @@ var com;
                             prnt = prnt.parent;
                     	}
                     	while(prnt != null);
-                    	
+
                     	edge.parent = source.parent;
-                    	
+                    	reparented = true;
+
                     	for (var i = 0; i < points.length; i++)
                 		{
                     		points[i].x += accX;
                     		points[i].y += accY;
                 		}
                 	}
-                    
-                    edgeGeometry.points = (points);
-                    if (styleMap.hasOwnProperty("curved") && (function (o1, o2) { if (o1 && o1.equals) {
-                        return o1.equals(o2);
-                    }
-                    else {
-                        return o1 === o2;
-                    } })(/* get */ (function (m, k) { return m[k] ? m[k] : null; })(styleMap, "curved"), "1")) {
-                        edgeGeometry = graph.getModel().getGeometry(edge);
-                        var pointList = edgeShape.getControlPoints(parentHeight);
-                        edgeGeometry.points = (pointList);
-                    }
 
-					this.processEdgeGeo(edgeShape, edge) ;
+                    edgeGeometry.points = (points);
+                    // NURBS/curve handling is done in processEdgeGeo
+					var curvePoints = this.processEdgeGeo(edgeShape, edge, parentHeight);
+
+                    if (curvePoints != null)
+                    {
+                        // The converted curve is computed in the edge shape's own frame:
+                        // apply the same parent group rotation the routing points got
+                        // above (terminal args are throwaways - beginXY/endXY were
+                        // already rotated)
+                        this.rotateChildEdge(graph.getModel(), parent, new mxPoint(0, 0), new mxPoint(0, 0), curvePoints);
+
+                        // Re-anchor the label to the converted path (offsets are
+                        // relative, so this stays valid across the translation below)
+                        var curveLblOffset = edgeShape.getLblEdgeOffset(graph.getView(),
+                            [beginXY].concat(curvePoints, [endXY]));
+
+                        if (curveLblOffset != null)
+                        {
+                            if (hasSubLabel)
+                            {
+                                if (edge.getChildCount() > 0)
+                                {
+                                    var subLbl = edge.getChildAt(0);
+                                    var subGeo = subLbl.getGeometry();
+
+                                    if (subGeo != null && subGeo.offset != null)
+                                    {
+                                        subGeo.offset = new mxPoint(curveLblOffset.x - subGeo.width / 2,
+                                            curveLblOffset.y - subGeo.height / 2);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                edgeGeometry.offset = curveLblOffset;
+                            }
+                        }
+
+                        // And the same re-parent translation
+                        if (reparented)
+                        {
+                            for (var i = 0; i < curvePoints.length; i++)
+                            {
+                                curvePoints[i].x += accX;
+                                curvePoints[i].y += accY;
+                            }
+                        }
+                    }
 
                     var layers = this.layerIndexToNames(edgeShape.layerMember);
                             
@@ -1522,18 +1700,42 @@ var com;
                     edgeGeometry.points = (points);
                     edgeGeometry.setTerminalPoint(beginXY, true);
                     edgeGeometry.setTerminalPoint(endXY, false);
-                    if (styleMap.hasOwnProperty("curved") && (function (o1, o2) { if (o1 && o1.equals) {
-                        return o1.equals(o2);
-                    }
-                    else {
-                        return o1 === o2;
-                    } })(/* get */ (function (m, k) { return m[k] ? m[k] : null; })(styleMap, "curved"), "1")) {
-                        edgeGeometry = graph.getModel().getGeometry(edge);
-                        var pointList = edgeShape.getControlPoints(parentHeight);
-                        edgeGeometry.points = (pointList);
-                    }
+                    // NURBS/curve handling is done in processEdgeGeo
+					var curvePoints = this.processEdgeGeo(edgeShape, edge, parentHeight);
 
-					this.processEdgeGeo(edgeShape, edge) ;
+                    if (curvePoints != null)
+                    {
+                        // The converted curve is computed in the edge shape's own frame:
+                        // apply the same parent group rotation the routing points and
+                        // terminals got above (terminal args are throwaways)
+                        this.rotateChildEdge(graph.getModel(), parent, new mxPoint(0, 0), new mxPoint(0, 0), curvePoints);
+
+                        // Re-anchor the label to the converted path
+                        var curveLblOffset = edgeShape.getLblEdgeOffset(graph.getView(),
+                            [beginXY].concat(curvePoints, [endXY]));
+
+                        if (curveLblOffset != null)
+                        {
+                            if (hasSubLabel)
+                            {
+                                if (edge.getChildCount() > 0)
+                                {
+                                    var subLbl = edge.getChildAt(0);
+                                    var subGeo = subLbl.getGeometry();
+
+                                    if (subGeo != null && subGeo.offset != null)
+                                    {
+                                        subGeo.offset = new mxPoint(curveLblOffset.x - subGeo.width / 2,
+                                            curveLblOffset.y - subGeo.height / 2);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                edgeGeometry.offset = curveLblOffset;
+                            }
+                        }
+                    }
 
                     return edge;
                 };
@@ -1558,6 +1760,42 @@ var com;
                             }
                         }
                     }
+                };
+                /**
+                 * Reduces an arbitrary string (e.g. a Visio property label like
+                 * "Input Voltage (V)") to a valid XML attribute name, or null if
+                 * nothing usable remains. Do not rely on setAttribute to reject bad
+                 * names: browsers accept names (parentheses etc.) that XMLSerializer
+                 * happily writes but no strict XML parser will read back.
+                 */
+                mxVsdxCodec.sanitizeAttributeName = function (name) {
+                    if (name == null)
+                	{
+                        return null;
+                	}
+
+                    // Whitespace runs become dashes, all other characters outside the
+                    // XML NCName grammar are dropped (colons too: they would create
+                    // undeclared namespace prefixes), repeated dashes collapse, and
+                    // leading/trailing dashes and dots are trimmed
+                    var key = name.trim().replace(/\s+/g, '-')
+                        .replace(/[^A-Za-z0-9._\-]/g, '')
+                        .replace(/-{2,}/g, '-')
+                        .replace(/^[-.]+|[-.]+$/g, '');
+
+                    if (key.length == 0)
+                	{
+                        return null;
+                	}
+
+                    // Names must not start with a digit, dot or dash, and the "xml"
+                    // prefix is reserved by the XML spec
+                    if (/^[0-9.\-]/.test(key) || /^xml/i.test(key))
+                	{
+                        key = '_' + key;
+                	}
+
+                    return key;
                 };
                 /**
                  * Post processes groups to remove leaf vertices that render nothing
@@ -1589,13 +1827,16 @@ var com;
                     
                     //Check for -ve width/height cells and correct it
                     var geo = cell.geometry;
-                    
+
                     if (geo != null)
                 	{
+                    	var dx = 0, dy = 0;
+
                     	if (geo.height < 0)
                 		{
                     		geo.height = Math.abs(geo.height);
                     		geo.y -= geo.height;
+                    		dy = geo.height;
                     		cell.style += ';flipV=1;';
                 		}
 
@@ -1603,7 +1844,25 @@ var com;
                 		{
                     		geo.width = Math.abs(geo.width);
                     		geo.x -= geo.width;
+                    		dx = geo.width;
                     		cell.style += ';flipH=1;';
+                		}
+
+                    	// Normalizing moves the cell's origin while child geometries
+                    	// are relative to it (not to the box), so shift the children
+                    	// back to keep their absolute positions (e.g. line labels on
+                    	// connectors with Width=EndX-BeginX < 0, see issue 5228)
+                    	if (dx != 0 || dy != 0)
+                		{
+                    		for (var ci = 0; ci < model.getChildCount(cell); ci++)
+                    		{
+                    			var childGeo = model.getChildAt(cell, ci).geometry;
+
+                    			if (childGeo != null)
+                    			{
+                    				childGeo.translate(dx, dy);
+                    			}
+                    		}
                 		}
                 	}
                     
@@ -1695,6 +1954,9 @@ var com;
 	                                        if (shape.isVertex()) {
 	                                            /* clear */ this_1.edgeShapeMap.entries = [];
 	                                            /* clear */ this_1.parentsMap.entries = [];
+	                                            // Cleared per master so applyUncroppedImages below cannot
+	                                            // match a shape ID registered by an earlier master
+	                                            /* clear */ this_1.vertexMap.entries = [];
 	                                            cell = this_1.addShape(shapeGraph, shape, shapeGraph.getDefaultParent(), 0, 1169);
 	                                            {
 	                                                var array131 = (function (m) { if (m.entries == null)
@@ -1715,7 +1977,12 @@ var com;
 	                                        else {
 	                                            cell = this_1.addUnconnectedEdge(shapeGraph, null, shape, 1169);
 	                                        }
-	                                        
+
+	                                        // Masters are encoded synchronously: the async crop pass
+	                                        // pages get (postImportPage) never runs for them, so apply
+	                                        // deferred images uncropped instead of losing them
+	                                        this_1.applyUncroppedImages(shape, 0);
+
 	                                        hasCells |= (cell != null);
                                         }
                                         
@@ -1875,7 +2142,34 @@ var com;
 
                 	return {width: maxX - minX, height: maxY - minY}
                 };
-                
+
+                /**
+                 * Appends deferred (to-be-cropped) images to master cells uncropped.
+                 * Pages resolve toBeCroppedImg asynchronously in postImportPage, but
+                 * masters are encoded synchronously right after being built, so a
+                 * deferred image would otherwise be dropped from the library shape
+                 * (and the imageless cell then pruned by sanitiseGraph).
+                 */
+                mxVssxCodec.prototype.applyUncroppedImages = function (shape, pageId) {
+                    var toCrop = shape.toBeCroppedImg;
+                    if (toCrop != null && toCrop.iType != null && toCrop.iData != null) {
+                        var cell = (function (m, k) { if (m.entries == null)
+                            m.entries = []; for (var i = 0; i < m.entries.length; i++)
+                            if (m.entries[i].key.equals != null && m.entries[i].key.equals(k) || m.entries[i].key === k) {
+                                return m.entries[i].value;
+                            } return null; })(this.vertexMap, new com.mxgraph.io.vsdx.ShapePageId(pageId, shape.getId()));
+                        if (cell != null && cell.style != null && cell.style.indexOf(';image=') < 0) {
+                            cell.style += ';image=data:image/' + toCrop.iType + ',' + toCrop.iData;
+                        }
+                    }
+                    var children = shape.getChildShapes();
+                    if (children != null && children.entries != null) {
+                        for (var i = 0; i < children.entries.length; i++) {
+                            this.applyUncroppedImages(children.entries[i].value, pageId);
+                        }
+                    }
+                };
+
                 mxVssxCodec.prototype.transPoint = function (p, srcP) {
                     if (p != null) {
                         p.x = (p.x - srcP.x);
@@ -2187,19 +2481,19 @@ var com;
                          * Map with the document's colors.<br/>
                          * The key is the index number and the value is the hex representation of the color.
                          */
-                        /*private*/ this.colorElementMap = ({});
+                        /*private*/ this.colorElementMap = (Object.create(null));
                         /**
                          * Map with the document's fonts.<br/>
                          * The key is the ID and the value is the name of the font.
                          */
-                        /*private*/ this.fontElementMap = ({});
+                        /*private*/ this.fontElementMap = (Object.create(null));
                     }
                     mxPropertiesManager.__static_initialize = function () { if (!mxPropertiesManager.__static_initialized) {
                         mxPropertiesManager.__static_initialized = true;
                         mxPropertiesManager.__static_initializer_0();
                     } };
                     mxPropertiesManager.defaultColors_$LI$ = function () { mxPropertiesManager.__static_initialize(); if (mxPropertiesManager.defaultColors == null)
-                        mxPropertiesManager.defaultColors = ({}); return mxPropertiesManager.defaultColors; };
+                        mxPropertiesManager.defaultColors = (Object.create(null)); return mxPropertiesManager.defaultColors; };
                     ;
                     mxPropertiesManager.__static_initializer_0 = function () {
                         /* put */ (mxPropertiesManager.defaultColors_$LI$()["0"] = "#000000");
@@ -2768,10 +3062,11 @@ var com;
                             var row = this_1.rows[index124];
                             {
                                 /* append */ 
-                            	(function (sb) 
+                            	(function (sb)
                                 {
                             		//Some files has null rows
-                                	return sb.str = sb.str.concat(row != null? row.handle(p, shape) : ''); 
+                            		//The row list and position let SplineStart consume its SplineKnot rows
+                                	return sb.str = sb.str.concat(row != null? row.handle(p, shape, this_1.rows, index124) : '');
                                 })(geomElemParsed);
                             }
                         };
@@ -3089,7 +3384,7 @@ var com;
                          */
                         this.Id = null;
                         this.masterShape = null;
-                        this.childShapes = ({});
+                        this.childShapes = (Object.create(null));
                         this.master = null;
                         this.master = m;
                         this.Id = m.getAttribute(com.mxgraph.io.vsdx.mxVsdxConstants.ID) || "";
@@ -3307,11 +3602,11 @@ var com;
                          * Map of master objects indexed by their ID. Before you think you're being clever by making
                          * the index an Integer as for pages, don't, there are reasons.
                          */
-                        this.masters = ({});
+                        this.masters = (Object.create(null));
                         /**
                          * Map stylesheets indexed by their ID
                          */
-                        this.stylesheets = ({});
+                        this.stylesheets = (Object.create(null));
                         /**
                          * Map themes indexed by their index
                          */
@@ -3720,7 +4015,7 @@ var com;
                                             var connectElem = connectNode;
                                             var connect = new com.mxgraph.io.vsdx.mxVsdxConnect(connectElem);
                                             var fromSheet = connect.getFromSheet();
-                                            this.connectsMap[fromSheet] = true;
+                                            this.connectsMap[fromSheet] = (this.connectsMap[fromSheet] || 0) + 1;
                                             var previousConnect = (fromSheet != null && fromSheet > -1) ? (function (m, k) { if (m.entries == null)
                                                 m.entries = []; for (var i = 0; i < m.entries.length; i++)
                                                 if (m.entries[i].key.equals != null && m.entries[i].key.equals(k) || m.entries[i].key === k) {
@@ -4026,8 +4321,9 @@ var com;
                 var mxVsdxTheme = (function () {
                     function mxVsdxTheme(theme) {
                         /*private*/ this.themeIndex = -1;
-                        /*private*/ this.themeVariant = 0;
-                        /*private*/ this.baseColors = ({});
+                        /*private*/ this.themeVariantClr = 0;
+                        /*private*/ this.themeVariantStl = 0;
+                        /*private*/ this.baseColors = (Object.create(null));
                         /*private*/ this.variantsColors = (function (dims) { var allocate = function (dims) { if (dims.length == 0) {
                             return undefined;
                         }
@@ -4111,7 +4407,7 @@ var com;
                         mxVsdxTheme.__static_initializer_1();
                     } };
                     mxVsdxTheme.themesIds_$LI$ = function () { mxVsdxTheme.__static_initialize(); if (mxVsdxTheme.themesIds == null)
-                        mxVsdxTheme.themesIds = ({}); return mxVsdxTheme.themesIds; };
+                        mxVsdxTheme.themesIds = (Object.create(null)); return mxVsdxTheme.themesIds; };
                     ;
                     mxVsdxTheme.__static_initializer_0 = function () {
                         /* put */ (mxVsdxTheme.themesIds_$LI$()["Office"] = 33);
@@ -4197,8 +4493,11 @@ var com;
                     mxVsdxTheme.prototype.getThemeIndex = function () {
                         return this.themeIndex;
                     };
-                    mxVsdxTheme.prototype.setVariant = function (variant) {
-                        this.themeVariant = variant;
+                    mxVsdxTheme.prototype.setVariantClr = function (variant) {
+                        this.themeVariantClr = variant;
+                    };
+                    mxVsdxTheme.prototype.setVariantStl = function (variant) {
+                        this.themeVariantStl = variant;
                     };
                     mxVsdxTheme.prototype.isPure = function () {
                         return this.__isPure;
@@ -4580,7 +4879,7 @@ var com;
                                 clrIndex = styleColor - 100;
                             }
                             if (clrIndex >= 0 && clrIndex <= 6) {
-                                color = this.variantsColors[this.themeVariant][clrIndex];
+                                color = this.variantsColors[this.themeVariantClr % this.variantsColors.length][clrIndex];
                             }
                             if (color != null) {
                                 return color.getColor$com_mxgraph_io_vsdx_mxVsdxTheme(this);
@@ -4596,68 +4895,81 @@ var com;
                     };
                     mxVsdxTheme.prototype.getFillColor$com_mxgraph_io_vsdx_theme_QuickStyleVals$boolean = function (quickStyleVals, getGradient) {
                         this.processTheme();
-                        var fillColorStyle = quickStyleVals.getQuickStyleFillColor();
                         var fillStyle = null;
-                        switch ((quickStyleVals.getQuickStyleFillMatrix())) {
-                            case 1:
-                            case 2:
-                            case 3:
-                            case 4:
-                            case 5:
-                            case 6:
-                                fillStyle = this.fillStyles[quickStyleVals.getQuickStyleFillMatrix() - 1];
-                                break;
-                            case 100:
-                            case 101:
-                            case 102:
-                            case 103:
-                                if (this.isMonotoneVariant[this.themeVariant])
-                                    fillColorStyle = 100;
-                                var index = quickStyleVals.getQuickStyleFillMatrix() - 100;
-                                fillStyle = this.fillStyles[this.variantFillIdx[this.themeVariant][index] - 1];
-                                break;
-                        }
-                        var retColor;
-                        if (fillStyle != null) {
-                            if (getGradient) {
-                                retColor = (fillStyle != null && fillStyle instanceof com.mxgraph.io.vsdx.theme.GradFill) ? fillStyle.applyStyle(fillColorStyle, this).getGradientClr() : null;
-                            }
-                            else {
-                                retColor = fillStyle.applyStyle(fillColorStyle, this);
-                            }
-                        }
-                        else {
-                            if (getGradient) {
-                                retColor = null;
-                            }
-                            else {
-                                retColor = this.getStyleColor(fillColorStyle);
-                            }
-                        }
-                        var styleVariation = quickStyleVals.getQuickStyleVariation();
-                        
-                        //TODO This is the best efforts of interpreting the documentation and also this article https://visualsignals.typepad.co.uk/vislog/2013/05/visio-2013-themes-in-the-shapesheet-part-2.html
-                        if (retColor != null && (styleVariation & 8) > 0) 
+
+                        try
                         {
-                        	var bkgHSLClr = this.getStyleColor(8).toHsl();
-                        	var lineClr = this.getLineColor$com_mxgraph_io_vsdx_theme_QuickStyleVals(quickStyleVals);
-                        	var lineHSLClr = lineClr.toHsl();
-                            var fillHSLClr = retColor.toHsl();
+                            var fillColorStyle = quickStyleVals.getQuickStyleFillColor();
                             
-                            
-                            if (Math.abs(bkgHSLClr.getLum() - fillHSLClr.getLum()) >= 0.1666) 
-                            {
-                            	//nothing
+                            switch ((quickStyleVals.getQuickStyleFillMatrix())) {
+                                case 1:
+                                case 2:
+                                case 3:
+                                case 4:
+                                case 5:
+                                case 6:
+                                    fillStyle = this.fillStyles[quickStyleVals.getQuickStyleFillMatrix() - 1];
+                                    break;
+                                case 100:
+                                case 101:
+                                case 102:
+                                case 103:
+                                    if (this.isMonotoneVariant[this.themeVariantStl])
+                                        fillColorStyle = 100;
+                                    var index = quickStyleVals.getQuickStyleFillMatrix() - 100;
+                                    fillStyle = this.fillStyles[this.variantFillIdx[this.themeVariantStl][index] - 1];
+                                    break;
                             }
-                            else if (bkgHSLClr.getLum() <= 0.7292) 
-                            {
-                            	retColor = new com.mxgraph.io.vsdx.theme.Color(255, 255, 255);
-                            }
-                            else if (Math.abs(bkgHSLClr.getLum() - lineHSLClr.getLum()) > Math.abs(bkgHSLClr.getLum() - fillHSLClr.getLum()))
-                        	{
-                            	retColor = lineClr;
-                        	}
                         }
+                        catch(e) {} // Ignore errors
+
+                        var retColor = '#FFFFFF';
+
+                        try
+                        {
+                            if (fillStyle != null) {
+                                if (getGradient) {
+                                    retColor = (fillStyle != null && fillStyle instanceof com.mxgraph.io.vsdx.theme.GradFill) ? fillStyle.applyStyle(fillColorStyle, this).getGradientClr() : null;
+                                }
+                                else {
+                                    retColor = fillStyle.applyStyle(fillColorStyle, this);
+                                }
+                            }
+                            else {
+                                if (getGradient) {
+                                    retColor = null;
+                                }
+                                else {
+                                    retColor = this.getStyleColor(fillColorStyle);
+                                }
+                            }
+                            var styleVariation = quickStyleVals.getQuickStyleVariation();
+                            
+                            //TODO This is the best efforts of interpreting the documentation and also this article https://visualsignals.typepad.co.uk/vislog/2013/05/visio-2013-themes-in-the-shapesheet-part-2.html
+                            if (retColor != null && (styleVariation & 8) > 0) 
+                            {
+                                var bkgHSLClr = this.getStyleColor(8).toHsl();
+                                var lineClr = this.getLineColor$com_mxgraph_io_vsdx_theme_QuickStyleVals(quickStyleVals);
+                                var lineHSLClr = typeof lineClr == 'object'? lineClr.toHsl() : com.mxgraph.io.vsdx.theme.Color.decodeColorHex(lineClr).toHsl();
+                                var fillHSLClr = typeof retColor == 'object'? retColor.toHsl() : com.mxgraph.io.vsdx.theme.Color.decodeColorHex(retColor).toHsl();
+                                
+                                
+                                if (Math.abs(bkgHSLClr.getLum() - fillHSLClr.getLum()) >= 0.1666) 
+                                {
+                                    //nothing
+                                }
+                                else if (bkgHSLClr.getLum() <= 0.7292) 
+                                {
+                                    retColor = new com.mxgraph.io.vsdx.theme.Color(255, 255, 255);
+                                }
+                                else if (Math.abs(bkgHSLClr.getLum() - lineHSLClr.getLum()) > Math.abs(bkgHSLClr.getLum() - fillHSLClr.getLum()))
+                                {
+                                    retColor = lineClr;
+                                }
+                            }
+                        }
+                        catch(e) {} // Ignore errors
+                        
                         return retColor;
                     };
                     mxVsdxTheme.prototype.getFillColor = function (quickStyleVals, getGradient) {
@@ -4687,8 +4999,8 @@ var com;
                             case 102:
                             case 103:
                                 var index = quickStyleLineMatrix - 100;
-                                if (lineStyles === this.lineStyles) {
-                                    lineStyle = this.lineStyles[this.variantLineIdx[this.themeVariant][index] - 1];
+                                if (lineStyles === this.lineStyles && this.variantLineIdx[this.themeVariantStl] != null) {
+                                    lineStyle = this.lineStyles[this.variantLineIdx[this.themeVariantStl][index] - 1];
                                 }
                                 else {
                                     lineStyle = this.defaultLineStyle;
@@ -4722,7 +5034,7 @@ var com;
                             case 101:
                             case 102:
                             case 103:
-                                if (this.isMonotoneVariant[this.themeVariant])
+                                if (this.isMonotoneVariant[this.themeVariantStl])
                                     lineColorStyle = 100;
                                 break;
                         }
@@ -4740,8 +5052,8 @@ var com;
                         {
                         	var bkgHSLClr = this.getStyleColor(8).toHsl();
                         	var fillColor = this.getFillColor$com_mxgraph_io_vsdx_theme_QuickStyleVals(quickStyleVals);
-                            var fillHSLClr = fillColor.toHsl();
-                            var lineHSLClr = lineClr.toHsl();
+                            var fillHSLClr = typeof fillColor == 'object'? fillColor.toHsl() : com.mxgraph.io.vsdx.theme.Color.decodeColorHex(fillColor).toHsl();
+                            var lineHSLClr = typeof lineClr == 'object'? lineClr.toHsl() : com.mxgraph.io.vsdx.theme.Color.decodeColorHex(lineClr).toHsl();
                             
                             if (Math.abs(bkgHSLClr.getLum() - lineHSLClr.getLum()) >= 0.1666) 
                             {
@@ -4868,14 +5180,14 @@ var com;
                             case 101:
                             case 102:
                             case 103:
-                                if (this.isMonotoneVariant[this.themeVariant])
+                                if (this.isMonotoneVariant[this.themeVariantStl])
                                     fontColorStyle = 100;
                                 var index = quickStyleVals.getQuickStyleFontMatrix() - 100;
                                 if (fontColors !== this.fontColors) {
                                     fontColor = (function (m, k) { return m[k] ? m[k] : null; })(this.baseColors, "dk1");
                                 }
                                 else {
-                                    fontColor = fontColors[this.variantFontIdx[this.themeVariant][index] - 1];
+                                    fontColor = fontColors[this.variantFontIdx[this.themeVariantStl][index] - 1];
                                 }
                                 break;
                         }
@@ -4892,11 +5204,11 @@ var com;
                         if ((styleVariation & 2) > 0) 
                         {
                         	var bkgHSLClr = this.getStyleColor(8).toHsl();
-                        	var txtHSLClr = txtColor.toHsl();
+                        	var txtHSLClr = typeof txtColor == 'object'? txtColor.toHsl() : com.mxgraph.io.vsdx.theme.Color.decodeColorHex(txtColor).toHsl();
                         	var fillColor = this.getFillColor$com_mxgraph_io_vsdx_theme_QuickStyleVals(quickStyleVals);
-                            var fillHSLClr = fillColor.toHsl();
+                            var fillHSLClr = typeof fillColor == 'object'? fillColor.toHsl() : com.mxgraph.io.vsdx.theme.Color.decodeColorHex(fillColor).toHsl();
                             var lineClr = this.getLineColor$com_mxgraph_io_vsdx_theme_QuickStyleVals(quickStyleVals);
-                            var lineHSLClr = lineClr.toHsl();
+                            var lineHSLClr = typeof lineClr == 'object'? lineClr.toHsl() : com.mxgraph.io.vsdx.theme.Color.decodeColorHex(lineClr).toHsl();
                             
                             if (Math.abs(bkgHSLClr.getLum() - txtHSLClr.getLum()) >= 0.1666) 
                             {
@@ -5443,6 +5755,12 @@ var com;
                         Color.NONE_$LI$ = function () { if (Color.NONE == null)
                             Color.NONE = new Color(-1, -1, -1); return Color.NONE; };
                         ;
+                        Color.getHexColor = function(color) {
+                            if (typeof color === 'string') {
+                                return color; // assume it's already hex
+                            }
+                            return color.toHexStr();
+                        };
                         Color.prototype.getRed = function () {
                             return this.red;
                         };
@@ -5518,6 +5836,7 @@ var com;
                             return new com.mxgraph.io.vsdx.theme.HSVColor(h, s, v);
                         };
                         Color.decodeColorHex = function (hex) {
+                            hex = hex? hex.replace('#', '') : 'FFFFFF';
                             var color = parseInt(hex, 16);
                             return new Color((color >> 16) & 255, (color >> 8) & 255, color & 255);
                         };
@@ -7605,23 +7924,51 @@ var com;
                             return _this;
                         }
                         /**
-                         *
+                         * Control point and knot of a B-spline. The SplineStart row that
+                         * heads the run emits the whole curve (see SplineStart.handle),
+                         * so a knot row that belongs to one produces no output of its
+                         * own. A knot row without a valid SplineStart falls back to a
+                         * straight segment to its control point.
                          * @param {mxPoint} p
                          * @param {com.mxgraph.io.vsdx.Shape} shape
+                         * @param {com.mxgraph.io.vsdx.geometry.Row[]} rows
+                         * @param {number} index
                          * @return {string}
                          */
-                        SplineKnot.prototype.handle = function (p, shape) {
-                            if (this.x != null && this.y != null && this.a != null) {
-                                var x = this.x * com.mxgraph.io.vsdx.mxVsdxUtils.conversionFactor_$LI$();
-                                var y = this.y * com.mxgraph.io.vsdx.mxVsdxUtils.conversionFactor_$LI$();
-                                var a = this.a;
-                                var knot = a;
-                                y = 100 - y;
-                                x = Math.round(x * 100.0) / 100.0;
-                                y = Math.round(y * 100.0) / 100.0;
-                                knot = Math.round(knot * 100.0) / 100.0;
-                                shape.setLastX(x);
-                                shape.setLastY(y);
+                        SplineKnot.prototype.handle = function (p, shape, rows, index) {
+                            var geometry = com.mxgraph.io.vsdx.geometry;
+
+                            // Walk back over the run: only rows a SplineStart would have
+                            // consumed (complete knot rows and deleted rows) may sit
+                            // between this row and its SplineStart
+                            if (this.x != null && this.y != null && this.a != null && rows != null && index != null) {
+                                for (var i = index - 1; i >= 0; i--) {
+                                    var r = rows[i];
+                                    if (r == null || r instanceof geometry.DelRow ||
+                                        (r instanceof geometry.SplineKnot && r.x != null && r.y != null && r.a != null)) {
+                                        continue;
+                                    }
+                                    if (r instanceof geometry.SplineStart && r.x != null && r.y != null &&
+                                        r.a != null && r.b != null && r.c != null && r.d != null) {
+                                        return "";
+                                    }
+                                    break;
+                                }
+                            }
+                            if (this.x != null && this.y != null) {
+                                var h = shape.getHeight();
+                                var w = shape.getWidth();
+                                if (w > 0 && h > 0) {
+                                    var x = this.x * com.mxgraph.io.vsdx.mxVsdxUtils.conversionFactor_$LI$() * 100.0 / w;
+                                    var y = 100 - this.y * com.mxgraph.io.vsdx.mxVsdxUtils.conversionFactor_$LI$() * 100.0 / h;
+                                    x = Math.round(x * 100.0) / 100.0;
+                                    y = Math.round(y * 100.0) / 100.0;
+                                    p.x = (x);
+                                    p.y = (y);
+                                    shape.setLastX(x);
+                                    shape.setLastY(y);
+                                    return "<line x=\"" + x + "\" y=\"" + y + "\"/>";
+                                }
                             }
                             return "";
                         };
@@ -7654,31 +8001,177 @@ var com;
                             return _this;
                         }
                         /**
-                         *
+                         * Emits the whole spline run as stencil cubic bezier segments.
+                         * The run defines a B-spline: the control points are the current
+                         * point, this row's X,Y and each following SplineKnot's X,Y; the
+                         * knots are B (first knot), A (second knot), each SplineKnot's A
+                         * and C (last knot) repeated until #knots = #control points +
+                         * degree + 1, so the curve is clamped at the end (same convention
+                         * as the NURBS element, see nurbsSegsTo). D is the degree.
                          * @param {mxPoint} p
                          * @param {com.mxgraph.io.vsdx.Shape} shape
+                         * @param {com.mxgraph.io.vsdx.geometry.Row[]} rows
+                         * @param {number} index
                          * @return {string}
                          */
-                        SplineStart.prototype.handle = function (p, shape) {
+                        SplineStart.prototype.handle = function (p, shape, rows, index) {
                             if (this.x != null && this.y != null && this.a != null && this.b != null && this.c != null && this.d != null) {
                                 var h = shape.getHeight();
                                 var w = shape.getWidth();
-                                var x = this.x * com.mxgraph.io.vsdx.mxVsdxUtils.conversionFactor_$LI$();
-                                var y = this.y * com.mxgraph.io.vsdx.mxVsdxUtils.conversionFactor_$LI$();
-                                var c = this.c;
-                                var d = (this.d | 0);
-                                var lastKnot = c;
-                                shape.setLastKnot(lastKnot);
-                                var degree = d;
-                                y = 100 - y;
-                                x = Math.round(x * 100.0) / 100.0;
-                                y = Math.round(y * 100.0) / 100.0;
-                                lastKnot = Math.round(lastKnot * 100.0) / 100.0;
-                                var x0 = shape.getLastX() * w / 100.0;
-                                var y0 = shape.getLastY() * h / 100.0;
-                                shape.setLastX(x);
-                                shape.setLastY(y);
-                                return "<curve ";
+                                if (!(w > 0) || !(h > 0)) {
+                                    return "";
+                                }
+                                var geometry = com.mxgraph.io.vsdx.geometry;
+                                var cf = com.mxgraph.io.vsdx.mxVsdxUtils.conversionFactor_$LI$();
+
+                                // Local coordinates (inches, Y-up) to stencil space
+                                // (0..100, Y-down)
+                                function toStencil(rx, ry) {
+                                    return { x: rx * cf * 100.0 / w, y: 100 - ry * cf * 100.0 / h };
+                                }
+
+                                var ctrlPts = [{ x: shape.getLastX(), y: shape.getLastY() }, toStencil(this.x, this.y)];
+                                var knots = [this.b, this.a];
+
+                                if (rows != null && index != null) {
+                                    for (var i = index + 1; i < rows.length; i++) {
+                                        var r = rows[i];
+                                        if (r == null || r instanceof geometry.DelRow) {
+                                            continue;
+                                        }
+                                        if (r instanceof geometry.SplineKnot && r.x != null && r.y != null && r.a != null) {
+                                            ctrlPts.push(toStencil(r.x, r.y));
+                                            knots.push(r.a);
+                                        }
+                                        else {
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                var n = ctrlPts.length - 1;
+                                var deg = Math.min(Math.max(1, Math.round(this.d)), n);
+
+                                while (knots.length < n + deg + 2) {
+                                    knots.push(this.c);
+                                }
+
+                                // Validity: non-decreasing, no knot multiplicity above
+                                // degree + 1 and a non-empty curve domain
+                                var usable = true;
+                                for (var k = 1; k < knots.length && usable; k++) {
+                                    usable = knots[k] >= knots[k - 1];
+                                }
+                                for (var k = 0; k <= n && usable; k++) {
+                                    usable = knots[k] < knots[k + deg + 1];
+                                }
+                                usable = usable && knots[deg] < knots[n + 1];
+
+                                // Fall back to a uniform clamped knot vector if the stored
+                                // values are unusable
+                                if (!usable) {
+                                    knots = [];
+                                    for (var k = 0; k <= deg; k++) {
+                                        knots.push(0);
+                                    }
+                                    for (var k = 1; k <= n - deg; k++) {
+                                        knots.push(k / (n - deg + 1));
+                                    }
+                                    for (var k = 0; k <= deg; k++) {
+                                        knots.push(1);
+                                    }
+                                }
+
+                                var uStart = knots[deg];
+                                var uEnd = knots[n + 1];
+
+                                // De Boor's algorithm (spline rows are non-rational, so no
+                                // weights; see nurbsSegsTo for the rational variant)
+                                function findSpan(u) {
+                                    if (u >= knots[n + 1]) return n;
+                                    if (u <= knots[deg]) return deg;
+                                    var low = deg, high = n + 1;
+                                    while (high - low > 1) {
+                                        var mid = Math.floor((low + high) / 2);
+                                        if (u < knots[mid]) high = mid;
+                                        else low = mid;
+                                    }
+                                    return low;
+                                }
+
+                                function evaluate(u) {
+                                    var span = findSpan(u);
+                                    var pts = [];
+                                    for (var j = 0; j <= deg; j++) {
+                                        var idx = Math.max(0, Math.min(span - deg + j, n));
+                                        pts.push({ x: ctrlPts[idx].x, y: ctrlPts[idx].y });
+                                    }
+                                    for (var lvl = 1; lvl <= deg; lvl++) {
+                                        for (var j = deg; j >= lvl; j--) {
+                                            var ii = span - deg + j;
+                                            var denom = knots[ii + deg + 1 - lvl] - knots[ii];
+                                            var alpha = (denom > 1e-10) ? (u - knots[ii]) / denom : 0;
+                                            pts[j] = {
+                                                x: (1 - alpha) * pts[j - 1].x + alpha * pts[j].x,
+                                                y: (1 - alpha) * pts[j - 1].y + alpha * pts[j].y
+                                            };
+                                        }
+                                    }
+                                    return pts[deg];
+                                }
+
+                                function r2(v) {
+                                    return Math.round(v * 100.0) / 100.0;
+                                }
+
+                                var result = "";
+
+                                // If the spline does not start at the current point (start
+                                // not clamped), join with a straight segment
+                                var first = evaluate(uStart);
+                                if (Math.abs(first.x - ctrlPts[0].x) > 0.5 || Math.abs(first.y - ctrlPts[0].y) > 0.5) {
+                                    result += "<line x=\"" + r2(first.x) + "\" y=\"" + r2(first.y) + "\"/>\n";
+                                }
+
+                                // One cubic per knot span: between consecutive distinct
+                                // knots the spline is a single polynomial arc, so for
+                                // degree <= 3 a cubic through its points at t = 0, 1/3,
+                                // 2/3, 1 reproduces it exactly; higher degrees are
+                                // subdivided
+                                var eps = (uEnd - uStart) * 1e-6;
+                                var breaks = [uStart];
+                                for (var k = deg + 1; k <= n + 1; k++) {
+                                    if (knots[k] > breaks[breaks.length - 1] + eps) {
+                                        breaks.push(Math.min(knots[k], uEnd));
+                                    }
+                                }
+
+                                var nSub = Math.max(1, deg - 2);
+                                for (var seg = 0; seg < breaks.length - 1; seg++) {
+                                    for (var sub = 0; sub < nSub; sub++) {
+                                        var uA = breaks[seg] + (breaks[seg + 1] - breaks[seg]) * sub / nSub;
+                                        var uB = breaks[seg] + (breaks[seg + 1] - breaks[seg]) * (sub + 1) / nSub;
+                                        var s0 = evaluate(uA);
+                                        var s1 = evaluate(uA + (uB - uA) / 3);
+                                        var s2 = evaluate(uA + (uB - uA) * 2 / 3);
+                                        var s3 = evaluate(uB);
+
+                                        // Exact cubic interpolation of the points at
+                                        // t = 0, 1/3, 2/3, 1
+                                        result += "<curve x1=\"" + r2((-5 * s0.x + 18 * s1.x - 9 * s2.x + 2 * s3.x) / 6) +
+                                            "\" y1=\"" + r2((-5 * s0.y + 18 * s1.y - 9 * s2.y + 2 * s3.y) / 6) +
+                                            "\" x2=\"" + r2((2 * s0.x - 9 * s1.x + 18 * s2.x - 5 * s3.x) / 6) +
+                                            "\" y2=\"" + r2((2 * s0.y - 9 * s1.y + 18 * s2.y - 5 * s3.y) / 6) +
+                                            "\" x3=\"" + r2(s3.x) + "\" y3=\"" + r2(s3.y) + "\"/>\n";
+                                    }
+                                }
+
+                                var last = evaluate(uEnd);
+                                p.x = (r2(last.x));
+                                p.y = (r2(last.y));
+                                shape.setLastX(p.x);
+                                shape.setLastY(p.y);
+                                return result;
                             }
                             return "";
                         };
@@ -8175,7 +8668,7 @@ var com;
                                 var theme_7 = this.getTheme();
                                 if (theme_7 != null) {
                                     var colorObj = this.isVertex() ? theme_7.getLineColor$com_mxgraph_io_vsdx_theme_QuickStyleVals(this.getQuickStyleVals()) : theme_7.getConnLineColor(this.getQuickStyleVals());
-                                    color = colorObj.toHexStr();
+                                    color = com.mxgraph.io.vsdx.theme.Color.getHexColor(colorObj);
                                 }
                                 else {
                                     color = "";
@@ -8200,7 +8693,7 @@ var com;
                         else {
                             return o1 === o2;
                         } })("1", fillGradientEnabled)) {
-                            var fillGradient = (function (m, k) { return m[k] ? m[k] : null; })(this.sections, "FillGradient");
+                            var fillGradient = this.sections["FillGradient"] || (this.masterShape != null ? this.masterShape.sections["FillGradient"] : null);
                             if (fillGradient != null) {
                                 var color = this.getColor(fillGradient.getIndexedCell("0", "GradientStopColor"));
                                 if (color != null && !(color.length === 0))
@@ -8217,7 +8710,7 @@ var com;
                             var theme_8 = this.getTheme();
                             if (theme_8 != null) {
                                 var color = theme_8.getFillColor$com_mxgraph_io_vsdx_theme_QuickStyleVals(this.getQuickStyleVals());
-                                fillForeColor = color.toHexStr();
+                                fillForeColor = com.mxgraph.io.vsdx.theme.Color.getHexColor(color);
                             }
                             else {
                                 fillForeColor = "#FFFFFF";
@@ -8342,7 +8835,7 @@ var com;
                             var theme_9 = this.getTheme();
                             if (theme_9 != null) {
                                 var colorObj = this.isVertex() ? theme_9.getFontColor$com_mxgraph_io_vsdx_theme_QuickStyleVals(this.getQuickStyleVals()) : theme_9.getConnFontColor(this.getQuickStyleVals());
-                                color = colorObj.toHexStr();
+                                color = com.mxgraph.io.vsdx.theme.Color.getHexColor(colorObj);
                             }
                             else {
                                 color = "#000000";
@@ -9024,7 +9517,8 @@ var com;
                         _this.lastKnot = -1;
                         _this.geomList = null;
                         _this.geomListProcessed = false;
-                        _this.themeVariant = 0;
+                        _this.themeVariantClr = 0;
+                        _this.themeVariantStl = 0;
                         /**
                          * Last cp IX referenced in the Text Element.
                          */
@@ -9056,13 +9550,15 @@ var com;
                 		return Shape.UNICODE_LINE_SEP;
             		};
                     ;
-                    Shape.prototype.setThemeAndVariant = function (theme, themeVariant) {
+                    Shape.prototype.setThemeAndVariant = function (theme, themeVariantClr, themeVariantStl) {
                         this.theme = theme;
-                        this.themeVariant = themeVariant;
+                        this.themeVariantClr = themeVariantClr;
+                        this.themeVariantStl = themeVariantStl;
                     };
                     Shape.prototype.getTheme = function () {
                         if (this.theme != null) {
-                            this.theme.setVariant(this.themeVariant);
+                            this.theme.setVariantClr(this.themeVariantClr);
+                            this.theme.setVariantStl(this.themeVariantStl);
                         }
                         return this.theme;
                     };
@@ -9169,6 +9665,14 @@ var com;
                                 return o1 === o2;
                             } })(iType, "Bitmap")) {
                                 compression = compression.toLowerCase();
+
+                                // CompressionType is file content that ends up inside the
+                                // cell style (image=data:image/<type>,...): only pass
+                                // through known bitmap types so a crafted value cannot
+                                // smuggle style keys or a foreign URL scheme
+                                if (!/^(png|jpg|jpeg|gif|tiff|bmp)$/.test(compression)) {
+                                    compression = "png";
+                                }
                             }
                             else if ((function (o1, o2) { if (o1 && o1.equals) {
                                 return o1.equals(o2);
@@ -9176,7 +9680,7 @@ var com;
                             else {
                                 return o1 === o2;
                             } })(iType, "MetaFile")) {
-                                compression = "png"; //we convert emf files to png
+                                compression = "svg+xml"; //we convert emf files to svg
                             }
                             else if ((function (o1, o2) { if (o1 && o1.equals) {
                                 return o1.equals(o2);
@@ -9189,13 +9693,13 @@ var com;
                             else {
                                 return o1 === o2;
                             } })(iType, "EnhMetaFile")) {
-                                compression = "png"; //we convert emf files to png
+                                compression = "svg+xml"; //we convert emf files to svg
                             }
                             else if (iType == "Object") //This is a very basic support for embedded visio objects by looking for associated image
                             {
                                 typeTarget = getForeignRel(elem, filename);
 
-                                if (typeTarget.type.indexOf('/oleObject') > 0)
+                                //if (typeTarget.type.indexOf('/oleObject') > 0) // Allow this hack for all
                                 {
                                     var relElem = model.getRelationship("rId1", "visio/embeddings/_rels/" + typeTarget.target + ".rels");
                                     
@@ -9292,7 +9796,7 @@ var com;
                                     var ix = row.getAttribute("IX") || "";
                                     if (!(ix.length === 0)) {
                                         if (this.fields == null) {
-                                            this.fields = ({});
+                                            this.fields = (Object.create(null));
                                         }
                                         var del = row.getAttribute("Del");
                                         if ((function (o1, o2) { if (o1 && o1.equals) {
@@ -10037,10 +10541,28 @@ var com;
                                 return m.entries[i].value;
                             } return null; })(model.getThemes(), themeIndex);
                         if (theme == null) {
-                            theme = model.getDefaultTheme();
+                            if (urlParams['dev'] == '1')
+                            {
+                                console.log('No theme found for index ' + themeIndex);
+                            }
+                            // Using a default theme doesn't work well with all cases. Maybe give users an option to choose a default theme?
+                            // theme = model.getDefaultTheme();
                         }
-                        var variant = page.getCellIntValue("VariationColorIndex", 0);
-                        _this.setThemeAndVariant(theme, variant);
+                        
+                        var variantClr = parseInt(_this.getValue(_this.getCellElement$java_lang_String("VariationColorIndex"), "-1"));
+                        var variantStl = parseInt(_this.getValue(_this.getCellElement$java_lang_String("VariationStyleIndex"), "-1"));
+
+                        if (variantClr == -1)
+                        {
+                            variantClr = page.getCellIntValue("VariationColorIndex", 0);
+                        }
+                        
+                        if (variantStl == -1)
+                        {
+                            variantStl = page.getCellIntValue("VariationStyleIndex", 0);
+                        }
+
+                        _this.setThemeAndVariant(theme, variantClr, variantStl);
                         {
                             var array161 = (function (m) { if (m.entries == null)
                                 m.entries = []; return m.entries; })(_this.childShapes);
@@ -10050,7 +10572,7 @@ var com;
                                     var childShape = entry.getValue();
                                     childShape.setRootShape(_this);
                                     if (childShape.theme == null) {
-                                        childShape.setThemeAndVariant(theme, variant);
+                                        childShape.setThemeAndVariant(theme, variantClr, variantStl);
                                     }
                                 }
                             }
@@ -10068,10 +10590,48 @@ var com;
                             _this.processGeomList(null);
                         }
 
+                        function isGroup()
+                        {
+                            var hasChildren = page.connectsMap[_this.Id] != 2 && (_this.childShapes != null && !(function (m) { if (m.entries == null)
+                                                    m.entries = []; return m.entries.length == 0; })(_this.childShapes));
+                            
+                            try
+                            {
+                                // Handle a special case where an edge have multiple labels
+                                if (_this.childShapes.entries.length == 1)
+                                {
+                                    var child = _this.childShapes.entries[0].value;
+
+                                    // A shape without any text element cannot be the
+                                    // edge-with-label pattern: keep the group (this is the
+                                    // same outcome the null text produced via the catch
+                                    // below, minus the console noise)
+                                    if ((!_this.fields && _this.text == null) ||
+                                        (!child.fields && child.text == null))
+                                    {
+                                        return hasChildren;
+                                    }
+
+                                    var edgeTxt = _this.fields? Object.values(_this.fields).join('') : _this.text.textContent;
+                                    var childTxt = child.fields? Object.values(child.fields).join('') : child.text.textContent;
+
+                                    if (edgeTxt == childTxt)
+                                    {
+                                        hasChildren = false;
+                                        _this.childShapes.entries = [];
+                                        _this.noLabelGroup = true;
+                                    }
+                                }
+                            }
+                            catch(e){
+                                console.log(e);
+                            }
+
+                            return hasChildren;
+                        }
                         // TODO It's hard to detect edges that should be treated like vertexes whhen they are groups and have child shapes.
                         // TODO Check this again if more complains are received or if we can have an edge group
-                        _this.vertex = vertex || (!page.connectsMap[_this.Id] && (_this.childShapes != null && !(function (m) { if (m.entries == null)
-                            m.entries = []; return m.entries.length == 0; })(_this.childShapes)) || (_this.geomList != null && (!_this.geomList.isNoFill()  || _this.geomList.getGeoCount() > 1)));
+                        _this.vertex = vertex || (isGroup() || (_this.geomList != null && (!_this.geomList.isNoFill() || _this.geomList.getGeoCount() > 1)));
                         _this.layerMember = _this.getValue(_this.getCellElement$java_lang_String("LayerMember"));
                         
                         if (_this.layerMember)
@@ -10441,7 +11001,7 @@ var com;
                      * @param {*} children the text Elements
                      */
                     VsdxShape.prototype.initLabels = function (children) {
-                        this.paragraphs = ({});
+                        this.paragraphs = (Object.create(null));
                         var ch = null;
                         var pg = null;
                         var fld = null;
@@ -10825,28 +11385,31 @@ var com;
                         else {
                             return o1 === o2;
                         } })("1", fillGradientEnabled)) {
-                            var fillGradient = (function (m, k) { return m[k] ? m[k] : null; })(this.sections, "FillGradient");
+                            var fillGradient = this.sections["FillGradient"] || (this.masterShape != null ? this.masterShape.sections["FillGradient"] : null);
                             if (fillGradient != null) {
                                 var rows = com.mxgraph.io.vsdx.mxVsdxUtils.getDirectChildNamedElements(fillGradient.elem, "Row");
                                 var color = this.getColor(fillGradient.getIndexedCell(/* get */ rows[rows.length - 1].getAttribute("IX"), "GradientStopColor"));
                                 if (color != null && !(color.length === 0))
                                     return color;
                             }
-                        }
-                        var gradient = "";
-                        var fillPattern = this.getValue(this.getCellElement$java_lang_String(com.mxgraph.io.vsdx.mxVsdxConstants.FILL_PATTERN), "0");
-                        if (parseInt(fillPattern) >= 25) {
-                            gradient = this.getColor(this.getCellElement$java_lang_String(com.mxgraph.io.vsdx.mxVsdxConstants.FILL_BKGND));
-                        }
-                        else {
-                            var theme_11 = this.getTheme();
-                            if (theme_11 != null) {
-                                var gradColor = theme_11.getFillGraientColor(this.getQuickStyleVals());
-                                if (gradColor != null)
-                                    gradient = gradColor.toHexStr();
+                            
+                            // TODO Now only check for theme gradient color if fillGradientEnabled is set
+                            var gradient = "";
+                            var fillPattern = this.getValue(this.getCellElement$java_lang_String(com.mxgraph.io.vsdx.mxVsdxConstants.FILL_PATTERN), "0");
+                            if (parseInt(fillPattern) >= 25) {
+                                gradient = this.getColor(this.getCellElement$java_lang_String(com.mxgraph.io.vsdx.mxVsdxConstants.FILL_BKGND));
                             }
+                            else {
+                                var theme_11 = this.getTheme();
+                                if (theme_11 != null) {
+                                    var gradColor = theme_11.getFillGraientColor(this.getQuickStyleVals());
+                                    if (gradColor != null)
+                                        gradient = gradColor.toHexStr? gradColor.toHexStr() : gradColor;
+                                }
+                            }
+                            return gradient;
                         }
-                        return gradient;
+                        return "";
                     };
                     /**
                      * Returns the direction of the gradient.<br/>
@@ -10993,7 +11556,7 @@ var com;
 	                    	for (var i = 0; i < rows.length; i++)
 	                    	{
 			                    var row = rows[i];
-                            	var n = row.getAttribute("N");
+                            	var n = row.getAttribute("N"), v = null;
                             	
 								var cells = com.mxgraph.io.vsdx.mxVsdxUtils.getDirectChildElements(row);
 
@@ -11004,10 +11567,18 @@ var com;
                         			 
                         			if (cn == 'Value')
                         			{
-                            			props.push({key: n, val: cell.getAttribute("V")});
-                            			break;
+                            			v = cell.getAttribute("V");
                         			}
+                                    else if (cn == 'Label')
+                                    {
+                                        n = cell.getAttribute("V");
+                                    }
                         		}
+
+                                if (v != null)
+                                {
+                                    props.push({key: n, val: v});
+                                }
 		                    }
                     	}
 
@@ -11692,9 +12263,17 @@ var com;
                                     var imgHeight = parseFloat(this.getValue(this.getCellElement$java_lang_String('ImgHeight'), "0"));
                                     var width = parseFloat(this.getValue(this.getCellElement$java_lang_String('Width'), "0"));
                                     var height = parseFloat(this.getValue(this.getCellElement$java_lang_String('Height'), "0"));
-                                    
-                                    if (imgOffsetX != 0 || imgOffsetY != 0 ||
-                                        imgWidth != width || imgHeight != height)
+
+                                    // Values are inches: stencils in the wild carry FP noise (e.g.
+                                    // ImgHeight differing from Height in the 13th decimal), and an
+                                    // exact compare sends those into the async crop path, which
+                                    // degrades the image and never runs at all for library masters.
+                                    // Zero/negative image extents cannot be cropped (div by zero).
+                                    var cropEps = 1e-6;
+
+                                    if (imgWidth > 0 && imgHeight > 0 &&
+                                        (Math.abs(imgOffsetX) > cropEps || Math.abs(imgOffsetY) > cropEps ||
+                                        Math.abs(imgWidth - width) > cropEps || Math.abs(imgHeight - height) > cropEps))
                                 	{
                                     	this.toBeCroppedImg = {
                                 			imgOffsetX: imgOffsetX, 
@@ -11711,7 +12290,7 @@ var com;
                                     {
                                     	/* put */ (result["image"] = "data:image/" + iType + "," + iData);
                                     }
-                                    
+
                                     return result;
                                 }
                                 var parsedGeom = this.parseGeom();
@@ -12021,55 +12600,612 @@ var com;
                         return null;
                     };
                     /**
-                     * Returns the list of control points of a edge shape.
+                     * Returns Bezier control points for a NURBS edge.
                      * @param {number} parentHeight Height of the parent of the shape.
-                     * @return {mxPoint[]} List of mxPoint that represents the control points.
+                     * @return {Object} Object with {points: mxPoint[], isBezier: boolean}
                      */
                     VsdxShape.prototype.getControlPoints = function (parentHeight) {
-                        var startXY = this.getStartXY(parentHeight);
-                        var endXY = this.getEndXY(parentHeight);
-                        var pointList = ([]);
-                        if (this.shape != null) {
-                            var geomList = this.shape.getElementsByTagName(com.mxgraph.io.vsdx.mxVsdxConstants.GEOM);
-                            if (geomList.length > 0) {
-                                var firstGeom = geomList.item(0);
-                                var firstNURBS = firstGeom.getElementsByTagName(com.mxgraph.io.vsdx.mxVsdxConstants.NURBS_TO).item(0);
-                                var firstE = firstNURBS.getElementsByTagName("E").item(0);
-                                if (firstE != null) {
-                                    var f = firstE.getAttribute("F") || "";
-                                    f = f.replace(new RegExp("NURBS\\(", 'g'), "");
-                                    f = f.replace(new RegExp("\\)", 'g'), "");
-                                    f = f.replace(new RegExp(",", 'g'), " ");
-                                    f = f.replace(new RegExp("\\s\\s", 'g'), " ");
-                                    var pointsS = f.split(" ");
-                                    var pointsRaw = (function (s) { var a = []; while (s-- > 0)
-                                        a.push(0); return a; })(pointsS.length);
-                                    for (var i = 0; i < pointsS.length; i++) {
-                                        pointsRaw[i] = parseFloat(pointsS[i]);
-                                    }
-                                    ;
-                                    for (var i = 2; i + 4 < pointsS.length; i = i + 4) {
-                                        var currPoint = new mxPoint();
-                                        var rawX = pointsRaw[i + 2];
-                                        var rawY = pointsRaw[i + 3];
-                                        var width = Math.abs(endXY.x - startXY.x);
-                                        var widthFixed = Math.min(100, width);
-                                        var heightFixed = 100;
-                                        var finalX = 0;
-                                        finalX = startXY.x + widthFixed * rawX;
-                                        currPoint.x = (Math.floor(Math.round(finalX * 100) / 100));
-                                        currPoint.y = (Math.floor(Math.round((startXY.y - heightFixed * rawY) * 100) / 100));
-                                        /* add */ (pointList.push(currPoint));
-                                    }
-                                    ;
-                                    return pointList;
+                        if (this.geomList == null || this.geomList.geomList == null ||
+                            this.geomList.geomList.length === 0)
+                        {
+                            return null;
+                        }
+
+                        var geometry = com.mxgraph.io.vsdx.geometry;
+
+                        // Use the first geometry section that needs a curve conversion:
+                        // NURBS, elliptical arcs and bezier rows always do; a lone ArcTo
+                        // (nothing else drawn) is a plain arc edge, while ArcTo mixed
+                        // into a longer path is Visio's baked-in line jump
+                        // representation, which stays on the jumpStyle=arc heuristic
+                        var rows = null;
+
+                        for (var g = 0; g < this.geomList.geomList.length && rows == null; g++)
+                        {
+                            var geomObj = this.geomList.geomList[g];
+                            var geomRows = geomObj.rows;
+
+                            // Hidden sections are not rendered (matches getRoutingPoints)
+                            if (geomRows == null || geomObj.isNoShow())
+                            {
+                                continue;
+                            }
+
+                            var drawRows = 0;
+                            var arcRows = 0;
+                            var curveRows = 0;
+
+                            for (var i = 0; i < geomRows.length; i++)
+                            {
+                                var r = geomRows[i];
+
+                                // Some files have null rows
+                                if (r == null || r instanceof geometry.DelRow || r instanceof geometry.Ellipse ||
+                                    r instanceof geometry.InfiniteLine ||
+                                    r instanceof geometry.MoveTo || r instanceof geometry.RelMoveTo)
+                                {
+                                    continue;
                                 }
-                                else {
-                                    return null;
+
+                                drawRows++;
+
+                                // RelEllipticalArcTo extends EllipticalArcTo
+                                if (r instanceof geometry.NURBSTo || r instanceof geometry.EllipticalArcTo ||
+                                    r instanceof geometry.RelCubBezTo || r instanceof geometry.RelQuadBezTo)
+                                {
+                                    curveRows++;
+                                }
+                                else if (r instanceof geometry.ArcTo)
+                                {
+                                    arcRows++;
                                 }
                             }
+
+                            if (curveRows > 0 || (arcRows === 1 && drawRows === 1))
+                            {
+                                rows = geomRows;
+                            }
                         }
-                        return null;
+
+                        if (rows == null)
+                        {
+                            return null;
+                        }
+
+                        // Get edge endpoints in screen coordinates
+                        var startXY = this.getStartXY(parentHeight);
+                        var endXY = this.getEndXY(parentHeight);
+
+                        // Conversion factor (VSDX inches to pixels)
+                        var cf = com.mxgraph.io.vsdx.mxVsdxUtils.conversionFactor_$LI$();
+
+                        // Shape XForm in pixels: geometry coordinates are in the shape's
+                        // local frame (Y-up, origin at the shape's bottom-left) and map to
+                        // the page as Pin + R(Angle) * Flip * (local - LocPin)
+                        var dims = this.getDimensions();
+                        var geoWidth = dims.x;
+                        var geoHeight = dims.y;
+                        var pinX = this.getPinX();
+                        var pinY = this.getPinY();
+                        var locPinX = this.getLocPinX();
+                        var locPinY = this.getLocPinY();
+                        var angle = parseFloat(this.getValue(this.getCellElement$java_lang_String(com.mxgraph.io.vsdx.mxVsdxConstants.ANGLE), "0")) || 0;
+                        var flipX = '1' == this.getValue(this.getCellElement$java_lang_String(com.mxgraph.io.vsdx.mxVsdxConstants.FLIP_X), "0") ? -1 : 1;
+                        var flipY = '1' == this.getValue(this.getCellElement$java_lang_String(com.mxgraph.io.vsdx.mxVsdxConstants.FLIP_Y), "0") ? -1 : 1;
+                        var cosA = Math.cos(angle);
+                        var sinA = Math.sin(angle);
+
+                        // Maps a point in the shape's local frame (in pixels) to screen
+                        // coordinates (page Y flipped via parentHeight)
+                        function localToScreen(lx, ly) {
+                            var dx = (lx - locPinX) * flipX;
+                            var dy = (ly - locPinY) * flipY;
+
+                            return {x: pinX + dx * cosA - dy * sinA,
+                                y: parentHeight - (pinY + dx * sinA + dy * cosA)};
+                        }
+
+                        // Inverse of localToScreen (flips are their own inverse)
+                        function screenToLocal(sx, sy) {
+                            var dxs = sx - pinX;
+                            var dys = (parentHeight - sy) - pinY;
+
+                            return {x: (dxs * cosA + dys * sinA) * flipX + locPinX,
+                                y: (-dxs * sinA + dys * cosA) * flipY + locPinY};
+                        }
+
+                        // Pixel tolerance when joining path pieces to the edge terminals
+                        // (getStartXY/getEndXY are quantized to whole pixels)
+                        var JOIN_EPS = 2;
+
+                        // Cubic bezier segments accumulated over all rows of the path.
+                        // current is tracked in screen coordinates, currentLocal in the
+                        // shape's local frame (needed for arc geometry)
+                        var current = {x: startXY.x, y: startXY.y};
+                        var currentLocal = screenToLocal(startXY.x, startXY.y);
+                        var segments = [];
+
+                        function curveSegTo(cp1, cp2, pt) {
+                            segments.push({cp1: cp1, cp2: cp2, anchor: pt});
+                            current = pt;
+                        }
+
+                        function lineSegTo(pt) {
+                            curveSegTo(
+                                {x: current.x + (pt.x - current.x) / 3, y: current.y + (pt.y - current.y) / 3},
+                                {x: current.x + (pt.x - current.x) * 2 / 3, y: current.y + (pt.y - current.y) * 2 / 3},
+                                pt);
+                        }
+
+                        function lineSegToLocal(lp) {
+                            lineSegTo(localToScreen(lp.x, lp.y));
+                            currentLocal = lp;
+                        }
+
+                        function curveSegToLocal(c1L, c2L, eL) {
+                            curveSegTo(localToScreen(c1L.x, c1L.y), localToScreen(c2L.x, c2L.y),
+                                localToScreen(eL.x, eL.y));
+                            currentLocal = eL;
+                        }
+
+                        // Appends bezier segments for an elliptical arc from the current
+                        // point through thruL to endL (local px). axisAngle = rotation of
+                        // the ellipse's major axis vs the local x-axis (radians),
+                        // axisRatio = major/minor axis ratio. Circular arcs use
+                        // axisAngle 0, axisRatio 1. The arc direction is the one that
+                        // passes through thruL, so no sweep/large-arc flags are needed.
+                        // Falls back to a straight segment when degenerate.
+                        function arcSegsTo(thruL, endL, axisAngle, axisRatio) {
+                            if (!isFinite(axisAngle) || !isFinite(axisRatio) || axisRatio <= 0)
+                            {
+                                lineSegToLocal(endL);
+                                return;
+                            }
+
+                            var ca = Math.cos(axisAngle);
+                            var sa = Math.sin(axisAngle);
+
+                            // Work frame: rotate by -axisAngle and scale y by the axis
+                            // ratio so the ellipse becomes a circle. Both maps are
+                            // affine, so bezier control points transform exactly.
+                            function toWork(pt) {
+                                return {x: pt.x * ca + pt.y * sa, y: (-pt.x * sa + pt.y * ca) * axisRatio};
+                            }
+
+                            function fromWork(pt) {
+                                var wy = pt.y / axisRatio;
+                                return {x: pt.x * ca - wy * sa, y: pt.x * sa + wy * ca};
+                            }
+
+                            var s = toWork(currentLocal);
+                            var m = toWork(thruL);
+                            var e = toWork(endL);
+
+                            // Circumcenter of the three points
+                            var den = 2 * ((s.x - m.x) * (m.y - e.y) - (m.x - e.x) * (s.y - m.y));
+
+                            if (Math.abs(den) < 1e-7)
+                            {
+                                // Collinear or repeated points
+                                lineSegToLocal(endL);
+                                return;
+                            }
+
+                            var s2 = s.x * s.x + s.y * s.y;
+                            var m2 = m.x * m.x + m.y * m.y;
+                            var e2 = e.x * e.x + e.y * e.y;
+                            var cx = ((s2 - m2) * (m.y - e.y) - (m2 - e2) * (s.y - m.y)) / den;
+                            var cy = ((m2 - e2) * (s.x - m.x) - (s2 - m2) * (m.x - e.x)) / den;
+                            var r = Math.sqrt((s.x - cx) * (s.x - cx) + (s.y - cy) * (s.y - cy));
+
+                            var thS = Math.atan2(s.y - cy, s.x - cx);
+                            var thM = Math.atan2(m.y - cy, m.x - cx);
+                            var thE = Math.atan2(e.y - cy, e.x - cx);
+
+                            // Sweep from start to end in the direction that passes
+                            // through the through-point
+                            var TWO_PI = 2 * Math.PI;
+                            var ccwE = (thE - thS + TWO_PI) % TWO_PI;
+                            var ccwM = (thM - thS + TWO_PI) % TWO_PI;
+                            var sweep = (ccwM <= ccwE) ? ccwE : ccwE - TWO_PI;
+
+                            if (sweep === 0)
+                            {
+                                lineSegToLocal(endL);
+                                return;
+                            }
+
+                            // One cubic per quarter-circle slice at most (max radial
+                            // error ~0.027% of the radius)
+                            var nSegs = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 2)));
+                            var delta = sweep / nSegs;
+                            var kf = 4 / 3 * Math.tan(delta / 4);
+
+                            for (var si = 0; si < nSegs; si++)
+                            {
+                                var a0 = thS + si * delta;
+                                var a1 = a0 + delta;
+                                var c0x = Math.cos(a0), s0y = Math.sin(a0);
+                                var c1x = Math.cos(a1), s1y = Math.sin(a1);
+
+                                var cp1 = fromWork({x: cx + r * (c0x - kf * s0y), y: cy + r * (s0y + kf * c0x)});
+                                var cp2 = fromWork({x: cx + r * (c1x + kf * s1y), y: cy + r * (s1y - kf * c1x)});
+                                var pe = (si === nSegs - 1) ? endL : fromWork({x: cx + r * c1x, y: cy + r * s1y});
+
+                                curveSegToLocal(cp1, cp2, pe);
+                            }
+                        }
+
+                        // Converts one NURBSTo row to bezier segments. The control points
+                        // are the current point, the points in the NURBS formula and the
+                        // row's X,Y cells; the knot vector is the C cell, the formula's
+                        // per-point knots, the A cell and the formula's first argument
+                        // repeated degree + 1 times.
+                        function nurbsSegsTo(row) {
+                            if (row.formulaE == null || row.x == null || row.y == null)
+                            {
+                                return false;
+                            }
+
+                            var eValue = row.formulaE.replace(/NURBS\s*\(/i, '').replace(/\)\s*$/, '');
+                            var values = eValue.split(/\s*,\s*/);
+
+                            if (values.length < 8)
+                            {
+                                return false;
+                            }
+
+                            var knotLast = parseFloat(values[0]);
+                            var degree = Math.round(parseFloat(values[1]));
+                            var xType = parseFloat(values[2]);
+                            var yType = parseFloat(values[3]);
+
+                            if (!isFinite(knotLast) || !isFinite(degree) || degree < 1)
+                            {
+                                return false;
+                            }
+
+                            // xType/yType 0 = relative (fraction of Width/Height),
+                            // otherwise local coordinates in inches
+                            var ctrlPts = [{x: current.x, y: current.y, w: row.d || 1}]; // D = first weight
+                            var innerKnots = [];
+
+                            for (var j = 4; j + 3 < values.length; j += 4) {
+                                var rawX = parseFloat(values[j]);
+                                var rawY = parseFloat(values[j + 1]);
+
+                                var pt = localToScreen((xType === 0) ? rawX * geoWidth : rawX * cf,
+                                    (yType === 0) ? rawY * geoHeight : rawY * cf);
+                                innerKnots.push(parseFloat(values[j + 2]) || 0);
+                                ctrlPts.push({x: pt.x, y: pt.y, w: parseFloat(values[j + 3]) || 1});
+                            }
+
+                            // The row's X,Y cells are the last control point (local coords)
+                            var endPt = localToScreen(row.x * cf, row.y * cf);
+                            ctrlPts.push({x: endPt.x, y: endPt.y, w: row.b || 1}); // B = last weight
+
+                            var n = ctrlPts.length - 1; // n = number of ctrl pts - 1
+                            var p = Math.max(1, Math.min(degree, n)); // degree
+
+                            // Real knot vector as stored in the file
+                            var knots = [row.c || 0]; // C = first knot
+
+                            for (var k = 0; k < innerKnots.length; k++) {
+                                knots.push(innerKnots[k]);
+                            }
+
+                            knots.push(row.a || 0); // A = second to last knot
+
+                            for (var k = 0; k <= p; k++) {
+                                knots.push(knotLast);
+                            }
+
+                            // Validity: non-decreasing and no knot multiplicity above p+1
+                            var usable = true;
+
+                            for (var k = 1; k < knots.length && usable; k++) {
+                                usable = knots[k] >= knots[k - 1];
+                            }
+
+                            for (var k = 0; k <= n && usable; k++) {
+                                usable = knots[k] < knots[k + p + 1];
+                            }
+
+                            // Fall back to a uniform clamped knot vector if the stored
+                            // values are unusable
+                            if (!usable) {
+                                knots = [];
+
+                                for (var k = 0; k <= p; k++) {
+                                    knots.push(0);
+                                }
+
+                                for (var k = 1; k <= n - p; k++) {
+                                    knots.push(k / (n - p + 1));
+                                }
+
+                                for (var k = 0; k <= p; k++) {
+                                    knots.push(1);
+                                }
+                            }
+
+                            var uStart = knots[p];
+                            var uEnd = knots[n + 1];
+
+                            if (!(uEnd > uStart))
+                            {
+                                return false;
+                            }
+
+                            // De Boor's algorithm for B-spline evaluation
+                            function findSpan(u) {
+                                if (u >= knots[n + 1]) return n;
+                                if (u <= knots[p]) return p;
+
+                                var low = p, high = n + 1;
+                                while (high - low > 1) {
+                                    var mid = Math.floor((low + high) / 2);
+                                    if (u < knots[mid]) high = mid;
+                                    else low = mid;
+                                }
+                                return low;
+                            }
+
+                            function evaluateNURBS(u) {
+                                var span = findSpan(u);
+
+                                // Initialize with weighted control points
+                                var d = [];
+                                for (var j = 0; j <= p; j++) {
+                                    var idx = span - p + j;
+                                    idx = Math.max(0, Math.min(idx, n));
+                                    var pt = ctrlPts[idx];
+                                    d.push({x: pt.x * pt.w, y: pt.y * pt.w, w: pt.w});
+                                }
+
+                                // De Boor recursion
+                                for (var r = 1; r <= p; r++) {
+                                    for (var j = p; j >= r; j--) {
+                                        var ii = span - p + j;
+                                        var denom = knots[ii + p + 1 - r] - knots[ii];
+                                        var alpha = (denom > 1e-10) ? (u - knots[ii]) / denom : 0;
+
+                                        d[j] = {
+                                            x: (1 - alpha) * d[j-1].x + alpha * d[j].x,
+                                            y: (1 - alpha) * d[j-1].y + alpha * d[j].y,
+                                            w: (1 - alpha) * d[j-1].w + alpha * d[j].w
+                                        };
+                                    }
+                                }
+
+                                var w = Math.abs(d[p].w) > 1e-10 ? d[p].w : 1;
+                                return {x: d[p].x / w, y: d[p].y / w};
+                            }
+
+                            // One bezier segment per knot span: between consecutive
+                            // distinct knots the spline is a single polynomial arc, so a
+                            // cubic through its points at t = 0, 1/3, 2/3, 1 reproduces it
+                            // exactly (up to rational weights)
+                            var eps = (uEnd - uStart) * 1e-6;
+                            var breaks = [uStart];
+
+                            for (var k = p + 1; k <= n + 1; k++) {
+                                if (knots[k] > breaks[breaks.length - 1] + eps) {
+                                    breaks.push(Math.min(knots[k], uEnd));
+                                }
+                            }
+
+                            // If the spline does not start at the current point (start not
+                            // clamped), join with a straight segment
+                            var first = evaluateNURBS(uStart);
+
+                            if (Math.abs(first.x - current.x) > JOIN_EPS || Math.abs(first.y - current.y) > JOIN_EPS)
+                            {
+                                lineSegTo(first);
+                            }
+
+                            for (var seg = 0; seg < breaks.length - 1; seg++) {
+                                var uA = breaks[seg];
+                                var uB = breaks[seg + 1];
+
+                                var s0 = evaluateNURBS(uA);
+                                var s1 = evaluateNURBS(uA + (uB - uA) / 3);
+                                var s2 = evaluateNURBS(uA + (uB - uA) * 2 / 3);
+                                var s3 = evaluateNURBS(uB);
+
+                                // Exact cubic interpolation of the points at
+                                // t = 0, 1/3, 2/3, 1
+                                curveSegTo(
+                                    {x: (-5 * s0.x + 18 * s1.x - 9 * s2.x + 2 * s3.x) / 6,
+                                        y: (-5 * s0.y + 18 * s1.y - 9 * s2.y + 2 * s3.y) / 6},
+                                    {x: (2 * s0.x - 9 * s1.x + 18 * s2.x - 5 * s3.x) / 6,
+                                        y: (2 * s0.y - 9 * s1.y + 18 * s2.y - 5 * s3.y) / 6},
+                                    s3);
+                            }
+
+                            return true;
+                        }
+
+                        // Walk the full row list so paths mixing curve rows with other
+                        // row types keep their overall shape
+                        for (var i = 0; i < rows.length; i++)
+                        {
+                            var row = rows[i];
+
+                            // Some files have null rows
+                            if (row == null || row instanceof geometry.DelRow || row instanceof geometry.Ellipse ||
+                                row instanceof geometry.InfiniteLine || row.x == null || row.y == null)
+                            {
+                                continue;
+                            }
+
+                            if (row instanceof geometry.MoveTo || row instanceof geometry.RelMoveTo)
+                            {
+                                if (segments.length > 0)
+                                {
+                                    // A second subpath cannot be represented on an edge
+                                    break;
+                                }
+
+                                var mvLocal = (row instanceof geometry.RelMoveTo) ?
+                                    {x: row.x * geoWidth, y: row.y * geoHeight} :
+                                    {x: row.x * cf, y: row.y * cf};
+                                var mv = localToScreen(mvLocal.x, mvLocal.y);
+                                currentLocal = mvLocal;
+
+                                // Keep the edge terminal as the path start if the move is
+                                // (up to rounding) the begin point
+                                if (Math.abs(mv.x - current.x) > JOIN_EPS || Math.abs(mv.y - current.y) > JOIN_EPS)
+                                {
+                                    lineSegTo(mv);
+                                }
+                            }
+                            else if (row instanceof geometry.NURBSTo)
+                            {
+                                if (!nurbsSegsTo(row))
+                                {
+                                    return null;
+                                }
+
+                                currentLocal = {x: row.x * cf, y: row.y * cf};
+                            }
+                            else if (row instanceof geometry.EllipticalArcTo &&
+                                row.a != null && row.b != null && row.c != null && row.d != null)
+                            {
+                                // A,B = point on the arc, C = major axis angle,
+                                // D = major/minor axis ratio (RelEllipticalArcTo extends
+                                // EllipticalArcTo with Width/Height fractions)
+                                var eaRel = row instanceof geometry.RelEllipticalArcTo;
+
+                                arcSegsTo(
+                                    eaRel ? {x: row.a * geoWidth, y: row.b * geoHeight} :
+                                        {x: row.a * cf, y: row.b * cf},
+                                    eaRel ? {x: row.x * geoWidth, y: row.y * geoHeight} :
+                                        {x: row.x * cf, y: row.y * cf},
+                                    row.c, row.d);
+                            }
+                            else if (row instanceof geometry.ArcTo)
+                            {
+                                // Circular arc; A = bow (arc midpoint to chord midpoint).
+                                // A positive bow bulges to the right of begin->end travel
+                                // in the Y-up local frame (matches ArcTo.handle's
+                                // sweep-flag convention)
+                                var arcEnd = {x: row.x * cf, y: row.y * cf};
+                                var bow = (row.a != null) ? row.a * cf : 0;
+                                var cdx = arcEnd.x - currentLocal.x;
+                                var cdy = arcEnd.y - currentLocal.y;
+                                var chord = Math.sqrt(cdx * cdx + cdy * cdy);
+
+                                if (Math.abs(bow) < 0.01 || chord < 0.01)
+                                {
+                                    lineSegToLocal(arcEnd);
+                                }
+                                else
+                                {
+                                    arcSegsTo(
+                                        {x: (currentLocal.x + arcEnd.x) / 2 + bow * cdy / chord,
+                                            y: (currentLocal.y + arcEnd.y) / 2 - bow * cdx / chord},
+                                        arcEnd, 0, 1);
+                                }
+                            }
+                            else if (row instanceof geometry.RelCubBezTo &&
+                                row.a != null && row.b != null && row.c != null && row.d != null)
+                            {
+                                curveSegToLocal({x: row.a * geoWidth, y: row.b * geoHeight},
+                                    {x: row.c * geoWidth, y: row.d * geoHeight},
+                                    {x: row.x * geoWidth, y: row.y * geoHeight});
+                            }
+                            else if (row instanceof geometry.RelQuadBezTo &&
+                                row.a != null && row.b != null)
+                            {
+                                // Degree elevation of the quadratic control point
+                                var q = {x: row.a * geoWidth, y: row.b * geoHeight};
+                                var qEnd = {x: row.x * geoWidth, y: row.y * geoHeight};
+
+                                curveSegToLocal(
+                                    {x: currentLocal.x + (q.x - currentLocal.x) * 2 / 3,
+                                        y: currentLocal.y + (q.y - currentLocal.y) * 2 / 3},
+                                    {x: qEnd.x + (q.x - qEnd.x) * 2 / 3, y: qEnd.y + (q.y - qEnd.y) * 2 / 3},
+                                    qEnd);
+                            }
+                            else if (row instanceof geometry.PolylineTo && row.formulaA != null)
+                            {
+                                // POLYLINE(xType, yType, x1, y1, ...): type 0 = fraction
+                                // of Width/Height, otherwise local coordinates
+                                var pv = row.formulaA.replace(/\s/g, '').replace(/POLYLINE\(/i, '')
+                                    .replace(/\)$/, '').split(',');
+
+                                if (pv.length >= 2)
+                                {
+                                    var pxType = parseFloat(pv[0]);
+                                    var pyType = parseFloat(pv[1]);
+
+                                    for (var pj = 2; pj + 1 < pv.length; pj += 2)
+                                    {
+                                        var prX = parseFloat(pv[pj]);
+                                        var prY = parseFloat(pv[pj + 1]);
+
+                                        if (isFinite(prX) && isFinite(prY))
+                                        {
+                                            lineSegToLocal({x: (pxType === 0) ? prX * geoWidth : prX * cf,
+                                                y: (pyType === 0) ? prY * geoHeight : prY * cf});
+                                        }
+                                    }
+                                }
+
+                                lineSegToLocal({x: row.x * cf, y: row.y * cf});
+                            }
+                            else if (row instanceof geometry.RelLineTo ||
+                                row instanceof geometry.RelCubBezTo ||
+                                row instanceof geometry.RelQuadBezTo ||
+                                row instanceof geometry.RelEllipticalArcTo)
+                            {
+                                // Relative coordinates (straight best effort for bezier
+                                // and arc rows with missing cells)
+                                lineSegToLocal({x: row.x * geoWidth, y: row.y * geoHeight});
+                            }
+                            else
+                            {
+                                // LineTo exactly and, as a straight best effort,
+                                // spline rows
+                                lineSegToLocal({x: row.x * cf, y: row.y * cf});
+                            }
+                        }
+
+                        if (segments.length === 0)
+                        {
+                            return null;
+                        }
+
+                        // Close any gap to the edge end terminal (normally the path
+                        // already ends there up to rounding)
+                        if (Math.abs(current.x - endXY.x) > JOIN_EPS || Math.abs(current.y - endXY.y) > JOIN_EPS)
+                        {
+                            lineSegTo({x: endXY.x, y: endXY.y});
+                        }
+
+                        // For draw.io bezier=1 edges:
+                        // - Source terminal is set separately (NOT in geo.points)
+                        // - Target terminal is set separately (NOT in geo.points)
+                        // - geo.points = [cp1, cp2, anchor, cp1, cp2, anchor, ..., cp1, cp2]
+                        //   where anchors are intermediate points, and last segment has no anchor (target is the anchor)
+                        var pointList = [];
+
+                        for (var i = 0; i < segments.length; i++)
+                        {
+                            var s = segments[i];
+                            pointList.push(new mxPoint(Math.round(s.cp1.x * 100) / 100, Math.round(s.cp1.y * 100) / 100));
+                            pointList.push(new mxPoint(Math.round(s.cp2.x * 100) / 100, Math.round(s.cp2.y * 100) / 100));
+
+                            // Add anchor point for all segments except the last
+                            // (last segment's anchor is the target terminal)
+                            if (i < segments.length - 1)
+                            {
+                                pointList.push(new mxPoint(Math.round(s.anchor.x * 100) / 100, Math.round(s.anchor.y * 100) / 100));
+                            }
+                        }
+
+                        return {points: pointList, isBezier: true};
                     };
                     /**
                      * Analyzes a edge shape and returns a string with the style.
@@ -12287,6 +13423,7 @@ var com;
                                 (styleMap["whiteSpace"] = "wrap");
                             /* remove */ delete styleMap["shape"];
                             /* remove */ delete styleMap["image"];
+                            /* remove */ delete styleMap["points"];
                             
                             if (this.isVerticalLabel())
                         	{
@@ -12305,6 +13442,9 @@ var com;
                             var style = "text;" + com.mxgraph.io.vsdx.mxVsdxUtils.getStyleString(styleMap, "=");
                             var y = parent.getGeometry().height - (txtPinYV + txtHV - txtLocPinYV);
                             var x = txtPinXV - txtLocPinXV;
+                			//FIXME one file has txtPinX/Y values extremely high which cause draw.io to hang (see getLblEdgeOffset)
+                            if (Math.abs(x) > 1.0E11 || Math.abs(y) > 1.0E11)
+                                return null;
                             if (rotation > 0) {
                                 var tmpGeo = new mxGeometry(x, y, txtWV, txtHV);
                                 var pgeo = parent.getGeometry();

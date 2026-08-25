@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2016, JGraph Ltd
- * Copyright (c) 2006-2016, Gaudenz Alder
+ * Copyright (c) 2006-2016, JGraph Holdings Ltd
+ * Copyright (c) 2006-2016, draw.io AG
  */
 /**
  * Constructs a new point for the optional x and y coordinates. If no
@@ -43,6 +43,12 @@ DiagramPage.prototype.root = null;
 DiagramPage.prototype.viewState = null;
 
 /**
+ * Specifies if the diagram in the page was been modified
+ * and the cached XML data needs to be updated.
+ */
+DiagramPage.prototype.diagramModified = false;
+
+/**
  * 
  */
 DiagramPage.prototype.getId = function()
@@ -74,6 +80,77 @@ DiagramPage.prototype.setName = function(value)
 };
 
 /**
+ * Returns the stored initial view as {x, y, width, height, scale} or null.
+ * The view is persisted as a space-separated "x y width height [scale]"
+ * attribute on the diagram node (see Graph.getCurrentViewBox /
+ * EditorUi.fitInitialView). The scale is optional so externally authored or
+ * legacy four-value strings still resolve (the restore then falls back to a
+ * fit). Returns null unless at least the four geometry values are finite and
+ * width/height are positive.
+ */
+DiagramPage.prototype.getViewBox = function()
+{
+	var value = this.node.getAttribute('viewBox');
+
+	if (value != null)
+	{
+		var t = value.split(' ');
+		var x = parseFloat(t[0]);
+		var y = parseFloat(t[1]);
+		var w = parseFloat(t[2]);
+		var h = parseFloat(t[3]);
+		var s = (t.length > 4) ? parseFloat(t[4]) : null;
+
+		if (isFinite(x) && isFinite(y) && isFinite(w) && isFinite(h) && w > 0 && h > 0)
+		{
+			return {x: x, y: y, width: w, height: h,
+				scale: (s != null && isFinite(s) && s > 0) ? s : null};
+		}
+	}
+
+	return null;
+};
+
+/**
+ * Stores the given {x, y, width, height, scale} as the initial view, or
+ * removes the attribute when vb is null. The scale token is omitted when null.
+ */
+DiagramPage.prototype.setViewBox = function(vb)
+{
+	if (vb == null)
+	{
+		this.node.removeAttribute('viewBox');
+	}
+	else
+	{
+		var value = vb.x + ' ' + vb.y + ' ' + vb.width + ' ' + vb.height;
+
+		if (vb.scale != null)
+		{
+			value += ' ' + vb.scale;
+		}
+
+		this.node.setAttribute('viewBox', value);
+	}
+};
+
+/**
+ * Sets the diagram modified flag.
+ */
+DiagramPage.prototype.setDiagramModified = function(value)
+{
+	this.diagramModified = value;
+};
+
+/**
+ * Returns the diagram modified flag.
+ */
+DiagramPage.prototype.isDiagramModified = function()
+{
+	return this.diagramModified;
+};
+
+/**
  * Change types
  */
 function RenamePage(ui, page, name)
@@ -97,6 +174,30 @@ RenamePage.prototype.execute = function()
 	// Required to update page name in placeholders
 	this.ui.editor.graph.updatePlaceholders();
 	this.ui.editor.fireEvent(new mxEventObject('pageRenamed'));
+};
+
+/**
+ * Undoable change of a page's stored initial view (see DiagramPage.getViewBox).
+ */
+function ChangePageView(ui, page, viewBox)
+{
+	this.ui = ui;
+	this.page = page;
+	this.viewBox = viewBox;
+	this.previous = viewBox;
+}
+
+/**
+ * Implementation of the undoable initial-view change.
+ */
+ChangePageView.prototype.execute = function()
+{
+	var tmp = this.page.getViewBox();
+	this.page.setViewBox(this.previous);
+	this.viewBox = this.previous;
+	this.previous = tmp;
+
+	this.ui.editor.fireEvent(new mxEventObject('pageViewChanged'));
 };
 
 /**
@@ -163,9 +264,15 @@ SelectPage.prototype.execute = function()
 		var editor = this.ui.editor;
 		var graph = editor.graph;
 		
-		// Stores current diagram state in the page
-		var data = Graph.compressNode(editor.getGraphXml(true));
-		mxUtils.setTextContent(page.node, data);
+		if (page.isDiagramModified())
+		{
+			page.setDiagramModified(false);
+
+			// Updates cached diagram data
+			EditorUi.removeChildNodes(page.node);
+			page.node.appendChild(editor.getGraphXml(true));
+		}
+
 		page.viewState = graph.getViewState();
 		page.root = graph.model.root;
 		
@@ -288,32 +395,23 @@ ReplaceDiagram.prototype.execute = function()
 };
 
 /**
- * Specifies the height of the tab container. Default is 36.
+ * Specifies if the tab container is visible. Default is true.
  */
-EditorUi.prototype.tabContainerHeight = 36;
+EditorUi.prototype.tabContainerVisible = true;
 
 /**
  * Returns the index of the selected page.
  */
-EditorUi.prototype.setTabContainerVisible = function(visible)
+EditorUi.prototype.setTabContainerVisible = function(visible, remember)
 {
-	if (visible)
+	if (Editor.isSettingsEnabled() && remember)
 	{
-		this.tabContainerHeight = EditorUi.prototype.tabContainerHeight;
-	}
-	else
-	{
-		this.tabContainerHeight = 0;
-	}
-
-	if (isLocalStorage)
-	{
-		mxSettings.settings.pages = this.tabContainerHeight > 0;
+		mxSettings.settings.pages = visible;
 		mxSettings.save();
 	}
-
-	this.editor.updateGraphComponents();
-	this.refresh();
+	
+	this.tabContainerVisible = visible;
+	this.updateTabContainer();
 };
 
 /**
@@ -321,7 +419,7 @@ EditorUi.prototype.setTabContainerVisible = function(visible)
  */
 EditorUi.prototype.isTabContainerVisible = function()
 {
-	return this.tabContainerHeight > 0;
+	return this.tabContainerVisible;
 };
 
 /**
@@ -379,7 +477,7 @@ EditorUi.prototype.getPageById = function(id, pages)
 /**
  * Returns the background image for the given page link.
  */
-EditorUi.prototype.createImageForPageLink = function(src, sourcePage, sourceGraph)
+EditorUi.prototype.createImageForPageLink = function(src, sourcePage, sourceGraph, addFonts)
 {
 	var comma = src.indexOf(',');
 	var result = null;
@@ -390,7 +488,7 @@ EditorUi.prototype.createImageForPageLink = function(src, sourcePage, sourceGrap
 
 		if (page != null && page != sourcePage)
 		{
-			result = this.getImageForPage(page, sourcePage, sourceGraph);
+			result = this.getImageForPage(page, sourcePage, sourceGraph, addFonts);
 			result.originalSrc = src;
 		}
 	}
@@ -427,6 +525,10 @@ EditorUi.prototype.pageSelected = function()
 			{
 				this.lightboxFit();
 			}
+			else if (Editor.fitDiagramOnPage)
+			{
+				this.fitInitialView();
+			}
 
 			if (this.chromelessResize != null)
 			{
@@ -443,21 +545,17 @@ EditorUi.prototype.pageSelected = function()
 		}
 		
 		this.updateTabContainer();
-		this.scrollToPage();
 	}
 };
 
 /**
  * Returns true if the given string contains an mxfile.
  */
-EditorUi.prototype.getImageForPage = function(page, sourcePage, sourceGraph)
+EditorUi.prototype.getImageForPage = function(page, sourcePage, sourceGraph, addFonts)
 {
 	sourceGraph = (sourceGraph != null) ? sourceGraph : this.editor.graph;
 	var graphGetGlobalVariable = sourceGraph.getGlobalVariable;
 	var graph = this.createTemporaryGraph(sourceGraph.getStylesheet());
-	graph.defaultPageBackgroundColor = sourceGraph.defaultPageBackgroundColor;
-	graph.shapeBackgroundColor = sourceGraph.shapeBackgroundColor;
-	graph.shapeForegroundColor = sourceGraph.shapeForegroundColor;
 	var index = this.getPageIndex((sourcePage != null) ?
 		sourcePage : this.currentPage);
 
@@ -478,16 +576,16 @@ EditorUi.prototype.getImageForPage = function(page, sourcePage, sourceGraph)
 	};
 
 	document.body.appendChild(graph.container);
-
+	
 	this.updatePageRoot(page);
+	graph.setAdaptiveColors(page.viewState.adaptiveColors);
 	graph.model.setRoot(page.root);
 
 	var temp = Graph.foreignObjectWarningText;
 	Graph.foreignObjectWarningText = '';
-	var theme = (Editor.cssDarkMode || Editor.isDarkMode()) ?
-		'dark' : 'light';
-	var svgRoot = graph.getSvg(null, null, null, null, null,
-		null, null, null, null, null, null, theme);
+	var svgRoot = graph.getSvg(null, null, null, null, null, null, null,
+		null, null, null, addFonts, null, null, null, true, true);
+	
 	var bounds = graph.getGraphBounds();
 	document.body.removeChild(graph.container);
 	Graph.foreignObjectWarningText = temp;
@@ -525,30 +623,16 @@ EditorUi.prototype.initPages = function()
 		
 		graph.view.validateBackground = mxUtils.bind(this, function()
 		{
-			if (this.tabContainer != null)
-			{
-				var prevHeight = this.tabContainer.style.height;
-				
-				if (this.fileNode == null || this.pages == null ||
-					(this.pages.length == 1 && urlParams['pages'] == '0'))
-				{
-					this.tabContainer.style.height = '0px';
-				}
-				else
-				{
-					this.tabContainer.style.height = this.tabContainerHeight + 'px';
-				}
-				
-				if (prevHeight != this.tabContainer.style.height)
-				{
-					this.refresh(false);
-				}
-			}
-			
 			graphViewValidateBackground.apply(graph.view, arguments);
+			
+			// Uses SVG subtree to support custom fonts and images
+			if (graph.view.backgroundImage != null)
+			{
+				EditorUi.embedSvgImages(graph.view.backgroundImage.node);
+			}
 		});
 
-		// Adds a graph model listener to update the view
+		// Adds a graph model listener to update the view and diagram modified flag
 		this.editor.graph.model.addListener(mxEvent.CHANGE, mxUtils.bind(this, function(sender, evt)
 		{
 			var edit = evt.getProperty('edit');
@@ -561,8 +645,14 @@ EditorUi.prototype.initPages = function()
 					changes[i] instanceof mxRootChange)
 				{
 					this.updateTabContainer();
-					break;	
+					break;
 				}
+			}
+
+			if (this.currentPage != null && !(changes.length == 1 &&
+				changes[0] instanceof SelectPage))
+			{
+				this.currentPage.setDiagramModified(true);
 			}
 		}));
 		
@@ -578,13 +668,19 @@ EditorUi.prototype.initPages = function()
 			if (ui.currentPage != null &&
 				lastPage != ui.currentPage)
 			{
-				lastPage = ui.currentPage;
+					lastPage = ui.currentPage;
 				ui.pageSelected();
 			}
 
 			return result;
 		};
 
+		// Selects new default parent if root changes
+		graph.addListener(mxEvent.ROOT, mxUtils.bind(this, function()
+		{
+			graph.checkDefaultParent();
+		}));
+		
 		var pagesChanged = mxUtils.bind(this, function()
 		{
 			this.updateDocumentTitle();
@@ -599,20 +695,13 @@ EditorUi.prototype.initPages = function()
 
 		this.editor.addListener('pageSelected', mxUtils.bind(this, function(sender, evt)
 		{
-			this.scrollToPage();
-			this.updateHashObject();
 			this.updateTabContainer();
+			this.updateHashObject();
 			this.updateDocumentTitle();
-
-			if (this.toolbar != null)
-			{
-				this.toolbar.updateZoom();
-			}
 		}));
 
 		this.editor.addListener('pageMoved', mxUtils.bind(this, function(sender, evt)
 		{
-			this.scrollToPage();
 			this.updateHashObject();
 		}));
 
@@ -620,24 +709,36 @@ EditorUi.prototype.initPages = function()
 		{
 			this.checkTabScrollerOverflow();
 		}));
+
+		this.addListener('languageChanged', mxUtils.bind(this, function()
+		{
+			this.updateTabContainer();
+		}));
 	}
 };
 
 /**
  * Adds the listener for automatically saving the diagram for local changes.
  */
-EditorUi.prototype.scrollToPage = function()
+EditorUi.prototype.scrollToPage = function(page, force)
 {
-	var index = this.getSelectedPageIndex();
+	var index = (page != null) ? this.getPageIndex(page) :
+		this.getSelectedPageIndex();
+	var scrollPage = (page != null) ?
+		page : this.currentPage;
 
-	if (this.tabScroller != null && this.tabScroller.children.length > index &&
-		this.tabScroller.children[index] != null)
+	if (index != null && this.tabScroller != null &&
+		this.tabScroller.children.length > index &&
+		this.tabScroller.children[index] != null &&
+		(scrollPage != this.lastScrollPage || force))
 	{
 		this.tabScroller.children[index].scrollIntoView(
-			{block: 'nearest', inline: 'nearest'});
+			{block: 'nearest', inline: (page != null) ?
+			'nearest' : 'center'});
 		this.tabScroller.children[index].className =
 			'geTab gePageTab geActivePage';
-		lastSelectedElt = this.tabScroller.children[index];
+		this.lastScrollPage = scrollPage;
+		this.btKnownTabScroll = this.tabScroller.scrollLeft;
 	}
 };
 
@@ -648,7 +749,7 @@ EditorUi.prototype.restoreViewState = function(page, viewState, selection)
 {
 	var newPage = (page != null) ? this.getPageById(page.getId()) : null;
 	var graph = this.editor.graph;
-	
+
 	if (newPage != null && this.currentPage != null && this.pages != null)
 	{
 		if (newPage != this.currentPage)
@@ -704,7 +805,9 @@ Graph.prototype.createViewState = function(node)
 		//gridColor: node.getAttribute('gridColor') || mxSettings.getGridColor(Editor.isDarkMode()),
 		gridSize: parseFloat(node.getAttribute('gridSize')) || mxGraph.prototype.gridSize,
 		guidesEnabled: node.getAttribute('guides') != '0',
-		foldingEnabled: node.getAttribute('fold') != '0',
+		foldingEnabled: (function() { var fold = node.getAttribute('fold');
+			return fold != null && (Editor.config == null || Editor.config.defaultFoldingEnabled == null) ?
+			fold != '0' : Graph.prototype.defaultFoldingEnabled; })(),
 		shadowVisible: node.getAttribute('shadow') == '1',
 		pageVisible: (this.isLightboxView()) ? false : ((pv != null) ? (pv != '0') : this.defaultPageVisible),
 		background: (bg != null && bg.length > 0) ? bg : null,
@@ -714,9 +817,14 @@ Graph.prototype.createViewState = function(node)
 			((typeof mxSettings === 'undefined' || this.defaultPageFormat != null) ?
 				mxGraph.prototype.pageFormat : mxSettings.getPageFormat()),
 		tooltips: node.getAttribute('tooltips') != '0',
-		connect: node.getAttribute('connect') != '0',
-		arrows: node.getAttribute('arrows') != '0',
+		connect: (function() { var connect = node.getAttribute('connect');
+			return connect != null && (Editor.config == null || Editor.config.defaultConnectable == null) ?
+			connect != '0' : Graph.prototype.defaultConnectable; })(),
+		arrows: (function() { var arrows = node.getAttribute('arrows');
+			return arrows != null && (Editor.config == null || Editor.config.defaultConnectionArrowsEnabled == null) ?
+			arrows != '0' : Graph.prototype.defaultConnectionArrowsEnabled; })(),
 		mathEnabled: node.getAttribute('math') == '1',
+		adaptiveColors: node.getAttribute('adaptiveColors'),
 		selectionCells: null,
 		defaultParent: null,
 		scrollbars: this.defaultScrollbars,
@@ -729,7 +837,7 @@ Graph.prototype.createViewState = function(node)
 /**
  * Writes the graph properties from the realtime model to the given mxGraphModel node.
  */
-Graph.prototype.saveViewState = function(vs, node, ignoreTransient, resolveReferences)
+Graph.prototype.saveViewState = function(vs, node, ignoreTransient, resolveReferences, sourcePage)
 {
 	if (!ignoreTransient)
 	{
@@ -765,7 +873,8 @@ Graph.prototype.saveViewState = function(vs, node, ignoreTransient, resolveRefer
 			node.setAttribute('background', vs.background);
 		}
 
-		var bgImg = this.getBackgroundImageObject(vs.backgroundImage, resolveReferences);
+		var bgImg = this.getBackgroundImageObject(vs.backgroundImage,
+			resolveReferences, sourcePage);
 
 		if (bgImg != null)
 		{
@@ -775,6 +884,15 @@ Graph.prototype.saveViewState = function(vs, node, ignoreTransient, resolveRefer
 
 	node.setAttribute('math', ((vs == null) ? this.defaultMathEnabled : vs.mathEnabled) ? '1' : '0');
 	node.setAttribute('shadow', (vs != null && vs.shadowVisible) ? '1' : '0');
+
+	if (vs == null || vs.adaptiveColors == null)
+	{
+		node.removeAttribute('adaptiveColors');
+	}
+	else
+	{
+		node.setAttribute('adaptiveColors', vs.adaptiveColors);
+	}
 	
 	if (vs != null && vs.extFonts != null && vs.extFonts.length > 0)
 	{
@@ -794,7 +912,6 @@ Graph.prototype.getViewState = function()
 		defaultParent: this.defaultParent,
 		currentRoot: this.view.currentRoot,
 		gridEnabled: this.gridEnabled,
-		//gridColor: this.view.gridColor,
 		gridSize: this.gridSize,
 		guidesEnabled: this.graphHandler.guidesEnabled,
 		foldingEnabled: this.foldingEnabled,
@@ -815,6 +932,7 @@ Graph.prototype.getViewState = function()
 		lastPasteXml: this.lastPasteXml,
 		pasteCounter: this.pasteCounter,
 		mathEnabled: this.mathEnabled,
+		adaptiveColors: this.adaptiveColors,
 		hiddenTags: this.hiddenTags,
 		extFonts: this.extFonts
 	};
@@ -830,14 +948,14 @@ Graph.prototype.setViewState = function(state, removeOldExtFonts)
 		this.lastPasteXml = state.lastPasteXml;
 		this.pasteCounter = state.pasteCounter || 0;
 		this.mathEnabled = state.mathEnabled;
-		this.gridEnabled = state.gridEnabled;
-		//this.view.gridColor = state.gridColor;
+		this.adaptiveColors = state.adaptiveColors;
+		this.gridEnabled = urlParams['grid'] != null ? urlParams['grid'] != '0' : state.gridEnabled;
 		this.gridSize = state.gridSize;
 		this.graphHandler.guidesEnabled = state.guidesEnabled;
 		this.foldingEnabled = state.foldingEnabled;
 		this.setShadowVisible(state.shadowVisible, false);
 		this.scrollbars = state.scrollbars;
-		this.pageVisible = !this.isViewer() && state.pageVisible;
+		this.pageVisible = !this.isViewer() && (urlParams['pv'] != null ? urlParams['pv'] != '0' : state.pageVisible);
 		this.background = state.background;
 		this.pageScale = state.pageScale;
 		this.pageFormat = state.pageFormat;
@@ -914,18 +1032,22 @@ Graph.prototype.setViewState = function(state, removeOldExtFonts)
 		this.backgroundImage = null;
 		this.scrollbars = this.defaultScrollbars;
 		this.graphHandler.guidesEnabled = true;
-		this.foldingEnabled = true;
+		this.foldingEnabled = this.defaultFoldingEnabled;
 		this.setShadowVisible(false, false);
 		this.defaultParent = null;
 		this.setTooltips(true);
-		this.setConnectable(true);
+		this.setConnectable(this.defaultConnectable);
 		this.lastPasteXml = null;
 		this.pasteCounter = 0;
 		this.mathEnabled = this.defaultMathEnabled;
-		this.connectionArrowsEnabled = true;
+		this.adaptiveColors = null;
+		this.connectionArrowsEnabled = this.defaultConnectionArrowsEnabled;
 		this.hiddenTags = [];
 		this.extFonts = [];
 	}
+
+	// Handles adaptive colors
+	this.setAdaptiveColors(this.adaptiveColors);
 	
 	// Implicit settings
 	this.pageBreaksVisible = this.pageVisible; 
@@ -957,12 +1079,6 @@ Graph.prototype.addExtFont = function(fontName, fontUrl, dontRemember)
 	// KNOWN: Font not added when pasting cells with custom fonts
 	if (fontName && fontUrl)
 	{
-		if (urlParams['ext-fonts'] != '1')
-		{
-			// Adds inserted fonts to font family menu
-			Graph.recentCustomFonts[fontName.toLowerCase()] = {name: fontName, url: fontUrl};
-		}
-		
 		var fontId = 'extFont_' + fontName;
 
 		if (document.getElementById(fontId) == null)
@@ -979,8 +1095,8 @@ Graph.prototype.addExtFont = function(fontName, fontUrl, dontRemember)
 				var style = document.createElement('style');
 				
 				style.appendChild(document.createTextNode('@font-face {\n' +
-					'\tfont-family: "'+ fontName +'";\n' + 
-					'\tsrc: url("'+ fontUrl +'");\n}'));
+					'\tfont-family: "'+ Graph.escapeCssString(fontName) +'";\n' +
+					'\tsrc: url("'+ Graph.escapeCssString(fontUrl) +'");\n}'));
 				
 				style.setAttribute('id', fontId);
 				var head = document.getElementsByTagName('head')[0];
@@ -1041,6 +1157,13 @@ EditorUi.prototype.updatePageRoot = function(page, checked)
 		{
 			// Initializes page object with new empty root
 			page.root = this.editor.graph.model.createRoot();
+
+			// Sets default cell IDs
+			page.root.setId('0');
+			page.root.children[0].setId('1');
+
+			// Marks the page as needing an update
+			page.needsUpdate = true;
 		}
 	}
 	else if (page.viewState == null)
@@ -1048,7 +1171,6 @@ EditorUi.prototype.updatePageRoot = function(page, checked)
 		if (page.graphModelNode == null)
 		{
 			var node = this.editor.extractGraphModel(page.node);
-			
 			var cause = Editor.extractParserError(node);
 			
 			if (cause)
@@ -1066,8 +1188,52 @@ EditorUi.prototype.updatePageRoot = function(page, checked)
 			page.viewState = this.editor.graph.createViewState(page.graphModelNode);	
 		}
 	}
+
+	// Ensures the root has a default layer
+	if (page.root.children == null || page.root.children.length == 0)
+	{
+		var layer = new mxCell();
+		layer.setId('1');
+		page.root.insert(layer);
+
+		// Marks the page as needing an update
+		page.needsUpdate = true;
+	}
 	
 	return page;
+};
+
+/**
+ * Returns the current page and XML for the given page.
+ */
+EditorUi.prototype.getDiagramSnapshot = function()
+{
+	return {node: this.editor.getGraphXml(), page: this.currentPage};
+};
+
+/**
+ * 
+ */
+EditorUi.prototype.updateDiagramData = function(snapshot, node)
+{
+	if (this.getPageIndex(snapshot.page) == null)
+	{
+		this.insertPage(null, null, node);
+	}
+	else
+	{
+		var dec = new mxCodec(snapshot.node.ownerDocument);
+		var oldModel = new mxGraphModel();
+		dec.decode(snapshot.node, oldModel);
+
+		dec = new mxCodec(node.ownerDocument);
+		var newModel = new mxGraphModel();
+		dec.decode(node, newModel);
+
+		this.selectPage(snapshot.page);
+		var patch = this.diffCells(oldModel.root, newModel.root);
+		this.patchPage(snapshot.page, patch, null, true);
+	}
 };
 
 /**
@@ -1147,7 +1313,7 @@ EditorUi.prototype.selectNextPage = function(forward)
 /**
  * Returns true if the given string contains an mxfile.
  */
-EditorUi.prototype.insertPage = function(page, index)
+EditorUi.prototype.insertPage = function(page, index, node)
 {
 	if (this.editor.graph.isEnabled())
 	{
@@ -1156,7 +1322,8 @@ EditorUi.prototype.insertPage = function(page, index)
 			this.editor.graph.stopEditing(false);
 		}
 		
-		page = (page != null) ? page : this.createPage(null, this.createPageId());
+		page = (page != null) ? page : this.createPage(
+			null, this.createPageId(), node);
 		index = (index != null) ? index : this.pages.length;
 		
 		// Uses model to fire event and trigger autosave
@@ -1185,12 +1352,12 @@ EditorUi.prototype.createPageId = function()
 /**
  * Returns a new DiagramPage instance.
  */
-EditorUi.prototype.createPage = function(name, id)
+EditorUi.prototype.createPage = function(name, id, node)
 {
 	var doc = (this.fileNode != null) ? this.fileNode.ownerDocument : document;
 	var page = new DiagramPage(doc.createElement('diagram'), id);
 	page.setName((name != null) ? name : this.createPageName());
-	this.initDiagramNode(page);
+	this.initDiagramNode(page, node);
 	
 	return page;
 };
@@ -1315,6 +1482,7 @@ EditorUi.prototype.duplicatePage = function(page, name)
 			var newPage = new DiagramPage(node);
 			newPage.root = graph.cloneCell(graph.model.root,
 				null, cloneMap);
+			
 			// Updates cell IDs
 			var model = new mxGraphModel();
 			model.prefix = Editor.guid() + '-';
@@ -1354,12 +1522,17 @@ EditorUi.prototype.duplicatePage = function(page, name)
 /**
  * Duplicates the given page.
  */
-EditorUi.prototype.initDiagramNode = function(page)
+EditorUi.prototype.initDiagramNode = function(page, node)
 {
-	var enc = new mxCodec(mxUtils.createXmlDocument());
-	var temp = enc.encode(new mxGraphModel(page.root));
-	this.editor.graph.saveViewState(page.viewState, temp);
-	mxUtils.setTextContent(page.node, Graph.compressNode(temp));
+	if (node == null)
+	{
+		var enc = new mxCodec(mxUtils.createXmlDocument());
+		node = enc.encode(new mxGraphModel(page.root));
+	}
+
+	this.editor.graph.saveViewState(page.viewState, node);
+	EditorUi.removeChildNodes(page.node);
+	page.node.appendChild(node);
 };
 
 /**
@@ -1378,14 +1551,29 @@ EditorUi.prototype.clonePages = function(pages)
 		}
 		catch (e)
 		{
-			errors.push(mxResources.get('pageWithNumber', [i + 1]) +
-				' (' + pages[i].getName() + '): ' + e.message);
+			errors.push(mxResources.get('pageWithNumber',
+				[i + 1]) + ': ' + e.toString());
 		}
 	}
 
 	if (errors.length > 0)
 	{
-		throw new Error(errors.join('\n'));
+		var error = new Error(errors.join('\n'));
+
+		// Provides error handling with XML of valid pages for fallback
+		try
+		{
+			if (result.length > 0)
+			{
+				error.fallbackFileData = this.getXmlForPages(result);
+			}
+		}
+		catch (e)
+		{
+			// ignore
+		}
+
+		throw error;
 	}
 	
 	return result;
@@ -1406,7 +1594,8 @@ EditorUi.prototype.clonePage = function(page)
 		EditorUi.transientViewStateProperties)
 	result.root = this.editor.graph.model.cloneCell(
 		page.root, null, true);
-
+	result.diagramModified = page.diagramModified;
+	
 	return result;
 };
 
@@ -1443,13 +1632,46 @@ EditorUi.prototype.movePage = function(oldIndex, newIndex)
 }
 
 /**
+ * Sorts pages by name in natural ascending order as one undoable edit.
+ */
+EditorUi.prototype.sortPages = function()
+{
+	var sorted = this.pages.slice().sort(function(a, b)
+	{
+		return (a.getName() || '').localeCompare(b.getName() || '',
+			undefined, {numeric: true, sensitivity: 'base'});
+	});
+
+	var model = this.editor.graph.model;
+	model.beginUpdate();
+	try
+	{
+		for (var i = 0; i < sorted.length; i++)
+		{
+			var index = mxUtils.indexOf(this.pages, sorted[i]);
+
+			if (index != i)
+			{
+				this.movePage(index, i);
+			}
+		}
+	}
+	finally
+	{
+		model.endUpdate();
+	}
+
+	this.scrollToPage(this.currentPage, true);
+};
+
+/**
  * Returns true if the given string contains an mxfile.
  */
 EditorUi.prototype.createTabContainer = function()
 {
 	var div = document.createElement('div');
 	div.className = 'geTabContainer geTabItem';
-	
+
 	return div;
 };
 
@@ -1458,86 +1680,205 @@ EditorUi.prototype.createTabContainer = function()
  */
 EditorUi.prototype.updateTabContainer = function()
 {
-	if (this.tabContainer != null && this.pages != null)
+	if (this.tabContainer != null && !this.isTabContainerVisible())
 	{
+		this.tabContainer.style.display = 'none';
+	}
+	else if (this.tabContainer != null && this.pages != null)
+	{
+		this.tabContainer.style.display = '';
 		var graph = this.editor.graph;
 		var wrapper = document.createElement('div');
 		wrapper.className = 'geTabScroller';
 		var startIndex = null;
+		var dragTab = null;
+		var activeTab = null;
+		var ui = this;
+		var sl = (this.tabScroller != null) ? this.tabScroller.scrollLeft : 0;
+		var btCacheMiss = false;
 
 		for (var i = 0; i < this.pages.length; i++)
 		{
-			// Install drag and drop for page reorder
-			(mxUtils.bind(this, function(index, tab)
+			var page = this.pages[i];
+
+			if (page == null)
 			{
-				if (this.pages[index] == this.currentPage)
-				{
-					tab.className = 'geTab gePageTab geActivePage';
-				}
-				else
-				{
-					tab.className = 'geTab gePageTab geInactivePage';
-				}
-				
-				tab.setAttribute('draggable', 'true');
-				
+				continue;
+			}
+
+			var pageId = page.getId();
+			var pageName = page.getName() || mxResources.get('untitled');
+			var cacheKey = pageId + ':' + pageName;
+			var tab = (this.btPageTabCache != null) ?
+				this.btPageTabCache[cacheKey] : null;
+
+			if (tab != null)
+			{
+				// Reuse cached tab (preserves browser translation)
+				tab.setAttribute('title', pageName + ((pageId != null) ?
+					' (' + pageId + ')' : '') + ' [' + (i + 1) + ']');
+			}
+			else
+			{
+				tab = this.createTabForPage(page, i + 1);
+				btCacheMiss = true;
+			}
+
+			// Update data-index for DnD (read at event time)
+			tab.setAttribute('draggable', 'true');
+			tab.setAttribute('data-index', i);
+			tab.className = 'geTab gePageTab';
+
+			// Install DnD listeners once per tab element
+			if (tab.btDndInstalled == null)
+			{
+				tab.btDndInstalled = true;
+
 				mxEvent.addListener(tab, 'dragstart', mxUtils.bind(this, function(evt)
 				{
 					if (graph.isEnabled())
 					{
-						// Workaround for no DnD on DIV in FF
 						if (mxClient.IS_FF)
 						{
-							// LATER: Check what triggers a parse as XML on this in FF after drop
 							evt.dataTransfer.setData('Text', '<diagram/>');
 						}
-						
-						startIndex = index;
+
+						startIndex = parseInt(
+							evt.currentTarget.getAttribute('data-index'), 10);
+						dragTab = evt.currentTarget;
+
+						// Defer hiding so browser captures the drag image first
+						window.requestAnimationFrame(function()
+						{
+							if (dragTab != null)
+							{
+								dragTab.classList.add('gePageTabDragPlaceholder');
+							}
+						});
+
+						// Suppress default drop highlight on other elements
+						ui._pageTabDragOverHandler = function(e)
+						{
+							e.dataTransfer.dropEffect = 'move';
+							e.preventDefault();
+
+							// Stop propagation for non-tab targets to
+							// suppress browser highlight on other elements
+							if (!e.target.classList ||
+								!e.target.classList.contains('gePageTab'))
+							{
+								e.stopPropagation();
+							}
+						};
+
+						ui._pageTabDropHandler = function(e)
+						{
+							e.preventDefault();
+							e.stopPropagation();
+						};
+
+						document.addEventListener('dragover',
+							ui._pageTabDragOverHandler, true);
+						document.addEventListener('drop',
+							ui._pageTabDropHandler, true);
 					}
 					else
 					{
-						// Blocks event
 						mxEvent.consume(evt);
 					}
 				}));
-				
+
 				mxEvent.addListener(tab, 'dragend', mxUtils.bind(this, function(evt)
 				{
+					if (dragTab != null)
+					{
+						dragTab.classList.remove('gePageTabDragPlaceholder');
+
+						// Determine final position from DOM order
+						var tabs = dragTab.parentNode.querySelectorAll('.gePageTab');
+						var dropIndex = 0;
+
+						for (var j = 0; j < tabs.length; j++)
+						{
+							if (tabs[j] == dragTab)
+							{
+								dropIndex = j;
+								break;
+							}
+						}
+
+						if (startIndex != null && dropIndex != startIndex)
+						{
+							this.movePage(startIndex, dropIndex);
+						}
+					}
+
+					if (ui._pageTabDragOverHandler != null)
+					{
+						document.removeEventListener('dragover',
+							ui._pageTabDragOverHandler, true);
+						document.removeEventListener('drop',
+							ui._pageTabDropHandler, true);
+						ui._pageTabDragOverHandler = null;
+						ui._pageTabDropHandler = null;
+					}
+
 					startIndex = null;
+					dragTab = null;
 					evt.stopPropagation();
 					evt.preventDefault();
 				}));
-				
-				mxEvent.addListener(tab, 'dragover', mxUtils.bind(this, function(evt)
+
+				mxEvent.addListener(tab, 'dragover', function(evt)
 				{
-					if (startIndex != null)
+					if (startIndex != null && dragTab != null)
 					{
 						evt.dataTransfer.dropEffect = 'move';
-					}
-					
-					evt.stopPropagation();
-					evt.preventDefault();
-				}));
-				
-				mxEvent.addListener(tab, 'drop', mxUtils.bind(this, function(evt)
-				{
-					if (startIndex != null && index != startIndex)
-					{
-						// LATER: Shift+drag for merge, ctrl+drag for clone 
-						this.movePage(startIndex, index);
+						var target = evt.currentTarget;
+
+						if (target != dragTab)
+						{
+							var rect = target.getBoundingClientRect();
+							var parent = dragTab.parentNode;
+
+							if (evt.clientX < rect.left + rect.width / 2)
+							{
+								parent.insertBefore(dragTab, target);
+							}
+							else if (target.nextSibling != dragTab)
+							{
+								parent.insertBefore(dragTab, target.nextSibling);
+							}
+						}
 					}
 
 					evt.stopPropagation();
 					evt.preventDefault();
-				}));
-				
-				wrapper.appendChild(tab);
-			}))(i, this.createTabForPage(this.pages[i], i + 1));
+				});
+
+				mxEvent.addListener(tab, 'drop', function(evt)
+				{
+					evt.stopPropagation();
+					evt.preventDefault();
+				});
+			}
+
+			if (page == this.currentPage)
+			{
+				activeTab = tab;
+			}
+
+			wrapper.appendChild(tab);
 		}
 
-		var sl = (this.tabScroller != null) ? this.tabScroller.scrollLeft : 0;
 		this.tabContainer.innerText = '';
 
+		// Not chromeless and not read-only file
+		if (this.isPageInsertTabVisible())
+		{
+			this.tabContainer.appendChild(this.createPageInsertTab());
+		}
+	
 		if (Editor.currentTheme != 'simple')
 		{
 			this.pageMenuTab = this.createPageMenuTab();
@@ -1546,32 +1887,161 @@ EditorUi.prototype.updateTabContainer = function()
 		
 		this.tabContainer.appendChild(wrapper);
 		
-		// Not chromeless and not read-only file
-		if (this.isPageInsertTabVisible())
-		{
-			this.tabContainer.appendChild(this.createPageInsertTab());
-		}
-
 		this.leftScrollTab = this.createLeftScrollTab();
 		this.tabContainer.appendChild(this.leftScrollTab);
 
 		this.rightScrollTab = this.createRightScrollTab();
 		this.tabContainer.appendChild(this.rightScrollTab);
 
+		// Cache tabs by page ID + name for reuse across rebuilds.
+		// This preserves browser translation <font> wrappers.
+		if (Graph.browserTranslate && Graph.isBrowserTranslated())
+		{
+			this.btPageTabCache = {};
+
+			for (var i = 0; i < wrapper.children.length; i++)
+			{
+				var p = (this.pages != null && i < this.pages.length) ?
+					this.pages[i] : null;
+
+				if (p != null)
+				{
+					var key = p.getId() + ':' +
+						(p.getName() || mxResources.get('untitled'));
+					this.btPageTabCache[key] = wrapper.children[i];
+				}
+			}
+		}
+
 		this.tabScroller = wrapper;
-		this.tabScroller.scrollLeft = sl;
-		this.checkTabScrollerOverflow();
 
 		mxEvent.addListener(this.tabScroller, 'scroll', mxUtils.bind(this, function(evt)
 		{
 			this.checkTabScrollerOverflow();
 		}));
 
-		window.setTimeout(mxUtils.bind(this, function()
+		// Preserve tab scroll position across browser translation.
+		// A hidden "canary" paragraph in document.body contains text
+		// in the original language. After tab rebuild we reset the
+		// canary and save scroll position. When Chrome re-translates
+		// the canary we know translation is done and restore scroll.
+		if (Graph.browserTranslate && Graph.isBrowserTranslated())
 		{
-			mxUtils.setPrefixedStyle(this.leftScrollTab.style, 'transition', 'all 0.2s linear');
-			mxUtils.setPrefixedStyle(this.rightScrollTab.style, 'transition', 'all 0.2s linear');
-		}), 0);
+			if (this.btCanary == null)
+			{
+				var ui = this;
+
+				// Canary: a paragraph with enough content for Chrome
+				// to reliably translate. Positioned offscreen but not
+				// display:none. Placed at the end of document.body so
+				// Chrome translates it after the tab labels.
+				this.btCanary = document.createElement('p');
+				this.btCanary.setAttribute('aria-hidden', 'true');
+				this.btCanary.style.cssText = 'position:absolute;left:-10000px;' +
+					'top:0;width:1px;height:1px;overflow:hidden;pointer-events:none;';
+				this.btCanaryOriginal = 'Click here to insert a new page into the document';
+				this.btCanary.textContent = this.btCanaryOriginal;
+				document.body.appendChild(this.btCanary);
+				this.btCanarySavedScroll = null;
+
+				var btRestoreScroll = function()
+				{
+					if (ui.btCanarySavedScroll != null &&
+						ui.tabScroller != null)
+					{
+						ui.btCanarySavedScroll = null;
+						ui.scrollToPage(null, true);
+					}
+				};
+
+				this.btCanaryObserver = new MutationObserver(function()
+				{
+					if (ui.btCanarySavedScroll == null)
+					{
+						return;
+					}
+
+					var canaryText = ui.btCanary.textContent;
+
+					if (canaryText != ui.btCanaryOriginal)
+					{
+						setTimeout(btRestoreScroll, 100);
+					}
+				});
+
+				this.btCanaryObserver.observe(this.btCanary,
+				{
+					characterData: true,
+					childList: true,
+					subtree: true
+				});
+
+				// Initial translation is handled by tab caching —
+				// no canary restore needed for the first load.
+			}
+
+			// Reset canary to original text and save scroll position.
+			// Only save on the first rebuild in a translation cycle —
+			// subsequent rebuilds may already have a shifted scroll.
+			// Skip when there is no cached tab content yet (first load)
+			// or no meaningful scroll position to preserve.
+			// Only arm canary when new tabs were created (cache miss)
+			// that Chrome will need to translate.
+			if (this.btCanarySavedScroll == null && btCacheMiss &&
+				this.btKnownTabScroll > 0)
+			{
+				this.btCanarySavedScroll = this.btKnownTabScroll;
+
+				// Move canary to end of body so Chrome translates it
+				// after all other elements including the tab labels
+				this.btCanary.textContent = this.btCanaryOriginal;
+				document.body.appendChild(this.btCanary);
+			}
+		}
+
+		var ghLink = document.createElement('a');
+		ghLink.href = 'https://github.com/jgraph/drawio';
+		ghLink.target = '_blank';
+		ghLink.style.cssText = 'margin-left:auto;display:flex;align-items:center;' +
+			'padding:0 8px;opacity:0.5;flex-shrink:0';
+		var ghImg = document.createElement('img');
+		ghImg.src = IMAGE_PATH + (Editor.isDarkMode() ?
+			'/github-logo-white.svg' : '/github-logo.svg');
+		ghImg.style.cssText = 'width:18px;height:18px';
+		ghImg.setAttribute('title', 'jgraph/drawio');
+		ghLink.appendChild(ghImg);
+
+		mxEvent.addListener(ghLink, 'mouseenter', function()
+		{
+			ghLink.style.opacity = '1';
+		});
+
+		mxEvent.addListener(ghLink, 'mouseleave', function()
+		{
+			ghLink.style.opacity = '0.5';
+		});
+
+		this.tabContainer.appendChild(ghLink);
+
+		if (activeTab != null)
+		{
+			activeTab.classList.add('geActivePage');
+		}
+
+		// Restore scroll position after all DOM mutations (ghLink append,
+		// active class) so the wrapper has its final clientWidth/scrollWidth.
+		// Otherwise sl gets clamped to a temporarily smaller maxScrollLeft
+		// when the previous active page was at the right end.
+		this.tabScroller.scrollLeft = sl;
+		this.scrollToPage();
+		this.btKnownTabScroll = this.tabScroller.scrollLeft;
+		this.checkTabScrollerOverflow();
+
+		if (activeTab != null)
+		{
+			activeTab.scrollIntoView({behavior: 'smooth',
+				block: 'nearest', inline: 'nearest'});
+		}
 	}
 };
 
@@ -1584,11 +2054,36 @@ EditorUi.prototype.checkTabScrollerOverflow = function()
 		this.tabContainer.children.length > 2)
 	{
 		var overflow = this.tabScroller.scrollWidth > this.tabScroller.offsetWidth;
-		this.leftScrollTab.style.opacity = (!overflow) ? 0 :
-			((this.tabScroller.scrollLeft == 0) ? 0.2 : 1);
-		this.rightScrollTab.style.opacity = (!overflow) ? 0 :
-			((Math.ceil(this.tabScroller.scrollLeft) + this.tabScroller.offsetWidth >=
-				this.tabScroller.scrollWidth) ? 0.2 : 1);
+
+		if (!overflow)
+		{
+			this.leftScrollTab.style.display = 'none';
+			this.rightScrollTab.style.display = 'none';
+		}
+		else
+		{
+			this.leftScrollTab.style.display = '';
+			this.rightScrollTab.style.display = '';
+
+			if (this.tabScroller.scrollLeft == 0)
+			{
+				this.leftScrollTab.classList.add('mxDisabled');
+			}
+			else
+			{
+				this.leftScrollTab.classList.remove('mxDisabled');
+			}
+
+			if (Math.ceil(this.tabScroller.scrollLeft) + this.tabScroller.offsetWidth >=
+				this.tabScroller.scrollWidth)
+			{
+				this.rightScrollTab.classList.add('mxDisabled');
+			}
+			else
+			{
+				this.rightScrollTab.classList.remove('mxDisabled');
+			}
+		}
 	}
 };
 
@@ -1608,6 +2103,11 @@ EditorUi.prototype.createTab = function()
 {
 	var tab = document.createElement('div');
 	tab.className = 'geTab';
+
+	mxEvent.addListener(tab, 'click', mxUtils.bind(this, function(evt)
+	{
+		tab.scrollIntoView({behavior: 'smooth', block: 'nearest', inline: 'nearest'});
+	}));
 
 	return tab;
 };
@@ -1639,26 +2139,17 @@ EditorUi.prototype.createControlTab = function(title, image, fn)
 {
 	var tab = this.createTab();
 	tab.className = 'geTab geControlTab';
-	tab.style.width = '30px';
-
+	
 	if (title != null)
 	{
 		tab.setAttribute('title', title);
 	}
 
 	var inner = document.createElement('div');
-	inner.className = 'geAdaptiveAsset';
+	inner.className = 'geButton';
 	inner.style.backgroundImage = 'url(' + image + ')';
-	inner.style.backgroundRepeat = 'no-repeat';
-	inner.style.backgroundPosition = 'center';
-	inner.style.backgroundSize = '24px';
-	inner.style.position = 'relative';
-	inner.style.opacity = '0.5';
-	inner.style.width = '100%';
-	inner.style.height = '100%';
 
 	tab.appendChild(inner);
-
 	mxEvent.addListener(tab, 'click', fn);
 
 	return tab;
@@ -1672,7 +2163,7 @@ EditorUi.prototype.createPageInsertTab = function()
 	return this.createControlTab(mxResources.get('insertPage'),
 		Editor.plusImage, mxUtils.bind(this, function(evt)
 		{
-			this.insertPage();
+			this.actions.get('insertPage').funct();
 			mxEvent.consume(evt);
 		}));
 };
@@ -1682,7 +2173,7 @@ EditorUi.prototype.createPageInsertTab = function()
  */
 EditorUi.prototype.createLeftScrollTab = function()
 {
-	return this.createControlTab(null, Editor.thinArrowLeftImage, mxUtils.bind(this, function(evt)
+	return this.createControlTab(null, Editor.chevronLeftImage, mxUtils.bind(this, function(evt)
 		{
 			var dx = Math.max(60, this.tabScroller.clientWidth / 2);
 
@@ -1704,7 +2195,7 @@ EditorUi.prototype.createLeftScrollTab = function()
  */
 EditorUi.prototype.createRightScrollTab = function()
 {
-	return this.createControlTab(null, Editor.thinArrowRightImage, mxUtils.bind(this, function(evt)
+	return this.createControlTab(null, Editor.chevronRightImage, mxUtils.bind(this, function(evt)
 		{
 			var dx = Math.max(60, this.tabScroller.clientWidth / 2);
 
@@ -1727,7 +2218,7 @@ EditorUi.prototype.createRightScrollTab = function()
 EditorUi.prototype.createPageMenuTab = function()
 {
 	return this.createControlTab(mxResources.get('pages'),
-		Editor.verticalDotsImage, mxUtils.bind(this, function(evt)
+		Editor.menuImage, mxUtils.bind(this, function(evt)
 	{
 		this.editor.graph.popupMenuHandler.hideMenu();
 
@@ -1736,7 +2227,6 @@ EditorUi.prototype.createPageMenuTab = function()
 			this.menus.get('pages').funct(menu, parent);
 		}));
 		
-		menu.div.className += ' geMenubarMenu';
 		menu.smartSeparators = true;
 		menu.showDisabled = true;
 		menu.autoExpand = true;
@@ -1776,7 +2266,6 @@ EditorUi.prototype.createTabForPage = function(page, pageNumber)
 	label.style.overflow = 'hidden';
 	mxUtils.write(label, name);
 	tab.appendChild(label);
-
 	this.addTabListeners(page, tab);
 
 	return tab;
@@ -1800,13 +2289,10 @@ EditorUi.prototype.addTabListeners = function(page, tab)
 	}));
 	
 	var elt = document.createElement('div');
-	elt.className = 'geTabMenuButton';
-	elt.style.backgroundImage = 'url(' + mxWindow.prototype.minimizeImage + ')';
-	elt.style.backgroundPosition = 'center center';
-	elt.style.backgroundRepeat = 'no-repeat';
-	elt.style.backgroundSize = '10px';
+	elt.style.backgroundImage = 'url(' + Editor.thinExpandImage + ')';
+	elt.className = 'geButton';
 	tab.appendChild(elt);
-	
+
 	var menuWasVisible = false;
 	var pageWasActive = false;
 
@@ -1815,19 +2301,18 @@ EditorUi.prototype.addTabListeners = function(page, tab)
 		// Do not consume event here to allow for drag and drop of tabs
 		menuWasVisible = this.currentMenu != null;
 		pageWasActive = page == this.currentPage;
+		this.scrollToPage(page);
 		
 		if (!graph.isMouseDown && !pageWasActive)
 		{
 			this.selectPage(page);
 		}
-		
-		this.scrollToPage();
 	});
 
 	var onMouseUp = mxUtils.bind(this, function(evt)
 	{
-		if (graph.isEnabled() && !graph.isMouseDown &&
-			((pageWasActive && (mxEvent.isTouchEvent(evt) ||
+		if (!graph.isMouseDown && ((pageWasActive &&
+			(mxEvent.isTouchEvent(evt) ||
 				mxEvent.getSource(evt) == elt)) ||
 			mxEvent.isPopupTrigger(evt)))
 		{
@@ -1837,8 +2322,6 @@ EditorUi.prototype.addTabListeners = function(page, tab)
 			if (!mxEvent.isTouchEvent(evt) || !menuWasVisible)
 			{
 				var menu = new mxPopupMenu(this.createPageMenu(page));
-				
-				menu.div.className += ' geMenubarMenu';
 				menu.smartSeparators = true;
 				menu.showDisabled = true;
 				menu.autoExpand = true;
@@ -1866,38 +2349,6 @@ EditorUi.prototype.addTabListeners = function(page, tab)
 };
 
 /**
- * Returns an absolute URL to the given page or null of absolute links
- * to pages are not supported in this file.
- */
-EditorUi.prototype.getLinkForPage = function(page, params, lightbox)
-{
-	if (page != null && !mxClient.IS_CHROMEAPP && !EditorUi.isElectronApp)
-	{
-		var file = this.getCurrentFile();
-		
-		if (file != null && file.constructor != LocalFile && this.getServiceName() == 'draw.io')
-		{
-			var search = this.getSearch(['create', 'title', 'mode', 'url', 'drive', 'splash',
-				'state', 'clibs', 'ui', 'viewbox', 'hide-pages', 'sketch']);
-			search += ((search.length == 0) ? '?' : '&') + 'page-id=' + page.getId();
-			
-			if (params != null)
-			{
-				search += '&' + params.join('&');
-			}
-			
-			return ((lightbox && urlParams['dev'] != '1') ? EditorUi.lightboxHost :
-				(((mxClient.IS_CHROMEAPP || EditorUi.isElectronApp ||
-				!(/.*\.draw\.io$/.test(window.location.hostname))) ?
-				EditorUi.drawHost : 'https://' + window.location.host))) +
-				'/' + search + '#' + file.getHash();
-		}
-	}
-	
-	return null;
-};
-
-/**
  * Returns true if the given string contains an mxfile.
  */
 EditorUi.prototype.createPageMenu = function(page, label)
@@ -1906,242 +2357,26 @@ EditorUi.prototype.createPageMenu = function(page, label)
 	{
 		if (urlParams['embed'] != 1)
 		{
-			var url = this.getLinkForPage(page);
-
-			if (url != null)
-			{
-				menu.addItem(mxResources.get('link') + '...', null, mxUtils.bind(this, function()
-				{
-					this.showPageLinkDialog(page);
-				}));
-			}
-			
-			if (!mxClient.IS_CHROMEAPP && !EditorUi.isElectronApp && this.getServiceName() == 'draw.io')
+			if (!mxClient.IS_CHROMEAPP && !EditorUi.isElectronApp &&
+				this.getServiceName() == 'draw.io' && !navigator.standalone)
 			{
 				menu.addItem(mxResources.get('openInNewWindow'), null, mxUtils.bind(this, function()
 				{
 					this.editor.editAsNew(this.getFileData(true, null, null, null, true, true));
 				}), parent);
 			}
-
-			menu.addSeparator(parent);
 		}
 
-		menu.addItem(mxResources.get('duplicate'), null, mxUtils.bind(this, function()
+		if (this.editor.graph.isEnabled())
 		{
-			this.duplicatePage(page, mxResources.get('copyOf', [page.getName()]));
-		}), parent);
+			this.menus.addMenuItems(menu, ['duplicatePage', '-'], parent);
 
-		menu.addSeparator(parent);
-		
-		if (this.currentPage == page && this.pages.length > 1)
-		{
-			this.menus.addSubmenu('movePage', menu, parent, mxResources.get('move'));
+			if (this.currentPage == page && this.pages.length > 1)
+			{
+				this.menus.addSubmenu('movePage', menu, parent, mxResources.get('move'));
+			}
+
+			this.menus.addMenuItems(menu, ['removePage', 'renamePage'], parent);
 		}
-
-		menu.addItem(mxResources.get('delete'), null, mxUtils.bind(this, function()
-		{
-			this.removePage(page);
-		}), parent);
-		
-		menu.addItem(mxResources.get('rename') + '...', null, mxUtils.bind(this, function()
-		{
-			this.renamePage(page, label);
-		}), parent);
 	});
 };
-
-/**
- * Returns true if the given string contains an mxfile.
- */
-EditorUi.prototype.showPageLinkDialog = function(page)
-{
-	var graph = this.editor.graph;
-
-	this.showPublishLinkDialog(mxResources.get('url'), true, null, null,
-		mxUtils.bind(this, function(linkTarget, linkColor, allPages, lightbox, editLink, layers)
-	{
-		var params = this.createUrlParameters(linkTarget, linkColor, allPages, lightbox, editLink, layers);
-		
-		if (!allPages)
-		{
-			params.push('hide-pages=1');
-		}
-		
-		if (!graph.isSelectionEmpty())
-		{
-			var bounds = graph.getBoundingBox(graph.getSelectionCells());
-					
-			var t = graph.view.translate;
-			var s = graph.view.scale;
-			bounds.width /= s;
-			bounds.height /= s;
-			bounds.x = bounds.x / s - t.x;
-			bounds.y = bounds.y / s - t.y;
-		
-			params.push('viewbox=' + encodeURIComponent(JSON.stringify({x: Math.round(bounds.x), y: Math.round(bounds.y),
-				width: Math.round(bounds.width), height: Math.round(bounds.height), border: 100})));
-		}
-		
-		var dlg = new EmbedDialog(this, this.getLinkForPage(page, params, lightbox));
-		this.showDialog(dlg.container, 450, 240, true, true);
-		dlg.init();
-	}));
-};
-
-//Overrides ChangePageSetup codec to exclude page
-(function()
-{
-	var codec = mxCodecRegistry.getCodec(ChangePageSetup);
-	codec.exclude.push('page');
-})();
-
-//Registers codec for MovePage
-(function()
-{
-	var codec = new mxObjectCodec(new MovePage(), ['ui']);
-	
-	codec.beforeDecode = function(dec, node, obj)
-	{
-		obj.ui = dec.ui;
-		  
-		return node;
-	};
-	
-	codec.afterDecode = function(dec, node, obj)
-	{
-		var tmp = obj.oldIndex;
-		obj.oldIndex = obj.newIndex;
-		obj.newIndex = tmp;
-		
-	    return obj;
-	};
-	
-	mxCodecRegistry.register(codec);
-})();
-
-//Registers codec for RenamePage
-(function()
-{
-	var codec = new mxObjectCodec(new RenamePage(), ['ui', 'page']);
-	
-	codec.beforeDecode = function(dec, node, obj)
-	{
-		obj.ui = dec.ui;
-	  
-		return node;
-	};
-	
-	codec.afterDecode = function(dec, node, obj)
-	{
-	    var tmp = obj.previous;
-	    obj.previous = obj.name;
-	    obj.name = tmp;
-	    
-	    return obj;
-	};
-	
-	mxCodecRegistry.register(codec);
-})();
-
-//Registers codec for ChangePage
-(function()
-{
-	var codec = new mxObjectCodec(new ChangePage(), ['ui',
-		'relatedPage', 'index', 'page', 'previousPage']);
-	
-	codec.afterEncode = function(enc, obj, node)
-	{
-		node.setAttribute('relatedPage', obj.relatedPage.getId())
-	    
-		if (obj.index == null)
-		{
-			node.setAttribute('name', obj.relatedPage.getName());
-
-			if (obj.relatedPage.viewState != null)
-			{
-	        	node.setAttribute('viewState', JSON.stringify(
-	        		obj.relatedPage.viewState, function(key, value)
-	        	{
-	        		return (mxUtils.indexOf(EditorUi.transientViewStateProperties, key) < 0) ? value : undefined;
-	        	}));
-			}
-	        
-			if (obj.relatedPage.root != null)
-			{
-				enc.encodeCell(obj.relatedPage.root, node);
-			}
-	    }
-	    
-	    return node;
-	};
-
-	codec.beforeDecode = function(dec, node, obj)
-	{
-		obj.ui = dec.ui;
-		obj.relatedPage = obj.ui.getPageById(node.getAttribute('relatedPage'));
-	    
-		if (obj.relatedPage == null)
-		{
-			var temp = node.ownerDocument.createElement('diagram');
-			temp.setAttribute('id', node.getAttribute('relatedPage'));
-			temp.setAttribute('name', node.getAttribute('name'));
-			obj.relatedPage = new DiagramPage(temp);
-
-			var vs = node.getAttribute('viewState');
-
-			if (vs != null)
-			{
-				obj.relatedPage.viewState = JSON.parse(vs);
-				node.removeAttribute('viewState');
-			}
-
-	        // Makes sure the original node isn't modified
-			node = node.cloneNode(true);
-			var tmp = node.firstChild;
-
-			if (tmp != null)
-			{
-				obj.relatedPage.root = dec.decodeCell(tmp, false);
-
-				var tmp2 = tmp.nextSibling;
-				tmp.parentNode.removeChild(tmp);
-				tmp = tmp2;
-
-				while (tmp != null)
-				{
-					tmp2 = tmp.nextSibling;
-
-					if (tmp.nodeType == mxConstants.NODETYPE_ELEMENT)
-					{
-						// Ignores all existing cells because those do not need to
-						// be re-inserted into the model. Since the encoded version
-						// of these cells contains the new parent, this would leave
-						// to an inconsistent state on the model (ie. a parent
-						// change without a call to parentForCellChanged).
-						var id = tmp.getAttribute('id');
-
-						if (dec.lookup(id) == null)
-						{
-							dec.decodeCell(tmp);
-						}
-					}
-
-					tmp.parentNode.removeChild(tmp);
-					tmp = tmp2;
-				}
-			}
-		}
-
-		return node;
-	};
-
-	codec.afterDecode = function(dec, node, obj)
-	{
-		obj.index = obj.previousIndex;
-
-		return obj;
-	};
-	
-	mxCodecRegistry.register(codec);
-})();

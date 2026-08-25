@@ -170,7 +170,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="57.62" y="36.9"/>
             <line x="57.62" y="3.7"/>
@@ -375,7 +375,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="58.92" y="36.6"/>
             <line x="58.92" y="3.5"/>
@@ -451,7 +451,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#da4026"/>
+        <fillcolor color="fillColor2" default="#da4026"/>
         <path>
             <move x="65.42" y="33.2"/>
             <line x="65.42" y="8.2"/>

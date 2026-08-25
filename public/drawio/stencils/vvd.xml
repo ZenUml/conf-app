@@ -2309,7 +2309,7 @@
     <connections/>
     <foreground>
         <save/>
-        <fillcolor color="#079247"/>
+        <fillcolor color="accentColor" default="#079247"/>
         <path>
             <move x="156.5" y="20.2"/>
             <arc large-arc-flag="1" rx="3" ry="3" sweep-flag="0" x="156.5" x-axis-rotation="0" y="26.2"/>

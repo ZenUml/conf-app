@@ -1,3 +1,7 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 (function()
 {
 	// Adds electrical stencils
@@ -552,6 +556,10 @@
 					95, 100, '', 'NMOS', null, null, this.getTagsForStencil(gnmet, 'mosfet_ic_n', dtmet).join(' ')),
 			this.createVertexTemplateEntry(mef1 + 'mosfet_ic_p;',
 					95, 100, '', 'PMOS', null, null, this.getTagsForStencil(gnmet, 'mosfet_ic_p', dtmet).join(' ')),
+			this.createVertexTemplateEntry(mef1 + 'mosfet_ic_n_body_diode;',
+					95, 100, '', 'NMOS with Body Diode', null, null, this.getTagsForStencil(gnmet, 'mosfet_ic_n_body_diode', dtmet).join(' ')),
+			this.createVertexTemplateEntry(mef1 + 'mosfet_ic_p_body_diode;',
+					95, 100, '', 'PMOS with Body Diode', null, null, this.getTagsForStencil(gnmet, 'mosfet_ic_p_body_diode', dtmet).join(' ')),
 			this.createVertexTemplateEntry(mef1 + 'mosfet_n_no_bulk;', 
 					95, 100, '', 'MOSFET No Bulk (N)', null, null, this.getTagsForStencil(gnmet, 'mosfet_n_no_bulk', dtmet).join(' ')),
 			this.createVertexTemplateEntry(mef1 + 'mosfet_p_no_bulk;',
@@ -700,9 +708,9 @@
 			this.createVertexTemplateEntry(mess + 'equipotential;', 
 					90, 90, '', 'Equipotential', null, null, this.getTagsForStencil(gnmess, 'equipotential', dtmess).join(' ')),
 			this.createVertexTemplateEntry(mess + 'protective_earth;', 
-					25, 20, '', 'Equipotential', null, null, this.getTagsForStencil(gnmess, 'protective_earth', dtmess).join(' ')),
+					25, 20, '', 'Equipotential', null, null, this.getTagsForStencil(gnmess, 'protective_earth earth ground', dtmess).join(' ')),
 			this.createVertexTemplateEntry(mess + 'signal_ground;', 
-					45, 30, '', 'Ground', null, null, this.getTagsForStencil(gnmess, 'signal_ground', dtmess).join(' ')),
+					45, 30, '', 'Ground', null, null, this.getTagsForStencil(gnmess, 'signal_ground earth', dtmess).join(' ')),
 			this.createVertexTemplateEntry(mem + 'chassis;', 
 					65, 32, '', 'Chassis', null, null, this.getTagsForStencil(gnmess, 'chassis', dtmem).join(' ')),
 			this.createVertexTemplateEntry(mem + 'circuit_breaker;', 

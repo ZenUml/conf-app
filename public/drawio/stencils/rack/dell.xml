@@ -152,7 +152,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="buttonColor" default="#ffffff"/>
         <strokewidth width="0.301"/>
         <path>
             <move x="80.85" y="2.69"/>
@@ -389,19 +389,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#f4f4f4"/>
-        <strokewidth width="1"/>
-        <fillalpha alpha="1"/>
-        <path>
-            <move x="80.95" y="10.09"/>
-            <curve x1="78.1" x2="75.78" x3="75.78" y1="10.09" y2="12.43" y3="15.3"/>
-            <curve x1="75.78" x2="78.1" x3="80.95" y1="18.17" y2="20.51" y3="20.51"/>
-            <curve x1="83.8" x2="86.12" x3="86.12" y1="20.51" y2="18.17" y3="15.3"/>
-            <curve x1="86.12" x2="83.8" x3="80.95" y1="12.43" y2="10.09" y3="10.09"/>
-            <close/>
-        </path>
-        <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="buttonColor" default="#ffffff"/>
         <strokewidth width="0.301"/>
         <path>
             <move x="80.95" y="10.09"/>
@@ -652,18 +640,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#f4f4f4"/>
-        <fillalpha alpha="1"/>
-        <path>
-            <move x="80.95" y="13.67"/>
-            <curve x1="78.1" x2="75.78" x3="75.78" y1="13.67" y2="16.01" y3="18.88"/>
-            <curve x1="75.78" x2="78.1" x3="80.95" y1="21.74" y2="24.09" y3="24.09"/>
-            <curve x1="83.8" x2="86.12" x3="86.12" y1="24.09" y2="21.74" y3="18.88"/>
-            <curve x1="86.12" x2="83.8" x3="80.95" y1="16.01" y2="13.67" y3="13.67"/>
-            <close/>
-        </path>
-        <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="buttonColor" default="#ffffff"/>
         <strokewidth width="0.301"/>
         <path>
             <move x="80.95" y="13.67"/>
@@ -1202,7 +1179,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="buttonColor" default="#ffffff"/>
         <strokewidth width="0.301"/>
         <path>
             <move x="80.85" y="2.69"/>
@@ -3317,19 +3294,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#f4f4f4"/>
-        <strokewidth width="1"/>
-        <fillalpha alpha="1"/>
-        <path>
-            <move x="80.95" y="10.09"/>
-            <curve x1="78.1" x2="75.78" x3="75.78" y1="10.09" y2="12.43" y3="15.3"/>
-            <curve x1="75.78" x2="78.1" x3="80.95" y1="18.17" y2="20.51" y3="20.51"/>
-            <curve x1="83.8" x2="86.12" x3="86.12" y1="20.51" y2="18.17" y3="15.3"/>
-            <curve x1="86.12" x2="83.8" x3="80.95" y1="12.43" y2="10.09" y3="10.09"/>
-            <close/>
-        </path>
-        <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="buttonColor" default="#ffffff"/>
         <strokewidth width="0.301"/>
         <path>
             <move x="80.95" y="10.09"/>
@@ -3566,19 +3531,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#f4f4f4"/>
-        <strokewidth width="1"/>
-        <fillalpha alpha="1"/>
-        <path>
-            <move x="80.95" y="10.09"/>
-            <curve x1="78.1" x2="75.78" x3="75.78" y1="10.09" y2="12.43" y3="15.3"/>
-            <curve x1="75.78" x2="78.1" x3="80.95" y1="18.17" y2="20.51" y3="20.51"/>
-            <curve x1="83.8" x2="86.12" x3="86.12" y1="20.51" y2="18.17" y3="15.3"/>
-            <curve x1="86.12" x2="83.8" x3="80.95" y1="12.43" y2="10.09" y3="10.09"/>
-            <close/>
-        </path>
-        <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="buttonColor" default="#ffffff"/>
         <strokewidth width="0.301"/>
         <path>
             <move x="80.95" y="10.09"/>

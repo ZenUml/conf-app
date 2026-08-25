@@ -1,10 +1,10 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2017, JGraph Holdings Ltd
+ * Copyright (c) 2006-2017, draw.io AG
  */
-OneDriveLibrary = function(ui, data, meta)
+OneDriveLibrary = function(ui, data, meta, isSP)
 {
-	OneDriveFile.call(this, ui, data, meta);
+	OneDriveFile.call(this, ui, data, meta, isSP);
 };
 
 //Extends mxEventSource
@@ -29,7 +29,7 @@ OneDriveLibrary.prototype.isAutosave = function()
  */
 OneDriveLibrary.prototype.save = function(revision, success, error)
 {
-	this.ui.oneDrive.saveFile(this, mxUtils.bind(this, function(resp)
+	(this.isSP? this.ui.m365 : this.ui.oneDrive).saveFile(this, mxUtils.bind(this, function(resp)
 	{
 		this.desc = resp;
 		

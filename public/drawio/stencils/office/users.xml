@@ -995,7 +995,7 @@
     <foreground>
         <save/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="56.21" y="12.74"/>
             <line x="62.28" y="7.12"/>
@@ -1454,7 +1454,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#29aae1"/>
+        <fillcolor color="fillColor2" default="#29aae1"/>
         <path>
             <move x="49.29" y="18.04"/>
             <curve x1="50.62" x2="52" x3="52.73" y1="17.86" y2="17.3" y3="16.14"/>
@@ -1521,7 +1521,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#00adeb"/>
+        <fillcolor color="fillColor2" default="#00adeb"/>
         <path>
             <move x="51.23" y="16.88"/>
             <curve x1="49.95" x2="48.34" x3="46.75" y1="17.6" y2="17.78" y3="17.58"/>

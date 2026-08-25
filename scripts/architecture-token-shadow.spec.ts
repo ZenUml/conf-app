@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   analyzePair,
+  analyzeCurrentBody,
   auditStaticLocators,
   assertReadOnlySql,
   deriveUniqueExactNodeSpanRelocations,
   idShape,
+  newMetrics,
   parseStoredBody,
 } from './architecture-token-shadow.mjs';
 import { parseFlowchartSource } from '../src/domain/architectureTokens/mermaidFlowchart';
 import { sliceUtf8ByteSpan, utf8ByteSpanFor } from '../src/domain/architectureTokens/utf8Locator';
 import { fingerprintFlowchartNode, reconcileFlowchartNodes } from '../src/domain/architectureTokens/reconcileFlowchartNodes';
+import { fingerprintStaticFlowchartNode } from '../src/domain/architectureTokens/flowchartStaticFingerprint';
 
 describe('Architecture Token shadow experiment helpers', () => {
   it('only accepts a single read-only query', () => {
@@ -102,6 +105,20 @@ describe('Architecture Token shadow experiment helpers', () => {
       parseFlowchartSource,
       sliceUtf8ByteSpan,
     })).toMatchObject({ kind: 'ok' });
+  });
+
+  it('counts static fingerprint facts separately from locator eligibility', async () => {
+    const metrics = newMetrics();
+    await analyzeCurrentBody(JSON.stringify({ mermaidCode: 'flowchart TD\nGateway --> Service[User Service]' }), metrics, {
+      parseFlowchartSource,
+      sliceUtf8ByteSpan,
+      fingerprintStaticFlowchartNode,
+      validateMermaid: async () => ({ ok: true }),
+    });
+
+    expect(metrics.locatorEligibility).toEqual({ eligible: 1 });
+    expect(metrics.primaryLocators).toBe(2);
+    expect(metrics.staticFingerprintFacts).toEqual({ syntax: 2, structural: 2 });
   });
 
   it('derives relocation evidence only where an exact node span is unique', () => {

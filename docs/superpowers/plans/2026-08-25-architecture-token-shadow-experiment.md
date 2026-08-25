@@ -70,6 +70,31 @@ occurrences. It rejects an unsafe locator with an explicit reason. Edge labels, 
 references, subgraph labels, edges, subgraphs, and other non-node text are
 never node locators or v1 binding targets. Unsupported syntax fails closed.
 
+## Static fingerprint facts (single revision only)
+
+After a source has passed the locator contract, the next static layer records
+evidence *about that same parsed revision*. It does not receive a previous
+revision, a binding, or a candidate mapping, and consequently cannot transfer
+or confirm an identity.
+
+- `SourceRevision.normalizedSourceSha256` is the source-wide SHA-256 of the
+  transport-normalized Mermaid text. It is revision provenance, not a node
+  identity key.
+- Each canonical node has a versioned `flowchart_node_static_v1` fingerprint
+  with `single_revision_static` provenance. Its syntax facts are kind, native
+  Mermaid ID, normalized label, shape, and a deterministic normalized syntax
+  key.
+- Its structural facts are only what the owned parser already observes in this
+  source: normalized container path, statement contexts, and undirected
+  incident native IDs. Empty values remain facts of this revision; they are not
+  inferred relationships and have no cross-revision interpretation.
+
+The audit reports `locatorEligibility` separately from
+`staticFingerprintFacts`. The former proves a byte-exact, syntax-role-aware
+source address; the latter records available facts once that address is safe.
+Neither metric measures logical identity, binding retention, precision, or
+recall. Cross-revision comparison remains a later, explicitly gated stage.
+
 ## Reproducible execution
 
 `scripts/architecture-token-shadow.mjs` is intentionally inert unless passed
@@ -108,8 +133,8 @@ The report records only counts/rates for:
 - safe versus unsafe static locator sources, unsafe-locator reason buckets,
   primary-locator count, and declaration/edge-endpoint occurrence counts;
 - logical-node/occurrence counts, repeated source occurrences per logical
-  node, static base-fingerprint count, and explicitly labelled heuristic
-  native-ID shapes.
+  node, separately counted static syntax and structural fingerprint facts, and
+  explicitly labelled heuristic native-ID shapes.
 
 No outcome in this report is token confirmation, retention, or reconciliation
 precision. Without manual review or external identity ground truth, every
@@ -142,11 +167,14 @@ For every source that passed both syntax gates, the static audit found no
 unsafe locator reason. It decoded and round-tripped 1,711 source occurrences
 in the general cohort (292 `declaration`, 1,419 `edge_endpoint`) and 6,241 in
 the candidate cohort (1,023 `declaration`, 5,218 `edge_endpoint`). The audit
-also produced one static base fingerprint per canonical node: 700 in the
-general cohort and 2,594 in the candidate cohort, together with the same
-number of verified primary locators. These are static evidence facts only; no
-fingerprint was used to compare revisions, retain a binding, or confirm a
-token.
+also produced one preliminary static base-fingerprint count per canonical
+node: 700 in the general cohort and 2,594 in the candidate cohort, together
+with the same number of verified primary locators. Those reports predate the
+explicit `staticFingerprintFacts.syntax` and
+`staticFingerprintFacts.structural` schema introduced after this audit; no new
+corpus run is claimed for that schema here. The facts remain static evidence
+only: no fingerprint was used to compare revisions, retain a binding, or
+confirm a token.
 
 The audit initially exposed two harness-context errors, corrected before the
 reported run with public fixtures: declarations may be indented within their

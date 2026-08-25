@@ -265,7 +265,7 @@ async function saveJson(file, value) {
   await rename(temporary, file);
 }
 
-function newMetrics() {
+export function newMetrics() {
   return {
     contents: 0,
     storedBodies: {},
@@ -280,24 +280,32 @@ function newMetrics() {
     nodeOccurrences: 0,
     repeatedNodeOccurrences: 0,
     primaryLocators: 0,
-    staticFingerprints: 0,
+    staticFingerprintFacts: {},
   };
+}
+
+function migrateStaticFingerprintMetrics(metrics) {
+  if (metrics.staticFingerprintFacts != null) return;
+  const legacyCount = metrics.staticFingerprints;
+  metrics.staticFingerprintFacts = Number.isSafeInteger(legacyCount)
+    ? { syntax: legacyCount, structural: legacyCount }
+    : {};
 }
 
 async function importDomain() {
   const flowchart = await import('../src/domain/architectureTokens/mermaidFlowchart.ts');
   const locator = await import('../src/domain/architectureTokens/utf8Locator.ts');
-  const reconciliation = await import('../src/domain/architectureTokens/reconcileFlowchartNodes.ts');
+  const fingerprint = await import('../src/domain/architectureTokens/flowchartStaticFingerprint.ts');
   const parser = await import('../functions/agent-link/parseDsl.ts');
   return {
     parseFlowchartSource: flowchart.parseFlowchartSource,
     sliceUtf8ByteSpan: locator.sliceUtf8ByteSpan,
-    fingerprintFlowchartNode: reconciliation.fingerprintFlowchartNode,
+    fingerprintStaticFlowchartNode: fingerprint.fingerprintStaticFlowchartNode,
     validateMermaid: (source) => parser.parseDsl('mermaid', source),
   };
 }
 
-async function analyzeCurrentBody(body, metrics, domain) {
+export async function analyzeCurrentBody(body, metrics, domain) {
   const stored = parseStoredBody(body);
   increment(metrics.storedBodies, stored.kind);
   if (stored.kind !== 'ok') return;
@@ -327,9 +335,10 @@ async function analyzeCurrentBody(body, metrics, domain) {
   }
   increment(metrics.locatorEligibility, 'eligible');
   for (const node of parsed.model.nodes) {
-    void domain.fingerprintFlowchartNode(node);
+    const fingerprint = domain.fingerprintStaticFlowchartNode(node);
     metrics.primaryLocators += 1;
-    metrics.staticFingerprints += 1;
+    increment(metrics.staticFingerprintFacts, 'syntax');
+    if (fingerprint.structural != null) increment(metrics.staticFingerprintFacts, 'structural');
     increment(metrics.nativeIdShapes, idShape(node.nativeId));
     metrics.canonicalNodes += 1;
     for (const occurrence of node.occurrences) {
@@ -381,6 +390,7 @@ export async function main(argv = process.argv.slice(2)) {
     throw new Error('Checkpoint scope differs from this run; choose a separate --state-dir');
   }
   const state = resumed ?? { version: 1, queryScope, offset: 0, metrics: newMetrics() };
+  migrateStaticFingerprintMetrics(state.metrics);
   const domain = await importDomain();
 
   while (state.offset < options.limit) {

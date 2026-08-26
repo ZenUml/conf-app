@@ -215,9 +215,10 @@ jobs:
               PROJECTS="--project=auth --project=fullscreen"
               ;;
             graph-publish)
-              # Keep the DrawIO Publish gate focused: graph-edit:5/6 cover
-              # Diagram and Board while sharing the existing auth/fullscreen
-              # projects. Do not silently run the entire fullscreen suite.
+              # Keep the DrawIO Publish gate focused: graph-edit:5/6/7 cover
+              # Diagram, Board, and the Board publish/view lifecycle while
+              # sharing the existing auth/fullscreen projects. Do not silently
+              # run the entire fullscreen suite.
               PROJECTS="--project=auth --project=fullscreen"
               TEST_TARGET="tests/fullscreen/graph-edit.spec.ts"
               ;;

@@ -183,6 +183,12 @@ test.describe('Graph (DrawIO) — Edit flow', () => {
     // label is the same interaction a user performs after dropping a shape;
     // it gives the viewer assertion a Board-specific marker.
     await drawioFrame.locator('body').press('F2');
+    // Assert the rename editor actually opened. Without this, a sketch-UI build
+    // where F2 is not bound turns the next 15 characters into single-key DrawIO
+    // shortcuts on the selected cell, and the viewer assertion below then fails
+    // for a reason unrelated to the code under test.
+    const labelEditor = drawioFrame.locator('.mxCellEditor[contenteditable="true"]');
+    await expect(labelEditor).toBeVisible({ timeout: 10_000 });
     await drawioFrame.locator('body').pressSequentially('Board lifecycle');
     await drawioFrame.locator('body').press('Enter');
 

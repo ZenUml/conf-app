@@ -25,6 +25,10 @@ const architectureTokenMocks = vi.hoisted(() => {
   };
 });
 
+const architectureTokenReadMocks = vi.hoisted(() => ({
+  read: vi.fn(),
+}));
+
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
 const mockSave = vi.fn(() => ({id: "mocked_custom_content_id"}));
@@ -59,6 +63,10 @@ vi.mock('@/services/architectureTokens/prepareMermaidStaticIngestion', () => ({
   ArchitectureTokenStaticIngestionError: architectureTokenMocks.StaticIngestionError,
 }));
 
+vi.mock('@/services/architectureTokens/readMermaidArchitectureTokenBinding', () => ({
+  readMermaidArchitectureTokenBinding: architectureTokenReadMocks.read,
+}));
+
 vi.mock("@/model/ContentProvider/CustomContentStorageProvider", () => {
   return {
     CustomContentStorageProvider: class CustomContentStorageProvider {
@@ -74,6 +82,8 @@ describe('Persistence', function () {
     vi.mocked(trackAnalyticsEvent).mockClear();
     vi.mocked(syncCustomContent).mockClear();
     architectureTokenMocks.prepare.mockResolvedValue({ kind: 'not_applicable' });
+    architectureTokenReadMocks.read.mockReset();
+    architectureTokenReadMocks.read.mockResolvedValue({ kind: 'not_configured' });
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
     resetEditorMutationSession();
@@ -291,6 +301,63 @@ describe('Persistence', function () {
         result: 'accepted',
       }),
     );
+  });
+
+  it('refreshes Mermaid binding read state and the session before-source only after a successful custom-content save', async () => {
+    const refreshedReadState = {
+      kind: 'available',
+      state: { schemaVersion: 'architectureTokenBindingV1' },
+      sourceRevision: { sourceRevisionId: 'revision-current' },
+      reconciliationHistory: [],
+    };
+    architectureTokenReadMocks.read.mockResolvedValueOnce(refreshedReadState);
+    const diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: 'flowchart TD\n  A --> B',
+      architectureTokenBindingReadState: { kind: 'stale', reason: 'source_hash_mismatch' },
+      architectureTokenBindingLoadedSource: 'flowchart TD\n  A --> C',
+    } as any;
+
+    await saveToPlatform(diagram, mockApWrapper);
+
+    expect(architectureTokenReadMocks.read).toHaveBeenCalledWith(diagram);
+    expect(diagram.architectureTokenBindingReadState).toBe(refreshedReadState);
+    expect(diagram.architectureTokenBindingLoadedSource).toBe(diagram.mermaidCode);
+  });
+
+  it('does not refresh transient Mermaid binding state when persistence returns no usable id', async () => {
+    mockSave.mockReturnValueOnce({ id: undefined } as any);
+    const priorReadState = { kind: 'stale', reason: 'source_hash_mismatch' } as const;
+    const diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: 'flowchart TD\n  A --> B',
+      architectureTokenBindingReadState: priorReadState,
+      architectureTokenBindingLoadedSource: 'flowchart TD\n  A --> C',
+    } as any;
+
+    await expect(saveToPlatform(diagram, mockApWrapper)).rejects.toBeInstanceOf(InvalidSavedContentIdError);
+
+    expect(architectureTokenReadMocks.read).not.toHaveBeenCalled();
+    expect(diagram.architectureTokenBindingReadState).toBe(priorReadState);
+    expect(diagram.architectureTokenBindingLoadedSource).toBe('flowchart TD\n  A --> C');
+  });
+
+  it('clears the session before-source when the post-save state is not available', async () => {
+    const staleReadState = { kind: 'stale', reason: 'source_hash_mismatch', sourceRevisionId: 'revision-old' } as const;
+    architectureTokenReadMocks.read.mockResolvedValueOnce(staleReadState);
+    const diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: 'flowchart TD\n  A --> B',
+      architectureTokenBindingLoadedSource: 'flowchart TD\n  A --> C',
+    } as any;
+
+    await saveToPlatform(diagram, mockApWrapper);
+
+    expect(diagram.architectureTokenBindingReadState).toBe(staleReadState);
+    expect(diagram.architectureTokenBindingLoadedSource).toBeUndefined();
   });
 
   it('refuses the custom-content write when static binding state is unsafe', async () => {

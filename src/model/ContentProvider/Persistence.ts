@@ -17,6 +17,7 @@ import {
   prepareMermaidStaticIngestion,
   type MermaidStaticIngestionOutcome,
 } from '@/services/architectureTokens/prepareMermaidStaticIngestion';
+import { readMermaidArchitectureTokenBinding } from '@/services/architectureTokens/readMermaidArchitectureTokenBinding';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -82,6 +83,8 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   if (!isValidCustomContentId(customContent?.id)) {
     throw new InvalidSavedContentIdError();
   }
+
+  await refreshMermaidArchitectureTokenBindingSession(diagram);
 
   const macroData = await apWrapper.getMacroData();
 
@@ -215,6 +218,22 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   await syncCustomContent(customContent, diagram.diagramType, macroUuid);
 
   return String(customContent.id);
+}
+
+/**
+ * The stored Diagram body has now been accepted by Confluence. Re-read the
+ * same in-memory metadata/source through the strict read boundary so an open
+ * editor no longer presents the pre-save stale/untrusted snapshot. The before
+ * source is refreshed only for an available state; every other outcome clears
+ * it so a later save cannot reconcile against stale session text.
+ */
+async function refreshMermaidArchitectureTokenBindingSession(diagram: Diagram): Promise<void> {
+  if (diagram.diagramType !== DiagramType.Mermaid) return;
+  const readState = await readMermaidArchitectureTokenBinding(diagram);
+  diagram.architectureTokenBindingReadState = readState;
+  diagram.architectureTokenBindingLoadedSource = readState.kind === 'available'
+    ? diagram.mermaidCode
+    : undefined;
 }
 
 function trackArchitectureStaticIngestionOutcome(outcome: MermaidStaticIngestionOutcome): void {

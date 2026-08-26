@@ -162,6 +162,7 @@ function prepareRawSource(raw: string): PreparedSource | Exclude<JisonOccurrence
   let parserText = '';
   const rawOrigin: (number | null)[] = [];
   const ordinaryCommentUnits = commentCodeUnits(raw);
+  const closeBraceWhitespaceUnits = closeBraceWhitespaceCodeUnits(raw);
   for (let index = 0; index < raw.length; index += 1) {
     if (raw[index] === '\r' && raw[index + 1] === '\n') {
       parserText += '\n';
@@ -174,6 +175,10 @@ function prepareRawSource(raw: string): PreparedSource | Exclude<JisonOccurrence
       rawOrigin.push(index);
       continue;
     }
+    // Mermaid's Flowchart host removes horizontal whitespace between a close
+    // brace and its following newline.  Omit those raw units from parser text;
+    // later ranges still map to their original contiguous node fragments.
+    if (closeBraceWhitespaceUnits.has(index)) continue;
     parserText += raw[index];
     rawOrigin.push(index);
   }
@@ -194,6 +199,25 @@ function commentCodeUnits(raw: string): ReadonlySet<number> {
   for (const match of raw.matchAll(/^[\t ]*%%(?!\{)[^\r\n]*/gm)) {
     const start = match.index ?? 0;
     for (let index = start; index < start + match[0].length; index += 1) units.add(index);
+  }
+  return units;
+}
+
+/**
+ * Map the one known Flowchart rewrite we can reproduce exactly: horizontal
+ * whitespace following `}` immediately before LF or CRLF is removed.
+ * Other whitespace forms remain rejected by the final preprocessing guard.
+ */
+function closeBraceWhitespaceCodeUnits(raw: string): ReadonlySet<number> {
+  const units = new Set<number>();
+  for (let index = 0; index < raw.length; index += 1) {
+    if (raw[index] !== '}') continue;
+    let cursor = index + 1;
+    while (raw[cursor] === ' ' || raw[cursor] === '\t') cursor += 1;
+    const newlineFollows = raw[cursor] === '\n' || (raw[cursor] === '\r' && raw[cursor + 1] === '\n');
+    if (!newlineFollows) continue;
+    for (let whitespace = index + 1; whitespace < cursor; whitespace += 1) units.add(whitespace);
+    index = cursor - 1;
   }
   return units;
 }

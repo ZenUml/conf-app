@@ -60,9 +60,9 @@ describe('validateMermaidFlowchart', () => {
     expect(legacyA?.statementSpan.startByte).toBeLessThan(occurrences[0].statementSpan.startByte);
   });
 
-  it('keeps a Mermaid-accepted source valid when the preferred evidence provider rejects an unsupported rewrite', async () => {
+  it('keeps a Mermaid-accepted source valid when the preferred evidence provider rejects entity preprocessing', async () => {
     validate.mockResolvedValue({ valid: true, error: null, location: null });
-    const source = 'flowchart TD\nB{Check}    \nA --> B';
+    const source = 'flowchart TD\nA[#amp;] --> B';
     const handwritten = parseFlowchartSource(source);
     expect(handwritten.kind).toBe('ok');
 
@@ -72,7 +72,7 @@ describe('validateMermaidFlowchart', () => {
       kind: 'ok',
       locatorEvidence: {
         kind: 'legacy_handwritten',
-        reason: 'unsupported_preprocessing:flowparser_close_brace_whitespace',
+        reason: 'unsupported_preprocessing:entity_encoding',
       },
     });
     if (result.kind !== 'ok' || handwritten.kind !== 'ok') return;
@@ -92,6 +92,21 @@ describe('validateMermaidFlowchart', () => {
     if (result.kind !== 'ok') return;
     const occurrence = result.model.nodes.find(({ nativeId }) => nativeId === 'A')?.occurrences[0];
     expect(occurrence && sliceUtf8ByteSpan(source, occurrence.span)).toBe('A[Start 😀]');
+  });
+
+  it('uses parser-derived evidence after mapping Mermaid close-brace whitespace normalization', async () => {
+    validate.mockResolvedValue({ valid: true, error: null, location: null });
+    const source = 'flowchart TD\r\n  B{Check}    \r\n  A[Start] --> B';
+
+    const result = await validateMermaidFlowchart(source);
+
+    expect(result).toMatchObject({
+      kind: 'ok',
+      locatorEvidence: { kind: 'jison_preferred' },
+    });
+    if (result.kind !== 'ok') return;
+    const occurrence = result.model.nodes.find(({ nativeId }) => nativeId === 'A')?.occurrences[0];
+    expect(occurrence && sliceUtf8ByteSpan(source, occurrence.span)).toBe('A[Start]');
   });
 
   it('does not let source-position provider selection change Mermaid validity', async () => {

@@ -58,6 +58,31 @@ describe('callDiagramly', () => {
     });
   });
 
+  it('forwards explicit AI repair model and disableReasoning options', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('{"jobId":"configured-repair-job"}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await modifyDiagram(
+      makeContext('verified-cloud-789'),
+      'A -> B',
+      'Syntax error',
+      'sequence',
+      {
+        model: 'anthropic/claude-sonnet-5',
+        disableReasoning: false,
+      },
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body)).toMatchObject({
+      model: 'anthropic/claude-sonnet-5',
+      disableReasoning: false,
+    });
+  });
+
   it('rejects a request when cloudId is missing', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

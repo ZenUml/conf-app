@@ -181,7 +181,12 @@ const props = defineProps({
   showDialog: Boolean,
   originalCode: String,
   diagramType: Object,
-  error: [String, Object]
+  error: [String, Object],
+  model: String,
+  disableReasoning: {
+    type: Boolean,
+    default: undefined,
+  },
 });
 
 const emit = defineEmits(['close', 'apply']);
@@ -493,9 +498,17 @@ const backendAnalytics = (status?: RepairJobStatus) => {
   return {
     ...(typeof output?.durationMs === 'number' ? { backend_duration_ms: output.durationMs } : {}),
     ...(typeof output?.repairAttempts === 'number' ? { repair_attempts: output.repairAttempts } : {}),
+    ...(typeof output?.model === 'string' ? { ai_model: output.model } : {}),
     ...(typeof output?.reasoningDisabled === 'boolean' ? { reasoning_disabled: output.reasoningDisabled } : {}),
   };
 };
+
+const requestedConfigAnalytics = () => ({
+  ...(typeof props.model === 'string' ? { ai_model: props.model } : {}),
+  ...(typeof props.disableReasoning === 'boolean'
+    ? { reasoning_disabled: props.disableReasoning }
+    : {}),
+});
 
 const failRepair = (
   displayMessage: string,
@@ -541,13 +554,20 @@ const triggerAiRepair = async () => {
       prompt_length: (props.originalCode || '').length,
       poll_interval_ms: POLL_INTERVAL_MS,
       timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
+      ...requestedConfigAnalytics(),
     });
 
     const { jobId } = await withRepairDeadline(
       () => startFixDiagram(
         props.originalCode || '',
         props.error?.toString() || 'Syntax error',
-        props.diagramType
+        props.diagramType,
+        {
+          ...(props.model !== undefined ? { model: props.model } : {}),
+          ...(props.disableReasoning !== undefined
+            ? { disableReasoning: props.disableReasoning }
+            : {}),
+        },
       ),
       deadlineMs,
     );

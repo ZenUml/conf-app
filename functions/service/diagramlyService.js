@@ -6,7 +6,13 @@ const typeMap = {
 }
 
 // Asynchronous diagram modification - returns jobId for polling
-export async function modifyDiagram(context, diagramCode, errorMessage, diagramType = 'sequence') {
+export async function modifyDiagram(
+  context,
+  diagramCode,
+  errorMessage,
+  diagramType = 'sequence',
+  options = {},
+) {
   const typeInfo = typeMap[diagramType];
 
   const command = `Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.`;
@@ -18,6 +24,10 @@ export async function modifyDiagram(context, diagramCode, errorMessage, diagramT
     command,
     errorMessage,
     subTypeKey: typeInfo.subTypeKey,
+    ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.disableReasoning !== undefined
+      ? { disableReasoning: options.disableReasoning }
+      : {}),
   };
 
   const result = await callDiagramly(context, `/api/chat/modify-async`, diagramData);

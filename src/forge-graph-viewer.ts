@@ -23,6 +23,41 @@ import {
   normalizeGraphEditorMode,
 } from '@/utils/graph/graphEditorMode';
 
+function getBoardDocumentLoadError(doc: Diagram | undefined) {
+  if (!doc) return null;
+
+  const boardGraphXml = doc.boardGraphXml;
+  if (boardGraphXml === undefined) {
+    return { errorClass: 'malformed' as const, errorCode: 'board_document_missing' };
+  }
+  if (typeof boardGraphXml !== 'string') {
+    return { errorClass: 'malformed' as const, errorCode: 'board_document_malformed' };
+  }
+  if (!boardGraphXml.trim()) {
+    return { errorClass: 'malformed' as const, errorCode: 'board_document_empty' };
+  }
+
+  // DrawIO's viewer parser is the final authority, but reject malformed XML
+  // at the bootstrap boundary as well so a Board macro cannot briefly mount a
+  // ready Diagram and then silently fail inside the child component.
+  if (typeof DOMParser === 'undefined') return null;
+  try {
+    const parsed = new DOMParser().parseFromString(boardGraphXml, 'application/xml');
+    const rootName = parsed.documentElement?.nodeName?.split(':').pop()?.toLowerCase();
+    const parserErrors = parsed.getElementsByTagName('parsererror');
+    if (
+      !rootName
+      || parserErrors.length > 0
+      || !['mxfile', 'mxgraphmodel'].includes(rootName)
+    ) {
+      return { errorClass: 'malformed' as const, errorCode: 'board_document_malformed' };
+    }
+  } catch {
+    return { errorClass: 'malformed' as const, errorCode: 'board_document_malformed' };
+  }
+  return null;
+}
+
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
@@ -128,6 +163,10 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
         }
       }
     }
+  }
+
+  if (normalizeGraphEditorMode(context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]) === 'board') {
+    loadError = getBoardDocumentLoadError(doc) ?? loadError;
   }
 
   return { doc, loadError, ...(attribution ? { attribution } : {}) };

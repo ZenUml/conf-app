@@ -40,6 +40,30 @@ describe('viewerLoadOutcome', () => {
     expect(classifyViewerLoadOutcome({ doc: blankDoc, customContentId: 'cc-1' }).state).toBe('ready');
   });
 
+  it('fails fast when a renderable legacy document carries an explicit Board load error', () => {
+    const doc = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Graph,
+      graphXml: '<mxGraphModel><root /></mxGraphModel>',
+      boardGraphXml: '',
+    };
+    const loadError = {
+      errorClass: 'malformed' as const,
+      errorCode: 'board_document_empty',
+    };
+
+    const outcome = classifyViewerLoadOutcome({
+      doc,
+      customContentId: 'cc-board',
+      macroKind: 'graph',
+      loadError,
+    });
+
+    expect(outcome.state).toBe('failed_with_source');
+    expect(outcome.diagram).toBe(doc);
+    expect(outcome.loadError).toBe(loadError);
+  });
+
   it('classifies missing content with a custom content id as failed_with_source', () => {
     const outcome = classifyViewerLoadOutcome({
       doc: undefined,

@@ -44,6 +44,9 @@ describe('local Confluence Board host save → viewer', () => {
       diagramType: DiagramType.Graph,
       graphXml: DIAGRAM_XML,
     }
+    store.state.diagramLoadComplete = true
+    store.state.viewerLoadState = null
+    store.state.loadError = null
     ;(window as any).ensureTitle = vi.fn(async () => 'Local Board')
     ;(window as any).mxUtils = {
       parseXml: vi.fn((xml: string) => new DOMParser().parseFromString(xml, 'text/xml')),
@@ -113,11 +116,27 @@ describe('local Confluence Board host save → viewer', () => {
     await vi.waitFor(() => expect((window as any).mxUtils.parseXml).toHaveBeenCalledWith(DIAGRAM_XML))
   })
 
-  it('falls back to Diagram content when a legacy Board macro has no Board document', async () => {
+  it('keeps rendering legacy Diagram content when the macro is in Diagram mode and has no Board document', async () => {
     store.state.diagram = {
       ...store.state.diagram,
       graphXml: DIAGRAM_XML,
-      boardGraphXml: '',
+      boardGraphXml: undefined,
+    }
+
+    mount(ForgeGraphViewer, {
+      props: { graphEditorMode: 'diagram' },
+      global: { plugins: [store] },
+    })
+
+    await vi.waitFor(() => expect((window as any).mxUtils.parseXml).toHaveBeenCalledWith(DIAGRAM_XML))
+    expect(store.state.viewerLoadState).toBeNull()
+  })
+
+  it('fails fast when a Board macro has no Board document instead of rendering legacy Diagram content', async () => {
+    store.state.diagram = {
+      ...store.state.diagram,
+      graphXml: DIAGRAM_XML,
+      boardGraphXml: undefined,
     }
 
     mount(ForgeGraphViewer, {
@@ -125,6 +144,77 @@ describe('local Confluence Board host save → viewer', () => {
       global: { plugins: [store] },
     })
 
-    await vi.waitFor(() => expect((window as any).mxUtils.parseXml).toHaveBeenCalledWith(DIAGRAM_XML))
+    await vi.waitFor(() => expect(store.state.viewerLoadState).toBe('failed_without_source'))
+    expect((window as any).mxUtils.parseXml).not.toHaveBeenCalled()
+    expect((window as any).GraphViewer).not.toHaveBeenCalled()
+    expect(store.state.diagram.graphXml).toBe(DIAGRAM_XML)
+  })
+
+  it('fails fast when a Board document is only whitespace and preserves Diagram content', async () => {
+    store.state.diagram = {
+      ...store.state.diagram,
+      graphXml: DIAGRAM_XML,
+      boardGraphXml: ' \n\t ',
+    }
+
+    mount(ForgeGraphViewer, {
+      props: { graphEditorMode: 'board' },
+      global: { plugins: [store] },
+    })
+
+    await vi.waitFor(() => expect(store.state.viewerLoadState).toBe('failed_without_source'))
+    expect(store.state.loadError).toEqual({
+      errorClass: 'malformed',
+      errorCode: 'board_document_empty',
+    })
+    expect((window as any).mxUtils.parseXml).not.toHaveBeenCalled()
+    expect(store.state.diagram.graphXml).toBe(DIAGRAM_XML)
+  })
+
+  it('fails fast when a Board document is malformed instead of rendering Diagram content', async () => {
+    const malformedBoard = '<mxfile><diagram name="Board"><mxGraphModel>'
+    store.state.diagram = {
+      ...store.state.diagram,
+      graphXml: DIAGRAM_XML,
+      boardGraphXml: malformedBoard,
+    }
+    ;(window as any).mxUtils.parseXml = vi.fn(() => {
+      throw new Error('malformed board xml')
+    })
+
+    mount(ForgeGraphViewer, {
+      props: { graphEditorMode: 'board' },
+      global: { plugins: [store] },
+    })
+
+    await vi.waitFor(() => expect(store.state.viewerLoadState).toBe('failed_without_source'))
+    expect(store.state.loadError).toEqual({
+      errorClass: 'malformed',
+      errorCode: 'board_document_malformed',
+    })
+    expect((window as any).GraphViewer).not.toHaveBeenCalled()
+    expect(store.state.diagram.graphXml).toBe(DIAGRAM_XML)
+    expect(store.state.diagram.boardGraphXml).toBe(malformedBoard)
+  })
+
+  it('treats a non-string Board document as malformed instead of coercing it', async () => {
+    store.state.diagram = {
+      ...store.state.diagram,
+      graphXml: DIAGRAM_XML,
+      boardGraphXml: null as any,
+    }
+
+    mount(ForgeGraphViewer, {
+      props: { graphEditorMode: 'board' },
+      global: { plugins: [store] },
+    })
+
+    await vi.waitFor(() => expect(store.state.viewerLoadState).toBe('failed_without_source'))
+    expect(store.state.loadError).toEqual({
+      errorClass: 'malformed',
+      errorCode: 'board_document_malformed',
+    })
+    expect((window as any).mxUtils.parseXml).not.toHaveBeenCalled()
+    expect(store.state.diagram.graphXml).toBe(DIAGRAM_XML)
   })
 })

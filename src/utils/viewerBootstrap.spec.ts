@@ -318,6 +318,53 @@ describe('viewerBootstrap content SWR', () => {
     expect(mountRoot).toHaveBeenCalledTimes(1);
   });
 
+  it('does not let the cache mask an invalid independent Board document', async () => {
+    const cachedBoard = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Graph,
+      graphXml: '<mxGraphModel><root /></mxGraphModel>',
+      boardGraphXml: '<mxfile><diagram name="Board" /></mxfile>',
+    };
+    putCachedContent(CC_ID, JSON.stringify(cachedBoard));
+    vi.mocked(putCachedContent).mockClear();
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: CC_ID } },
+    };
+    const invalidBoard = {
+      ...cachedBoard,
+      boardGraphXml: '',
+    };
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      contentProps: { graphEditorMode: 'board' },
+      loadDiagram: vi.fn(async () => ({
+        doc: invalidBoard,
+        loadError: {
+          errorClass: 'malformed' as const,
+          errorCode: 'board_document_empty',
+        },
+      })),
+      resolveContentId: () => CC_ID,
+    });
+
+    expect(getCachedContent).not.toHaveBeenCalled();
+    expect(mountRoot).toHaveBeenCalledWith(
+      NULL_DIAGRAM,
+      Component,
+      { graphEditorMode: 'board' },
+    );
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    expect(store.state.loadError).toMatchObject({
+      errorClass: 'malformed',
+      errorCode: 'board_document_empty',
+    });
+    expect(store.state.diagram.graphXml).toBe(cachedBoard.graphXml);
+    expect(store.state.diagram.boardGraphXml).toBe('');
+    expect(putCachedContent).not.toHaveBeenCalled();
+  });
+
   it('background revalidate republishes when the fetched content hash changed', async () => {
     putCachedContent(CC_ID, JSON.stringify(cachedDiagram));
     const freshDiagram = { ...cachedDiagram, code: 'openapi: 3.0.0\nCHANGED' };

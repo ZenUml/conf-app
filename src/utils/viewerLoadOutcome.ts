@@ -119,6 +119,19 @@ export function classifyViewerLoadOutcome(
   const customContentId = input.customContentId ?? getForgeCustomContentId();
   const loadError = input.loadError ?? null;
 
+  // A loader may retain the fetched document for diagnostics/compatibility
+  // while explicitly reporting that the requested representation is invalid
+  // (for example, a Board macro whose independent document is missing or
+  // malformed). An explicit load error must win over displayability; otherwise
+  // a valid legacy graphXml would mask the requested Board failure.
+  if (loadError) {
+    return {
+      state: customContentId ? 'failed_with_source' : 'failed_without_source',
+      diagram: input.doc ?? NULL_DIAGRAM,
+      loadError,
+    };
+  }
+
   if (isDisplayableDiagram(input.doc, input.macroKind)) {
     return {
       state: 'ready',

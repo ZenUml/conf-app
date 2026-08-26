@@ -47,6 +47,7 @@ import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import { normalizeGraphEditorMode } from "@/utils/graph/graphEditorMode";
+import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -70,10 +71,15 @@ export default {
     this.renderViewer();
   },
   computed: {
+    isBoardMode() {
+      return normalizeGraphEditorMode(this.graphEditorMode) === 'board';
+    },
     effectiveGraphXml() {
       const diagram = this.$store.state.diagram;
-      if (normalizeGraphEditorMode(this.graphEditorMode) === 'board' && diagram?.boardGraphXml) {
-        return diagram.boardGraphXml;
+      if (this.isBoardMode) {
+        // Board is an independent document. A legacy Diagram document is not
+        // a valid Board source and must never be rendered as a silent fallback.
+        return diagram?.boardGraphXml;
       }
       return this.graphXml || diagram?.graphXml;
     }
@@ -84,8 +90,45 @@ export default {
     }
   },
   methods: {
+    failBoardLoad(reason, cause) {
+      const loadError = {
+        errorClass: 'malformed',
+        errorCode: `board_document_${reason}`,
+      };
+      const state = getForgeCustomContentId()
+        ? 'failed_with_source'
+        : 'failed_without_source';
+      setViewerLoadState(state, loadError);
+      if (cause) {
+        console.error('ForgeGraphViewer: Board document is not renderable:', cause);
+      }
+    },
     renderViewer() {
       const container = this.$refs.graphContainer;
+      const boardXml = this.isBoardMode ? this.$store.state.diagram?.boardGraphXml : undefined;
+      // bootstrapForgeViewer mounts NULL_DIAGRAM while the authoritative
+      // Board document is loading. Do not turn that loading shell into a
+      // terminal error; the loader will publish the real Board document (or
+      // its explicit loadError) when the fetch completes.
+      if (
+        this.isBoardMode
+        && this.$store.state.diagramLoadComplete === false
+        && boardXml === undefined
+      ) {
+        return;
+      }
+      if (this.isBoardMode && boardXml === undefined) {
+        this.failBoardLoad('missing');
+        return;
+      }
+      if (this.isBoardMode && typeof boardXml !== 'string') {
+        this.failBoardLoad('malformed');
+        return;
+      }
+      if (this.isBoardMode && !boardXml.trim()) {
+        this.failBoardLoad('empty');
+        return;
+      }
       if (!container || !this.effectiveGraphXml) return;
       container.innerHTML = '';
       try {
@@ -95,7 +138,17 @@ export default {
         // page-nav strip — page nav is rendered into the GenericViewer
         // bottom pill via the #pill-prefix slot above.
         // @ts-ignore
-        const xmlNode = mxUtils.parseXml(this.effectiveGraphXml).documentElement;
+        const parsedXml = mxUtils.parseXml(this.effectiveGraphXml);
+        const xmlNode = parsedXml?.documentElement;
+        const rootName = xmlNode?.nodeName?.split(':').pop()?.toLowerCase();
+        if (this.isBoardMode && (
+          !rootName
+          || rootName === 'parsererror'
+          || !['mxfile', 'mxgraphmodel'].includes(rootName)
+          || parsedXml?.getElementsByTagName?.('parsererror')?.length
+        )) {
+          throw new Error('Malformed Board XML');
+        }
         // @ts-ignore
         this.graphViewer = new GraphViewer(container, xmlNode, {
           'auto-fit': true,
@@ -106,6 +159,9 @@ export default {
         trackRenderTime('graph', this.$store.getters.isDisplayMode);
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
+        if (this.isBoardMode) {
+          this.failBoardLoad('malformed', e);
+        }
         // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): trackRenderTime
         // above sits inside this same try block, so a crash here previously
         // fired NEITHER a success nor a failure event — a broken graph macro

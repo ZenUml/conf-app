@@ -97,33 +97,43 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     // embed viewer's legacy-uuid recovery path, which has no id to key on),
     // gets exactly today's behavior below.
     let customContentId: string | undefined;
+    // Board and Diagram are independent persisted documents. A cached
+    // Diagram-era document must never satisfy a Board load: doing so would
+    // hide a missing/empty/malformed boardGraphXml until the background
+    // revalidation finishes (or forever if it fails). Board viewers therefore
+    // stay on the authoritative load path, where the mode-specific loader can
+    // fail fast.
+    const isBoardGraph = options.macroKind === 'graph'
+      && options.contentProps?.graphEditorMode === 'board';
     if (!paywalled) {
-      customContentId = options.resolveContentId
-        ? options.resolveContentId(await initForgeContext())
-        : undefined;
-      if (customContentId) {
-        const cached = getCachedContent(customContentId);
-        if (cached) {
-          try {
-            const cachedDoc = JSON.parse(cached.doc) as Diagram;
-            // Mount the cached doc instead of the NULL_DIAGRAM shell, then
-            // publish it through the SAME normalization path a live fetch
-            // uses (normalizeCompressedGraphDoc) — the cache stores the RAW
-            // doc (see the putCachedContent call below), so a legacy
-            // compressed graph body is decompressed here exactly as it would
-            // be on a live load.
-            mountRoot(cachedDoc, options.content, options.contentProps);
-            publishLoadedDiagram(cachedDoc);
-            renderPerf.markContentSource('swr_cache');
-            // Revalidate in the background — never awaited on the critical
-            // path. `afterLoad` (orphan reporting is inline in loadDiagram;
-            // attachment backfill needs a real fetch result) is deferred to
-            // the revalidate's own completion, same reasoning as forgeIndex.
-            void revalidateViewer(customContentId, cached.hash, options);
-            return; // rendered from cache — skip the live-fetch + mount path entirely
-          } catch (e) {
-            console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
-            // fall through to the normal fetch path below
+      if (!isBoardGraph) {
+        customContentId = options.resolveContentId
+          ? options.resolveContentId(await initForgeContext())
+          : undefined;
+        if (customContentId) {
+          const cached = getCachedContent(customContentId);
+          if (cached) {
+            try {
+              const cachedDoc = JSON.parse(cached.doc) as Diagram;
+              // Mount the cached doc instead of the NULL_DIAGRAM shell, then
+              // publish it through the SAME normalization path a live fetch
+              // uses (normalizeCompressedGraphDoc) — the cache stores the RAW
+              // doc (see the putCachedContent call below), so a legacy
+              // compressed graph body is decompressed here exactly as it would
+              // be on a live load.
+              mountRoot(cachedDoc, options.content, options.contentProps);
+              publishLoadedDiagram(cachedDoc);
+              renderPerf.markContentSource('swr_cache');
+              // Revalidate in the background — never awaited on the critical
+              // path. `afterLoad` (orphan reporting is inline in loadDiagram;
+              // attachment backfill needs a real fetch result) is deferred to
+              // the revalidate's own completion, same reasoning as forgeIndex.
+              void revalidateViewer(customContentId, cached.hash, options);
+              return; // rendered from cache — skip the live-fetch + mount path entirely
+            } catch (e) {
+              console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
+              // fall through to the normal fetch path below
+            }
           }
         }
       }

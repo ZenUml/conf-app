@@ -26,12 +26,46 @@ export interface ArchitectureTokenDirectory {
   list(): Promise<ArchitectureTokenDirectoryResult>;
 }
 
+/**
+ * An explicitly supplied browser-memory snapshot for an Architecture Token
+ * picker. It intentionally has no fetch, write, search, or token-creation
+ * capability: host integration owns authorization and may pass only entries
+ * that are already available to this browser session.
+ */
+export interface BrowserLocalArchitectureTokenDirectoryProvider {
+  readonly locality: 'browser_local';
+  snapshot(): ArchitectureTokenDirectoryResult;
+}
+
 /** Default until a product-owned local directory provider is supplied. */
 export const noArchitectureTokenDirectory: ArchitectureTokenDirectory = {
   async list() {
     return { kind: 'unavailable', reason: 'not_configured' };
   },
 };
+
+/** Default when no product-owned browser-local directory is injected. */
+export const noBrowserLocalArchitectureTokenDirectoryProvider: BrowserLocalArchitectureTokenDirectoryProvider = {
+  locality: 'browser_local',
+  snapshot() {
+    return { kind: 'unavailable', reason: 'not_configured' };
+  },
+};
+
+/**
+ * Takes one strict local snapshot. The provider never retains the caller's
+ * mutable input and has no I/O surface, so diagram code cannot discover or
+ * manufacture enterprise tokens by itself.
+ */
+export function createBrowserLocalArchitectureTokenDirectoryProvider(
+  input: unknown,
+): BrowserLocalArchitectureTokenDirectoryProvider {
+  const directory = immutableDirectorySnapshot(resolveArchitectureTokenDirectory(input));
+  return {
+    locality: 'browser_local',
+    snapshot: () => directory,
+  };
+}
 
 /**
  * Strictly validates an injected local directory. Entry display names remain
@@ -61,6 +95,16 @@ export function findArchitectureTokenDirectoryEntry(
   logicalTokenId: string,
 ): ArchitectureTokenDirectoryEntry | undefined {
   return directory.entries.find((entry) => entry.logicalTokenId === logicalTokenId);
+}
+
+function immutableDirectorySnapshot(
+  directory: ArchitectureTokenDirectoryResult,
+): ArchitectureTokenDirectoryResult {
+  if (directory.kind === 'unavailable') return Object.freeze(directory);
+  return Object.freeze({
+    kind: 'available' as const,
+    entries: Object.freeze(directory.entries.map((entry) => Object.freeze({ ...entry }))),
+  });
 }
 
 function parseEntry(value: unknown): ArchitectureTokenDirectoryEntry | null {

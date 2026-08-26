@@ -95,5 +95,7 @@ describe("Workspace wiring (#373)", () => {
 
     expect(wrapper.find('[data-testid="architecture-token-binding-status"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('Architecture Token evidence available');
+    expect(wrapper.find('[data-testid="architecture-token-binding-actions"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Binding actions are not configured');
   });
 });

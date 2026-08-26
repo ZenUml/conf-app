@@ -1,6 +1,7 @@
 
 import api, { route, routeFromAbsolute } from '@forge/api';
 import { readPngDimensions } from './lib/pngDimensions.js';
+import { decideExportSample } from './lib/exportSampling.js';
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -224,6 +225,11 @@ export async function trackExportEvent(eventName, properties) {
     console.debug('Export: MIXPANEL_TOKEN not set — skipping analytics');
     return;
   }
+  // Quota sampling (src/lib/exportSampling.js). Null means "drop this one";
+  // otherwise the returned props carry the `sample_rate` stamp that lets a
+  // count be extrapolated as `count / sample_rate`.
+  const sampleProps = decideExportSample(eventName);
+  if (sampleProps === null) return;
   try {
     const body = JSON.stringify([{
       event: eventName,
@@ -248,6 +254,7 @@ export async function trackExportEvent(eventName, properties) {
         // not a change in user behaviour.
         $insert_id: crypto.randomUUID(),
         source: 'forge_export',
+        ...sampleProps,
         ...properties,
       },
     }]);

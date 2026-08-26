@@ -17,6 +17,16 @@
 
 export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // --- Dropped (rate 0) -----------------------------------------------------
+  // Quota reduction 2026-08-26: the account is over its monthly Mixpanel
+  // allowance. This event is a SECOND COPY of data we already keep in full.
+  // `maybeSendFirstSeenPing` POSTs every ping to /forge-user-behavior, which
+  // writes AnalyticsEventFact in D1 and archives the raw event to R2, and that
+  // handler deliberately does not forward to Mixpanel. Measured over
+  // 2026-08-19..25: D1 held 73,592 rows across 781 domains and 31,595 accounts
+  // while Mixpanel recorded 62,392 — the durable copy is the more complete one.
+  // Dropping the Mixpanel emission loses no census data; query D1 instead.
+  app_first_seen: 0,
+
   // EAG-64 renderer prefetch. The rollout is validated (100% on Diagramly +
   // Lite); warm-vs-cold render is already measured via macro_viewed.cache_state
   // (trackRenderTime.ts), so the dedicated attempt/outcome telemetry no longer
@@ -47,6 +57,14 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // throttle works, ~86% of triples fire exactly once). The volume is genuine
   // cardinality, not a leak, so sample the signal rather than chase the throttle.
   space_admin_active: 0.1,
+
+  // --- Quota reduction 2026-08-26 -------------------------------------------
+  // Fired once per macro view by DiagramAttributionFooter.vue, so it scales
+  // with `macro_viewed` and was the joint-largest product event at 62,338 in
+  // the 2026-08-19..25 week (9.8% of all volume). Its question — how often the
+  // attribution byline is seen, and with which of its two optional fields — is
+  // a rate, not a census, so 5% plus `sample_rate` extrapolation answers it.
+  diagram_attribution_shown: 0.05,
 };
 
 // Prefix rules apply when no exact match is found. `create_attachment` is

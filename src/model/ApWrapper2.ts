@@ -24,6 +24,7 @@ import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { ARCHITECTURE_TOKEN_BINDING_NAMESPACE } from '@/domain/architectureTokens/architectureTokenBindingState';
 import { readMermaidArchitectureTokenBinding } from '@/services/architectureTokens/readMermaidArchitectureTokenBinding';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
@@ -502,6 +503,14 @@ export default class ApWrapper2 implements IApWrapper {
       return saved;
     } catch (error) {
       if (this.isVersionConflict(error)) {
+        if (this.hasArchitectureTokenBindingMetadata(newBody)) {
+          // A generic retry would PUT this stale local body over the fresh
+          // Confluence revision. Binding state and Mermaid source must remain
+          // atomic, so do not retry unless a later conflict-aware rebase can
+          // validate both revisions and rerun reconciliation.
+          trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
+          throw error;
+        }
         trackEvent('save_conflict_retry', 'save_conflict_retry', 'info', { content_id: String(content.id) });
         const fresh = await this.makeRequest(`/api/v2/custom-content/${content.id}?body-format=raw`);
         const freshVersion = (fresh?.version?.number || 0) + 1;
@@ -518,6 +527,13 @@ export default class ApWrapper2 implements IApWrapper {
       trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
       throw error;
     }
+  }
+
+  private hasArchitectureTokenBindingMetadata(diagram: Diagram): boolean {
+    const metadata = diagram.metadata;
+    return metadata !== null
+      && typeof metadata === 'object'
+      && Object.prototype.hasOwnProperty.call(metadata, ARCHITECTURE_TOKEN_BINDING_NAMESPACE);
   }
 
   async getCustomContentById(id: string): Promise<ICustomContent | undefined> {

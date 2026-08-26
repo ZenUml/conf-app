@@ -227,6 +227,29 @@ describe('ApWrapper2', () => {
       );
     });
 
+    it('refuses a version-conflict retry when the body carries Architecture Token state', async () => {
+      const content = buildContent(5);
+      const diagram = await capturedMermaidDiagram();
+      const versionConflictError = new Error(
+        'BAD_REQUEST: Version must be incremented when updating a custom-content record',
+      );
+      vi.mocked(forgeRequest).mockRejectedValueOnce(versionConflictError);
+
+      await expect(wrapper.updateCustomContentV2(content, diagram)).rejects.toThrow(versionConflictError);
+
+      // Retrying would PUT the stale local source + binding state over the
+      // just-written remote revision. Leave the editor open to reload instead.
+      expect(forgeRequest).toHaveBeenCalledTimes(1);
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        'save_conflict_retry', 'save_conflict_retry', 'info',
+        expect.anything(),
+      );
+      expect(trackEvent).toHaveBeenCalledWith(
+        'update_custom_content_error', 'update_custom_content_error', 'error',
+        expect.objectContaining({ error_message: expect.any(String) }),
+      );
+    });
+
     it('should track structured error event on non-version-conflict failure', async () => {
       const content = buildContent(5);
       const diagram = buildDiagram();

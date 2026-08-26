@@ -443,6 +443,11 @@ Before any staging check:
 
 - The Architecture Token catalogue ownership, token authorization model, and
   whether one element can hold multiple token bindings.
+- Before those decisions are made, editor code may consume only an injected,
+  browser-local directory contract of already-approved opaque token references
+  plus display names. The contract has no default provider, does not persist
+  catalogue entries in diagram metadata, and rejects malformed or duplicate
+  references; it is a prerequisite seam, not a local replacement catalogue.
 - Exact user experience for selecting rendered Mermaid nodes (SVG mapping is
   not part of the source-binding proof).
 - Retention period for audit evidence and whether Confluence version retrieval

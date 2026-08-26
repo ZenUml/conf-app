@@ -148,7 +148,12 @@ export function extractFlowchartNodeOccurrenceEvidence(
 function prepareRawSource(raw: string): PreparedSource | Exclude<JisonOccurrenceEvidenceResult, { kind: 'ok' | 'adapter_unavailable' | 'parse_failure' }> {
   if (/\r(?!\n)/.test(raw)) return { kind: 'unsupported_preprocessing', reason: 'lone_carriage_return' };
   if (/^---(?:\r?\n|$)/.test(raw)) return { kind: 'unsupported_preprocessing', reason: 'frontmatter' };
-  if (/^\s*%%/m.test(raw)) return { kind: 'unsupported_preprocessing', reason: 'directive_or_comment' };
+  // Mermaid comments are line-scoped.  Keep every original code-unit position
+  // by substituting the comment text with spaces before Jison sees it; this
+  // preserves positions of every subsequent Flowchart construct in raw source.
+  // Directives remain unsupported because they are executable preprocessing,
+  // rather than inert text removal.
+  if (/^\s*%%\{/m.test(raw)) return { kind: 'unsupported_preprocessing', reason: 'directive_or_comment' };
   if (/<[A-Za-z]\w*(?:\s[^>]*)?>/.test(raw)) {
     return { kind: 'unsupported_preprocessing', reason: 'html_attribute_normalization' };
   }
@@ -156,11 +161,17 @@ function prepareRawSource(raw: string): PreparedSource | Exclude<JisonOccurrence
 
   let parserText = '';
   const rawOrigin: (number | null)[] = [];
+  const ordinaryCommentUnits = commentCodeUnits(raw);
   for (let index = 0; index < raw.length; index += 1) {
     if (raw[index] === '\r' && raw[index + 1] === '\n') {
       parserText += '\n';
       rawOrigin.push(null);
       index += 1;
+      continue;
+    }
+    if (ordinaryCommentUnits.has(index)) {
+      parserText += ' ';
+      rawOrigin.push(index);
       continue;
     }
     parserText += raw[index];
@@ -171,6 +182,20 @@ function prepareRawSource(raw: string): PreparedSource | Exclude<JisonOccurrence
     return { kind: 'unsupported_preprocessing', reason: 'flowparser_close_brace_whitespace' };
   }
   return { parserText, rawOrigin };
+}
+
+/**
+ * Return non-newline UTF-16 units in an ordinary Mermaid comment.  The
+ * replacement is position-preserving: Jison receives whitespace, while its
+ * location range maps back to the same raw code-unit offsets.
+ */
+function commentCodeUnits(raw: string): ReadonlySet<number> {
+  const units = new Set<number>();
+  for (const match of raw.matchAll(/^[\t ]*%%(?!\{)[^\r\n]*/gm)) {
+    const start = match.index ?? 0;
+    for (let index = start; index < start + match[0].length; index += 1) units.add(index);
+  }
+  return units;
 }
 
 /**

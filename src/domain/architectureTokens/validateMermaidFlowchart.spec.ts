@@ -60,9 +60,9 @@ describe('validateMermaidFlowchart', () => {
     expect(legacyA?.statementSpan.startByte).toBeLessThan(occurrences[0].statementSpan.startByte);
   });
 
-  it('keeps a Mermaid-accepted source valid when the preferred evidence provider rejects preprocessing', async () => {
+  it('keeps a Mermaid-accepted source valid when the preferred evidence provider rejects an unsupported rewrite', async () => {
     validate.mockResolvedValue({ valid: true, error: null, location: null });
-    const source = '%% existing Mermaid comment\nflowchart TD\n  A[Start] --> B[End]';
+    const source = 'flowchart TD\nB{Check}    \nA --> B';
     const handwritten = parseFlowchartSource(source);
     expect(handwritten.kind).toBe('ok');
 
@@ -72,11 +72,26 @@ describe('validateMermaidFlowchart', () => {
       kind: 'ok',
       locatorEvidence: {
         kind: 'legacy_handwritten',
-        reason: 'unsupported_preprocessing:directive_or_comment',
+        reason: 'unsupported_preprocessing:flowparser_close_brace_whitespace',
       },
     });
     if (result.kind !== 'ok' || handwritten.kind !== 'ok') return;
     expect(result.model).toEqual(handwritten.model);
+  });
+
+  it('uses parser-derived evidence after removing an ordinary Mermaid comment with a mapped raw source', async () => {
+    validate.mockResolvedValue({ valid: true, error: null, location: null });
+    const source = '%% explanatory comment\r\nflowchart TD\r\n  A[Start 😀] --> B[End]';
+
+    const result = await validateMermaidFlowchart(source);
+
+    expect(result).toMatchObject({
+      kind: 'ok',
+      locatorEvidence: { kind: 'jison_preferred' },
+    });
+    if (result.kind !== 'ok') return;
+    const occurrence = result.model.nodes.find(({ nativeId }) => nativeId === 'A')?.occurrences[0];
+    expect(occurrence && sliceUtf8ByteSpan(source, occurrence.span)).toBe('A[Start 😀]');
   });
 
   it('does not let source-position provider selection change Mermaid validity', async () => {

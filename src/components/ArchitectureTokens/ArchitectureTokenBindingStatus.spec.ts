@@ -149,6 +149,52 @@ describe('ArchitectureTokenBindingStatus', () => {
     expect(wrapper.findAll('button')).toHaveLength(0)
   })
 
+  it('records a closed-vocabulary confirmation requirement when an unresolved audit is presented', () => {
+    const wrapper = mountStatus({
+      ...SENSITIVE_STATE,
+      reconciliationHistory: SAFE_RECONCILIATION_HISTORY,
+    })
+
+    expect(wrapper.text()).toContain('Saved outcome: needs human confirmation')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'architecture_binding_requires_confirmation',
+      {
+        feature_area: 'architecture_tokens',
+        surface: 'editor',
+        macro_type: 'mermaid',
+        architecture_element_kind: 'node',
+        architecture_reconciliation_status: 'needs_confirmation',
+        architecture_ambiguity_reason: 'split_or_merge',
+        architecture_algorithm_version: 'architecture-token-binding-v1',
+      },
+    )
+    expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('private-hash-789')
+    expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('token-id-123')
+  })
+
+  it('records an orphaned result without inventing an ambiguity reason', () => {
+    const wrapper = mountStatus({
+      ...SENSITIVE_STATE,
+      reconciliationHistory: [{
+        outcome: 'unresolved',
+        categories: ['binding_orphaned'],
+      }],
+    })
+
+    expect(wrapper.text()).toContain('Binding orphaned')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'architecture_binding_requires_confirmation',
+      {
+        feature_area: 'architecture_tokens',
+        surface: 'editor',
+        macro_type: 'mermaid',
+        architecture_element_kind: 'node',
+        architecture_reconciliation_status: 'orphaned',
+        architecture_algorithm_version: 'architecture-token-binding-v1',
+      },
+    )
+  })
+
   it.each([
     ['not configured', { kind: 'not_configured' }],
     ['not applicable', { kind: 'not_applicable' }],

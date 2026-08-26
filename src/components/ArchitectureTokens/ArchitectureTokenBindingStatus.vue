@@ -42,7 +42,11 @@ import { computed, ref, watch } from 'vue'
 import { useStore } from 'vuex'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import type { ArchitectureTokenBindingReadState } from '@/services/architectureTokens/readMermaidArchitectureTokenBinding'
-import type { ArchitectureBindingReadState } from '@/utils/analytics/catalog'
+import type {
+  ArchitectureAmbiguityReason,
+  ArchitectureBindingReadState,
+  ArchitectureReconciliationStatus,
+} from '@/utils/analytics/catalog'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 type PresentedState = Extract<ArchitectureBindingReadState, 'available' | 'stale' | 'untrusted'>
@@ -67,6 +71,26 @@ const reconciliationHistory = computed(() =>
     ? savedReadState.value.reconciliationHistory ?? []
     : [],
 )
+
+type ConfirmationPresentation = Readonly<{
+  status: Extract<ArchitectureReconciliationStatus, 'needs_confirmation' | 'orphaned'>
+  ambiguityReason?: ArchitectureAmbiguityReason
+}>
+
+// The stored audit projection is already restricted to privacy-safe categories.
+// Only its newest displayed outcome can produce this event: historic entries
+// must not be reinterpreted as a current requirement for the editor session.
+const confirmationPresentation = computed<ConfirmationPresentation | null>(() => {
+  const latest = reconciliationHistory.value[0]
+  if (!latest || latest.outcome !== 'unresolved') return null
+  if (latest.categories.includes('binding_orphaned')) return { status: 'orphaned' }
+  return {
+    status: 'needs_confirmation',
+    ...(latest.categories.includes('ambiguous_structure')
+      ? { ambiguityReason: 'split_or_merge' as const }
+      : {}),
+  }
+})
 
 function presentedState(kind: unknown): PresentedState | null {
   return kind === 'available' || kind === 'stale' || kind === 'untrusted'
@@ -151,6 +175,25 @@ watch(
       macro_type: 'mermaid',
       architecture_element_kind: 'node',
       architecture_binding_read_state: kind,
+      architecture_algorithm_version: 'architecture-token-binding-v1',
+    })
+  },
+  { immediate: true },
+)
+
+watch(
+  confirmationPresentation,
+  (presentation, previousPresentation) => {
+    if (!presentation || presentation === previousPresentation) return
+    trackAnalyticsEvent('architecture_binding_requires_confirmation', {
+      feature_area: 'architecture_tokens',
+      surface: 'editor',
+      macro_type: 'mermaid',
+      architecture_element_kind: 'node',
+      architecture_reconciliation_status: presentation.status,
+      ...(presentation.ambiguityReason
+        ? { architecture_ambiguity_reason: presentation.ambiguityReason }
+        : {}),
       architecture_algorithm_version: 'architecture-token-binding-v1',
     })
   },

@@ -19,6 +19,7 @@ import type { DiagramLoadError } from '@/model/store2/types';
 import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { getBoardDocumentLoadError } from '@/utils/graph/boardDocument';
 
 // Slice 1 of the content-opening unification: `loadDiagram` implementations
 // are migrating from returning a plain `Diagram | undefined` to the wrapped
@@ -97,43 +98,46 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     // embed viewer's legacy-uuid recovery path, which has no id to key on),
     // gets exactly today's behavior below.
     let customContentId: string | undefined;
-    // Board and Diagram are independent persisted documents. A cached
-    // Diagram-era document must never satisfy a Board load: doing so would
-    // hide a missing/empty/malformed boardGraphXml until the background
-    // revalidation finishes (or forever if it fails). Board viewers therefore
-    // stay on the authoritative load path, where the mode-specific loader can
-    // fail fast.
+    // Board and Diagram are independent persisted documents, so a cached
+    // Diagram-era body must not satisfy a Board load — that would hide an
+    // empty/malformed boardGraphXml until the background revalidation
+    // finishes, or forever if it fails. Validate the CACHED doc with the same
+    // rule the loader applies and fall through to the authoritative fetch when
+    // it fails, rather than disabling the cache for Board macros: skipping the
+    // block entirely also skipped the putCachedContent write below, so the
+    // entry went stale for the Diagram mode too.
     const isBoardGraph = options.macroKind === 'graph'
       && options.contentProps?.graphEditorMode === 'board';
     if (!paywalled) {
-      if (!isBoardGraph) {
-        customContentId = options.resolveContentId
-          ? options.resolveContentId(await initForgeContext())
-          : undefined;
-        if (customContentId) {
-          const cached = getCachedContent(customContentId);
-          if (cached) {
-            try {
-              const cachedDoc = JSON.parse(cached.doc) as Diagram;
-              // Mount the cached doc instead of the NULL_DIAGRAM shell, then
-              // publish it through the SAME normalization path a live fetch
-              // uses (normalizeCompressedGraphDoc) — the cache stores the RAW
-              // doc (see the putCachedContent call below), so a legacy
-              // compressed graph body is decompressed here exactly as it would
-              // be on a live load.
-              mountRoot(cachedDoc, options.content, options.contentProps);
-              publishLoadedDiagram(cachedDoc);
-              renderPerf.markContentSource('swr_cache');
-              // Revalidate in the background — never awaited on the critical
-              // path. `afterLoad` (orphan reporting is inline in loadDiagram;
-              // attachment backfill needs a real fetch result) is deferred to
-              // the revalidate's own completion, same reasoning as forgeIndex.
-              void revalidateViewer(customContentId, cached.hash, options);
-              return; // rendered from cache — skip the live-fetch + mount path entirely
-            } catch (e) {
-              console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
-              // fall through to the normal fetch path below
+      customContentId = options.resolveContentId
+        ? options.resolveContentId(await initForgeContext())
+        : undefined;
+      if (customContentId) {
+        const cached = getCachedContent(customContentId);
+        if (cached) {
+          try {
+            const cachedDoc = JSON.parse(cached.doc) as Diagram;
+            if (isBoardGraph && getBoardDocumentLoadError(cachedDoc)) {
+              throw new Error('cached Board document is not renderable');
             }
+            // Mount the cached doc instead of the NULL_DIAGRAM shell, then
+            // publish it through the SAME normalization path a live fetch
+            // uses (normalizeCompressedGraphDoc) — the cache stores the RAW
+            // doc (see the putCachedContent call below), so a legacy
+            // compressed graph body is decompressed here exactly as it would
+            // be on a live load.
+            mountRoot(cachedDoc, options.content, options.contentProps);
+            publishLoadedDiagram(cachedDoc);
+            renderPerf.markContentSource('swr_cache');
+            // Revalidate in the background — never awaited on the critical
+            // path. `afterLoad` (orphan reporting is inline in loadDiagram;
+            // attachment backfill needs a real fetch result) is deferred to
+            // the revalidate's own completion, same reasoning as forgeIndex.
+            void revalidateViewer(customContentId, cached.hash, options);
+            return; // rendered from cache — skip the live-fetch + mount path entirely
+          } catch (e) {
+            console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
+            // fall through to the normal fetch path below
           }
         }
       }
@@ -210,6 +214,22 @@ async function revalidateViewer(
     // content unreadable now (undefined doc, or a structured loadError with no
     // doc) — keep the last-known-good cached render rather than publish a miss.
     if (!loadResult.doc) return;
+    // A TERMINAL error means the fetched doc is not the representation the
+    // macro asked for (an invalid Board document behind a renderable legacy
+    // graphXml). The cached render currently on screen is showing content the
+    // authoritative load says does not exist, so replace it rather than let
+    // the cache mask it — this is what makes the Board cache safe to keep.
+    // Do not cache a doc we just classified as unrenderable.
+    if (loadResult.loadError?.terminal) {
+      renderPerf.markContentSource('fetch');
+      applyViewerLoadOutcome({
+        doc: loadResult.doc,
+        customContentId,
+        loadError: loadResult.loadError,
+        macroKind: options.macroKind,
+      });
+      return;
+    }
     const serialized = JSON.stringify(loadResult.doc);
     putCachedContent(customContentId, serialized);
     if (hashContent(serialized) !== cachedHash) {

@@ -318,6 +318,10 @@ describe('viewerBootstrap content SWR', () => {
     expect(mountRoot).toHaveBeenCalledTimes(1);
   });
 
+  // Board must not be served from a cached Diagram-era body, but disabling the
+  // cache for Board also skipped the putCachedContent write, so the entry went
+  // stale for the Diagram mode too. Validate the CACHED doc instead and fall
+  // through to the authoritative fetch when it fails.
   it('does not let the cache mask an invalid independent Board document', async () => {
     const cachedBoard = {
       ...NULL_DIAGRAM,
@@ -344,25 +348,60 @@ describe('viewerBootstrap content SWR', () => {
         loadError: {
           errorClass: 'malformed' as const,
           errorCode: 'board_document_empty',
+          terminal: true,
         },
       })),
       resolveContentId: () => CC_ID,
     });
 
-    expect(getCachedContent).not.toHaveBeenCalled();
+    expect(getCachedContent).toHaveBeenCalledWith(CC_ID);
+    // The cached copy renders first (SWR), then the background revalidate's
+    // terminal Board error replaces it. Disabling the cache for Board instead
+    // also disabled the putCachedContent write below, which left the entry
+    // stale for the macro's Diagram mode.
     expect(mountRoot).toHaveBeenCalledWith(
-      NULL_DIAGRAM,
+      expect.objectContaining({ boardGraphXml: cachedBoard.boardGraphXml }),
       Component,
       { graphEditorMode: 'board' },
     );
-    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    await vi.waitFor(() => expect(store.state.viewerLoadState).toBe('failed_with_source'));
     expect(store.state.loadError).toMatchObject({
       errorClass: 'malformed',
       errorCode: 'board_document_empty',
+      terminal: true,
     });
     expect(store.state.diagram.graphXml).toBe(cachedBoard.graphXml);
     expect(store.state.diagram.boardGraphXml).toBe('');
     expect(putCachedContent).not.toHaveBeenCalled();
+  });
+
+  it('serves a VALID cached Board document from the cache', async () => {
+    const cachedBoard = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Graph,
+      graphXml: '<mxGraphModel><root /></mxGraphModel>',
+      boardGraphXml: '<mxfile><diagram name="Board" /></mxfile>',
+    };
+    putCachedContent(CC_ID, JSON.stringify(cachedBoard));
+    vi.mocked(putCachedContent).mockClear();
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: CC_ID } },
+    };
+    const loadDiagram = vi.fn(async () => ({ doc: cachedBoard, loadError: null }));
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      contentProps: { graphEditorMode: 'board' },
+      loadDiagram,
+      resolveContentId: () => CC_ID,
+    });
+
+    expect(mountRoot).toHaveBeenCalledWith(
+      expect.objectContaining({ boardGraphXml: cachedBoard.boardGraphXml }),
+      Component,
+      { graphEditorMode: 'board' },
+    );
   });
 
   it('background revalidate republishes when the fetched content hash changed', async () => {

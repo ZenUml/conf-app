@@ -38,7 +38,7 @@ Single source of truth for which sites each variant targets and the order/timing
 | full | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-full` |
 | asyncapi | `asyncapi-stg.atlassian.net` | `async-prd.atlassian.net` (see PVT note in 2.5) | `v{version}-asyncapi` |
 
-lite, full, and diagramly are Forge apps deployed to the same Confluence site (`zenuml.atlassian.net`), distinguished by their addon keys and macro names. asyncapi is a separate Forge app ("AsyncAPI for Confluence"); it shares the `conf-lite` Cloudflare Pages project for now. Its production tenant is **`async-prd.atlassian.net`** (verified 2026-07-12: cloudId `1ec8c87a-4984-41a7-975b-82160f5497a5`, active `my-api` COMMERCIAL license, Forge install Up-to-date — the old "no prod tenant" claim was stale). `release.yml`'s built-in prod smoke still skips asyncapi (workflow condition unchanged); manual PVT is defined in Step 2.5 and is currently gated on account access.
+lite, full, and diagramly are Forge apps deployed to the same Confluence site (`zenuml.atlassian.net`), distinguished by their addon keys and macro names. asyncapi is a separate Forge app ("AsyncAPI for Confluence"); it shares the `conf-lite` Cloudflare Pages project for now. Its production tenant is **`async-prd.atlassian.net`** (verified 2026-07-12: cloudId `1ec8c87a-4984-41a7-975b-82160f5497a5`, active `my-api` COMMERCIAL license, Forge install Up-to-date — the old "no prod tenant" claim was stale). `release.yml`'s built-in prod smoke still skips asyncapi (workflow condition unchanged), so the manual PVT in Step 2.5 is the ONLY production check this variant gets.
 
 ### Canary order — diagramly → lite → full; asyncapi is independent
 
@@ -225,7 +225,21 @@ gh run view <run-id> --repo ZenUml/conf-app --json status,jobs \
 - **Lite**: `/pvt lite`
 - **Full**: `/pvt full`
 - **Diagramly**: `/pvt diagramly`
-- **AsyncAPI**: run against the prod tenant **`async-prd.atlassian.net`**. Minimal checks: (a) the "My API Documents" dashboard or an asyncapi macro renders; (b) when the delta touches AI features, the `/diagramly/*` request origin is `https://zenapi.zenuml.com`. **Prerequisite:** the e2e automation account needs Confluence membership on `async-prd` — as of 2026-07-12 it has none (hard access-denied), so until an admin invites it, record `PVT: BLOCKED — e2e account lacks Confluence access on async-prd` (not "N/A") and rely on the pre-release staging E2E. The release workflow's own prod smoke also skips asyncapi (`release.yml`: `needs.release.outputs.license != 'asyncapi'`).
+- **AsyncAPI**: run against the prod tenant **`async-prd.atlassian.net`**. Minimal checks: (a) the "My API Documents" dashboard or an asyncapi macro renders; (b) when the delta touches AI features, the `/diagramly/*` request origin is `https://zenapi.zenuml.com`.
+
+  **Access works — do NOT record this as blocked.** robot1yanhui holds Confluence User on `async-prd` (granted 2026-08-21), and `agent-browser --session conf-app --restore=stg` reaches the tenant directly. An earlier version of this file said the account had none and told you to record `PVT: BLOCKED`; that was true on 2026-07-12 and is stale. Verified again 2026-08-26 on the `v2026.08.260408-asyncapi` release.
+
+  The dashboard route needs the trailing module key — without it Confluence serves its own "We can't find that page":
+
+  ```
+  /wiki/spaces/<SPACE>/apps/<appId>/<pageId>/zenuml-asyncapi-dashboard
+  ```
+
+  Read it off the space sidebar rather than hand-building it (`[...document.querySelectorAll('a')].find(a => a.textContent.trim() === 'My API Documents').getAttribute('href')`) — the appId and pageId segments are per-install. On `async-prd`/`SD` the appId is `49017727-af19-4ab6-8d5a-7d28108936b6`.
+
+  Two macro types ship in this variant (asyncapi + OpenAPI); the graph, sequence and embed macros are stripped from its manifest, so anything graph-shaped in the delta is `Not testable in asyncapi`. Pages carrying both types live in `SD` on `async-prd`.
+
+  The release workflow's own prod smoke skips asyncapi (`release.yml`: `needs.release.outputs.license != 'asyncapi'`), so this PVT is the only production check — never skip it.
 
 Report PVT results to the user.
 
@@ -327,6 +341,6 @@ Summarize each released variant:
 - **Always check for a fresh draft first (1.1).** A merge to main that completed in the last 24 hours may already have produced the drafts you need — reuse them. A manual dispatch when fresh drafts exist wastes ~15 min of CI and gains nothing.
 - The build workflow supports `workflow_dispatch`; use it on `main` only when no usable draft exists.
 - Draft releases are only created on `main` (not on PRs or other branches).
-- lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped; manual PVT per 2.5, gated on e2e account access).
+- lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped, so the manual PVT in 2.5 is its only production check; the e2e account has had access since 2026-08-21).
 - Always confirm with the user before manually dispatching a fresh build or publishing releases.
 - All order/timing rules live in **"Variants & gates"** — the canary order (diagramly → lite → full), the lite-needs-diagramly prerequisite, and the full ≥ 1-week soak. Don't restate them; reference that section.

@@ -78,12 +78,19 @@ describe('Forge export resolver (src/export.js)', () => {
       })),
     );
     process.env.MIXPANEL_TOKEN = 'unit-test-token';
+    // These specs assert on the CONTENT of the emitted events, so the quota
+    // sampling in src/lib/exportSampling.js must not decide whether they run.
+    // A draw of 0 is below every configured rate, so every event is kept; the
+    // drop path has its own coverage in tests/unit/exportSampling.spec.ts.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
     asAppRequest.mockReset();
     asUserRequest.mockReset();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     delete process.env.MIXPANEL_TOKEN;
   });
 
@@ -866,12 +873,41 @@ describe('macro_export_* $insert_id (Mixpanel dedup key)', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '' })));
     process.env.MIXPANEL_TOKEN = 'unit-test-token';
+    // These specs assert on the CONTENT of the emitted events, so the quota
+    // sampling in src/lib/exportSampling.js must not decide whether they run.
+    // A draw of 0 is below every configured rate, so every event is kept; the
+    // drop path has its own coverage in tests/unit/exportSampling.spec.ts.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
     asAppRequest.mockReset();
     asUserRequest.mockReset();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     delete process.env.MIXPANEL_TOKEN;
+  });
+
+  // Quota sampling, at the handler level. The unit-level boundary cases live in
+  // tests/unit/exportSampling.spec.ts; this one proves the handler actually
+  // honours a drop decision, so a green suite cannot be read as "every export
+  // still reaches Mixpanel".
+  it('sends nothing to Mixpanel when the sampler drops the event', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    asAppRequest.mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+      text: async () => 'not found',
+    });
+
+    await handler({
+      extensionPayload: { pageId: '111', customContentId: '222', attachmentName: 'zenuml.png' },
+    });
+
+    const posts = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter((c) => String(c[0]).includes('api.mixpanel.com'));
+    expect(posts).toHaveLength(0);
   });
 
   // One page export invokes this handler once per macro, and those invocations

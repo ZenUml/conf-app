@@ -96,6 +96,26 @@ describe('boardDocument — legacy Board records', () => {
   })
 })
 
+// The macro config records the mode only from a publish on a SUBMITTABLE
+// surface (insert / macro-config dialog). writebackGate.ts gates the writeback
+// behind `inserting || configuring`, and the in-viewer Edit modal has both
+// false — so a publish from the page's Edit button updates the body and leaves
+// config frozen at whatever it was. The editor must therefore trust the body,
+// or it opens the wrong surface. Reported on production 2026-08-26.
+describe('boardDocument — stale macro config', () => {
+  it('opens Board when the body says board and a stale config says diagram', () => {
+    expect(resolveGraphEditorMode(doc({ graphEditorMode: 'board' }), 'diagram')).toBe('board')
+  })
+
+  it('opens Diagram when the body says diagram and a stale config says board', () => {
+    expect(resolveGraphEditorMode(doc({ graphEditorMode: 'diagram' }), 'board')).toBe('diagram')
+  })
+
+  it('still honours config for a macro published before the body recorded a mode', () => {
+    expect(resolveGraphEditorMode(doc(), 'board')).toBe('board')
+  })
+})
+
 describe('boardDocument — validation', () => {
   it('accepts mxfile and raw mxGraphModel roots', () => {
     expect(validateBoardXml(BOARD)).toBeNull()

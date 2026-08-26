@@ -50,9 +50,11 @@
       <p v-if="message" class="architecture-binding-actions__message" data-testid="architecture-token-binding-action-message">
         {{ message }}
       </p>
-      <ul v-if="activeBindings.length" class="architecture-binding-actions__bindings" aria-label="Saved Architecture Token bindings">
-        <li v-for="binding in activeBindings" :key="binding.tokenBindingId">
-          <span>Saved binding</span>
+      <ul v-if="presentedBindings.length" class="architecture-binding-actions__bindings" aria-label="Saved Architecture Token bindings">
+        <li v-for="binding in presentedBindings" :key="binding.tokenBindingId">
+          <span data-testid="architecture-token-binding-summary">
+            {{ binding.nodeDisplayName }} ↔ {{ binding.tokenDisplayName }}
+          </span>
           <button
             type="button"
             data-testid="architecture-token-unbind"
@@ -100,6 +102,17 @@ const nodes = computed(() => listBindableFlowchartNodes(readState.value));
 const activeBindings = computed(() => readState.value?.kind === 'available'
   ? readState.value.state.bindings.filter((binding) => binding.status !== 'retired')
   : []);
+const presentedBindings = computed(() => activeBindings.value.map((binding) => ({
+  tokenBindingId: binding.tokenBindingId,
+  nodeDisplayName: nodes.value.kind === 'available'
+    ? nodes.value.entries.find((node) => node.diagramElementId === binding.diagramElementId)?.displayName
+      ?? 'Saved Flowchart node'
+    : 'Saved Flowchart node',
+  tokenDisplayName: directory.value.kind === 'available'
+    ? directory.value.entries.find((token) => token.logicalTokenId === binding.logicalTokenId)?.displayName
+      ?? 'Approved Architecture Token'
+    : 'Approved Architecture Token',
+})));
 const canBind = computed(() => directory.value.kind === 'available'
   && nodes.value.kind === 'available'
   && selectedElementId.value.length > 0

@@ -87,6 +87,7 @@ describe('ArchitectureTokenBindingActions', () => {
     expect(decoded.value.bindings).toMatchObject([{ logicalTokenId: 'logical-orders' }]);
     expect(JSON.stringify(store.state.diagram.metadata)).not.toContain('Orders service');
     expect(wrapper.text()).toContain('Binding added. Save the diagram to persist it.');
+    expect(wrapper.find('[data-testid="architecture-token-binding-summary"]').text()).toContain('Orders service');
     expect(wrapper.find('[data-testid="architecture-token-unbind"]').exists()).toBe(true);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('architecture_token_bind_succeeded', expect.objectContaining({
       feature_area: 'architecture_tokens',

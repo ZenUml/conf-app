@@ -108,4 +108,31 @@ describe('Forge graph viewer mode bootstrap', () => {
       },
     })
   })
+
+  // Board mode shipped in v2026.08.250259-diagramly (the published Diagramly
+  // release) before boardGraphXml existed, so a macro published in Board mode
+  // in that window carries no boardGraphXml field and holds its body in
+  // graphXml. Failing that load would show an error panel over a diagram the
+  // customer can still see today.
+  it('accepts a Board macro published before boardGraphXml existed', async () => {
+    mockGlobals.apWrapper.loadCustomContentWithOrphanRecovery.mockResolvedValueOnce({
+      customContent: {
+        value: {
+          diagramType: 'graph',
+          graphXml: '<mxfile><diagram name="Diagram" /></mxfile>',
+        },
+      },
+      probeResult: {},
+    })
+    await import('./forge-graph-viewer')
+
+    await vi.waitFor(() => expect(h.bootstrapForgeViewer).toHaveBeenCalled())
+    const [options] = h.bootstrapForgeViewer.mock.calls.at(-1) as any[]
+    const result = await options.loadDiagram()
+
+    expect(result.loadError).toBeNull()
+    expect(result.doc).toMatchObject({
+      graphXml: '<mxfile><diagram name="Diagram" /></mxfile>',
+    })
+  })
 })

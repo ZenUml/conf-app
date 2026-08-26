@@ -10,7 +10,6 @@ declare global {
 
     // Graph-related properties (forge-graph-editor, forge-graph-viewer)
     graphXml?: string;
-    boardGraphXml?: string;
     graph: any;
     Graph?: any;
     GraphViewer?: any;

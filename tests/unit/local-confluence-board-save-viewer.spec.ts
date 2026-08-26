@@ -18,6 +18,7 @@ vi.mock('@/utils/draftStore', () => ({
 
 vi.mock('@/utils/closeGuard', () => ({ setupCloseGuard: vi.fn(() => vi.fn()) }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 vi.mock('@/utils/analytics/trackRenderTime', () => ({ trackRenderTime: vi.fn() }))
 vi.mock('@/components/Viewer/GenericViewer.vue', () => ({
   default: { name: 'GenericViewer', template: '<div class="generic-viewer"><slot /></div>' },
@@ -132,7 +133,13 @@ describe('local Confluence Board host save → viewer', () => {
     expect(store.state.viewerLoadState).toBeNull()
   })
 
-  it('fails fast when a Board macro has no Board document instead of rendering legacy Diagram content', async () => {
+  // Board mode shipped in v2026.08.250259-diagramly (the published Diagramly
+  // release) BEFORE boardGraphXml existed, so macros published in Board mode
+  // in that window stored their body in graphXml and carry no boardGraphXml
+  // field at all. Failing fast on them would replace a customer's diagram with
+  // an error panel. An absent field is that legacy shape; an EMPTY STRING is a
+  // post-migration Board document that is genuinely empty and still fails.
+  it('renders the legacy Diagram body for a Board macro published before boardGraphXml existed', async () => {
     store.state.diagram = {
       ...store.state.diagram,
       graphXml: DIAGRAM_XML,
@@ -144,10 +151,9 @@ describe('local Confluence Board host save → viewer', () => {
       global: { plugins: [store] },
     })
 
-    await vi.waitFor(() => expect(store.state.viewerLoadState).toBe('failed_without_source'))
-    expect((window as any).mxUtils.parseXml).not.toHaveBeenCalled()
-    expect((window as any).GraphViewer).not.toHaveBeenCalled()
-    expect(store.state.diagram.graphXml).toBe(DIAGRAM_XML)
+    await vi.waitFor(() => expect((window as any).mxUtils.parseXml).toHaveBeenCalledWith(DIAGRAM_XML))
+    expect((window as any).GraphViewer).toHaveBeenCalled()
+    expect(store.state.viewerLoadState).toBeNull()
   })
 
   it('fails fast when a Board document is only whitespace and preserves Diagram content', async () => {
@@ -166,9 +172,20 @@ describe('local Confluence Board host save → viewer', () => {
     expect(store.state.loadError).toEqual({
       errorClass: 'malformed',
       errorCode: 'board_document_empty',
+      terminal: true,
     })
     expect((window as any).mxUtils.parseXml).not.toHaveBeenCalled()
     expect(store.state.diagram.graphXml).toBe(DIAGRAM_XML)
+    // GenericViewer's generic load_failed_shown cannot separate an invalid
+    // Board document from a 404, so the reason is named on its own event.
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'graph_board_document_invalid',
+      expect.objectContaining({
+        macro_type: 'graph',
+        surface: 'viewer',
+        error_code: 'board_document_empty',
+      }),
+    )
   })
 
   it('fails fast when a Board document is malformed instead of rendering Diagram content', async () => {
@@ -191,6 +208,7 @@ describe('local Confluence Board host save → viewer', () => {
     expect(store.state.loadError).toEqual({
       errorClass: 'malformed',
       errorCode: 'board_document_malformed',
+      terminal: true,
     })
     expect((window as any).GraphViewer).not.toHaveBeenCalled()
     expect(store.state.diagram.graphXml).toBe(DIAGRAM_XML)
@@ -213,6 +231,7 @@ describe('local Confluence Board host save → viewer', () => {
     expect(store.state.loadError).toEqual({
       errorClass: 'malformed',
       errorCode: 'board_document_malformed',
+      terminal: true,
     })
     expect((window as any).mxUtils.parseXml).not.toHaveBeenCalled()
     expect(store.state.diagram.graphXml).toBe(DIAGRAM_XML)

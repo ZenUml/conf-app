@@ -43,6 +43,7 @@ import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { decompress } from '@/utils/compress';
 import { trackEvent } from '@/utils/window';
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { resolveGraphXml } from '@/utils/graph/boardDocument';
 
 export default {
   name: "ForgeGraphViewerEmbed",
@@ -85,7 +86,12 @@ export default {
     },
     
     initGraph() {
-      let graphXml = this.graphXml || this.doc?.value?.graphXml || this.doc?.graphXml;
+      // The embed host has no macro config, so the mode comes off the body
+      // (forge-graph-editor.ts writes it on every publish). Without this the
+      // embed rendered a Board macro's stale Diagram document, or reported
+      // "Missing graph data" for a macro authored in Board mode.
+      const body = this.doc?.value ?? this.doc;
+      let graphXml = this.graphXml || resolveGraphXml(body);
 
       // Legacy compressed records — flag still controls decompression.
       if (this.doc?.compressed || this.doc?.value?.compressed) {

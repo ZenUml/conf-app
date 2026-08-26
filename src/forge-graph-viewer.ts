@@ -22,41 +22,7 @@ import {
   GRAPH_EDITOR_MODE_CONFIG_KEY,
   normalizeGraphEditorMode,
 } from '@/utils/graph/graphEditorMode';
-
-function getBoardDocumentLoadError(doc: Diagram | undefined) {
-  if (!doc) return null;
-
-  const boardGraphXml = doc.boardGraphXml;
-  if (boardGraphXml === undefined) {
-    return { errorClass: 'malformed' as const, errorCode: 'board_document_missing' };
-  }
-  if (typeof boardGraphXml !== 'string') {
-    return { errorClass: 'malformed' as const, errorCode: 'board_document_malformed' };
-  }
-  if (!boardGraphXml.trim()) {
-    return { errorClass: 'malformed' as const, errorCode: 'board_document_empty' };
-  }
-
-  // DrawIO's viewer parser is the final authority, but reject malformed XML
-  // at the bootstrap boundary as well so a Board macro cannot briefly mount a
-  // ready Diagram and then silently fail inside the child component.
-  if (typeof DOMParser === 'undefined') return null;
-  try {
-    const parsed = new DOMParser().parseFromString(boardGraphXml, 'application/xml');
-    const rootName = parsed.documentElement?.nodeName?.split(':').pop()?.toLowerCase();
-    const parserErrors = parsed.getElementsByTagName('parsererror');
-    if (
-      !rootName
-      || parserErrors.length > 0
-      || !['mxfile', 'mxgraphmodel'].includes(rootName)
-    ) {
-      return { errorClass: 'malformed' as const, errorCode: 'board_document_malformed' };
-    }
-  } catch {
-    return { errorClass: 'malformed' as const, errorCode: 'board_document_malformed' };
-  }
-  return null;
-}
+import { getBoardDocumentLoadError, resolveGraphXml } from '@/utils/graph/boardDocument';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
@@ -165,6 +131,14 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     }
   }
 
+  // A ZEN-1170 recovery above may have restored `doc` after the customContent
+  // fetch set loadError. The document is present and renderable, so the error
+  // no longer describes this load — clearing it keeps classifyViewerLoadOutcome
+  // from turning a successful recovery into an error panel.
+  if (doc && loadError) {
+    loadError = null;
+  }
+
   if (normalizeGraphEditorMode(context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]) === 'board') {
     loadError = getBoardDocumentLoadError(doc) ?? loadError;
   }
@@ -177,7 +151,10 @@ function afterLoad(doc: Diagram | undefined) {
   // compressed graph bodies to plain XML before the store write). Here we only
   // need plain XML for the attachment side-effect below, plus the compressed_*
   // telemetry that sizes how many legacy compressed graph macros are loaded.
-  let graphXml = doc?.graphXml;
+  // Snapshot the document the macro actually DISPLAYS. A Board macro's
+  // attachment is what Confluence PDF/Word export and page previews consume,
+  // so reading graphXml unconditionally exported the stale Diagram document.
+  let graphXml = resolveGraphXml(doc);
   if (doc?.compressed) {
     trackEvent('compressed_field_viewer', 'load', 'warning');
     if (!graphXml?.startsWith('<mxGraphModel')) {

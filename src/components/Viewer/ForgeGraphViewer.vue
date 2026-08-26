@@ -46,7 +46,13 @@
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
-import { normalizeGraphEditorMode } from "@/utils/graph/graphEditorMode";
+import {
+  isLegacyBoardDocument,
+  resolveGraphEditorMode,
+  resolveGraphXmlForMode,
+  validateBoardXml,
+} from "@/utils/graph/boardDocument";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
 export default {
   name: "ForgeGraphViewer",
@@ -72,14 +78,16 @@ export default {
   },
   computed: {
     isBoardMode() {
-      return normalizeGraphEditorMode(this.graphEditorMode) === 'board';
+      return resolveGraphEditorMode(this.$store.state.diagram, this.graphEditorMode) === 'board';
     },
     effectiveGraphXml() {
       const diagram = this.$store.state.diagram;
       if (this.isBoardMode) {
-        // Board is an independent document. A legacy Diagram document is not
-        // a valid Board source and must never be rendered as a silent fallback.
-        return diagram?.boardGraphXml;
+        // Board is an independent document, EXCEPT for macros published in
+        // Board mode before boardGraphXml existed — those stored their body
+        // in graphXml and resolveGraphXmlForMode returns it. A Board document
+        // that exists but is empty stays an error rather than falling back.
+        return resolveGraphXmlForMode(diagram, 'board');
       }
       return this.graphXml || diagram?.graphXml;
     }
@@ -90,44 +98,41 @@ export default {
     }
   },
   methods: {
-    failBoardLoad(reason, cause) {
-      const loadError = {
-        errorClass: 'malformed',
-        errorCode: `board_document_${reason}`,
-      };
+    failBoardLoad(errorCode, cause) {
+      const loadError = { errorClass: 'malformed', errorCode, terminal: true };
       const state = getForgeCustomContentId()
         ? 'failed_with_source'
         : 'failed_without_source';
       setViewerLoadState(state, loadError);
+      // GenericViewer's generic load_failed_shown cannot separate an invalid
+      // Board document from a 404, so name the reason here.
+      trackAnalyticsEvent('graph_board_document_invalid', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'graph',
+        error_code: errorCode,
+      });
       if (cause) {
         console.error('ForgeGraphViewer: Board document is not renderable:', cause);
       }
     },
     renderViewer() {
       const container = this.$refs.graphContainer;
-      const boardXml = this.isBoardMode ? this.$store.state.diagram?.boardGraphXml : undefined;
-      // bootstrapForgeViewer mounts NULL_DIAGRAM while the authoritative
-      // Board document is loading. Do not turn that loading shell into a
-      // terminal error; the loader will publish the real Board document (or
-      // its explicit loadError) when the fetch completes.
-      if (
-        this.isBoardMode
-        && this.$store.state.diagramLoadComplete === false
-        && boardXml === undefined
-      ) {
-        return;
-      }
-      if (this.isBoardMode && boardXml === undefined) {
-        this.failBoardLoad('missing');
-        return;
-      }
-      if (this.isBoardMode && typeof boardXml !== 'string') {
-        this.failBoardLoad('malformed');
-        return;
-      }
-      if (this.isBoardMode && !boardXml.trim()) {
-        this.failBoardLoad('empty');
-        return;
+      const diagram = this.$store.state.diagram;
+      if (this.isBoardMode && !isLegacyBoardDocument(diagram)) {
+        const boardXml = diagram?.boardGraphXml;
+        // bootstrapForgeViewer mounts NULL_DIAGRAM while the authoritative
+        // Board document is loading. Do not turn that loading shell into a
+        // terminal error; the loader will publish the real Board document (or
+        // its explicit loadError) when the fetch completes.
+        if (this.$store.state.diagramLoadComplete === false && boardXml === undefined) {
+          return;
+        }
+        const errorCode = validateBoardXml(boardXml);
+        if (errorCode) {
+          this.failBoardLoad(errorCode);
+          return;
+        }
       }
       if (!container || !this.effectiveGraphXml) return;
       container.innerHTML = '';
@@ -140,15 +145,6 @@ export default {
         // @ts-ignore
         const parsedXml = mxUtils.parseXml(this.effectiveGraphXml);
         const xmlNode = parsedXml?.documentElement;
-        const rootName = xmlNode?.nodeName?.split(':').pop()?.toLowerCase();
-        if (this.isBoardMode && (
-          !rootName
-          || rootName === 'parsererror'
-          || !['mxfile', 'mxgraphmodel'].includes(rootName)
-          || parsedXml?.getElementsByTagName?.('parsererror')?.length
-        )) {
-          throw new Error('Malformed Board XML');
-        }
         // @ts-ignore
         this.graphViewer = new GraphViewer(container, xmlNode, {
           'auto-fit': true,
@@ -160,7 +156,7 @@ export default {
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
         if (this.isBoardMode) {
-          this.failBoardLoad('malformed', e);
+          this.failBoardLoad('board_document_malformed', e);
         }
         // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): trackRenderTime
         // above sits inside this same try block, so a crash here previously

@@ -33,7 +33,13 @@ export function getDiagramData(o: any): string{
       body = o.plantUmlCode || '';
       break;
     case DiagramType.Graph:
-      body = o.graphXml || '';
+      // A Board macro's body is boardGraphXml. Reading graphXml here made
+      // Board-only edits invisible to every drift/staleness comparison built
+      // on getDiagramData. Legacy Board records (no boardGraphXml field at
+      // all) still resolve to graphXml.
+      body = (o.graphEditorMode === 'board' && o.boardGraphXml !== undefined
+        ? o.boardGraphXml
+        : o.graphXml) || '';
       break;
   }
   return body || '';
@@ -79,6 +85,13 @@ export class Diagram {
    * graphXml, which remains the Diagram-mode document for compatibility.
    */
   boardGraphXml?: string = '';
+  /**
+   * Which of the two documents above this macro publishes. The macro config
+   * carries the same value and is the authority wherever a Forge context is
+   * reachable; this copy exists for the surfaces that never see one — the
+   * embed host, the export snapshot, and getDiagramData().
+   */
+  graphEditorMode?: 'diagram' | 'board';
   /**
    * No diagrams need to be compressed anymore. This is kept for backward compatibility.
    * @deprecated This will be removed soon.

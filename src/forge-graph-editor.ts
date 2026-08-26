@@ -74,14 +74,10 @@ type GraphEditorSavePayload = {
   boardGraphXml?: string;
 };
 
-async function saveGraphAndExit(payload: string | GraphEditorSavePayload): Promise<boolean> {
-  // Keep accepting the legacy string callback shape for callers outside the
-  // mode-aware editor. The Board editor sends both independent documents so a
-  // mode switch cannot overwrite Diagram content with Board XML.
-  const graphXml = typeof payload === 'string' ? payload : payload.graphXml;
-  const boardGraphXml = typeof payload === 'string'
-    ? window.diagram?.boardGraphXml
-    : payload.boardGraphXml;
+async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolean> {
+  // The editor sends both independent documents on every publish, so a mode
+  // switch cannot overwrite Diagram content with Board XML.
+  const { graphXml, boardGraphXml } = payload;
   // Start the publish-latency clock at the save-handler entry (≈ the DrawIO
   // Publish click that postMessages here). Stopped at the redirect below.
   markPublishClicked();
@@ -89,6 +85,12 @@ async function saveGraphAndExit(payload: string | GraphEditorSavePayload): Promi
     ...window.diagram,
     graphXml,
     ...(boardGraphXml !== undefined ? { boardGraphXml } : {}),
+    // Record the published mode on the BODY as well as the macro config.
+    // Config is unreachable from the embed host, the export snapshot and
+    // getDiagramData(), and "boardGraphXml when non-empty" is not a usable
+    // substitute — a publish writes both documents, so a Diagram macro whose
+    // owner once drew on the Board would resolve to the Board document.
+    graphEditorMode: getGraphEditorMode(),
     diagramType: DiagramType.Graph,
     source: DataSource.CustomContent
   };
@@ -433,11 +435,6 @@ async function initializeMacro() {
     // @ts-ignore
     window.graphXml = graphXml;
   }
-  // Clear any prior editor-session value when loading a legacy record that has
-  // no independent Board document. Otherwise a same-page remount could leak
-  // the previous diagram's Board content into this editor.
-  window.boardGraphXml = doc?.boardGraphXml;
-
   const graphEditorMode = normalizeGraphEditorMode(
     context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]
   );

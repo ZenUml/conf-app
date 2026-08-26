@@ -227,6 +227,18 @@ logical elements. Do not copy Mermaid source into this namespace: its sibling
 `unsupported_source`. The latter records a decision about a specific revision
 transition; it does not overwrite historical evidence.
 
+### Explicit binding command boundary
+
+Before a rendered-node selection UI exists, conf-app exposes only a pure local
+command seam. It accepts a source-current, unambiguous Flowchart node target
+and an entry from the injected local directory contract; it never accepts free
+text as a token or discovers a token itself. The conservative v1 default is at
+most one active binding per diagram element. A duplicate bind is rejected
+rather than replacing or silently adding a second relationship. Unbind removes
+only the selected active binding and records a source-free `binding_action`
+audit entry, so an inactive record cannot be treated as evidence by later
+source-change reconciliation.
+
 The current body needs only the latest revision mapping, its stable elements,
 active bindings, and a bounded reconciliation audit. On a later source edit,
 the editor reconciles the loaded current mapping against the new source and

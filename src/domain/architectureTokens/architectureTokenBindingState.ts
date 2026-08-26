@@ -92,7 +92,7 @@ export interface TokenBindingRecord {
 
 export interface BindingAuditRecord {
   readonly auditId: string;
-  readonly kind: 'static_ingestion' | 'reconciliation';
+  readonly kind: 'static_ingestion' | 'reconciliation' | 'binding_action';
   readonly sourceRevisionId: string;
   readonly outcome: 'accepted' | 'rejected' | 'unresolved';
   readonly reasons: readonly string[];
@@ -276,7 +276,7 @@ function isAudit(value: unknown): value is BindingAuditRecord {
   if (!hasExactKeys(value, ['auditId', 'kind', 'sourceRevisionId', 'outcome', 'reasons', 'algorithmVersion', 'recordedAt'])) return false;
   const item = value as BindingAuditRecord;
   return isIdentifier(item.auditId)
-    && ['static_ingestion', 'reconciliation'].includes(item.kind)
+    && ['static_ingestion', 'reconciliation', 'binding_action'].includes(item.kind)
     && isIdentifier(item.sourceRevisionId)
     && ['accepted', 'rejected', 'unresolved'].includes(item.outcome)
     && isStringArray(item.reasons)

@@ -5,6 +5,7 @@ import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,
   clickEditorPublish,
+  clickHeaderClose,
   expectModalClosed,
   modalContentFrame,
 } from '../../helpers/FullscreenModalHelper.js';
@@ -14,6 +15,8 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
+  GRAPH_DIRTY_MARKER,
 } from '../../helpers/CloseGuardHelper.js';
 
 test.describe('Graph (DrawIO) — Edit flow', () => {
@@ -70,21 +73,29 @@ test.describe('Graph (DrawIO) — Edit flow', () => {
   // graph-edit:1 — Edits update canvas. Manual run verified via "Undo button
   // becomes active after canvas mutation". We assert the same by dispatching
   // the autosave message and reading `_drawioModified`.
-  test('graph-edit:1 — autosave dispatch flips the dirty flag', async ({ page }) => {
+  // graph-edit:1 — the autosave handler consumed the dispatched XML.
+  //
+  // This used to read `window._drawioModified`. That was never a window global:
+  // it was ForgeGraphEditor.vue component data, renamed to `drawioModified` on
+  // 2026-05-11 by 56a7d6b6 ("fix(lint): avoid vue/no-reserved-keys on component
+  // data"). The read returned undefined and the assertion could not pass. It
+  // went unnoticed because the `fullscreen` project had never run in CI — the
+  // DrawIO Publish gate this branch adds is the first job to execute it.
+  //
+  // The observable the app actually produces is the debounced localStorage
+  // draft (draftStore.ts, 500ms), which is also what protects unsaved work.
+  test('graph-edit:1 — an autosave with xml reaches the persisted draft', async ({ page }) => {
     await seed(page, `graph-canvas-${Date.now()}`);
     await openEditModal(page, 'graph');
-    // Read window._drawioModified before/after dispatch — caveman-clean
-    // observation that the message handler in ForgeGraphEditor.vue ran.
-    const beforeAfter = await modalContentFrame(page, 'edit').locator('body').evaluate(() => {
-      const before = (window as unknown as { _drawioModified?: boolean })._drawioModified ?? false;
-      window.dispatchEvent(new MessageEvent('message', {
-        data: JSON.stringify({ event: 'autosave', modified: true }),
-      }));
-      const after = (window as unknown as { _drawioModified?: boolean })._drawioModified ?? false;
-      return { before, after };
-    });
-    expect(beforeAfter.before).toBe(false);
-    expect(beforeAfter.after).toBe(true);
+    const frame = bridgeModalFrame(page);
+
+    expect(await readPersistedDraft(frame)).toBeNull();
+    await dirtyEditor(page, 'graph');
+
+    await expect.poll(
+      async () => (await readPersistedDraft(frame))?.code ?? '',
+      { timeout: 15_000 },
+    ).toContain(GRAPH_DIRTY_MARKER);
   });
 
   // graph-edit:2 — Publish persists edit.
@@ -146,70 +157,86 @@ test.describe('Graph (DrawIO) — Edit flow', () => {
     await expectModalClosed(page, 'edit');
   });
 
-  // graph-edit:7 — Board is a real edit/publish/view lifecycle, not only a
-  // button smoke test.  The palette click is intentionally kept as a real
-  // DrawIO interaction: Board starts as an independent empty document, so a
-  // vertex in boardGraphXml proves that the new surface was edited rather
-  // than the legacy Diagram document being re-used.
-  test('graph-edit:7 — add Board content, Publish, and render it in the viewer', async ({ page }) => {
+  // graph-edit:7 — Board is a real publish/view lifecycle, not only a button
+  // smoke test: content authored on the Board surface must reach Confluence as
+  // the Board document and come back out of the viewer.
+  //
+  // The Board content is injected through DrawIO's own `load` action — the
+  // same embed protocol ForgeGraphEditor.vue uses on every frame load — rather
+  // than by clicking a palette shape. The sketch UI collapses its shapes panel
+  // to width 0 and defers palette initialisation, so `.geSidebar` holds zero
+  // anchors until the user opens it (probed on lite-stg 2026-08-26:
+  // `container display=block visibility=visible w=0`, `visible .geSidebar a
+  // count=0`), and a canvas double-click inserts nothing. Driving DrawIO's own
+  // chrome is not what this test is for; the code under test is our document
+  // routing — which surface's XML the save handler publishes, and which one the
+  // viewer reads back.
+  test('graph-edit:7 — publish Board content and render it in the viewer', async ({ page }) => {
+    const marker = `board-lifecycle-${Date.now()}`;
+    const boardXml = '<mxfile><diagram name="Board-1"><mxGraphModel><root>'
+      + '<mxCell id="0" /><mxCell id="1" parent="0" />'
+      + `<mxCell id="board-card" value="${marker}" vertex="1" parent="1" style="rounded=0;">`
+      + '<mxGeometry x="80" y="80" width="200" height="60" as="geometry" /></mxCell>'
+      + '</root></mxGraphModel></diagram></mxfile>';
+
     await seed(page, `graph-board-view-${Date.now()}`);
     await openEditModal(page, 'graph');
 
     const outerFrame = modalContentFrame(page, 'edit');
     let drawioFrame = outerFrame.locator('iframe').contentFrame();
+    await expect(drawioFrame.locator('.graph-mode-switch button').nth(1)).toBeVisible({ timeout: 30_000 });
     await drawioFrame.locator('.graph-mode-switch button').nth(1).click();
     await expect(outerFrame.locator('iframe')).toHaveAttribute('src', /ui=sketch&sketch=1/);
 
+    // FrameLocator is dynamic, so this resolves against the reloaded Board
+    // document rather than retaining the old Diagram document.
     drawioFrame = outerFrame.locator('iframe').contentFrame();
-    await outerFrame.locator('body').evaluate(() => {
-      const target = window as unknown as { __latestBoardAutosave?: string; __boardAutosaveListener?: (event: MessageEvent) => void };
-      target.__latestBoardAutosave = undefined;
-      target.__boardAutosaveListener = (event: MessageEvent) => {
+    await expect(drawioFrame.locator('.geDiagramContainer')).toBeVisible({ timeout: 30_000 });
+
+    // Record the DrawIO `save` payload — the event ForgeGraphEditor.vue's
+    // handler consumes to build the publish — then load the Board content.
+    // DrawIO emits `autosave` on model CHANGES, not on a programmatic load, so
+    // the save payload is the observable that proves which document the Board
+    // surface published.
+    await outerFrame.locator('body').evaluate((_el, xml) => {
+      const target = window as unknown as { __boardSave?: string };
+      target.__boardSave = undefined;
+      window.addEventListener('message', (event: MessageEvent) => {
         let payload: unknown = event.data;
         if (typeof payload === 'string') {
           try { payload = JSON.parse(payload); } catch { return; }
         }
-        if (payload && typeof payload === 'object' && (payload as { event?: unknown }).event === 'autosave') {
-          const xml = (payload as { xml?: unknown }).xml;
-          if (typeof xml === 'string') target.__latestBoardAutosave = xml;
+        if (payload && typeof payload === 'object' && (payload as { event?: unknown }).event === 'save') {
+          const saved = (payload as { xml?: unknown }).xml;
+          if (typeof saved === 'string') target.__boardSave = saved;
         }
-      };
-      window.addEventListener('message', target.__boardAutosaveListener);
-    });
-    const sidebarShape = drawioFrame.locator('.geSidebarContainer a').nth(2);
-    await expect(sidebarShape).toBeVisible({ timeout: 30_000 });
-    await sidebarShape.click();
-    // The freshly inserted palette cell is selected by DrawIO.  Typing its
-    // label is the same interaction a user performs after dropping a shape;
-    // it gives the viewer assertion a Board-specific marker.
-    await drawioFrame.locator('body').press('F2');
-    // Assert the rename editor actually opened. Without this, a sketch-UI build
-    // where F2 is not bound turns the next 15 characters into single-key DrawIO
-    // shortcuts on the selected cell, and the viewer assertion below then fails
-    // for a reason unrelated to the code under test.
-    const labelEditor = drawioFrame.locator('.mxCellEditor[contenteditable="true"]');
-    await expect(labelEditor).toBeVisible({ timeout: 10_000 });
-    await drawioFrame.locator('body').pressSequentially('Board lifecycle');
-    await drawioFrame.locator('body').press('Enter');
+      });
+      const frame = document.querySelector('iframe') as HTMLIFrameElement | null;
+      frame?.contentWindow?.postMessage(JSON.stringify({ action: 'load', xml, autosave: 1 }), '*');
+    }, boardXml);
 
-    // DrawIO emits the active mode's XML through the editor bridge.  Require
-    // an actual vertex before publishing; an empty Board would make this
-    // test a false positive for the old "Publish only" coverage.
-    await expect.poll(async () => outerFrame.locator('body').evaluate(() => {
-      const boardXml = (window as unknown as { __latestBoardAutosave?: unknown }).__latestBoardAutosave;
-      return typeof boardXml === 'string' && /vertex=["']1["']/.test(boardXml);
-    }), { timeout: 15_000 }).toBe(true);
+    // Wait for the loaded cell to reach the canvas before publishing; a
+    // Publish that raced the load would persist an empty Board document.
+    await expect(drawioFrame.locator('.geDiagramContainer')).toContainText(marker, { timeout: 30_000 });
 
     await drawioFrame.locator('.geButtonContainer .geEmbedBtn').click();
+
+    await expect.poll(
+      async () => outerFrame.locator('body').evaluate(
+        (_el, needle) => ((window as unknown as { __boardSave?: string }).__boardSave ?? '').includes(needle),
+        marker,
+      ),
+      { timeout: 30_000 },
+    ).toBe(true);
     await expectModalClosed(page, 'edit');
 
-    // The editor close handler reloads the viewer after save.  Assert the
+    // The editor close handler reloads the viewer after save. Assert the
     // published Board document is rendered, not merely that save closed.
     const viewer = new MacroPage(page);
     const graphFrame = viewer.getGraphMacroFrame();
     await expect(graphFrame.locator('body')).toBeVisible({ timeout: 30_000 });
     await expect(graphFrame.locator('svg').first()).toBeVisible({ timeout: 30_000 });
-    await expect(graphFrame.getByText('Board lifecycle', { exact: false }).first()).toBeVisible({ timeout: 30_000 });
+    await expect(graphFrame.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
   });
 
   // graph-edit:3 — Close clean.
@@ -221,11 +248,32 @@ test.describe('Graph (DrawIO) — Edit flow', () => {
   });
 
   // graph-edit:4 — Close dirty.
-  test('graph-edit:4 — re-open dirty (autosave): synthetic beforeunload is true', async ({ page }) => {
+  //
+  // This used to assert dispatchSyntheticBeforeunload() === true. closeGuard.ts
+  // deliberately REPLACED beforeunload with view.onClose (its header explains
+  // why: a parent JS-destroying an iframe fires beforeunload but suppresses the
+  // dialog), so no beforeunload listener exists and the helper can only ever
+  // return false. CloseGuardHelper.ts's own doc comment states the replacement
+  // contract: "the draft is what actually protects unsaved work, so that is
+  // what the dirty-path tests assert."
+  test('graph-edit:4 — a dirty autosave leaves a draft that survives the close', async ({ page }) => {
     await seed(page, `graph-dirty-${Date.now()}`);
     await openEditModal(page, 'graph');
+    const frame = bridgeModalFrame(page);
     await dirtyEditor(page, 'graph');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result).toBe(true);
+    await expect.poll(
+      async () => (await readPersistedDraft(frame))?.code ?? '',
+      { timeout: 15_000 },
+    ).toContain(GRAPH_DIRTY_MARKER);
+
+    // The draft must still be there after the modal closes — that is the
+    // recovery anchor a user gets back on the next open.
+    await clickHeaderClose(page, 'edit');
+    await expectModalClosed(page, 'edit');
+    await openEditModal(page, 'graph');
+    await expect.poll(
+      async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '',
+      { timeout: 15_000 },
+    ).toContain(GRAPH_DIRTY_MARKER);
   });
 });

@@ -245,13 +245,25 @@ async function dirtyOpenApiEditor(frame: FrameLocator): Promise<void> {
     .catch(() => {});
 }
 
+/** Marker XML the graph dirty-path helpers dispatch and then assert on. */
+export const GRAPH_DIRTY_MARKER = 'zenuml-e2e-dirty-marker';
+
+const GRAPH_DIRTY_XML = `<mxfile><diagram name="Page-1"><mxGraphModel><root>`
+  + `<mxCell id="0" /><mxCell id="1" parent="0" />`
+  + `<mxCell id="dirty" value="${GRAPH_DIRTY_MARKER}" vertex="1" parent="1" />`
+  + `</root></mxGraphModel></diagram></mxfile>`;
+
 /**
- * DrawIO editor: send a postMessage to the embedded DrawIO iframe simulating
- * an autosave with `modified: true`. `ForgeGraphEditor.vue`'s message handler
- * sets `_drawioModified = true`, which the close guard's isDirty() reads.
+ * DrawIO editor: simulate a DrawIO autosave with `modified: true`.
+ *
+ * The xml payload is REQUIRED, not decoration. ForgeGraphEditor.vue's autosave
+ * handler only reaches the draft saver inside `if (payload.xml)`, so a payload
+ * without it flips the component's dirty flag and persists nothing — which is
+ * why the dirty-path assertions must key off the persisted draft (see
+ * readPersistedDraft) rather than any window global.
  */
 async function dirtyGraphEditor(frame: FrameLocator): Promise<void> {
-  await frame.locator('body').evaluate(() => {
+  await frame.locator('body').evaluate((_el, xml) => {
     const drawioFrame = document.querySelector('iframe') as HTMLIFrameElement | null;
     if (!drawioFrame?.contentWindow) {
       throw new Error('DrawIO inner iframe not found');
@@ -262,9 +274,9 @@ async function dirtyGraphEditor(frame: FrameLocator): Promise<void> {
     // handler is `addEventListener('message', ...)` on the editor's
     // window).
     window.dispatchEvent(new MessageEvent('message', {
-      data: JSON.stringify({ event: 'autosave', modified: true }),
+      data: JSON.stringify({ event: 'autosave', modified: true, xml }),
     }));
-  });
+  }, GRAPH_DIRTY_XML);
 }
 
 /**

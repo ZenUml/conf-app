@@ -141,6 +141,61 @@ describe('injectGraphModeSwitch', () => {
     expect(doc.querySelector('.graph-mode-switch')).toBe(root)
   })
 
+  // A body-mounted switch is position:fixed and centred, so the constraint is
+  // the VIEWPORT, not the toolbar it was measured from. The hide guard was
+  // gated on the in-toolbar path, so it could never fire in Board mode and the
+  // 252px control was drawn over the sketch chrome on a narrow modal.
+  it('hides the body-mounted switch when the viewport is too narrow', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const sketchToolbar = doc.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 180, height: 44, top: 0, left: 0, right: 180, bottom: 44, x: 0, y: 0, toJSON() { return {} } }),
+    })
+    doc.body.appendChild(sketchToolbar)
+    Object.defineProperty(doc.documentElement, 'clientWidth', { value: 80, configurable: true })
+
+    const root = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+
+    expect(root.parentElement).toBe(doc.body)
+    expect(root.style.display).toBe('none')
+  })
+
+  it('keeps the body-mounted switch visible at a normal viewport width', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const sketchToolbar = doc.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 180, height: 44, top: 0, left: 0, right: 180, bottom: 44, x: 0, y: 0, toJSON() { return {} } }),
+    })
+    doc.body.appendChild(sketchToolbar)
+    Object.defineProperty(doc.documentElement, 'clientWidth', { value: 1200, configurable: true })
+
+    const root = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+
+    expect(root.style.display).not.toBe('none')
+  })
+
+  // The mount target can be the toolbar OR the document body, and the mount is
+  // retried on a timer. querySelector().remove() removed only the first match.
+  it('removes every earlier switch before mounting a replacement', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const sketchToolbar = doc.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 180, height: 44, top: 0, left: 0, right: 180, bottom: 44, x: 0, y: 0, toJSON() { return {} } }),
+    })
+    doc.body.appendChild(sketchToolbar)
+    const stale = doc.createElement('div')
+    stale.className = 'graph-mode-switch'
+    sketchToolbar.appendChild(stale)
+
+    const root = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+
+    expect(doc.querySelectorAll('.graph-mode-switch')).toHaveLength(1)
+    expect(doc.querySelector('.graph-mode-switch')).toBe(root)
+  })
+
   it('keeps Board notch dimensions equal to Diagram despite the taller sketch toolbar', () => {
     const diagramMenubar = menubarFixture(30, 1200)
     const diagramRoot = injectGraphModeSwitch(diagramMenubar, { mode: 'diagram', onSelect: vi.fn() })

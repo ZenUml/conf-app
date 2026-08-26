@@ -187,7 +187,10 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   // may replace them while the editor finishes booting. Remove an earlier
   // switch from either the old toolbar or the stable document host before
   // mounting the replacement.
-  doc.querySelector(`.${GRAPH_MODE_SWITCH_CLASS}`)?.remove()
+  // querySelectorAll, not querySelector: the mount target is the toolbar OR
+  // the document body depending on the chrome, and scheduleMountModeSwitch
+  // retries on a timer — a single removal could leave a stale switch behind.
+  doc.querySelectorAll(`.${GRAPH_MODE_SWITCH_CLASS}`).forEach((el) => el.remove())
 
   const box = measureBox(menubar)
   const isShortToolbar = box.height > 8 && box.height <= 80
@@ -230,7 +233,14 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   root.style.transform = 'translateX(-50%)'
   root.style.width = `${width}px`
   root.style.height = `${height}px`
-  if (!mountOutsideToolbar && available > 0 && available < MIN_VISIBLE_WIDTH) {
+  // A body-mounted switch is centred with position:fixed, so the constraint is
+  // the VIEWPORT, not the transient toolbar it was measured from. Without this
+  // the hide guard could never fire in Board mode and the 252px control was
+  // drawn over the sketch chrome on a narrow modal.
+  const fitWidth = mountOutsideToolbar
+    ? (doc.defaultView?.innerWidth ?? doc.documentElement?.clientWidth ?? 0)
+    : available
+  if (fitWidth > 0 && fitWidth < MIN_VISIBLE_WIDTH) {
     root.style.display = 'none'
   }
 

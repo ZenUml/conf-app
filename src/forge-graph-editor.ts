@@ -30,10 +30,10 @@ import {
   reportLegacyContentPropertyValueUnexpected,
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
+import { resolveGraphEditorMode } from "@/utils/graph/boardDocument";
 import {
   GRAPH_EDITOR_MODE_CONFIG_KEY,
   getGraphEditorMode,
-  normalizeGraphEditorMode,
   setGraphEditorMode,
 } from "@/utils/graph/graphEditorMode";
 import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
@@ -435,8 +435,25 @@ async function initializeMacro() {
     // @ts-ignore
     window.graphXml = graphXml;
   }
-  const graphEditorMode = normalizeGraphEditorMode(
-    context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]
+  // Resolve the surface the SAME way the viewer, the embed host and the export
+  // snapshot do: the body first, macro config only as the fallback.
+  //
+  // Config alone is wrong here because it goes stale. writebackGate.ts gates the
+  // whole writeback behind `inserting || configuring`, and the in-viewer Edit
+  // modal — the Edit button on the page, the common way to reopen a macro — has
+  // both false, so saveGraphAndExit ends at `view.close()` and never submits a
+  // config. (It cannot: view.submit throws "this resource's view is not
+  // submittable" on that surface, which is why the gate exists.) The config
+  // therefore records the mode from the last insert/configure publish and never
+  // moves again, while every later publish updates the body.
+  //
+  // Reported 2026-08-26: opening a Board macro gave the Diagram editor. Observed
+  // on production the same day in the mirror direction — a macro whose viewer
+  // rendered the Diagram document opened its editor in Board, because config
+  // still held `board` from the first publish.
+  const graphEditorMode = resolveGraphEditorMode(
+    doc,
+    context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY],
   );
   setGraphEditorMode(graphEditorMode);
 

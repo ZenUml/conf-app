@@ -120,11 +120,18 @@ export function classifyViewerLoadOutcome(
   const loadError = input.loadError ?? null;
 
   // A loader may retain the fetched document for diagnostics/compatibility
-  // while explicitly reporting that the requested representation is invalid
-  // (for example, a Board macro whose independent document is missing or
-  // malformed). An explicit load error must win over displayability; otherwise
-  // a valid legacy graphXml would mask the requested Board failure.
-  if (loadError) {
+  // while explicitly reporting that the requested REPRESENTATION is invalid
+  // (a Board macro whose independent document is empty or malformed). Only
+  // such a `terminal` error beats displayability.
+  //
+  // A plain loadError must NOT: forge-graph-viewer.ts and forgeIndex.ts both
+  // set one when the customContent fetch misses, and the ZEN-1170 legacy
+  // recovery paths below that point can still restore `doc`. Letting any error
+  // win turned every successful legacy recovery into an error panel — 16
+  // graph-viewer restores in the 30 days to 2026-08-26, plus the sequence
+  // family. Those loaders now clear the error on recovery; this guard is the
+  // second half of that fix.
+  if (loadError?.terminal) {
     return {
       state: customContentId ? 'failed_with_source' : 'failed_without_source',
       diagram: input.doc ?? NULL_DIAGRAM,

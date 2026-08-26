@@ -11,6 +11,10 @@ on:
         type: string
         default: 'all'
         description: 'Test suite: all, insert, render, fullscreen, graph-publish, asyncapi'
+      timeout-minutes:
+        type: number
+        default: 8
+        description: 'Per-shard job timeout. graph-publish needs more: sharding cannot split a single spec file, so one shard runs the whole suite serially against live Confluence.'
       artifact-suffix:
         type: string
         required: true
@@ -154,7 +158,7 @@ jobs:
     # 8 min sits safely above one 300s test-timeout: a slow-but-passing shard
     # completes, a genuinely-wedged test fails NAMED with a trace at 300s before
     # the cap, and a 2-retry wedge (~15 min) is still reaped far faster than a human.
-    timeout-minutes: 8
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     strategy:
       fail-fast: false
       matrix:

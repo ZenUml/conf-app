@@ -109,10 +109,40 @@ export default {
       if (mode === 'board') this.boardXml = xml;
       else this.diagramXml = xml;
     },
-    draftScopeForMode(mode) {
+    draftScopeBase() {
       const diagramId = this.$store?.state?.diagram?.id;
-      const base = diagramId ? `edit:${diagramId}` : 'new:graph';
-      return `${base}:${normalizeGraphEditorMode(mode)}`;
+      return diagramId ? `edit:${diagramId}` : 'new:graph';
+    },
+    draftScopeForMode(mode) {
+      return `${this.draftScopeBase()}:${normalizeGraphEditorMode(mode)}`;
+    },
+    /**
+     * Pre-Board releases keyed graph drafts without the mode suffix. A draft
+     * written by the currently deployed build would otherwise be unreachable
+     * after this ships, and never cleared.
+     */
+    legacyDraftScope() {
+      return this.draftScopeBase();
+    },
+    /**
+     * Offer the newest draft for `scope`, or clear it when it is stale.
+     * Returns true when a restore prompt was emitted.
+     */
+    async offerDraftForScope(scope, mode) {
+      const draft = await loadDraft(scope);
+      if (!draft) return false;
+      const baseline = this.xmlForMode(mode) || '';
+      const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store?.state?.diagram?.updatedAt;
+      if (
+        (!draft.graphEditorMode || draft.graphEditorMode === mode)
+        && isDraftNewerThanSaved(draft, savedVersionUpdatedAt)
+        && draft.code !== baseline
+      ) {
+        EventBus.$emit('draft-available', { scope, draft });
+        return true;
+      }
+      await clearDraft(scope);
+      return false;
     },
     onFrameLoad() {
       // Send the XML belonging to the active mode. Diagram and Board are
@@ -157,6 +187,9 @@ export default {
       this.draftSaver = makeDebouncedDraftSaver(this.draftScope, 500);
       setGraphEditorMode(to);
       this.editorMode = to;
+      // The target mode may hold a draft from an earlier session. Without this
+      // it was never offered, and the next publish deleted it.
+      void this.offerDraftForScope(this.draftScope, to);
     },
     mountModeSwitch(doc) {
       if (this.isUnmounted) return;
@@ -214,7 +247,13 @@ export default {
       publishing: false,
       closeGuardOff: null,
       diagramXml: this.graphXml || '',
-      boardXml: this.boardGraphXml || '',
+      // A macro published in Board mode before boardGraphXml existed stored
+      // its body in graphXml. Seeding Board from '' opened those macros on a
+      // blank canvas. Only the INITIAL mode gets the fallback: switching into
+      // Board on a Diagram macro must still start an independent document.
+      // An existing empty string is a real, empty Board document and is kept.
+      boardXml: this.boardGraphXml
+        ?? (editorMode === 'board' ? (this.graphXml || '') : ''),
       draftSaver: null,
       savedListener: null,
       draftScope: null,
@@ -288,7 +327,6 @@ export default {
         // <mxfile> or raw <mxGraphModel>.
         this.setXmlForMode(this.editorMode, payload.xml);
         window.graphXml = this.diagramXml;
-        window.boardGraphXml = this.boardXml;
         // ensureTitle may block on user input (title prompt) — only show the
         // "Publishing…" overlay once a title exists and the actual upload starts.
         await window.ensureTitle();
@@ -332,19 +370,20 @@ export default {
     this.draftScope = this.draftScopeForMode(this.editorMode);
     this.draftSaver = makeDebouncedDraftSaver(this.draftScope, 500);
 
-    // Restore prompt if a newer draft exists in localStorage.
-    const draft = await loadDraft(this.draftScope);
-    if (draft) {
-      const baseline = this.xmlForMode(this.editorMode) || '';
-      const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store?.state?.diagram?.updatedAt;
-      if (
-        (!draft.graphEditorMode || draft.graphEditorMode === this.editorMode)
-        && isDraftNewerThanSaved(draft, savedVersionUpdatedAt)
-        && draft.code !== baseline
-      ) {
-        EventBus.$emit('draft-available', { scope: this.draftScope, draft });
-      } else {
-        await clearDraft(this.draftScope);
+    // Restore prompt if a newer draft exists in localStorage. Fall back to the
+    // pre-Board unsuffixed key so drafts written by the deployed build are
+    // still offered once, then cleared.
+    const offered = await this.offerDraftForScope(this.draftScope, this.editorMode);
+    if (!offered) {
+      const legacyScope = this.legacyDraftScope();
+      const legacyDraft = await loadDraft(legacyScope);
+      if (legacyDraft) {
+        const baseline = this.xmlForMode(this.editorMode) || '';
+        const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store?.state?.diagram?.updatedAt;
+        if (isDraftNewerThanSaved(legacyDraft, savedVersionUpdatedAt) && legacyDraft.code !== baseline) {
+          EventBus.$emit('draft-available', { scope: this.draftScope, draft: legacyDraft });
+        }
+        await clearDraft(legacyScope);
       }
     }
 
@@ -362,14 +401,20 @@ export default {
     });
 
     // Clear draft after successful publish.
+    const scopeBaseAtMount = this.draftScopeBase();
     this.savedListener = () => {
       this.draftSaver?.cancel();
-      clearDraft(this.draftScope);
-      // A publish writes both mode documents. Clear the inactive mode's
-      // draft as well so a previously edited surface is not offered again
-      // after its content is already durable.
-      const otherMode = this.editorMode === 'board' ? 'diagram' : 'board';
-      clearDraft(this.draftScopeForMode(otherMode));
+      // A publish writes both mode documents, so clear both drafts. Derive
+      // them from ONE base captured at mount: draftScopeBase() reads
+      // diagram.id, which the save itself populates on a brand-new macro, so
+      // recomputing it here cleared `edit:<newId>:*` and orphaned the
+      // `new:graph:*` drafts the session actually wrote.
+      clearDraft(`${scopeBaseAtMount}:diagram`);
+      clearDraft(`${scopeBaseAtMount}:board`);
+      clearDraft(scopeBaseAtMount);
+      if (this.draftScope && this.draftScope !== `${scopeBaseAtMount}:${this.editorMode}`) {
+        clearDraft(this.draftScope);
+      }
     };
     EventBus.$on('saved', this.savedListener);
 

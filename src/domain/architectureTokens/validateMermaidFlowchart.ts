@@ -58,7 +58,7 @@ export async function validateMermaidFlowchart(
 
   const verification = verifyJisonFlowchartEvidence(source, legacyLocator.model, adapterResult.occurrences);
   if (verification.kind !== 'verified') return withLegacyLocatorEvidence(legacyLocator.model, verification.reason);
-  const model = applyNodeOccurrenceSourcePositionEvidence(legacyLocator.model, adapterResult.occurrences);
+  const model = applyNodeOccurrenceSourcePositionEvidence(source, legacyLocator.model, adapterResult.occurrences);
   if (!model) return withLegacyLocatorEvidence(legacyLocator.model, 'canonical_occurrence_mismatch');
 
   return {

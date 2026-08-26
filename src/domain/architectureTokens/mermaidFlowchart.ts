@@ -1,4 +1,4 @@
-import { utf8ByteSpanFor, type Utf8ByteSpan } from './utf8Locator';
+import { sliceUtf8ByteSpan, utf8ByteSpanFor, type Utf8ByteSpan } from './utf8Locator';
 
 /**
  * An intentionally small canonical model for Mermaid Flowchart source.
@@ -74,6 +74,7 @@ export type FlowchartParseResult =
  * for every existing occurrence exactly once.
  */
 export function applyNodeOccurrenceSourcePositionEvidence(
+  source: string,
   model: CanonicalFlowchart,
   evidence: readonly NodeOccurrenceSourcePositionEvidence[],
 ): CanonicalFlowchart | null {
@@ -92,7 +93,7 @@ export function applyNodeOccurrenceSourcePositionEvidence(
     if (existing.length !== supplied.length) return null;
     const occurrences = existing.map((locator, index) => {
       const position = supplied[index];
-      if (locator.role !== position.role) return null;
+      if (locator.role !== position.role || !isExactSourcePositionEvidence(source, locator, position)) return null;
       return { ...locator, span: position.span, statementSpan: position.statementSpan };
     });
     if (occurrences.some((occurrence) => occurrence === null)) return null;
@@ -105,6 +106,31 @@ export function applyNodeOccurrenceSourcePositionEvidence(
   });
   if (nodes.some((node) => node === null)) return null;
   return { ...model, nodes: nodes as CanonicalNode[] };
+}
+
+/**
+ * A provider may refine source positions but may not change which source
+ * fragment or statement context the Locator represents. This repeats the
+ * boundary check here rather than relying on one particular provider's
+ * verifier, so a future provider cannot inject a guessed byte span.
+ */
+function isExactSourcePositionEvidence(
+  source: string,
+  locator: NodeOccurrence,
+  position: NodeOccurrenceSourcePositionEvidence,
+): boolean {
+  try {
+    const locatorFragment = sliceUtf8ByteSpan(source, locator.span);
+    const locatorStatement = sliceUtf8ByteSpan(source, locator.statementSpan).trim();
+    const evidenceFragment = sliceUtf8ByteSpan(source, position.span);
+    const evidenceStatement = sliceUtf8ByteSpan(source, position.statementSpan).trim();
+    return locatorFragment === evidenceFragment
+      && evidenceStatement.length > 0
+      && locatorStatement.includes(evidenceStatement)
+      && evidenceStatement.includes(evidenceFragment);
+  } catch {
+    return false;
+  }
 }
 
 type CharSpan = Readonly<{ start: number; end: number }>;

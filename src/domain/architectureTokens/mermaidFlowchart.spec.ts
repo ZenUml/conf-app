@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseFlowchartSource } from './mermaidFlowchart';
-import { sliceUtf8ByteSpan } from './utf8Locator';
+import { applyNodeOccurrenceSourcePositionEvidence, parseFlowchartSource } from './mermaidFlowchart';
+import { sliceUtf8ByteSpan, utf8ByteOffsetAt } from './utf8Locator';
 
 describe('parseFlowchartSource', () => {
   it('represents a declared node and implicit edge endpoint as one logical node each', () => {
@@ -80,6 +80,32 @@ describe('parseFlowchartSource', () => {
     expect(api).toBeDefined();
     expect(sliceUtf8ByteSpan(source, api!.occurrences[0].span)).toBe('A[服务🙂]');
     expect(api!.occurrences[0].span.endByte).toBeGreaterThan('flowchart LR\n  A[服务🙂]'.length);
+  });
+
+  it('fails closed when a position-evidence provider changes the node fragment or statement context', () => {
+    const source = 'flowchart LR\n  A[服务🙂] --> B[Database]';
+    const parsed = parseFlowchartSource(source);
+    expect(parsed.kind).toBe('ok');
+    if (parsed.kind !== 'ok') return;
+
+    const trustedEvidence = parsed.model.nodes.flatMap((node) => node.occurrences.map((occurrence) => ({
+      nativeId: node.nativeId,
+      role: occurrence.role,
+      span: occurrence.span,
+      statementSpan: occurrence.statementSpan,
+    })));
+    expect(applyNodeOccurrenceSourcePositionEvidence(source, parsed.model, trustedEvidence)).not.toBeNull();
+
+    const database = parsed.model.nodes.find((node) => node.nativeId === 'B')?.occurrences[0];
+    expect(database).toBeDefined();
+    expect(applyNodeOccurrenceSourcePositionEvidence(source, parsed.model, trustedEvidence.map((evidence, index) => index === 0
+      ? { ...evidence, span: database!.span }
+      : evidence))).toBeNull();
+
+    const emojiStartByte = utf8ByteOffsetAt(source, source.indexOf('🙂'));
+    expect(applyNodeOccurrenceSourcePositionEvidence(source, parsed.model, trustedEvidence.map((evidence, index) => index === 0
+      ? { ...evidence, span: { startByte: emojiStartByte + 1, endByte: evidence.span.endByte } }
+      : evidence))).toBeNull();
   });
 
   it('does not split quoted labels on arrows or semicolon-separated statements', () => {

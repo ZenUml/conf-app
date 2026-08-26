@@ -26,6 +26,7 @@ import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { ARCHITECTURE_TOKEN_BINDING_NAMESPACE } from '@/domain/architectureTokens/architectureTokenBindingState';
 import { readMermaidArchitectureTokenBinding } from '@/services/architectureTokens/readMermaidArchitectureTokenBinding';
+import { ArchitectureTokenBindingVersionConflictError } from '@/services/architectureTokens/ArchitectureTokenBindingVersionConflictError';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 // AsyncAPI variant only registers `async-api-doc` in its manifest — the
@@ -509,7 +510,7 @@ export default class ApWrapper2 implements IApWrapper {
           // atomic, so do not retry unless a later conflict-aware rebase can
           // validate both revisions and rerun reconciliation.
           trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
-          throw error;
+          throw new ArchitectureTokenBindingVersionConflictError(error);
         }
         trackEvent('save_conflict_retry', 'save_conflict_retry', 'info', { content_id: String(content.id) });
         const fresh = await this.makeRequest(`/api/v2/custom-content/${content.id}?body-format=raw`);

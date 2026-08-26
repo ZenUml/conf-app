@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import ApWrapper2 from './ApWrapper2';
 import { DiagramType, type Diagram } from '@/model/Diagram/Diagram';
 import { prepareMermaidStaticIngestion } from '@/services/architectureTokens/prepareMermaidStaticIngestion';
+import { ArchitectureTokenBindingVersionConflictError } from '@/services/architectureTokens/ArchitectureTokenBindingVersionConflictError';
 import { trackEvent } from '@/utils/window';
 import { forgeRequest } from '@/utils/requestUtil';
 import { requestConfluence } from '@forge/bridge';
@@ -235,7 +236,14 @@ describe('ApWrapper2', () => {
       );
       vi.mocked(forgeRequest).mockRejectedValueOnce(versionConflictError);
 
-      await expect(wrapper.updateCustomContentV2(content, diagram)).rejects.toThrow(versionConflictError);
+      const update = wrapper.updateCustomContentV2(content, diagram);
+      await expect(update).rejects.toMatchObject({
+        name: 'ArchitectureTokenBindingVersionConflictError',
+        originalError: versionConflictError,
+      });
+      await expect(update).rejects.toBeInstanceOf(
+        ArchitectureTokenBindingVersionConflictError,
+      );
 
       // Retrying would PUT the stale local source + binding state over the
       // just-written remote revision. Leave the editor open to reload instead.

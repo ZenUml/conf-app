@@ -50,6 +50,7 @@ import {
   LegacyLoadBlockedSaveError,
 } from '@/model/ContentProvider/Persistence';
 import { ArchitectureTokenStaticIngestionError } from '@/services/architectureTokens/prepareMermaidStaticIngestion';
+import { ArchitectureTokenBindingVersionConflictError } from '@/services/architectureTokens/ArchitectureTokenBindingVersionConflictError';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
@@ -1251,6 +1252,8 @@ EventBus.$on('save', async () => {
       ? 'legacy_load_blocked'
       : error instanceof InvalidSavedContentIdError
         ? 'invalid_saved_content_id'
+        : error instanceof ArchitectureTokenBindingVersionConflictError
+          ? 'architecture_token_binding_version_conflict'
         : status
           ? `http_${status}`
           : error instanceof Error
@@ -1274,6 +1277,13 @@ EventBus.$on('save', async () => {
     if (error instanceof ArchitectureTokenStaticIngestionError) {
       toast({
         message: 'Architecture Token source state could not be verified, so this save was not applied. The diagram remains open.',
+        duration: 8000,
+      });
+      return;
+    }
+    if (error instanceof ArchitectureTokenBindingVersionConflictError) {
+      toast({
+        message: 'This diagram changed elsewhere. To protect Architecture Token binding state, reload the page before saving again.',
         duration: 8000,
       });
       return;
@@ -1538,6 +1548,10 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
       }
       if (error instanceof ArchitectureTokenStaticIngestionError) {
         console.debug('updateContent save refused: Architecture Token source state is unsafe');
+        return;
+      }
+      if (error instanceof ArchitectureTokenBindingVersionConflictError) {
+        console.debug('updateContent save refused: Architecture Token binding state changed elsewhere');
         return;
       }
       throw error;

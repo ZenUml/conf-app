@@ -360,6 +360,26 @@ describe('Persistence', function () {
     expect(diagram.architectureTokenBindingLoadedSource).toBeUndefined();
   });
 
+  it('keeps a successful Mermaid save successful when only the transient read-state refresh fails', async () => {
+    architectureTokenReadMocks.read.mockRejectedValueOnce(new Error('local read refresh unavailable'));
+    const diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: 'flowchart TD\n  A --> B',
+      architectureTokenBindingReadState: { kind: 'available' },
+      architectureTokenBindingLoadedSource: 'flowchart TD\n  A --> C',
+    } as any;
+
+    await expect(saveToPlatform(diagram, mockApWrapper)).resolves.toBe('mocked_custom_content_id');
+
+    expect(diagram.architectureTokenBindingReadState).toEqual({
+      kind: 'untrusted',
+      reason: 'invalid_state',
+    });
+    expect(diagram.architectureTokenBindingLoadedSource).toBeUndefined();
+    expect(syncCustomContent).toHaveBeenCalled();
+  });
+
   it('refuses the custom-content write when static binding state is unsafe', async () => {
     architectureTokenMocks.prepare.mockRejectedValueOnce(new architectureTokenMocks.StaticIngestionError('invalid_state'));
 

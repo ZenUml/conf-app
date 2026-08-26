@@ -229,11 +229,20 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
  */
 async function refreshMermaidArchitectureTokenBindingSession(diagram: Diagram): Promise<void> {
   if (diagram.diagramType !== DiagramType.Mermaid) return;
-  const readState = await readMermaidArchitectureTokenBinding(diagram);
-  diagram.architectureTokenBindingReadState = readState;
-  diagram.architectureTokenBindingLoadedSource = readState.kind === 'available'
-    ? diagram.mermaidCode
-    : undefined;
+  try {
+    const readState = await readMermaidArchitectureTokenBinding(diagram);
+    diagram.architectureTokenBindingReadState = readState;
+    diagram.architectureTokenBindingLoadedSource = readState.kind === 'available'
+      ? diagram.mermaidCode
+      : undefined;
+  } catch {
+    // Confluence has already durably accepted the authoritative source and
+    // binding body. A purely transient local read projection cannot turn that
+    // successful save into a reported failure; expose no trusted evidence and
+    // clear the before-source so later reconciliation still fails closed.
+    diagram.architectureTokenBindingReadState = { kind: 'untrusted', reason: 'invalid_state' };
+    diagram.architectureTokenBindingLoadedSource = undefined;
+  }
 }
 
 function trackArchitectureStaticIngestionOutcome(outcome: MermaidStaticIngestionOutcome): void {

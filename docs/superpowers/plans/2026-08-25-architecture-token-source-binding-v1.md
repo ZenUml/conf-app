@@ -273,7 +273,12 @@ write.
   custom-content document, so each creates a Confluence content version and
   can encounter the existing optimistic version conflict/retry path. This is
   the cost of atomic source-plus-binding continuity, but avoids a separate
-  availability dependency.
+  availability dependency. A body carrying
+  `metadata.architectureTokenBindingV1` must **not** use the generic
+  version-number retry: that retry reuses a stale local body and could overwrite
+  a freshly saved remote Mermaid source/binding revision. Until conf-app has a
+  conflict-aware rebase that revalidates both source revisions and reruns the
+  reconciliation seam, surface the conflict to the editor and require reload.
 - **Bounded footprint:** store hashes, byte locators, compact fingerprints,
   stable element IDs, token IDs, and bounded audit summaries—not raw source,
   full candidate matrices, or duplicate historical revisions. Enforce an

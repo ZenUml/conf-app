@@ -111,6 +111,26 @@ describe('ArchitectureTokenBindingStatus', () => {
     expect(trackAnalyticsEvent).toHaveBeenNthCalledWith(3, ...expectedAnalytics('available'))
   })
 
+  it('adopts the saved source as the new UI baseline when a successful save refreshes available state', async () => {
+    const wrapper = mountStatus({ kind: 'available' })
+
+    store.commit('updateMermaidCode', CHANGED_SOURCE)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="architecture-token-binding-status"]').classes()).toContain(
+      'architecture-binding-status--stale',
+    )
+
+    // saveToPlatform assigns a newly-read available result only after the
+    // custom-content write succeeds. The status must use the then-current
+    // editor source as its fresh baseline, rather than the source from mount.
+    store.state.diagram.architectureTokenBindingReadState = { kind: 'available' }
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="architecture-token-binding-status"]').classes()).toContain(
+      'architecture-binding-status--available',
+    )
+  })
+
   it('never renders source, hashes, native IDs, token IDs, or labels', () => {
     store.commit('updateMermaidCode', SENSITIVE_SOURCE)
     const wrapper = mountStatus(SENSITIVE_STATE)

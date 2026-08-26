@@ -101,6 +101,18 @@ function presentedState(kind: unknown): PresentedState | null {
 const savedKind = computed<PresentedState | null>(() => presentedState(savedReadState.value?.kind))
 const sourceChanged = computed(() => mermaidSource.value !== sourceAtMount.value)
 
+// A successful custom-content save replaces the transient read result with a
+// newly-read available state. That makes the current editor source the only
+// valid before-source for a subsequent reconciliation attempt, so move the UI
+// baseline at the same point. Editing alone leaves the saved read object
+// unchanged and therefore remains stale.
+watch(
+  savedReadState,
+  (readState) => {
+    if (readState?.kind === 'available') sourceAtMount.value = mermaidSource.value
+  },
+)
+
 // The persisted reader result is intentionally read-only. During an editing
 // session, changing Mermaid source makes an otherwise available snapshot
 // stale until the user returns to the exact source that was loaded. This is a

@@ -6,6 +6,10 @@ export const DRAWIO_FILENAME_STYLE_ID = 'zenuml-hide-drawio-filename'
 
 const NOTCH_REF_WIDTH = 252
 const NOTCH_REF_HEIGHT = 31
+// The classic Diagram menubar renders the switch at 30px in the editor. Keep
+// Board's body-mounted switch on that same visual baseline; the sketch toolbar
+// itself is 44px tall, but its chrome size must not change our control.
+const DIAGRAM_SWITCH_HEIGHT = 30
 const NOTCH_REF_INSET = 37.5
 const MIN_VISIBLE_WIDTH = 100
 
@@ -121,6 +125,9 @@ function ensureStyle(doc: Document, id: string, css: string) {
 }
 
 function isVisibleMenubar(el: HTMLElement): boolean {
+  const computed = el.ownerDocument.defaultView?.getComputedStyle(el)
+    || (typeof getComputedStyle === 'function' ? getComputedStyle(el) : undefined)
+  if (computed?.display === 'none' || computed?.visibility === 'hidden') return false
   const rect = el.getBoundingClientRect()
   const height = rect.height || el.offsetHeight || parseFloat(el.style.height) || 0
   return height > 8
@@ -176,17 +183,38 @@ function activate(mode: GraphEditorMode, current: GraphEditorMode, onSelect: Gra
 export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSwitchOptions): HTMLElement {
   const doc = menubar.ownerDocument
   ensureStyle(doc, GRAPH_MODE_SWITCH_STYLE_ID, SWITCH_CSS)
-  menubar.querySelector(`.${GRAPH_MODE_SWITCH_CLASS}`)?.remove()
+  // The sketch UI's toolbars are transient and have `overflow: hidden`; DrawIO
+  // may replace them while the editor finishes booting. Remove an earlier
+  // switch from either the old toolbar or the stable document host before
+  // mounting the replacement.
+  // querySelectorAll, not querySelector: the mount target is the toolbar OR
+  // the document body depending on the chrome, and scheduleMountModeSwitch
+  // retries on a timer — a single removal could leave a stale switch behind.
+  doc.querySelectorAll(`.${GRAPH_MODE_SWITCH_CLASS}`).forEach((el) => el.remove())
 
   const box = measureBox(menubar)
-  const looksLikeTopBar = box.height > 8 && box.height <= 80 && box.width >= 200
-  const height = looksLikeTopBar ? box.height : NOTCH_REF_HEIGHT
+  const isShortToolbar = box.height > 8 && box.height <= 80
+  const looksLikeTopBar = isShortToolbar && box.width >= 200
+  const isClassicMenubar = menubar.classList.contains('geMenubarContainer')
+    && !!menubar.querySelector('.geMenubar')
+  const mountTarget = isClassicMenubar || !isShortToolbar
+    ? menubar
+    : (doc.body || doc.documentElement)
+  const mountOutsideToolbar = mountTarget !== menubar
+  const height = mountOutsideToolbar
+    ? DIAGRAM_SWITCH_HEIGHT
+    : (isShortToolbar ? box.height : NOTCH_REF_HEIGHT)
   const heightScale = height / NOTCH_REF_HEIGHT
   let width = NOTCH_REF_WIDTH * heightScale
 
   const reservedLeft = options.reservedLeftPx ?? 0
   const reservedRight = options.reservedRightPx ?? 0
-  const available = box.width > 0 ? box.width - reservedLeft - reservedRight : width
+  // A body-mounted sketch control is independent of the transient toolbar's
+  // dimensions and its overflow boundary. Keep the canonical Diagram width;
+  // only stable, in-toolbar mounts participate in reserved-space fitting.
+  const available = mountOutsideToolbar
+    ? width
+    : (box.width > 0 ? box.width - reservedLeft - reservedRight : width)
   if (available > 0 && width > available) {
     width = available
   }
@@ -195,14 +223,24 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   root.className = GRAPH_MODE_SWITCH_CLASS
   root.setAttribute('role', 'group')
   root.setAttribute('aria-label', 'Editor mode')
-  root.style.position = looksLikeTopBar ? 'absolute' : 'fixed'
+  // Classic DrawIO keeps its menubar stable, so preserve the original
+  // relative/absolute placement. Sketch/Board toolbars are replaced during
+  // startup and clip descendants; a fixed body-level host survives both.
+  root.style.position = mountOutsideToolbar ? 'fixed' : (looksLikeTopBar ? 'absolute' : 'fixed')
   root.style.zIndex = '10'
   root.style.top = '0px'
   root.style.left = '50%'
   root.style.transform = 'translateX(-50%)'
   root.style.width = `${width}px`
   root.style.height = `${height}px`
-  if (available > 0 && available < MIN_VISIBLE_WIDTH) {
+  // A body-mounted switch is centred with position:fixed, so the constraint is
+  // the VIEWPORT, not the transient toolbar it was measured from. Without this
+  // the hide guard could never fire in Board mode and the 252px control was
+  // drawn over the sketch chrome on a narrow modal.
+  const fitWidth = mountOutsideToolbar
+    ? (doc.defaultView?.innerWidth ?? doc.documentElement?.clientWidth ?? 0)
+    : available
+  if (fitWidth > 0 && fitWidth < MIN_VISIBLE_WIDTH) {
     root.style.display = 'none'
   }
 
@@ -265,10 +303,12 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   controls.append(diagramBtn, divider, boardBtn)
   root.appendChild(controls)
 
-  const computed = getComputedStyle(menubar)
-  if (computed.position === 'static' || !computed.position) {
-    menubar.style.position = 'relative'
+  if (!mountOutsideToolbar) {
+    const computed = getComputedStyle(menubar)
+    if (computed.position === 'static' || !computed.position) {
+      menubar.style.position = 'relative'
+    }
   }
-  menubar.appendChild(root)
+  mountTarget.appendChild(root)
   return root
 }

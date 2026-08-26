@@ -1191,7 +1191,7 @@
     <connections/>
     <foreground>
         <save/>
-        <fillcolor color="#2072b8"/>
+        <fillcolor color="fillColor2" default="#2072b8"/>
         <path>
             <move x="21" y="34.42"/>
             <curve x1="23.63" x2="27.89" x3="31.61" y1="36.26" y2="36.77" y3="36.83"/>
@@ -1245,7 +1245,7 @@
     <connections/>
     <foreground>
         <save/>
-        <fillcolor color="#cccbcb"/>
+        <fillcolor color="fillColor2" default="#cccbcb"/>
         <path>
             <move x="21" y="34.42"/>
             <curve x1="23.63" x2="27.89" x3="31.61" y1="36.26" y2="36.77" y3="36.83"/>
@@ -1299,7 +1299,7 @@
     <connections/>
     <foreground>
         <save/>
-        <fillcolor color="#7fba42"/>
+        <fillcolor color="fillColor2" default="#7fba42"/>
         <path>
             <move x="21" y="34.42"/>
             <curve x1="23.63" x2="27.89" x3="31.61" y1="36.26" y2="36.77" y3="36.83"/>
@@ -1353,7 +1353,7 @@
     <connections/>
     <foreground>
         <save/>
-        <fillcolor color="#da4026"/>
+        <fillcolor color="fillColor2" default="#da4026"/>
         <path>
             <move x="21" y="34.42"/>
             <curve x1="23.63" x2="27.89" x3="31.61" y1="36.26" y2="36.77" y3="36.83"/>

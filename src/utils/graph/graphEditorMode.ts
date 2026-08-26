@@ -5,8 +5,16 @@ export const DEFAULT_GRAPH_EDITOR_MODE: GraphEditorMode = 'diagram'
 /** Macro config key. Single source of truth for persisted chrome mode. */
 export const GRAPH_EDITOR_MODE_CONFIG_KEY = 'graphEditorMode'
 
+// Do not pass offline=1 here. DrawIO v31 treats the embedded editor as a
+// standalone app in that mode and hides its existing embed button container;
+// the Publish button is still created, but becomes zero-sized/inaccessible.
+// lockdown=1 keeps external-data communications disabled without entering the
+// standalone-app path, so Publish remains visible in both Diagram and Board.
+// plugins=0 restores one guarantee offline=1 used to give for free: DrawIO's
+// plugin loader (App.js) gates only on `offline`, so dropping that parameter
+// re-enabled loading plugin scripts listed in the iframe origin's mxSettings.
 const DRAWIO_EDITOR_BASE_QUERY =
-  'embed=1&spin=1&proto=json&noSaveBtn=1&saveAndExit=1&publishClose=1&noExitBtn=1&libraries=1&offline=1'
+  'embed=1&spin=1&proto=json&noSaveBtn=1&saveAndExit=1&publishClose=1&noExitBtn=1&libraries=1&lockdown=1&plugins=0'
 
 let currentMode: GraphEditorMode = DEFAULT_GRAPH_EDITOR_MODE
 
@@ -27,16 +35,9 @@ export function buildDrawioEditorSrc(mode: unknown): string {
   const normalized = normalizeGraphEditorMode(mode)
   const base = `./drawio/index.html?${DRAWIO_EDITOR_BASE_QUERY}`
   if (normalized === 'board') {
-    return `${base}&ui=sketch&sketch=1`
+    return `${base}&ui=sketch&sketch=1&format=0`
   }
   return base
-}
-
-export function captureXmlForModeSwitch(args: {
-  latestXml?: string | null
-  graphXml?: string | null
-}): string | null {
-  return args.latestXml || args.graphXml || null
 }
 
 export function countMxfilePages(xml: string): number {

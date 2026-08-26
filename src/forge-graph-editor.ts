@@ -69,13 +69,28 @@ const EMPTY_GRAPH = `<mxfile>
 // close) is scheduled — the caller keeps the "Publishing…" overlay up until the
 // modal closes. Returns false on any error path that leaves the editor open, so
 // the caller can clear the overlay and let the user retry.
-async function saveGraphAndExit(graphXml: string): Promise<boolean> {
+type GraphEditorSavePayload = {
+  graphXml: string;
+  boardGraphXml?: string;
+};
+
+async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolean> {
+  // The editor sends both independent documents on every publish, so a mode
+  // switch cannot overwrite Diagram content with Board XML.
+  const { graphXml, boardGraphXml } = payload;
   // Start the publish-latency clock at the save-handler entry (≈ the DrawIO
   // Publish click that postMessages here). Stopped at the redirect below.
   markPublishClicked();
   const diagram = {
     ...window.diagram,
     graphXml,
+    ...(boardGraphXml !== undefined ? { boardGraphXml } : {}),
+    // Record the published mode on the BODY as well as the macro config.
+    // Config is unreachable from the embed host, the export snapshot and
+    // getDiagramData(), and "boardGraphXml when non-empty" is not a usable
+    // substitute — a publish writes both documents, so a Diagram macro whose
+    // owner once drew on the Board would resolve to the Board document.
+    graphEditorMode: getGraphEditorMode(),
     diagramType: DiagramType.Graph,
     source: DataSource.CustomContent
   };
@@ -420,13 +435,19 @@ async function initializeMacro() {
     // @ts-ignore
     window.graphXml = graphXml;
   }
-
   const graphEditorMode = normalizeGraphEditorMode(
     context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]
   );
   setGraphEditorMode(graphEditorMode);
 
-  const contentProps = { graphXml, saveGraphAndExit, doc, customContentId, graphEditorMode };
+  const contentProps = {
+    graphXml,
+    boardGraphXml: doc?.boardGraphXml,
+    saveGraphAndExit,
+    doc,
+    customContentId,
+    graphEditorMode,
+  };
   const paywalled = await tryPageEditorPaywall({
     doc: doc ?? NULL_DIAGRAM,
     content: ForgeGraphEditor,

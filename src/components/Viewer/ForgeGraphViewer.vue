@@ -46,13 +46,25 @@
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
+import {
+  isLegacyBoardDocument,
+  resolveGraphEditorMode,
+  resolveGraphXmlForMode,
+  validateBoardXml,
+} from "@/utils/graph/boardDocument";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
 export default {
   name: "ForgeGraphViewer",
   components: {
     GenericViewer
   },
   props: {
-    graphXml: String
+    graphXml: String,
+    graphEditorMode: {
+      type: String,
+      default: 'diagram',
+    },
   },
   data() {
     return {
@@ -65,8 +77,19 @@ export default {
     this.renderViewer();
   },
   computed: {
+    isBoardMode() {
+      return resolveGraphEditorMode(this.$store.state.diagram, this.graphEditorMode) === 'board';
+    },
     effectiveGraphXml() {
-      return this.graphXml || this.$store.state.diagram?.graphXml;
+      const diagram = this.$store.state.diagram;
+      if (this.isBoardMode) {
+        // Board is an independent document, EXCEPT for macros published in
+        // Board mode before boardGraphXml existed — those stored their body
+        // in graphXml and resolveGraphXmlForMode returns it. A Board document
+        // that exists but is empty stays an error rather than falling back.
+        return resolveGraphXmlForMode(diagram, 'board');
+      }
+      return this.graphXml || diagram?.graphXml;
     }
   },
   watch: {
@@ -75,8 +98,42 @@ export default {
     }
   },
   methods: {
+    failBoardLoad(errorCode, cause) {
+      const loadError = { errorClass: 'malformed', errorCode, terminal: true };
+      const state = getForgeCustomContentId()
+        ? 'failed_with_source'
+        : 'failed_without_source';
+      setViewerLoadState(state, loadError);
+      // GenericViewer's generic load_failed_shown cannot separate an invalid
+      // Board document from a 404, so name the reason here.
+      trackAnalyticsEvent('graph_board_document_invalid', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'graph',
+        error_code: errorCode,
+      });
+      if (cause) {
+        console.error('ForgeGraphViewer: Board document is not renderable:', cause);
+      }
+    },
     renderViewer() {
       const container = this.$refs.graphContainer;
+      const diagram = this.$store.state.diagram;
+      if (this.isBoardMode && !isLegacyBoardDocument(diagram)) {
+        const boardXml = diagram?.boardGraphXml;
+        // bootstrapForgeViewer mounts NULL_DIAGRAM while the authoritative
+        // Board document is loading. Do not turn that loading shell into a
+        // terminal error; the loader will publish the real Board document (or
+        // its explicit loadError) when the fetch completes.
+        if (this.$store.state.diagramLoadComplete === false && boardXml === undefined) {
+          return;
+        }
+        const errorCode = validateBoardXml(boardXml);
+        if (errorCode) {
+          this.failBoardLoad(errorCode);
+          return;
+        }
+      }
       if (!container || !this.effectiveGraphXml) return;
       container.innerHTML = '';
       try {
@@ -86,7 +143,8 @@ export default {
         // page-nav strip — page nav is rendered into the GenericViewer
         // bottom pill via the #pill-prefix slot above.
         // @ts-ignore
-        const xmlNode = mxUtils.parseXml(this.effectiveGraphXml).documentElement;
+        const parsedXml = mxUtils.parseXml(this.effectiveGraphXml);
+        const xmlNode = parsedXml?.documentElement;
         // @ts-ignore
         this.graphViewer = new GraphViewer(container, xmlNode, {
           'auto-fit': true,
@@ -97,6 +155,9 @@ export default {
         trackRenderTime('graph', this.$store.getters.isDisplayMode);
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
+        if (this.isBoardMode) {
+          this.failBoardLoad('board_document_malformed', e);
+        }
         // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): trackRenderTime
         // above sits inside this same try block, so a crash here previously
         // fired NEITHER a success nor a failure event — a broken graph macro

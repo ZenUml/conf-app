@@ -2,7 +2,12 @@
   <!-- Compact overlay anchored on DrawIO's menubar row, right-aligned.
        Save & Exit / fullscreen / sidebar buttons sit on row 2 below, so
        the menubar row's right side is empty — title can hug the edge. -->
-  <div class="absolute top-[1px] right-[12px] z-50 pointer-events-auto">
+  <div
+    class="drawio-header absolute top-[1px] right-[12px] z-50 pointer-events-auto"
+    :class="{ 'drawio-header--board': editorMode === 'board' }"
+    :style="editorMode === 'board' ? { right: '164px' } : undefined"
+    :data-editor-mode="editorMode"
+  >
     <div class="flex items-center w-72 max-w-md border rounded-md transition-colors duration-200 h-7 bg-white"
       :class="error ? 'border-red-400 bg-red-50' : 'border-gray-300 hover:border-gray-400 focus-within:border-blue-500'">
       <span class="pl-3 pr-2 text-[10px] font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
@@ -59,6 +64,7 @@ export default defineComponent({
     sparkFadingOut: { type: Boolean, default: false },
     showDismiss: { type: Boolean, default: false },
     autoNameAnimationDone: { type: Boolean, default: false },
+    editorMode: { type: String, default: 'diagram' },
   },
   emits: ["titleChange", "titleConfirm", "manualGenerate", "dismiss"],
   setup(props, { emit }) {
@@ -103,4 +109,33 @@ export default defineComponent({
 
 .autoname-dismiss { width: 18px; height: 18px; border-radius: 4px; background: transparent; color: #42526E; }
 .autoname-dismiss:hover { background: #EBECF0; color: #172B4D; }
+
+/* Sketch chrome puts Publish in the top-right toolbar. Leave both its width and
+   a small gap clear; Diagram mode keeps the existing right-aligned placement. */
+.drawio-header--board {
+  /* The Sketch toolbar keeps its native action group at the top-right. Its
+     measured 152px width plus the 12px viewport inset must stay clickable;
+     the previous 96px offset left the title over Publish/Format by ~60px. */
+  right: 164px;
+  width: min(18rem, calc(100vw - 176px));
+  max-width: calc(100vw - 176px);
+}
+
+.drawio-header--board > div {
+  /* Keep the title field inside the responsive outer box on narrow editors;
+     Tailwind's fixed w-72 must not force it back over native actions. */
+  width: 100%;
+}
+
+/* At compact editor widths there is no safe single top-row slot between the
+   centered Diagram/Board notch and Sketch's right action group. Move the
+   title to a second row instead of letting it cover either control. */
+@media (max-width: 1160px) {
+  .drawio-header--board {
+    top: 70px;
+    right: 12px !important;
+    width: min(18rem, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+  }
+}
 </style>

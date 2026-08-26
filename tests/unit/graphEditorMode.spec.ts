@@ -24,7 +24,7 @@ describe('normalizeGraphEditorMode', () => {
 })
 
 describe('buildDrawioEditorSrc', () => {
-  it('keeps the existing embed chrome params in diagram mode and omits board-only params', () => {
+  it('keeps the embed chrome visible in diagram mode and omits board-only params', () => {
     const src = buildDrawioEditorSrc('diagram')
     expect(src.startsWith('./drawio/index.html?')).toBe(true)
     expect(src).toContain('embed=1')
@@ -34,23 +34,31 @@ describe('buildDrawioEditorSrc', () => {
     expect(src).toContain('publishClose=1')
     expect(src).toContain('noExitBtn=1')
     expect(src).toContain('libraries=1')
-    expect(src).toContain('offline=1')
+    // Keep DrawIO's external-data capability locked down without triggering
+    // v31's standalone-app chrome path, which hides the Publish container.
+    expect(src).toContain('lockdown=1')
+    expect(src).not.toContain('offline=1')
     expect(src).not.toContain('sketch=1')
     expect(src).not.toContain('ui=sketch')
+    expect(src).not.toContain('format=0')
   })
 
   it('includes sketch=1 and sketch chrome for board mode', () => {
     const src = buildDrawioEditorSrc('board')
     expect(src).toContain('sketch=1')
     expect(src).toContain('ui=sketch')
+    expect(src).toContain('format=0')
     expect(src).toContain('embed=1')
     expect(src).toContain('publishClose=1')
+    expect(src).toContain('lockdown=1')
+    expect(src).not.toContain('offline=1')
   })
 
   it('treats unknown mode as diagram URL params', () => {
     const src = buildDrawioEditorSrc('whiteboard' as never)
     expect(src).not.toContain('sketch=1')
     expect(src).not.toContain('ui=sketch')
+    expect(src).not.toContain('format=0')
   })
 })
 

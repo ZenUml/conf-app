@@ -40,6 +40,54 @@ describe('viewerLoadOutcome', () => {
     expect(classifyViewerLoadOutcome({ doc: blankDoc, customContentId: 'cc-1' }).state).toBe('ready');
   });
 
+  it('fails fast when a renderable legacy document carries a TERMINAL Board load error', () => {
+    const doc = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Graph,
+      graphXml: '<mxGraphModel><root /></mxGraphModel>',
+      boardGraphXml: '',
+    };
+    const loadError = {
+      errorClass: 'malformed' as const,
+      errorCode: 'board_document_empty',
+      terminal: true,
+    };
+
+    const outcome = classifyViewerLoadOutcome({
+      doc,
+      customContentId: 'cc-board',
+      macroKind: 'graph',
+      loadError,
+    });
+
+    expect(outcome.state).toBe('failed_with_source');
+    expect(outcome.diagram).toBe(doc);
+    expect(outcome.loadError).toBe(loadError);
+  });
+
+  // forge-graph-viewer.ts and forgeIndex.ts set a loadError when the
+  // customContent fetch misses, and the ZEN-1170 legacy recovery paths BELOW
+  // that point can still restore the body. Letting any error beat
+  // displayability turned every successful recovery into an error panel.
+  it('renders a recovered document when its load error is not terminal', () => {
+    const doc = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Graph,
+      graphXml: '<mxGraphModel><root /></mxGraphModel>',
+    };
+
+    const outcome = classifyViewerLoadOutcome({
+      doc,
+      customContentId: 'cc-recovered',
+      macroKind: 'graph',
+      loadError: { errorClass: 'structured', errorCode: 'not_found' },
+    });
+
+    expect(outcome.state).toBe('ready');
+    expect(outcome.diagram).toBe(doc);
+    expect(outcome.loadError).toBeNull();
+  });
+
   it('classifies missing content with a custom content id as failed_with_source', () => {
     const outcome = classifyViewerLoadOutcome({
       doc: undefined,

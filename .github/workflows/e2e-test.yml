@@ -10,7 +10,11 @@ on:
       suite:
         type: string
         default: 'all'
-        description: 'Test suite: all, insert, render, asyncapi'
+        description: 'Test suite: all, insert, render, fullscreen, graph-publish, asyncapi'
+      timeout-minutes:
+        type: number
+        default: 8
+        description: 'Per-shard job timeout. graph-publish needs more: sharding cannot split a single spec file, so one shard runs the whole suite serially against live Confluence.'
       artifact-suffix:
         type: string
         required: true
@@ -154,7 +158,7 @@ jobs:
     # 8 min sits safely above one 300s test-timeout: a slow-but-passing shard
     # completes, a genuinely-wedged test fails NAMED with a trace at 300s before
     # the cap, and a 2-retry wedge (~15 min) is still reaped far faster than a human.
-    timeout-minutes: 8
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     strategy:
       fail-fast: false
       matrix:
@@ -202,12 +206,25 @@ jobs:
           # spec-level parallelism. The `auth` setup project still runs but skips
           # its login (storageState was downloaded above); `pages` runs per shard
           # only for the render/all suites.
+          TEST_TARGET=""
           case "${{ inputs.suite }}" in
             insert)
               PROJECTS="--project=auth --project=insert"
               ;;
             render)
               PROJECTS="--project=auth --project=pages --project=render"
+              ;;
+            fullscreen)
+              # Fullscreen modal coverage, including all editor families.
+              PROJECTS="--project=auth --project=fullscreen"
+              ;;
+            graph-publish)
+              # Keep the DrawIO Publish gate focused: graph-edit:5/6/7 cover
+              # Diagram, Board, and the Board publish/view lifecycle while
+              # sharing the existing auth/fullscreen projects. Do not silently
+              # run the entire fullscreen suite.
+              PROJECTS="--project=auth --project=fullscreen"
+              TEST_TARGET="tests/fullscreen/graph-edit.spec.ts"
               ;;
             asyncapi)
               # Single-spec smoke; no sharding needed. The shard matrix below
@@ -223,7 +240,7 @@ jobs:
           RETRY_FLAG=""
           [ -n "${{ inputs.retries }}" ] && RETRY_FLAG="--retries=${{ inputs.retries }}"
           pnpm exec playwright test --ignore-snapshots $PROJECTS \
-            --shard=${{ matrix.shard }}/${{ env.SHARD_COUNT }} $RETRY_FLAG
+            --shard=${{ matrix.shard }}/${{ env.SHARD_COUNT }} $RETRY_FLAG $TEST_TARGET
         env:
           APP: ${{ inputs.app }}
           CI: true

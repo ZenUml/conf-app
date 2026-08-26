@@ -190,8 +190,8 @@
 </shape>
 <shape aspect="variable" h="64" name="Gearing" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.81"/>
-        <constraint name="E" perimeter="0" x="1" y="0.31"/>
+        <constraint name="W" perimeter="0" x="0" y="0.8125"/>
+        <constraint name="E" perimeter="0" x="1" y="0.3125"/>
     </connections>
     <background>
         <ellipse h="40" w="40" x="30" y="0"/>
@@ -269,8 +269,8 @@
 </shape>
 <shape aspect="variable" h="30" name="Mechanical Interlock" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.73"/>
-        <constraint name="E" perimeter="0" x="1" y="0.73"/>
+        <constraint name="W" perimeter="0" x="0" y="0.7333"/>
+        <constraint name="E" perimeter="0" x="1" y="0.7333"/>
     </connections>
     <background>
         <save/>

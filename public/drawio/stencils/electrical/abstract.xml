@@ -104,12 +104,12 @@
 	<shape aspect="variable" h="90" name="Demux" strokewidth="inherit" w="60">
 		<connections>
 			<constraint name="in" perimeter="0" x="0" y="0.5"/>
-			<constraint name="out1" perimeter="0" x="1" y="0.333"/>
-			<constraint name="out2" perimeter="0" x="1" y="0.445"/>
-			<constraint name="out3" perimeter="0" x="1" y="0.555"/>
-			<constraint name="out4" perimeter="0" x="1" y="0.667"/>
-			<constraint name="control1" perimeter="0" x="0.415" y="1"/>
-			<constraint name="control2" perimeter="0" x="0.585" y="1"/>
+			<constraint name="out1" perimeter="0" x="1" y="0.3333"/>
+			<constraint name="out2" perimeter="0" x="1" y="0.4444"/>
+			<constraint name="out3" perimeter="0" x="1" y="0.5556"/>
+			<constraint name="out4" perimeter="0" x="1" y="0.6667"/>
+			<constraint name="control1" perimeter="0" x="0.4167" y="1"/>
+			<constraint name="control2" perimeter="0" x="0.5833" y="1"/>
 		</connections>
 		<background>
 			<path>
@@ -229,15 +229,15 @@
 	</shape>
 	<shape aspect="variable" h="90" name="Mux-Demux" strokewidth="inherit" w="60">
 		<connections>
-			<constraint name="in1" perimeter="0" x="0" y="0.055"/>
-			<constraint name="in2" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in3" perimeter="0" x="0" y="0.275"/>
-			<constraint name="in4" perimeter="0" x="0" y="0.39"/>
+			<constraint name="in1" perimeter="0" x="0" y="0.0556"/>
+			<constraint name="in2" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in3" perimeter="0" x="0" y="0.2778"/>
+			<constraint name="in4" perimeter="0" x="0" y="0.3889"/>
 			<constraint name="in5" perimeter="0" x="0" y="0.5"/>
-			<constraint name="in6" perimeter="0" x="0" y="0.61"/>
-			<constraint name="in7" perimeter="0" x="0" y="0.72"/>
-			<constraint name="in8" perimeter="0" x="0" y="0.835"/>
-			<constraint name="in9" perimeter="0" x="0" y="0.945"/>
+			<constraint name="in6" perimeter="0" x="0" y="0.6111"/>
+			<constraint name="in7" perimeter="0" x="0" y="0.7222"/>
+			<constraint name="in8" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="in9" perimeter="0" x="0" y="0.94444"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 			<constraint name="control" perimeter="0" x="0.5" y="1"/>
 		</connections>
@@ -281,18 +281,18 @@
 	</shape>
 	<shape aspect="variable" h="90" name="Mux" strokewidth="inherit" w="60">
 		<connections>
-			<constraint name="in1" perimeter="0" x="0" y="0.055"/>
-			<constraint name="in2" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in3" perimeter="0" x="0" y="0.275"/>
-			<constraint name="in4" perimeter="0" x="0" y="0.39"/>
+			<constraint name="in1" perimeter="0" x="0" y="0.0556"/>
+			<constraint name="in2" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in3" perimeter="0" x="0" y="0.2778"/>
+			<constraint name="in4" perimeter="0" x="0" y="0.3889"/>
 			<constraint name="in5" perimeter="0" x="0" y="0.5"/>
-			<constraint name="in6" perimeter="0" x="0" y="0.61"/>
-			<constraint name="in7" perimeter="0" x="0" y="0.72"/>
-			<constraint name="in8" perimeter="0" x="0" y="0.835"/>
-			<constraint name="in9" perimeter="0" x="0" y="0.945"/>
+			<constraint name="in6" perimeter="0" x="0" y="0.6111"/>
+			<constraint name="in7" perimeter="0" x="0" y="0.7222"/>
+			<constraint name="in8" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="in9" perimeter="0" x="0" y="0.94444"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
-			<constraint name="control1" perimeter="0" x="0.415" y="1"/>
-			<constraint name="control2" perimeter="0" x="0.585" y="1"/>
+			<constraint name="control1" perimeter="0" x="0.4167" y="1"/>
+			<constraint name="control2" perimeter="0" x="0.5833" y="1"/>
 		</connections>
 		<background>
 			<path>
@@ -336,8 +336,8 @@
 	</shape>
 	<shape aspect="variable" h="90" name="Operational Amp 1" strokewidth="inherit" w="98">
 		<connections>
-			<constraint name="in-" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in+" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in-" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in+" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 			<constraint name="control1" perimeter="0" x="0.612" y="0.11"/>
 			<constraint name="control2" perimeter="0" x="0.612" y="0.89"/>
@@ -373,8 +373,8 @@
 	</shape>
 	<shape aspect="variable" h="90" name="Operational Amp 2" strokewidth="inherit" w="98">
 		<connections>
-			<constraint name="in-" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in+" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in-" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in+" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 			<constraint name="control1" perimeter="0" x="0.408" y="0.05"/>
 			<constraint name="control2" perimeter="0" x="0.408" y="0.95"/>
@@ -422,8 +422,8 @@
 	</shape>
 	<shape aspect="variable" h="90" name="OTA 1" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in-" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in+" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in-" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in+" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 			<constraint name="control1" perimeter="0" x="0.4" y="0.05"/>
 			<constraint name="control2" perimeter="0" x="0.4" y="0.95"/>
@@ -462,8 +462,8 @@
 	</shape>
 	<shape aspect="variable" h="90" name="OTA 2" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in-" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in+" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in-" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in+" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 			<constraint name="control1" perimeter="0" x="0.4" y="0.05"/>
 			<constraint name="control2" perimeter="0" x="0.4" y="0.95"/>
@@ -605,10 +605,10 @@
 	</shape>
 	<shape aspect="variable" h="94.25" name="Thermistor With Independent Integral Heater" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.48"/>
-			<constraint name="out" perimeter="0" x="1" y="0.48"/>
+			<constraint name="in" perimeter="0" x="0" y="0.47745"/>
+			<constraint name="out" perimeter="0" x="1" y="0.47745"/>
 			<constraint name="v-" perimeter="0" x="0.435" y="1"/>
-			<constraint name="v+" perimeter="0" x="0.625" y="1"/>
+			<constraint name="v+" perimeter="0" x="0.6275" y="1"/>
 		</connections>
 		<background>
 			<ellipse h="80" w="80" x="10" y="5"/>
@@ -645,8 +645,8 @@
 	<shape aspect="variable" h="58" name="Voltage Regulator" strokewidth="inherit" w="70">
 		<connections>
 			<constraint name="control" perimeter="0" x="0.5" y="1"/>
-			<constraint name="in" perimeter="0" x="0" y="0.395"/>
-			<constraint name="out" perimeter="0" x="1" y="0.395"/>
+			<constraint name="in" perimeter="0" x="0" y="0.3966"/>
+			<constraint name="out" perimeter="0" x="1" y="0.3966"/>
 		</connections>
 		<background>
 			<rect h="46" w="52" x="9" y="0"/>

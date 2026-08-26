@@ -757,6 +757,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     }
 
+    // A ZEN-1170 recovery above restored the body after the customContent
+    // fetch set ccLoadError, so the error no longer describes this load.
+    // Clear it BEFORE the placeholder/example branches below, which are not
+    // recoveries and must keep reporting the failure.
+    if (doc && ccLoadError) {
+      ccLoadError = null;
+    }
+
     // ZEN-1170 (pre-Defect-1 behavior preserved): when CC was attempted but
     // failed AND we have no legacy storageUuid to try AND legacy fallback
     // wasn't blocked, mount the placeholder empty doc so the wipe-precursor

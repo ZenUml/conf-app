@@ -69,8 +69,8 @@ async function runGeneration(title = TITLE) {
   await flushPromises()
 }
 
-function mountGraphTitle(currentXml: string) {
-  return mount(DrawIoExtension, { props: { doc: {}, currentXml } })
+function mountGraphTitle(currentXml: string, editorMode: 'diagram' | 'board' = 'diagram') {
+  return mount(DrawIoExtension, { props: { doc: {}, currentXml, editorMode } })
 }
 
 describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
@@ -89,6 +89,28 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     const wrapper = mountGraphTitle(EMPTY_GRAPH)
     await flushPromises()
     expect(wrapper.find(SPARK).exists()).toBe(true)
+  })
+
+  it('keeps the title clear of DrawIO sketch Publish chrome in Board mode', async () => {
+    const wrapper = mountGraphTitle(EMPTY_GRAPH, 'board')
+    await flushPromises()
+    const header = wrapper.find('[data-editor-mode="board"]')
+    expect(header.exists()).toBe(true)
+    expect(header.classes()).toContain('drawio-header--board')
+  })
+
+  it('reserves the complete Board action area instead of overlapping Publish', async () => {
+    const wrapper = mountGraphTitle(EMPTY_GRAPH, 'board')
+    await flushPromises()
+    const header = wrapper.find('[data-editor-mode="board"]')
+    const style = header.element.style
+
+    // Sketch keeps its native Publish/Close group at the top-right. The
+    // title overlay must end before that group; 164px is the measured native
+    // action footprint (12px right inset + 152px action group) at the
+    // Storybook/Confluence editor width.
+    expect(Number.parseFloat(style.right)).toBeGreaterThanOrEqual(164)
+    expect(header.element.querySelector('div')?.classList.contains('w-72')).toBe(true)
   })
 
   it('hides the spark button when the flag is disabled', async () => {

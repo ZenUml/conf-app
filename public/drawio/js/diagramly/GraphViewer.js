@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2006-2016, JGraph Ltd
+ * Copyright (c) 2006-2016, JGraph Holdings Ltd
  */
 // Disables theme in viewer and lightbox
 Editor.currentTheme = '';
@@ -118,15 +118,31 @@ GraphViewer.prototype.minWidth = 100;
 GraphViewer.prototype.responsive = false;
 
 /**
- * Dark mode
+ * Dark mode can be one of null, "light", "dark" or "auto".
  */
-GraphViewer.prototype.darkMode = false;
+GraphViewer.prototype.darkMode = null;
+
+/**
+ * Specifies if link icons should be shown on shapes. Default is false.
+ */
+GraphViewer.prototype.showLinkIcons = false;
+
+/**
+ * Specifies if tooltip icons should be shown on shapes. Default is false.
+ */
+GraphViewer.prototype.showTooltipIcons = false;
+
+/**
+ * Specifies if note icons should be shown on shapes. Default is true.
+ */
+GraphViewer.prototype.showNoteIcons = true;
 
 /**
  * Initializes the viewer.
  */
 GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 {
+	GraphViewer.initCss();
 	this.graphConfig = (graphConfig != null) ? graphConfig : {};
 	this.autoFit = (this.graphConfig['auto-fit'] != null) ?
 		this.graphConfig['auto-fit'] : this.autoFit;
@@ -140,12 +156,20 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 		this.graphConfig['allow-zoom-in'] : this.allowZoomIn;
 	this.forceCenter = (this.graphConfig['forceCenter'] != null) ?
 		this.graphConfig['forceCenter'] : this.forceCenter;
+	this.hCenterOnly = (this.graphConfig['hCenterOnly'] != null) ?
+		this.graphConfig['hCenterOnly'] : this.hCenterOnly;
 	this.center = (this.graphConfig['center'] != null) ?
 		this.graphConfig['center'] : (this.center || this.forceCenter);
 	this.checkVisibleState = (this.graphConfig['check-visible-state'] != null) ?
 		this.graphConfig['check-visible-state'] : this.checkVisibleState;
 	this.darkMode = (this.graphConfig['dark-mode'] != null) ?
 		this.graphConfig['dark-mode'] : this.darkMode;
+	this.showLinkIcons = (this.graphConfig['show-link-icons'] != null) ?
+		this.graphConfig['show-link-icons'] : this.showLinkIcons;
+	this.showTooltipIcons = (this.graphConfig['show-tooltip-icons'] != null) ?
+		this.graphConfig['show-tooltip-icons'] : this.showTooltipIcons;
+	this.showNoteIcons = (this.graphConfig['show-note-icons'] != null) ?
+		this.graphConfig['show-note-icons'] : this.showNoteIcons;
 	this.toolbarItems = (this.graphConfig.toolbar != null) ?
 		this.graphConfig.toolbar.split(' ') : [];
 	this.zoomEnabled = mxUtils.indexOf(this.toolbarItems, 'zoom') >= 0;
@@ -161,6 +185,8 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 		this.graphConfig['responsive'] : this.responsive) &&
 		!this.zoomEnabled && !mxClient.NO_FO && !mxClient.IS_SF;
 	this.pageId = this.graphConfig.pageId;
+	this.browserTranslate = mxClient.IS_GC && ((this.graphConfig['browser-translate'] != null) ?
+		this.graphConfig['browser-translate'] : true);
 	this.editor = null;
 	var self = this;
 	
@@ -181,50 +207,60 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 			{
 				this.graph = new Graph(container);
 
-				if (this.darkMode)
+				if (this.browserTranslate)
 				{
-					if (Editor.enableCssDarkMode)
-					{
-						container.classList.add('geDarkMode');
-					}
-					else
-					{
-						EditorUi.setGraphDarkMode(this.graph, null, true);
-					}
+					this.graph.waitForBrowserTranslate();
 				}
 
 				this.graph.enableFlowAnimation = true;
-				this.graph.defaultPageBackgroundColor = 'transparent';
-				this.graph.diagramBackgroundColor = 'transparent';
-				this.graph.transparentBackground = false;
+				this.installDarkModeListener();
 				
 				if (this.responsive && this.graph.dialect == mxConstants.DIALECT_SVG)
 				{
 					var root = this.graph.view.getDrawPane().ownerSVGElement;
-					var canvas = this.graph.view.getCanvas();
-						
+
+					// Border is applied as CSS padding on the container so that
+					// it stays at a fixed pixel size when the diagram is scaled
+					// down. This matches graph.fit(border) in the draw.io editor,
+					// which also reserves a fixed-pixel border before scaling.
+					var responsiveBorder = 0;
+
 					if (this.graphConfig.border != null)
 					{
-						root.style.padding = this.graphConfig.border + 'px';
+						responsiveBorder = this.graphConfig.border;
 					}
 					else if (container.style.padding == '')
 					{
-						root.style.padding = '8px';
+						responsiveBorder = 8;
 					}
-					
+
+					if (responsiveBorder > 0)
+					{
+						container.style.padding = responsiveBorder + 'px';
+						container.style.boxSizing = 'border-box';
+					}
+
+					root.style.forcedColorAdjust = 'none';
 					root.style.boxSizing = 'border-box';
 					root.style.overflow = 'visible';
-					
+
 					this.graph.fit = function()
 					{
 						// Automatic
 					};
-					
+
+					var maxScale = parseFloat(this.graphConfig['responsive-max-scale']);
+
+					// Capture any pre-existing maxWidth on the container (e.g. set
+					// by the host page to constrain the diagram) so we can honour
+					// it as an upper bound when responsive-max-scale adjusts the width.
+					var presetMaxWidth = parseFloat(container.style.maxWidth);
+
 					this.graph.sizeDidChange = function()
 					{
 						var bounds = this.view.graphBounds;
 						var tr = this.view.translate;
-						
+
 						root.setAttribute('viewBox',
 							(bounds.x + tr.x - this.panDx) + ' ' +
 							(bounds.y + tr.y - this.panDy) + ' ' +
@@ -232,6 +268,15 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 							(bounds.height + 1));
 						this.container.style.backgroundColor =
 							root.style.backgroundColor;
+
+						if (!isNaN(maxScale))
+						{
+							var naturalWidth = Math.round(
+								(bounds.width + 1) * maxScale + 2 * responsiveBorder);
+							var finalMaxWidth = !isNaN(presetMaxWidth) ?
+								Math.min(naturalWidth, presetMaxWidth) : naturalWidth;
+							this.container.style.maxWidth = finalMaxWidth + 'px';
+						}
 
 						this.fireEvent(new mxEventObject(mxEvent.SIZE, 'bounds', bounds));
 					};
@@ -258,6 +303,9 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 				this.graph.centerZoom = false;
 				this.graph.autoExtend = false;
 				this.graph.autoScroll = false;
+				this.graph.showLinkIcons = this.showLinkIcons;
+				this.graph.showTooltipIcons = this.showTooltipIcons;
+				this.graph.showNoteIcons = this.showNoteIcons;
 				this.graph.setEnabled(false);
 				
 				if (this.graphConfig['toolbar-nohide'] == true)
@@ -265,28 +313,30 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 					this.editor.defaultGraphOverflow = 'visible';
 				}
 				
-				//Extract graph model from html & svg formats
-				this.xmlNode = this.editor.extractGraphModel(this.xmlNode, true);
+				// Extract graph model from html & svg formats
+				var temp = this.editor.extractGraphModel(this.xmlNode, true);
 				
-				if (this.xmlNode != xmlNode)
+				if (temp != null && temp != xmlNode)
 				{
-					this.xml = mxUtils.getXml(this.xmlNode);
-					this.xmlDocument = this.xmlNode.ownerDocument;
+					try
+					{
+						this.xml = mxUtils.getXml(temp);
+						this.xmlNode = temp;
+						this.xmlDocument = temp.ownerDocument;
+					}
+					catch (e)
+					{
+						// ignore
+					}
 				}
 				
 				// Handles relative images
-				var self = this;
-				
 				this.graph.getImageFromBundles = function(key)
 				{
 					return self.getImageUrl(key);
 				};
-		
-				if (mxClient.IS_SVG)
-				{
-					// LATER: Add shadow for labels in graph.container (eg. math, NO_FO), scaling
-					this.graph.addSvgShadow(this.graph.view.canvas.ownerSVGElement, null, true);
-				}
+				
+				this.graph.addSvgShadow(this.graph.view.canvas.ownerSVGElement, null, true);
 				
 				// Adds page placeholders
 				if (this.xmlNode.nodeName == 'mxfile')
@@ -295,7 +345,7 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 					
 					if (diagrams.length > 0)
 					{
-						//Find the page index if the pageId is provided
+						// Finds index for given page ID
 						if (this.pageId != null)
 						{
 							for (var i = 0; i < diagrams.length; i++)
@@ -309,15 +359,30 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 						}
 						
 						var graphGetGlobalVariable = this.graph.getGlobalVariable;
-						var self = this;
-						
+						var cachedFileVars = null;
+
+						try
+						{
+							var varsStr = self.xmlNode.getAttribute('vars');
+
+							if (varsStr != null && varsStr.length > 0)
+							{
+								cachedFileVars = JSON.parse(varsStr);
+							}
+						}
+						catch (e)
+						{
+							// ignore
+						}
+
 						this.graph.getGlobalVariable = function(name)
 						{
 							var diagram = diagrams[self.currentPage];
-							
+
 							if (name == 'page')
 							{
-								return diagram.getAttribute('name') || 'Page-' + (self.currentPage + 1);
+								return diagram.getAttribute('name') || mxResources.get('pageWithNumber',
+									[self.currentPage + 1], 'Page-' + (self.currentPage + 1));
 							}
 							else if (name == 'pagenumber')
 							{
@@ -327,8 +392,15 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 							{
 								return diagrams.length;
 							}
-							
-							return graphGetGlobalVariable.apply(this, arguments);
+
+							var val = graphGetGlobalVariable.apply(this, arguments);
+
+							if (val == null && cachedFileVars != null)
+							{
+								val = cachedFileVars[name];
+							}
+
+							return val;
 						};
 					}
 				}
@@ -340,8 +412,28 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 				{
 					if(this.handlingResize)
 						return;
-					
+
+					// Saves current page's hidden tags before switching
+					if (this.tagsEnabled && this.graphConfig.hiddenTags != null &&
+						this.diagrams[this.currentPage] != null)
+					{
+						var curPageId = this.diagrams[this.currentPage].getAttribute('id');
+						this.graphConfig.hiddenTags[curPageId] =
+							(this.graph.hiddenTags.length > 0) ? this.graph.hiddenTags.slice() : null;
+					}
+
 					this.currentPage = mxUtils.mod(number, this.diagrams.length);
+
+					// Applies hidden tags before updating XML so that
+					// positionGraph uses the correct tag visibility
+					if (this.tagsEnabled && this.graphConfig.hiddenTags != null &&
+						this.diagrams[this.currentPage] != null)
+					{
+						var pageId = this.diagrams[this.currentPage].getAttribute('id');
+						var pageTags = this.graphConfig.hiddenTags[pageId];
+						this.graph.hiddenTags = (pageTags != null && pageTags.length > 0) ? pageTags : [];
+					}
+
 					this.updateGraphXml(Editor.parseDiagramNode(this.diagrams[this.currentPage]));
 				};
 				
@@ -440,17 +532,35 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 					this.editor.setGraphXml(this.xmlNode);
 					this.graph.view.scale = this.graphConfig.zoom || 1;
 					visible = this.setLayersVisible();
+
+					// Applies initial hidden tags from config
+					if (this.tagsEnabled && this.graphConfig.hiddenTags != null &&
+						this.diagrams != null && this.diagrams[this.currentPage] != null)
+					{
+						var pageId = this.diagrams[this.currentPage].getAttribute('id');
+						var pageTags = this.graphConfig.hiddenTags[pageId];
+
+						if (pageTags != null && pageTags.length > 0)
+						{
+							this.graph.hiddenTags = pageTags;
+						}
+					}
+
+					this.fireEvent(new mxEventObject('graphInitialized'));
 					
 					if (!this.responsive)
 					{
 						this.graph.border = (this.graphConfig.border != null) ? this.graphConfig.border : 8;
 					}
+
+					this.installBackgroundColorHandler();
+					GraphViewer.viewerInitialized(this);
 				}
 				finally
 				{
 					this.graph.getModel().endUpdate();
 				}
-		
+
 				// Adds left-button panning only if scrollbars are visible
 				if (!this.responsive)
 				{
@@ -474,7 +584,7 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 				}
 				else if (this.graphConfig.title != null && this.showTitleAsTooltip)
 				{
-					container.setAttribute('title', this.graphConfig.title);
+					container.setAttribute('title', this.graphConfig.titleTooltip || this.graphConfig.title);
 				}
 				
 				if (!this.responsive)
@@ -489,7 +599,6 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 				}
 
 				this.addClickHandler(this.graph);
-				this.graph.setTooltips(this.graphConfig.tooltips != false);
 				this.graph.initialViewState = {
 					translate: this.graph.view.translate.clone(),
 					scale: this.graph.view.scale
@@ -500,7 +609,7 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 					this.setLayersVisible(visible);
 				}
 				
-				this.graph.customLinkClicked = function(href)
+				this.graph.customLinkClicked = function(href, associatedCell)
 				{
 					try
 					{
@@ -515,7 +624,13 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 						}
 						else
 						{
-							this.handleCustomLink(href);
+							var bounds = this.getGraphBounds();
+							this.handleCustomLink(href, associatedCell);
+							
+							if (!bounds.equals(this.getGraphBounds()))
+							{
+								self.crop();
+							}
 						}
 					}
 					catch (e)
@@ -543,7 +658,9 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 				window.WebKitMutationObserver ||
 				window.MozMutationObserver;
 			
-			if (this.checkVisibleState && container.offsetWidth == 0 && typeof MutObs !== 'undefined')
+			if (this.checkVisibleState && container.offsetWidth == 0 &&
+				this.getAncestorDetails(container) == null &&
+				typeof MutObs !== 'undefined')
 			{
 				// Delayed rendering if inside hidden container and event available
 				var par = this.getObservableParent(container);
@@ -566,6 +683,124 @@ GraphViewer.prototype.init = function(container, xmlNode, graphConfig)
 			}
 		}
 	}
+};
+
+/**
+ * 
+ */
+GraphViewer.prototype.installBackgroundColorHandler = function()
+{
+	var graph = this.graph;
+
+	if (graph != null)
+	{
+		if (GraphViewer.shapeBackgroundColor != null)
+		{
+			graph.shapeBackgroundColor = GraphViewer.shapeBackgroundColor;
+		}
+		
+		graph.defaultPageBackgroundColor = 'transparent';
+		graph.diagramBackgroundColor = 'transparent';
+		graph.transparentBackground = false;
+		
+		var originalBackground = graph.background;
+
+		var updateBackground = mxUtils.bind(this, function(validate)
+		{
+			if (graph.getAdaptiveColors() == 'none' &&
+				originalBackground == null)
+			{
+				if (this.isDarkMode())
+				{
+					graph.background = '#ffffff';
+				}
+				else
+				{
+					graph.background = null;
+				}
+
+				if (validate)
+				{
+					graph.view.validateBackground();
+				}
+			}
+		});
+		
+		// Called when pages are changed
+		this.addListener('graphChanged', function()
+		{
+			originalBackground = graph.background;
+			updateBackground(true);
+		});
+
+		// Called when the theme changes
+		this.addListener('darkModeChanged', function()
+		{
+			updateBackground(true);
+		});
+
+		// Sets initial state
+		updateBackground(false);
+	}
+};
+
+/**
+ * 
+ */
+GraphViewer.prototype.installDarkModeListener = function()
+{
+	if (window.matchMedia != null)
+	{
+		window.matchMedia('(prefers-color-scheme: dark)')
+			.addEventListener('change', mxUtils.bind(this, function()
+		{
+			this.darkModeChanged();
+			this.fireEvent(new mxEventObject('darkModeChanged'));
+		}));
+	}
+	
+	this.darkModeChanged();
+};
+
+/**
+ * 
+ */
+GraphViewer.prototype.darkModeChanged = function()
+{
+	if (this.graph != null)
+	{
+		var container = this.graph.container;
+		var dark = this.isDarkMode();
+
+		if (dark)
+		{
+			container.classList.add('geDarkMode');
+		}
+		else
+		{
+			container.classList.remove('geDarkMode');
+		}
+
+		container.style.colorScheme = (dark) ? 'dark' : 'light';
+	}
+};
+
+/**
+ * 
+ */
+GraphViewer.prototype.getAncestorDetails = function(container)
+{
+	while (container != null)
+	{
+		if (container.nodeName == 'DETAILS')
+		{
+			return container;
+		}
+		
+		container = container.parentNode;
+	}
+
+	return null;
 };
 
 /**
@@ -683,8 +918,9 @@ GraphViewer.prototype.updateGraphXml = function(xmlNode)
 	this.fireEvent(new mxEventObject('graphChanged'));
 };
 
+
 /**
- * 
+ *
  */
 GraphViewer.prototype.setLayersVisible = function(visible)
 {
@@ -739,7 +975,7 @@ GraphViewer.prototype.setGraphXml = function(xmlNode)
 		}
 	
 		if (!this.responsive)
-		{				
+		{
 			// Restores initial CSS state
 			if (this.widthIsEmpty)
 			{
@@ -750,10 +986,10 @@ GraphViewer.prototype.setGraphXml = function(xmlNode)
 			{
 				this.graph.container.style.width = this.initialWidth;
 			}
-			
+
 			this.positionGraph();
 		}
-		
+
 		this.graph.initialViewState = {
 			translate: this.graph.view.translate.clone(),
 			scale: this.graph.view.scale
@@ -764,6 +1000,15 @@ GraphViewer.prototype.setGraphXml = function(xmlNode)
 			this.setLayersVisible(visible);
 		}
 	}
+};
+
+/**
+ * 
+ */
+GraphViewer.prototype.isDarkMode = function()
+{
+	return this.darkMode == 'dark' || (this.darkMode == 'auto' && window.matchMedia &&
+		window.matchMedia('(prefers-color-scheme: dark)').matches);
 };
 
 /**
@@ -880,12 +1125,12 @@ GraphViewer.prototype.addSizeHandler = function()
 
 			if (this.center || !(this.graphConfig.resize != false || container.style.height == ''))
 			{
-				this.graph.center();
+				this.graph.center(true, this.hCenterOnly? false : true);
 			}	
 			
 			this.graph.maxFitScale = null;
 			
-			if (this.graphConfig.resize != false || container.style.height == '')
+			if (this.graphConfig.resize != false || container.style.height == '' || this.hCenterOnly)
 			{
 				this.updateContainerHeight(container, Math.max(this.minHeight,
 					this.graph.getGraphBounds().height +
@@ -942,7 +1187,6 @@ GraphViewer.prototype.addSizeHandler = function()
 		{
 			var lastOffsetWidth = null;
 			var scheduledResize = null;
-			var cachedOffsetWidth = null;
 			
 			var doResize = mxUtils.bind(this, function()
 			{
@@ -1167,28 +1411,34 @@ GraphViewer.prototype.addToolbar = function()
 
 	// Creates toolbar for viewer
 	var toolbar = container.ownerDocument.createElement('div');
+	toolbar.style.display = 'flex';
+	toolbar.style.alignItems = 'center';
 	toolbar.style.position = 'absolute';
 	toolbar.style.overflow = 'hidden';
 	toolbar.style.boxSizing = 'border-box';
 	toolbar.style.whiteSpace = 'nowrap';
 	toolbar.style.textAlign = 'left';
 	toolbar.style.zIndex = this.toolbarZIndex;
-	toolbar.style.backgroundColor = '#eee';
+	toolbar.style.backgroundColor = 'light-dark(#eeeeee, ' + GraphViewer.darkBackgroundColor + ')';
 	toolbar.style.height = this.toolbarHeight + 'px';
 
-	if (this.darkMode)
+	var updateDarkMode = mxUtils.bind(this,	function()
 	{
-		if (Editor.enableCssDarkMode)
+		if (this.isDarkMode())
 		{
 			toolbar.classList.add('geDarkMode');
+			toolbar.style.colorScheme = 'dark';
 		}
 		else
 		{
-			toolbar.style.filter = 'invert(1)';
+			toolbar.classList.remove('geDarkMode');
+			toolbar.style.colorScheme = 'light';
 		}
-	}
+	});
 
+	this.addListener('darkModeChanged', updateDarkMode);
 	this.toolbar = toolbar;
+	updateDarkMode();
 	
 	if (this.graphConfig['toolbar-position'] == 'inline')
 	{
@@ -1240,7 +1490,7 @@ GraphViewer.prototype.addToolbar = function()
 				fadeThead2 = null;
 			}
 			
-			toolbar.style.display = '';
+			toolbar.style.display = 'flex';
 			mxUtils.setOpacity(toolbar, opacity || 30);
 		});
 		
@@ -1331,6 +1581,7 @@ GraphViewer.prototype.addToolbar = function()
 		return a;
 	});
 
+	var model = this.graph.getModel();
 	var layersDialog = null;
 	var tagsComponent = null;
 	var tagsDialog = null;
@@ -1343,14 +1594,20 @@ GraphViewer.prototype.addToolbar = function()
 		if (token == 'pages')
 		{
 			pageInfo = container.ownerDocument.createElement('div');
-			pageInfo.style.cssText = 'display:inline-block;position:relative;top:5px;padding:0 4px 0 4px;' +
-				'vertical-align:top;font-family:Helvetica,Arial;font-size:12px;;cursor:default;color:#000;'
+			pageInfo.style.display = 'inline-flex';
+			pageInfo.style.position = 'relative';
+			pageInfo.style.alignItems = 'center';
+			pageInfo.style.padding = '4px';
+			pageInfo.style.fontFamily = GraphViewer.cssFontFamily;
+			pageInfo.style.fontSize = '12px';
+			pageInfo.style.cursor = 'default';
+			pageInfo.style.color = 'light-dark(#000000, #ffffff)';
 			mxUtils.setOpacity(pageInfo, 70);
 			
 			var prevButton = addButton(mxUtils.bind(this, function()
 			{
 				this.selectPage(this.currentPage - 1);
-			}), Editor.previousImage, mxResources.get('previousPage') || 'Previous Page');
+			}), Editor.chevronLeftImage, mxResources.get('previousPage') || 'Previous Page');
 
 			prevButton.style.borderRightStyle = 'none';
 			prevButton.style.paddingLeft = '0px';
@@ -1360,18 +1617,16 @@ GraphViewer.prototype.addToolbar = function()
 			var nextButton = addButton(mxUtils.bind(this, function()
 			{
 				this.selectPage(this.currentPage + 1);
-			}), Editor.nextImage, mxResources.get('nextPage') || 'Next Page');
+			}), Editor.chevronRightImage, mxResources.get('nextPage') || 'Next Page');
 			
 			nextButton.style.paddingLeft = '0px';
 			nextButton.style.paddingRight = '0px';
-			
-			var lastXmlNode = null;
 			
 			var update = mxUtils.bind(this, function()
 			{
 				pageInfo.innerText = '';
 				mxUtils.write(pageInfo, (this.currentPage + 1) + ' / ' + this.diagrams.length);
-				pageInfo.style.display = (this.diagrams.length > 1) ? 'inline-block' : 'none';
+				pageInfo.style.display = (this.diagrams.length > 1) ? 'inline-flex' : 'none';
 				prevButton.style.display = pageInfo.style.display;
 				nextButton.style.display = pageInfo.style.display;
 			});
@@ -1406,8 +1661,6 @@ GraphViewer.prototype.addToolbar = function()
 		{
 			if (this.layersEnabled)
 			{
-				var model = this.graph.getModel();
-
 				var layersButton = addButton(mxUtils.bind(this, function(evt)
 				{
 					if (layersDialog != null)
@@ -1466,18 +1719,18 @@ GraphViewer.prototype.addToolbar = function()
 						layersDialog.style.padding = '2px 0px 2px 0px';
 						layersDialog.style.border = '1px solid #d0d0d0';
 						layersDialog.style.backgroundColor = '#eee';
-						layersDialog.style.fontFamily = Editor.defaultHtmlFont;
+						layersDialog.style.fontFamily = GraphViewer.cssFontFamily;
 						layersDialog.style.fontSize = '11px';
 						layersDialog.style.overflowY = 'auto';
 						layersDialog.style.maxHeight = (this.graph.container.clientHeight - this.toolbarHeight - 10) + 'px'
 						layersDialog.style.zIndex = this.toolbarZIndex + 1;
 						layersDialog.style.color = '#000';
-						mxUtils.setOpacity(layersDialog, 80);
+						mxUtils.setOpacity(layersDialog, 85);
 						var origin = mxUtils.getDocumentScrollOrigin(document);
 						layersDialog.style.left = origin.x + r.left - 1 + 'px';
 						layersDialog.style.top = origin.y + r.bottom - 2 + 'px';
-						
-						if (this.darkMode)
+
+						if (this.isDarkMode())
 						{
 							layersDialog.style.filter = 'invert(93%) hue-rotate(180deg)';
 						}
@@ -1488,10 +1741,10 @@ GraphViewer.prototype.addToolbar = function()
 				
 				model.addListener(mxEvent.CHANGE, function()
 				{
-					layersButton.style.display = (model.getChildCount(model.root) > 1) ? 'inline-block' : 'none';
+					layersButton.style.display = (model.getChildCount(model.root) > 1) ? 'inline-flex' : 'none';
 				});
 				
-				layersButton.style.display = (model.getChildCount(model.root) > 1) ? 'inline-block' : 'none';
+				layersButton.style.display = (model.getChildCount(model.root) > 1) ? 'inline-flex' : 'none';
 			}
 		}
 		else if (token == 'tags')
@@ -1507,6 +1760,43 @@ GraphViewer.prototype.addToolbar = function()
 							return true;
 						}));
 
+						this.graph.addListener(mxEvent.REFRESH, mxUtils.bind(this, function()
+						{
+							if (this.autoCrop)
+							{
+								this.crop();
+							}
+							else if (this.autoOrigin)
+							{
+								var bounds = this.graph.getGraphBounds();
+								var v = this.graph.view;
+
+								if (bounds.x < 0 || bounds.y < 0)
+								{
+									this.crop();
+									this.graph.originalViewState = this.graph.initialViewState;
+
+									this.graph.initialViewState = {
+										translate: v.translate.clone(),
+										scale: v.scale
+									};
+								}
+								else if (this.graph.originalViewState != null &&
+									bounds.x / v.scale + this.graph.originalViewState.translate.x - v.translate.x > 0 &&
+									bounds.y / v.scale + this.graph.originalViewState.translate.y - v.translate.y > 0)
+								{
+									v.setTranslate(this.graph.originalViewState.translate.x,
+										this.graph.originalViewState.translate.y);
+									this.graph.originalViewState = null;
+
+									this.graph.initialViewState = {
+										translate: v.translate.clone(),
+										scale: v.scale
+									};
+								}
+							}
+						}));
+
 						tagsComponent.div.getElementsByTagName('div')[0].style.position = '';
 						tagsComponent.div.style.maxHeight = '160px';
 						tagsComponent.div.style.maxWidth = '120px';
@@ -1514,19 +1804,19 @@ GraphViewer.prototype.addToolbar = function()
 						tagsComponent.div.style.overflow = 'auto';
 						tagsComponent.div.style.height = 'auto';
 						tagsComponent.div.style.position = 'fixed';
-						tagsComponent.div.style.fontFamily = Editor.defaultHtmlFont;
+						tagsComponent.div.style.fontFamily = GraphViewer.cssFontFamily;
 						tagsComponent.div.style.fontSize = '11px';
 						tagsComponent.div.style.backgroundColor = '#eee';
 						tagsComponent.div.style.color = '#000';
 						tagsComponent.div.style.border = '1px solid #d0d0d0';
 						tagsComponent.div.style.zIndex = this.toolbarZIndex + 1;
-
-						if (this.darkMode)
+						
+						if (this.isDarkMode())
 						{
 							tagsComponent.div.style.filter = 'invert(93%) hue-rotate(180deg)';
 						}
 
-						mxUtils.setOpacity(tagsComponent.div, 80);
+						mxUtils.setOpacity(tagsComponent.div, 85);
 					}
 
 					if (tagsDialog != null)
@@ -1537,6 +1827,7 @@ GraphViewer.prototype.addToolbar = function()
 					else
 					{
 						tagsDialog = tagsComponent.div;
+						tagsDialog.style.position = 'absolute';
 						
 						mxEvent.addListener(tagsDialog, 'mouseleave', function()
 						{
@@ -1558,10 +1849,16 @@ GraphViewer.prototype.addToolbar = function()
 
 				model.addListener(mxEvent.CHANGE, mxUtils.bind(this, function()
 				{
-					tagsButton.style.display = (this.graph.getAllTags().length > 0) ? 'inline-block' : 'none';
+					tagsButton.style.display = (this.graph.getAllTags().length > 0) ? 'inline-flex' : 'none';
+
+					if (tagsDialog != null && this.graph.getAllTags().length == 0)
+					{
+						tagsDialog.parentNode.removeChild(tagsDialog);
+						tagsDialog = null;
+					}
 				}));
 				
-				tagsButton.style.display = (this.graph.getAllTags().length > 0) ? 'inline-block' : 'none';
+				tagsButton.style.display = (this.graph.getAllTags().length > 0) ? 'inline-flex' : 'none';
 			}
 		}
 		else if (token == 'lightbox')
@@ -1570,7 +1867,14 @@ GraphViewer.prototype.addToolbar = function()
 			{
 				addButton(mxUtils.bind(this, function()
 				{
-					this.showLightbox();
+					try
+					{
+						this.showLightbox();
+					}
+					catch (e)
+					{
+						alert(e.message);
+					}
 				}), Editor.fullscreenImage, (mxResources.get('fullscreen') || 'Fullscreen'));
 			}
 		}
@@ -1594,9 +1898,15 @@ GraphViewer.prototype.addToolbar = function()
 	if (this.graphConfig.title != null)
 	{
 		var filename = container.ownerDocument.createElement('div');
-		filename.style.cssText = 'display:inline-block;position:relative;padding:3px 6px 0 6px;' +
-			'vertical-align:top;font-family:Helvetica,Arial;font-size:12px;top:4px;cursor:default;color:#000;';
-		filename.setAttribute('title', this.graphConfig.title);
+		filename.style.display = 'inline-flex';
+		filename.style.position = 'relative';
+		filename.style.alignItems = 'center';
+		filename.style.padding = '6px';
+		filename.style.fontFamily = GraphViewer.cssFontFamily;
+		filename.style.fontSize = '12px';
+		filename.style.cursor = 'default';
+		filename.style.color = 'light-dark(#000000, #ffffff)';
+		filename.setAttribute('title', this.graphConfig.titleTooltip || this.graphConfig.title);
 		mxUtils.write(filename, this.graphConfig.title);
 		mxUtils.setOpacity(filename, 70);
 		
@@ -1619,9 +1929,11 @@ GraphViewer.prototype.addToolbar = function()
 	
 			// Workaround for position:relative set in ResizeSensor
 			var origin = mxUtils.getScrollOrigin(document.body)
-			var b = (document.body.style.position === 'relative') ? document.body.getBoundingClientRect() :
+			var b = (document.body.style.position === 'relative') ?
+				document.body.getBoundingClientRect() :
 				{left: -origin.x, top: -origin.y};
-			r = {left: r.left - b.left, top: r.top - b.top, bottom: r.bottom - b.top, right: r.right - b.left};
+			r = {left: r.left - b.left, top: r.top - b.top,
+				bottom: r.bottom - b.top, right: r.right - b.left};
 			
 			toolbar.style.left = r.left + 'px';
 
@@ -1656,6 +1968,12 @@ GraphViewer.prototype.addToolbar = function()
 					toolbar.parentNode.removeChild(toolbar);
 				}
 				
+				if (tagsDialog != null)
+				{
+					tagsDialog.parentNode.removeChild(tagsDialog);
+					tagsDialog = null;
+				}
+
 				if (layersDialog != null)
 				{
 					layersDialog.parentNode.removeChild(layersDialog);
@@ -1671,7 +1989,10 @@ GraphViewer.prototype.addToolbar = function()
 				
 				while (source != null)
 				{
-					if (source == container || source == toolbar || source == layersDialog)
+					if (source == container ||
+						source == toolbar ||
+						source == layersDialog ||
+						source == tagsDialog)
 					{
 						return;
 					}
@@ -1690,8 +2011,6 @@ GraphViewer.prototype.addToolbar = function()
 		else
 		{
 			toolbar.style.top = -this.toolbarHeight + 'px';
-			// geDarkMode already set on container, so remove it from toolbar such that it doesn't invert colors twice
-			toolbar.classList.remove('geDarkMode');
 			container.appendChild(toolbar);
 		}
 	});
@@ -1724,7 +2043,9 @@ GraphViewer.prototype.createToolbarButton = function(fn, imgSrc, tip, enabled)
 {
 	var a = document.createElement('div');
 	a.style.borderRight = '1px solid #d0d0d0';
-	a.style.padding = '3px 6px 3px 6px';
+	a.style.display = 'inline-flex';
+	a.style.alignItems = 'center';
+	a.style.padding = '6px';
 	
 	mxEvent.addListener(a, 'click', fn);
 
@@ -1733,27 +2054,22 @@ GraphViewer.prototype.createToolbarButton = function(fn, imgSrc, tip, enabled)
 		a.setAttribute('title', tip);
 	}
 	
-	a.style.display = 'inline-block';
 	var img = document.createElement('img');
 	img.setAttribute('border', '0');
 	img.setAttribute('src', imgSrc);
 	img.style.width = '18px';
-
-	if (Editor.enableCssDarkMode)
-	{
-		img.className = 'geAdaptiveAsset';
-	}
-
+	img.className = 'geAdaptiveAsset';
+	
 	if (enabled == null || enabled)
 	{
 		mxEvent.addListener(a, 'mouseenter', function()
 		{
-			a.style.backgroundColor = '#ddd';
+			a.style.backgroundColor = 'light-dark(#dddddd,#333333)';
 		});
 		
 		mxEvent.addListener(a, 'mouseleave', function()
 		{
-			a.style.backgroundColor = '#eee';
+			a.style.backgroundColor = 'transparent';
 		});
 
 		mxUtils.setOpacity(img, 60);
@@ -1769,7 +2085,7 @@ GraphViewer.prototype.createToolbarButton = function(fn, imgSrc, tip, enabled)
 	return a;
 };
 
-GraphViewer.prototype.disableButton = function(token)
+GraphViewer.prototype.disableButton = function(token, tooltip)
 {
 	var def = this.graphConfig['toolbar-buttons']? this.graphConfig['toolbar-buttons'][token] : null;
 			
@@ -1782,6 +2098,11 @@ GraphViewer.prototype.disableButton = function(token)
 		{
 			def.elem.style.backgroundColor = '#eee';
 		});
+
+		if (tooltip)
+		{
+			def.elem.setAttribute('title', tooltip);
+		}
 	}
 };
 
@@ -1792,7 +2113,7 @@ GraphViewer.prototype.addClickHandler = function(graph, ui)
 {
 	graph.linkPolicy = this.graphConfig.target || graph.linkPolicy;
 
-	graph.addClickHandler(this.graphConfig.highlight, mxUtils.bind(this, function(evt, href)
+	graph.addClickHandler(this.graphConfig.highlight, mxUtils.bind(this, function(evt, href, associatedCell)
 	{
 		if (href == null)
 		{
@@ -1828,7 +2149,7 @@ GraphViewer.prototype.addClickHandler = function(graph, ui)
 		}
 		else if (href != null && ui == null && graph.isCustomLink(href) &&
 			(mxEvent.isTouchEvent(evt) || !mxEvent.isPopupTrigger(evt)) &&
-			graph.customLinkClicked(href))
+			graph.customLinkClicked(href, associatedCell))
 		{
 			// Workaround for text selection in Firefox on Windows
 			mxUtils.clearSelection();
@@ -1840,7 +2161,14 @@ GraphViewer.prototype.addClickHandler = function(graph, ui)
 			(!mxEvent.isTouchEvent(evt) ||
 			this.toolbarItems.length == 0))
 		{
-			this.showLightbox();
+			try
+			{
+				this.showLightbox();
+			}
+			catch (e)
+			{
+				alert(e.message);
+			}
 		}
 	}));
 };
@@ -1881,16 +2209,33 @@ GraphViewer.prototype.showLightbox = function(editable, closable, target)
 		    	param.layers = 1;
 			}
 			
-			if (this.tagsEnabled)
+			if (this.tagsEnabled && this.diagrams != null &&
+				this.diagrams[this.currentPage] != null)
 			{
-		    	param.tags = {};
+				// Saves current page's hidden tags before passing to lightbox
+				var curPageId = this.diagrams[this.currentPage].getAttribute('id');
+
+				if (this.graphConfig.hiddenTags == null)
+				{
+					// Null prototype: keyed by page ids from the diagram XML
+					this.graphConfig.hiddenTags = Object.create(null);
+				}
+
+				this.graphConfig.hiddenTags[curPageId] =
+					(this.graph.hiddenTags.length > 0) ? this.graph.hiddenTags.slice() : null;
+		    	param.tags = this.graphConfig.hiddenTags;
+			}
+
+			if (this.browserTranslate)
+			{
+				param['browser-translate'] = 1;
 			}
 
 			if (this.graphConfig != null && this.graphConfig.nav != false)
 			{
 				param.nav = 1;
 			}
-			
+
 			if (this.graphConfig != null && this.graphConfig.highlight != null)
 			{
 				param.highlight = this.graphConfig.highlight.substring(1);
@@ -1941,9 +2286,17 @@ GraphViewer.prototype.showLightbox = function(editable, closable, target)
  */
 GraphViewer.prototype.showLocalLightbox = function(container)
 {
-	var backdrop = document.createElement('div');
+	// Capture translation cache from the viewer's graph before
+	// creating the lightbox so it can be seeded after content loads
+	var btCache = (this.browserTranslate && this.graph != null) ?
+		this.graph.getBrowserTranslationCache() : null;
 
-	backdrop.style.cssText = 'position:fixed;top:0;left:0;bottom:0;right:0;';
+	var backdrop = document.createElement('div');
+	backdrop.style.position = 'fixed';
+	backdrop.style.top = '0';
+	backdrop.style.left = '0';
+	backdrop.style.bottom = '0';
+	backdrop.style.right = '0';
 	backdrop.style.zIndex = this.lightboxZIndex;
 	backdrop.style.backgroundColor = '#000000';
 	mxUtils.setOpacity(backdrop, 70);
@@ -1953,25 +2306,22 @@ GraphViewer.prototype.showLocalLightbox = function(container)
 	var closeImg = document.createElement('img');
 	closeImg.setAttribute('border', '0');
 	closeImg.setAttribute('src', Editor.closeBlackImage);
-	closeImg.style.cssText = 'position:fixed;top:32px;right:32px;';
+	closeImg.style.position = 'fixed';
+	closeImg.style.top = '32px';
+	closeImg.style.right = '32px';
 	closeImg.style.cursor = 'pointer';
-
-	if (this.darkMode)
-	{
-		if (Editor.enableCssDarkMode)
-		{
-			closeImg.className = 'geAdaptiveAsset';
-		}
-		else
-		{
-			closeImg.style.filter = 'invert(1)';
-		}
-	}
+	closeImg.className = 'geAdaptiveAsset';
 	
-	mxEvent.addListener(closeImg, 'click', function()
+	var updateDarkMode = mxUtils.bind(this,	function()
 	{
-		ui.destroy();
+		ui.setDarkMode(this.isDarkMode());
 	});
+
+	mxEvent.addListener(closeImg, 'click', mxUtils.bind(this, function()
+	{
+		this.removeListener('darkModeChanged', updateDarkMode);
+		ui.destroy();
+	}));
 	
 	// LATER: Make possible to assign after instance was created
 	urlParams['pages'] = '1';
@@ -1981,10 +2331,23 @@ GraphViewer.prototype.showLocalLightbox = function(container)
 														? this.graphConfig.layerIds.join(' ') : null;
 	urlParams['nav'] = (this.graphConfig.nav != false) ? '1' : '0';
 	urlParams['layers'] = (this.layersEnabled) ? '1' : '0';
+	urlParams['dark'] = (this.isDarkMode()) ? '1' : '0';
 
-	if (this.tagsEnabled)
+	if (this.tagsEnabled && this.diagrams != null &&
+		this.diagrams[this.currentPage] != null)
 	{
-		urlParams['tags'] = '{}';
+		// Saves current page's hidden tags before passing to lightbox
+		var curPageId = this.diagrams[this.currentPage].getAttribute('id');
+
+		if (this.graphConfig.hiddenTags == null)
+		{
+			// Null prototype: keyed by page ids from the diagram XML
+			this.graphConfig.hiddenTags = Object.create(null);
+		}
+
+		this.graphConfig.hiddenTags[curPageId] =
+			(this.graph.hiddenTags.length > 0) ? this.graph.hiddenTags.slice() : null;
+		urlParams['tags'] = JSON.stringify(this.graphConfig.hiddenTags);
 	}
 
 	if (container != null)
@@ -2005,35 +2368,22 @@ GraphViewer.prototype.showLocalLightbox = function(container)
 		Editor.prototype.editButtonFunc = this.graphConfig.editFunc;
 	}
 	
-	Editor.isDarkMode = mxUtils.bind(this, function()
-	{	
-		return this.darkMode;
-	});
-
 	EditorUi.prototype.updateActionStates = function() {};
 	EditorUi.prototype.addBeforeUnloadListener = function() {};
 	EditorUi.prototype.addChromelessClickHandler = function() {};
-	
-	// Workaround for lost reference with same ID is to change
-	// ID which must be done before calling EditorUi constructor
-	var previousShadowId = Graph.prototype.shadowId;
-	Graph.prototype.shadowId = 'lightboxDropShadow';
-	
+
 	var ui = new EditorUi(new Editor(true), document.createElement('div'), true);
-
-	if (this.darkMode)
-	{
-		ui.setDarkMode(true);
-	}
-
+	this.addListener('darkModeChanged', updateDarkMode);
 	ui.editor.editBlankUrl = this.editBlankUrl;
-	
-	// Overrides instance variable and restores prototype state
-	ui.editor.graph.shadowId = 'lightboxDropShadow';
-	Graph.prototype.shadowId = previousShadowId;
 
 	// Disables refresh
 	ui.refresh = function() {};
+
+	// The lightbox runs in the host page document, so page switches must not
+	// update the URL (location.replace('#') scrolls the host page to the top)
+	// or overwrite the host page title
+	ui.updateHashObject = function() {};
+	ui.updateDocumentTitle = function() {};
 	
 	// Handles escape keystroke
 	var keydownHandler = mxUtils.bind(this, function(evt)
@@ -2062,9 +2412,16 @@ GraphViewer.prototype.showLocalLightbox = function(container)
 	};
 	
 	var graph = ui.editor.graph;
+
+	if (this.browserTranslate)
+	{
+		graph.waitForBrowserTranslate();
+	}
+
 	var lightbox = graph.container;
 	lightbox.style.overflow = 'hidden';
-	
+	lightbox.style.inset = '0';
+
 	if (this.lightboxChrome && container == null)
 	{
 		lightbox.style.border = '1px solid #c0c0c0';
@@ -2144,22 +2501,39 @@ GraphViewer.prototype.showLocalLightbox = function(container)
 			}
 			
 			ui.setFileData(this.xml);
-			
+
+			// Applies initial hidden tags for the current page before
+			// lightboxFit so that the view fits the visible cells
+			if (this.tagsEnabled && this.graphConfig.hiddenTags != null &&
+				ui.currentPage != null)
+			{
+				var pageId = ui.currentPage.getId();
+				var pageTags = this.graphConfig.hiddenTags[pageId];
+				graph.hiddenTags = (pageTags != null && pageTags.length > 0) ? pageTags : [];
+				graph.refresh();
+			}
+
 			mxUtils.setPrefixedStyle(lightbox.style, 'transform', 'rotateY(0deg)');
 			ui.chromelessToolbar.style.bottom = 60 + 'px';
 			ui.chromelessToolbar.style.zIndex = this.lightboxZIndex;
-			
+
 			// Workaround for clipping in IE11-
 			(container || document.body).appendChild(ui.chromelessToolbar);
-		
+
 			ui.getEditBlankXml = mxUtils.bind(this, function()
 			{
 				return this.xml;
 			});
-		
+
+			this.showLayers(graph, this.graph);
 			ui.lightboxFit();
 			ui.chromelessResize();
-			this.showLayers(graph, this.graph);
+
+			// Applies cached translations from the viewer's graph
+			if (btCache != null)
+			{
+				graph.applyBrowserTranslationCache(btCache);
+			}
 		}
 		catch (e)
 		{
@@ -2187,20 +2561,20 @@ Dialog.prototype.getDocumentSize = function()
 /**
  * 
  */
-GraphViewer.prototype.updateTitle = function(title)
+GraphViewer.prototype.updateTitle = function(title, titleTooltip)
 {
 	title = title || '';
 	
 	if (this.showTitleAsTooltip && this.graph != null && this.graph.container != null)
 	{
-		this.graph.container.setAttribute('title', title);
+		this.graph.container.setAttribute('title', titleTooltip || title);
     }
 	
 	if (this.filename != null)
 	{
 		this.filename.innerText = '';
 		mxUtils.write(this.filename, title);
-		this.filename.setAttribute('title', title);
+		this.filename.setAttribute('title', titleTooltip || title);
 	}
 };
 
@@ -2307,7 +2681,10 @@ GraphViewer.createViewerForElement = function(element, callback)
 	}
 };
 
-GraphViewer.logAncestorFrames = function()
+/**
+ *
+ */
+GraphViewer.blockedAncestorFrames = function()
 {
 	try
 	{
@@ -2326,19 +2703,75 @@ GraphViewer.logAncestorFrames = function()
 			for (var i = 0; i < window.location.ancestorOrigins.length; i++)
 			{
 				message += ' -> ' + window.location.ancestorOrigins[i];
+
+				// Running commercial, competing services using our infrastructure isn't allowed.
+				if (message.endsWith('dan6v7pm1f1a1.cloudfront.net') || message.endsWith('confluence-cloud-excalidraw-ll3likebca-uc.a.run.app'))
+				{
+					return true;
+				}
 			}
 
-			if (hostname.endsWith('.draw.io') && window.location.ancestorOrigins.length == 1 &&
+			if ((hostname.endsWith('ac.draw.io') || hostname.endsWith('aj.draw.io')) && window.location.ancestorOrigins.length == 1 &&
 					window.location.ancestorOrigins[0] && window.location.ancestorOrigins[0].endsWith('.atlassian.net'))
 			{
 				// do not log *.draw.io domains embedded directly into atlassian.net
 			}
-			else if (window.location.ancestorOrigins.length > 0)
+			// else if (window.location.ancestorOrigins.length > 0)
+			// {
+			// 	var img = new Image();
+			// 	img.src = 'https://log.diagrams.net/images/1x1.png?src=ViewerAncestorFrames' +
+			// 		((typeof window.EditorUi !== 'undefined') ? '&v=' + encodeURIComponent(EditorUi.VERSION) : '') +
+			// 		'&data=' + encodeURIComponent(message);
+			// }
+		}
+	}
+	catch (e)
+	{
+		// ignore
+	}
+
+	return false;
+};
+
+/**
+ * Default dark background color.
+ */
+GraphViewer.darkBackgroundColor = Editor.darkColor;
+
+/**
+ * Default CSS font family.
+ */
+GraphViewer.cssFontFamily = Editor.defaultHtmlFont;
+
+/**
+ * Dark Colors
+ */
+GraphViewer.shapeBackgroundColor = null;
+
+/**
+ * Invoked when the given viewer was initialized.
+ */
+GraphViewer.viewerInitialized = function(graphViewer)
+{
+	// Hook for subclassers
+};
+
+/**
+ * Adds event if grid size is changed.
+ */
+GraphViewer.initCss = function()
+{
+	try
+	{
+		if (GraphViewer.styleElement == null)
+		{
+			GraphViewer.styleElement = document.createElement('style')
+			GraphViewer.styleElement.setAttribute('type', 'text/css');
+			GraphViewer.styleElement.innerHTML = GraphViewer.getCss();
+			
+			if (!GraphViewer.blockedAncestorFrames())
 			{
-				var img = new Image();
-				img.src = 'https://log.diagrams.net/images/1x1.png?src=ViewerAncestorFrames' +
-					((typeof window.EditorUi !== 'undefined') ? '&v=' + encodeURIComponent(EditorUi.VERSION) : '') +
-					'&data=' + encodeURIComponent(message);
+				document.getElementsByTagName('head')[0].appendChild(GraphViewer.styleElement);
 			}
 		}
 	}
@@ -2349,93 +2782,157 @@ GraphViewer.logAncestorFrames = function()
 };
 
 /**
- * Adds event if grid size is changed.
+ * Redirects editing to absolue URLs.
  */
-GraphViewer.initCss = function()
+GraphViewer.getCss = function()
 {
-	try
-	{
-		var style = document.createElement('style')
-		style.type = 'text/css';
-		style.innerHTML = ['.geDarkMode {',
-			'filter: invert(93%) hue-rotate(180deg);',
-			'background-color: transparent;}',
-			'.geDarkMode image, .geDarkMode img:not(.geAdaptiveAsset) {',
-			'filter: invert(100%) hue-rotate(180deg) saturate(1.25);}',
-			'div.mxTooltip {',
-			'-webkit-box-shadow: 3px 3px 12px #C0C0C0;',
-			'-moz-box-shadow: 3px 3px 12px #C0C0C0;',
-			'box-shadow: 3px 3px 12px #C0C0C0;',
-			'background: #FFFFCC;',
-			'border-style: solid;',
-			'border-width: 1px;',
-			'border-color: black;',
-			'font-family: Arial;',
-			'font-size: 8pt;',
-			'position: absolute;',
-			'cursor: default;',
-			'padding: 4px;',
-			'color: black;}',
-			'td.mxPopupMenuIcon div {',
-			'width:16px;',
-			'height:16px;}',
-			'html div.mxPopupMenu {',
-			'-webkit-box-shadow:2px 2px 3px #d5d5d5;',
-			'-moz-box-shadow:2px 2px 3px #d5d5d5;',
-			'box-shadow:2px 2px 3px #d5d5d5;',
-			'_filter:progid:DXImageTransform.Microsoft.DropShadow(OffX=2, OffY=2, Color=\'#d0d0d0\',Positive=\'true\');',
-			'background:white;',
-			'position:absolute;',
-			'border:3px solid #e7e7e7;',
-			'padding:3px;}',
-			'html table.mxPopupMenu {',
-			'border-collapse:collapse;',
-			'margin:0px;}',
-			'html td.mxPopupMenuItem {',
-			'padding:7px 30px 7px 30px;',
-			'font-family:Helvetica Neue,Helvetica,Arial Unicode MS,Arial;',
-			'font-size:10pt;}',
-			'html td.mxPopupMenuIcon {',
-			'background-color:white;',
-			'padding:0px;}',
-			'td.mxPopupMenuIcon .geIcon {',
-			'padding:2px;',
-			'padding-bottom:4px;',
-			'margin:2px;',
-			'border:1px solid transparent;',
-			'opacity:0.5;',
-			'_width:26px;',
-			'_height:26px;}',
-			'td.mxPopupMenuIcon .geIcon:hover {',
-			'border:1px solid gray;',
-			'border-radius:2px;',
-			'opacity:1;}',
-			'html tr.mxPopupMenuItemHover {',
-			'background-color: #eeeeee;',
-			'color: black;}',
-			'table.mxPopupMenu hr {',
-			'color:#cccccc;',
-			'background-color:#cccccc;',
-			'border:none;',
-			'height:1px;}',
-			'table.mxPopupMenu tr {	font-size:4pt;}',
-			// Modified to only apply to the print dialog
-			'.geDialog, .geDialog table { font-family:Helvetica Neue,Helvetica,Arial Unicode MS,Arial;',
-			'font-size:10pt;',
-			'border:none;',
-			'margin:0px;}',
-			// These are required for the print dialog
-			'.geDialog {	position:absolute;	background:white;	overflow:hidden;	padding:30px;	border:1px solid #acacac;	-webkit-box-shadow:0px 0px 2px 2px #d5d5d5;	-moz-box-shadow:0px 0px 2px 2px #d5d5d5;	box-shadow:0px 0px 2px 2px #d5d5d5;	_filter:progid:DXImageTransform.Microsoft.DropShadow(OffX=2, OffY=2, Color=\'#d5d5d5\', Positive=\'true\');	z-index: 2;}.geDialogClose {	position:absolute;	width:9px;	height:9px;	opacity:0.5;	cursor:pointer;	_filter:alpha(opacity=50);}.geDialogClose:hover {	opacity:1;}.geDialogTitle {	box-sizing:border-box;	white-space:nowrap;	background:rgb(229, 229, 229);	border-bottom:1px solid rgb(192, 192, 192);	font-size:15px;	font-weight:bold;	text-align:center;	color:rgb(35, 86, 149);}.geDialogFooter {	background:whiteSmoke;	white-space:nowrap;	text-align:right;	box-sizing:border-box;	border-top:1px solid #e5e5e5;	color:darkGray;}',
-			'.geBtn {	background-color: #f5f5f5;	border-radius: 2px;	border: 1px solid #d8d8d8;	color: #333;	cursor: default;	font-size: 11px;	font-weight: bold;	height: 29px;	line-height: 27px;	margin: 0 0 0 8px;	min-width: 72px;	outline: 0;	padding: 0 8px;	cursor: pointer;}.geBtn:hover, .geBtn:focus {	-webkit-box-shadow: 0px 1px 1px rgba(0,0,0,0.1);	-moz-box-shadow: 0px 1px 1px rgba(0,0,0,0.1);	box-shadow: 0px 1px 1px rgba(0,0,0,0.1);	border: 1px solid #c6c6c6;	background-color: #f8f8f8;	background-image: linear-gradient(#f8f8f8 0px,#f1f1f1 100%);	color: #111;}.geBtn:disabled {	opacity: .5;}.gePrimaryBtn {	background-color: #4d90fe;	background-image: linear-gradient(#4d90fe 0px,#4787ed 100%);	border: 1px solid #3079ed;	color: #fff;}.gePrimaryBtn:hover, .gePrimaryBtn:focus {	background-color: #357ae8;	background-image: linear-gradient(#4d90fe 0px,#357ae8 100%);	border: 1px solid #2f5bb7;	color: #fff;}.gePrimaryBtn:disabled {	opacity: .5;}'].join('\n');
-		document.getElementsByTagName('head')[0].appendChild(style);
-
-		// Log the ansestor frames
-		GraphViewer.logAncestorFrames();
-	}
-	catch (e)
-	{
-		// ignore
-	}
+	return [
+		'.geDarkMode img {',
+		'    filter: invert(1);',
+		'}',
+		'div.mxTooltip {',
+		'    box-shadow: 3px 3px 12px light-dark(#c0c0c0, transparent);',
+		'    background: light-dark(#ffffcc, ' + GraphViewer.darkBackgroundColor + ');',
+		'    border-style: solid;',
+		'    border-width: 1px;',
+		'    border-color: black;',
+		'    font-family: ' + GraphViewer.cssFontFamily + ';',
+		'    font-size: 8pt;',
+		'    position: absolute;',
+		'    cursor: default;',
+		'    padding: 4px;',
+		'    color: black;',
+		'}',
+		'td.mxPopupMenuIcon div {',
+		'    width: 16px;',
+		'    height: 16px;',
+		'}',
+		'div.mxPopupMenu {',
+		'    box-shadow: 2px 2px 3px light-dark(#d5d5d5, transparent);',
+		'    background: white;',
+		'    position: absolute;',
+		'    border: 3px solid #e7e7e7;',
+		'    padding: 3px;',
+		'}',
+		'table.mxPopupMenu {',
+		'    border-collapse: collapse;',
+		'    margin: 0px;',
+		'}',
+		'td.mxPopupMenuItem {',
+		'    padding: 7px 30px;',
+		'    font-family: ' + GraphViewer.cssFontFamily + ';',
+		'    font-size: 10pt;',
+		'}',
+		'td.mxPopupMenuIcon {',
+		'    background-color: light-dark(#ffffff, ' + GraphViewer.darkBackgroundColor + ');',
+		'    padding: 0px;',
+		'}',
+		'tr.mxPopupMenuItemHover {',
+		'    background-color: #eeeeee;',
+		'    color: black;',
+		'}',
+		'table.mxPopupMenu hr {',
+		'    color: #cccccc;',
+		'    background-color: #cccccc;',
+		'    border: none;',
+		'    height: 1px;',
+		'}',
+		'table.mxPopupMenu tr {',
+		'    font-size: 4pt;',
+		'}',
+		// Modified to only apply to the print dialog
+		'.geDialog, .geDialog table {',
+		'    font-family: ' + GraphViewer.cssFontFamily + ';',
+		'    font-size: 10pt;',
+		'    border: none;',
+		'    margin: 0px;',
+		'}',
+		// These are required for the print dialog
+		'.geDialog {',
+		'    position: fixed;',
+		'    background: light-dark(#ffffff, ' + GraphViewer.darkBackgroundColor + ');',
+		'	 color: light-dark(#3f3f3f, #c0c0c0);',
+		'    box-shadow: 0px 0px 2px 2px light-dark(#d5d5d5, transparent);',
+		'    border: 1px solid light-dark(#dadada, #565656);',
+		'    overflow: hidden;',
+		'    padding: 30px;',
+		'    left: 50%;',
+		'    top: 50%;',
+		'    max-height: 100%;',
+		'    max-width: 100%;',
+		'	 box-sizing: border-box;',
+		'    transform: translate(-50%, -50%);',
+		'	 z-index: ' + (GraphViewer.prototype.lightboxZIndex + 2) + ';',
+		'}',
+		'.geBackground {',
+		'    background-color: light-dark(#ffffff, ' + GraphViewer.darkBackgroundColor + ');',
+		'	 position: fixed;',
+		'    left: 0px;',
+		'    top: 0px;',
+		'    right: 0px;',
+		'    bottom: 0px;',
+		'    opacity: 0.9;', 
+		'	 z-index: ' + (GraphViewer.prototype.lightboxZIndex + 1) + ';',
+		'}',
+		'.geDialogTitle {',
+		'    box-sizing: border-box;',
+		'    white-space: nowrap;',
+		'    background: light-dark(#f1f3f4, ' + GraphViewer.darkBackgroundColor + ');',
+		'    border-bottom: 1px solid rgb(192, 192, 192);',
+		'    font-size: 15px;',
+		'    font-weight: bold;',
+		'    text-align: center;',
+		'    color: rgb(35, 86, 149);',
+		'}',
+		'.geDialogFooter {',
+		'    background: light-dark(#f1f3f4, ' + GraphViewer.darkBackgroundColor + ');',
+		'    white-space: nowrap;',
+		'    text-align: right;',
+		'    box-sizing: border-box;',
+		'    border-top: 1px solid #e5e5e5;',
+		'    color: darkGray;',
+		'}',
+		'.geHelpIcon {',
+		'    width: 16px;',
+		'    margin: 0 4px;',
+		'    vertical-align: text-bottom;',
+		'}',
+		'.geBtn, .mxWindow .geBtn {',
+		'    background-color: light-dark(#eeeeee, #1b1d1e);',
+		'    border: 1px solid light-dark(#d8d8d8, #333333);',
+		'    color: light-dark(#3f3f3f, #c0c0c0);',
+		'    font-size: 13px;',
+		'    font-weight: 500;',
+		'    border-radius: 4px;',
+		'    height: 30px;',
+		'    margin: 0 0 0 8px;',
+		'    min-width: 72px;',
+		'    outline: 0;',
+		'    padding: 0 8px;',
+		'    text-overflow: ellipsis;',
+		'    white-space: nowrap;',
+		'    overflow: hidden;',
+		'}',
+		'.geBtn:hover:not(.gePrimaryBtn), .geBtn:focus {',
+		'    border: 1px solid light-dark(#c6c6c6, #333333);',
+		'    background: light-dark(#dadada, #333333);',
+		'}',
+		'.geBtn:disabled {',
+		'    opacity: .5;',
+		'}',
+		'.gePrimaryBtn {',
+		'    background: linear-gradient(light-dark(#4d90fe, #003555) 0px, light-dark(#4787ed, #003555) 100%);',
+		'    border: 1px solid light-dark(#3079ed, transparent);',
+		'    color: light-dark(#ffffff, #c0c0c0);',
+		'}',
+		'.gePrimaryBtn:hover:not([disabled]) {',
+		'    background: linear-gradient(light-dark(#4d90fe, #004a77) 0px, light-dark(#357ae8, #004a77) 100%);',
+		'    border: 1px solid light-dark(#2f5bb7, transparent);',
+		'}',
+		'.geBtn:disabled {',
+		'    opacity: .5;',
+		'}'
+	].join('\n');
 };
 
 /**
@@ -2546,9 +3043,7 @@ GraphViewer.useResizeSensor = true;
 
 			return
 		}
-    	
-        /**
-         *
+    	/**   *
          * @constructor
          */
         function EventQueue() {
@@ -2564,9 +3059,7 @@ GraphViewer.useResizeSensor = true;
                 }
             };
         }
-
-        /**
-         * @param {HTMLElement} element
+/**   * @param {HTMLElement} element
          * @param {String}      prop
          * @returns {String|Number}
          */
@@ -2579,9 +3072,7 @@ GraphViewer.useResizeSensor = true;
                 return element.style[prop];
             }
         }
-
-        /**
-         *
+/**   *
          * @param {HTMLElement} element
          * @param {Function}    resized
          */

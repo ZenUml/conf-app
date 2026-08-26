@@ -376,7 +376,9 @@ export type AnalyticsEventName =
   // instead of succeeded on capture/reload/restore/init errors.
   | "graph_editor_mode_switch_requested"
   | "graph_editor_mode_switch_succeeded"
-  | "graph_editor_mode_switch_failed"
+  // A Board macro whose independent document is missing, empty or malformed.
+  // GenericViewer's load_failed_shown cannot separate this from a 404.
+  | "graph_board_document_invalid"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"

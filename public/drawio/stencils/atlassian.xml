@@ -37,7 +37,7 @@
     <foreground>
         <ellipse h="100" w="100" x="0" y="0"/>
         <fillstroke/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="25" y="58"/>
             <line x="25" y="42"/>
@@ -120,7 +120,7 @@
     <foreground>
         <ellipse h="100" w="100" x="0" y="0"/>
         <fillstroke/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="46.57" y="73.87"/>
             <line x="20.47" y="50.27"/>
@@ -154,7 +154,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="10.4" y="63.4"/>
             <line x="36.4" y="87"/>
@@ -172,7 +172,7 @@
     <foreground>
         <ellipse h="100" w="100" x="0" y="0"/>
         <fillstroke/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="21.4" y="71.5"/>
             <line x="43" y="50"/>
@@ -281,7 +281,7 @@
     <foreground>
         <ellipse h="100" w="100" x="0" y="0"/>
         <fillstroke/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="38" y="26.7"/>
             <line x="73.2" y="62"/>

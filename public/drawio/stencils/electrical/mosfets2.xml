@@ -1,11 +1,11 @@
 <shapes name="mxgraph.electrical.mosfets2">
 	<shape aspect="variable" h="60" name="Dual Gate MOSFET" strokewidth="inherit" w="85">
 		<connections>
-			<constraint name="G1" perimeter="0" x="0" y="0.165"/>
-			<constraint name="G2" perimeter="0" x="0" y="0.835"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
+			<constraint name="G1" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="G2" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
 			<constraint name="S2" perimeter="0" x="1" y="0.5"/>
-			<constraint name="S1" perimeter="0" x="1" y="0.835"/>
+			<constraint name="S1" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -42,9 +42,9 @@
 	</shape>
 	<shape aspect="variable" h="60" name="N-channel MOSFET 1" strokewidth="inherit" w="85">
 		<connections>
-			<constraint name="G" perimeter="0" x="0" y="0.835"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
-			<constraint name="S" perimeter="0" x="1" y="0.835"/>
+			<constraint name="G" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="S" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<background>
 			<path>
@@ -81,8 +81,8 @@
 	<shape aspect="variable" h="60" name="N-channel MOSFET 2" strokewidth="inherit" w="90">
 		<connections>
 			<constraint name="G" perimeter="0" x="0" y="0.5"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
-			<constraint name="S" perimeter="0" x="1" y="0.835"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="S" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -116,10 +116,10 @@
 	</shape>
 	<shape aspect="variable" h="60" name="N-channel MOSFET 3" strokewidth="inherit" w="85">
 		<connections>
-			<constraint name="G" perimeter="0" x="0" y="0.835"/>
-			<constraint name="S1" perimeter="0" x="1" y="0.165"/>
+			<constraint name="G" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="S1" perimeter="0" x="1" y="0.1667"/>
 			<constraint name="S2" perimeter="0" x="1" y="0.5"/>
-			<constraint name="D" perimeter="0" x="1" y="0.835"/>
+			<constraint name="D" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -153,9 +153,9 @@
 	<shape aspect="variable" h="60" name="N-channel MOSFET 4" strokewidth="inherit" w="90">
 		<connections>
 			<constraint name="G" perimeter="0" x="0" y="0.5"/>
-			<constraint name="S1" perimeter="0" x="1" y="0.165"/>
+			<constraint name="S1" perimeter="0" x="1" y="0.1667"/>
 			<constraint name="S2" perimeter="0" x="1" y="0.5"/>
-			<constraint name="D" perimeter="0" x="1" y="0.835"/>
+			<constraint name="D" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -188,9 +188,9 @@
 	</shape>
 	<shape aspect="variable" h="60" name="N-channel MOSFET 5" strokewidth="inherit" w="85">
 		<connections>
-			<constraint name="G" perimeter="0" x="0" y="0.835"/>
-			<constraint name="S" perimeter="0" x="1" y="0.165"/>
-			<constraint name="D" perimeter="0" x="1" y="0.835"/>
+			<constraint name="G" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="S" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="D" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -233,8 +233,8 @@
 	<shape aspect="variable" h="60" name="N-channel MOSFET 6" strokewidth="inherit" w="90">
 		<connections>
 			<constraint name="G" perimeter="0" x="0" y="0.5"/>
-			<constraint name="S" perimeter="0" x="1" y="0.165"/>
-			<constraint name="D" perimeter="0" x="1" y="0.835"/>
+			<constraint name="S" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="D" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -277,8 +277,8 @@
 	<shape aspect="variable" h="60" name="NMOS FET" strokewidth="inherit" w="85">
 		<connections>
 			<constraint name="G" perimeter="0" x="0" y="0.5"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
-			<constraint name="S1" perimeter="0" x="1" y="0.835"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="S1" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -298,9 +298,9 @@
 	</shape>
 	<shape aspect="variable" h="60" name="P-channel MOSFET 1" strokewidth="inherit" w="85">
 		<connections>
-			<constraint name="G" perimeter="0" x="0" y="0.835"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
-			<constraint name="S" perimeter="0" x="1" y="0.835"/>
+			<constraint name="G" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="S" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -338,8 +338,8 @@
 	<shape aspect="variable" h="60" name="P-channel MOSFET 2" strokewidth="inherit" w="90">
 		<connections>
 			<constraint name="G" perimeter="0" x="0" y="0.5"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
-			<constraint name="S" perimeter="0" x="1" y="0.835"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="S" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -375,10 +375,10 @@
 	</shape>
 	<shape aspect="variable" h="60" name="P-channel MOSFET 3" strokewidth="inherit" w="85">
 		<connections>
-			<constraint name="G" perimeter="0" x="0" y="0.835"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
+			<constraint name="G" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
 			<constraint name="S1" perimeter="0" x="1" y="0.5"/>
-			<constraint name="S2" perimeter="0" x="1" y="0.835"/>
+			<constraint name="S2" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -412,9 +412,9 @@
 	<shape aspect="variable" h="60" name="P-channel MOSFET 4" strokewidth="inherit" w="90">
 		<connections>
 			<constraint name="G" perimeter="0" x="0" y="0.5"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
 			<constraint name="S1" perimeter="0" x="1" y="0.5"/>
-			<constraint name="S2" perimeter="0" x="1" y="0.835"/>
+			<constraint name="S2" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -447,9 +447,9 @@
 	</shape>
 	<shape aspect="variable" h="60" name="P-channel MOSFET 5" strokewidth="inherit" w="85">
 		<connections>
-			<constraint name="G" perimeter="0" x="0" y="0.835"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
-			<constraint name="S" perimeter="0" x="1" y="0.835"/>
+			<constraint name="G" perimeter="0" x="0" y="0.8333"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="S" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -492,8 +492,8 @@
 	<shape aspect="variable" h="60" name="P-channel MOSFET 6" strokewidth="inherit" w="90">
 		<connections>
 			<constraint name="G" perimeter="0" x="0" y="0.5"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
-			<constraint name="S" perimeter="0" x="1" y="0.835"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="S" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>
@@ -536,8 +536,8 @@
 	<shape aspect="variable" h="60" name="PMOS FET" strokewidth="inherit" w="85">
 		<connections>
 			<constraint name="G1" perimeter="0" x="0" y="0.5"/>
-			<constraint name="D" perimeter="0" x="1" y="0.165"/>
-			<constraint name="S" perimeter="0" x="1" y="0.835"/>
+			<constraint name="D" perimeter="0" x="1" y="0.1667"/>
+			<constraint name="S" perimeter="0" x="1" y="0.8333"/>
 		</connections>
 		<foreground>
 			<path>

@@ -6,9 +6,9 @@
     </background>
     <foreground>
         <strokecolor color="#000000"/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="cabinetColor" default="#ffffff"/>
         <fillstroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <rect h="20.96" w="179.75" x="0" y="0"/>
         <fillstroke/>
         <rect h="20.96" w="179.75" x="0" y="198.59"/>
@@ -19,12 +19,12 @@
         <fillstroke/>
         <ellipse h="5.99" w="5.99" x="2.66" y="7.65"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="5.99" w="5.99" x="170.43" y="7.65"/>
         <fillstroke/>
         <ellipse h="5.99" w="5.99" x="2.33" y="206.57"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="5.99" w="5.99" x="170.43" y="206.57"/>
         <fillstroke/>
     </foreground>
@@ -183,9 +183,9 @@
     </background>
     <foreground>
         <strokecolor color="#000000"/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="cabinetColor" default="#ffffff"/>
         <fillstroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <rect h="20.98" w="180" x="0" y="0"/>
         <fillstroke/>
         <rect h="20.98" w="180" x="0" y="406.02"/>
@@ -196,7 +196,7 @@
         <fillstroke/>
         <ellipse h="6" w="6" x="2.67" y="7.66"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="6" w="6" x="170.67" y="7.66"/>
         <fillstroke/>
         <ellipse h="6" w="6" x="2.67" y="413.68"/>
@@ -371,9 +371,9 @@
     </background>
     <foreground>
         <strokecolor color="#000000"/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="cabinetColor" default="#ffffff"/>
         <fillstroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <rect h="21" w="180.02" x="0" y="0"/>
         <fillstroke/>
         <rect h="21" w="180.02" x="0" y="554.55"/>
@@ -384,7 +384,7 @@
         <fillstroke/>
         <ellipse h="6" w="6" x="2.67" y="7.67"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="6" w="6" x="170.68" y="7.67"/>
         <fillstroke/>
         <ellipse h="6" w="6" x="170.68" y="561.89"/>
@@ -560,9 +560,9 @@
     </background>
     <foreground>
         <strokecolor color="#000000"/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="cabinetColor" default="#ffffff"/>
         <fillstroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <rect h="20.99" w="180" x="0" y="0"/>
         <fillstroke/>
         <rect h="20.99" w="180" x="0" y="613.51"/>
@@ -573,7 +573,7 @@
         <fillstroke/>
         <ellipse h="6" w="6" x="2.67" y="7.66"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="6" w="6" x="170.67" y="7.66"/>
         <fillstroke/>
         <ellipse h="6" w="6" x="170.67" y="621.17"/>
@@ -589,9 +589,9 @@
     </background>
     <foreground>
         <strokecolor color="#000000"/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="cabinetColor" default="#ffffff"/>
         <fillstroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <rect h="20.99" w="180" x="0" y="0"/>
         <fillstroke/>
         <rect h="623" w="9" x="0" y="20.99"/>
@@ -600,7 +600,7 @@
         <fillstroke/>
         <ellipse h="6" w="6" x="2.67" y="7.66"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="6" w="6" x="170.67" y="7.66"/>
         <fillstroke/>
         <rect h="21" w="180" x="0" y="643.1"/>
@@ -618,9 +618,9 @@
     </background>
     <foreground>
         <strokecolor color="#000000"/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="cabinetColor" default="#ffffff"/>
         <fillstroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <rect h="21" w="180" x="0" y="0"/>
         <fillstroke/>
         <rect h="21" w="180" x="0" y="672.75"/>
@@ -631,7 +631,7 @@
         <fillstroke/>
         <ellipse h="6" w="6" x="2.67" y="7.66"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="6" w="6" x="170.67" y="7.66"/>
         <fillstroke/>
         <ellipse h="6" w="6" x="170.67" y="680.51"/>
@@ -647,9 +647,9 @@
     </background>
     <foreground>
         <strokecolor color="#000000"/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="cabinetColor" default="#ffffff"/>
         <fillstroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <rect h="21.01" w="180.18" x="0" y="0"/>
         <fillstroke/>
         <rect h="21.01" w="180.18" x="0" y="732.23"/>
@@ -660,7 +660,7 @@
         <fillstroke/>
         <ellipse h="6" w="6.01" x="2.67" y="7.67"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="6" w="6.01" x="170.84" y="7.67"/>
         <fillstroke/>
         <ellipse h="6" w="6.01" x="170.84" y="739.9"/>
@@ -676,9 +676,9 @@
     </background>
     <foreground>
         <strokecolor color="#000000"/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="cabinetColor" default="#ffffff"/>
         <fillstroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <rect h="21.01" w="180.18" x="0" y="0"/>
         <fillstroke/>
         <rect h="21.01" w="180.18" x="0" y="732.23"/>
@@ -689,7 +689,7 @@
         <fillstroke/>
         <ellipse h="6" w="6.01" x="2.67" y="7.67"/>
         <stroke/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="frameColor" default="#f4f4f4"/>
         <ellipse h="6" w="6.01" x="170.84" y="7.67"/>
         <fillstroke/>
         <ellipse h="6" w="6.01" x="170.84" y="739.9"/>

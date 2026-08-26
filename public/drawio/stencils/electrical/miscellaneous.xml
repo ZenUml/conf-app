@@ -150,7 +150,7 @@
 </shape>
 <shape aspect="variable" h="32.32" name="Chassis" strokewidth="inherit" w="65.49">
     <connections>
-        <constraint name="1" perimeter="0" x="0.62" y="0"/>
+        <constraint name="1" perimeter="0" x="0.6189" y="0"/>
     </connections>
     <foreground>
         <path>
@@ -211,8 +211,8 @@
 </shape>
 <shape aspect="variable" h="150" name="Coaxial Center Conductor" strokewidth="inherit" w="300">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.165"/>
-        <constraint name="E" perimeter="0" x="1" y="0.165"/>
+        <constraint name="W" perimeter="0" x="0" y="0.16667"/>
+        <constraint name="E" perimeter="0" x="1" y="0.16667"/>
     </connections>
     <foreground>
         <path>
@@ -280,8 +280,8 @@
 </shape>
 <shape aspect="variable" h="150" name="Coaxial Outside Conductor" strokewidth="inherit" w="300">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.165"/>
-        <constraint name="E" perimeter="0" x="1" y="0.165"/>
+        <constraint name="W" perimeter="0" x="0" y="0.16667"/>
+        <constraint name="E" perimeter="0" x="1" y="0.16667"/>
     </connections>
     <foreground>
         <path>
@@ -833,7 +833,7 @@
     <connections>
         <constraint name="N" perimeter="0" x="0.54" y="0"/>
         <constraint name="S" perimeter="0" x="0.54" y="0.67"/>
-        <constraint name="W" perimeter="0" x="0" y="0.33"/>
+        <constraint name="W" perimeter="0" x="0" y="0.3333"/>
     </connections>
     <foreground>
         <rect h="26" w="40" x="19" y="0"/>
@@ -884,7 +884,7 @@
     <connections>
         <constraint name="N" perimeter="0" x="0.54" y="0"/>
         <constraint name="S" perimeter="0" x="0.54" y="0.67"/>
-        <constraint name="W" perimeter="0" x="0" y="0.33"/>
+        <constraint name="W" perimeter="0" x="0" y="0.3333"/>
     </connections>
     <foreground>
         <rect h="26" w="40" x="19" y="0"/>
@@ -1159,8 +1159,8 @@
 </shape>
 <shape aspect="variable" h="70" name="Multicell Battery Tapped" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="W" perimeter="0" x="0" y="0.43"/>
-        <constraint name="E" perimeter="0" x="1" y="0.43"/>
+        <constraint name="W" perimeter="0" x="0" y="0.4286"/>
+        <constraint name="E" perimeter="0" x="1" y="0.4286"/>
         <constraint name="S" perimeter="0" x="0.5" y="1"/>
     </connections>
     <foreground>
@@ -1255,7 +1255,7 @@
 <shape aspect="variable" h="65" name="Normalled Jack" strokewidth="inherit" w="110">
     <connections>
         <constraint name="E" perimeter="0" x="1" y="0.31"/>
-        <constraint name="S" perimeter="0" x="0.73" y="1"/>
+        <constraint name="S" perimeter="0" x="0.7273" y="1"/>
     </connections>
     <foreground>
         <rect h="50" w="15" x="0" y="0"/>
@@ -1285,7 +1285,7 @@
 <shape aspect="variable" h="65" name="Normalled Jack2" strokewidth="inherit" w="110">
     <connections>
         <constraint name="E" perimeter="0" x="1" y="0.31"/>
-        <constraint name="S" perimeter="0" x="0.73" y="1"/>
+        <constraint name="S" perimeter="0" x="0.7273" y="1"/>
     </connections>
     <foreground>
         <rect h="50" w="15" x="0" y="0"/>
@@ -1740,8 +1740,8 @@
 </shape>
 <shape aspect="variable" h="60" name="Transducer" strokewidth="inherit" w="70">
     <connections>
-        <constraint name="N" perimeter="0" x="0.43" y="0"/>
-        <constraint name="S" perimeter="0" x="0.43" y="1"/>
+        <constraint name="N" perimeter="0" x="0.4286" y="0"/>
+        <constraint name="S" perimeter="0" x="0.4286" y="1"/>
         <constraint name="W" perimeter="0" x="0" y="0.5"/>
         <constraint name="E" perimeter="0" x="1" y="0.5"/>
     </connections>

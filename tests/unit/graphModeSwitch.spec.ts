@@ -122,6 +122,99 @@ describe('injectGraphModeSwitch', () => {
     expect(root.style.left).toBe('50%')
   })
 
+  it('mounts the sketch switch outside the transient toolbar overflow boundary', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const sketchToolbar = doc.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    sketchToolbar.style.overflow = 'hidden'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 180, height: 44, top: 10, left: 10, right: 190, bottom: 54, x: 10, y: 10, toJSON() { return {} } }),
+    })
+    doc.body.appendChild(sketchToolbar)
+
+    const root = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+    sketchToolbar.remove()
+
+    expect(root.parentElement).toBe(doc.body)
+    expect(root.style.position).toBe('fixed')
+    expect(root.style.height).toBe('30px')
+    expect(doc.querySelector('.graph-mode-switch')).toBe(root)
+  })
+
+  // A body-mounted switch is position:fixed and centred, so the constraint is
+  // the VIEWPORT, not the toolbar it was measured from. The hide guard was
+  // gated on the in-toolbar path, so it could never fire in Board mode and the
+  // 252px control was drawn over the sketch chrome on a narrow modal.
+  it('hides the body-mounted switch when the viewport is too narrow', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const sketchToolbar = doc.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 180, height: 44, top: 0, left: 0, right: 180, bottom: 44, x: 0, y: 0, toJSON() { return {} } }),
+    })
+    doc.body.appendChild(sketchToolbar)
+    Object.defineProperty(doc.documentElement, 'clientWidth', { value: 80, configurable: true })
+
+    const root = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+
+    expect(root.parentElement).toBe(doc.body)
+    expect(root.style.display).toBe('none')
+  })
+
+  it('keeps the body-mounted switch visible at a normal viewport width', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const sketchToolbar = doc.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 180, height: 44, top: 0, left: 0, right: 180, bottom: 44, x: 0, y: 0, toJSON() { return {} } }),
+    })
+    doc.body.appendChild(sketchToolbar)
+    Object.defineProperty(doc.documentElement, 'clientWidth', { value: 1200, configurable: true })
+
+    const root = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+
+    expect(root.style.display).not.toBe('none')
+  })
+
+  // The mount target can be the toolbar OR the document body, and the mount is
+  // retried on a timer. querySelector().remove() removed only the first match.
+  it('removes every earlier switch before mounting a replacement', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const sketchToolbar = doc.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 180, height: 44, top: 0, left: 0, right: 180, bottom: 44, x: 0, y: 0, toJSON() { return {} } }),
+    })
+    doc.body.appendChild(sketchToolbar)
+    const stale = doc.createElement('div')
+    stale.className = 'graph-mode-switch'
+    sketchToolbar.appendChild(stale)
+
+    const root = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+
+    expect(doc.querySelectorAll('.graph-mode-switch')).toHaveLength(1)
+    expect(doc.querySelector('.graph-mode-switch')).toBe(root)
+  })
+
+  it('keeps Board notch dimensions equal to Diagram despite the taller sketch toolbar', () => {
+    const diagramMenubar = menubarFixture(30, 1200)
+    const diagramRoot = injectGraphModeSwitch(diagramMenubar, { mode: 'diagram', onSelect: vi.fn() })
+    const diagramSize = {
+      width: diagramRoot.style.width,
+      height: diagramRoot.style.height,
+    }
+
+    const sketchToolbar = document.createElement('div')
+    sketchToolbar.className = 'geToolbarContainer'
+    Object.defineProperty(sketchToolbar, 'getBoundingClientRect', {
+      value: () => ({ width: 900, height: 44, top: 10, left: 10, right: 910, bottom: 54, x: 10, y: 10, toJSON() { return {} } }),
+    })
+    document.body.appendChild(sketchToolbar)
+
+    const boardRoot = injectGraphModeSwitch(sketchToolbar, { mode: 'board', onSelect: vi.fn() })
+    expect({ width: boardRoot.style.width, height: boardRoot.style.height }).toEqual(diagramSize)
+  })
+
   it('shrinks horizontally instead of overlapping reserved TITLE space', () => {
     const menubar = menubarFixture(30, 700)
     injectGraphModeSwitch(menubar, {
@@ -170,6 +263,25 @@ describe('findDrawioMenubar', () => {
       value: () => ({ width: 900, height: 44, top: 0, left: 0, right: 900, bottom: 44, x: 0, y: 0, toJSON() { return {} } }),
     })
     doc.body.append(picker, topBar)
+    expect(findDrawioMenubar(doc)).toBe(topBar)
+  })
+
+  it('ignores a hidden classic menubar with stale CSS dimensions in sketch chrome', () => {
+    const doc = document.implementation.createHTMLDocument('drawio')
+    const hiddenClassic = doc.createElement('div')
+    hiddenClassic.className = 'geMenubarContainer'
+    hiddenClassic.style.display = 'none'
+    hiddenClassic.style.width = '1200px'
+    hiddenClassic.style.height = '44px'
+    hiddenClassic.appendChild(doc.createElement('div')).className = 'geMenubar'
+
+    const topBar = doc.createElement('div')
+    topBar.className = 'geToolbarContainer'
+    Object.defineProperty(topBar, 'getBoundingClientRect', {
+      value: () => ({ width: 138, height: 44, top: 10, left: 10, right: 148, bottom: 54, x: 10, y: 10, toJSON() { return {} } }),
+    })
+    doc.body.append(hiddenClassic, topBar)
+
     expect(findDrawioMenubar(doc)).toBe(topBar)
   })
 })

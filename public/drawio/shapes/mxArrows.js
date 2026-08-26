@@ -1,6 +1,5 @@
 /**
- * $Id: mxArrows.js,v 1.5 2016/03/23 12:32:06 mate Exp $
- * Copyright (c) 2006-2016, JGraph Ltd
+ * Copyright (c) 2006-2016, JGraph Holdings Ltd
  */
 
 //**********************************************************************************************************************************************************
@@ -31,7 +30,8 @@ mxShapeArrows2Arrow.prototype.customProperties = [
 	{name: 'dy', dispName: 'Arrow Width', type: 'float', min:0, max:1, defVal: 0.6},
 	{name: 'notch', dispName: 'Notch', type: 'float', min:0, defVal: 0},
 	{name: 'headCrossline', dispName: 'Head Crossline', type: 'bool', defVal: false},
-	{name: 'tailCrossline', dispName: 'Tail Crossline', type: 'bool', defVal: false}
+	{name: 'tailCrossline', dispName: 'Tail Crossline', type: 'bool', defVal: false},
+	{name: 'boundedLbl', dispName: 'Bounded Label', type: 'bool', defVal: false}
 ];
 
 mxShapeArrows2Arrow.prototype.cst = {
@@ -224,7 +224,8 @@ mxShapeArrows2TwoWayArrow.prototype.cst = {
 
 mxShapeArrows2TwoWayArrow.prototype.customProperties = [
 	{name: 'dx', dispName: 'Arrowhead Length', type: 'float', min:0, defVal: 35},
-	{name: 'dy', dispName: 'Arrow Width', type: 'float', min:0, max:1, defVal: 0.6}
+	{name: 'dy', dispName: 'Arrow Width', type: 'float', min:0, max:1, defVal: 0.6},
+	{name: 'boundedLbl', dispName: 'Bounded Label', type: 'bool', defVal: false}
 ];
 
 /**
@@ -2850,7 +2851,7 @@ mxShapeArrowsWedgeArrowDashed2.prototype.paintEdgeShape = function(c, pts)
 	var cny = ny; // current ny
 	var pcx = p0.x; // current x on edge
 	var pcy = p0.y; // current y on edge
-	var steps = Math.floor(dist / stepSize);
+	var steps = (stepSize > 0) ? Math.floor(dist / stepSize) : 0;
 
 	c.begin();
 	

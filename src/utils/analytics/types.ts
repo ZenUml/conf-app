@@ -220,6 +220,15 @@ export type AnalyticsProperties = {
   visibility_duration_ms?: number;
   audience_count?: number;
   space_admin_count?: number;
+  // Architecture Tokens Phase 1. Counts only.
+  participant_count?: number;          // participants declared in this diagram
+  participants_with_related?: number;  // of which have >=1 accessible related page
+  related_pages_total?: number;        // sum of accessible related pages
+  index_age_days?: number;             // now - indexedAt, whole days
+  related_count?: number;              // for one participant (popover / click)
+  label_variant_count?: number;        // distinct rawLabel values among related
+  same_space?: boolean;                // clicked page in the same space as the viewer's page
+  error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
   // M1 `app_first_seen` census props. Explicit, not ambient: the P3 denominator
   // is COUNT(DISTINCT account_id) per cloud_id, so both ride on the event
   // itself rather than relying on Mixpanel identity resolution (which is

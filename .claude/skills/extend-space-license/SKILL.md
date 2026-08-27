@@ -334,6 +334,52 @@ follow-through grant when the answers land.
 
 ## Outbound: raising the ticket FOR the customer (proactive champion-watch)
 
+### Run `outbound_contact.py` — it does the whole flow, and only sends when told to
+
+```bash
+# PREVIEW — resolves the contact, pulls 90d usage, prices it, prints the letter. Sends nothing.
+python3 .claude/skills/extend-space-license/scripts/outbound_contact.py \
+    --domain <tenant> --space <SPACE> --ticket <ZEN-KEY> \
+    --participant <inbound-requester-email> \
+    --grants "23 June" "8 July" "7 August"
+
+# SEND — only after the owner has approved contacting THIS tenant
+… --send
+```
+
+**`--send` requires the owner's explicit go-ahead for that specific tenant, every time.**
+It contacts a named person who has not written to us; the notification email cannot be
+recalled, and it creates a portal account for them that **cannot be deleted** afterwards
+(open access is on; customer removal returns 400). The default run stops after printing.
+Everything else in this skill is standing procedure — this one is not.
+
+What it assembles, so the letter argues from measurements rather than adjectives:
+
+| Source | What it contributes |
+|---|---|
+| Marketplace snapshot (`marketplace` skill db) | technical contact, user tier, **reseller** |
+| prod metrics KV | macros per space, which spaces are over 100, how many are `stale` |
+| Mixpanel, `--days` window (default 90) | distinct viewers / creators / editors, and the paywall population: `paywall_triggered`, `paywall_blocked_create`, `paywall_attempts_exhausted`, `extension_request_clicked` |
+| `full_plan_pricing()` | published annual + monthly price, per-user rate |
+
+The argument the letter makes is **"N extensions do not cover M people"** — pass the prior
+grant dates via `--grants` and it names them. On zeptonow that read: 6 extensions against
+100 people who reached the limit in 90 days, of whom 25 clicked the request button and 5
+filed a ticket.
+
+Three behaviours worth knowing before reading its output:
+- **Reseller rule is automatic.** If the licence carries `partnerDetails`, the letter names
+  the partner as the invoicing route and the direct-Stripe Bundle link is **omitted** — a
+  $299 card payment around a partner's invoice damages that relationship. With no partner,
+  the Bundle is offered instead.
+- **The CC needs a `qm:` desk accountId**, and the script resolves an email to one. Passing
+  the `712020:…` id from the inbound ticket's description is rejected with an explanation:
+  that id is the requester's Confluence account **on their own site** and 404s here.
+- Counts exclude the `unknown_user_account_id` literal, and the macro total is reported as
+  a floor because most spaces' KV entries are `stale`.
+
+### Background and the trigger rule
+
 Sometimes there is **no inbound request** — the trigger is our own champion-watch: a user is
 about to exhaust (≤1 remaining) or has exhausted their continue-attempts, and the tenant has
 **no live JSM thread**. Then we grant first (flow above) and open the conversation ourselves.
@@ -355,7 +401,7 @@ the managing partner (propertyguru → Enreap, xendit → Padah). Extract from t
 snapshot (`sync` first if stale):
 
 ```bash
-sqlite3 .claude/skills/marketplace-audit/scripts/marketplace.db \
+sqlite3 .claude/skills/marketplace/scripts/marketplace.db \
   "SELECT raw FROM licenses WHERE raw LIKE '%<domain>.atlassian%'" | python3 -c "
 import sys,json
 for l in sys.stdin:

@@ -11,7 +11,7 @@ A reader opens a page with a Mermaid `sequenceDiagram`. After the diagram render
 
 > 5 of 7 participants also appear in other diagrams you can access · as of 27 Aug
 
-Hovering or clicking a lifeline (an actor) opens a small popover:
+Each lifeline that has related pages carries a small count pill at its top-right corner. Clicking the pill — and only that — opens a small popover:
 
 > **Possibly related by name**
 > Checkout — order flow (VPay) · as `PartnerApp`
@@ -102,10 +102,11 @@ Three retired flags (`renderer-prefetch-banner`, `renderer-prefetch`, `viewport-
 ## 7. Viewer UI
 
 - Component `RelatedDiagramsFooter.vue`, mounted next to `DiagramAttributionFooter` in `GenericViewer.vue`, only when `macroType === 'mermaid'`, the source starts with `sequenceDiagram`, and the flag is true.
-- After the diagram has rendered, it calls the route once; on ≥1 participant with related pages it renders the footer line.
-- Lifeline mapping: mermaid stamps `name="<actorId>"` on every rendered actor element. Delegated `mouseenter` / `click` on the SVG container resolves `closest('[name]')` → `actorId` → the popover. Participants whose `actorId` is not present in the current SVG (renamed since indexing) are dropped.
-- Popover: title *Possibly related by name*; one row per related page: page title (link opens in a new tab through Forge `router.open`), space key, `as <rawLabelThere>` when it differs from this diagram's label. Closes on mouse leave / Escape.
+- After the diagram has rendered, it calls the route once; on ≥1 participant with related pages it renders (a) the footer line and (b) one **count pill** per lifeline that has related pages — an 18px HTML pill (`#F3F4F6` / `#E5E7EB` / `#6B7280`) positioned over the top-right corner of the actor box. Positions come from the rendered SVG: mermaid stamps `name="<actorId>"` on every actor element, so `rect.actor-top[name]` bounding boxes give the anchors. Participants whose `actorId` is not present in the current SVG (renamed since indexing) are dropped.
+- **The pill is the only trigger. No hover behaviour on the diagram.** A hover-opened popover covered the diagram while presenting (design review 2026-08-27). Hovering the pill shows a native tooltip only (*"3 related diagrams you can access — click to see"*). A click on the pill opens the popover; Escape, a click outside, or a second click on the pill closes it. The actor whose popover is open gets a `#0052CC` outline.
+- Popover (the `OverflowMenu` recipe: white, `#E5E7EB`, 8px, `0 8px 24px rgba(0,0,0,.12)`, anchored below the actor box): eyebrow *Possibly related by name*; the participant's label; one row per related page — page title (link, opens in a new tab through `openUrl`), space-key pill, `as <rawLabelThere>` when it differs from this diagram's label; footer line *Same name, not proof of the same object · as of <date>*.
 - Inline and fullscreen render identically. No side panel in Phase 1.
+- Design canvas: https://claude.ai/code/artifact/57b5165b-854a-4c29-92c8-57b0a6e734bd (sources in `docs/design/architecture-tokens-phase1/`).
 
 ## 8. Analytics (required before implementation)
 
@@ -116,7 +117,7 @@ Three retired flags (`renderer-prefetch-banner`, `renderer-prefetch`, `viewport-
 | `related_diagrams_lookup_succeeded` | route returned after render | `participant_count`, `participants_with_related`, `related_pages_total`, `index_age_days`, `duration_ms` |
 | `related_diagrams_lookup_failed` | route error / timeout / `error_kind` in body | `error_kind`, `duration_ms` |
 | `related_diagrams_shown` | footer rendered with ≥1 related participant | same counts as succeeded |
-| `related_diagram_popover_opened` | hover or click on a lifeline with related pages | `related_count`, `trigger` (`hover` \| `click`), `label_variant_count` |
+| `related_diagram_popover_opened` | click on a lifeline's count pill | `related_count`, `label_variant_count` |
 | `related_diagram_link_clicked` | a related page link opened | `related_count`, `same_space` |
 
 No label text, page id, or tenant vocabulary in any event. Not emitted: lookups when the flag is off (no call), and `shown` on zero results.
@@ -133,6 +134,6 @@ Editor surface; Token Discovery page; Canonical Token IDs, aliases, "keep separa
 
 ## 11. Verification
 
-- Unit: extractor oracle parity (exists), normalizer (exists), route (D1 + Confluence mocked), footer component (mount, hover mapping, silent failure).
+- Unit: extractor oracle parity (exists), normalizer (exists), route (D1 + Confluence mocked), footer component (mount, pill placement from actor geometry, click-only trigger, silent failure).
 - Local end-to-end on lite-dev: upload an index built from the dev site's own diagrams, flag rule 1 covers development, open a page with a sequence diagram, screenshot the footer and the popover, capture the five events from the iframe's Mixpanel `/track/` POSTs.
 - Production: after release, one page on the pilot site cannot be opened by us (no account there). Runtime evidence comes from Mixpanel: `related_diagrams_lookup_succeeded` with the released `app_version` and `client_domain` of the pilot tenant.

@@ -4,7 +4,7 @@
 
 **Goal:** A reader of a Mermaid sequence diagram sees, after render and without any blocking, that a participant "also appears in N diagrams you can access", with a per-lifeline popover listing those pages.
 
-**Architecture:** A local pipeline (already in `tools/architecture-tokens/`) extracts participants from the D1 mirror and uploads a rebuildable reverse index to a new D1 table. One authenticated Cloudflare Pages route joins by lexical key and filters pages **as the requesting user** with a CQL `id in (…)` call. A viewer footer component, gated by the Forge feature flag `architecture-tokens-enabled`, calls that route after render and maps popovers onto mermaid's `name="<actorId>"` actor elements.
+**Architecture:** A local pipeline (already in `tools/architecture-tokens/`) extracts participants from the D1 mirror and uploads a rebuildable reverse index to a new D1 table. One authenticated Cloudflare Pages route joins by lexical key and filters pages **as the requesting user** with a CQL `id in (…)` call. A viewer footer component, gated by the Forge feature flag `architecture-tokens-enabled`, calls that route after render, places one count pill over each related lifeline (anchored on mermaid's `name="<actorId>"` actor elements), and opens a popover only on a click on that pill — no hover behaviour on the diagram.
 
 **Tech Stack:** Vue 3 (`<script setup>` + Options API in `GenericViewer.vue`), TypeScript, vitest + jsdom, Cloudflare Pages Functions + D1, `@forge/bridge` (`invokeRemote`, `FeatureFlags`), mermaid 11.12.2, Node 22 (`--experimental-strip-types` for `.mjs` → `.ts` imports).
 
@@ -17,6 +17,7 @@
 - The diagram render never waits on this feature. Every failure path is silent to the user and recorded as an analytics event.
 - Nothing about an inaccessible page (id, title, label, count) may reach the browser. The permission filter runs in the backend as the requesting user.
 - Copy: "also appears in", "Possibly related by name". Never "is the same as", never "Confirmed" (Phase 2).
+- The popover opens only on a click on a lifeline's count pill. No `mouseover` / `mouseenter` listener anywhere on the diagram (design review 2026-08-27: a hover popover covered the diagram while presenting).
 - The lexical key is computed only by `tools/architecture-tokens/pilot/participant-normalization.mjs`; the frontend never normalizes.
 - Feature flag default is `false`; every read is `client.checkFlag('architecture-tokens-enabled', false)`.
 - Analytics events carry no label text, page id, or tenant vocabulary.
@@ -36,7 +37,7 @@
 | `functions/architecture-tokens/repository.ts`, `service.ts` + specs | D1 reads, key join, as-user CQL filter, response shaping (Task 5) |
 | `functions/api/architecture-tokens/related.ts` + spec, `functions/_middleware.ts`, `public/_routes.json` | the route and its registration (Task 6) |
 | `src/services/ArchitectureTokens.ts`, `src/apis/aiTitleFeatureFlag.ts` | `callRemote` client + flag read (Task 7) |
-| `src/components/Viewer/RelatedDiagramsFooter.vue` + spec | footer line, lifeline popover, events (Task 8) |
+| `src/components/Viewer/RelatedDiagramsFooter.vue` + spec | footer line, count pills over lifelines, click-only popover, events (Task 8) |
 | `src/components/Viewer/GenericViewer.vue` | mount (Task 9) |
 | `tools/architecture-tokens/README.md`, `docs/analytics/events-catalog.md` | docs (Task 10) |
 
@@ -75,7 +76,7 @@ describe('architecture_tokens analytics contract', () => {
     const props: AnalyticsProperties = {
       feature_area: area, surface: 'viewer', macro_type: 'mermaid',
       participant_count: 7, participants_with_related: 5, related_pages_total: 12,
-      index_age_days: 3, related_count: 3, popover_trigger: 'hover',
+      index_age_days: 3, related_count: 3,
       label_variant_count: 2, same_space: false, error_kind: 'timeout',
     };
     expect(names).toHaveLength(5);
@@ -121,7 +122,6 @@ Expected: FAIL — vitest's esbuild transform does not type-check, so add a type
   related_pages_total?: number;        // sum of accessible related pages
   index_age_days?: number;             // now - indexedAt, whole days
   related_count?: number;              // for one participant (popover / click)
-  popover_trigger?: 'hover' | 'click';
   label_variant_count?: number;        // distinct rawLabel values among related
   same_space?: boolean;                // clicked page in the same space as the viewer's page
   error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
@@ -992,16 +992,16 @@ git commit -m "viewer(architecture-tokens): related-diagrams client with timeout
 
 ---
 
-### Task 8: `RelatedDiagramsFooter.vue` — footer line, lifeline popover, events
+### Task 8: `RelatedDiagramsFooter.vue` — footer line, count pills, click-only popover, events
 
 **Files:**
 - Create: `src/components/Viewer/RelatedDiagramsFooter.vue`
 - Test: `src/components/Viewer/RelatedDiagramsFooter.spec.ts`
 
 **Interfaces:**
-- Consumes: `getRelatedDiagrams`, `RelatedResponse` (Task 7); `trackAnalyticsEvent` (`@/utils/analytics/trackAnalyticsEvent`); `openUrl` (`@/model/globals/forgeGlobal`); the rendered SVG container element passed as a prop.
-- Props: `{ customContentId: string; ready: boolean; surface: 'viewer' | 'fullscreen'; svgHost: () => HTMLElement | null; enabled: boolean; pageId?: string }`.
-- Behaviour: when `ready && enabled` becomes true, call once; on ≥1 participant with related, render the footer; attach delegated `mouseover`/`click` on `svgHost()` for `[name]` actor elements; popover with title *Possibly related by name*.
+- Consumes: `getRelatedDiagrams`, `RelatedResponse`, `RelatedLookupError` (Task 7); `trackAnalyticsEvent` (`@/utils/analytics/trackAnalyticsEvent`); `openUrl` and `forgeGlobal.forgeContext.siteUrl` (`@/model/globals/forgeGlobal`); the rendered diagram container passed as a prop.
+- Props: `{ customContentId: string; ready: boolean; enabled: boolean; surface: 'viewer' | 'fullscreen'; svgHost: () => HTMLElement | null; pageId?: string }`.
+- Behaviour: when `ready && enabled` becomes true, call once; on ≥1 participant with related, render the footer and one count pill per related lifeline, positioned from `rect.actor-top[name]` bounding boxes inside `svgHost()` (recomputed on window resize); the popover opens ONLY on a click on a pill (title *Possibly related by name*) and closes on Escape, outside click, or a second pill click. No hover listener on the diagram.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1016,14 +1016,17 @@ vi.mock('@/services/ArchitectureTokens', () => ({
   RelatedLookupError: class extends Error { constructor(public kind: string) { super(kind); } },
 }));
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
-vi.mock('@/model/globals/forgeGlobal', () => ({ openUrl: vi.fn(), default: { forgeContext: { siteUrl: 'https://example.atlassian.net' } } }));
+vi.mock('@/model/globals/forgeGlobal', () => ({ openUrl: vi.fn(), default: { forgeContext: { siteUrl: 'https://example.atlassian.net', extension: { space: { key: 'OP' } } } } }));
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { openUrl } from '@/model/globals/forgeGlobal';
 import RelatedDiagramsFooter from './RelatedDiagramsFooter.vue';
 
+// Mermaid stamps name="<actorId>" on every actor element and class "actor actor-top" on the top box.
 function host(): HTMLElement {
   const div = document.createElement('div');
-  div.innerHTML = '<svg><g class="actor" name="PA"><rect class="actor" name="PA"></rect><text name="PA">Partner App</text></g><g class="actor" name="U"><rect name="U"></rect></g></svg>';
+  div.style.position = 'relative';
+  div.innerHTML = '<svg><rect class="actor actor-top" name="PA"></rect><text name="PA">Partner App</text>'
+    + '<rect class="actor actor-top" name="U"></rect><rect class="actor actor-top" name="GONE"></rect></svg>';
   document.body.appendChild(div);
   return div;
 }
@@ -1033,35 +1036,43 @@ const twoParticipants = {
   participants: [
     { actorId: 'PA', rawLabel: 'Partner App', related: [
       { contentId: '2', pageId: '200', pageTitle: 'Checkout', spaceKey: 'VPAY', rawLabelThere: 'PartnerApp' },
-      { contentId: '3', pageId: '300', pageTitle: 'Refunds', spaceKey: 'VPAY', rawLabelThere: 'Partner App' },
+      { contentId: '3', pageId: '300', pageTitle: 'Refunds', spaceKey: 'OP', rawLabelThere: 'Partner App' },
     ] },
     { actorId: 'U', rawLabel: 'User', related: [] },
+    { actorId: 'RENAMED', rawLabel: 'Old Name', related: [{ contentId: '9', pageId: '900', pageTitle: 'X', spaceKey: 'OP', rawLabelThere: 'Old Name' }] },
   ],
 };
 
 function mountFooter(props: Partial<any> = {}) {
   const h = host();
-  return { h, w: mount(RelatedDiagramsFooter, { props: { customContentId: '1', ready: true, enabled: true, surface: 'viewer', svgHost: () => h, ...props } }) };
+  const w = mount(RelatedDiagramsFooter, { props: { customContentId: '1', ready: true, enabled: true, surface: 'viewer', svgHost: () => h, ...props }, attachTo: document.body });
+  return { h, w };
 }
+const pill = (h: HTMLElement, actor: string) => h.querySelector<HTMLButtonElement>(`[data-testid="related-diagrams-pill"][data-actor="${actor}"]`);
+const popover = () => document.querySelector('[data-testid="related-diagrams-popover"]');
 
 beforeEach(() => { vi.clearAllMocks(); document.body.innerHTML = ''; });
 
 describe('RelatedDiagramsFooter', () => {
-  it('renders the footer line with counts and "as of" when at least one participant has related pages', async () => {
+  it('renders the footer line with counts and "as of", and one pill per related lifeline present in the SVG', async () => {
     related.value = twoParticipants;
-    const { w } = mountFooter();
+    const { w, h } = mountFooter();
     await flushPromises();
     expect(w.text()).toContain('1 of 2 participants also appear in other diagrams you can access');
     expect(w.text()).toMatch(/as of \d{1,2} \w{3}/);
+    expect(pill(h, 'PA')?.textContent?.trim()).toBe('2');
+    expect(pill(h, 'U')).toBeNull();          // no related pages → no pill
+    expect(pill(h, 'RENAMED')).toBeNull();    // not in the current SVG → dropped from counts and pills
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('related_diagrams_lookup_succeeded', expect.objectContaining({ feature_area: 'architecture_tokens', surface: 'viewer', macro_type: 'mermaid', participant_count: 2, participants_with_related: 1, related_pages_total: 2, index_age_days: 3 }));
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('related_diagrams_shown', expect.objectContaining({ participants_with_related: 1 }));
   });
 
   it('renders nothing and fires only lookup_succeeded when no participant has related pages', async () => {
     related.value = { ...twoParticipants, participants: [{ actorId: 'PA', rawLabel: 'Partner App', related: [] }] };
-    const { w } = mountFooter();
+    const { w, h } = mountFooter();
     await flushPromises();
     expect(w.find('[data-testid="related-diagrams-footer"]').exists()).toBe(false);
+    expect(h.querySelector('[data-testid="related-diagrams-pill"]')).toBeNull();
     expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1);
   });
 
@@ -1073,38 +1084,54 @@ describe('RelatedDiagramsFooter', () => {
     expect(getRelatedDiagrams).not.toHaveBeenCalled();
   });
 
-  it('opens the popover on hover of a lifeline with related pages, lists title, space, and the variant label', async () => {
+  it('hover on the lifeline or the pill opens nothing', async () => {
     related.value = twoParticipants;
-    const { w, h } = mountFooter();
+    const { h } = mountFooter();
     await flushPromises();
     h.querySelector('rect[name="PA"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    pill(h, 'PA')!.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
     await flushPromises();
-    const pop = w.find('[data-testid="related-diagrams-popover"]');
-    expect(pop.exists()).toBe(true);
-    expect(pop.text()).toContain('Possibly related by name');
-    expect(pop.text()).toContain('Checkout');
-    expect(pop.text()).toContain('VPAY');
-    expect(pop.text()).toContain('as PartnerApp');
-    expect(pop.text()).not.toContain('as Partner App');   // same label → no variant note
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('related_diagram_popover_opened', expect.objectContaining({ related_count: 2, popover_trigger: 'hover', label_variant_count: 2 }));
+    expect(popover()).toBeNull();
+    expect(pill(h, 'PA')!.getAttribute('title')).toBe('2 related diagrams you can access — click to see');
   });
 
-  it('ignores lifelines without related pages', async () => {
+  it('click on the pill opens the popover with title, space, and the variant label; second click closes', async () => {
     related.value = twoParticipants;
-    const { w, h } = mountFooter();
+    const { h } = mountFooter();
     await flushPromises();
-    h.querySelector('rect[name="U"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    pill(h, 'PA')!.click();
     await flushPromises();
-    expect(w.find('[data-testid="related-diagrams-popover"]').exists()).toBe(false);
+    const pop = popover()!;
+    expect(pop.textContent).toContain('Possibly related by name');
+    expect(pop.textContent).toContain('Checkout');
+    expect(pop.textContent).toContain('VPAY');
+    expect(pop.textContent).toContain('as PartnerApp');
+    expect(pop.textContent).not.toContain('as Partner App');   // same label → no variant note
+    expect(pop.textContent).toContain('Same name, not proof of the same object');
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('related_diagram_popover_opened', expect.objectContaining({ related_count: 2, label_variant_count: 2 }));
+    pill(h, 'PA')!.click();
+    await flushPromises();
+    expect(popover()).toBeNull();
+  });
+
+  it('Escape and outside click close the popover', async () => {
+    related.value = twoParticipants;
+    const { h } = mountFooter();
+    await flushPromises();
+    pill(h, 'PA')!.click(); await flushPromises();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await flushPromises();
+    expect(popover()).toBeNull();
+    pill(h, 'PA')!.click(); await flushPromises();
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); await flushPromises();
+    expect(popover()).toBeNull();
   });
 
   it('link click opens the page through openUrl and records same_space', async () => {
     related.value = twoParticipants;
-    const { w, h } = mountFooter({ pageId: '999' });
+    const { h } = mountFooter({ pageId: '999' });
     await flushPromises();
-    h.querySelector('rect[name="PA"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await flushPromises();
-    await w.find('[data-testid="related-diagram-link"]').trigger('click');
+    pill(h, 'PA')!.click(); await flushPromises();
+    (popover()!.querySelector('[data-testid="related-diagram-link"]') as HTMLElement).click();
     expect(openUrl).toHaveBeenCalledWith('https://example.atlassian.net/wiki/pages/viewpage.action?pageId=200');
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('related_diagram_link_clicked', expect.objectContaining({ related_count: 2, same_space: false }));
   });
@@ -1132,21 +1159,41 @@ describe('RelatedDiagramsFooter', () => {
 
 ```vue
 <template>
-  <footer v-if="withRelated.length" ref="root" class="related-diagrams" data-testid="related-diagrams-footer">
-    <span>{{ withRelated.length }} of {{ participants.length }} participants also appear in other diagrams you can access</span>
-    <span v-if="asOf"> · as of {{ asOf }}</span>
-    <div v-if="open" class="related-diagrams-popover" data-testid="related-diagrams-popover" role="dialog" aria-label="Possibly related by name" @mouseleave="close">
-      <div class="related-diagrams-popover-title">Possibly related by name</div>
-      <div class="related-diagrams-popover-label">{{ open.rawLabel }}</div>
-      <ul>
-        <li v-for="r in open.related" :key="r.contentId">
-          <a href="#" data-testid="related-diagram-link" @click.prevent="follow(open, r)">{{ r.pageTitle }}</a>
-          <span class="related-diagrams-space"> ({{ r.spaceKey }})</span>
-          <span v-if="r.rawLabelThere !== open.rawLabel" class="related-diagrams-variant"> · as <code>{{ r.rawLabelThere }}</code></span>
-        </li>
-      </ul>
-    </div>
+  <footer v-if="withRelated.length" class="related-diagrams" data-testid="related-diagrams-footer">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="4" cy="8" r="2"></circle><circle cx="12" cy="4" r="2"></circle><circle cx="12" cy="12" r="2"></circle><path d="M5.8 7L10.2 4.8M5.8 9L10.2 11.2"></path></svg>
+    <span><span class="related-diagrams-strong">{{ withRelated.length }} of {{ participants.length }} participants</span> also appear in other diagrams you can access</span>
+    <span v-if="asOf" class="related-diagrams-muted">· as of {{ asOf }}</span>
   </footer>
+  <!-- Pills and the popover live over the diagram: teleported into the host so
+       they scale with the rendered SVG and never touch the render path. -->
+  <Teleport v-if="hostEl && withRelated.length" :to="hostEl">
+    <div class="related-diagrams-overlay" ref="overlay">
+      <button
+        v-for="p in pills" :key="p.actorId"
+        type="button"
+        class="related-diagrams-pill"
+        data-testid="related-diagrams-pill"
+        :data-actor="p.actorId"
+        :style="{ left: p.left + 'px', top: p.top + 'px' }"
+        :title="`${p.participant.related.length} related diagrams you can access — click to see`"
+        :aria-expanded="open === p.participant"
+        @click.stop="toggle(p.participant)"
+      >{{ p.participant.related.length }}</button>
+      <div v-if="open && openPill" class="related-diagrams-popover" data-testid="related-diagrams-popover" role="dialog" aria-label="Possibly related by name" :style="{ left: openPill.anchorLeft + 'px', top: openPill.anchorTop + 'px' }" @mousedown.stop>
+        <div class="related-diagrams-popover-arrow"></div>
+        <div class="related-diagrams-popover-eyebrow">Possibly related by name</div>
+        <div class="related-diagrams-popover-label">{{ open.rawLabel }}</div>
+        <ul>
+          <li v-for="r in open.related" :key="r.contentId">
+            <a href="#" data-testid="related-diagram-link" @click.prevent="follow(open, r)">{{ r.pageTitle }}</a>
+            <span class="related-diagrams-space">{{ r.spaceKey }}</span>
+            <span v-if="r.rawLabelThere !== open.rawLabel" class="related-diagrams-variant">as <code>{{ r.rawLabelThere }}</code></span>
+          </li>
+        </ul>
+        <div class="related-diagrams-popover-foot"><span>Same name, not proof of the same object</span><span v-if="asOf">as of {{ asOf }}</span></div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -1164,15 +1211,17 @@ const props = defineProps<{
   pageId?: string;
 }>();
 
+interface Pill { actorId: string; participant: RelatedParticipant; left: number; top: number; anchorLeft: number; anchorTop: number }
+
 const participants = ref<RelatedParticipant[]>([]);
 const indexedAt = ref<string | null>(null);
 const open = ref<RelatedParticipant | null>(null);
-const root = ref<HTMLElement>();
+const hostEl = ref<HTMLElement | null>(null);
+const pills = ref<Pill[]>([]);
 let requested = false;
-let host: HTMLElement | null = null;
 
 const withRelated = computed(() => participants.value.filter((p) => p.related.length > 0));
-const byActor = computed(() => new Map(withRelated.value.map((p) => [p.actorId, p])));
+const openPill = computed(() => pills.value.find((p) => p.participant === open.value) ?? null);
 const asOf = computed(() => indexedAt.value ? new Date(indexedAt.value).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '');
 
 const base = () => ({ feature_area: 'architecture_tokens' as const, surface: props.surface, macro_type: 'mermaid' as const });
@@ -1182,6 +1231,28 @@ const counts = () => ({
   related_pages_total: withRelated.value.reduce((n, p) => n + p.related.length, 0),
   index_age_days: indexedAt.value ? Math.floor((Date.now() - new Date(indexedAt.value).getTime()) / 864e5) : undefined,
 });
+
+// Mermaid renders the top actor box as <rect class="actor actor-top" name="<actorId>">.
+function actorBox(actorId: string): SVGGraphicsElement | null {
+  const esc = (globalThis as any).CSS?.escape ? (globalThis as any).CSS.escape(actorId) : actorId.replace(/["\\]/g, '\\$&');
+  return hostEl.value?.querySelector<SVGGraphicsElement>(`rect.actor-top[name="${esc}"]`) ?? null;
+}
+
+function layoutPills() {
+  const host = hostEl.value;
+  if (!host) return;
+  const hostBox = host.getBoundingClientRect();
+  pills.value = withRelated.value.flatMap((participant) => {
+    const el = actorBox(participant.actorId);
+    if (!el) return [];
+    const r = el.getBoundingClientRect();
+    return [{
+      actorId: participant.actorId, participant,
+      left: r.right - hostBox.left - 12, top: r.top - hostBox.top - 9,          // pill centred on the top-right corner
+      anchorLeft: r.left - hostBox.left, anchorTop: r.bottom - hostBox.top + 8, // popover below the box
+    }];
+  });
+}
 
 async function load() {
   if (requested || !props.enabled || !props.ready) return;
@@ -1198,73 +1269,82 @@ async function load() {
     trackAnalyticsEvent('related_diagrams_lookup_failed', { ...base(), error_kind: res.error_kind, duration_ms: Math.round(performance.now() - started) });
     return;
   }
+  hostEl.value = props.svgHost();
   // Drop participants that no longer exist in the rendered SVG (renamed since indexing).
-  host = props.svgHost();
-  const present = new Set([...(host?.querySelectorAll('[name]') ?? [])].map((el) => el.getAttribute('name')));
+  const present = new Set([...(hostEl.value?.querySelectorAll('[name]') ?? [])].map((el) => el.getAttribute('name')));
   participants.value = res.participants.filter((p) => present.size === 0 || present.has(p.actorId));
   indexedAt.value = res.indexedAt;
   trackAnalyticsEvent('related_diagrams_lookup_succeeded', { ...base(), ...counts(), duration_ms: Math.round(performance.now() - started) });
   if (withRelated.value.length) {
     trackAnalyticsEvent('related_diagrams_shown', { ...base(), ...counts() });
-    attach();
+    layoutPills();
+    window.addEventListener('resize', layoutPills);
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onOutside);
   }
 }
 
-function actorFromEvent(e: Event): RelatedParticipant | null {
-  const el = (e.target as Element | null)?.closest?.('[name]');
-  const id = el?.getAttribute('name');
-  return id ? byActor.value.get(id) ?? null : null;
-}
-
-function show(p: RelatedParticipant, trigger: 'hover' | 'click') {
-  if (open.value === p) return;
+function toggle(p: RelatedParticipant) {
+  if (open.value === p) { open.value = null; return; }
   open.value = p;
   trackAnalyticsEvent('related_diagram_popover_opened', {
-    ...base(), related_count: p.related.length, popover_trigger: trigger,
+    ...base(), related_count: p.related.length,
     label_variant_count: new Set(p.related.map((r) => r.rawLabelThere)).size,
   });
 }
-const onOver = (e: Event) => { const p = actorFromEvent(e); if (p) show(p, 'hover'); };
-const onClick = (e: Event) => { const p = actorFromEvent(e); if (p) show(p, 'click'); };
-const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-function close() { open.value = null; }
-
-function attach() {
-  if (!host) return;
-  host.addEventListener('mouseover', onOver);
-  host.addEventListener('click', onClick);
-  document.addEventListener('keydown', onKey);
-}
-function detach() {
-  host?.removeEventListener('mouseover', onOver);
-  host?.removeEventListener('click', onClick);
-  document.removeEventListener('keydown', onKey);
-}
+const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') open.value = null; };
+const onOutside = () => { open.value = null; };   // pills and the popover stop propagation of mousedown
 
 function follow(p: RelatedParticipant, r: { pageId: string; spaceKey: string }) {
-  trackAnalyticsEvent('related_diagram_link_clicked', { ...base(), related_count: p.related.length, same_space: props.pageId ? r.spaceKey === currentSpaceKey() : false });
+  const currentSpaceKey = (forgeGlobal as any)?.forgeContext?.extension?.space?.key ?? '';
+  trackAnalyticsEvent('related_diagram_link_clicked', { ...base(), related_count: p.related.length, same_space: Boolean(currentSpaceKey) && r.spaceKey === currentSpaceKey });
   const site = (forgeGlobal as any)?.forgeContext?.siteUrl ?? '';
   void openUrl(`${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(r.pageId)}`);
 }
-function currentSpaceKey(): string { return (forgeGlobal as any)?.forgeContext?.extension?.space?.key ?? ''; }
 
 onMounted(load);
 watch(() => [props.ready, props.enabled], load);
-onBeforeUnmount(detach);
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', layoutPills);
+  document.removeEventListener('keydown', onKey);
+  document.removeEventListener('mousedown', onOutside);
+});
 </script>
 
 <style scoped>
-.related-diagrams { position: relative; margin-top: 4px; font-size: 12px; color: var(--ds-text-subtlest, #626f86); }
-.related-diagrams-popover { position: absolute; left: 0; bottom: 100%; z-index: 20; min-width: 260px; max-width: 420px; padding: 8px 10px; background: var(--ds-surface-overlay, #fff); border-radius: 3px; box-shadow: var(--ds-shadow-overlay, 0 4px 8px rgba(9,30,66,.25)); color: var(--ds-text, #172b4d); }
-.related-diagrams-popover-title { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ds-text-subtlest, #626f86); }
-.related-diagrams-popover-label { font-weight: 600; margin: 2px 0 6px; }
+.related-diagrams { display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 12px; color: #6b7280; }
+.related-diagrams-strong { color: #374151; }
+.related-diagrams-muted { color: #9CA3AF; }
+.related-diagrams-overlay { position: absolute; inset: 0; pointer-events: none; }
+.related-diagrams-pill {
+  position: absolute; pointer-events: auto; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1; color: #6B7280;
+  background: #F3F4F6; border: 1px solid #E5E7EB; border-radius: 9999px; cursor: pointer;
+}
+.related-diagrams-pill:hover { background: #E5E7EB; color: #374151; }
+.related-diagrams-pill[aria-expanded="true"] { border-color: #0052CC; color: #0052CC; }
+.related-diagrams-popover {
+  position: absolute; pointer-events: auto; width: 320px; z-index: 5; text-align: left;
+  background: #fff; border: 1px solid #E5E7EB; border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); padding: 10px 10px 8px;
+  font-family: inherit; color: #172B4D;
+}
+.related-diagrams-popover-arrow { position: absolute; left: 18px; top: -6px; width: 10px; height: 10px; background: #fff; border-left: 1px solid #E5E7EB; border-top: 1px solid #E5E7EB; transform: rotate(45deg); }
+.related-diagrams-popover-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #6B7280; padding: 0 6px; }
+.related-diagrams-popover-label { font-size: 13px; font-weight: 600; padding: 2px 6px 6px; }
 .related-diagrams-popover ul { list-style: none; margin: 0; padding: 0; }
-.related-diagrams-popover li { margin: 2px 0; }
-.related-diagrams-space, .related-diagrams-variant { color: var(--ds-text-subtlest, #626f86); }
+.related-diagrams-popover li { display: flex; align-items: baseline; gap: 6px; min-height: 28px; padding: 4px 6px; border-radius: 4px; font-size: 13px; }
+.related-diagrams-popover li:hover { background: #F3F4F6; }
+.related-diagrams-popover a { color: #0052CC; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.related-diagrams-popover a:hover { color: #0747A6; text-decoration: underline; }
+.related-diagrams-space { font-size: 11px; color: #6B7280; background: #F3F4F6; border: 1px solid #E5E7EB; border-radius: 9999px; padding: 0 6px; line-height: 16px; white-space: nowrap; }
+.related-diagrams-variant { font-size: 12px; color: #6B7280; white-space: nowrap; }
+.related-diagrams-variant code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 11px; background: #F4F5F7; border-radius: 3px; padding: 1px 4px; color: #172B4D; }
+.related-diagrams-popover-foot { display: flex; justify-content: space-between; padding: 6px 6px 0; margin-top: 4px; border-top: 1px solid #E5E7EB; font-size: 11px; color: #9CA3AF; }
 </style>
 ```
 
-Note on `siteUrl`: confirm the property name in `src/model/globals/forgeGlobal.ts` (grep `siteUrl`); if the context exposes it under another name (e.g. `forgeContext.siteUrl` vs `forgeGlobal.siteUrl`), use that one and update the test mock accordingly.
+`GenericViewer.vue`'s `.screen-capture-content` is already `position: relative` (`GenericViewer.vue:1710`), so the teleported overlay covers exactly the rendered diagram. jsdom returns zero-size bounding boxes; the tests assert presence, counts, trigger, and copy — pixel placement is checked in Task 10's screenshots.
 
 - [ ] **Step 4: Run → PASS**; eslint clean; `tsc` shows no new errors under `src/components/Viewer/RelatedDiagramsFooter*`.
 
@@ -1272,7 +1352,7 @@ Note on `siteUrl`: confirm the property name in `src/model/globals/forgeGlobal.t
 
 ```bash
 git add src/components/Viewer/RelatedDiagramsFooter.vue src/components/Viewer/RelatedDiagramsFooter.spec.ts
-git commit -m "viewer(architecture-tokens): footer line + lifeline popover — 'also appears in other diagrams you can access'"
+git commit -m "viewer(architecture-tokens): footer line, count pills over related lifelines, click-only popover — 'also appears in other diagrams you can access'"
 ```
 
 ---
@@ -1401,6 +1481,6 @@ Release Lite (`/release-app lite`), then: upload the tenant index to `conf-zenum
 
 ## Self-review
 
-- **Spec coverage:** §1 UI → Tasks 8–9; §2 layers → normalizer unchanged, `actorId` never a key (service joins on `comparisonKey` only); §3 pipeline → Tasks 3–4; §4 table → Task 2; §5 route + backend filter → Tasks 5–6; §6 flag → Task 7 + 9; §7 UI details (name attribute, drop renamed, openUrl, Escape) → Task 8; §8 events → Tasks 1, 8; §9 privacy → global constraints, `$ARCHTOK_DIR` everywhere; §10 out of scope → nothing planned for editor/discovery/decisions; §11 verification → Task 10.
-- **Placeholder scan:** none of "TBD/TODO/handle edge cases/similar to Task N". One explicit verification instruction (`siteUrl` property name) is a check, not a placeholder.
-- **Type consistency:** `RelatedPage/RelatedParticipant/RelatedResponse` identical in `functions/architecture-tokens/service.ts` and `src/services/ArchitectureTokens.ts`; `isArchitectureTokensEnabled` name used in Tasks 7 and 9; `getCaptureNode` (existing method) passed as `svgHost`; `surface` values `'viewer' | 'fullscreen'` match the `Surface` union; property names in Task 1 match those emitted in Task 8 (`popover_trigger`, `label_variant_count`, `same_space`, `index_age_days`, `error_kind`).
+- **Spec coverage:** §1 UI → Tasks 8–9; §2 layers → normalizer unchanged, `actorId` never a key (service joins on `comparisonKey` only); §3 pipeline → Tasks 3–4; §4 table → Task 2; §5 route + backend filter → Tasks 5–6; §6 flag → Task 7 + 9; §7 UI details (count pills from `rect.actor-top[name]`, click-only trigger, drop renamed, openUrl, Escape/outside close) → Task 8; §8 events → Tasks 1, 8; §9 privacy → global constraints, `$ARCHTOK_DIR` everywhere; §10 out of scope → nothing planned for editor/discovery/decisions; §11 verification → Task 10.
+- **Placeholder scan:** none of "TBD/TODO/handle edge cases/similar to Task N".
+- **Type consistency:** `RelatedPage/RelatedParticipant/RelatedResponse` identical in `functions/architecture-tokens/service.ts` and `src/services/ArchitectureTokens.ts`; `isArchitectureTokensEnabled` name used in Tasks 7 and 9; `getCaptureNode` (existing method) passed as `svgHost`; `surface` values `'viewer' | 'fullscreen'` match the `Surface` union; property names in Task 1 match those emitted in Task 8 (`label_variant_count`, `same_space`, `index_age_days`, `error_kind`).

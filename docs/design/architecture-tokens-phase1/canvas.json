@@ -1,0 +1,62 @@
+{
+  "artboards": [
+    {
+      "file": "Default.dc.html",
+      "title": "1 · Default — nothing rendered",
+      "x": 0,
+      "y": 0,
+      "w": 1000,
+      "h": 560
+    },
+    {
+      "file": "Main.dc.html",
+      "title": "2 · Footer shown",
+      "x": 1080,
+      "y": 0,
+      "w": 1000,
+      "h": 560
+    },
+    {
+      "file": "PopoverOpen.dc.html",
+      "title": "3 · Popover — opened by clicking the count pill",
+      "x": 2160,
+      "y": 0,
+      "w": 1000,
+      "h": 560
+    },
+    {
+      "file": "Fullscreen.dc.html",
+      "title": "4 · Fullscreen",
+      "x": 0,
+      "y": 720,
+      "w": 1440,
+      "h": 900
+    }
+  ],
+  "annotations": [
+    {
+      "id": "note-states",
+      "x": 0,
+      "y": -170,
+      "w": 520,
+      "text": "Phase 1 viewer states, left to right.\n1 Default: flag off, lookup failed, or no accessible related page → the macro is unchanged (only the existing 'Created by' line).\n2 Footer shown: one quiet line on the left of the existing attribution row, same 12px/#6b7280, plus a small count pill on each lifeline that has related pages. Nothing blocks the render; both appear after the lookup returns.\n3 Popover: opens ONLY on a click on the count pill (no hover — a presenter moving the mouse over the diagram never triggers it). Title 'Possibly related by name', page title (link), space key, and the label variant used there when it differs. Closes on Escape, click outside, or a second click on the pill.\n4 Fullscreen: same footer row pinned to the bottom, same pill + popover."
+    },
+    {
+      "id": "note-badge",
+      "x": 1080,
+      "y": -130,
+      "w": 460,
+      "text": "The count pill is the only trigger (18px tall, #F3F4F6 / #E5E7EB / #6B7280, top-right corner of the actor box). Hover on the pill shows a native tooltip only ('3 related diagrams you can access — click to see'); the lifeline itself has no hover behaviour. Chosen after review: a hover-opened popover covered the diagram while presenting."
+    },
+    {
+      "id": "note-copy",
+      "x": 2160,
+      "y": -130,
+      "w": 480,
+      "text": "Copy stays on the cautious side: 'also appear in', 'Possibly related by name', and a one-line reminder in the popover footer 'Same name, not proof of the same object'. No 'confirm' / 'not the same' controls in Phase 1.\nAll values are lifted from the shipped viewer CSS: card 8px radius + #E5E7EB, popover 8px + 0 8px 24px rgba(0,0,0,.12) (OverflowMenu recipe), links #0052CC, highlight stroke #0052CC on the actor whose pill is open."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

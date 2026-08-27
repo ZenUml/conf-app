@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture Tokens MVP-0 — stakeholder brief</title>
+    <style>
+      :root {
+        --ink: #17233b;
+        --muted: #58677f;
+        --canvas: #f7f8fc;
+        --surface: #ffffff;
+        --navy: #172d54;
+        --blue: #2166db;
+        --teal: #008b82;
+        --teal-soft: #e8f8f5;
+        --amber: #a25e00;
+        --amber-soft: #fff5df;
+        --line: #dbe2ee;
+        --shadow: 0 16px 50px rgba(29, 50, 86, 0.09);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--canvas);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+
+      .page { max-width: 1180px; margin: 0 auto; padding: 46px 28px 72px; }
+
+      .eyebrow {
+        margin: 0 0 14px;
+        color: var(--blue);
+        font-size: 0.76rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1, h2, h3, p { margin-top: 0; }
+
+      h1 {
+        max-width: 850px;
+        margin-bottom: 14px;
+        font-size: clamp(2.35rem, 6vw, 4.8rem);
+        line-height: 0.99;
+        letter-spacing: -0.065em;
+      }
+
+      h2 { margin-bottom: 14px; font-size: 1.65rem; letter-spacing: -0.035em; }
+      h3 { margin-bottom: 8px; font-size: 1.03rem; }
+      .lede { max-width: 755px; margin-bottom: 36px; color: var(--muted); font-size: 1.18rem; }
+
+      .evidence {
+        margin: 0 0 48px;
+        padding: 30px;
+        border: 1px solid #b8ddd8;
+        border-radius: 22px;
+        background: linear-gradient(138deg, #edf9f7 0%, #f7fbff 60%, #ffffff 100%);
+        box-shadow: var(--shadow);
+      }
+
+      .evidence-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+      .evidence-head p { max-width: 690px; margin-bottom: 25px; color: #30535c; }
+
+      .status {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 11px;
+        border: 1px solid #e7bf75;
+        border-radius: 999px;
+        background: var(--amber-soft);
+        color: #795000;
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .status::before { width: 8px; height: 8px; border-radius: 50%; background: #de8b00; content: ""; }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        align-items: stretch;
+        gap: 10px;
+      }
+
+      .flow-card {
+        position: relative;
+        min-height: 158px;
+        padding: 18px;
+        border: 1px solid #c9e4df;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.86);
+      }
+
+      .flow-card:not(:last-child)::after {
+        position: absolute;
+        z-index: 1;
+        top: 50%;
+        right: -17px;
+        width: 24px;
+        height: 2px;
+        background: var(--teal);
+        content: "";
+      }
+
+      .flow-card:not(:last-child)::before {
+        position: absolute;
+        z-index: 2;
+        top: calc(50% - 4px);
+        right: -17px;
+        width: 0;
+        height: 0;
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 7px solid var(--teal);
+        content: "";
+      }
+
+      .step { margin-bottom: 20px; color: var(--teal); font-size: 0.73rem; font-weight: 800; letter-spacing: 0.1em; }
+      .flow-card p { margin: 0; color: var(--muted); font-size: 0.88rem; line-height: 1.4; }
+      .flow-card h3 { font-size: 0.98rem; }
+      .evidence-note { margin: 20px 0 0; color: #30535c; font-size: 0.92rem; }
+
+      section { margin-top: 48px; }
+      .section-intro { max-width: 720px; color: var(--muted); }
+      .two-col { display: grid; grid-template-columns: 1.07fr 0.93fr; gap: 26px; }
+      .card, .callout, .metric { border-radius: 16px; background: var(--surface); box-shadow: 0 8px 28px rgba(38, 57, 92, 0.05); }
+      .card { padding: 25px; border: 1px solid var(--line); }
+      .card p:last-child, .callout p:last-child { margin-bottom: 0; }
+
+      .list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+      .list li { position: relative; padding-left: 27px; color: #35445d; }
+      .list li::before { position: absolute; left: 0; top: 0.35em; width: 13px; height: 13px; border-radius: 50%; background: var(--teal-soft); color: var(--teal); content: "✓"; font-size: 0.73rem; font-weight: 900; line-height: 13px; text-align: center; }
+
+      .scope { display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+      .scope > div { padding: 25px; }
+      .scope > div + div { border-left: 1px solid var(--line); background: #fbfcff; }
+      .scope h3 { color: var(--navy); }
+      .scope ul { margin: 0; padding-left: 19px; color: var(--muted); }
+      .scope li + li { margin-top: 8px; }
+
+      .tradeoffs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+      .tradeoff { padding: 21px; border-top: 4px solid var(--blue); border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(38, 57, 92, 0.05); }
+      .tradeoff p { margin-bottom: 0; color: var(--muted); font-size: 0.92rem; }
+
+      .activation { counter-reset: activate; display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+      .activation article { position: relative; min-height: 176px; padding: 21px 18px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+      .activation article::before { display: block; width: 27px; height: 27px; margin-bottom: 14px; border-radius: 50%; background: var(--navy); color: white; content: counter(activate); counter-increment: activate; font-size: 0.78rem; font-weight: 800; line-height: 27px; text-align: center; }
+      .activation h3 { margin-bottom: 7px; }
+      .activation p { margin-bottom: 0; color: var(--muted); font-size: 0.87rem; }
+
+      .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+      .metric { padding: 22px; border: 1px solid var(--line); }
+      .metric strong { display: block; margin-bottom: 8px; color: var(--blue); font-size: 1.7rem; line-height: 1; letter-spacing: -0.05em; }
+      .metric span { color: var(--muted); font-size: 0.9rem; }
+
+      .decision { margin-top: 48px; padding: 31px; border-radius: 20px; background: var(--navy); color: white; box-shadow: var(--shadow); }
+      .decision h2 { margin-bottom: 12px; color: white; }
+      .decision p { max-width: 830px; margin-bottom: 18px; color: #d9e6ff; font-size: 1.08rem; }
+      .decision ul { margin: 0; padding-left: 19px; color: #d9e6ff; }
+      .decision li + li { margin-top: 7px; }
+
+      footer { margin-top: 34px; color: #6d7b91; font-size: 0.79rem; }
+      footer p { margin-bottom: 8px; }
+
+      @media (max-width: 900px) {
+        .flow, .activation { grid-template-columns: 1fr; }
+        .flow-card { min-height: auto; }
+        .flow-card:not(:last-child)::after { top: auto; right: auto; bottom: -15px; left: 50%; width: 2px; height: 20px; }
+        .flow-card:not(:last-child)::before { top: auto; right: auto; bottom: -18px; left: calc(50% - 5px); border-top: 7px solid var(--teal); border-right: 5px solid transparent; border-bottom: 0; border-left: 5px solid transparent; }
+        .two-col, .tradeoffs, .metrics { grid-template-columns: 1fr 1fr; }
+        .activation article { min-height: auto; }
+      }
+
+      @media (max-width: 620px) {
+        .page { padding: 30px 18px 52px; }
+        .evidence { padding: 22px; }
+        .evidence-head, .scope { display: block; }
+        .status { margin-bottom: 18px; }
+        .scope > div + div { border-top: 1px solid var(--line); border-left: 0; }
+        .two-col, .tradeoffs, .metrics { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <p class="eyebrow">Architecture Tokens · MVP-0</p>
+      <h1>Calibrate first.<br />Prove trust before product.</h1>
+      <p class="lede">A deliberately narrow backend pilot to test whether explicit service and API participants in sequence diagrams can become reliable, reusable architecture candidates—without changing the authoring experience.</p>
+
+      <section class="evidence" aria-labelledby="evidence-title">
+        <div class="evidence-head">
+          <div>
+            <p class="eyebrow">Evidence panel</p>
+            <h2 id="evidence-title">No customer-facing demo yet—and that is the evidence.</h2>
+            <p>MVP-0 has no Viewer, Editor, Catalogue, or customer-visible workflow. It is a backend-only calibration capability with an intentionally narrow trust boundary. The safe flow below is the product evidence available at this stage.</p>
+          </div>
+          <span class="status">Not enabled</span>
+        </div>
+
+        <div class="flow" aria-label="Controlled calibration flow">
+          <article class="flow-card">
+            <p class="step">01 · SOURCE OF TRUTH</p>
+            <h3>Diagram remains in Confluence</h3>
+            <p>Custom content remains authoritative; this work does not alter a diagram.</p>
+          </article>
+          <article class="flow-card">
+            <p class="step">02 · NARROW READ</p>
+            <h3>Trusted tenant-bound executor</h3>
+            <p>Reads exactly ten approved, current Mermaid sequence sources.</p>
+          </article>
+          <article class="flow-card">
+            <p class="step">03 · EXPLICIT GATE</p>
+            <h3>Protected backend calibration</h3>
+            <p>Execution must be deliberately enabled; no browser or public caller can trigger it.</p>
+          </article>
+          <article class="flow-card">
+            <p class="step">04 · CONSERVATIVE OUTPUT</p>
+            <h3>Derived candidates only</h3>
+            <p>Only explicit Service, API, or external-service occurrences can be accepted.</p>
+          </article>
+          <article class="flow-card">
+            <p class="step">05 · HUMAN DECISION</p>
+            <h3>Review before expansion</h3>
+            <p>Every candidate is checked before a separate go/no-go decision.</p>
+          </article>
+        </div>
+        <p class="evidence-note"><strong>What this proves now:</strong> the controlled path, privacy boundary, and review gate are implemented and verified. It does not claim model quality before the ten-source calibration is reviewed.</p>
+      </section>
+
+      <section class="two-col" aria-labelledby="problem-title">
+        <div>
+          <p class="eyebrow">Problem and value</p>
+          <h2 id="problem-title">Useful architecture context is already present, but not yet reusable.</h2>
+          <p class="section-intro">Sequence diagrams frequently name the services and APIs involved in a flow. Today, that context stays embedded in individual diagrams. Architecture Tokens tests whether a small, high-confidence subset can become structured evidence for future discovery work—without asking authors to maintain a second system.</p>
+        </div>
+        <aside class="card">
+          <h3>Who benefits if the evidence is strong?</h3>
+          <ul class="list">
+            <li>Authors, by preserving diagram-first documentation rather than adding data-entry work.</li>
+            <li>Architecture and platform teams, by gaining a more dependable starting point for future discovery.</li>
+            <li>Product teams, by learning whether an eventual architecture experience can be grounded in explicit evidence rather than inference.</li>
+          </ul>
+        </aside>
+      </section>
+
+      <section aria-labelledby="built-title">
+        <p class="eyebrow">What was built</p>
+        <h2 id="built-title">A calibration capability, not an architecture catalogue.</h2>
+        <div class="two-col">
+          <article class="card">
+            <ul class="list">
+              <li>Strict eligibility for exactly ten distinct, current Mermaid sequence diagrams.</li>
+              <li>A GPT-5.3 Codex/Spark extraction step constrained to explicit service-level participants.</li>
+              <li>Post-processing that requires literal supporting evidence and prefers abstention over guesswork.</li>
+              <li>Rebuildable, version-aware derived records for calibration review and reruns.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Verified before activation</h3>
+            <p>The full unit suite (259 test files, 3,050 tests), a production-style backend bundle, and the Lite build passed. No deployment, migration, customer model call, production write, or feature enablement was performed.</p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="scope-title">
+        <p class="eyebrow">Scope and safety</p>
+        <h2 id="scope-title">Narrow by design.</h2>
+        <div class="scope">
+          <div>
+            <h3>In MVP-0</h3>
+            <ul>
+              <li>One approved pilot tenant, identified only in protected runtime configuration.</li>
+              <li>Ten selected current Mermaid sequence diagrams for calibration.</li>
+              <li>Explicit Service, API, and external-service candidate occurrences.</li>
+              <li>Internal review of derived output before any further processing.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Explicitly not in MVP-0</h3>
+            <ul>
+              <li>Customer UI, editing flow, Viewer, or Catalogue.</li>
+              <li>Final identity resolution, deduplication, or cross-diagram merging.</li>
+              <li>Cross-tenant association or non-sequence diagram ingestion.</li>
+              <li>Any broad batch run before the controlled calibration passes.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="tradeoff-title">
+        <p class="eyebrow">Tradeoffs and rejected paths</p>
+        <h2 id="tradeoff-title">We chose trustworthiness and reversibility over apparent completeness.</h2>
+        <div class="tradeoffs">
+          <article class="tradeoff">
+            <h3>Candidate occurrences, not final identities</h3>
+            <p>We rejected automatic merging or a catalogue because labels alone are insufficient proof that two things are the same architecture entity.</p>
+          </article>
+          <article class="tradeoff">
+            <h3>Ten-source calibration, not a broad run</h3>
+            <p>We rejected starting with the wider inventory. Manual comparison gives us a quality signal before more content is processed.</p>
+          </article>
+          <article class="tradeoff">
+            <h3>Backend-only, not a premature demo</h3>
+            <p>We rejected a customer-facing surface until the extraction is shown to be accurate, privacy-safe, and useful in reviewed examples.</p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="activation-title">
+        <p class="eyebrow">Controlled activation</p>
+        <h2 id="activation-title">The next step is an operator-reviewed calibration, not a launch.</h2>
+        <div class="activation">
+          <article>
+            <h3>Deploy safely</h3>
+            <p>Deploy the reviewed backend change while leaving the capability disabled.</p>
+          </article>
+          <article>
+            <h3>Configure the boundary</h3>
+            <p>Set protected runtime values for the approved tenant, trusted app, and server-side model access.</p>
+          </article>
+          <article>
+            <h3>Enable deliberately</h3>
+            <p>Turn on execution only when authorized; turn on derived writes separately when needed.</p>
+          </article>
+          <article>
+            <h3>Run exactly ten</h3>
+            <p>Use the tenant-bound trusted executor to submit the approved current sources.</p>
+          </article>
+          <article>
+            <h3>Review and decide</h3>
+            <p>Compare every output to its evidence and record a documented go/no-go result.</p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="success-title">
+        <p class="eyebrow">Success criteria</p>
+        <h2 id="success-title">Expansion is earned by evidence.</h2>
+        <div class="metrics">
+          <article class="metric"><strong>≥90%</strong><span>precision for accepted service-level candidates</span></article>
+          <article class="metric"><strong>0</strong><span>false positives for actors, clients/UIs, workflow steps, stores, or generic modules</span></article>
+          <article class="metric"><strong>≥80%</strong><span>of non-empty candidates are explicit service-level forms</span></article>
+          <article class="metric"><strong>0</strong><span>critical data-leakage incidents</span></article>
+        </div>
+      </section>
+
+      <section class="decision" aria-labelledby="decision-title">
+        <p class="eyebrow" style="color:#9dc0ff">Decision requested</p>
+        <h2 id="decision-title">Authorize the controlled calibration prerequisites.</h2>
+        <p>Approve the guarded path to a ten-source internal calibration. This is approval to configure and review a limited experiment—not approval for a customer launch or a broader tenant run.</p>
+        <ul>
+          <li>Keep the capability disabled until the protected runtime boundary and trusted executor are ready.</li>
+          <li>Review the ten calibration outcomes against the success criteria above.</li>
+          <li>Require a separate decision before any additional processing, identity work, or customer-facing experience.</li>
+        </ul>
+      </section>
+
+      <footer>
+        <p><strong>Evidence basis:</strong> approved MVP-0 design and completed implementation verification. The repository’s existing deviation log concerns an unrelated onboarding change and does not alter this brief.</p>
+        <p>This page intentionally contains no customer content, tenant identifiers, credentials, internal identifiers, or raw implementation configuration.</p>
+      </footer>
+    </main>
+  </body>
+</html>

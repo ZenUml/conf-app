@@ -42,11 +42,22 @@ function preferredDottedKeys(occurrences) {
   return preferred;
 }
 
+function deduplicateAnchors(source) {
+  const byAnchor = new Map();
+  for (const participant of source.participants) {
+    const anchor = JSON.stringify([source.sourceId, participant.actorId, participant.lineNumber]);
+    byAnchor.set(anchor, participant);
+  }
+  return { ...source, participants: [...byAnchor.values()] };
+}
+
 export function buildArtifact(corpus) {
   const drafts = corpus.sources.map((source) => ({
     sourceId: source.sourceId,
     sourceRevision: source.sourceRevision,
     sourceHash: source.sourceHash,
+    spaceId: source.spaceId,
+    pageId: source.pageId,
     participants: extractParticipants(source.mermaidCode).map((o) => ({
       alias: o.actorId,
       displayLabel: o.rawLabel,
@@ -60,7 +71,7 @@ export function buildArtifact(corpus) {
       comparisonKey: lexicalComparisonKey(o.rawLabel),
       groupingToken: lexicalGroupingToken(o.rawLabel),
     })),
-  }));
+  })).map(deduplicateAnchors).filter((source) => source.participants.length > 0);
   const preferred = preferredDottedKeys(drafts.flatMap((s) => s.participants));
   const sources = drafts.map((s) => ({
     ...s,
@@ -70,7 +81,8 @@ export function buildArtifact(corpus) {
   const keys = new Set(all.map((p) => p.comparisonKey));
   return {
     schemaVersion: 4,
-    method: 'Deterministic extraction of every explicit participant/actor declaration (tools/architecture-tokens/extract.ts, mermaid-oracle tested); readable form + slugify dot-key per pilot/participant-normalization.mjs; corpus-wide preferred dotted key. Lexical grouping aid only — no classification, no identity.',
+    cloudId: corpus.cloudId ?? null,
+    method: 'Deterministic extraction of explicit participant/actor declarations (tools/architecture-tokens/extract.ts, mermaid-oracle tested); repeated (sourceId, actorId, lineNumber) anchors use the last declaration to match Mermaid actor-map semantics and the occurrence table primary key; readable form + slugify dot-key per pilot/participant-normalization.mjs; corpus-wide preferred dotted key. Lexical grouping aid only — no classification, no identity.',
     cohortSourceCount: sources.length,
     occurrenceCount: all.length,
     rawLabelCount: new Set(all.map((p) => p.rawLabel)).size,

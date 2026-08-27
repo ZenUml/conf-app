@@ -51,15 +51,16 @@
         :style="highlightStyle"
       />
 
-      <div
-        v-if="open && openPill"
-        class="related-diagrams-popover"
-        data-testid="related-diagrams-popover"
-        role="dialog"
-        aria-label="Possibly related by name"
-        :style="{ left: `${openPill.anchorLeft}px`, top: `${openPill.anchorTop}px` }"
-        @mousedown.stop
-      >
+      <Teleport v-if="open && openPill" to="body">
+        <div
+          ref="popoverEl"
+          class="related-diagrams-popover"
+          data-testid="related-diagrams-popover"
+          role="dialog"
+          aria-label="Possibly related by name"
+          :style="popoverStyle"
+          @mousedown.stop
+        >
         <div class="related-diagrams-popover-arrow" />
         <div class="related-diagrams-popover-eyebrow">Possibly related by name</div>
         <div class="related-diagrams-popover-label">{{ open.rawLabel }}</div>
@@ -88,13 +89,14 @@
           <span>Same name, not proof of the same object</span>
           <span v-if="asOf">as of {{ asOf }}</span>
         </div>
-      </div>
+        </div>
+      </Teleport>
     </div>
   </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import forgeGlobal, { openUrl } from '@/model/globals/forgeGlobal'
 import {
   getRelatedDiagrams,
@@ -133,6 +135,8 @@ const open = ref<RelatedParticipant | null>(null)
 const hostEl = ref<HTMLElement | null>(null)
 const pills = ref<Pill[]>([])
 const diagramHovered = ref(false)
+const popoverEl = ref<HTMLElement | null>(null)
+const popoverStyle = ref<Record<string, string>>({})
 let requested = false
 
 const withRelated = computed(() => participants.value.filter((participant) => participant.related.length))
@@ -210,6 +214,31 @@ function layoutPills() {
   })
 }
 
+function positionPopover() {
+  const item = openPill.value
+  const anchor = item ? actorBox(item.actorId)?.getBoundingClientRect() : null
+  if (!anchor) return
+
+  const gutter = 8
+  const width = popoverEl.value?.getBoundingClientRect().width || 320
+  const height = popoverEl.value?.getBoundingClientRect().height || 280
+  const left = Math.min(Math.max(anchor.left, gutter), window.innerWidth - width - gutter)
+  const below = anchor.bottom + gutter
+  const above = anchor.top - height - gutter
+  const top = below + height <= window.innerHeight - gutter
+    ? below
+    : above >= gutter
+      ? above
+      : gutter
+
+  popoverStyle.value = { left: `${left}px`, top: `${top}px` }
+}
+
+function onWindowResize() {
+  layoutPills()
+  positionPopover()
+}
+
 async function load() {
   if (requested || !props.enabled || !props.ready) return
   requested = true
@@ -258,7 +287,8 @@ async function load() {
     ...countProperties(),
   })
   layoutPills()
-  window.addEventListener('resize', layoutPills)
+  window.addEventListener('resize', onWindowResize)
+  window.addEventListener('scroll', positionPopover, true)
   document.addEventListener('keydown', onKeyDown)
   document.addEventListener('mousedown', onOutsideMouseDown)
   hostEl.value?.addEventListener('pointerenter', onDiagramPointerEnter)
@@ -279,6 +309,7 @@ function toggle(participant: RelatedParticipant) {
     return
   }
   open.value = participant
+  void nextTick(positionPopover)
   trackAnalyticsEvent('related_diagram_popover_opened', {
     ...baseProperties(),
     related_count: participant.related.length,
@@ -311,7 +342,8 @@ function follow(participant: RelatedParticipant, page: RelatedPage) {
 onMounted(load)
 watch(() => [props.ready, props.enabled], load)
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', layoutPills)
+  window.removeEventListener('resize', onWindowResize)
+  window.removeEventListener('scroll', positionPopover, true)
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('mousedown', onOutsideMouseDown)
   hostEl.value?.removeEventListener('pointerenter', onDiagramPointerEnter)
@@ -392,9 +424,11 @@ onBeforeUnmount(() => {
 }
 
 .related-diagrams-popover {
-  position: absolute;
+  position: fixed;
   z-index: 5;
   width: 320px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   padding: 10px 10px 8px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;

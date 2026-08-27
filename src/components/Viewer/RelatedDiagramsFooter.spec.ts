@@ -266,8 +266,8 @@ describe('RelatedDiagramsFooter', () => {
     expect(button.style.top).toBe('21px')
     button.click()
     await flushPromises()
-    expect(popover()!.style.left).toBe('80px')
-    expect(popover()!.style.top).toBe('68px')
+    expect(popover()!.style.left).toBe('100px')
+    expect(popover()!.style.top).toBe('78px')
 
     actorRects.PA = {
       left: 150,
@@ -281,8 +281,32 @@ describe('RelatedDiagramsFooter', () => {
     await flushPromises()
     expect(button.style.left).toBe('258px')
     expect(button.style.top).toBe('41px')
-    expect(popover()!.style.left).toBe('130px')
-    expect(popover()!.style.top).toBe('88px')
+    expect(popover()!.style.left).toBe('150px')
+    expect(popover()!.style.top).toBe('98px')
+  })
+
+  it('shifts and flips an edge popover into the viewport instead of clipping it in the diagram', async () => {
+    related.value = twoParticipants
+    const { h } = mountFooter()
+    await flushPromises()
+    actorRects.PA = {
+      left: 900,
+      right: 1020,
+      top: 720,
+      bottom: 750,
+      width: 120,
+      height: 30,
+    } as DOMRect
+    window.dispatchEvent(new Event('resize'))
+    enterDiagram(h)
+    await flushPromises()
+
+    pill(h, 'PA')!.click()
+    await flushPromises()
+
+    expect(popover()!.parentElement).toBe(document.body)
+    expect(popover()!.style.left).toBe('696px')
+    expect(popover()!.style.top).toBe('432px')
   })
 
   it('opens only on a visible pill click, applies the blue actor outline, and second click closes', async () => {

@@ -34,7 +34,8 @@
     "/i/*",
     "/deeplink-ticket",
     "/activation-prepared",
-    "/conversion/*"
+    "/conversion/*",
+    "/architecture-tokens/*"
   ],
   "exclude": []
 }

@@ -20,7 +20,8 @@ export const AUTHENTICATED_PATHS = [
   // is read from the middleware-populated forgeContext — without this entry
   // the first staging job failed at stage 'claim' with an empty identity
   // (2026-08-11, job b275a201).
-  '/conversion'
+  '/conversion',
+  '/architecture-tokens'
 ];
 
 const DEEPLINK_TICKET_CORS_HEADERS: Record<string, string> = {

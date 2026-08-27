@@ -18,6 +18,7 @@ describe("_middleware", () => {
 
   it("adds /deeplink-ticket to AUTHENTICATED_PATHS; /d and /i stay public", () => {
     expect(AUTHENTICATED_PATHS).toContain("/deeplink-ticket");
+    expect(AUTHENTICATED_PATHS).toContain("/architecture-tokens");
     expect(AUTHENTICATED_PATHS.some((p) => p === "/d" || p === "/i")).toBe(false);
   });
 

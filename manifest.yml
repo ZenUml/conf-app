@@ -155,6 +155,7 @@ permissions:
     # fetch permissions options and URLs" does not require admin approval.
     fetch:
       backend:
+        - https://api.openai.com
         - https://zenuml.com
         - https://*.zenuml.com
         - https://diagramly.ai

@@ -8,6 +8,6 @@ const routes = JSON.parse(readFileSync(routesPath, "utf-8"));
 
 describe("public/_routes.json (Pages route allowlist)", () => {
   it("includes the new deeplink serving + mint paths", () => {
-    expect(routes.include).toEqual(expect.arrayContaining(["/d/*", "/i/*", "/deeplink-ticket"]));
+    expect(routes.include).toEqual(expect.arrayContaining(["/d/*", "/i/*", "/deeplink-ticket", "/architecture-tokens/*"]));
   });
 });

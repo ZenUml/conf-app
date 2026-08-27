@@ -12,7 +12,9 @@ import { mixpanelImportServiceEvents } from '../service/mixpanelService';
 
 export const PILOT_TENANT_ALIAS = 'example-tenant';
 export const CALIBRATION_SAMPLE_SIZE = 10;
-export const EXTRACTOR_MODEL = 'gpt-5.3-codex-spark';
+// “Spark” is the Codex-app tier name. The supported server-side API model id
+// is gpt-5.3-codex (OpenAI model docs, verified 2026-08-27).
+export const EXTRACTOR_MODEL = 'gpt-5.3-codex';
 export const EXTRACTOR_PROMPT_VERSION = 'architecture-token-mvp0-v1';
 
 type CandidateType = 'service' | 'api' | 'external-service';
@@ -22,7 +24,9 @@ type SourceStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'partial';
 
 export interface ArchitectureTokenEnv extends SnapshotEnv {
   ARCHITECTURE_TOKEN_PILOT_CLOUD_ID?: string;
+  ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID?: string;
   ARCHITECTURE_TOKEN_OPENAI_API_KEY?: string;
+  ARCHITECTURE_TOKEN_CALIBRATION_EXECUTE_ENABLED?: string;
   ARCHITECTURE_TOKEN_CALIBRATION_WRITE_ENABLED?: string;
 }
 
@@ -284,6 +288,9 @@ export async function runCalibration(
   sources: EligibleSource[],
   options: { dryRun: boolean; retryOf: string | null; runId?: string; extractor?: Extractor } = { dryRun: true, retryOf: null },
 ): Promise<CalibrationResult> {
+  if (env.ARCHITECTURE_TOKEN_CALIBRATION_EXECUTE_ENABLED !== 'true') {
+    throw new HttpError(403, 'Architecture Token calibration execution is disabled');
+  }
   if (!options.dryRun && env.ARCHITECTURE_TOKEN_CALIBRATION_WRITE_ENABLED !== 'true') {
     throw new HttpError(403, 'Architecture Token calibration writes are disabled');
   }
@@ -340,7 +347,12 @@ export async function handleCalibration(
     if (request.method !== 'POST') throw new HttpError(405, 'Method Not Allowed');
     const body = await request.json().catch(() => null) as { sources?: unknown; dryRun?: unknown; retryOf?: unknown; runId?: unknown } | null;
     const context = await authenticateMetricsRequest(request, env, { backendOnly: true, forgeContext: data.forgeContext });
-    if (!env.ARCHITECTURE_TOKEN_PILOT_CLOUD_ID || context.cloudId !== env.ARCHITECTURE_TOKEN_PILOT_CLOUD_ID) {
+    if (
+      !env.ARCHITECTURE_TOKEN_PILOT_CLOUD_ID
+      || !env.ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID
+      || context.cloudId !== env.ARCHITECTURE_TOKEN_PILOT_CLOUD_ID
+      || context.appId !== env.ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID
+    ) {
       throw new HttpError(403, 'Architecture Token calibration is not enabled for this tenant');
     }
     if (body?.dryRun != null && typeof body.dryRun !== 'boolean') throw new HttpError(400, 'dryRun must be boolean');

@@ -14,6 +14,7 @@ vi.mock('../metrics-cache/snapshot/common', async (importOriginal) => {
 import { authenticateMetricsRequest } from '../metrics-cache/snapshot/common';
 import {
   handleCalibration,
+  EXTRACTOR_MODEL,
   isMermaidSequenceSource,
   runCalibration,
   selectCalibrationSources,
@@ -52,6 +53,10 @@ describe('MVP-0 Mermaid sequence gate', () => {
 });
 
 describe('MVP-0 conservative candidate extraction', () => {
+  it('uses the supported GPT-5.3 Codex API model id, not the Codex-app Spark tier name', () => {
+    expect(EXTRACTOR_MODEL).toBe('gpt-5.3-codex');
+  });
+
   it('keeps only declared participants carrying an explicit allowed type, never client/UI participants', async () => {
     const code = [
       'sequenceDiagram',
@@ -61,7 +66,7 @@ describe('MVP-0 conservative candidate extraction', () => {
       'User->>API: create order',
     ].join('\n');
     const sources = await selectCalibrationSources(calibrationSources(code));
-    const result = await runCalibration({} as never, sources, {
+    const result = await runCalibration({ ARCHITECTURE_TOKEN_CALIBRATION_EXECUTE_ENABLED: 'true' } as never, sources, {
       dryRun: true,
       retryOf: null,
       extractor: {
@@ -78,7 +83,7 @@ describe('MVP-0 conservative candidate extraction', () => {
 
   it('treats output without literal participant evidence as an abstention', async () => {
     const sources = await selectCalibrationSources(calibrationSources());
-    const result = await runCalibration({} as never, sources, {
+    const result = await runCalibration({ ARCHITECTURE_TOKEN_CALIBRATION_EXECUTE_ENABLED: 'true' } as never, sources, {
       dryRun: true,
       retryOf: null,
       extractor: { extract: async () => ({ candidates: [
@@ -91,10 +96,18 @@ describe('MVP-0 conservative candidate extraction', () => {
 });
 
 describe('MVP-0 isolation and persistence', () => {
+  it('does not invoke even an injected extractor until explicit execution is enabled', async () => {
+    const sources = await selectCalibrationSources(calibrationSources());
+    const extractor = { extract: vi.fn() };
+    await expect(runCalibration({} as never, sources, { dryRun: true, retryOf: null, extractor }))
+      .rejects.toThrow('execution is disabled');
+    expect(extractor.extract).not.toHaveBeenCalled();
+  });
+
   it('keeps dry runs read-only even when extraction returns candidates', async () => {
     const sources = await selectCalibrationSources(calibrationSources());
     const batch = vi.fn();
-    const result = await runCalibration({ DB: { batch } } as never, sources, {
+    const result = await runCalibration({ DB: { batch }, ARCHITECTURE_TOKEN_CALIBRATION_EXECUTE_ENABLED: 'true' } as never, sources, {
       dryRun: true,
       retryOf: null,
       extractor: { extract: async () => ({ candidates: [
@@ -113,11 +126,32 @@ describe('MVP-0 isolation and persistence', () => {
     const batch = vi.fn();
     const response = await handleCalibration(
       new Request('https://example.test/architecture-tokens/calibration', { method: 'POST', body: '{}' }),
-      { DB: { batch }, ARCHITECTURE_TOKEN_PILOT_CLOUD_ID: 'pilot-cloud' } as never,
+      {
+        DB: { batch },
+        ARCHITECTURE_TOKEN_PILOT_CLOUD_ID: 'pilot-cloud',
+        ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID: '8ad26115-211f-4216-971b-0540f606303d',
+      } as never,
       {} as never,
     );
     expect(response.status).toBe(403);
     expect(batch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a different Forge app even when it is running in the pilot tenant', async () => {
+    vi.mocked(authenticateMetricsRequest).mockResolvedValueOnce({
+      cloudId: 'pilot-cloud', installationId: 'installation-b', appId: 'other-forge-app',
+      clientDomain: 'example-tenant', productType: 'lite', environment: 'staging',
+    });
+    const response = await handleCalibration(
+      new Request('https://example.test/architecture-tokens/calibration', { method: 'POST', body: '{}' }),
+      {
+        DB: { batch: vi.fn() },
+        ARCHITECTURE_TOKEN_PILOT_CLOUD_ID: 'pilot-cloud',
+        ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID: '8ad26115-211f-4216-971b-0540f606303d',
+      } as never,
+      {} as never,
+    );
+    expect(response.status).toBe(403);
   });
 
   it('uses deterministic upserts when an explicit replay reuses a run id', async () => {
@@ -140,8 +174,13 @@ describe('MVP-0 isolation and persistence', () => {
       runId: '11111111-1111-4111-8111-111111111111',
       extractor,
     };
-    await runCalibration({ DB: db, ARCHITECTURE_TOKEN_CALIBRATION_WRITE_ENABLED: 'true' } as never, sources, options);
-    await runCalibration({ DB: db, ARCHITECTURE_TOKEN_CALIBRATION_WRITE_ENABLED: 'true' } as never, sources, options);
+    const env = {
+      DB: db,
+      ARCHITECTURE_TOKEN_CALIBRATION_EXECUTE_ENABLED: 'true',
+      ARCHITECTURE_TOKEN_CALIBRATION_WRITE_ENABLED: 'true',
+    };
+    await runCalibration(env as never, sources, options);
+    await runCalibration(env as never, sources, options);
     expect(batch).toHaveBeenCalledTimes(2);
     expect(sql.filter((statement) => statement.includes('ArchitectureTokenCandidate'))[0]).toContain('ON CONFLICT(runId, sourceId, sourceRevision, candidateType, candidateLabel)');
   });

@@ -148,6 +148,30 @@
       .scope ul { margin: 0; padding-left: 19px; color: var(--muted); }
       .scope li + li { margin-top: 8px; }
 
+      .sample-callout {
+        margin: 0 0 18px;
+        padding: 18px 20px;
+        border-left: 4px solid var(--amber);
+        border-radius: 0 12px 12px 0;
+        background: var(--amber-soft);
+        color: #684400;
+      }
+
+      .sample-callout strong { color: #694200; }
+      .sample-note { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
+      .sample-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 8px 28px rgba(38, 57, 92, 0.05); }
+      .sample-table { width: 100%; min-width: 930px; border-collapse: collapse; text-align: left; }
+      .sample-table th { padding: 13px 15px; background: #f0f5ff; color: var(--navy); font-size: 0.73rem; letter-spacing: 0.06em; text-transform: uppercase; }
+      .sample-table td { padding: 14px 15px; border-top: 1px solid var(--line); color: #3f4e66; font-size: 0.9rem; vertical-align: top; }
+      .sample-table td:first-child { min-width: 156px; color: var(--ink); font-weight: 750; }
+      .sample-table td:nth-child(2) { min-width: 128px; }
+      .sample-table td:nth-child(3) { min-width: 284px; }
+      .sample-table td:nth-child(5) { min-width: 235px; }
+      .confidence { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 800; }
+      .confidence.high { background: var(--teal-soft); color: #006e67; }
+      .confidence.medium { background: #eef3ff; color: #2852a5; }
+      .confidence.medium-high { background: #eef3ff; color: #2852a5; }
+
       .tradeoffs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
       .tradeoff { padding: 21px; border-top: 4px solid var(--blue); border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(38, 57, 92, 0.05); }
       .tradeoff p { margin-bottom: 0; color: var(--muted); font-size: 0.92rem; }
@@ -272,6 +296,121 @@
         </div>
       </section>
 
+      <section aria-labelledby="sample-title">
+        <p class="eyebrow">Reviewable sample evidence</p>
+        <h2 id="sample-title">What conservative occurrence candidates can look like.</h2>
+        <div class="sample-callout">
+          <strong>Pre-calibration human-reviewed sample evidence only.</strong> This table is not output from an executed model run. It uses sanitized label excerpts and non-verbatim interaction summaries from the controlled internal pilot; no diagram source, page identifier, or tenant identifier is reproduced.
+        </div>
+        <div class="sample-table-wrap">
+          <table class="sample-table">
+            <thead>
+              <tr>
+                <th scope="col">Participant label</th>
+                <th scope="col">Proposed type</th>
+                <th scope="col">Interaction evidence, summarized</th>
+                <th scope="col">Confidence</th>
+                <th scope="col">Why it clears the conservative rule</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Promotion API</td>
+                <td>API</td>
+                <td>Handles apply and reserve requests, coordinates eligibility and reservation actions, and returns their results.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The API role is explicit and the reviewed flow shows direct request/response interactions.</td>
+              </tr>
+              <tr>
+                <td>Promotion Service</td>
+                <td>Service</td>
+                <td>Receives a reservation delegation, performs voucher reservation, requests eligibility validation, and returns the outcome.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The service role is explicit in both the label and its direct orchestration interactions.</td>
+              </tr>
+              <tr>
+                <td>IDP Service</td>
+                <td>Service</td>
+                <td>Is invoked from the reservation flow to validate eligibility before the reservation result is returned.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>It is an explicit named service participant in a direct validation interaction, not an inferred entity.</td>
+              </tr>
+              <tr>
+                <td>IAM/Auth Server</td>
+                <td>Service</td>
+                <td>Authorizes finance and campaign write or approval actions before the requested work proceeds.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The reviewed role is a server-side authorization service with direct response evidence.</td>
+              </tr>
+              <tr>
+                <td>Budget Context</td>
+                <td>Service</td>
+                <td>Registers sponsors, creates budget pools, sets contribution ratios, approves funds, and earmarks campaign funds.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>Despite the abstract label, the reviewed flow shows direct commands and responses for a service-level role.</td>
+              </tr>
+              <tr>
+                <td>ERP/Accounting</td>
+                <td>External-service</td>
+                <td>Receives a budget-earmark synchronization request and returns a synchronization confirmation.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The reviewed request/response shows a named business-system integration, rather than a UI or datastore.</td>
+              </tr>
+              <tr>
+                <td>Payment Hub</td>
+                <td>Service</td>
+                <td>Accepts transaction initiation, resolves organization and terminal context, creates the transaction, and routes payment onward.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The reviewed flow gives it an explicit server-side routing role with direct interactions.</td>
+              </tr>
+              <tr>
+                <td>Organization Management</td>
+                <td>Service</td>
+                <td>Resolves organization, business-unit, and payment-terminal information from the supplied site context.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The participant answers a direct query with service-level information, not a generic workflow step.</td>
+              </tr>
+              <tr>
+                <td>Payment Provider</td>
+                <td>External-service</td>
+                <td>Accepts the routed payment and returns the resulting outcome to the payment flow.</td>
+                <td><span class="confidence medium-high">Medium-high</span></td>
+                <td>It is an explicit provider participant with request/response evidence; the external boundary remains a proposed classification.</td>
+              </tr>
+              <tr>
+                <td>Mini App Runtime</td>
+                <td>Service</td>
+                <td>Receives the mini-app launch and consent initiation, manages the consent exchange, and returns the authorization result or error.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The reviewed message flow shows an explicit runtime service role; client and host participants were excluded separately.</td>
+              </tr>
+              <tr>
+                <td>Mini App Backend</td>
+                <td>Service</td>
+                <td>Receives the authorization result, requests user information from the backend service, then returns that information to the mini app.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The backend/service role is explicit and has direct interaction evidence.</td>
+              </tr>
+              <tr>
+                <td>VSF Backend</td>
+                <td>Service</td>
+                <td>Validates the authorization result, applies consent-scope filtering, and returns permitted user information.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The reviewed participant is server-side and explicit, rather than an inferred module or client.</td>
+              </tr>
+              <tr>
+                <td>Consent Portal</td>
+                <td>Service</td>
+                <td>Persists the consent record during the authorization flow, including the consent purpose and outcome.</td>
+                <td><span class="confidence high">High</span></td>
+                <td>The reviewed flow gives it a direct persistence interaction; this remains a candidate occurrence rather than a confirmed identity.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="sample-note"><strong>Important:</strong> these are occurrence candidates, not confirmed enterprise identities. They are not merged across diagrams, linked across tenants, or exposed to customers. The exact labels are sanitized evidence excerpts from the controlled internal pilot.</p>
+      </section>
+
       <section aria-labelledby="scope-title">
         <p class="eyebrow">Scope and safety</p>
         <h2 id="scope-title">Narrow by design.</h2>
@@ -367,7 +506,7 @@
 
       <footer>
         <p><strong>Evidence basis:</strong> approved MVP-0 design and completed implementation verification. The repository’s existing deviation log concerns an unrelated onboarding change and does not alter this brief.</p>
-        <p>This page intentionally contains no customer content, tenant identifiers, credentials, internal identifiers, or raw implementation configuration.</p>
+        <p>This page contains only sanitized pilot-label excerpts and non-verbatim evidence summaries—never raw diagram source, page or tenant identifiers, credentials, internal identifiers, or raw implementation configuration.</p>
       </footer>
     </main>
   </body>

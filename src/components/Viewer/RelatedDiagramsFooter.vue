@@ -32,6 +32,7 @@
         :key="item.actorId"
         type="button"
         class="related-diagrams-pill"
+        :class="{ 'related-diagrams-pill--concealed': !diagramHovered }"
         data-testid="related-diagrams-pill"
         :data-actor="item.actorId"
         :style="{ left: `${item.left}px`, top: `${item.top}px` }"
@@ -131,6 +132,7 @@ const indexedAt = ref<string | null>(null)
 const open = ref<RelatedParticipant | null>(null)
 const hostEl = ref<HTMLElement | null>(null)
 const pills = ref<Pill[]>([])
+const diagramHovered = ref(false)
 let requested = false
 
 const withRelated = computed(() => participants.value.filter((participant) => participant.related.length))
@@ -259,6 +261,16 @@ async function load() {
   window.addEventListener('resize', layoutPills)
   document.addEventListener('keydown', onKeyDown)
   document.addEventListener('mousedown', onOutsideMouseDown)
+  hostEl.value?.addEventListener('pointerenter', onDiagramPointerEnter)
+  hostEl.value?.addEventListener('pointerleave', onDiagramPointerLeave)
+}
+
+function onDiagramPointerEnter() {
+  diagramHovered.value = true
+}
+
+function onDiagramPointerLeave() {
+  diagramHovered.value = false
 }
 
 function toggle(participant: RelatedParticipant) {
@@ -302,6 +314,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', layoutPills)
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('mousedown', onOutsideMouseDown)
+  hostEl.value?.removeEventListener('pointerenter', onDiagramPointerEnter)
+  hostEl.value?.removeEventListener('pointerleave', onDiagramPointerLeave)
 })
 </script>
 
@@ -348,6 +362,11 @@ onBeforeUnmount(() => {
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
+}
+
+.related-diagrams-pill--concealed {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .related-diagrams-pill:hover {

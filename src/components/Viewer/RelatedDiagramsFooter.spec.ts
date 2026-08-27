@@ -120,6 +120,8 @@ const pill = (h: HTMLElement, actor: string) =>
     `[data-testid="related-diagrams-pill"][data-actor="${actor}"]`,
   )
 const popover = () => document.querySelector<HTMLElement>('[data-testid="related-diagrams-popover"]')
+const enterDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerenter'))
+const leaveDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerleave'))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -211,19 +213,36 @@ describe('RelatedDiagramsFooter', () => {
     expect(getRelatedDiagrams).toHaveBeenCalledTimes(1)
   })
 
-  it('shows related pills immediately and hover never opens a popover', async () => {
-    related.value = twoParticipants
+  it('reveals every related pill on whole-diagram entry and conceals them on leave', async () => {
+    related.value = {
+      ...twoParticipants,
+      participants: [
+        twoParticipants.participants[0],
+        {
+          actorId: 'GONE',
+          rawLabel: 'Delivery API',
+          related: [{ contentId: '10', pageId: '1000', pageTitle: 'Delivery', spaceKey: 'OP', rawLabelThere: 'Delivery API' }],
+        },
+        twoParticipants.participants[1],
+      ],
+    }
     const { h } = mountFooter()
     await flushPromises()
 
-    expect(pill(h, 'PA')!.classList).not.toContain('related-diagrams-pill--concealed')
+    expect(pill(h, 'PA')!.classList).toContain('related-diagrams-pill--concealed')
+    expect(pill(h, 'GONE')!.classList).toContain('related-diagrams-pill--concealed')
     expect(pill(h, 'U')).toBeNull()
-    h.querySelector('rect[name="PA"]')!.dispatchEvent(
-      new MouseEvent('mouseover', { bubbles: true }),
-    )
+    enterDiagram(h)
     await flushPromises()
+    expect(pill(h, 'PA')!.classList).not.toContain('related-diagrams-pill--concealed')
+    expect(pill(h, 'GONE')!.classList).not.toContain('related-diagrams-pill--concealed')
     expect(popover()).toBeNull()
     expect(pill(h, 'PA')!.title).toBe('2 related diagrams you can access — click to see')
+
+    leaveDiagram(h)
+    await flushPromises()
+    expect(pill(h, 'PA')!.classList).toContain('related-diagrams-pill--concealed')
+    expect(pill(h, 'GONE')!.classList).toContain('related-diagrams-pill--concealed')
   })
 
   it('gives an immediately visible pill a keyboard focus treatment', async () => {
@@ -266,11 +285,13 @@ describe('RelatedDiagramsFooter', () => {
     expect(popover()!.style.top).toBe('88px')
   })
 
-  it('opens only on pill click, applies the blue actor outline, and second click closes', async () => {
+  it('opens only on a visible pill click, applies the blue actor outline, and second click closes', async () => {
     related.value = twoParticipants
     const { h } = mountFooter()
     await flushPromises()
 
+    enterDiagram(h)
+    await flushPromises()
     const button = pill(h, 'PA')!
     button.click()
     await flushPromises()

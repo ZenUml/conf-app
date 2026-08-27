@@ -4,6 +4,7 @@ import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 const AI_TITLE_FLAG_ID = 'ai-title-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
+const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -97,6 +98,14 @@ export async function isAgentLinkEnabled(): Promise<boolean> {
 
   const client = await getFeatureFlagsClient()
   return client.checkFlag(AGENT_LINK_FLAG_ID, false)
+}
+
+/** Viewer "also appears in other diagrams" context. Pilot-tenant rule in prod; default false. */
+export async function isArchitectureTokensEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return false
+
+  const client = await getFeatureFlagsClient()
+  return client.checkFlag(ARCHITECTURE_TOKENS_FLAG_ID, false)
 }
 
 export function resetAiTitleFlagForTests(): void {

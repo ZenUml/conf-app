@@ -79,6 +79,10 @@ describe('MVP-0 conservative candidate extraction', () => {
     expect(result.acceptedCount).toBe(10);
     expect(result.sourceResults.every((source) => source.candidates.length === 1)).toBe(true);
     expect(result.sourceResults[0].candidates).toEqual([expect.objectContaining({ label: 'Orders API', type: 'api' })]);
+    expect(result.sourceResults[0].candidates[0]).toMatchObject({
+      observedRole: 'Explicit API participant',
+      evidenceSnippet: 'Explicit participant declaration and allowed role verified',
+    });
   });
 
   it('treats output without literal participant evidence as an abstention', async () => {

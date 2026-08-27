@@ -17,10 +17,10 @@ export const CALIBRATION_SAMPLE_SIZE = 10;
 export const EXTRACTOR_MODEL = 'gpt-5.3-codex';
 export const EXTRACTOR_PROMPT_VERSION = 'architecture-token-mvp0-v1';
 
-type CandidateType = 'service' | 'api' | 'external-service';
-type CandidateStatus = 'accepted' | 'rejected' | 'abstained';
-type Confidence = 'high' | 'medium' | 'low';
-type SourceStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'partial';
+export type CandidateType = 'service' | 'api' | 'external-service';
+export type CandidateStatus = 'accepted' | 'rejected' | 'abstained';
+export type Confidence = 'high' | 'medium' | 'low';
+export type SourceStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'partial';
 
 export interface ArchitectureTokenEnv extends SnapshotEnv {
   ARCHITECTURE_TOKEN_PILOT_CLOUD_ID?: string;
@@ -28,6 +28,13 @@ export interface ArchitectureTokenEnv extends SnapshotEnv {
   ARCHITECTURE_TOKEN_OPENAI_API_KEY?: string;
   ARCHITECTURE_TOKEN_CALIBRATION_EXECUTE_ENABLED?: string;
   ARCHITECTURE_TOKEN_CALIBRATION_WRITE_ENABLED?: string;
+  /** Protected D1 scope for the internal OpenRouter pilot only. */
+  ARCHITECTURE_TOKEN_PILOT_SPACE_ID?: string;
+  /** A second, model-specific gate before customer source is sent to OpenRouter. */
+  ARCHITECTURE_TOKEN_OPENROUTER_EXECUTE_ENABLED?: string;
+  OPENROUTER_API_KEY?: string;
+  /** Protected ten-source human-review manifest; never accepted over HTTP. */
+  ARCHITECTURE_TOKEN_OPENROUTER_CALIBRATION_MANIFEST?: string;
 }
 
 export interface CalibrationSourceInput {
@@ -37,12 +44,12 @@ export interface CalibrationSourceInput {
   rawValue: string;
 }
 
-interface EligibleSource extends CalibrationSourceInput {
+export interface EligibleSource extends CalibrationSourceInput {
   mermaidCode: string;
   sourceHash: string;
 }
 
-interface ExtractedCandidate {
+export interface ExtractedCandidate {
   label: string;
   type: CandidateType;
   observedRole: string;
@@ -51,11 +58,11 @@ interface ExtractedCandidate {
   status: CandidateStatus;
 }
 
-interface Extractor {
+export interface Extractor {
   extract(source: EligibleSource): Promise<unknown>;
 }
 
-interface SourceResult {
+export interface SourceResult {
   source: EligibleSource;
   status: SourceStatus;
   failureStage: 'extraction' | 'validation' | null;
@@ -66,6 +73,8 @@ export interface CalibrationResult {
   runId: string;
   dryRun: boolean;
   status: SourceStatus;
+  extractorModel: string;
+  extractorPromptVersion: string;
   sourceResults: SourceResult[];
   acceptedCount: number;
   rejectedCount: number;
@@ -78,7 +87,7 @@ const CANDIDATE_TYPES = new Set<CandidateType>(['service', 'api', 'external-serv
 const CANDIDATE_STATUSES = new Set<CandidateStatus>(['accepted', 'rejected', 'abstained']);
 const CONFIDENCES = new Set<Confidence>(['high', 'medium', 'low']);
 
-const EXTRACTION_SYSTEM_PROMPT = `You extract conservative Architecture Token candidates from Mermaid sequence diagrams.
+export const EXTRACTION_SYSTEM_PROMPT = `You extract conservative Architecture Token candidates from Mermaid sequence diagrams.
 Return JSON only: {"candidates":[{"label":"...","type":"service|api|external-service","observedRole":"one sentence","evidenceSnippet":"one source line","confidence":"high|medium|low","status":"accepted|rejected|abstained"}]}.
 Emit a candidate only when it is an explicitly declared \`participant\`, not an \`actor\`, and the source explicitly represents it as a Service, API, or external service. Exclude people, actors, clients, UIs, workflow steps, data stores, databases, generic modules, inferred entities, and merges. If uncertain, emit no candidate. Labels must exactly match the declared participant identifier or label. Evidence must be a literal source line. Do not infer.`;
 
@@ -133,6 +142,17 @@ export async function selectCalibrationSources(value: unknown): Promise<Eligible
   if (!Array.isArray(value) || value.length !== CALIBRATION_SAMPLE_SIZE) {
     throw new HttpError(400, `Calibration requires exactly ${CALIBRATION_SAMPLE_SIZE} sources`);
   }
+  return selectPilotSources(value);
+}
+
+/**
+ * Internal-only source normalization for the gated pilot runner. Its caller
+ * obtains scope from protected runtime configuration, never from a request.
+ */
+export async function selectPilotSources(value: unknown): Promise<EligibleSource[]> {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new HttpError(400, 'Pilot requires at least one source');
+  }
   const ids = new Set<string>();
   const sources: EligibleSource[] = [];
   for (const item of value) {
@@ -174,6 +194,12 @@ function hasExplicitAllowedTypeSignal(candidate: Pick<ExtractedCandidate, 'label
     && /\b(service|api)\b/.test(context);
 }
 
+function derivedObservedRole(type: CandidateType): string {
+  if (type === 'api') return 'Explicit API participant';
+  if (type === 'service') return 'Explicit service participant';
+  return 'Explicit external service participant';
+}
+
 function parseExtractorOutput(raw: unknown, source: EligibleSource): ExtractedCandidate[] {
   let payload: unknown = raw;
   if (typeof raw === 'string') {
@@ -199,7 +225,14 @@ function parseExtractorOutput(raw: unknown, source: EligibleSource): ExtractedCa
     const parsed = { label, observedRole, evidenceSnippet, type: type as CandidateType, confidence: confidence as Confidence, status: status as CandidateStatus };
     if (!participants.has(label.toLocaleLowerCase()) || !evidenceIsLiteral(source.mermaidCode, evidenceSnippet, label)) continue;
     if (!hasExplicitAllowedTypeSignal(parsed)) continue;
-    valid.push(parsed);
+    // The literal source line is needed only for in-memory validation. Derived
+    // records deliberately retain a bounded, non-source evidence statement
+    // rather than Mermaid text or free-form model prose.
+    valid.push({
+      ...parsed,
+      observedRole: derivedObservedRole(parsed.type),
+      evidenceSnippet: 'Explicit participant declaration and allowed role verified',
+    });
   }
   const deduped = new Map<string, ExtractedCandidate>();
   for (const candidate of valid) {
@@ -252,7 +285,7 @@ async function persistResult(env: ArchitectureTokenEnv, result: CalibrationResul
        extractorPromptVersion = excluded.extractorPromptVersion, sourceCount = excluded.sourceCount,
        acceptedCount = excluded.acceptedCount, rejectedCount = excluded.rejectedCount,
        abstainedCount = excluded.abstainedCount, updatedAt = excluded.updatedAt`,
-  ).bind(result.runId, PILOT_TENANT_ALIAS, result.status, retryOf, EXTRACTOR_MODEL, EXTRACTOR_PROMPT_VERSION,
+  ).bind(result.runId, PILOT_TENANT_ALIAS, result.status, retryOf, result.extractorModel, result.extractorPromptVersion,
     result.sourceResults.length, result.acceptedCount, result.rejectedCount, result.abstainedCount, now)];
   for (const sourceResult of result.sourceResults) {
     const { source } = sourceResult;
@@ -276,17 +309,26 @@ async function persistResult(env: ArchitectureTokenEnv, result: CalibrationResul
            candidateRole = excluded.candidateRole, evidenceSnippet = excluded.evidenceSnippet,
            confidence = excluded.confidence, status = excluded.status, updatedAt = excluded.updatedAt`,
       ).bind(result.runId, source.sourceId, source.sourceRevision, source.sourceHash, candidate.label, candidate.type,
-        candidate.observedRole, candidate.evidenceSnippet, EXTRACTOR_MODEL, EXTRACTOR_PROMPT_VERSION,
+        candidate.observedRole, candidate.evidenceSnippet, result.extractorModel, result.extractorPromptVersion,
         candidate.confidence, candidate.status, retryOf, now));
     }
   }
   await env.DB.batch(statements);
 }
 
+export interface CalibrationRunOptions {
+  dryRun: boolean;
+  retryOf: string | null;
+  runId?: string;
+  extractor?: Extractor;
+  extractorModel?: string;
+  promptVersion?: string;
+}
+
 export async function runCalibration(
   env: ArchitectureTokenEnv,
   sources: EligibleSource[],
-  options: { dryRun: boolean; retryOf: string | null; runId?: string; extractor?: Extractor } = { dryRun: true, retryOf: null },
+  options: CalibrationRunOptions = { dryRun: true, retryOf: null },
 ): Promise<CalibrationResult> {
   if (env.ARCHITECTURE_TOKEN_CALIBRATION_EXECUTE_ENABLED !== 'true') {
     throw new HttpError(403, 'Architecture Token calibration execution is disabled');
@@ -295,6 +337,8 @@ export async function runCalibration(
     throw new HttpError(403, 'Architecture Token calibration writes are disabled');
   }
   const extractor = options.extractor ?? openAiExtractor(env);
+  const extractorModel = options.extractorModel ?? EXTRACTOR_MODEL;
+  const extractorPromptVersion = options.promptVersion ?? EXTRACTOR_PROMPT_VERSION;
   const sourceResults: SourceResult[] = [];
   for (const source of sources) {
     try {
@@ -308,7 +352,8 @@ export async function runCalibration(
   const rejectedCount = sourceResults.reduce((sum, item) => sum + item.candidates.filter((candidate) => candidate.status === 'rejected').length, 0);
   const abstainedCount = sourceResults.reduce((sum, item) => sum + (item.candidates.length === 0 ? 1 : item.candidates.filter((candidate) => candidate.status === 'abstained').length), 0);
   const result: CalibrationResult = {
-    runId: options.runId ?? crypto.randomUUID(), dryRun: options.dryRun, status: statusFor(sourceResults), sourceResults,
+    runId: options.runId ?? crypto.randomUUID(), dryRun: options.dryRun, status: statusFor(sourceResults),
+    extractorModel, extractorPromptVersion, sourceResults,
     acceptedCount, rejectedCount, abstainedCount,
   };
   if (!options.dryRun) await persistResult(env, result, options.retryOf);

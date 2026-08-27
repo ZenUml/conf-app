@@ -22,6 +22,7 @@ const COMPLETED_STATUS = {
     diagramCode: 'A->B: fixed',
     repairAttempts: 1,
     durationMs: 12_000,
+    llmDurationMs: 9_500,
     model: 'anthropic/claude-sonnet-5',
     reasoningDisabled: true,
   },
@@ -31,7 +32,13 @@ const FAILED_STATUS = {
   status: 'FAILED',
   message: 'Failed',
   progress: 0,
-  output: { durationMs: 8_000, repairAttempts: 2, timedOut: false },
+  output: {
+    durationMs: 8_000,
+    llmDurationMs: 7_600,
+    repairAttempts: 2,
+    model: 'anthropic/claude-sonnet-5',
+    timedOut: false,
+  },
   error: 'Unknown error',
 }
 
@@ -144,6 +151,7 @@ describe('AIRepair analytics', () => {
       macro_type: 'sequence',
       poll_count: 1,
       backend_duration_ms: 12_000,
+      backend_llm_duration_ms: 9_500,
       repair_attempts: 1,
       ai_model: 'anthropic/claude-sonnet-5',
       reasoning_disabled: true,
@@ -165,7 +173,9 @@ describe('AIRepair analytics', () => {
       failure_reason: 'server_failed',
       failure_phase: 'server',
       backend_duration_ms: 8_000,
+      backend_llm_duration_ms: 7_600,
       repair_attempts: 2,
+      ai_model: 'anthropic/claude-sonnet-5',
     }))
     wrapper.unmount()
   })
@@ -181,6 +191,7 @@ describe('AIRepair analytics', () => {
       surface: 'modal',
       failure_reason: 'start_failed',
       failure_phase: 'start',
+      ai_model: 'openai/gpt-5.6-luna',
     }))
     wrapper.unmount()
   })
@@ -282,6 +293,7 @@ describe('AIRepair analytics', () => {
         failure_phase: 'timeout',
         duration_ms: 60_000,
         timeout_budget_ms: 60_000,
+        ai_model: 'openai/gpt-5.6-luna',
       }),
     )
     wrapper.unmount()

@@ -52,6 +52,7 @@ export async function getFixDiagramStatus(
     diagramCode?: string;
     repairAttempts?: number;
     durationMs?: number;
+    llmDurationMs?: number;
     timeBudgetMs?: number;
     model?: string;
     reasoningDisabled?: boolean;
@@ -72,6 +73,7 @@ export async function getFixDiagramStatus(
       diagramCode?: string;
       repairAttempts?: number;
       durationMs?: number;
+      llmDurationMs?: number;
       timeBudgetMs?: number;
       model?: string;
       reasoningDisabled?: boolean;

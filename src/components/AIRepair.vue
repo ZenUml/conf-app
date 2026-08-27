@@ -500,6 +500,9 @@ const backendAnalytics = (status?: RepairJobStatus) => {
   const output = status?.output;
   return {
     ...(typeof output?.durationMs === 'number' ? { backend_duration_ms: output.durationMs } : {}),
+    ...(typeof output?.llmDurationMs === 'number'
+      ? { backend_llm_duration_ms: output.llmDurationMs }
+      : {}),
     ...(typeof output?.repairAttempts === 'number' ? { repair_attempts: output.repairAttempts } : {}),
     ...(typeof output?.model === 'string' ? { ai_model: output.model } : {}),
     ...(typeof output?.reasoningDisabled === 'boolean' ? { reasoning_disabled: output.reasoningDisabled } : {}),
@@ -535,6 +538,7 @@ const failRepair = (
     poll_interval_ms: POLL_INTERVAL_MS,
     timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
     poll_count: pollCount,
+    ...requestedConfigAnalytics(),
     ...backendAnalytics(status),
   });
   stopPolling();

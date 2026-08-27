@@ -74,11 +74,14 @@ export type AnalyticsProperties = {
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
   // _failed). `duration_ms` below is click-to-visible-result wall time;
   // `backend_duration_ms` is job started-to-terminal time reported by the
-  // Diagramly backend. Keep both so polling/UI delay remains attributable.
+  // Diagramly backend; `backend_llm_duration_ms` sums only the backend LLM
+  // calls across repair attempts. Keep all three so UI/polling and non-LLM
+  // backend overhead remain attributable.
   poll_interval_ms?: number;
   timeout_budget_ms?: number;
   poll_count?: number;
   backend_duration_ms?: number;
+  backend_llm_duration_ms?: number;
   repair_attempts?: number;
   ai_model?: string;
   reasoning_disabled?: boolean;

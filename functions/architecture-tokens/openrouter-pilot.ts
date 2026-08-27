@@ -101,8 +101,12 @@ interface CurrentSourceRow {
   rawValue: unknown;
 }
 
+interface CalibrationManifestSource extends ExpectedOccurrence {
+  sourceRevision: number;
+}
+
 interface CalibrationManifest {
-  sources: ExpectedOccurrence[];
+  sources: CalibrationManifestSource[];
 }
 
 interface OpenRouterCompletion {
@@ -150,12 +154,13 @@ function protectedExecutionEnabled(env: ArchitectureTokenEnv): boolean {
 function assertTrustedExecution(env: ArchitectureTokenEnv): asserts env is ArchitectureTokenEnv & {
   OPENROUTER_API_KEY: string;
   ARCHITECTURE_TOKEN_PILOT_SPACE_ID: string;
+  ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID: string;
   ARCHITECTURE_TOKEN_OPENROUTER_CALIBRATION_MANIFEST: string;
 } {
   // This boundary intentionally runs before D1 access. There is no HTTP route
   // for this module: the scope and all enablement originate in worker secrets.
   if (!protectedExecutionEnabled(env)) throw new Error('OpenRouter pilot execution is not enabled');
-  if (!env.OPENROUTER_API_KEY || !env.ARCHITECTURE_TOKEN_PILOT_SPACE_ID || !env.ARCHITECTURE_TOKEN_OPENROUTER_CALIBRATION_MANIFEST) {
+  if (!env.OPENROUTER_API_KEY || !env.ARCHITECTURE_TOKEN_PILOT_SPACE_ID || !env.ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID || !env.ARCHITECTURE_TOKEN_OPENROUTER_CALIBRATION_MANIFEST) {
     throw new Error('OpenRouter pilot protected runtime configuration is incomplete');
   }
 }
@@ -166,12 +171,14 @@ function parseManifest(value: string): CalibrationManifest {
   const sources = (payload as { sources?: unknown } | null)?.sources;
   if (!Array.isArray(sources) || sources.length !== 10) throw new Error('OpenRouter calibration manifest is invalid');
   const seen = new Set<string>();
-  const parsed: ExpectedOccurrence[] = sources.map((source) => {
+  const parsed: CalibrationManifestSource[] = sources.map((source) => {
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('OpenRouter calibration manifest is invalid');
     const record = source as Record<string, unknown>;
     const sourceId = typeof record.sourceId === 'string' && SOURCE_ID_RE.test(record.sourceId) ? record.sourceId : null;
+    const sourceRevision = Number.isSafeInteger(record.sourceRevision) && (record.sourceRevision as number) > 0
+      ? record.sourceRevision as number : null;
     const candidates = record.candidates;
-    if (!sourceId || !Array.isArray(candidates) || seen.has(sourceId)) throw new Error('OpenRouter calibration manifest is invalid');
+    if (!sourceId || !sourceRevision || !Array.isArray(candidates) || seen.has(sourceId)) throw new Error('OpenRouter calibration manifest is invalid');
     seen.add(sourceId);
     const validCandidates = candidates.map((candidate) => {
       if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new Error('OpenRouter calibration manifest is invalid');
@@ -181,7 +188,7 @@ function parseManifest(value: string): CalibrationManifest {
       if (!label || !['service', 'api', 'external-service'].includes(type)) throw new Error('OpenRouter calibration manifest is invalid');
       return { label, type };
     });
-    return { sourceId, candidates: validCandidates };
+    return { sourceId, sourceRevision, candidates: validCandidates };
   });
   return { sources: parsed };
 }
@@ -205,14 +212,18 @@ function isCurrentGuardedSequence(row: CurrentSourceRow): row is CurrentSourceRo
   }
 }
 
-async function loadCurrentPilotSources(env: ArchitectureTokenEnv & { ARCHITECTURE_TOKEN_PILOT_SPACE_ID: string }): Promise<EligibleSource[]> {
+async function loadCurrentPilotSources(env: ArchitectureTokenEnv & {
+  ARCHITECTURE_TOKEN_PILOT_SPACE_ID: string;
+  ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID: string;
+}): Promise<EligibleSource[]> {
   const response = await env.DB.prepare(
     `SELECT contentId AS sourceId, latestVersionNumber AS sourceRevision, json_extract(body, '$.raw.value') AS rawValue
-       FROM CustomContent
+      FROM CustomContent
       WHERE spaceId = ?1
+        AND appId = ?2
         AND status = 'current'
         AND json_extract(json_extract(body, '$.raw.value'), '$.diagramType') = 'mermaid'`,
-  ).bind(env.ARCHITECTURE_TOKEN_PILOT_SPACE_ID).all<CurrentSourceRow>();
+  ).bind(env.ARCHITECTURE_TOKEN_PILOT_SPACE_ID, env.ARCHITECTURE_TOKEN_PILOT_FORGE_APP_ID).all<CurrentSourceRow>();
   const eligibleRows = (response.results ?? []).filter(isCurrentGuardedSequence);
   return selectPilotSources(eligibleRows);
 }
@@ -364,8 +375,8 @@ async function runModelCalibration(
 }
 
 function exactCalibrationSources(manifest: CalibrationManifest, sources: EligibleSource[]): EligibleSource[] {
-  const byId = new Map(sources.map((source) => [source.sourceId, source]));
-  const selected = manifest.sources.map((expected) => byId.get(expected.sourceId)).filter((source): source is EligibleSource => !!source);
+  const byIdentity = new Map(sources.map((source) => [`${source.sourceId}\u0000${source.sourceRevision}`, source]));
+  const selected = manifest.sources.map((expected) => byIdentity.get(`${expected.sourceId}\u0000${expected.sourceRevision}`)).filter((source): source is EligibleSource => !!source);
   if (selected.length !== manifest.sources.length) throw new Error('OpenRouter calibration sample is no longer current');
   return selected;
 }

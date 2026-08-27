@@ -248,6 +248,7 @@ and `macro_type: "mermaid"`.
 |---|---|
 | `related_count` | Accessible related pages for the selected participant |
 | `same_space` | Whether the related page is in the same space as the viewer's page |
+| `same_page` | Whether the related diagram is on the viewer's current page |
 
 No label text, page id, or tenant vocabulary is included in these events. Lookup events are not
 emitted when the feature flag is off, and `related_diagrams_shown` is not emitted for zero results.

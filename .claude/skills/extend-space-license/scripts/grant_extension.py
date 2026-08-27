@@ -270,18 +270,24 @@ def print_reply(space, expires_at, users, user_scoped=False, days=7, feedback_da
     if users:
         p = full_plan_pricing(users)
         users_line = f"~{users:,} users"
-        # Lead with the monthly figure — it is the smaller number and the one the Marketplace
-        # calculator shows by default. The annual figure follows because that is what a
-        # purchase order needs, and it is cheaper than paying monthly for twelve months.
-        annual_saving = p["monthly"] * 12 - p["annual"]
+        # Lead with the ANNUAL figure, not the monthly one. Monthly is the smaller number on
+        # its own, but any reader who annualises it lands on monthly*12, which is HIGHER than
+        # the annual price (902 users: $1,983 vs $1,760) — so leading with monthly makes the
+        # app look more expensive to exactly the reader who is costing it out for a purchase
+        # order. What actually shrinks the number is the per-user-per-month rate, and that is
+        # independent of billing cycle. Monthly follows as an option, with its extra cost named.
+        # (No conversion data exists either way; this is the arithmetic, not a tested preference.)
+        annual_extra = p["monthly"] * 12 - p["annual"]
         full_price = (
-            f"~${p['monthly']:,.0f}/month (~${p['per_user_month']:.2f} per user). "
-            f"Annual billing is ~${p['annual']:,.0f}/year"
-            + (f" and saves ~${annual_saving:,.0f}" if annual_saving > 0 else "")
+            f"~${p['annual']:,.0f}/year on annual billing "
+            f"(~${p['per_user_month']:.2f} per user per month). "
+            f"Monthly billing is also available at ~${p['monthly']:,.0f}/month"
+            + (f", though it costs about ${annual_extra:,.0f} more over a year"
+               if annual_extra > 0 else "")
         )
     else:
         users_line = "~{USERS} users (fetch tier from the Marketplace license report)"
-        full_price = "~${MONTHLY}/month, or ~${ANNUAL}/year on annual billing"
+        full_price = "~${ANNUAL}/year on annual billing (~${PER_USER} per user per month), or ~${MONTHLY}/month"
 
     if user_scoped:
         intro = (

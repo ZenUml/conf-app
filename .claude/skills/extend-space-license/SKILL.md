@@ -204,8 +204,14 @@ editor needs a refresh).
   figure.** `--users N` makes the script call
   `/rest/2/addons/com.zenuml.confluence-addon/pricing/cloud/live` and quote both:
   **monthly** (cumulative per-user rates on the exact headcount) and **annual** (the flat
-  price of the user *band* containing `n`). The reply leads with monthly — it is the
-  smaller number and the Marketplace calculator's own default.
+  price of the user *band* containing `n`). **The reply leads with the annual figure.**
+  Monthly is the smaller number in isolation, but a reader costing out a purchase order
+  multiplies it by 12 and lands *above* the annual price (902 users: $1,983 vs $1,760), so
+  leading with monthly makes the app look more expensive to the one reader who does the
+  arithmetic. What shrinks the number is the **per-user-per-month rate** ($0.18 here), which
+  is independent of billing cycle — keep that in the sentence. Monthly follows as an option
+  with its extra annual cost named. No conversion data supports either ordering; this is the
+  arithmetic, not a tested preference.
   - The retired `... * 10` formula was wrong between band boundaries: 902 users returned
     $1,652, while the published prices are **$165.22/month** and **$1,760/year** (band
     801-1000). It agreed only at a boundary (n=1000 → $1,760 both ways). Verified against

@@ -281,6 +281,8 @@ export type AnalyticsEventName =
   // requested ai_model / reasoning_disabled overrides when supplied. succeeded /
   // failed close the same user-perceived interval with duration_ms, poll_count,
   // and any backend timing/attempt/config metadata returned by job-status.
+  // backend_duration_ms covers the whole Diagramly worker interval, while
+  // backend_llm_duration_ms sums only its LLM calls across repair attempts.
   // failed additionally carries failure_phase; never attach diagram code,
   // error source text, or a job id to these events.
   | "ai_repair_requested"

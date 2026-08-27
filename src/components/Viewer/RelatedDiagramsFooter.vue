@@ -32,19 +32,13 @@
         :key="item.actorId"
         type="button"
         class="related-diagrams-pill"
-        :class="{ 'related-diagrams-pill--concealed': !isPillVisible(item.actorId, item.participant) }"
         data-testid="related-diagrams-pill"
         :data-actor="item.actorId"
         :style="{ left: `${item.left}px`, top: `${item.top}px` }"
         :title="`${item.participant.related.length} related diagrams you can access — click to see`"
         :aria-expanded="open === item.participant"
-        @focus="focused = item.actorId"
-        @blur="focused = null"
-        @mouseenter="hovered = item.actorId"
-        @mouseleave="onPillLeave(item.actorId)"
         @mousedown.stop
         @click.stop="toggle(item.participant)"
-        @touchstart.stop="onTouch($event, item.participant)"
       >
         {{ item.participant.related.length }}
       </button>
@@ -137,9 +131,6 @@ const indexedAt = ref<string | null>(null)
 const open = ref<RelatedParticipant | null>(null)
 const hostEl = ref<HTMLElement | null>(null)
 const pills = ref<Pill[]>([])
-const hovered = ref<string | null>(null)
-const focused = ref<string | null>(null)
-const touchRevealed = ref<string | null>(null)
 let requested = false
 
 const withRelated = computed(() => participants.value.filter((participant) => participant.related.length))
@@ -268,43 +259,9 @@ async function load() {
   window.addEventListener('resize', layoutPills)
   document.addEventListener('keydown', onKeyDown)
   document.addEventListener('mousedown', onOutsideMouseDown)
-  hostEl.value?.addEventListener('mouseover', onHostMouseOver)
-  hostEl.value?.addEventListener('mouseout', onHostMouseOut)
-}
-
-function actorFromEvent(event: Event): string | null {
-  return (
-    (event.target as Element | null)?.closest?.('[name]')?.getAttribute('name') ?? null
-  )
-}
-
-function onHostMouseOver(event: Event) {
-  const actorId = actorFromEvent(event)
-  if (actorId && pills.value.some((item) => item.actorId === actorId)) hovered.value = actorId
-}
-
-function onHostMouseOut(event: MouseEvent) {
-  const destination = event.relatedTarget as Element | null
-  if (destination?.closest?.('[data-testid="related-diagrams-pill"]')) return
-  const actorId = actorFromEvent(event)
-  if (actorId === hovered.value) hovered.value = null
-}
-
-function isPillVisible(actorId: string, participant: RelatedParticipant) {
-  return (
-    hovered.value === actorId ||
-    focused.value === actorId ||
-    touchRevealed.value === actorId ||
-    open.value === participant
-  )
-}
-
-function onPillLeave(actorId: string) {
-  if (open.value?.actorId !== actorId && touchRevealed.value !== actorId) hovered.value = null
 }
 
 function toggle(participant: RelatedParticipant) {
-  touchRevealed.value = null
   if (open.value === participant) {
     open.value = null
     return
@@ -317,23 +274,12 @@ function toggle(participant: RelatedParticipant) {
   })
 }
 
-function onTouch(event: TouchEvent, participant: RelatedParticipant) {
-  event.preventDefault()
-  if (!isPillVisible(participant.actorId, participant)) {
-    touchRevealed.value = participant.actorId
-    hovered.value = participant.actorId
-    return
-  }
-  toggle(participant)
-}
-
 function onKeyDown(event: KeyboardEvent) {
   if (event.key === 'Escape') open.value = null
 }
 
 function onOutsideMouseDown() {
   open.value = null
-  touchRevealed.value = null
 }
 
 function follow(participant: RelatedParticipant, page: RelatedPage) {
@@ -356,8 +302,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', layoutPills)
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('mousedown', onOutsideMouseDown)
-  hostEl.value?.removeEventListener('mouseover', onHostMouseOver)
-  hostEl.value?.removeEventListener('mouseout', onHostMouseOut)
 })
 </script>
 
@@ -404,11 +348,6 @@ onBeforeUnmount(() => {
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
-}
-
-.related-diagrams-pill--concealed {
-  opacity: 0;
-  pointer-events: none;
 }
 
 .related-diagrams-pill:hover {

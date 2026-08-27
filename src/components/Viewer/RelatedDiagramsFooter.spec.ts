@@ -211,28 +211,22 @@ describe('RelatedDiagramsFooter', () => {
     expect(getRelatedDiagrams).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps pills hidden until hover and hover never opens a popover', async () => {
+  it('shows related pills immediately and hover never opens a popover', async () => {
     related.value = twoParticipants
     const { h } = mountFooter()
     await flushPromises()
 
-    expect(pill(h, 'PA')!.classList).toContain('related-diagrams-pill--concealed')
+    expect(pill(h, 'PA')!.classList).not.toContain('related-diagrams-pill--concealed')
+    expect(pill(h, 'U')).toBeNull()
     h.querySelector('rect[name="PA"]')!.dispatchEvent(
       new MouseEvent('mouseover', { bubbles: true }),
     )
     await flushPromises()
-    expect(pill(h, 'PA')!.classList).not.toContain('related-diagrams-pill--concealed')
     expect(popover()).toBeNull()
     expect(pill(h, 'PA')!.title).toBe('2 related diagrams you can access — click to see')
-
-    h.querySelector('rect[name="PA"]')!.dispatchEvent(
-      new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }),
-    )
-    await flushPromises()
-    expect(pill(h, 'PA')!.classList).toContain('related-diagrams-pill--concealed')
   })
 
-  it('reveals a keyboard-focused pill and gives it a visible focus treatment', async () => {
+  it('gives an immediately visible pill a keyboard focus treatment', async () => {
     related.value = twoParticipants
     const { h } = mountFooter()
     await flushPromises()
@@ -240,7 +234,6 @@ describe('RelatedDiagramsFooter', () => {
     const button = pill(h, 'PA')!
     button.focus()
     await flushPromises()
-    expect(button.classList).not.toContain('related-diagrams-pill--concealed')
     expect(button.classList.contains('related-diagrams-pill')).toBe(true)
   })
 
@@ -358,7 +351,7 @@ describe('RelatedDiagramsFooter', () => {
     expect(popover()!.textContent).not.toContain('Partner App')
   })
 
-  it('uses first touch to reveal and second touch to open', async () => {
+  it('keeps the popover click-only after a touchstart', async () => {
     related.value = twoParticipants
     const { h } = mountFooter()
     await flushPromises()
@@ -366,10 +359,9 @@ describe('RelatedDiagramsFooter', () => {
 
     button.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true }))
     await flushPromises()
-    expect(button.classList).not.toContain('related-diagrams-pill--concealed')
     expect(popover()).toBeNull()
 
-    button.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true }))
+    button.click()
     await flushPromises()
     expect(popover()).not.toBeNull()
   })

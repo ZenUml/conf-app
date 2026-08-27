@@ -182,7 +182,10 @@ const props = defineProps({
   originalCode: String,
   diagramType: Object,
   error: [String, Object],
-  model: String,
+  model: {
+    type: String,
+    default: 'openai/gpt-5.6-luna',
+  },
   disableReasoning: {
     type: Boolean,
     default: undefined,

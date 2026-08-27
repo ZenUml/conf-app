@@ -86,6 +86,25 @@ describe('AIRepair analytics', () => {
     wrapper.unmount()
   })
 
+  it('uses openai/gpt-5.6-luna as the default repair model', async () => {
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-default-model' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+
+    expect(startFixDiagram).toHaveBeenCalledWith(
+      ORIGINAL_CODE,
+      'syntax error on line 1',
+      'Sequence',
+      { model: 'openai/gpt-5.6-luna' },
+    )
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_requested', expect.objectContaining({
+      ai_model: 'openai/gpt-5.6-luna',
+    }))
+    wrapper.unmount()
+  })
+
   it('forwards and tracks explicit model and disableReasoning configuration', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-configured' })
     vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })

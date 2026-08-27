@@ -208,8 +208,12 @@ editor needs a refresh).
   Monthly is the smaller number in isolation, but a reader costing out a purchase order
   multiplies it by 12 and lands *above* the annual price (902 users: $1,983 vs $1,760), so
   leading with monthly makes the app look more expensive to the one reader who does the
-  arithmetic. What shrinks the number is the **per-user-per-month rate** ($0.18 here), which
-  is independent of billing cycle — keep that in the sentence. Monthly follows as an option
+  arithmetic. What shrinks the number is the **per-user-per-month rate**, so keep that in the
+  sentence — but derive it from the price the same sentence quotes. There are **two** rates:
+  902 users is **$0.16** on annual ($1,760/902/12) and **$0.18** on monthly ($165.22/902).
+  The public calculator shows 0.18 because its default view is Monthly; pairing that with the
+  annual price overstates it. `full_plan_pricing()` returns both as
+  `per_user_month_annual` / `per_user_month_monthly`. Monthly follows as an option
   with its extra annual cost named. No conversion data supports either ordering; this is the
   arithmetic, not a tested preference.
   - The retired `... * 10` formula was wrong between band boundaries: 902 users returned

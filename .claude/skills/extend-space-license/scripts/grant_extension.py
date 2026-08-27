@@ -169,11 +169,16 @@ def full_plan_pricing(n):
     if n <= 10:
         monthly = band["amount"] / 12.0
 
+    # TWO per-user rates, one per billing cycle. Quote the one that matches the price in the
+    # same sentence: 902 users is $0.16/user/month on annual ($1,760/902/12) and
+    # $0.18 on monthly ($165.22/902). The Marketplace calculator shows 0.18 because its
+    # default view is Monthly. Pairing the annual price with the monthly rate overstates it.
     return {
         "monthly": monthly,
         "annual": band["amount"],
         "band": band["unitCount"],
-        "per_user_month": monthly / n if n else 0.0,
+        "per_user_month_annual": (band["amount"] / n / 12) if n else 0.0,
+        "per_user_month_monthly": (monthly / n) if n else 0.0,
     }
 
 
@@ -280,7 +285,7 @@ def print_reply(space, expires_at, users, user_scoped=False, days=7, feedback_da
         annual_extra = p["monthly"] * 12 - p["annual"]
         full_price = (
             f"~${p['annual']:,.0f}/year on annual billing "
-            f"(~${p['per_user_month']:.2f} per user per month). "
+            f"(~${p['per_user_month_annual']:.2f} per user per month). "
             f"Monthly billing is also available at ~${p['monthly']:,.0f}/month"
             + (f", though it costs about ${annual_extra:,.0f} more over a year"
                if annual_extra > 0 else "")

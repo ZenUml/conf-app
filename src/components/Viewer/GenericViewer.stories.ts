@@ -1,12 +1,20 @@
+// Root tsc uses legacy Node resolution; Storybook 10 exposes these through
+// package exports. The Storybook/Vite build resolves them.
+// @ts-expect-error -- resolved by Storybook's Vite pipeline
 import { setup, type Args, type Meta, type StoryObj } from '@storybook/vue3-vite'
+// @ts-expect-error -- resolved by Storybook's Vite pipeline
 import { expect, userEvent, waitFor, within } from 'storybook/test'
-import type { App } from 'vue'
 import mixpanel from 'mixpanel-browser'
+import { FeatureFlags } from '@forge/bridge'
 import GenericViewer from './GenericViewer.vue'
+import Mermaid from '@/components/Mermaid.vue'
 import store from '@/model/store2'
 import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
+import { resetAiTitleFlagForTests } from '@/apis/aiTitleFeatureFlag'
+import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
+import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
 
 // Header.stories.ts's `{ template: '<story/>', app: (app) => app.use(store) }`
 // decorator idiom does NOT install the plugin on @storybook/vue3-vite 10.4's
@@ -16,7 +24,7 @@ import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
 // (@storybook/vue3's src/render.ts): it registers a callback Storybook runs
 // against the real root app right before `vueApp.mount()`. Called once at
 // module load (ES modules only evaluate once).
-setup((app: App) => {
+setup((app: { use(plugin: typeof store): unknown }) => {
   app.use(store)
 })
 
@@ -61,15 +69,36 @@ const SAMPLE_PAGE = {
   body: { export_view: { value: '<p>Context for the AI: this page documents the login handshake.</p>' } },
   _links: { base: 'https://example-tenant.atlassian.net/wiki', webui: '/spaces/DOCS/pages/123456' },
 }
+const ARCHITECTURE_TOKENS_RESPONSE = {
+  indexedAt: '2026-08-27T00:00:00.000Z',
+  contentVersion: 3,
+  participants: [
+    {
+      actorId: 'Client',
+      rawLabel: 'Client',
+      related: [
+        {
+          contentId: 'related-101',
+          pageId: 'page-101',
+          pageTitle: 'Authentication overview',
+          spaceKey: 'DOCS',
+          rawLabelThere: 'Web Client',
+        },
+      ],
+    },
+    { actorId: 'Server', rawLabel: 'Server', related: [] },
+  ],
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** No real Forge bridge — same shape Header.stories.ts / GetStarted.stories.ts use. */
-function stubForge(moduleKey?: string) {
-  forgeGlobal.isForge = false
+function stubForge(moduleKey?: string, architectureTokensEnabled = false, customContentId?: string) {
+  forgeGlobal.isForge = architectureTokensEnabled
   forgeGlobal.isLite = true
+  forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.invalid'
   forgeGlobal.forgeContext = {
     accountId: 'storybook-user',
     // isEmbedded (GenericViewer.vue) reads forgeContext.moduleKey directly —
@@ -78,7 +107,15 @@ function stubForge(moduleKey?: string) {
     extension: {
       content: { id: 'storybook-page' },
       space: { key: 'DOCS' },
+      config: { customContentId },
     },
+  }
+}
+
+function stubFeatureFlags(architectureTokensEnabled: boolean) {
+  resetAiTitleFlagForTests()
+  FeatureFlags.prototype.checkFlag = function (key: string, defaultValue = false) {
+    return key === 'architecture-tokens-enabled' ? architectureTokensEnabled : defaultValue
   }
 }
 
@@ -93,6 +130,7 @@ function stubForge(moduleKey?: string) {
  */
 function stubApWrapper({ delayMs = 0 }: { delayMs?: number } = {}) {
   globals.apWrapper.canUserEdit = async () => true
+  globals.apWrapper.initializeContext = async () => undefined
   globals.apWrapper.getCurrentPage = async () => {
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
     return SAMPLE_PAGE
@@ -205,8 +243,18 @@ function configureStory(options: {
   clipboardWrites?: boolean
   pageFetchDelayMs?: number
   fullscreenMode?: boolean
+  architectureTokensEnabled?: boolean
+  customContentId?: string
 } = {}) {
-  stubForge(options.moduleKey)
+  resetStubResponses()
+  stubFeatureFlags(Boolean(options.architectureTokensEnabled))
+  stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId)
+  if (options.architectureTokensEnabled) {
+    stubResponses.remote = [
+      { match: '/api/architecture-tokens/related', body: ARCHITECTURE_TOKENS_RESPONSE },
+      { match: '/api/diagram-impact', body: { audienceCount: 3, viewerRelation: 'viewer' } },
+    ]
+  }
   if (options.fullscreenMode) {
     // isFullscreenMode reads window.forgeGlobal.forgeContext.extension.modal
     // (same object as the imported forgeGlobal — forgeGlobal.ts:229).
@@ -216,6 +264,7 @@ function configureStory(options: {
   stubMixpanel()
   installClipboardMock(options.clipboardWrites ?? true)
   setupStore(options)
+  store.commit('setDiagramAttribution', null)
 }
 
 /**
@@ -256,6 +305,21 @@ function renderViewer(args: Args, placeholderLabel = 'Diagram preview') {
         <div style="padding: 64px 24px; text-align: center; color: #6B7280; font-size: 13px;">
           {{ placeholderLabel }}
         </div>
+      </GenericViewer>
+    `,
+  }
+}
+
+/** Production integration: GenericViewer with the real Mermaid renderer in its slot. */
+function renderMermaidViewer(args: Args) {
+  return {
+    components: { GenericViewer, Mermaid },
+    setup() {
+      return { args }
+    },
+    template: `
+      <GenericViewer v-bind="args">
+        <Mermaid />
       </GenericViewer>
     `,
   }
@@ -310,6 +374,65 @@ export const Default: Story = {
     const copyBtn = await canvas.findByTestId('copy-for-ai-btn')
     await expect(copyBtn).toHaveAttribute('data-copy-state', 'idle')
     await expect(canvas.getByRole('button', { name: 'Fullscreen' })).toBeVisible()
+  },
+}
+
+/**
+ * Architecture Tokens Phase 1 through its real production seam: the flag is
+ * resolved by the Storybook @forge/bridge FeatureFlags stub, GenericViewer
+ * mounts RelatedDiagramsFooter, and Mermaid.vue produces the actor rectangles
+ * the overlay listens to. All fixture vocabulary is invented.
+ */
+export const ArchitectureTokensMermaidIntegration: Story = {
+  name: 'Architecture tokens — real Mermaid integration',
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Login flow',
+        mermaidCode: SAMPLE_MERMAID,
+        architectureTokensEnabled: true,
+        customContentId: 'storybook-content-778899',
+      })
+      store.state.viewerLoadState = 'ready'
+      store.commit('setDiagramAttribution', {
+        customContentId: 'storybook-content-778899',
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('related-diagrams-footer')).toHaveTextContent(
+      '1 of 2 participants also appear in other diagrams you can access',
+    )
+    await expect(await canvas.findByTestId('diagram-attribution')).toHaveTextContent('3 views')
+
+    let actor: SVGRectElement | null = null
+    await waitFor(() => {
+      actor = document.querySelector<SVGRectElement>('rect.actor-top[name="Client"]')
+      if (!actor) throw new Error('real Mermaid actor rectangle not rendered')
+    })
+    await userEvent.hover(actor!)
+
+    const pill = await canvas.findByTestId('related-diagrams-pill')
+    await waitFor(() => expect(pill).not.toHaveClass('related-diagrams-pill--concealed'))
+    await expect(pill).toHaveTextContent('1')
+    await userEvent.click(pill)
+
+    const popover = await canvas.findByTestId('related-diagrams-popover')
+    await expect(popover).toBeVisible()
+    await expect(popover).toHaveTextContent('Possibly related by name')
+    await expect(popover).toHaveTextContent('Authentication overview')
   },
 }
 

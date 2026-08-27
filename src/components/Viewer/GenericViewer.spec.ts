@@ -5,7 +5,7 @@ import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
-import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled } from '@/apis/aiTitleFeatureFlag'
 import globals from '@/model/globals'
 import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
@@ -35,6 +35,7 @@ vi.mock('@/utils/loadFailedRetry', async (importOriginal) => {
 // this per-test with mockResolvedValueOnce(true).
 vi.mock('@/apis/aiTitleFeatureFlag', () => ({
   isAgentLinkEnabled: vi.fn(() => Promise.resolve(false)),
+  isArchitectureTokensEnabled: vi.fn(() => Promise.resolve(false)),
 }))
 
 vi.mock('@/model/globals', () => ({
@@ -138,7 +139,7 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.recoveredFromOrphan = false
     store.state.viewerLoadState = 'ready'
     store.state.loadError = null
-    // @ts-ignore — matches the production `// @ts-ignore\nwindow.forgeGlobal = global`
+    // @ts-expect-error — matches the production `// @ts-ignore\nwindow.forgeGlobal = global`
     // assignment in forgeGlobal.ts; isFullscreenMode() reads this directly.
     window.forgeGlobal = {
       forgeContext: {
@@ -186,6 +187,52 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.viewer-frame').exists()).toBe(false)
       expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
       expect(wrapper.find('.diagram-stub').exists()).toBe(true)
+    })
+
+    it('mounts RelatedDiagramsFooter only for a ready Mermaid sequence diagram when the flag is on and content id is present', async () => {
+      vi.mocked(isArchitectureTokensEnabled).mockResolvedValue(true)
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      store.commit(
+        'updateMermaidCode',
+        '\uFEFF  ---\ntitle: Invented checkout\n---\n%%{init: {"theme":"base"}}%%\n%% an invented comment\nsequenceDiagram\n  participant A',
+      )
+
+      const sequence = mountViewer()
+      await flushPromises()
+
+      const footer = sequence.findComponent({ name: 'RelatedDiagramsFooter' })
+      expect(footer.exists()).toBe(true)
+      expect(footer.props()).toMatchObject({
+        customContentId: 'content-123',
+        ready: true,
+        enabled: true,
+        surface: 'viewer',
+      })
+
+      store.commit('updateMermaidCode', 'flowchart TD\n  A-->B')
+      await sequence.vm.$nextTick()
+      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(false)
+
+      store.commit('updateMermaidCode', 'sequenceDiagram\n  participant A')
+      store.state.viewerLoadState = 'failed_with_source'
+      await sequence.vm.$nextTick()
+      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(false)
+
+      store.state.viewerLoadState = 'ready'
+      vi.mocked(isArchitectureTokensEnabled).mockResolvedValue(false)
+      const flagOff = mountViewer()
+      await flushPromises()
+      expect(flagOff.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(false)
+
+      vi.mocked(isArchitectureTokensEnabled).mockResolvedValue(true)
+      ;(window as any).forgeGlobal.forgeContext.extension.modal = { macroMode: 'fullscreen' }
+      const fullscreen = mountViewer()
+      await flushPromises()
+      expect(fullscreen.findComponent({ name: 'RelatedDiagramsFooter' }).props('surface')).toBe('fullscreen')
+
+      sequence.unmount()
+      flagOff.unmount()
+      fullscreen.unmount()
     })
   })
 

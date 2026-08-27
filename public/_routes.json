@@ -13,6 +13,7 @@
     "/forge-custom-content",
     "/api/diagram-impact",
     "/api/diagram-impact/*",
+    "/api/architecture-tokens/*",
     "/api/space-status",
     "/api/space-license",
     "/api/support/extension-actions",

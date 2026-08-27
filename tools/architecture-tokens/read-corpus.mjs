@@ -46,13 +46,26 @@ function runWrangler(sql) {
   });
 }
 
-export async function readCorpus({ spaceId, appId }) {
-  const sql = `SELECT contentId AS sourceId, latestVersionNumber AS sourceRevision, json_extract(body, '$.raw.value') AS rawValue
+export function tenantSpacesSql(clientDomain) {
+  const host = sqlString(`${clientDomain}.atlassian.net`);
+  return `SELECT DISTINCT c.spaceId AS spaceId, t.cloudId AS cloudId
+    FROM AtlassianInstance t
+    JOIN DiagramAudience a ON a.cloudId = t.cloudId
+    JOIN CustomContent c ON c.contentId = a.customContentId
+    WHERE t.clientDomain = ${host}`;
+}
+
+export function corpusSql({ spaceIds, appId }) {
+  const ids = spaceIds.map(sqlString).join(',');
+  const appFilter = appId ? ` AND appId = ${sqlString(appId)}` : '';
+  return `SELECT contentId AS sourceId, latestVersionNumber AS sourceRevision, spaceId, pageId,
+      json_extract(body, '$.raw.value') AS rawValue
     FROM CustomContent
-    WHERE spaceId = ${sqlString(spaceId)} AND appId = ${sqlString(appId)} AND status = 'current'
+    WHERE spaceId IN (${ids})${appFilter} AND status = 'current'
       AND json_extract(json_extract(body, '$.raw.value'), '$.diagramType') = 'mermaid'`;
-  const response = await runWrangler(sql);
-  const rows = response[0]?.results ?? [];
+}
+
+function toSources(rows) {
   const sources = [];
   let notSequence = 0;
   for (const row of rows) {
@@ -64,22 +77,54 @@ export async function readCorpus({ spaceId, appId }) {
       sourceId: String(row.sourceId),
       sourceRevision: Number(row.sourceRevision),
       sourceHash: createHash('sha256').update(row.rawValue).digest('hex'),
+      spaceId: String(row.spaceId),
+      pageId: String(row.pageId ?? ''),
       mermaidCode,
     });
   }
   sources.sort((a, b) => a.sourceId.localeCompare(b.sourceId));
-  return { schemaVersion: 1, spaceId: String(spaceId), appId: String(appId), mermaidRows: rows.length, notSequence, sources };
+  return { sources, notSequence };
+}
+
+function latestRowsBySourceId(rows) {
+  const latest = new Map();
+  for (const row of rows) {
+    const sourceId = String(row.sourceId);
+    const current = latest.get(sourceId);
+    if (!current || Number(row.sourceRevision) > Number(current.sourceRevision)) latest.set(sourceId, row);
+  }
+  return [...latest.values()];
+}
+
+export async function readCorpus({ clientDomain, spaceId, appId, runWrangler: run = runWrangler }) {
+  let cloudId = null;
+  let spaceIds;
+  if (clientDomain) {
+    const rows = (await run(tenantSpacesSql(clientDomain)))[0]?.results ?? [];
+    if (rows.length === 0) throw new Error('tenant not found in AtlassianInstance/DiagramAudience');
+    cloudId = rows[0].cloudId;
+    spaceIds = [...new Set(rows.map((r) => String(r.spaceId)))].sort();
+  } else {
+    if (!spaceId) throw new Error('need --client-domain or --space-id');
+    spaceIds = [String(spaceId)];
+  }
+  const rows = (await run(corpusSql({ spaceIds, appId })))[0]?.results ?? [];
+  // `mermaidRows` reports effective current diagrams, not duplicate raw D1 rows.
+  const latestRows = latestRowsBySourceId(rows);
+  const { sources, notSequence } = toSources(latestRows);
+  return { schemaVersion: 1, cloudId, spaceIds, appId: appId ?? null, mermaidRows: latestRows.length, notSequence, sources };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const clientDomain = arg('client-domain');
   const spaceId = arg('space-id');
   const appId = arg('app-id');
   const out = arg('out');
-  if (!spaceId || !appId || !out) {
-    console.error('usage: read-corpus.mjs --space-id <id> --app-id <uuid> --out <file>');
+  if ((!clientDomain && !spaceId) || !out) {
+    console.error('usage: read-corpus.mjs (--client-domain <d> | --space-id <id> [--app-id <uuid>]) --out <file>');
     process.exit(2);
   }
-  const corpus = await readCorpus({ spaceId, appId });
+  const corpus = await readCorpus({ clientDomain, spaceId, appId });
   await writeFile(out, JSON.stringify(corpus), { mode: 0o600 });
-  console.log(JSON.stringify({ mermaidRows: corpus.mermaidRows, sequenceSources: corpus.sources.length, notSequence: corpus.notSequence, out }));
+  console.log(JSON.stringify({ spaces: corpus.spaceIds.length, mermaidRows: corpus.mermaidRows, sequenceSources: corpus.sources.length, notSequence: corpus.notSequence, out }));
 }

@@ -3,7 +3,7 @@
  * Local-only Architecture Tokens pilot executor.
  *
  * It is deliberately opt-in: no source is read or sent until both --execute
- * and ARCHITECTURE_TOKEN_LOCAL_EXECUTE_ENABLED=true are present. Raw Mermaid is
+ * and ARCHITECTURE_TOKEN_LOCAL_EXECUTE_ENABLED=true are present. Raw Mermaid
  * is held in memory while processed. The artifact is written only to a
  * protected local directory and intentionally retains source references and
  * raw model responses for the operator's audit; it must never be committed,
@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process';
 const PRIMARY = 'z-ai/glm-5.2:free';
 const ULTRA_PRIMARY = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 const FALLBACK = 'nvidia/nemotron-3-super-120b-a12b:free';
+const DEEPSEEK_TRIAL_MODEL = 'deepseek/deepseek-v4-flash-0731';
 const PROMPT_VERSION = 'architecture-token-openrouter-v1';
 const EXPECTED_COUNT = 117;
 const REQUEST_TIMEOUT_MS = 45_000;
@@ -24,7 +25,7 @@ const FORBIDDEN = /\b(actor|client|ui|user|workflow|step|store|database|db|modul
 const TYPE = new Set(['service', 'api', 'external-service']);
 
 function usage() {
-  console.log('Usage: ARCHITECTURE_TOKEN_LOCAL_EXECUTE_ENABLED=true node scripts/architecture-tokens-local-pilot.mjs --execute --credential-env <path> --space-file <path> --app-file <path> --manifest-file <path> --output-dir <path> [--full]');
+  console.log('Usage: ARCHITECTURE_TOKEN_LOCAL_EXECUTE_ENABLED=true node scripts/architecture-tokens-local-pilot.mjs --execute --credential-env <path> --output-dir <path> [--probe --model <model> | --model <model> --space-file <path> --app-file <path> --manifest-file <path> | --space-file <path> --app-file <path> --manifest-file <path> [--full]]');
 }
 
 function option(args, name) {
@@ -145,8 +146,10 @@ async function withRetry(request, init) {
   throw last ?? new Error('provider request did not complete');
 }
 
-async function d1Rows(spaceId, appId) {
-  const sql = `SELECT contentId AS sourceId, latestVersionNumber AS sourceRevision, json_extract(body, '$.raw.value') AS rawValue FROM CustomContent WHERE spaceId = '${spaceId.replaceAll("'", "''")}' AND appId = '${appId.replaceAll("'", "''")}' AND status = 'current' AND json_extract(json_extract(body, '$.raw.value'), '$.diagramType') = 'mermaid'`;
+async function d1Rows(spaceId, appId, sourceIds = null) {
+  const ids = sourceIds ? sourceIds.map((id) => `'${String(id).replaceAll("'", "''")}'`).join(',') : null;
+  const sourceFilter = ids ? ` AND contentId IN (${ids})` : '';
+  const sql = `SELECT contentId AS sourceId, latestVersionNumber AS sourceRevision, json_extract(body, '$.raw.value') AS rawValue FROM CustomContent WHERE spaceId = '${spaceId.replaceAll("'", "''")}' AND appId = '${appId.replaceAll("'", "''")}' AND status = 'current'${sourceFilter} AND json_extract(json_extract(body, '$.raw.value'), '$.diagramType') = 'mermaid'`;
   const child = spawn('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'conf-zenuml-prod', '--config', 'wrangler-prod.toml', '--env', 'production', '--remote', '--json', '--command', sql], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = ''; let stderr = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; }); child.stderr.on('data', (chunk) => { stderr += chunk; });
@@ -169,7 +172,50 @@ async function extract(key, model, source) {
     ] }),
   });
   if (body?.model !== model) throw new Error('provider model identity was not confirmed');
-  return body?.choices?.[0]?.message?.content ?? null;
+  return { content: body?.choices?.[0]?.message?.content ?? null, usage: body?.usage ?? null, generationId: typeof body?.id === 'string' ? body.id : null };
+}
+
+async function actualUsage(key, generationId, chatUsage) {
+  if (!generationId) return { chat: chatUsage, generation: null };
+  try {
+    const generation = await withRetry(`https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(generationId)}`, {
+      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+    });
+    return { chat: chatUsage, generation };
+  } catch {
+    return { chat: chatUsage, generation: null };
+  }
+}
+
+function numeric(object, key) {
+  return object && typeof object === 'object' && typeof object[key] === 'number' && Number.isFinite(object[key]) ? object[key] : 0;
+}
+
+function summedUsage(records) {
+  const totals = { promptTokens: 0, completionTokens: 0, totalTokens: 0, actualCost: 0, recordsWithActualCost: 0 };
+  for (const record of records) {
+    const chat = record.providerUsage?.chat;
+    totals.promptTokens += numeric(chat, 'prompt_tokens');
+    totals.completionTokens += numeric(chat, 'completion_tokens');
+    totals.totalTokens += numeric(chat, 'total_tokens');
+    const generation = record.providerUsage?.generation?.data ?? record.providerUsage?.generation;
+    const cost = numeric(generation, 'total_cost') || numeric(chat, 'cost');
+    if (cost) { totals.actualCost += cost; totals.recordsWithActualCost += 1; }
+  }
+  return totals;
+}
+
+async function minimalProbe(key, model) {
+  const body = await withRetry('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_object' }, messages: [
+      { role: 'system', content: 'Return a JSON object only.' },
+      { role: 'user', content: 'Return {"ok":true}.' },
+    ] }),
+  });
+  if (body?.model !== model) throw new Error('provider model identity was not confirmed');
+  const content = body?.choices?.[0]?.message?.content ?? null;
+  return { model, status: parseModelOutput(content).payload?.ok === true ? 'succeeded' : 'invalid-response', format: parseModelOutput(content).format, providerUsage: await actualUsage(key, typeof body?.id === 'string' ? body.id : null, body?.usage ?? null) };
 }
 
 function quality(expected, actual, forbidden) {
@@ -187,17 +233,18 @@ async function runModel(key, model, sources, manifest) {
   const records = []; let forbidden = 0;
   for (const source of sources) {
     try {
-      const raw = await extract(key, model, source);
+      const extraction = await extract(key, model, source);
+      const raw = extraction.content;
       const parsed = parseModelOutput(raw);
       forbidden += forbiddenAccepted(parsed.payload);
-      records.push({ source, status: 'succeeded', format: parsed.format, modelOutput: raw, candidates: validate(parsed.payload, source) });
+      records.push({ source, status: 'succeeded', format: parsed.format, modelOutput: raw, providerUsage: await actualUsage(key, extraction.generationId, extraction.usage), candidates: validate(parsed.payload, source) });
     }
     catch { records.push({ source, status: 'failed', format: 'request-failed', candidates: [] }); }
   }
   const actual = records.map((record) => ({ sourceId: record.source.sourceId, candidates: record.candidates.filter((candidate) => candidate.status === 'accepted').map(({ label, type }) => ({ label, type })) }));
   const format = records.reduce((counts, record) => (counts[record.format] = (counts[record.format] ?? 0) + 1, counts), {});
   const outputCount = records.filter((record) => record.status === 'succeeded').length;
-  return { model, status: records.some((record) => record.status === 'failed') ? 'failed' : 'succeeded', records, formatAdherence: { nativeJsonCount: format['native-json'] ?? 0, repairedJsonCount: format['repaired-json'] ?? 0, invalidCount: format.invalid ?? 0, requestFailureCount: format['request-failed'] ?? 0, nativeJsonRate: outputCount ? (format['native-json'] ?? 0) / outputCount : 0, usableJsonRate: outputCount ? ((format['native-json'] ?? 0) + (format['repaired-json'] ?? 0)) / outputCount : 0 }, quality: quality(manifest.sources, actual, forbidden) };
+  return { model, status: records.some((record) => record.status === 'failed') ? 'failed' : 'succeeded', records, usage: summedUsage(records), formatAdherence: { nativeJsonCount: format['native-json'] ?? 0, repairedJsonCount: format['repaired-json'] ?? 0, invalidCount: format.invalid ?? 0, requestFailureCount: format['request-failed'] ?? 0, nativeJsonRate: outputCount ? (format['native-json'] ?? 0) / outputCount : 0, usableJsonRate: outputCount ? ((format['native-json'] ?? 0) + (format['repaired-json'] ?? 0)) / outputCount : 0 }, quality: quality(manifest.sources, actual, forbidden) };
 }
 
 function freeTextModels(catalogue) {
@@ -205,6 +252,12 @@ function freeTextModels(catalogue) {
     .filter((model) => model?.pricing?.prompt === '0' && model?.pricing?.completion === '0'
       && model?.architecture?.input_modalities?.includes('text')
       && model.id !== 'openrouter/free')
+    .map((model) => model.id));
+}
+
+function textModels(catalogue) {
+  return new Set((catalogue?.data ?? [])
+    .filter((model) => model?.architecture?.input_modalities?.includes('text'))
     .map((model) => model.id));
 }
 
@@ -221,6 +274,7 @@ function localRecord(record) {
     status: record.status,
     format: record.format,
     modelOutput: record.modelOutput ?? null,
+    providerUsage: record.providerUsage ?? null,
     candidates: record.candidates,
   };
 }
@@ -236,22 +290,40 @@ function bestPassingAttempt(attempts) {
 async function main() {
   const args = process.argv.slice(2); if (args.includes('--help')) return usage();
   if (!args.includes('--execute') || process.env.ARCHITECTURE_TOKEN_LOCAL_EXECUTE_ENABLED !== 'true') throw new Error('local execution is disabled');
-  const credentialEnv = option(args, '--credential-env'); const spaceFile = option(args, '--space-file'); const appFile = option(args, '--app-file'); const manifestFile = option(args, '--manifest-file'); const outputDir = option(args, '--output-dir');
-  if (![credentialEnv, spaceFile, appFile, manifestFile, outputDir].every(Boolean)) throw new Error('local pilot configuration is incomplete');
+  const credentialEnv = option(args, '--credential-env'); const spaceFile = option(args, '--space-file'); const appFile = option(args, '--app-file'); const manifestFile = option(args, '--manifest-file'); const outputDir = option(args, '--output-dir'); const trialModel = option(args, '--model'); const probeOnly = args.includes('--probe');
+  if (![credentialEnv, outputDir].every(Boolean) || (probeOnly && !trialModel)) throw new Error('local pilot configuration is incomplete');
+  if (trialModel && trialModel !== DEEPSEEK_TRIAL_MODEL) throw new Error('only the approved DeepSeek local trial model may be used');
+  if (trialModel && args.includes('--full')) throw new Error('a model trial cannot run the full corpus');
   const envText = await readFile(credentialEnv, 'utf8'); const key = parseEnv(envText, 'OPENAI_API_KEY'); const base = parseEnv(envText, 'OPENAI_BASEURL');
   if (!key || !base || !/^https:\/\/openrouter\.ai\/api\/v1\/?$/.test(base)) throw new Error('approved local OpenRouter-compatible credential is unavailable');
+  if (probeOnly) {
+    const probe = await minimalProbe(key, trialModel);
+    await mkdir(outputDir, { recursive: true, mode: 0o700 }); await writeFile(join(outputDir, 'architecture-tokens-trial-probe.json'), JSON.stringify({ schemaVersion: 1, requestTimeoutMs: REQUEST_TIMEOUT_MS, probe }), { mode: 0o600 });
+    console.log(JSON.stringify({ model: trialModel, probeStatus: probe.status, probeWritten: true }));
+    return;
+  }
+  if (![spaceFile, appFile, manifestFile].every(Boolean)) throw new Error('local pilot configuration is incomplete');
   const [spaceId, appId, manifestText] = await Promise.all([readFile(spaceFile, 'utf8'), readFile(appFile, 'utf8'), readFile(manifestFile, 'utf8')]);
   const manifest = JSON.parse(manifestText); if (!Array.isArray(manifest?.sources) || manifest.sources.length !== 10) throw new Error('calibration manifest is invalid');
-  const sources = await d1Rows(spaceId.trim(), appId.trim()); if (sources.length !== EXPECTED_COUNT) throw new Error('approved corpus does not match 117 current sources');
+  const sources = await d1Rows(spaceId.trim(), appId.trim(), trialModel ? manifest.sources.map((source) => source.sourceId) : null);
+  if (trialModel ? sources.length !== manifest.sources.length : sources.length !== EXPECTED_COUNT) throw new Error('approved corpus does not match the required current source count');
   const byIdentity = new Map(sources.map((source) => [`${source.sourceId}\u0000${source.sourceRevision}`, source]));
   const calibrationSources = manifest.sources.map((sample) => byIdentity.get(`${sample.sourceId}\u0000${sample.sourceRevision}`)); if (calibrationSources.some((source) => !source)) throw new Error('calibration manifest is no longer current');
   const catalogue = await withRetry('https://openrouter.ai/api/v1/models', { headers: { Accept: 'application/json' } });
   const { supported, panel } = panelFromCatalogue(catalogue);
+  if (trialModel) {
+    if (!textModels(catalogue).has(trialModel)) throw new Error('requested local trial model is unavailable');
+    const attempt = await runModel(key, trialModel, calibrationSources, manifest);
+    const artifact = { schemaVersion: 5, promptVersion: PROMPT_VERSION, requestTimeoutMs: REQUEST_TIMEOUT_MS, model: trialModel, sourceCount: calibrationSources.length, fullRunProhibited: true, usage: attempt.usage, formatAdherence: attempt.formatAdherence, quality: attempt.quality, sources: attempt.records.map(localRecord) };
+    await mkdir(outputDir, { recursive: true, mode: 0o700 }); await writeFile(join(outputDir, 'architecture-tokens-model-trial.json'), JSON.stringify(artifact), { mode: 0o600 });
+    console.log(JSON.stringify({ model: trialModel, sourceCount: calibrationSources.length, status: attempt.status, gatePassed: attempt.quality.passed, artifactWritten: true }));
+    return;
+  }
   if (!supported.has(ULTRA_PRIMARY) || !supported.has(FALLBACK) || !panel.includes(ULTRA_PRIMARY) || !panel.includes(FALLBACK)) throw new Error('approved Nemotron local model panel is unavailable');
   const attempts = [await runModel(key, ULTRA_PRIMARY, calibrationSources, manifest)];
   if (attempts[0].status !== 'succeeded' || !attempts[0].quality.passed) attempts.push(await runModel(key, FALLBACK, calibrationSources, manifest));
   const selected = bestPassingAttempt(attempts);
-  const artifact = { schemaVersion: 4, promptVersion: PROMPT_VERSION, requestTimeoutMs: REQUEST_TIMEOUT_MS, corpusSourceCount: sources.length, catalogueAssessment: { originalPrimary: { model: PRIMARY, available: supported.has(PRIMARY), calibrationAttempted: false, reason: 'known unavailable from a prior 429 probe' }, primary: { model: ULTRA_PRIMARY, available: supported.has(ULTRA_PRIMARY), calibrationAttempted: true, formatExpectation: 'strict JSON' }, fallback: { model: FALLBACK, available: supported.has(FALLBACK), calibrationAttempted: attempts.length > 1, formatExpectation: 'local repair may be required' }, requestedAlternatives: { lagunaAvailable: supported.has('poolside/laguna-s-2.1:free'), lagunaCalibrationAttempted: false, lagunaReason: 'known rate limited from a prior probe' } }, calibrationModelPanel: panel, calibration: attempts.map((attempt) => ({ model: attempt.model, status: attempt.status, formatAdherence: attempt.formatAdherence, quality: attempt.quality, sources: attempt.records.map(localRecord) })), selectedModel: selected?.model ?? null, fullRun: null };
+  const artifact = { schemaVersion: 4, promptVersion: PROMPT_VERSION, requestTimeoutMs: REQUEST_TIMEOUT_MS, corpusSourceCount: sources.length, catalogueAssessment: { originalPrimary: { model: PRIMARY, available: supported.has(PRIMARY), calibrationAttempted: false, reason: 'known unavailable from a prior 429 probe' }, primary: { model: ULTRA_PRIMARY, available: supported.has(ULTRA_PRIMARY), calibrationAttempted: true, formatExpectation: 'strict JSON' }, fallback: { model: FALLBACK, available: supported.has(FALLBACK), calibrationAttempted: attempts.length > 1, formatExpectation: 'local repair may be required' }, requestedAlternatives: { lagunaAvailable: supported.has('poolside/laguna-s-2.1:free'), lagunaCalibrationAttempted: false, lagunaReason: 'known rate limited from a prior probe' } }, calibrationModelPanel: panel, calibration: attempts.map((attempt) => ({ model: attempt.model, status: attempt.status, usage: attempt.usage, formatAdherence: attempt.formatAdherence, quality: attempt.quality, sources: attempt.records.map(localRecord) })), selectedModel: selected?.model ?? null, fullRun: null };
   if (args.includes('--full') && selected) { const full = await runModel(key, selected.model, sources, { sources: [] }); artifact.fullRun = { model: full.model, status: full.status, sources: full.records.map(localRecord) }; }
   await mkdir(outputDir, { recursive: true, mode: 0o700 }); await writeFile(join(outputDir, 'architecture-tokens-pilot-result.json'), JSON.stringify(artifact), { mode: 0o600 });
   console.log(JSON.stringify({ corpusSourceCount: sources.length, calibrationModels: attempts.map((attempt) => attempt.model), selectedModel: artifact.selectedModel, fullRunRequested: args.includes('--full'), artifactWritten: true }));

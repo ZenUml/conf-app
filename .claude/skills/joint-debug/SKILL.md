@@ -195,6 +195,11 @@ Known signatures:
 - Diagramly returns `401 Unauthorized`: inspect Diagramly logs before changing API keys. API-key auth may be masking a Prisma connection failure. Confirm deep health and the local `DATABASE_URL`.
 - Prisma points at `diagramly-db-stg.postgres.database.azure.com`: the local configuration is stale; use the dedicated local PostgreSQL database.
 - Wrangler `EMFILE` or `listen EPERM`: relaunch outside the sandbox; do not change application code.
+- Wrangler `/diagramly/job-status` fails with `Network connection lost` after earlier
+  polls returned `200`, while Diagramly later logs the job as completed: do not
+  diagnose this as an AI/model failure. Read
+  [references/wrangler-network-connection-lost.md](references/wrangler-network-connection-lost.md)
+  and follow its evidence, restart, and deployment-boundary guidance.
 - Forge lint errors followed by `Listening for requests`: an old Forge CLI may reject newer manifest schema while the tunnel still works. Do not edit `manifest.yml` without separate evidence.
 - Diagramly Node `>=24` warning followed by Next.js `Ready`: record the warning but treat it as non-blocking for that run.
 - Mixpanel `before_register` errors together with Vite's

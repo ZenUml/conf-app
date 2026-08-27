@@ -4,7 +4,7 @@
 
 **Goal:** A reader of a Mermaid sequence diagram sees, after render and without any blocking, that a participant "also appears in N diagrams you can access", with a per-lifeline popover listing those pages.
 
-**Architecture:** A local pipeline (already in `tools/architecture-tokens/`) extracts participants from the D1 mirror and uploads a rebuildable reverse index to a new D1 table. One authenticated Cloudflare Pages route joins by lexical key and filters pages **as the requesting user** with a CQL `id in (…)` call. A viewer footer component, gated by the Forge feature flag `architecture-tokens-enabled`, calls that route after render, places one count pill over each related lifeline (anchored on mermaid's `name="<actorId>"` actor elements), and opens a popover only on a click on that pill — no hover behaviour on the diagram.
+**Architecture:** A local pipeline (already in `tools/architecture-tokens/`) extracts participants from the D1 mirror and uploads a rebuildable reverse index to a new D1 table. One authenticated Cloudflare Pages route joins by lexical key and filters pages **as the requesting user** with a CQL `id in (…)` call. A viewer footer component, gated by the Forge feature flag `architecture-tokens-enabled`, calls that route after render, places one hidden count pill over each related lifeline (anchored on mermaid's `name="<actorId>"` actor elements), reveals it while the pointer is over that lifeline's box, and opens a popover only on a click on the pill.
 
 **Tech Stack:** Vue 3 (`<script setup>` + Options API in `GenericViewer.vue`), TypeScript, vitest + jsdom, Cloudflare Pages Functions + D1, `@forge/bridge` (`invokeRemote`, `FeatureFlags`), mermaid 11.12.2, Node 22 (`--experimental-strip-types` for `.mjs` → `.ts` imports).
 
@@ -17,7 +17,7 @@
 - The diagram render never waits on this feature. Every failure path is silent to the user and recorded as an analytics event.
 - Nothing about an inaccessible page (id, title, label, count) may reach the browser. The permission filter runs in the backend as the requesting user.
 - Copy: "also appears in", "Possibly related by name". Never "is the same as", never "Confirmed" (Phase 2).
-- The popover opens only on a click on a lifeline's count pill. No `mouseover` / `mouseenter` listener anywhere on the diagram (design review 2026-08-27: a hover popover covered the diagram while presenting).
+- Progressive reveal: the diagram shows nothing by default; the pointer over a lifeline's box reveals that lifeline's count pill; a click on the pill opens the popover. A hover listener may only reveal a pill — nothing opens on hover (design review 2026-08-27: a hover popover covered the diagram while presenting; always-visible counts were judged too loud).
 - The lexical key is computed only by `tools/architecture-tokens/pilot/participant-normalization.mjs`; the frontend never normalizes.
 - Feature flag default is `false`; every read is `client.checkFlag('architecture-tokens-enabled', false)`.
 - Analytics events carry no label text, page id, or tenant vocabulary.
@@ -1001,7 +1001,7 @@ git commit -m "viewer(architecture-tokens): related-diagrams client with timeout
 **Interfaces:**
 - Consumes: `getRelatedDiagrams`, `RelatedResponse`, `RelatedLookupError` (Task 7); `trackAnalyticsEvent` (`@/utils/analytics/trackAnalyticsEvent`); `openUrl` and `forgeGlobal.forgeContext.siteUrl` (`@/model/globals/forgeGlobal`); the rendered diagram container passed as a prop.
 - Props: `{ customContentId: string; ready: boolean; enabled: boolean; surface: 'viewer' | 'fullscreen'; svgHost: () => HTMLElement | null; pageId?: string }`.
-- Behaviour: when `ready && enabled` becomes true, call once; on ≥1 participant with related, render the footer and one count pill per related lifeline, positioned from `rect.actor-top[name]` bounding boxes inside `svgHost()` (recomputed on window resize); the popover opens ONLY on a click on a pill (title *Possibly related by name*) and closes on Escape, outside click, or a second pill click. No hover listener on the diagram.
+- Behaviour: when `ready && enabled` becomes true, call once; on ≥1 participant with related, render the footer and one count pill per related lifeline, positioned from `rect.actor-top[name]` bounding boxes inside `svgHost()` (recomputed on window resize). A pill is visible only while the pointer is over its lifeline's actor box (delegated `mouseover`/`mouseout` on the host, resolved via `closest('[name]')`), while it has keyboard focus, or while its popover is open. The popover opens ONLY on a click on a pill (title *Possibly related by name*) and closes on Escape, outside click, or a second pill click. Hover never opens the popover.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1084,20 +1084,39 @@ describe('RelatedDiagramsFooter', () => {
     expect(getRelatedDiagrams).not.toHaveBeenCalled();
   });
 
-  it('hover on the lifeline or the pill opens nothing', async () => {
+  it('pills are hidden until the pointer is over the lifeline box; hover opens nothing', async () => {
+    related.value = twoParticipants;
+    const { h } = mountFooter();
+    await flushPromises();
+    expect(pill(h, 'PA')!.hasAttribute('hidden')).toBe(true);
+    h.querySelector('rect[name="PA"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    await flushPromises();
+    expect(pill(h, 'PA')!.hasAttribute('hidden')).toBe(false);
+    expect(popover()).toBeNull();
+    expect(pill(h, 'PA')!.getAttribute('title')).toBe('2 related diagrams you can access — click to see');
+    h.querySelector('rect[name="PA"]')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    await flushPromises();
+    expect(pill(h, 'PA')!.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('a pill stays visible while its popover is open', async () => {
     related.value = twoParticipants;
     const { h } = mountFooter();
     await flushPromises();
     h.querySelector('rect[name="PA"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    pill(h, 'PA')!.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
     await flushPromises();
-    expect(popover()).toBeNull();
-    expect(pill(h, 'PA')!.getAttribute('title')).toBe('2 related diagrams you can access — click to see');
+    pill(h, 'PA')!.click();
+    h.querySelector('rect[name="PA"]')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    await flushPromises();
+    expect(popover()).not.toBeNull();
+    expect(pill(h, 'PA')!.hasAttribute('hidden')).toBe(false);
   });
 
   it('click on the pill opens the popover with title, space, and the variant label; second click closes', async () => {
     related.value = twoParticipants;
     const { h } = mountFooter();
+    await flushPromises();
+    h.querySelector('rect[name="PA"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     await flushPromises();
     pill(h, 'PA')!.click();
     await flushPromises();
@@ -1174,9 +1193,12 @@ describe('RelatedDiagramsFooter', () => {
         class="related-diagrams-pill"
         data-testid="related-diagrams-pill"
         :data-actor="p.actorId"
+        :hidden="!(hovered === p.actorId || focused === p.actorId || open === p.participant)"
         :style="{ left: p.left + 'px', top: p.top + 'px' }"
         :title="`${p.participant.related.length} related diagrams you can access — click to see`"
         :aria-expanded="open === p.participant"
+        @focus="focused = p.actorId" @blur="focused = null"
+        @mouseenter="hovered = p.actorId"
         @click.stop="toggle(p.participant)"
       >{{ p.participant.related.length }}</button>
       <div v-if="open && openPill" class="related-diagrams-popover" data-testid="related-diagrams-popover" role="dialog" aria-label="Possibly related by name" :style="{ left: openPill.anchorLeft + 'px', top: openPill.anchorTop + 'px' }" @mousedown.stop>
@@ -1218,6 +1240,8 @@ const indexedAt = ref<string | null>(null);
 const open = ref<RelatedParticipant | null>(null);
 const hostEl = ref<HTMLElement | null>(null);
 const pills = ref<Pill[]>([]);
+const hovered = ref<string | null>(null);   // actorId under the pointer — reveals its pill, nothing more
+const focused = ref<string | null>(null);
 let requested = false;
 
 const withRelated = computed(() => participants.value.filter((p) => p.related.length > 0));
@@ -1281,8 +1305,19 @@ async function load() {
     window.addEventListener('resize', layoutPills);
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onOutside);
+    hostEl.value?.addEventListener('mouseover', onHostOver);
+    hostEl.value?.addEventListener('mouseout', onHostOut);
   }
 }
+
+// Reveal only: the pointer over an actor element (mermaid stamps name="<actorId>") shows that pill.
+const actorFromEvent = (e: Event): string | null => (e.target as Element | null)?.closest?.('[name]')?.getAttribute('name') ?? null;
+const onHostOver = (e: Event) => { const id = actorFromEvent(e); if (id) hovered.value = id; };
+const onHostOut = (e: MouseEvent) => {
+  const to = e.relatedTarget as Element | null;
+  if (to?.closest?.('[data-testid="related-diagrams-pill"]')) return;   // moving onto the pill keeps it
+  if (actorFromEvent(e)) hovered.value = null;
+};
 
 function toggle(p: RelatedParticipant) {
   if (open.value === p) { open.value = null; return; }
@@ -1308,6 +1343,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', layoutPills);
   document.removeEventListener('keydown', onKey);
   document.removeEventListener('mousedown', onOutside);
+  hostEl.value?.removeEventListener('mouseover', onHostOver);
+  hostEl.value?.removeEventListener('mouseout', onHostOut);
 });
 </script>
 
@@ -1322,6 +1359,7 @@ onBeforeUnmount(() => {
   font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1; color: #6B7280;
   background: #F3F4F6; border: 1px solid #E5E7EB; border-radius: 9999px; cursor: pointer;
 }
+.related-diagrams-pill[hidden] { display: none; }
 .related-diagrams-pill:hover { background: #E5E7EB; color: #374151; }
 .related-diagrams-pill[aria-expanded="true"] { border-color: #0052CC; color: #0052CC; }
 .related-diagrams-popover {
@@ -1481,6 +1519,6 @@ Release Lite (`/release-app lite`), then: upload the tenant index to `conf-zenum
 
 ## Self-review
 
-- **Spec coverage:** §1 UI → Tasks 8–9; §2 layers → normalizer unchanged, `actorId` never a key (service joins on `comparisonKey` only); §3 pipeline → Tasks 3–4; §4 table → Task 2; §5 route + backend filter → Tasks 5–6; §6 flag → Task 7 + 9; §7 UI details (count pills from `rect.actor-top[name]`, click-only trigger, drop renamed, openUrl, Escape/outside close) → Task 8; §8 events → Tasks 1, 8; §9 privacy → global constraints, `$ARCHTOK_DIR` everywhere; §10 out of scope → nothing planned for editor/discovery/decisions; §11 verification → Task 10.
+- **Spec coverage:** §1 UI → Tasks 8–9; §2 layers → normalizer unchanged, `actorId` never a key (service joins on `comparisonKey` only); §3 pipeline → Tasks 3–4; §4 table → Task 2; §5 route + backend filter → Tasks 5–6; §6 flag → Task 7 + 9; §7 UI details (count pills from `rect.actor-top[name]`, hidden until hover/focus/open, click-only popover, drop renamed, openUrl, Escape/outside close) → Task 8; §8 events → Tasks 1, 8; §9 privacy → global constraints, `$ARCHTOK_DIR` everywhere; §10 out of scope → nothing planned for editor/discovery/decisions; §11 verification → Task 10.
 - **Placeholder scan:** none of "TBD/TODO/handle edge cases/similar to Task N".
 - **Type consistency:** `RelatedPage/RelatedParticipant/RelatedResponse` identical in `functions/architecture-tokens/service.ts` and `src/services/ArchitectureTokens.ts`; `isArchitectureTokensEnabled` name used in Tasks 7 and 9; `getCaptureNode` (existing method) passed as `svgHost`; `surface` values `'viewer' | 'fullscreen'` match the `Surface` union; property names in Task 1 match those emitted in Task 8 (`label_variant_count`, `same_space`, `index_age_days`, `error_kind`).

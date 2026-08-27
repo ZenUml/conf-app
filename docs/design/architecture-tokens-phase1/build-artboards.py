@@ -47,9 +47,11 @@ def highlight(name):
     return f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="3" fill="none" stroke="#0052CC" stroke-width="2.5" pointer-events="none"></rect>'
 
 
-def badges_html():
+def badges_html(only=None):
     out = []
     for a, r in RELATED.items():
+        if only is not None and a not in only:
+            continue
         x, y, w, h = actor_geom(a)
         left = (x + w - VIEWBOX[0]) / VIEWBOX[2] * 100
         top = (y - VIEWBOX[1]) / VIEWBOX[3] * 100
@@ -133,10 +135,10 @@ def popover(actor, width=320):
             f'</div>')
 
 
-def card(svg_html, footer_related, popover_html='', title='Checkout payment flow', width='760px', hover=False, badges=True):
+def card(svg_html, footer_related, popover_html='', title='Checkout payment flow', width='760px', hover=False, badges=None):
     return (f'<div style="width:{width}; position:relative; display:block; background:#fff; border:1px solid #E5E7EB; border-radius:8px; overflow:visible; box-shadow:0 1px 3px rgba(0,0,0,0.06);">'
             f'{toolbar(title, hover=hover)}'
-            f'<div style="position:relative; background:#fff; min-height:64px; padding:8px 12px 0;"><div style="position:relative; width:100%;"><div style="display:flex; justify-content:center;">{svg_html}</div>{badges_html() if badges else ""}{popover_html}</div></div>'
+            f'<div style="position:relative; background:#fff; min-height:64px; padding:8px 12px 0;"><div style="position:relative; width:100%;"><div style="display:flex; justify-content:center;">{svg_html}</div>{badges_html(badges) if badges else ""}{popover_html}</div></div>'
             f'<div style="display:flex; align-items:center; justify-content:space-between;">{footer_related}{attribution()}</div>'
             f'</div>')
 
@@ -166,18 +168,20 @@ def page(inner, height):
 
 out = HERE
 # 1. Default — nothing rendered (flag off / no related / lookup failed)
-(out / 'Default.dc.html').write_text(page(card(make_svg('at-default'), related_line(shown=False), badges=False), 560))
+(out / 'Default.dc.html').write_text(page(card(make_svg('at-default'), related_line(shown=False)), 560))
 # 2. Main — footer shown, badges on lifelines with related pages
-(out / 'Main.dc.html').write_text(page(card(make_svg('at-main', badges=True), related_line()), 560))
+(out / 'Main.dc.html').write_text(page(card(make_svg('at-main'), related_line()), 560))
+# 2b. HoverPill — pointer over the Partner App box reveals its count pill; nothing else changes
+(out / 'HoverPill.dc.html').write_text(page(card(make_svg('at-hover'), related_line(), badges=['PA']), 560))
 # 3. PopoverOpen — hover on Partner App
-(out / 'PopoverOpen.dc.html').write_text(page(card(make_svg('at-pop', badges=True, highlight_actor='PA'), related_line(), popover('PA'), hover=True), 560))
+(out / 'PopoverOpen.dc.html').write_text(page(card(make_svg('at-pop', highlight_actor='PA'), related_line(), popover('PA'), hover=True, badges=['PA']), 560))
 
 # 4. Fullscreen — 1440×900 modal, popover on Payments API
 fs_inner = (
     f'<div style="width:1440px; height:900px; background:#fff; display:flex; flex-direction:column; box-sizing:border-box;">'
     f'{toolbar("Checkout payment flow", fullscreen=True)}'
     f'<div style="flex:1 1 auto; display:flex; flex-direction:column; justify-content:center; min-height:0; padding:0 24px;">'
-    f'<div style="position:relative; width:100%; max-width:1392px; margin:0 auto;"><div style="display:flex; justify-content:center;">{make_svg("at-fs", highlight_actor="PAY")}</div>{badges_html()}{popover("PAY", width=360)}</div>'
+    f'<div style="position:relative; width:100%; max-width:1392px; margin:0 auto;"><div style="display:flex; justify-content:center;">{make_svg("at-fs", highlight_actor="PAY")}</div>{badges_html(["PAY"])}{popover("PAY", width=360)}</div>'
     f'</div>'
     f'<div style="display:flex; align-items:center; justify-content:space-between; border-top:1px solid #E5E7EB;">{related_line()}{attribution()}</div>'
     f'</div>')

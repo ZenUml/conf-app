@@ -11,7 +11,7 @@ A reader opens a page with a Mermaid `sequenceDiagram`. After the diagram render
 
 > 5 of 7 participants also appear in other diagrams you can access · as of 27 Aug
 
-Each lifeline that has related pages carries a small count pill at its top-right corner. Clicking the pill — and only that — opens a small popover:
+The diagram itself shows nothing extra. Moving the pointer over a lifeline's box reveals a small count pill at its top-right corner (only for lifelines that have related pages); moving away hides it. Clicking the pill — and only that — opens a small popover:
 
 > **Possibly related by name**
 > Checkout — order flow (VPay) · as `PartnerApp`
@@ -102,10 +102,11 @@ Three retired flags (`renderer-prefetch-banner`, `renderer-prefetch`, `viewport-
 ## 7. Viewer UI
 
 - Component `RelatedDiagramsFooter.vue`, mounted next to `DiagramAttributionFooter` in `GenericViewer.vue`, only when `macroType === 'mermaid'`, the source starts with `sequenceDiagram`, and the flag is true.
-- After the diagram has rendered, it calls the route once; on ≥1 participant with related pages it renders (a) the footer line and (b) one **count pill** per lifeline that has related pages — an 18px HTML pill (`#F3F4F6` / `#E5E7EB` / `#6B7280`) positioned over the top-right corner of the actor box. Positions come from the rendered SVG: mermaid stamps `name="<actorId>"` on every actor element, so `rect.actor-top[name]` bounding boxes give the anchors. Participants whose `actorId` is not present in the current SVG (renamed since indexing) are dropped.
-- **The pill is the only trigger. No hover behaviour on the diagram.** A hover-opened popover covered the diagram while presenting (design review 2026-08-27). Hovering the pill shows a native tooltip only (*"3 related diagrams you can access — click to see"*). A click on the pill opens the popover; Escape, a click outside, or a second click on the pill closes it. The actor whose popover is open gets a `#0052CC` outline.
+- After the diagram has rendered, it calls the route once; on ≥1 participant with related pages it renders (a) the footer line and (b) one **count pill** per lifeline that has related pages — an 18px HTML pill (`#F3F4F6` / `#E5E7EB` / `#6B7280`) positioned over the top-right corner of the actor box, **hidden by default**. Positions come from the rendered SVG: mermaid stamps `name="<actorId>"` on every actor element, so `rect.actor-top[name]` bounding boxes give the anchors. Participants whose `actorId` is not present in the current SVG (renamed since indexing) are dropped.
+- **Progressive reveal, three levels of intent** (design review 2026-08-27): *read* — nothing on the diagram; *hover* — the pointer over a lifeline's box (or keyboard focus on its pill) reveals that one pill; *click* — the pill opens the popover. A hover listener exists only to reveal a pill; nothing ever opens on hover. On touch, the first tap reveals, the second opens.
+- **The pill is the only trigger for the popover.** A hover-opened popover covered the diagram while presenting. Hovering the pill shows a native tooltip only (*"3 related diagrams you can access — click to see"*). A click on the pill opens the popover; Escape, a click outside, or a second click on the pill closes it. The actor whose popover is open keeps its pill visible and gets a `#0052CC` outline.
 - Popover (the `OverflowMenu` recipe: white, `#E5E7EB`, 8px, `0 8px 24px rgba(0,0,0,.12)`, anchored below the actor box): eyebrow *Possibly related by name*; the participant's label; one row per related page — page title (link, opens in a new tab through `openUrl`), space-key pill, `as <rawLabelThere>` when it differs from this diagram's label; footer line *Same name, not proof of the same object · as of <date>*.
-- Inline and fullscreen render identically. No side panel in Phase 1.
+- Inline and fullscreen render identically (states: default → footer line → hover reveals count → click opens popover). No side panel in Phase 1.
 - Design canvas: https://claude.ai/code/artifact/57b5165b-854a-4c29-92c8-57b0a6e734bd (sources in `docs/design/architecture-tokens-phase1/`).
 
 ## 8. Analytics (required before implementation)

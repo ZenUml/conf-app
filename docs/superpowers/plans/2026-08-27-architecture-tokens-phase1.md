@@ -8,7 +8,7 @@
 
 **Tech Stack:** Vue 3 (`<script setup>` + Options API in `GenericViewer.vue`), TypeScript, vitest + jsdom, Cloudflare Pages Functions + D1, `@forge/bridge` (`invokeRemote`, `FeatureFlags`), mermaid 11.12.2, Node 22 (`--experimental-strip-types` for `.mjs` → `.ts` imports).
 
-**Spec:** `docs/superpowers/specs/2026-08-27-architecture-tokens-phase1-design.md`
+**Spec:** `docs/superpowers/specs/2026-08-27-architecture-tokens-phase1-design.md` (data/backend/gate/events) and `docs/superpowers/specs/2026-08-27-architecture-tokens-phase1-frontend-design.md` (viewer UI — Tasks 8–9 implement it verbatim). **Start with** `docs/superpowers/plans/2026-08-27-architecture-tokens-phase1-HANDOFF.md`.
 
 ## Global Constraints
 

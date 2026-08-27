@@ -19,7 +19,8 @@ export type FeatureArea =
   // activation surface disconnected from any macro's lifecycle, rendered on
   // the Home page rather than on a page carrying a diagram.
   | "homepage_feed"
-  | "diagram_impact";
+  | "diagram_impact"
+  | "architecture_tokens";
 
 /** Current user's relationship to the diagram being measured. */
 export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
@@ -793,7 +794,13 @@ export type AnalyticsEventName =
   | "homepage_feed_viewed"
   | "homepage_feed_action_clicked"
   | "homepage_feed_diagram_opened"
-  | "homepage_feed_example_expanded";
+  | "homepage_feed_example_expanded"
+  // Backend-only Architecture Tokens calibration. Both events contain only
+  // aggregate counts and the non-identifying pilot alias; diagram source,
+  // candidate labels, evidence, content ids, and cloud ids are deliberately
+  // excluded from analytics.
+  | "architecture_token_calibration_completed"
+  | "architecture_token_calibration_failed";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

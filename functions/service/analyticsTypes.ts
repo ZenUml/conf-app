@@ -56,6 +56,10 @@ export const CANONICAL_EVENT_NAME_LIST = [
   // unemitted until phase 2 puts conversion in front of a user.
   "macro_convert_job_claimed",
   "macro_convert_job_completed",
+  // Backend-only Architecture Tokens calibration. Event properties are
+  // aggregate-only; source and candidate text never leave D1.
+  "architecture_token_calibration_completed",
+  "architecture_token_calibration_failed",
   // JSM support-agent manual action lifecycle. The target is intentionally
   // absent from this runtime list's comments/properties: ticket keys and raw
   // request descriptions must never enter Mixpanel.

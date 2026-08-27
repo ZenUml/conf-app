@@ -178,6 +178,16 @@ export type AnalyticsProperties = {
     | "adf_rewrite"
     | "page_update"
     | "report";
+  // Architecture Tokens calibration (backend only). This contract contains
+  // aggregates plus the public pilot alias only; no diagram or candidate text
+  // may be added here.
+  tenant_alias?: "example-tenant";
+  eligible_count?: number;
+  sample_count?: number;
+  accepted_count?: number;
+  abstained_count?: number;
+  rejected_count?: number;
+  architecture_token_failure_stage?: "validation" | "extraction" | "persistence";
   // AI
   prompt_length?: number;
   generation_source?: string;

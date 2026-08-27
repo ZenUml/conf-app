@@ -117,12 +117,34 @@ channels:
         users_min: 1001
         users_max: 10000
         per_user_per_month_usd: 0.05
+    # ⚠ Two DIFFERENT published prices. Quoting the wrong one misquotes the customer.
+    # Verified 2026-08-27 against the public calculator
+    # (marketplace.atlassian.com/apps/1218380/...?tab=pricing&hosting=cloud) at
+    # 250 / 500 / 902 / 2954 users — all four match exactly.
     cost_formula: |
-      Cumulative tier pricing: cost(N) =
-        if N <= 10:    40
-        else: sum over each tier of (users_in_tier * rate * 10)
-      e.g. 250 users = (100 * 0.44 + 150 * 0.33) * 10 = 935/yr
-    upgrade_url: https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram
+      MONTHLY billing — cumulative per-user rates on the EXACT headcount:
+        if N <= 10:  40/12
+        else:        sum over each tier of (users_in_tier * per_user_per_month_usd)
+      e.g. 250 users = 100*0.44 + 150*0.33 = 93.50/month
+           902 users = 100*0.44 + 150*0.33 + 652*0.11 = 165.22/month
+
+      ANNUAL billing — a FLAT price for the user BAND containing N, NOT a formula.
+      Bands are published per addon; read them, never compute them:
+        GET /rest/2/addons/com.zenuml.confluence-addon/pricing/cloud/live
+            items[]        monthsValid=12 -> annual band prices (unitCount = band top)
+            perUnitItems[] monthsValid=1  -> per-user-per-month rates
+            (skip unitCount == -1, the "Unlimited users" sentinel)
+      e.g. 902 users -> band 801-1000 -> 1,760/yr (NOT 165.22*10 = 1,652)
+
+      The old `* 10` model is WRONG between band boundaries. It agreed with the
+      annual price only AT a boundary (N=1000 -> 1,760 both ways). At 902 users it
+      returned 1,652, which is neither published price. Removed 2026-08-27; the
+      authoritative source is the pricing API above, read live.
+    months_in_year_billed_note: |
+      months_in_year_billed: 10 describes the DISCOUNT SHAPE (annual is cheaper than
+      12x monthly), not a way to compute the annual price. At 902 users annual saves
+      223 against 12 monthly payments, which is not exactly 2 months.
+    upgrade_url: https://marketplace.atlassian.com/apps/1218380/zenuml-diagrams-for-confluence
     upgrade_url_param: ?domain={clientDomain}
     licensing_grants: unlimited macros across all spaces, org-wide
     charges: ALL Confluence users on the tenant

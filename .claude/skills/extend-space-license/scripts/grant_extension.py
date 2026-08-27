@@ -25,7 +25,6 @@ The reply message it prints follows the canonical template in the handbook:
 import argparse
 import datetime as dt
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -36,12 +35,8 @@ SPACE_LICENSE_KV_NS = "8969e8528105403bb2d9adca9fc16567"
 KV_FULL_BASE = "https://conf-full.zenuml.com"
 KV_LITE_BASE = "https://conf-lite.zenuml.com"
 STRIPE_BUNDLE_LINK = "https://buy.stripe.com/cNifZifkN7hzavK12H7IY05"
-MARKETPLACE_LINK = "https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram"
+MARKETPLACE_LINK = "https://marketplace.atlassian.com/apps/1218380/zenuml-diagrams-for-confluence"
 ENTERPRISE_BUNDLE_USD = 299  # per space / year, flat
-
-# Override when the repo's node_modules/wrangler is missing or broken:
-#   WRANGLER_CMD="npx --yes wrangler@4" python3 grant_extension.py ...
-WRANGLER_CMD = os.environ.get("WRANGLER_CMD", "npx wrangler").split()
 
 
 def normalize_domain(raw):
@@ -102,7 +97,7 @@ def verify_space(bare_domain, space):
 
 
 def wrangler_kv_get(key):
-    cmd = WRANGLER_CMD + ["kv", "key", "get", key,
+    cmd = ["npx", "wrangler", "kv", "key", "get", key,
            f"--namespace-id={SPACE_LICENSE_KV_NS}", "--remote"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
@@ -112,21 +107,74 @@ def wrangler_kv_get(key):
 
 
 def wrangler_kv_put(key, value_path):
-    cmd = WRANGLER_CMD + ["kv", "key", "put", key, "--path", value_path,
+    cmd = ["npx", "wrangler", "kv", "key", "put", key, "--path", value_path,
            f"--namespace-id={SPACE_LICENSE_KV_NS}", "--remote"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "wrangler put failed")
 
 
-def full_plan_arr(n):
-    """Full-plan list price/yr via the ARR tier model (docs/pricing-model.yml)."""
+# Live Marketplace pricing for the Full app (com.zenuml.confluence-addon).
+# Two DIFFERENT published price shapes, and quoting the wrong one misquotes the customer:
+#   perUnitItems (monthsValid=1) -> per-user-per-month rates, charged on the EXACT headcount
+#   items       (monthsValid=12) -> fixed annual price for the user BAND (801-1000, etc.)
+# Verified 2026-08-27 against the public calculator at 902 users:
+#   monthly USD 165.22 ("0.18 per user average"), annual USD 1,760.00 ("User tier: 801-1000").
+# The old `... * 10` model returned 1,652 at 902 users, which is neither published price.
+# It agreed with the annual price only AT a band boundary (n=1000 -> 1,760 both ways).
+MARKETPLACE_PRICING_URL = (
+    "https://marketplace.atlassian.com/rest/2/addons/"
+    "com.zenuml.confluence-addon/pricing/cloud/live"
+)
+
+
+def full_plan_pricing(n):
+    """Published monthly + annual list price for n users. Raises if Marketplace is unreachable
+    — a wrong price in a customer reply is worse than no reply, so there is no local fallback."""
+    data = http_json(MARKETPLACE_PRICING_URL)
+
+    # unitCount == -1 is the "Unlimited users" sentinel, not a band — it sorts first and
+    # would shift every band boundary by one user (902 users quoted 165.66 instead of 165.22).
+    per_unit = sorted(
+        (i for i in data.get("perUnitItems", [])
+         if i.get("licenseType") == "COMMERCIAL" and i.get("unitCount", 0) > 0),
+        key=lambda i: i["unitCount"],
+    )
+    annual = sorted(
+        (i for i in data.get("items", [])
+         if i.get("licenseType") == "COMMERCIAL" and i.get("monthsValid") == 12
+         and i.get("unitCount", 0) > 0),
+        key=lambda i: i["unitCount"],
+    )
+    if not per_unit or not annual:
+        raise RuntimeError("Marketplace pricing payload missing perUnitItems/items")
+
+    # Monthly: cumulative per-unit rates. Each perUnitItem's unitCount is the TOP of its band,
+    # so users between the previous top and this one bill at this item's rate.
+    monthly, prev_top = 0.0, 0
+    for item in per_unit:
+        top = item["unitCount"]
+        users_in_band = max(0, min(n, top) - prev_top)
+        monthly += users_in_band * item["amount"]
+        prev_top = top
+        if n <= top:
+            break
+    else:
+        monthly += max(0, n - prev_top) * per_unit[-1]["amount"]
+
+    # Annual: flat price of the band that CONTAINS n (smallest published tier >= n).
+    band = next((i for i in annual if i["unitCount"] >= n), annual[-1])
+
+    # Below the first per-unit band the app is flat-rated; the annual band price is authoritative.
     if n <= 10:
-        return 40.0
-    return (min(n, 100) * 0.44
-            + max(0, min(n, 250) - 100) * 0.33
-            + max(0, min(n, 1000) - 250) * 0.11
-            + max(0, n - 1000) * 0.05) * 10
+        monthly = band["amount"] / 12.0
+
+    return {
+        "monthly": monthly,
+        "annual": band["amount"],
+        "band": band["unitCount"],
+        "per_user_month": monthly / n if n else 0.0,
+    }
 
 
 def grant(domain, space, days, activated_by, dry_run, user_account_id=None):
@@ -220,12 +268,20 @@ def through_date(expires_at):
 
 def print_reply(space, expires_at, users, user_scoped=False, days=7, feedback_days=None):
     if users:
-        price = full_plan_arr(users)
+        p = full_plan_pricing(users)
         users_line = f"~{users:,} users"
-        full_price = f"~${price:,.0f}/year"
+        # Lead with the monthly figure — it is the smaller number and the one the Marketplace
+        # calculator shows by default. The annual figure follows because that is what a
+        # purchase order needs, and it is cheaper than paying monthly for twelve months.
+        annual_saving = p["monthly"] * 12 - p["annual"]
+        full_price = (
+            f"~${p['monthly']:,.0f}/month (~${p['per_user_month']:.2f} per user). "
+            f"Annual billing is ~${p['annual']:,.0f}/year"
+            + (f" and saves ~${annual_saving:,.0f}" if annual_saving > 0 else "")
+        )
     else:
         users_line = "~{USERS} users (fetch tier from the Marketplace license report)"
-        full_price = "~${FULL_PRICE}/year"
+        full_price = "~${MONTHLY}/month, or ~${ANNUAL}/year on annual billing"
 
     if user_scoped:
         intro = (
@@ -293,7 +349,7 @@ It's a temporary bridge. For a lasting fix there are two routes — happy to hel
 
 Per-space (Enterprise Bundle) — ${ENTERPRISE_BUNDLE_USD}/space/year, unlimited macros and users in that space. It's the quickest path and doesn't require a Confluence admin — you can set it up directly, so it's ideal if you'd like {space} unblocked permanently right away. Purchase here: {STRIPE_BUNDLE_LINK} — just reply with the space key after payment and we'll activate it.
 
-Org-wide (Full plan) — removes the limit across all your spaces and users at once; best value if you want everything covered (you're running a large site with diagrams across many spaces). Based on your site's {users_line}, this works out to {full_price}. You can upgrade on the Atlassian Marketplace here: ZenUML Diagrams for Confluence | Atlassian Marketplace ({MARKETPLACE_LINK}) — this one goes through whoever administers Confluence apps for your site.
+Org-wide (Full plan) — removes the limit across all your spaces and users at once; best value if you want everything covered (you're running a large site with diagrams across many spaces). Based on your site's {users_line}, this works out to {full_price}. Every Marketplace app also carries a 30-day free trial, so you can remove the limit site-wide today and decide afterwards. You can upgrade on the Atlassian Marketplace here: ZenUML Diagrams for Confluence | Atlassian Marketplace ({MARKETPLACE_LINK}) — this one goes through whoever administers Confluence apps for your site.
 
 {closing}
 

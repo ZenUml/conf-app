@@ -32,17 +32,18 @@ short ids such as `DB`, `API`, `Svc` recur across unrelated diagrams.
 ## Run
 
 ```bash
-# 1. corpus (raw customer source — $ARCHTOK_DIR = private/local-data/architecture-tokens/<pilot>, git-ignored)
-node --experimental-strip-types tools/architecture-tokens/read-corpus.mjs \
-  --space-id <spaceId> --app-id <forgeAppId> --out $ARCHTOK_DIR/corpus.json
-
+# 0. ARCHTOK_DIR = private/local-data/architecture-tokens/<pilot>  (git-ignored; holds cloud-id)
+# 1. corpus, tenant-wide
+node --experimental-strip-types tools/architecture-tokens/read-corpus.mjs --client-domain <domain> --out $ARCHTOK_DIR/raw/corpus-$(date +%F).json
 # 2. occurrences
-node --experimental-strip-types tools/architecture-tokens/extract-corpus.mjs \
-  --corpus $ARCHTOK_DIR/corpus.json --out $ARCHTOK_DIR/participant-normalization-analysis.json
-
-# 3. tests
-pnpm vitest --run tools/architecture-tokens
+node --experimental-strip-types tools/architecture-tokens/extract-corpus.mjs --corpus $ARCHTOK_DIR/raw/corpus-$(date +%F).json --out $ARCHTOK_DIR/participant-occurrences-$(date +%F).json
+# 3. upload (replaces the tenant's rows in D1)
+node --experimental-strip-types tools/architecture-tokens/upload-index.mjs --artifact $ARCHTOK_DIR/participant-occurrences-$(date +%F).json --cloud-id-file $ARCHTOK_DIR/cloud-id
+# 4. tests
+pnpm vitest --run tools/architecture-tokens functions/architecture-tokens functions/api/architecture-tokens src/components/Viewer/RelatedDiagramsFooter.spec.ts
 ```
+
+Manual: weekly (Monday morning AEST) and on demand. The viewer shows 'as of <date>'.
 
 Customer data — corpus files, extracted labels, model outputs, tenant
 identifiers — is never committed to any repository, the `private/` submodule

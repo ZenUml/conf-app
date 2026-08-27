@@ -8,11 +8,7 @@ load_env() {
   echo "Loading: $file"
   while IFS='=' read -r key value; do
     [[ -z "$key" || "$key" =~ ^# ]] && continue
-    if [[ ${#value} -gt 20 ]]; then
-      echo "  $key=${value:0:20}..."
-    else
-      echo "  $key=$value"
-    fi
+    echo "  $key=<redacted>"
   done < "$file"
   set -a
   source "$file"

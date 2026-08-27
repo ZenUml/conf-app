@@ -194,6 +194,64 @@ The frontend's `attachment_upload_queued` is the denominator: every queued uploa
 
 **Sampling:** unsampled. Volume tracks saves, not views.
 
+## Architecture Tokens (Phase 1)
+
+These viewer events use `feature_area: "architecture_tokens"`, `surface: "viewer" | "fullscreen"`,
+and `macro_type: "mermaid"`.
+
+### `related_diagrams_lookup_succeeded`
+
+**Trigger:** Route returned after render.
+
+| Property | Notes |
+|---|---|
+| `participant_count` | Participants declared in the rendered diagram |
+| `participants_with_related` | Participants with at least one accessible related page |
+| `related_pages_total` | Total accessible related pages across participants |
+| `index_age_days` | Whole days since the index was built |
+| `duration_ms` | Lookup duration in milliseconds |
+
+### `related_diagrams_lookup_failed`
+
+**Trigger:** Route error, timeout, or `error_kind` in the response body.
+
+| Property | Notes |
+|---|---|
+| `error_kind` | Stable failure kind |
+| `duration_ms` | Lookup duration in milliseconds |
+
+### `related_diagrams_shown`
+
+**Trigger:** Footer rendered with at least one related participant.
+
+| Property | Notes |
+|---|---|
+| `participant_count` | Participants declared in the rendered diagram |
+| `participants_with_related` | Participants with at least one accessible related page |
+| `related_pages_total` | Total accessible related pages across participants |
+| `index_age_days` | Whole days since the index was built |
+
+### `related_diagram_popover_opened`
+
+**Trigger:** Click on a lifeline's count pill.
+
+| Property | Notes |
+|---|---|
+| `related_count` | Accessible related pages for the selected participant |
+| `label_variant_count` | Distinct raw labels among those related pages |
+
+### `related_diagram_link_clicked`
+
+**Trigger:** A related page link opened.
+
+| Property | Notes |
+|---|---|
+| `related_count` | Accessible related pages for the selected participant |
+| `same_space` | Whether the related page is in the same space as the viewer's page |
+
+No label text, page id, or tenant vocabulary is included in these events. Lookup events are not
+emitted when the feature flag is off, and `related_diagrams_shown` is not emitted for zero results.
+
 ---
 
 ## AI title generation

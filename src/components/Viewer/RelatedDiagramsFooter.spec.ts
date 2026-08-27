@@ -388,13 +388,51 @@ describe('RelatedDiagramsFooter', () => {
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'related_diagram_link_clicked',
-      expect.objectContaining({ related_count: 2, same_space: false }),
+      expect.objectContaining({ related_count: 2, same_space: false, same_page: false }),
     )
 
     links[1].click()
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'related_diagram_link_clicked',
-      expect.objectContaining({ related_count: 2, same_space: true }),
+      expect.objectContaining({ related_count: 2, same_space: true, same_page: false }),
+    )
+  })
+
+  it('labels a related diagram on the current page as This page', async () => {
+    related.value = {
+      indexedAt: twoParticipants.indexedAt,
+      contentVersion: twoParticipants.contentVersion,
+      participants: [
+        {
+          actorId: 'PA',
+          rawLabel: 'Partner App',
+          related: [
+            {
+              contentId: '4',
+              pageId: '999',
+              pageTitle: 'Current page diagram',
+              spaceKey: 'OP',
+              rawLabelThere: 'Partner App',
+            },
+          ],
+        },
+      ],
+    }
+    const { h } = mountFooter({ pageId: '999' })
+    await flushPromises()
+    pill(h, 'PA')!.click()
+    await flushPromises()
+
+    const links = popover()!.querySelectorAll<HTMLElement>('[data-testid="related-diagram-link"]')
+    expect(links).toHaveLength(1)
+    expect(links[0].textContent).toContain('Current page diagram')
+    expect(
+      links[0].querySelector('[data-testid="related-diagrams-current-page"]')?.textContent?.trim(),
+    ).toBe('This page')
+    links[0].click()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagram_link_clicked',
+      expect.objectContaining({ same_page: true }),
     )
   })
 

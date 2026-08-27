@@ -71,7 +71,14 @@
         <ul>
           <li v-for="page in open.related" :key="page.contentId">
             <a href="#" data-testid="related-diagram-link" @click.prevent="follow(open, page)">
-              {{ page.pageTitle }}
+              <span class="related-diagrams-link-title">{{ page.pageTitle }}</span>
+              <span
+                v-if="page.pageId === props.pageId"
+                class="related-diagrams-current-page"
+                data-testid="related-diagrams-current-page"
+              >
+                This page
+              </span>
             </a>
             <span class="related-diagrams-space">{{ page.spaceKey }}</span>
             <span
@@ -335,6 +342,7 @@ function follow(participant: RelatedParticipant, page: RelatedPage) {
     ...baseProperties(),
     related_count: participant.related.length,
     same_space: Boolean(currentSpaceKey) && page.spaceKey === currentSpaceKey,
+    same_page: page.pageId === props.pageId,
   })
   const siteUrl = (forgeGlobal as any)?.forgeContext?.siteUrl ?? ''
   void openUrl(
@@ -489,16 +497,36 @@ onBeforeUnmount(() => {
 }
 
 .related-diagrams-popover a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
   overflow: hidden;
   color: #0052cc;
+  gap: 6px;
   text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .related-diagrams-popover a:hover {
   color: #0747a6;
   text-decoration: underline;
+}
+
+.related-diagrams-link-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-diagrams-current-page {
+  padding: 0 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 9999px;
+  color: #6b7280;
+  background: #f3f4f6;
+  font-size: 11px;
+  line-height: 16px;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .related-diagrams-space {

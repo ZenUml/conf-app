@@ -79,7 +79,7 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
       related: [
         {
           contentId: 'related-101',
-          pageId: 'page-101',
+          pageId: 'storybook-page',
           pageTitle: 'Authentication overview',
           spaceKey: 'DOCS',
           rawLabelThere: 'Web Client',
@@ -402,7 +402,7 @@ export const ArchitectureTokensMermaidIntegration: Story = {
         architectureTokensEnabled: true,
         customContentId: 'storybook-content-778899',
       })
-      store.state.viewerLoadState = 'ready'
+      store.commit('setViewerLoadState', { viewerLoadState: null })
       store.commit('setDiagramAttribution', {
         customContentId: 'storybook-content-778899',
       })
@@ -412,17 +412,19 @@ export const ArchitectureTokensMermaidIntegration: Story = {
   render: (args: Args) => renderMermaidViewer(args),
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByTestId('related-diagrams-footer')).toHaveTextContent(
-      '1 of 2 participants also appear in other diagrams you can access',
-    )
-    await expect(await canvas.findByTestId('diagram-attribution')).toHaveTextContent('3 views')
-
     let actor: SVGRectElement | null = null
     await waitFor(() => {
       actor = document.querySelector<SVGRectElement>('rect.actor-top[name="Client"]')
       if (!actor) throw new Error('real Mermaid actor rectangle not rendered')
     })
-    await userEvent.hover(actor!)
+    store.commit('setViewerLoadState', { viewerLoadState: 'ready' })
+    await expect(await canvas.findByTestId('related-diagrams-footer')).toHaveTextContent(
+      '1 of 2 participants also appear in other diagrams you can access',
+    )
+    await expect(await canvas.findByTestId('diagram-attribution')).toHaveTextContent('3 views')
+    actor = document.querySelector<SVGRectElement>('rect.actor-top[name="Client"]')
+    if (!actor) throw new Error('real Mermaid actor rectangle disappeared after ready')
+    await userEvent.hover(actor)
 
     const pill = await canvas.findByTestId('related-diagrams-pill')
     await waitFor(() => expect(pill).not.toHaveClass('related-diagrams-pill--concealed'))
@@ -433,6 +435,9 @@ export const ArchitectureTokensMermaidIntegration: Story = {
     await expect(popover).toBeVisible()
     await expect(popover).toHaveTextContent('Possibly related by name')
     await expect(popover).toHaveTextContent('Authentication overview')
+    await expect(canvas.getByTestId('related-diagrams-current-page')).toHaveTextContent(
+      'This page',
+    )
   },
 }
 

@@ -51,6 +51,8 @@
     :original-code="code"
     :diagram-type="diagramType"
     :error="error"
+    :model="aiRepairModel"
+    :disable-reasoning="aiRepairDisableReasoning"
     @close="showAIRepairDialog = false"
     @apply="handleApplyRepair"
   />
@@ -60,12 +62,20 @@
 import { computed, ref, onMounted } from "vue";
 import { useStore } from "vuex";
 import AIRepair from "@/components/AIRepair.vue";
-import { DiagramType } from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import { isAiRepairEnabled as checkAiRepairEnabled } from '@/apis/aiTitleFeatureFlag';
+const props = defineProps({
+  aiRepairModel: String,
+  aiRepairDisableReasoning: {
+    type: Boolean,
+    default: undefined,
+  },
+});
 const store = useStore();
 const showAIRepairDialog = ref(false);
 const aiRepairFeatureEnabled = ref(false);
+const aiRepairModel = computed(() => props.aiRepairModel);
+const aiRepairDisableReasoning = computed(() => props.aiRepairDisableReasoning);
 // Get the error from the store
 const error = computed(() => store.state.error);
 // Get the current code from the store

@@ -58,4 +58,30 @@ describe('GenerateService Diagramly requests', () => {
       },
     );
   });
+
+  it('forwards explicit AI repair model and reasoning options', async () => {
+    vi.mocked(callRemote).mockResolvedValue({ jobId: 'job-configured' });
+
+    await startFixDiagram(
+      'A -> B',
+      'syntax error',
+      'Sequence' as any,
+      {
+        model: 'anthropic/claude-sonnet-5',
+        disableReasoning: false,
+      },
+    );
+
+    expect(callRemote).toHaveBeenCalledWith(
+      '/diagramly/fix-diagram',
+      'POST',
+      {
+        diagramCode: 'A -> B',
+        errorMessage: 'syntax error',
+        diagramType: 'Sequence',
+        model: 'anthropic/claude-sonnet-5',
+        disableReasoning: false,
+      },
+    );
+  });
 });

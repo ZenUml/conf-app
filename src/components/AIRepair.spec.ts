@@ -22,6 +22,7 @@ const COMPLETED_STATUS = {
     diagramCode: 'A->B: fixed',
     repairAttempts: 1,
     durationMs: 12_000,
+    model: 'anthropic/claude-sonnet-5',
     reasoningDisabled: true,
   },
 }
@@ -36,13 +37,14 @@ const FAILED_STATUS = {
 
 const ORIGINAL_CODE = 'A->B: hello'
 
-const mountRepair = () =>
+const mountRepair = (props: Record<string, unknown> = {}) =>
   mount(AIRepair, {
     props: {
       showDialog: false,
       originalCode: ORIGINAL_CODE,
       diagramType: 'Sequence',
       error: 'syntax error on line 1',
+      ...props,
     },
     attachTo: document.body,
   })
@@ -84,6 +86,51 @@ describe('AIRepair analytics', () => {
     wrapper.unmount()
   })
 
+  it('uses openai/gpt-5.6-luna as the default repair model', async () => {
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-default-model' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+
+    expect(startFixDiagram).toHaveBeenCalledWith(
+      ORIGINAL_CODE,
+      'syntax error on line 1',
+      'Sequence',
+      { model: 'openai/gpt-5.6-luna' },
+    )
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_requested', expect.objectContaining({
+      ai_model: 'openai/gpt-5.6-luna',
+    }))
+    wrapper.unmount()
+  })
+
+  it('forwards and tracks explicit model and disableReasoning configuration', async () => {
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-configured' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+
+    const wrapper = mountRepair({
+      model: 'anthropic/claude-sonnet-5',
+      disableReasoning: false,
+    })
+    await triggerRepair(wrapper)
+
+    expect(startFixDiagram).toHaveBeenCalledWith(
+      ORIGINAL_CODE,
+      'syntax error on line 1',
+      'Sequence',
+      {
+        model: 'anthropic/claude-sonnet-5',
+        disableReasoning: false,
+      },
+    )
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_requested', expect.objectContaining({
+      ai_model: 'anthropic/claude-sonnet-5',
+      reasoning_disabled: false,
+    }))
+    wrapper.unmount()
+  })
+
   it('fires ai_repair_succeeded when job completes', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
     vi.mocked(getFixDiagramStatus as any).mockResolvedValue(COMPLETED_STATUS)
@@ -98,6 +145,7 @@ describe('AIRepair analytics', () => {
       poll_count: 1,
       backend_duration_ms: 12_000,
       repair_attempts: 1,
+      ai_model: 'anthropic/claude-sonnet-5',
       reasoning_disabled: true,
     }))
     wrapper.unmount()

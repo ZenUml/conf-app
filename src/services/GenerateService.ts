@@ -10,15 +10,25 @@ export async function diagramlyChat(messages: Array<any>) {
   return await callRemote(`/diagramly/chat`, 'POST', { messages });
 }
 
+export interface AIRepairOptions {
+  model?: string;
+  disableReasoning?: boolean;
+}
+
 export async function startFixDiagram(
   diagramCode: string,
   errorMessage: string,
   diagramType: DiagramType,
+  options: AIRepairOptions = {},
 ): Promise<{ jobId: string }> {
   const startResponse = await callRemote(`/diagramly/fix-diagram`, 'POST', {
     diagramCode,
     errorMessage,
-    diagramType: diagramType
+    diagramType,
+    ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.disableReasoning !== undefined
+      ? { disableReasoning: options.disableReasoning }
+      : {}),
   });
 
   const { jobId } = startResponse as { jobId: string };
@@ -43,6 +53,7 @@ export async function getFixDiagramStatus(
     repairAttempts?: number;
     durationMs?: number;
     timeBudgetMs?: number;
+    model?: string;
     reasoningDisabled?: boolean;
     timedOut?: boolean;
   };
@@ -62,6 +73,7 @@ export async function getFixDiagramStatus(
       repairAttempts?: number;
       durationMs?: number;
       timeBudgetMs?: number;
+      model?: string;
       reasoningDisabled?: boolean;
       timedOut?: boolean;
     };

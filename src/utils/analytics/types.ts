@@ -80,6 +80,7 @@ export type AnalyticsProperties = {
   poll_count?: number;
   backend_duration_ms?: number;
   repair_attempts?: number;
+  ai_model?: string;
   reasoning_disabled?: boolean;
   failure_phase?: 'start' | 'poll' | 'server' | 'timeout';
   // Upgrade

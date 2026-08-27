@@ -116,6 +116,89 @@ describe('Header', () => {
   })
 })
 
+describe('Header — macro_type_changed telemetry (#562)', () => {
+  beforeEach(async () => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    localStorage.removeItem('zenuml-preferred-diagram-type');
+    store.state.diagram = {
+      ...store.state.diagram,
+      id: '',
+      isNew: true,
+      typeRequested: true,
+      title: 'Telemetry test',
+      diagramType: DiagramType.Sequence,
+      code: 'Alice->Bob: hello',
+      mermaidCode: '',
+      plantUmlCode: '',
+    } as any;
+    await flushPromises();
+    store.commit('updateDiagramType', DiagramType.Sequence);
+  });
+
+  it('reports the observed new-macro Sequence → Mermaid tab switch', async () => {
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    const mermaidButton = wrapper.findAll('.tab-switcher button')[1];
+
+    await mermaidButton.trigger('click');
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_type_changed', {
+      feature_area: 'macro',
+      surface: 'editor',
+      macro_type: DiagramType.Mermaid,
+      from_macro_type: DiagramType.Sequence,
+      to_macro_type: DiagramType.Mermaid,
+      operation_mode: 'create',
+      type_requested: true,
+      is_new_macro: true,
+    });
+  });
+
+  it('does not report a type change when the active tab is selected again', async () => {
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    const sequenceButton = wrapper.findAll('.tab-switcher button')[0];
+
+    await sequenceButton.trigger('click');
+
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('macro_type_changed', expect.anything());
+  });
+
+  it('reports an existing-macro tab switch as edit mode', async () => {
+    store.state.diagram.id = 'existing-custom-content-id';
+    store.state.diagram.typeRequested = false;
+    store.commit('updateDiagramType', DiagramType.Sequence);
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    const plantUmlButton = wrapper.findAll('.tab-switcher button')[2];
+
+    await plantUmlButton.trigger('click');
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_type_changed', expect.objectContaining({
+      macro_type: DiagramType.PlantUml,
+      from_macro_type: DiagramType.Sequence,
+      to_macro_type: DiagramType.PlantUml,
+      operation_mode: 'edit',
+      type_requested: false,
+      is_new_macro: false,
+    }));
+  });
+
+  it('reports each step of a multi-tab switch in order', async () => {
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    const [sequenceButton, mermaidButton, plantUmlButton] = wrapper.findAll('.tab-switcher button');
+
+    await mermaidButton.trigger('click');
+    await plantUmlButton.trigger('click');
+
+    const changes = vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([eventName]) => eventName === 'macro_type_changed')
+      .map(([, properties]) => [properties.from_macro_type, properties.to_macro_type]);
+    expect(changes).toEqual([
+      [DiagramType.Sequence, DiagramType.Mermaid],
+      [DiagramType.Mermaid, DiagramType.PlantUml],
+    ]);
+    expect(sequenceButton.attributes('aria-selected')).toBe('false');
+  });
+});
+
 describe('Header — starter-template gallery (#334)', () => {
   beforeEach(() => {
     vi.mocked(trackAnalyticsEvent).mockClear();

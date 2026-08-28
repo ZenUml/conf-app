@@ -1,0 +1,63 @@
+# Cron Worker: lifecycle CRM ingest (Marketplace licenses -> D1
+# lifecycle_contact / lifecycle_touchpoint, functions/migrations/0024_add_lifecycle_crm.sql)
+#
+# STATUS 2026-08-28 (T6b): CODE + TESTS ONLY. Nothing here is deployed:
+#   - this package is deliberately NOT listed in the root pnpm-workspace.yaml
+#     (unlike workers/cron-aggregate and workers/agent-link), so it isn't
+#     installed or built by any existing CI job.
+#   - no `deploy-cron-worker`-style job references "lifecycle-ingest" in
+#     .github/workflows/{build-test-deploy,release}.yml.
+#   - the [env.*.triggers] cron blocks below are commented out.
+#   - even if all three of the above were undone and `wrangler deploy` ran,
+#     the scheduled() handler in src/index.ts is a no-op unless
+#     LIFECYCLE_INGEST_ENABLED="true" is set for that environment (defaults
+#     to "false" below) -- a fourth, independent gate.
+#
+# TODO(morning): before turning this on for real —
+#   1. decide ingest cadence (cron-aggregate runs daily at 0 2 * * * UTC;
+#      Marketplace export rate limits are unverified for a tighter schedule)
+#   2. add "workers/lifecycle-ingest" to pnpm-workspace.yaml
+#   3. add a deploy-cron-worker-style job to build-test-deploy.yml (staging)
+#      and release.yml (production), mirroring the cron-aggregate jobs
+#   4. `wrangler secret put FORGE_EMAIL` / `FORGE_API_TOKEN` per environment
+#      (never committed here -- see functions/CLAUDE.md credential map)
+#   5. uncomment the [env.*.triggers] blocks below
+#   6. flip LIFECYCLE_INGEST_ENABLED to "true" for the target environment
+
+name = "lifecycle-ingest"
+main = "src/index.ts"
+compatibility_date = "2024-11-11"
+compatibility_flags = ["nodejs_compat"]
+account_id = "8d5fc7ce04adc5096f52485cce7d7b3d"
+
+# Staging
+[env.stg]
+name = "lifecycle-ingest-stg"
+
+[env.stg.vars]
+LIFECYCLE_INGEST_ENABLED = "false"
+
+# TODO(morning): uncomment once cadence is decided (see TODO block above).
+# [env.stg.triggers]
+# crons = ["0 3 * * *"]
+
+[[env.stg.d1_databases]]
+binding = "DB"
+database_name = "conf-zenuml-stg"
+database_id = "5894387c-08be-43d7-b8dc-0b7b8eb7c264"
+
+# Production
+[env.production]
+name = "lifecycle-ingest-prod"
+
+[env.production.vars]
+LIFECYCLE_INGEST_ENABLED = "false"
+
+# TODO(morning): uncomment once cadence is decided (see TODO block above).
+# [env.production.triggers]
+# crons = ["0 3 * * *"]
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "conf-zenuml-prod"
+database_id = "2e34f32e-5ddd-40dc-9e3d-019f9b1d431f"

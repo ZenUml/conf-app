@@ -114,6 +114,28 @@ export async function ensureDiagramlyDiagram(
   return result;
 }
 
+export async function getDiagramlyVersions(context, diagramId) {
+  if (typeof diagramId !== 'string' || !diagramId.trim()) {
+    throw new Error('Missing diagramId');
+  }
+
+  return callDiagramly(context, '/api/chat/versions', { diagramId });
+}
+
+export async function restoreDiagramlyVersion(context, diagramId, versionId) {
+  if (typeof diagramId !== 'string' || !diagramId.trim()) {
+    throw new Error('Missing diagramId');
+  }
+  if (typeof versionId !== 'string' || !versionId.trim()) {
+    throw new Error('Missing versionId');
+  }
+
+  return callDiagramly(context, '/api/chat/restore-version', {
+    diagramId,
+    versionId,
+  });
+}
+
 export async function getDiagram(context, diagramId) {
   const input = {
     "0": {

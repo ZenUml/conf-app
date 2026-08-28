@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   callDiagramly,
   ensureDiagramlyDiagram,
+  getDiagramlyVersions,
   modifyDiagram,
   modifyDiagramWithCommand,
+  restoreDiagramlyVersion,
 } from './diagramlyService';
 
 function makeContext(cloudId?: string) {
@@ -204,6 +206,54 @@ describe('callDiagramly', () => {
       }),
     ).rejects.toThrow('Missing diagramId');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('loads a diagram version history through the versioned API', async () => {
+    const responseBody = {
+      diagram: { id: 'diagram-1' },
+      versions: [{ id: 'version-1', versionNumber: 1 }],
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(JSON.stringify(responseBody)),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      getDiagramlyVersions(makeContext('verified-cloud-789'), 'diagram-1'),
+    ).resolves.toEqual(responseBody);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://diagramly.example/api/chat/versions');
+    expect(JSON.parse(init.body)).toEqual({ diagramId: 'diagram-1' });
+  });
+
+  it('restores history by requesting a new audited version', async () => {
+    const responseBody = {
+      diagramId: 'diagram-1',
+      version: { id: 'version-3', versionNumber: 3 },
+      diagramCode: 'A -> B',
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(JSON.stringify(responseBody)),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      restoreDiagramlyVersion(
+        makeContext('verified-cloud-789'),
+        'diagram-1',
+        'version-1',
+      ),
+    ).resolves.toEqual(responseBody);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://diagramly.example/api/chat/restore-version');
+    expect(JSON.parse(init.body)).toEqual({
+      diagramId: 'diagram-1',
+      versionId: 'version-1',
+    });
   });
 
   it('rejects a request when cloudId is missing', async () => {

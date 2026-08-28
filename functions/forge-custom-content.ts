@@ -60,7 +60,9 @@ export const onRequest = async ({
     // recover from prior requests that inserted the version but failed
     // before completing the CustomContent write.
     await createVersion(env, customContent, forgeAppId);
-    await createOrUpdateContent(env, customContent, forgeAppId, body.macroUuid, body.diagramType);
+    await createOrUpdateContent(
+      env, customContent, forgeAppId, body.macroUuid, body.diagramType, cloudIdFrom(apiBaseUrl),
+    );
 
     // Update ForgeInstallation with clientDomain if provided
     if (body.clientDomain) {
@@ -109,36 +111,36 @@ async function getContent(env, data, appId) {
   return results && results.length > 0;
 }
 
-async function createOrUpdateContent(env, data, appId, macroUuid, diagramType) {
+/** `https://api.atlassian.com/ex/confluence/{cloudId}` — the only tenant id the save carries. */
+export function cloudIdFrom(apiBaseUrl: string | undefined): string | null {
+  const match = apiBaseUrl?.match(/\/ex\/confluence\/([a-f0-9-]+)/);
+  return match ? match[1] : null;
+}
+
+async function createOrUpdateContent(env, data, appId, macroUuid, diagramType, cloudId) {
   if(await getContent(env, data, appId)) {
     // COALESCE(NULLIF(?, ''), existing) — backfill macroUuid/diagramType from
     // the request when non-empty, keep the existing value otherwise. Without
     // this, every UPDATE silently drops the identity payload sent by
     // Persistence.ts and existing rows stay misaligned with Mixpanel forever.
     const result = await env.DB.prepare(
-      "UPDATE CustomContent SET latestVersionNumber=?1, body=?2, createdAt=?3, title=?4, status=?5, macroUuid = COALESCE(NULLIF(?6, ''), macroUuid), diagramType = COALESCE(NULLIF(?7, ''), diagramType) WHERE contentId=?8 AND appId=?9 AND spaceId=?10"
+      "UPDATE CustomContent SET latestVersionNumber=?1, body=?2, createdAt=?3, title=?4, status=?5, macroUuid = COALESCE(NULLIF(?6, ''), macroUuid), diagramType = COALESCE(NULLIF(?7, ''), diagramType), cloudId = COALESCE(?11, cloudId) WHERE contentId=?8 AND appId=?9 AND spaceId=?10"
     )
-    .bind(data.version.number, JSON.stringify(data.body), data.createdAt, data.title || '', data.status || '', macroUuid || '', diagramType || '', data.id, appId, data.spaceId)
+    .bind(data.version.number, JSON.stringify(data.body), data.createdAt, data.title || '', data.status || '', macroUuid || '', diagramType || '', data.id, appId, data.spaceId, cloudId || null)
     .run();
     console.log('update content result:', result);
     return;
   }
 
-  const result = await env.DB.prepare( "insert into CustomContent (contentId, type, latestVersionNumber, body, createdAt, appId, spaceId, title, pageId, macroUuid, diagramType, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)" )
-  .bind(data.id, data.type, data.version.number, JSON.stringify(data.body), data.createdAt, appId, data.spaceId, data.title || '', data.pageId || '', macroUuid || '', diagramType || '', data.status || '')
+  const result = await env.DB.prepare( "insert into CustomContent (contentId, type, latestVersionNumber, body, createdAt, appId, spaceId, title, pageId, macroUuid, diagramType, status, cloudId) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)" )
+  .bind(data.id, data.type, data.version.number, JSON.stringify(data.body), data.createdAt, appId, data.spaceId, data.title || '', data.pageId || '', macroUuid || '', diagramType || '', data.status || '', cloudId || null)
   .run();
   console.log('create content result:', result);
 }
 
 async function updateForgeInstallationClientDomain(env, appId, apiBaseUrl, clientDomain) {
   // Extract cloudId from apiBaseUrl (e.g., https://api.atlassian.com/ex/confluence/{cloudId})
-  let cloudId: string | null = null;
-  if (apiBaseUrl) {
-    const match = apiBaseUrl.match(/\/ex\/confluence\/([a-f0-9-]+)/);
-    if (match) {
-      cloudId = match[1];
-    }
-  }
+  const cloudId = cloudIdFrom(apiBaseUrl);
 
   if (!cloudId) {
     console.log('Could not extract cloudId from apiBaseUrl:', apiBaseUrl);

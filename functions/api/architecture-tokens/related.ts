@@ -35,8 +35,12 @@ export const onRequest = async ({
   const user = request.headers.get('x-forge-oauth-user');
   if (!cloudId || !apiBaseUrl || !user) return response(401, 'forge_context_missing');
 
-  const id = new URL(request.url).searchParams.get('customContentId') ?? '';
+  const params = new URL(request.url).searchParams;
+  const id = params.get('customContentId') ?? '';
   if (!/^\d{1,20}$/.test(id)) return response(400, 'invalid_custom_content_id');
+  // The page the reader is on, so the nearest position survives the slice.
+  const pageId = params.get('pageId') ?? '';
+  const ownPageId = /^\d{1,20}$/.test(pageId) ? pageId : undefined;
 
   try {
     return OkResponse(await relatedDiagrams(
@@ -45,6 +49,7 @@ export const onRequest = async ({
       id,
       confluencePageResolver(apiBaseUrl, user),
       confluenceContentResolver(apiBaseUrl, user),
+      ownPageId,
     ));
   } catch (error) {
     console.error('architecture-tokens related lookup failed', error);

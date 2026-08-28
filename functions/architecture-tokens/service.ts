@@ -15,7 +15,10 @@ export interface RelatedPage {
 export interface RelatedParticipant {
   actorId: string;
   rawLabel: string;
+  /** At most PAGES_SHOWN, nearest first. */
   related: RelatedPage[];
+  /** Every page the index holds for this name; the circle shows this, `related` is a slice. */
+  relatedTotal: number;
 }
 
 export interface RelatedResponse {
@@ -106,42 +109,63 @@ function byActor(rows: OccurrenceRow[]): Map<string, OccurrenceRow> {
 }
 
 /**
- * A name that recurs across a large part of the tenant carries no information about the
- * object — `DB`, `API`, `OrderController` land on hundreds of unrelated diagrams. Above
- * this many distinct pages the key is dropped whole: no rows, no circle, not counted.
- * Truncating such a key to a few rows would present noise as a relation.
+ * How many pages one participant lists. A generic name is the interesting case, not the
+ * case to hide: `user` sits on 139 pages at the pilot tenant, `database` on 44. Listing
+ * the nearest few and stating the remainder keeps the reader oriented and makes the
+ * over-general name visible, which is what a person needs before giving it a real name.
  */
-export const NOISE_PAGE_THRESHOLD = 50;
+export const PAGES_SHOWN = 5;
+/**
+ * Candidates fetched per participant before the permission filter runs. The filter drops
+ * pages the reader cannot open, so asking for exactly PAGES_SHOWN would leave short lists.
+ */
+const CANDIDATE_DEPTH = PAGES_SHOWN * 4;
 /** Ceiling on one lookup's CQL work; CQL_BATCH ids per request. */
 const PAGE_BUDGET = 300;
 
-/** Drop noisy keys, then order what remains: this space first, newest content first. */
+/**
+ * Order the candidates: this page first, then this space, then the newest content. The
+ * page ranks first because the viewer collapses same-page rows into one line and shows it
+ * at the top — a slice taken without that order could cut the nearest position away.
+ */
 export function usableCandidates(
   candidates: OccurrenceRow[],
   ownSpaceId: string,
+  ownPageId?: string,
 ): OccurrenceRow[] {
-  const pagesByKey = new Map<string, Set<string>>();
-  for (const candidate of candidates) {
-    let pages = pagesByKey.get(candidate.comparisonKey);
-    if (!pages) pagesByKey.set(candidate.comparisonKey, (pages = new Set()));
-    pages.add(candidate.pageId);
-  }
-
-  const rank = (row: OccurrenceRow) => (row.spaceId === ownSpaceId ? 0 : 1);
+  const rank = (row: OccurrenceRow) =>
+    (ownPageId && row.pageId === ownPageId ? 0 : row.spaceId === ownSpaceId ? 1 : 2);
   const recency = (row: OccurrenceRow) => {
     const value = Number(row.contentId);
     return Number.isFinite(value) ? value : 0;
   };
-  return candidates
-    .filter((candidate) => (pagesByKey.get(candidate.comparisonKey)?.size ?? 0) <= NOISE_PAGE_THRESHOLD)
-    .sort((a, b) => rank(a) - rank(b) || recency(b) - recency(a));
+  return [...candidates].sort((a, b) => rank(a) - rank(b) || recency(b) - recency(a));
 }
 
+/** Distinct pages per comparison key — the number the circle shows. */
+export function pageTotalsByKey(candidates: OccurrenceRow[]): Map<string, number> {
+  const pages = new Map<string, Set<string>>();
+  for (const candidate of candidates) {
+    let set = pages.get(candidate.comparisonKey);
+    if (!set) pages.set(candidate.comparisonKey, (set = new Set()));
+    set.add(candidate.pageId);
+  }
+  return new Map([...pages].map(([key, set]) => [key, set.size]));
+}
+
+/**
+ * Only the nearest CANDIDATE_DEPTH pages per key reach Confluence: a name on 139 pages
+ * would otherwise cost 34 CQL round trips and miss the viewer's 8s budget.
+ */
 function budgetedPageIds(candidates: OccurrenceRow[]): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
+  const perKey = new Map<string, number>();
   for (const candidate of candidates) {
     if (seen.has(candidate.pageId)) continue;
+    const taken = perKey.get(candidate.comparisonKey) ?? 0;
+    if (taken >= CANDIDATE_DEPTH) continue;
+    perKey.set(candidate.comparisonKey, taken + 1);
     seen.add(candidate.pageId);
     ids.push(candidate.pageId);
     if (ids.length >= PAGE_BUDGET) break;
@@ -200,6 +224,7 @@ export async function relatedDiagrams(
   contentId: string,
   resolve: PageResolver,
   resolveContent: ContentResolver,
+  ownPageId?: string,
 ): Promise<RelatedResponse> {
   const own = await occurrencesForContent(db, cloudId, contentId);
   if (own.length === 0) {
@@ -213,6 +238,7 @@ export async function relatedDiagrams(
     (await occurrencesForKeys(db, cloudId, keys))
       .filter((candidate) => candidate.contentId !== contentId),
     own[0].spaceId,
+    ownPageId,
   );
 
   // One batched read covers this diagram and every candidate: a row whose live version
@@ -225,6 +251,10 @@ export async function relatedDiagrams(
   } catch {
     return { indexedAt, contentVersion, participants: [], error_kind: 'confluence_unavailable' };
   }
+
+  // Counted before the version and permission filters: the circle answers "how widely is
+  // this name used", which the index knows in full and one lookup cannot re-verify.
+  const totals = pageTotalsByKey(candidates);
 
   const self = live.get(contentId);
   if (!self || self.version !== contentVersion) {
@@ -269,6 +299,7 @@ export async function relatedDiagrams(
       const page = pages.get(pageId);
       if (!page) continue;
 
+      if (related.length >= PAGES_SHOWN) break;
       seen.add(candidate.contentId);
       related.push({
         contentId: candidate.contentId,
@@ -278,7 +309,12 @@ export async function relatedDiagrams(
         rawLabelThere: candidate.rawLabel,
       });
     }
-    participants.push({ actorId, rawLabel: occurrence.rawLabel, related });
+    participants.push({
+      actorId,
+      rawLabel: occurrence.rawLabel,
+      related,
+      relatedTotal: totals.get(occurrence.comparisonKey) ?? related.length,
+    });
   }
 
   return { indexedAt, contentVersion, participants };

@@ -157,7 +157,20 @@ const leaveDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerleave
 
 beforeEach(() => {
   vi.clearAllMocks()
-  getRelatedDiagrams.mockImplementation(async () => related.value)
+  // The backend always sends relatedTotal; fixtures that do not care about truncation
+  // get "the list is the whole set" so each one states only what it is testing.
+  getRelatedDiagrams.mockImplementation(async () => {
+    const response = related.value
+    if (!response?.participants) return response
+    return {
+      ...response,
+      participants: response.participants.map((participant: any) => ({
+        // distinct pages, matching pageTotalsByKey on the backend
+        relatedTotal: new Set(participant.related.map((page: any) => page.pageId)).size,
+        ...participant,
+      })),
+    }
+  })
   document.body.innerHTML = ''
 })
 
@@ -706,6 +719,59 @@ describe('RelatedDiagramsFooter', () => {
     button.click()
     await flushPromises()
     expect(popover()!.textContent).toContain('Order intake')
+  })
+
+  it('closes the list with the number of places it does not show', async () => {
+    related.value = {
+      indexedAt: twoParticipants.indexedAt,
+      contentVersion: twoParticipants.contentVersion,
+      participants: [
+        {
+          actorId: 'PA',
+          rawLabel: 'Partner App',
+          // `user` sits on 139 pages at the pilot tenant; the backend sends the nearest few
+          relatedTotal: 139,
+          related: [
+            { contentId: '2', pageId: '200', pageTitle: 'Checkout', spaceKey: 'OP', rawLabelThere: 'Partner App' },
+            { contentId: '3', pageId: '300', pageTitle: 'Refunds', spaceKey: 'OP', rawLabelThere: 'Partner App' },
+          ],
+        },
+      ],
+    }
+    const { h } = mountFooter({ pageId: '999' })
+    await flushPromises()
+
+    // the circle reports the reach of the name, not the length of the list
+    expect(pill(h, 'PA')!.textContent!.trim()).toBe('139')
+    pill(h, 'PA')!.click()
+    await flushPromises()
+
+    const rows = [...popover()!.querySelectorAll('li')].map((li) => li.textContent!.trim())
+    expect(rows).toEqual(['Checkout', 'Refunds', '137 more places'])
+    // the closing line is not a link
+    expect(links()).toHaveLength(2)
+  })
+
+  it('uses the singular when one place is left out', async () => {
+    related.value = {
+      indexedAt: twoParticipants.indexedAt,
+      contentVersion: twoParticipants.contentVersion,
+      participants: [
+        {
+          actorId: 'PA',
+          rawLabel: 'Partner App',
+          relatedTotal: 2,
+          related: [
+            { contentId: '2', pageId: '200', pageTitle: 'Checkout', spaceKey: 'OP', rawLabelThere: 'Partner App' },
+          ],
+        },
+      ],
+    }
+    const { h } = mountFooter({ pageId: '999' })
+    await flushPromises()
+    pill(h, 'PA')!.click()
+    await flushPromises()
+    expect(popover()!.textContent).toContain('1 more place')
   })
 
   it('keeps a thrown lookup failure silent and records its error kind', async () => {

@@ -275,4 +275,33 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
     const json: any = await res.json();
     expect(json.error).toContain('Invalid JSON body');
   });
+
+  it('stamps the tenant on the content row, so a per-tenant index can be built', async () => {
+    const db = makeDB({ rowExists: false });
+    const env = { DB: { prepare: db.prepare } };
+    const data = {
+      forgeContext: {
+        ...FORGE_CONTEXT,
+        apiBaseUrl: 'https://api.atlassian.com/ex/confluence/368b0fa8-90e4-4ffc-92d6-de20c0e38c9e',
+      },
+    };
+
+    await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env, data } as any);
+
+    const insertCall = db.calls.find((c) => c.sql.startsWith('insert into CustomContent'));
+    // 13th bind: cloudId, read out of the Forge apiBaseUrl
+    expect(insertCall!.binds[12]).toBe('368b0fa8-90e4-4ffc-92d6-de20c0e38c9e');
+  });
+
+  it('never clears a recorded tenant when the id cannot be read', async () => {
+    const db = makeDB({ rowExists: true });
+    const env = { DB: { prepare: db.prepare } };
+    const data = { forgeContext: { ...FORGE_CONTEXT, apiBaseUrl: 'https://example.invalid/x' } };
+
+    await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env, data } as any);
+
+    const updateCall = db.calls.find((c) => c.sql.startsWith('UPDATE CustomContent'));
+    expect(updateCall!.sql).toContain('cloudId = COALESCE(?11, cloudId)');
+    expect(updateCall!.binds[10]).toBeNull();
+  });
 });

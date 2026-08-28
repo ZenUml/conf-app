@@ -115,7 +115,10 @@ const props = defineProps<{
   pageId?: string
 }>()
 
-/** One row of the popover: a page to open, or the current page's own row. */
+/**
+ * One row of the popover: a page to open, the current page's own row, or the closing line
+ * that names how many further places the list does not show.
+ */
 interface Location {
   key: string
   label: string
@@ -185,6 +188,18 @@ function locationsOf(participant: RelatedParticipant): Location[] {
     if (seen.has(page.pageId)) continue
     seen.add(page.pageId)
     rows.push({ key: page.pageId, label: page.pageTitle, page })
+  }
+
+  // `user` sits on 139 pages at the pilot tenant. The list shows the nearest few; without
+  // this line it would read as "these are the places", and the reader would never learn
+  // that the name is too general to mean one thing.
+  const remainder = participant.relatedTotal - rows.length
+  if (remainder > 0) {
+    rows.push({
+      key: 'more',
+      label: `${remainder} more ${remainder === 1 ? 'place' : 'places'}`,
+      page: null,
+    })
   }
   return rows
 }
@@ -266,7 +281,8 @@ function layoutPills() {
       {
         actorId: participant.actorId,
         participant,
-        count: (locations.value.get(participant) ?? []).length,
+        // the true reach of the name, not the number of rows the popover lists
+        count: participant.relatedTotal,
         left: rect.right - hostBox.left - PILL_INSET,
         top: rect.bottom - hostBox.top - PILL / 2,
         actorLeft: rect.left - hostBox.left,
@@ -311,7 +327,7 @@ async function load() {
   const started = performance.now()
   let response: RelatedResponse
   try {
-    response = await getRelatedDiagrams(props.customContentId)
+    response = await getRelatedDiagrams(props.customContentId, { pageId: props.pageId })
   } catch (error) {
     trackAnalyticsEvent('related_diagrams_lookup_failed', {
       ...baseProperties(),

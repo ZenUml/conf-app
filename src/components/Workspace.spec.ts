@@ -211,6 +211,16 @@ describe("Workspace AI Chat integration", () => {
     );
   });
 
+  it("closes the overlay from the responsive workspace backdrop", async () => {
+    (wrapper.vm as any).toggleAIChat();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[data-testid="ai-chat-backdrop"]').trigger("click");
+
+    expect(wrapper.find('[data-testid="ai-chat-panel-stub"]').exists()).toBe(false);
+    expect((wrapper.vm as any).showCodeEditor).toBe(true);
+  });
+
   it("does not open AI Chat for Graph diagrams", async () => {
     store.commit("updateDiagramType", DiagramType.Graph);
     (wrapper.vm as any).toggleAIChat();

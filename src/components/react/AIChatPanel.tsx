@@ -28,6 +28,7 @@ import {
 } from "@/services/GenerateService";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import type { MacroTypeValue } from "@/utils/analytics/catalog";
+import "@/assets/ai-chat.css";
 
 export type { AIChatMessage };
 

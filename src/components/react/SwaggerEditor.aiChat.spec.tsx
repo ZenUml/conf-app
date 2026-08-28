@@ -181,6 +181,17 @@ describe("SwaggerEditor AI Chat integration", () => {
     );
   });
 
+  it("closes the overlay from the responsive workspace backdrop", () => {
+    openChat();
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-backdrop"]')!);
+    });
+
+    expect(container.querySelector('[data-testid="react-ai-chat-panel-stub"]')).toBeNull();
+    expect(container.querySelector(".swagger-editor-workspace")?.className)
+      .not.toContain("code-editor-hidden");
+  });
+
   it("opens AI Chat and starts syntax repair from the Vue repair action", () => {
     act(() => {
       store.commit("updateError", "OpenAPI syntax error at line 3");

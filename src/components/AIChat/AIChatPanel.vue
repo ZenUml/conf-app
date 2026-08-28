@@ -924,3 +924,5 @@ onBeforeUnmount(() => {
   cancelActiveRequest()
 })
 </script>
+
+<style src="@/assets/ai-chat.css"></style>

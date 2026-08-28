@@ -228,7 +228,7 @@ export type AnalyticsProperties = {
   related_count?: number;              // for one participant (popover / click)
   label_variant_count?: number;        // distinct rawLabel values among related
   same_space?: boolean;                // clicked page in the same space as the viewer's page
-  same_page?: boolean;                 // clicked diagram is on the viewer's current Confluence page
+  same_page?: boolean;                 // the opened participant also appears in another diagram on this page
   error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
   // M1 `app_first_seen` census props. Explicit, not ambient: the P3 denominator
   // is COUNT(DISTINCT account_id) per cloud_id, so both ride on the event

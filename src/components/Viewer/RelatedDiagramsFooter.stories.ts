@@ -49,6 +49,13 @@ const RELATED_RESPONSE = {
           spaceKey: 'OP',
           rawLabelThere: 'partner-app',
         },
+        {
+          contentId: 'related-104',
+          pageId: 'storybook-page',
+          pageTitle: 'Checkout payment flow — variant',
+          spaceKey: 'VPAY',
+          rawLabelThere: 'Partner App',
+        },
       ],
     },
     {
@@ -329,16 +336,13 @@ export const HoverPill: Story = {
       '[data-testid="related-diagrams-pill"][data-actor="PA"]',
     )!
     await waitFor(() => expect(partnerPill).toBeVisible())
-    expect(partnerPill).toHaveTextContent('3')
-    expect(partnerPill).toHaveAttribute(
-      'title',
-      '3 related diagrams you can access — click to see',
-    )
+    expect(partnerPill).toHaveTextContent('4')
+    expect(partnerPill).toHaveAttribute('title', 'Also appears in 4 places — click to see')
     expect(canvas.queryByRole('dialog')).not.toBeInTheDocument()
   },
 }
 
-/** A pill click opens the cautious name-only relationship detail. */
+/** A circle click opens the list of positions: the current page first, then pages that open. */
 export const PopoverOpen: Story = {
   decorators: [
     () => {
@@ -356,11 +360,12 @@ export const PopoverOpen: Story = {
     )!
     await waitFor(() => expect(partnerPill).toBeVisible())
     await userEvent.click(partnerPill)
-    const dialog = await canvas.findByRole('dialog', { name: 'Possibly related by name' })
-    expect(dialog).toHaveTextContent('Partner App')
+    const dialog = await canvas.findByRole('dialog', { name: 'Also appears in' })
+    expect(dialog).toHaveTextContent('Another diagram on this page')
     expect(dialog).toHaveTextContent('Checkout — order flow')
-    expect(dialog).toHaveTextContent('as PartnerApp')
-    expect(dialog).toHaveTextContent('Same name, not proof of the same object')
+    expect(dialog).not.toHaveTextContent('as PartnerApp')
+    expect(dialog).not.toHaveTextContent('Same name, not proof of the same object')
+    expect(canvas.queryByTestId('related-diagrams-here')).toBeVisible()
     expect(partnerPill).toHaveAttribute('aria-expanded', 'true')
     expect(canvas.getByTestId('related-diagrams-highlight')).toBeVisible()
   },
@@ -385,7 +390,7 @@ export const Fullscreen: Story = {
     )!
     await waitFor(() => expect(paymentsPill).toBeVisible())
     await userEvent.click(paymentsPill)
-    expect(await canvas.findByRole('dialog')).toHaveTextContent('Payments API')
+    expect(await canvas.findByRole('dialog')).toHaveTextContent('Payment authorization')
     expect(paymentsPill).toHaveTextContent('4')
   },
 }

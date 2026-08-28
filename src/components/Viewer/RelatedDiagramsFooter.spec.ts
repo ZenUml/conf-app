@@ -120,6 +120,10 @@ const pill = (h: HTMLElement, actor: string) =>
     `[data-testid="related-diagrams-pill"][data-actor="${actor}"]`,
   )
 const popover = () => document.querySelector<HTMLElement>('[data-testid="related-diagrams-popover"]')
+const arrow = () => document.querySelector<HTMLElement>('.related-diagrams-popover-arrow')
+const here = () => document.querySelector<HTMLElement>('[data-testid="related-diagrams-here"]')
+const links = () =>
+  popover()!.querySelectorAll<HTMLElement>('[data-testid="related-diagram-link"]')
 const enterDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerenter'))
 const leaveDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerleave'))
 
@@ -237,7 +241,7 @@ describe('RelatedDiagramsFooter', () => {
     expect(pill(h, 'PA')!.classList).not.toContain('related-diagrams-pill--concealed')
     expect(pill(h, 'GONE')!.classList).not.toContain('related-diagrams-pill--concealed')
     expect(popover()).toBeNull()
-    expect(pill(h, 'PA')!.title).toBe('2 related diagrams you can access — click to see')
+    expect(pill(h, 'PA')!.title).toBe('Also appears in 2 places — click to see')
 
     leaveDiagram(h)
     await flushPromises()
@@ -262,12 +266,15 @@ describe('RelatedDiagramsFooter', () => {
     await flushPromises()
 
     const button = pill(h, 'PA')!
-    expect(button.style.left).toBe('188px')
-    expect(button.style.top).toBe('21px')
+    // the circle sits on the actor box's bottom-right corner
+    expect(button.style.left).toBe('190px')
+    expect(button.style.top).toBe('52px')
     button.click()
     await flushPromises()
     expect(popover()!.style.left).toBe('100px')
-    expect(popover()!.style.top).toBe('78px')
+    expect(popover()!.style.top).toBe('86px')
+    // the arrow keeps the circle's column
+    expect(arrow()!.style.left).toBe('113px')
 
     actorRects.PA = {
       left: 150,
@@ -279,10 +286,10 @@ describe('RelatedDiagramsFooter', () => {
     } as DOMRect
     window.dispatchEvent(new Event('resize'))
     await flushPromises()
-    expect(button.style.left).toBe('258px')
-    expect(button.style.top).toBe('41px')
+    expect(button.style.left).toBe('260px')
+    expect(button.style.top).toBe('72px')
     expect(popover()!.style.left).toBe('150px')
-    expect(popover()!.style.top).toBe('98px')
+    expect(popover()!.style.top).toBe('106px')
   })
 
   it('shifts and flips an edge popover into the viewport instead of clipping it in the diagram', async () => {
@@ -307,6 +314,9 @@ describe('RelatedDiagramsFooter', () => {
     expect(popover()!.parentElement).toBe(document.body)
     expect(popover()!.style.left).toBe('696px')
     expect(popover()!.style.top).toBe('432px')
+    // flipped above: the arrow moves to the lower edge and stays inside the shell
+    expect(arrow()!.classList.contains('related-diagrams-popover-arrow--under')).toBe(true)
+    expect(arrow()!.style.left).toBe('302px')
   })
 
   it('opens only on a visible pill click, applies the blue actor outline, and second click closes', async () => {
@@ -320,19 +330,22 @@ describe('RelatedDiagramsFooter', () => {
     button.click()
     await flushPromises()
     const pop = popover()!
-    expect(pop.textContent).toContain('Possibly related by name')
+    expect(pop.textContent).toContain('Also appears in')
     expect(pop.textContent).toContain('Checkout')
-    expect(pop.textContent).toContain('VPAY')
-    expect(pop.textContent).toContain('as PartnerApp')
-    expect(pop.textContent).not.toContain('as Partner App')
-    expect(pop.textContent).toContain('Same name, not proof of the same object')
+    expect(pop.textContent).toContain('Refunds')
+    // no participant name, space key, label variant, or inference wording
+    expect(pop.textContent).not.toContain('Partner App')
+    expect(pop.textContent).not.toContain('VPAY')
+    expect(pop.textContent).not.toContain('PartnerApp')
+    expect(pop.textContent).not.toContain('Possibly related by name')
+    expect(pop.textContent).not.toContain('Same name, not proof of the same object')
     expect(button.classList).not.toContain('related-diagrams-pill--concealed')
     expect(button.getAttribute('aria-expanded')).toBe('true')
     const highlight = h.querySelector<HTMLElement>('[data-testid="related-diagrams-highlight"]')!
     expect(highlight.style.outline).toContain('#0052CC')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'related_diagram_popover_opened',
-      expect.objectContaining({ related_count: 2, label_variant_count: 2 }),
+      expect.objectContaining({ related_count: 2, label_variant_count: 2, same_page: false }),
     )
 
     button.click()
@@ -388,12 +401,12 @@ describe('RelatedDiagramsFooter', () => {
 
     pill(h, 'PA')!.click()
     await flushPromises()
-    expect(popover()!.textContent).toContain('Partner App')
+    expect(popover()!.textContent).toContain('Checkout')
 
     pill(h, 'GONE')!.click()
     await flushPromises()
-    expect(popover()!.textContent).toContain('Delivery API')
-    expect(popover()!.textContent).not.toContain('Partner App')
+    expect(popover()!.textContent).toContain('Delivery status')
+    expect(popover()!.textContent).not.toContain('Checkout')
   })
 
   it('keeps the popover click-only after a touchstart', async () => {
@@ -425,17 +438,17 @@ describe('RelatedDiagramsFooter', () => {
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'related_diagram_link_clicked',
-      expect.objectContaining({ related_count: 2, same_space: false, same_page: false }),
+      expect.objectContaining({ related_count: 2, same_space: false }),
     )
 
     links[1].click()
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'related_diagram_link_clicked',
-      expect.objectContaining({ related_count: 2, same_space: true, same_page: false }),
+      expect.objectContaining({ related_count: 2, same_space: true }),
     )
   })
 
-  it('labels a related diagram on the current page as This page', async () => {
+  it('states the relation instead of a page title when a related diagram is on the current page', async () => {
     related.value = {
       indexedAt: twoParticipants.indexedAt,
       contentVersion: twoParticipants.contentVersion,
@@ -460,17 +473,126 @@ describe('RelatedDiagramsFooter', () => {
     pill(h, 'PA')!.click()
     await flushPromises()
 
-    const links = popover()!.querySelectorAll<HTMLElement>('[data-testid="related-diagram-link"]')
-    expect(links).toHaveLength(1)
-    expect(links[0].textContent).toContain('Current page diagram')
-    expect(
-      links[0].querySelector('[data-testid="related-diagrams-current-page"]')?.textContent?.trim(),
-    ).toBe('This page')
-    links[0].click()
+    expect(here()!.textContent!.trim()).toBe('Another diagram on this page')
+    // it opens nothing, so it is not a link, and the page title would repeat the screen
+    expect(links()).toHaveLength(0)
+    expect(popover()!.textContent).not.toContain('Current page diagram')
+    expect(pill(h, 'PA')!.textContent!.trim()).toBe('1')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
-      'related_diagram_link_clicked',
-      expect.objectContaining({ same_page: true }),
+      'related_diagram_popover_opened',
+      expect.objectContaining({ related_count: 1, same_page: true }),
     )
+  })
+
+  it('collapses two related diagrams on the current page into one plural row', async () => {
+    related.value = {
+      indexedAt: twoParticipants.indexedAt,
+      contentVersion: twoParticipants.contentVersion,
+      participants: [
+        {
+          actorId: 'PA',
+          rawLabel: 'Partner App',
+          related: [
+            {
+              contentId: '4',
+              pageId: '999',
+              pageTitle: 'Current page diagram',
+              spaceKey: 'OP',
+              rawLabelThere: 'Partner App',
+            },
+            {
+              contentId: '5',
+              pageId: '999',
+              pageTitle: 'Current page diagram',
+              spaceKey: 'OP',
+              rawLabelThere: 'Partner App',
+            },
+          ],
+        },
+      ],
+    }
+    const { h } = mountFooter({ pageId: '999' })
+    await flushPromises()
+    pill(h, 'PA')!.click()
+    await flushPromises()
+
+    expect(here()!.textContent!.trim()).toBe('Other diagrams on this page')
+    expect(pill(h, 'PA')!.textContent!.trim()).toBe('1')
+  })
+
+  it('lists one row per page when a page holds two related diagrams', async () => {
+    related.value = {
+      indexedAt: twoParticipants.indexedAt,
+      contentVersion: twoParticipants.contentVersion,
+      participants: [
+        {
+          actorId: 'PA',
+          rawLabel: 'Partner App',
+          related: [
+            {
+              contentId: '4',
+              pageId: '300',
+              pageTitle: 'Refunds',
+              spaceKey: 'OP',
+              rawLabelThere: 'Partner App',
+            },
+            {
+              contentId: '5',
+              pageId: '300',
+              pageTitle: 'Refunds',
+              spaceKey: 'OP',
+              rawLabelThere: 'Partner App',
+            },
+          ],
+        },
+      ],
+    }
+    const { h } = mountFooter({ pageId: '999' })
+    await flushPromises()
+    pill(h, 'PA')!.click()
+    await flushPromises()
+
+    expect(links()).toHaveLength(1)
+    expect(pill(h, 'PA')!.textContent!.trim()).toBe('1')
+  })
+
+  it('lists the current page first, above the pages that open', async () => {
+    related.value = {
+      indexedAt: twoParticipants.indexedAt,
+      contentVersion: twoParticipants.contentVersion,
+      participants: [
+        {
+          actorId: 'PA',
+          rawLabel: 'Partner App',
+          related: [
+            {
+              contentId: '4',
+              pageId: '300',
+              pageTitle: 'Refunds',
+              spaceKey: 'OP',
+              rawLabelThere: 'Partner App',
+            },
+            {
+              contentId: '5',
+              pageId: '999',
+              pageTitle: 'Current page diagram',
+              spaceKey: 'OP',
+              rawLabelThere: 'Partner App',
+            },
+          ],
+        },
+      ],
+    }
+    const { h } = mountFooter({ pageId: '999' })
+    await flushPromises()
+    pill(h, 'PA')!.click()
+    await flushPromises()
+
+    const rows = popover()!.querySelectorAll('li')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].textContent!.trim()).toBe('Another diagram on this page')
+    expect(rows[1].textContent!.trim()).toBe('Refunds')
+    expect(pill(h, 'PA')!.textContent!.trim()).toBe('2')
   })
 
   it('keeps a thrown lookup failure silent and records its error kind', async () => {

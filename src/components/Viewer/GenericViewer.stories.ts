@@ -433,11 +433,14 @@ export const ArchitectureTokensMermaidIntegration: Story = {
 
     const popover = await canvas.findByTestId('related-diagrams-popover')
     await expect(popover).toBeVisible()
-    await expect(popover).toHaveTextContent('Possibly related by name')
-    await expect(popover).toHaveTextContent('Authentication overview')
-    await expect(canvas.getByTestId('related-diagrams-current-page')).toHaveTextContent(
-      'This page',
+    await expect(popover).toHaveTextContent('Also appears in')
+    // the related diagram is on the page being viewed, so the row states the relation
+    // and opens nothing; the page title would repeat what is already on screen
+    await expect(canvas.getByTestId('related-diagrams-here')).toHaveTextContent(
+      'Another diagram on this page',
     )
+    await expect(popover).not.toHaveTextContent('Authentication overview')
+    await expect(canvas.queryByTestId('related-diagram-link')).toBeNull()
   },
 }
 

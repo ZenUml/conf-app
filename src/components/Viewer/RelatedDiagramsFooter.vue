@@ -36,12 +36,12 @@
         data-testid="related-diagrams-pill"
         :data-actor="item.actorId"
         :style="{ left: `${item.left}px`, top: `${item.top}px` }"
-        :title="`${item.participant.related.length} related diagrams you can access — click to see`"
+        :title="`Also appears in ${item.count} ${item.count === 1 ? 'place' : 'places'} — click to see`"
         :aria-expanded="open === item.participant"
         @mousedown.stop
         @click.stop="toggle(item.participant)"
       >
-        {{ item.participant.related.length }}
+        {{ item.count }}
       </button>
 
       <div
@@ -57,38 +57,35 @@
           class="related-diagrams-popover"
           data-testid="related-diagrams-popover"
           role="dialog"
-          aria-label="Possibly related by name"
+          aria-label="Also appears in"
           :style="popoverStyle"
           @mousedown.stop
         >
-        <div class="related-diagrams-popover-arrow" />
-        <div class="related-diagrams-popover-eyebrow">Possibly related by name</div>
-        <div class="related-diagrams-popover-label">{{ open.rawLabel }}</div>
+        <div
+          class="related-diagrams-popover-arrow"
+          :class="{ 'related-diagrams-popover-arrow--under': flipped }"
+          :style="arrowStyle"
+        />
+        <div class="related-diagrams-popover-heading">Also appears in</div>
         <ul>
-          <li v-for="page in open.related" :key="page.contentId">
-            <a href="#" data-testid="related-diagram-link" @click.prevent="follow(open, page)">
-              <span class="related-diagrams-link-title">{{ page.pageTitle }}</span>
-              <span
-                v-if="page.pageId === props.pageId"
-                class="related-diagrams-current-page"
-                data-testid="related-diagrams-current-page"
-              >
-                This page
-              </span>
-            </a>
-            <span class="related-diagrams-space">{{ page.spaceKey }}</span>
+          <li v-for="row in openLocations" :key="row.key">
+            <!-- A row on the current page opens nothing, so it is not a link. Its own
+                 text states the relation; the page title would repeat what is on screen. -->
             <span
-              v-if="page.rawLabelThere !== open.rawLabel"
-              class="related-diagrams-variant"
+              v-if="!row.page"
+              class="related-diagrams-here"
+              data-testid="related-diagrams-here"
+            >{{ row.label }}</span>
+            <a
+              v-else
+              href="#"
+              data-testid="related-diagram-link"
+              @click.prevent="follow(open, row.page)"
             >
-              as <code>{{ page.rawLabelThere }}</code>
-            </span>
+              <span class="related-diagrams-link-title">{{ row.label }}</span>
+            </a>
           </li>
         </ul>
-        <div class="related-diagrams-popover-foot">
-          <span>Same name, not proof of the same object</span>
-          <span v-if="asOf">as of {{ asOf }}</span>
-        </div>
         </div>
       </Teleport>
     </div>
@@ -116,18 +113,32 @@ const props = defineProps<{
   pageId?: string
 }>()
 
+/** One row of the popover: a page to open, or the current page's own row. */
+interface Location {
+  key: string
+  label: string
+  page: RelatedPage | null
+}
+
 interface Pill {
   actorId: string
   participant: RelatedParticipant
+  count: number
   left: number
   top: number
-  anchorLeft: number
-  anchorTop: number
   actorLeft: number
   actorTop: number
   actorWidth: number
   actorHeight: number
 }
+
+// The circle sits on the participant box's bottom-right corner, so it never crosses the
+// top of the diagram; the shell opens 8px under the circle.
+const PILL = 16
+const PILL_INSET = 10
+const GUTTER = 8
+const BELOW = GUTTER + PILL / 2
+const POPOVER_WIDTH = 320
 
 const participants = ref<RelatedParticipant[]>([])
 const indexedAt = ref<string | null>(null)
@@ -137,9 +148,42 @@ const pills = ref<Pill[]>([])
 const diagramHovered = ref(false)
 const popoverEl = ref<HTMLElement | null>(null)
 const popoverStyle = ref<Record<string, string>>({})
+const arrowStyle = ref<Record<string, string>>({})
+const flipped = ref(false)
 let requested = false
 
 const withRelated = computed(() => participants.value.filter((participant) => participant.related.length))
+
+/** Pages are the rows; a page carrying two related diagrams is still one row. */
+function locationsOf(participant: RelatedParticipant): Location[] {
+  const here: RelatedPage[] = []
+  const away: RelatedPage[] = []
+  for (const page of participant.related) {
+    if (props.pageId && page.pageId === props.pageId) here.push(page)
+    else away.push(page)
+  }
+
+  const rows: Location[] = []
+  if (here.length) {
+    rows.push({
+      key: 'here',
+      label: here.length > 1 ? 'Other diagrams on this page' : 'Another diagram on this page',
+      page: null,
+    })
+  }
+  const seen = new Set<string>()
+  for (const page of away) {
+    if (seen.has(page.pageId)) continue
+    seen.add(page.pageId)
+    rows.push({ key: page.pageId, label: page.pageTitle, page })
+  }
+  return rows
+}
+
+const locations = computed(
+  () => new Map(withRelated.value.map((participant) => [participant, locationsOf(participant)])),
+)
+const openLocations = computed(() => (open.value ? (locations.value.get(open.value) ?? []) : []))
 const openPill = computed(() =>
   pills.value.find((item) => item.participant === open.value) ?? null,
 )
@@ -171,10 +215,7 @@ const baseProperties = () => ({
 const countProperties = () => ({
   participant_count: participants.value.length,
   participants_with_related: withRelated.value.length,
-  related_pages_total: withRelated.value.reduce(
-    (total, participant) => total + participant.related.length,
-    0,
-  ),
+  related_pages_total: [...locations.value.values()].reduce((total, rows) => total + rows.length, 0),
   index_age_days: indexedAt.value
     ? Math.floor((Date.now() - new Date(indexedAt.value).getTime()) / 86_400_000)
     : undefined,
@@ -201,10 +242,9 @@ function layoutPills() {
       {
         actorId: participant.actorId,
         participant,
-        left: rect.right - hostBox.left - 12,
-        top: rect.top - hostBox.top - 9,
-        anchorLeft: rect.left - hostBox.left,
-        anchorTop: rect.bottom - hostBox.top + 8,
+        count: (locations.value.get(participant) ?? []).length,
+        left: rect.right - hostBox.left - PILL_INSET,
+        top: rect.bottom - hostBox.top - PILL / 2,
         actorLeft: rect.left - hostBox.left,
         actorTop: rect.top - hostBox.top,
         actorWidth: rect.width,
@@ -219,19 +259,21 @@ function positionPopover() {
   const anchor = item ? actorBox(item.actorId)?.getBoundingClientRect() : null
   if (!anchor) return
 
-  const gutter = 8
-  const width = popoverEl.value?.getBoundingClientRect().width || 320
+  const width = popoverEl.value?.getBoundingClientRect().width || POPOVER_WIDTH
   const height = popoverEl.value?.getBoundingClientRect().height || 280
-  const left = Math.min(Math.max(anchor.left, gutter), window.innerWidth - width - gutter)
-  const below = anchor.bottom + gutter
-  const above = anchor.top - height - gutter
-  const top = below + height <= window.innerHeight - gutter
-    ? below
-    : above >= gutter
-      ? above
-      : gutter
+  const left = Math.min(Math.max(anchor.left, GUTTER), window.innerWidth - width - GUTTER)
+  const below = anchor.bottom + BELOW
+  const above = anchor.top - height - GUTTER
+  const fitsBelow = below + height <= window.innerHeight - GUTTER
+  flipped.value = !fitsBelow && above >= GUTTER
+  const top = fitsBelow ? below : flipped.value ? above : GUTTER
+
+  // The arrow keeps the circle's column, whatever the shell had to do to stay in view.
+  const circleCentre = anchor.right - PILL_INSET + PILL / 2
+  const arrowLeft = Math.min(Math.max(circleCentre - left - 5, GUTTER), width - 18)
 
   popoverStyle.value = { left: `${left}px`, top: `${top}px` }
+  arrowStyle.value = { left: `${arrowLeft}px` }
 }
 
 function onWindowResize() {
@@ -310,10 +352,12 @@ function toggle(participant: RelatedParticipant) {
   }
   open.value = participant
   void nextTick(positionPopover)
+  const rows = locations.value.get(participant) ?? []
   trackAnalyticsEvent('related_diagram_popover_opened', {
     ...baseProperties(),
-    related_count: participant.related.length,
+    related_count: rows.length,
     label_variant_count: new Set(participant.related.map((page) => page.rawLabelThere)).size,
+    same_page: rows.some((row) => !row.page),
   })
 }
 
@@ -329,9 +373,8 @@ function follow(participant: RelatedParticipant, page: RelatedPage) {
   const currentSpaceKey = (forgeGlobal as any)?.forgeContext?.extension?.space?.key ?? ''
   trackAnalyticsEvent('related_diagram_link_clicked', {
     ...baseProperties(),
-    related_count: participant.related.length,
+    related_count: (locations.value.get(participant) ?? []).length,
     same_space: Boolean(currentSpaceKey) && page.spaceKey === currentSpaceKey,
-    same_page: page.pageId === props.pageId,
   })
   const siteUrl = (forgeGlobal as any)?.forgeContext?.siteUrl ?? ''
   void openUrl(
@@ -381,15 +424,15 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   border: 1px solid #e5e7eb;
   border-radius: 9999px;
   color: #6b7280;
   background: #f3f4f6;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
@@ -427,9 +470,7 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: 5;
   width: 320px;
-  max-height: calc(100vh - 16px);
-  overflow-y: auto;
-  padding: 10px 10px 8px;
+  padding: 8px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   color: #172b4d;
@@ -443,7 +484,6 @@ onBeforeUnmount(() => {
 .related-diagrams-popover-arrow {
   position: absolute;
   top: -6px;
-  left: 18px;
   width: 10px;
   height: 10px;
   border-top: 1px solid #e5e7eb;
@@ -452,109 +492,66 @@ onBeforeUnmount(() => {
   transform: rotate(45deg);
 }
 
-.related-diagrams-popover-eyebrow {
-  padding: 0 6px;
-  color: #6b7280;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.related-diagrams-popover-arrow--under {
+  top: auto;
+  bottom: -6px;
+  border-top: none;
+  border-left: none;
+  border-right: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-.related-diagrams-popover-label {
-  padding: 2px 6px 6px;
-  color: #172b4d;
-  font-size: 13px;
-  font-weight: 600;
+.related-diagrams-popover-heading {
+  padding: 2px 10px 6px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .related-diagrams-popover ul {
+  /* Eight rows and part of a ninth: a cut row shows there is more. The second term keeps
+     the shell inside a short iframe — 64px covers the shell padding, the heading and the
+     8px edge gutters. */
+  max-height: min(238px, calc(100vh - 64px));
+  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.related-diagrams-popover li {
+.related-diagrams-popover a,
+.related-diagrams-here {
   display: flex;
-  align-items: baseline;
-  min-height: 28px;
-  padding: 4px 6px;
-  border-radius: 4px;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.related-diagrams-popover li:hover {
-  background: #f3f4f6;
-}
-
-.related-diagrams-popover a {
-  display: inline-flex;
   align-items: center;
-  min-width: 0;
-  overflow: hidden;
-  color: #0052cc;
+  box-sizing: border-box;
   gap: 6px;
+  height: 28px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 16px;
   text-decoration: none;
 }
 
+.related-diagrams-popover a {
+  color: #0052cc;
+}
+
 .related-diagrams-popover a:hover {
+  background: #f3f4f6;
   color: #0747a6;
   text-decoration: underline;
 }
 
+.related-diagrams-here {
+  color: #172b4d;
+  cursor: default;
+}
+
 .related-diagrams-link-title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.related-diagrams-current-page {
-  padding: 0 6px;
-  border: 1px solid #e5e7eb;
-  border-radius: 9999px;
-  color: #6b7280;
-  background: #f3f4f6;
-  font-size: 11px;
-  line-height: 16px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.related-diagrams-space {
-  padding: 0 6px;
-  border: 1px solid #e5e7eb;
-  border-radius: 9999px;
-  color: #6b7280;
-  background: #f3f4f6;
-  font-size: 11px;
-  line-height: 16px;
-  white-space: nowrap;
-}
-
-.related-diagrams-variant {
-  color: #6b7280;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.related-diagrams-variant code {
-  padding: 1px 4px;
-  border-radius: 3px;
-  color: #172b4d;
-  background: #f4f5f7;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
-    'Courier New', monospace;
-  font-size: 11px;
-}
-
-.related-diagrams-popover-foot {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
-  padding: 6px 6px 0;
-  border-top: 1px solid #e5e7eb;
-  color: #9ca3af;
-  font-size: 11px;
 }
 </style>

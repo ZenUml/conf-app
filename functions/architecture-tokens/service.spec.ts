@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NOISE_PAGE_THRESHOLD, confluencePageResolver, relatedDiagrams } from './service';
+import { PAGES_SHOWN, confluencePageResolver, relatedDiagrams } from './service';
 
 const row = (o: Partial<Record<string, unknown>>) => ({
   contentId: '1',
@@ -41,49 +41,44 @@ function dbWith(byContent: unknown[], byKeys: unknown[]) {
   } as unknown as D1Database;
 }
 
-describe('noisy keys', () => {
-  it('drops a key that reaches most of the tenant, and keeps the rare one', async () => {
-    // `order.controller` reaches 3,388 pages on lite-stg. Showing a few of them would
-    // present noise as a relation, and asking Confluence about all of them exceeded the
-    // viewer's 8s budget, so the reader saw nothing at all.
-    const wide = Array.from({ length: 200 }, (_, i) =>
-      row({ contentId: `w${i}`, pageId: `${9000 + i}`, actorId: 'OC', comparisonKey: 'order.controller' }),
+describe('a name used across the tenant', () => {
+  it('lists the nearest five and reports the true total', async () => {
+    // `user` sits on 139 pages at the pilot tenant. Hiding it hides the very thing a
+    // person needs to see before giving the name a real identity; listing all 139 costs
+    // 34 CQL round trips. Five rows, and the count says how general the name is.
+    const wide = Array.from({ length: 40 }, (_, i) =>
+      row({ contentId: `${9000 + i}`, pageId: `${9000 + i}`, actorId: 'U', comparisonKey: 'user' }),
     );
-    const narrow = Array.from({ length: 5 }, (_, i) =>
-      row({ contentId: `${500 + i}`, pageId: `${100 + i}`, actorId: 'INV', comparisonKey: 'invoice.service' }),
+    const own = [row({ contentId: 'self', pageId: '1', actorId: 'U', comparisonKey: 'user' })];
+    const resolve = vi.fn(async (ids: string[]) =>
+      ids.map((id) => ({ id, title: `Page ${id}`, spaceKey: 'OP' })));
+
+    const out = await relatedDiagrams(
+      dbWith(own, wide), 'cloud-1', 'self', resolve, liveAsIndexed(own, wide),
     );
-    const own = [
-      row({ contentId: 'self', pageId: '1', spaceId: '7', actorId: 'OC', comparisonKey: 'order.controller' }),
-      row({ contentId: 'self', pageId: '1', spaceId: '7', actorId: 'INV', comparisonKey: 'invoice.service' }),
+
+    const participant = out.participants[0];
+    expect(participant.related).toHaveLength(PAGES_SHOWN);
+    expect(participant.relatedTotal).toBe(40);
+    // newest first, and Confluence is asked about the nearest few only, never all 40
+    expect(participant.related[0].pageId).toBe('9039');
+    expect(resolve.mock.calls[0][0].length).toBeLessThanOrEqual(PAGES_SHOWN * 4);
+  });
+
+  it('reports a total equal to the rows when nothing is truncated', async () => {
+    const few = [
+      row({ contentId: '2', pageId: '200' }),
+      row({ contentId: '3', pageId: '300' }),
     ];
-    const resolve = vi.fn(async (pageIds: string[]) =>
-      pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' })),
+    const own = [row({ contentId: 'self', pageId: '1' })];
+    const out = await relatedDiagrams(
+      dbWith(own, few), 'cloud-1', 'self',
+      async (ids: string[]) => ids.map((id) => ({ id, title: `Page ${id}`, spaceKey: 'OP' })),
+      liveAsIndexed(own, few),
     );
-
-    const response = await relatedDiagrams(
-      dbWith(own, [...wide, ...narrow]), 'cloud-1', 'self', resolve,
-      liveAsIndexed(own, wide, narrow),
-    );
-
-    // Confluence is never asked about the noisy key's pages
-    expect(resolve.mock.calls[0][0].every((id) => Number(id) < 9000)).toBe(true);
-    expect(response.participants.find((p) => p.actorId === 'OC')!.related).toHaveLength(0);
-    expect(response.participants.find((p) => p.actorId === 'INV')!.related).toHaveLength(5);
-  })
-
-  it('keeps a key that sits on the threshold', async () => {
-    const atLimit = Array.from({ length: NOISE_PAGE_THRESHOLD }, (_, i) =>
-      row({ contentId: `${1000 + i}`, pageId: `${200 + i}`, actorId: 'PA', comparisonKey: 'partner.app' }),
-    );
-    const own = [row({ contentId: 'self', pageId: '1', actorId: 'PA', comparisonKey: 'partner.app' })];
-    const resolve = async (pageIds: string[]) =>
-      pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' }));
-
-    const response = await relatedDiagrams(
-      dbWith(own, atLimit), 'cloud-1', 'self', resolve, liveAsIndexed(own, atLimit),
-    );
-    expect(response.participants[0].related).toHaveLength(NOISE_PAGE_THRESHOLD)
-  })
+    expect(out.participants[0].related).toHaveLength(2);
+    expect(out.participants[0].relatedTotal).toBe(2);
+  });
 
   it('lists this space first, then the newest content', async () => {
     const own = [row({ contentId: 'self', pageId: '1', spaceId: 'HOME', actorId: 'PA', comparisonKey: 'partner.app' })];
@@ -93,14 +88,13 @@ describe('noisy keys', () => {
       row({ contentId: '30', pageId: '30', spaceId: 'AWAY', actorId: 'PA' }),
       row({ contentId: '40', pageId: '40', spaceId: 'HOME', actorId: 'PA' }),
     ];
-    const resolve = async (pageIds: string[]) =>
-      pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' }));
-
-    const response = await relatedDiagrams(
-      dbWith(own, others), 'cloud-1', 'self', resolve, liveAsIndexed(own, others),
+    const out = await relatedDiagrams(
+      dbWith(own, others), 'cloud-1', 'self',
+      async (ids: string[]) => ids.map((id) => ({ id, title: `Page ${id}`, spaceKey: 'OP' })),
+      liveAsIndexed(own, others),
     );
-    expect(response.participants[0].related.map((r) => r.pageId)).toEqual(['40', '20', '30', '10'])
-  })
+    expect(out.participants[0].related.map((r) => r.pageId)).toEqual(['40', '20', '30', '10'])
+  });
 });
 
 describe('relatedDiagrams', () => {
@@ -133,6 +127,7 @@ describe('relatedDiagrams', () => {
       {
         actorId: 'PA',
         rawLabel: 'Partner App',
+        relatedTotal: 2,
         related: [{
           contentId: '2',
           pageId: '200',
@@ -144,6 +139,7 @@ describe('relatedDiagrams', () => {
       {
         actorId: 'U',
         rawLabel: 'User',
+        relatedTotal: 1,
         related: [{
           contentId: '4',
           pageId: '400',

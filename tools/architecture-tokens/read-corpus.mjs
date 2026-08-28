@@ -45,6 +45,19 @@ function runWrangler(sql, database) {
   });
 }
 
+/**
+ * Direct tenant scope, available once CustomContent carries cloudId (migration 0022).
+ * Rows saved before that migration and never viewed have a NULL cloudId, so
+ * `tenantSpacesSql` stays as the fallback until the column is populated.
+ */
+export function tenantContentSql(clientDomain) {
+  const host = sqlString(`${clientDomain}.atlassian.net`);
+  return `SELECT DISTINCT c.spaceId AS spaceId, t.cloudId AS cloudId
+    FROM AtlassianInstance t
+    JOIN CustomContent c ON c.cloudId = t.cloudId
+    WHERE t.clientDomain = ${host} AND c.status = 'current'`;
+}
+
 export function tenantSpacesSql(clientDomain) {
   const host = sqlString(`${clientDomain}.atlassian.net`);
   return `SELECT DISTINCT c.spaceId AS spaceId, t.cloudId AS cloudId

@@ -23,10 +23,26 @@ describe('GET /api/architecture-tokens/related', () => {
   it('scopes by the authenticated cloudId and resolves pages as the user', async () => {
     const res = await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=42'));
     expect(res.status).toBe(200);
-    expect(relatedDiagrams).toHaveBeenCalledWith({}, 'cid', '42', expect.any(Function), expect.any(Function));
+    expect(relatedDiagrams).toHaveBeenCalledWith(
+      {}, 'cid', '42', expect.any(Function), expect.any(Function), undefined,
+    );
     expect(confluencePageResolver).toHaveBeenCalledWith('https://api.atlassian.com/ex/confluence/cid', 'tok');
     expect(confluenceContentResolver).toHaveBeenCalledWith('https://api.atlassian.com/ex/confluence/cid', 'tok');
     expect(await res.json()).toEqual({ indexedAt: 't', contentVersion: 1, participants: [] });
+  });
+
+  it('passes the reader\'s page through so the nearest position survives the slice', async () => {
+    await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=42&pageId=77'));
+    expect(relatedDiagrams).toHaveBeenCalledWith(
+      {}, 'cid', '42', expect.any(Function), expect.any(Function), '77',
+    );
+  });
+
+  it('ignores a non-numeric pageId rather than failing the lookup', async () => {
+    await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=42&pageId=abc'));
+    expect(relatedDiagrams).toHaveBeenCalledWith(
+      {}, 'cid', '42', expect.any(Function), expect.any(Function), undefined,
+    );
   });
 
   it('rejects a non-numeric id', async () => {

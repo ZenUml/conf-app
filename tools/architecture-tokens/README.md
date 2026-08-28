@@ -7,22 +7,20 @@ Three layers, kept distinct everywhere:
 
 | layer | field | example | meaning |
 |---|---|---|---|
-| raw diagram label | `rawLabel` | `Partner App` | what the author wrote (Mermaid `Actor.description`) |
+| raw diagram label | `rawLabel` | `Partner App` | what the author wrote as an explicit declaration label |
 | lexical candidate key | `comparisonKey` | `partner.app` | non-binding grouping aid; recomputed on every run |
 | canonical Token ID | (not produced here) | `commerce.payments.api` | the only level that can mean "same enterprise object"; assigned by a person |
 
-`actorId` (Mermaid `Actor.name`, e.g. `PA` in `participant PA as Partner App`) is
+`actorId` (the explicit declaration name, e.g. `PA` in `participant PA as Partner App`) is
 stored as the anchor for durable decisions and is never used as a grouping key —
 short ids such as `DB`, `API`, `Svc` recur across unrelated diagrams.
 
 ## Files
 
-- `extract.ts` — `extractParticipants()` and `isSequenceDiagram()`. Line-based,
-  handles `participant`, `actor`, `create …`, `X as Label`, `box … end`, `;`
-  separators, `%%` comments and YAML frontmatter. `extract.spec.ts` checks it
-  against mermaid's own `getActors()` under jsdom.
-- `read-corpus.mjs` — pulls one space's current Mermaid sequence diagrams from the
-  D1 mirror (`wrangler d1 execute conf-zenuml-prod --remote`).
+- `extract.ts` — explicit Mermaid declarations and explicit ZenUML parser-AST
+  declarations only; message-derived lifelines are excluded.
+- `read-corpus.mjs` — pulls one space's current Mermaid and ZenUML sequence
+  diagrams from an explicitly selected D1 mirror.
 - `extract-corpus.mjs` — corpus → occurrence artifact (extraction + normalization).
 - `pilot/` — scripts rescued from the 2026-08-27 local pilot: the normalizer
   (`participant-normalization.mjs`, `@sindresorhus/slugify`, `separator: '.'`,
@@ -34,11 +32,11 @@ short ids such as `DB`, `API`, `Svc` recur across unrelated diagrams.
 ```bash
 # 0. ARCHTOK_DIR = private/local-data/architecture-tokens/<pilot>  (git-ignored; holds cloud-id)
 # 1. corpus, tenant-wide
-node --experimental-strip-types tools/architecture-tokens/read-corpus.mjs --client-domain <domain> --out $ARCHTOK_DIR/raw/corpus-$(date +%F).json
+node --experimental-strip-types tools/architecture-tokens/read-corpus.mjs --client-domain <domain> --database <staging-d1-name> --out $ARCHTOK_DIR/raw/corpus-$(date +%F).json
 # 2. occurrences
 node --experimental-strip-types tools/architecture-tokens/extract-corpus.mjs --corpus $ARCHTOK_DIR/raw/corpus-$(date +%F).json --out $ARCHTOK_DIR/participant-occurrences-$(date +%F).json
 # 3. upload (replaces the tenant's rows in D1)
-node --experimental-strip-types tools/architecture-tokens/upload-index.mjs --artifact $ARCHTOK_DIR/participant-occurrences-$(date +%F).json --cloud-id-file $ARCHTOK_DIR/cloud-id
+node --experimental-strip-types tools/architecture-tokens/upload-index.mjs --artifact $ARCHTOK_DIR/participant-occurrences-$(date +%F).json --cloud-id-file $ARCHTOK_DIR/cloud-id --database <staging-d1-name>
 # 4. tests
 pnpm vitest --run tools/architecture-tokens functions/architecture-tokens functions/api/architecture-tokens src/components/Viewer/RelatedDiagramsFooter.spec.ts
 ```

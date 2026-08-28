@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import mermaid from 'mermaid';
-import { extractParticipants, isSequenceDiagram } from './extract';
+import { extractParticipants, extractZenUmlParticipants, isSequenceDiagram } from './extract';
 
 describe('extractParticipants', () => {
   it('extracts a plain participant with id equal to label', () => {
@@ -97,5 +97,29 @@ describe('isSequenceDiagram', () => {
   it('rejects other diagram kinds and near-miss keywords', () => {
     expect(isSequenceDiagram('flowchart TD\n  A-->B')).toBe(false);
     expect(isSequenceDiagram('sequenceDiagramX\n')).toBe(false);
+  });
+});
+
+describe('extractZenUmlParticipants', () => {
+  it('extracts only explicit AST declarations, preserving a declared alias as provenance', () => {
+    const src = [
+      '@Actor Customer',
+      '@Boundary Gateway as "Public Gateway"',
+      'group Storage {',
+      '  @Database Ledger as "Ledger Store"',
+      '}',
+      'Customer->Undeclared: message-only lifeline',
+    ].join('\n');
+
+    expect(extractZenUmlParticipants(src)).toEqual([
+      { actorId: 'Customer', rawLabel: 'Customer', declKind: 'participant', created: false, boxName: null, lineNumber: 1 },
+      { actorId: 'Gateway', rawLabel: 'Public Gateway', declKind: 'participant', created: false, boxName: null, lineNumber: 2 },
+      { actorId: 'Ledger', rawLabel: 'Ledger Store', declKind: 'participant', created: false, boxName: 'Storage', lineNumber: 4 },
+    ]);
+  });
+
+  it('returns no rows for invalid DSL or messages without explicit declarations', () => {
+    expect(extractZenUmlParticipants('@Actor\n')).toEqual([]);
+    expect(extractZenUmlParticipants('Caller->Callee: message')).toEqual([]);
   });
 });

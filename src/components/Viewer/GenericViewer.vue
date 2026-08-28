@@ -521,9 +521,9 @@ export default {
       return getForgeCustomContentId();
     },
     showRelatedDiagrams() {
-      return this.diagramType === DiagramType.Mermaid
-        && isMermaidSequenceSource(this.diagram?.mermaidCode)
-        && Boolean(this.relatedCustomContentId);
+      const isSupportedDiagram = this.diagramType === DiagramType.Sequence
+        || (this.diagramType === DiagramType.Mermaid && isMermaidSequenceSource(this.diagram?.mermaidCode));
+      return isSupportedDiagram && Boolean(this.relatedCustomContentId);
     },
     relatedCustomContentId() {
       return getForgeCustomContentId() ?? this.diagramAttribution?.customContentId ?? '';

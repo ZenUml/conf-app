@@ -189,7 +189,7 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.diagram-stub').exists()).toBe(true)
     })
 
-    it('mounts RelatedDiagramsFooter only for a ready Mermaid sequence diagram when the flag is on and content id is present', async () => {
+    it('mounts RelatedDiagramsFooter only for a ready Mermaid or ZenUML sequence diagram when the flag is on and content id is present', async () => {
       vi.mocked(isArchitectureTokensEnabled).mockResolvedValue(true)
       store.commit('updateDiagramType', DiagramType.Mermaid)
       store.commit(
@@ -209,7 +209,13 @@ describe('GenericViewer (chrome-less)', () => {
         surface: 'viewer',
       })
 
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      store.commit('updateCode2', '@Actor Customer\nCustomer->Service: request')
+      await sequence.vm.$nextTick()
+      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(true)
+
       store.commit('updateMermaidCode', 'flowchart TD\n  A-->B')
+      store.commit('updateDiagramType', DiagramType.Mermaid)
       await sequence.vm.$nextTick()
       expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(false)
 

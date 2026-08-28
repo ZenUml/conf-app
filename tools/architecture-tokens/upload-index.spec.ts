@@ -41,11 +41,25 @@ describe('buildUploadStatements', () => {
     await uploadIndex({
       artifact,
       ...options,
+      database: 'conf-zenuml-stg',
       runWrangler: async (file) => { sql = await readFile(file, 'utf8'); },
     });
 
     expect(sql).not.toMatch(/^\s*BEGIN;\s*$/m);
     expect(sql).not.toMatch(/^\s*COMMIT;\s*$/m);
     for (const statement of statements) expect(sql).toContain(`${statement};`);
+  });
+
+  it('passes the explicitly selected D1 database to the upload runner', async () => {
+    let selected = '';
+    await uploadIndex({
+      artifact,
+      cloudId: 'cid',
+      runId: 'r1',
+      indexedAt: '2026-08-27T05:00:00Z',
+      database: 'conf-zenuml-stg',
+      runWrangler: async (_file, database) => { selected = database; },
+    });
+    expect(selected).toBe('conf-zenuml-stg');
   });
 });

@@ -2,6 +2,7 @@
  * Deterministic extraction of explicit participant declarations from a
  * Mermaid `sequenceDiagram`. Lexical only: no identity, no classification.
  */
+import { parse } from '@zenuml/core/parser';
 export type DeclKind = 'participant' | 'actor';
 
 export interface ParticipantOccurrence {
@@ -52,6 +53,56 @@ export function extractParticipants(mermaidCode: string): ParticipantOccurrence[
     }
   });
   return out;
+}
+
+function formattedText(context: any): string | null {
+  if (!context) return null;
+  const value = typeof context.getFormattedText === 'function'
+    ? context.getFormattedText()
+    : typeof context.getText === 'function' ? context.getText() : null;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Extract explicit ZenUML DSL declarations from the parser AST.  The renderer
+ * may infer lifelines from messages; this intentionally does not.  A declared
+ * `as` label remains display provenance, while the declaration name is the
+ * durable occurrence anchor, matching Mermaid's alias/name split.
+ */
+export function extractZenUmlParticipants(code: string): ParticipantOccurrence[] {
+  const parsed = parse(code);
+  if (!parsed.pass || !parsed.rootContext) return [];
+
+  const head = (parsed.rootContext as any).head?.();
+  if (!head) return [];
+  const topLevel = (head.participant?.() ?? []).map((declaration: any) => ({ declaration, boxName: null }));
+  const groupMembers = (head.group?.() ?? []).flatMap((group: any) => {
+    const boxName = formattedText(group.name?.());
+    return (group.participant?.() ?? []).map((declaration: any) => ({ declaration, boxName }));
+  });
+  const out: ParticipantOccurrence[] = [];
+
+  for (const { declaration, boxName } of [...topLevel, ...groupMembers]) {
+    const actorId = formattedText(declaration.name?.());
+    if (!actorId) continue;
+    const rawLabel = formattedText(declaration.label?.()?.name?.()) ?? actorId;
+    out.push({
+      actorId,
+      rawLabel,
+      // The D1 contract distinguishes Mermaid's `actor`; ZenUML annotations
+      // are preserved in source provenance but are not a grouping identity.
+      declKind: 'participant',
+      created: false,
+      boxName,
+      lineNumber: Number(declaration.start?.line ?? 0),
+    });
+  }
+  return out;
+}
+
+/** True only when ZenUML's parser accepts a non-empty DSL document. */
+export function isZenUmlSequenceDiagram(code: string): boolean {
+  return Boolean(code.trim()) && parse(code).pass;
 }
 
 /**

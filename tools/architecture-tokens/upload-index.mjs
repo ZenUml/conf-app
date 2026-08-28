@@ -11,7 +11,6 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const D1_DATABASE = 'conf-zenuml-prod';
 const COLUMNS = [
   'cloudId',
   'spaceId',
@@ -74,13 +73,14 @@ export function buildUploadStatements(artifact, { cloudId, runId, indexedAt, chu
   return statements;
 }
 
-function runWranglerFile(file) {
+function runWranglerFile(file, database) {
+  if (!database) throw new Error('need an explicit --database; do not default to production');
   const child = spawn('pnpm', [
     'exec',
     'wrangler',
     'd1',
     'execute',
-    D1_DATABASE,
+    database,
     '--remote',
     '--json',
     '--file',
@@ -96,7 +96,7 @@ function runWranglerFile(file) {
   }));
 }
 
-export async function uploadIndex({ artifact, cloudId, runId, indexedAt, runWrangler = runWranglerFile }) {
+export async function uploadIndex({ artifact, cloudId, runId, indexedAt, database, runWrangler = runWranglerFile }) {
   const statements = buildUploadStatements(artifact, { cloudId, runId, indexedAt });
   const dir = await mkdtemp(join(tmpdir(), 'archtok-upload-'));
   const file = join(dir, 'upload.sql');
@@ -104,7 +104,7 @@ export async function uploadIndex({ artifact, cloudId, runId, indexedAt, runWran
     // D1 executes a multi-statement import file atomically; explicit BEGIN/COMMIT
     // are rejected by wrangler, so the statements themselves form the batch.
     await writeFile(file, statements.map((statement) => `${statement};`).join('\n'), { mode: 0o600 });
-    await runWrangler(file);
+    await runWrangler(file, database);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -117,14 +117,15 @@ export async function uploadIndex({ artifact, cloudId, runId, indexedAt, runWran
 if (import.meta.url === `file://${process.argv[1]}`) {
   const artifactPath = arg('artifact');
   const cloudIdFile = arg('cloud-id-file');
-  if (!artifactPath || !cloudIdFile) {
-    console.error('usage: upload-index.mjs --artifact <json> --cloud-id-file <file>');
+  const database = arg('database');
+  if (!artifactPath || !cloudIdFile || !database) {
+    console.error('usage: upload-index.mjs --artifact <json> --cloud-id-file <file> --database <d1-name>');
     process.exit(2);
   }
   const artifact = JSON.parse(await readFile(artifactPath, 'utf8'));
   const cloudId = (await readFile(cloudIdFile, 'utf8')).trim();
   const indexedAt = new Date().toISOString();
   const runId = indexedAt.slice(0, 10);
-  const result = await uploadIndex({ artifact, cloudId, runId, indexedAt });
+  const result = await uploadIndex({ artifact, cloudId, runId, indexedAt, database });
   console.log(JSON.stringify({ ...result, runId, indexedAt }));
 }

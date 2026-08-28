@@ -51,4 +51,25 @@ describe('buildArtifact', () => {
     expect(artifact.cohortSourceCount).toBe(1);
     expect(artifact.cohortSourceCount).toBe(new Set(artifact.sources.map((source) => source.sourceId)).size);
   });
+
+  it('indexes only explicit ZenUML participant declarations', () => {
+    const artifact = buildArtifact({
+      cloudId: 'cid',
+      sources: [{
+        sourceId: 'zenuml',
+        sourceRevision: 1,
+        sourceHash: 'hash',
+        spaceId: '7',
+        pageId: '102',
+        diagramType: 'sequence',
+        code: '@Actor Customer\n@Boundary Gateway as "Public Gateway"\nCustomer->Undeclared: message-only',
+      }],
+    });
+
+    expect(artifact.sources[0].participants).toMatchObject([
+      { actorId: 'Customer', rawLabel: 'Customer', declKind: 'participant', lineNumber: 1 },
+      { actorId: 'Gateway', rawLabel: 'Public Gateway', declKind: 'participant', lineNumber: 2 },
+    ]);
+    expect(artifact.sources[0].participants).toHaveLength(2);
+  });
 });

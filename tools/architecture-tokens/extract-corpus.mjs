@@ -6,17 +6,17 @@
  *     --corpus <corpus.json> --out <occurrences.json>
  *
  * Three layers per occurrence, kept distinct on purpose:
- *   rawLabel                  what the author wrote (Mermaid Actor.description)
+ *   rawLabel                  what the author wrote as the declaration label
  *   readableNormalizedDisplay case-folded, whitespace-collapsed display form
  *   comparisonKey             lexical grouping key (`partner.app`) — a non-binding
  *                             aid for finding possible repeats, never an identity
  *
- * `actorId` (Mermaid Actor.name) is the anchor for durable decisions; it is
+ * `actorId` (the declaration name) is the anchor for durable decisions; it is
  * stored but never used as a grouping key. Legacy field names `alias` and
  * `displayLabel` are kept so the pilot/ scripts keep working.
  */
 import { readFile, writeFile } from 'node:fs/promises';
-import { extractParticipants } from './extract.ts';
+import { extractParticipants, extractZenUmlParticipants } from './extract.ts';
 import { lexicalComparisonKey, lexicalGroupingToken, readableNormalizedDisplay } from './pilot/participant-normalization.mjs';
 
 function arg(name) {
@@ -58,7 +58,9 @@ export function buildArtifact(corpus) {
     sourceHash: source.sourceHash,
     spaceId: source.spaceId,
     pageId: source.pageId,
-    participants: extractParticipants(source.mermaidCode).map((o) => ({
+    participants: (source.diagramType === 'sequence'
+      ? extractZenUmlParticipants(source.code ?? '')
+      : extractParticipants(source.mermaidCode ?? '')).map((o) => ({
       alias: o.actorId,
       displayLabel: o.rawLabel,
       actorId: o.actorId,
@@ -82,7 +84,7 @@ export function buildArtifact(corpus) {
   return {
     schemaVersion: 4,
     cloudId: corpus.cloudId ?? null,
-    method: 'Deterministic extraction of explicit participant/actor declarations (tools/architecture-tokens/extract.ts, mermaid-oracle tested); repeated (sourceId, actorId, lineNumber) anchors use the last declaration to match Mermaid actor-map semantics and the occurrence table primary key; readable form + slugify dot-key per pilot/participant-normalization.mjs; corpus-wide preferred dotted key. Lexical grouping aid only — no classification, no identity.',
+    method: 'Deterministic extraction of explicit Mermaid participant/actor declarations and ZenUML parser-AST participant declarations (tools/architecture-tokens/extract.ts); repeated (sourceId, actorId, lineNumber) anchors use the last declaration to match Mermaid actor-map semantics and the occurrence table primary key; readable form + slugify dot-key per pilot/participant-normalization.mjs; corpus-wide preferred dotted key. Lexical grouping aid only — no classification, no identity.',
     cohortSourceCount: sources.length,
     occurrenceCount: all.length,
     rawLabelCount: new Set(all.map((p) => p.rawLabel)).size,

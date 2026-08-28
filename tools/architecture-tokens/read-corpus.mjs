@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Read one space's current Mermaid sequence diagrams from the D1 mirror into a
+ * Read one space's current Mermaid and ZenUML sequence diagrams from the D1 mirror into a
  * local corpus file. Phase-1 processing is local: nothing is written back.
  *
  *   node --experimental-strip-types tools/architecture-tokens/read-corpus.mjs \
@@ -10,14 +10,12 @@
  * git-ignored or private path (see README).
  *
  * D1 `CustomContent.body` is the wrapped Confluence body, so the diagram JSON
- * sits at `$.raw.value` (a string) and `diagramType` / `mermaidCode` inside it.
+ * sits at `$.raw.value` (a string) and `diagramType` / `mermaidCode` or `code` inside it.
  */
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
-import { isSequenceDiagram } from './extract.ts';
-
-const D1_DATABASE = 'conf-zenuml-prod';
+import { isSequenceDiagram, isZenUmlSequenceDiagram } from './extract.ts';
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -28,8 +26,9 @@ function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-function runWrangler(sql) {
-  const child = spawn('pnpm', ['exec', 'wrangler', 'd1', 'execute', D1_DATABASE, '--remote', '--json', '--command', sql], {
+function runWrangler(sql, database) {
+  if (!database) throw new Error('need an explicit --database; do not default to production');
+  const child = spawn('pnpm', ['exec', 'wrangler', 'd1', 'execute', database, '--remote', '--json', '--command', sql], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
@@ -62,7 +61,7 @@ export function corpusSql({ spaceIds, appId }) {
       json_extract(body, '$.raw.value') AS rawValue
     FROM CustomContent
     WHERE spaceId IN (${ids})${appFilter} AND status = 'current'
-      AND json_extract(json_extract(body, '$.raw.value'), '$.diagramType') = 'mermaid'`;
+      AND json_extract(json_extract(body, '$.raw.value'), '$.diagramType') IN ('mermaid','sequence')`;
 }
 
 function toSources(rows) {
@@ -71,15 +70,22 @@ function toSources(rows) {
   for (const row of rows) {
     let parsed;
     try { parsed = JSON.parse(row.rawValue); } catch { notSequence += 1; continue; }
+    const diagramType = parsed?.diagramType;
     const mermaidCode = typeof parsed?.mermaidCode === 'string' ? parsed.mermaidCode : '';
-    if (!isSequenceDiagram(mermaidCode)) { notSequence += 1; continue; }
+    const code = typeof parsed?.code === 'string' ? parsed.code : '';
+    const isMermaidSequence = diagramType === 'mermaid' && isSequenceDiagram(mermaidCode);
+    // Parsing here is a source boundary check only; occurrences are extracted
+    // later from the same AST-only extractor.
+    const isZenUmlSequence = diagramType === 'sequence' && isZenUmlSequenceDiagram(code);
+    if (!isMermaidSequence && !isZenUmlSequence) { notSequence += 1; continue; }
     sources.push({
       sourceId: String(row.sourceId),
       sourceRevision: Number(row.sourceRevision),
       sourceHash: createHash('sha256').update(row.rawValue).digest('hex'),
       spaceId: String(row.spaceId),
       pageId: String(row.pageId ?? ''),
-      mermaidCode,
+      diagramType,
+      ...(diagramType === 'sequence' ? { code } : { mermaidCode }),
     });
   }
   sources.sort((a, b) => a.sourceId.localeCompare(b.sourceId));
@@ -96,11 +102,11 @@ function latestRowsBySourceId(rows) {
   return [...latest.values()];
 }
 
-export async function readCorpus({ clientDomain, spaceId, appId, runWrangler: run = runWrangler }) {
+export async function readCorpus({ clientDomain, spaceId, appId, database, runWrangler: run = runWrangler }) {
   let cloudId = null;
   let spaceIds;
   if (clientDomain) {
-    const rows = (await run(tenantSpacesSql(clientDomain)))[0]?.results ?? [];
+    const rows = (await run(tenantSpacesSql(clientDomain), database))[0]?.results ?? [];
     if (rows.length === 0) throw new Error('tenant not found in AtlassianInstance/DiagramAudience');
     cloudId = rows[0].cloudId;
     spaceIds = [...new Set(rows.map((r) => String(r.spaceId)))].sort();
@@ -108,8 +114,9 @@ export async function readCorpus({ clientDomain, spaceId, appId, runWrangler: ru
     if (!spaceId) throw new Error('need --client-domain or --space-id');
     spaceIds = [String(spaceId)];
   }
-  const rows = (await run(corpusSql({ spaceIds, appId })))[0]?.results ?? [];
-  // `mermaidRows` reports effective current diagrams, not duplicate raw D1 rows.
+  const rows = (await run(corpusSql({ spaceIds, appId }), database))[0]?.results ?? [];
+  // `mermaidRows` is the legacy report field; it reports effective current
+  // sequence-family diagrams, not duplicate raw D1 rows.
   const latestRows = latestRowsBySourceId(rows);
   const { sources, notSequence } = toSources(latestRows);
   return { schemaVersion: 1, cloudId, spaceIds, appId: appId ?? null, mermaidRows: latestRows.length, notSequence, sources };
@@ -119,12 +126,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const clientDomain = arg('client-domain');
   const spaceId = arg('space-id');
   const appId = arg('app-id');
+  const database = arg('database');
   const out = arg('out');
-  if ((!clientDomain && !spaceId) || !out) {
-    console.error('usage: read-corpus.mjs (--client-domain <d> | --space-id <id> [--app-id <uuid>]) --out <file>');
+  if ((!clientDomain && !spaceId) || !database || !out) {
+    console.error('usage: read-corpus.mjs (--client-domain <d> | --space-id <id> [--app-id <uuid>]) --database <d1-name> --out <file>');
     process.exit(2);
   }
-  const corpus = await readCorpus({ clientDomain, spaceId, appId });
+  const corpus = await readCorpus({ clientDomain, spaceId, appId, database });
   await writeFile(out, JSON.stringify(corpus), { mode: 0o600 });
   console.log(JSON.stringify({ spaces: corpus.spaceIds.length, mermaidRows: corpus.mermaidRows, sequenceSources: corpus.sources.length, notSequence: corpus.notSequence, out }));
 }

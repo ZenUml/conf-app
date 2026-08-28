@@ -17,7 +17,7 @@ export interface AIRepairOptions {
 
 export type DiagramlyJobStatus = {
   id: string;
-  status: 'QUEUED' | 'PROCESSING' | 'GENERATING' | 'COMPLETED' | 'FAILED';
+  status: 'QUEUED' | 'PROCESSING' | 'GENERATING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   progress: number;
   message: string;
   output?: {

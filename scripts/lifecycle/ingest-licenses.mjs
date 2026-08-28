@@ -49,6 +49,19 @@ export const ADDON_APP_MAP = {
   'com.pnd.jira.plugins.diagramly': 'diagramly',
 };
 
+// The export row's own activity flag (verified against the live export,
+// mirrors marketplace/scripts/mp_report.py's `r.get("status") == "active"`
+// convention used elsewhere in this repo). Lowercase, exact match.
+const ACTIVE_STATUS = 'active';
+
+// PK-shaped map key shared between the upsert path and the lapse pass below.
+// NUL-separated so an unusual (quoted-local-part) email containing an
+// ordinary character sequence can never collide with a different email+app
+// pair.
+function lapseKey(email, app) {
+  return `${email}\u0000${app}`;
+}
+
 // ---------------------------------------------------------------------------
 // Row transform
 // ---------------------------------------------------------------------------
@@ -98,7 +111,11 @@ export function mapEvalWindow(row) {
 // Maps one raw Marketplace export row to either `{ record }` (ready to
 // upsert) or `{ skipped: reason }`.
 export function transformRow(row) {
-  const app = ADDON_APP_MAP[row.addonKey];
+  // `row?.addonKey` (not `row.addonKey`): guards a literal malformed entry in
+  // the export array (null/undefined), not just a missing property on an
+  // otherwise-valid row object -- both fall through to the same
+  // 'unmapped_addon' skip rather than throwing.
+  const app = ADDON_APP_MAP[row?.addonKey];
   if (!app) return { skipped: 'unmapped_addon' };
 
   // The export also carries legacy Server/DC-hosted rows (hosting: 'Server')
@@ -139,8 +156,21 @@ export function transformRow(row) {
 // New row: first_seen_at = last_seen_at = now, step = 'welcome',
 //   suppressed = bootstrap ? 1 : 0.
 // Existing row: cloud_id/seat_tier/license_type/eval_*/last_seen_at refresh;
-//   step, step_due_at, suppressed, first_seen_at are never touched.
-export function upsertContact(db, record, { bootstrap = false, now = new Date().toISOString() } = {}) {
+//   step_due_at, suppressed, first_seen_at are never touched.
+//
+// `step` is normally left untouched too, with ONE exception: re-appearance.
+// If the contact is being seen ACTIVE in this run (isActive) and its stored
+// step is currently 'lapsed', step resets to 'welcome'. This is the simplest
+// rule implementable without a schema change (no step_before_lapse column):
+// a lapsed contact that comes back restarts the nurture sequence from the
+// top rather than resuming wherever it left off. Documented tradeoff: a
+// contact that had reached e.g. 'trial_day_7' before lapsing does NOT resume
+// at 'trial_day_7' on reappearance -- it resumes at 'welcome'.
+export function upsertContact(
+  db,
+  record,
+  { bootstrap = false, now = new Date().toISOString(), isActive = false } = {},
+) {
   const existing = db
     .prepare('SELECT 1 FROM lifecycle_contact WHERE contact_email = ? AND app = ?')
     .get(record.contactEmail, record.app);
@@ -149,7 +179,8 @@ export function upsertContact(db, record, { bootstrap = false, now = new Date().
     db.prepare(
       `UPDATE lifecycle_contact
           SET cloud_id = ?, seat_tier = ?, license_type = ?,
-              eval_started_at = ?, eval_ends_at = ?, last_seen_at = ?
+              eval_started_at = ?, eval_ends_at = ?, last_seen_at = ?,
+              step = CASE WHEN step = 'lapsed' AND ? = 1 THEN 'welcome' ELSE step END
         WHERE contact_email = ? AND app = ?`,
     ).run(
       record.cloudId,
@@ -158,6 +189,7 @@ export function upsertContact(db, record, { bootstrap = false, now = new Date().
       record.evalStartedAt,
       record.evalEndsAt,
       now,
+      isActive ? 1 : 0,
       record.contactEmail,
       record.app,
     );
@@ -184,19 +216,50 @@ export function upsertContact(db, record, { bootstrap = false, now = new Date().
   return 'inserted';
 }
 
+// Lapse pass, run once per ingestRows() call after every row in this run's
+// export has been upserted. A contact counts as "not actively seen this run"
+// -- and gets step='lapsed' -- in EVERY one of these cases:
+//   - its (email, app) never appeared in `seenActiveKeys` at all, i.e. it's
+//     absent from the export entirely, OR
+//   - it appeared with a non-'active' status (isActive=false in the loop
+//     below, so it was never added to seenActiveKeys), OR
+//   - its row this run was skipped by transformRow (RTBF, missing email,
+//     unmapped addon, no cloudId) -- we have no valid contactable signal for
+//     it this run, so it's treated the same as "absent".
+// Two invariants enforced here: (1) a row already at the terminal step
+// 'done' is never overwritten -- excluded via the WHERE guard below; (2) the
+// UPDATE touches ONLY the `step` column, so `suppressed` (and every other
+// column) is never modified by lapsing.
+function markLapsedContacts(db, seenActiveKeys) {
+  const rows = db.prepare("SELECT contact_email, app FROM lifecycle_contact WHERE step NOT IN ('done', 'lapsed')").all();
+  const stmt = db.prepare(`UPDATE lifecycle_contact SET step = 'lapsed' WHERE contact_email = ? AND app = ?`);
+  let lapsed = 0;
+  for (const row of rows) {
+    if (seenActiveKeys.has(lapseKey(row.contact_email, row.app))) continue;
+    stmt.run(row.contact_email, row.app);
+    lapsed += 1;
+  }
+  return lapsed;
+}
+
 // Ingests a full array of raw export rows into `db`. Returns a summary for
 // reporting, plus an in-memory cloudId -> cloudSiteHostname map built from
 // this run's export (used by buildSnapshot — the D1 schema itself only keeps
 // cloud_id, matching the AtlassianInstance.cloudId convention used elsewhere
 // in this repo's D1 schema, so hostnames never get persisted redundantly).
+//
+// `seenActiveKeys` (this run's export only, not persisted across calls) also
+// drives the lapse pass at the end -- see markLapsedContacts() above.
 export function ingestRows(db, rawRows, { bootstrap = false, now = new Date().toISOString() } = {}) {
   const summary = {
     inserted: 0,
     updated: 0,
+    lapsed: 0,
     skipped: { unmapped_addon: 0, no_cloud_id: 0, rtbf: 0, missing_email: 0 },
     byApp: {},
   };
   const hostnameByCloudId = new Map();
+  const seenActiveKeys = new Set();
 
   db.exec('BEGIN');
   try {
@@ -211,11 +274,19 @@ export function ingestRows(db, rawRows, { bootstrap = false, now = new Date().to
         continue;
       }
 
-      const result = upsertContact(db, record, { bootstrap, now });
+      const isActive = raw?.status === ACTIVE_STATUS;
+      if (isActive) {
+        seenActiveKeys.add(lapseKey(record.contactEmail, record.app));
+      }
+
+      const result = upsertContact(db, record, { bootstrap, now, isActive });
       summary[result] += 1;
       summary.byApp[record.app] ??= { inserted: 0, updated: 0 };
       summary.byApp[record.app][result] += 1;
     }
+
+    summary.lapsed = markLapsedContacts(db, seenActiveKeys);
+
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -228,6 +299,28 @@ export function ingestRows(db, rawRows, { bootstrap = false, now = new Date().to
 // ---------------------------------------------------------------------------
 // Snapshot
 // ---------------------------------------------------------------------------
+
+// Whole-CALENDAR-day (UTC) countdown to eval_ends_at, computed at snapshot
+// time (`nowIso` = the snapshot's own generatedAt, never wall-clock time at
+// read time -- the snapshot is a point-in-time view). Deliberately a
+// calendar-day difference, not a 24h-duration division: both timestamps are
+// truncated to UTC midnight first, so "ends today" always reads 0 and "ended
+// yesterday" always reads -1, regardless of what time of day either
+// timestamp carries. Returns null unless license_type is EVALUATION AND
+// eval_ends_at is present -- a non-eval contact, or an eval contact whose
+// eval_ends_at didn't map (see mapEvalWindow), has no countdown to show.
+export function computeEvalDaysRemaining(licenseType, evalEndsAt, nowIso) {
+  if (licenseType !== 'EVALUATION' || !evalEndsAt) return null;
+
+  const end = new Date(evalEndsAt);
+  const now = new Date(nowIso);
+  if (Number.isNaN(end.getTime()) || Number.isNaN(now.getTime())) return null;
+
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const endUtcDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+  const nowUtcDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((endUtcDay - nowUtcDay) / MS_PER_DAY);
+}
 
 // Aggregated view JSON: funnel counts (from D1, the source of truth for
 // every contact ever ingested) + a per-tenant list keyed by domain (never
@@ -260,6 +353,7 @@ export function buildSnapshot(db, hostnameByCloudId, { generatedAt = new Date().
     license_type: r.license_type,
     step: r.step,
     eval_ends_at: r.eval_ends_at,
+    eval_days_remaining: computeEvalDaysRemaining(r.license_type, r.eval_ends_at, generatedAt),
     suppressed: r.suppressed,
     last_seen_at: r.last_seen_at,
   }));
@@ -377,7 +471,9 @@ async function main() {
   console.log(
     `[ingest-licenses] mode: ${args.bootstrap ? 'BOOTSTRAP (newly-inserted rows suppressed=1)' : 'incremental (newly-inserted rows suppressed=0)'}`,
   );
-  console.log(`[ingest-licenses] this run: inserted=${summary.inserted} updated=${summary.updated}`);
+  console.log(
+    `[ingest-licenses] this run: inserted=${summary.inserted} updated=${summary.updated} lapsed=${summary.lapsed}`,
+  );
   console.log(
     `[ingest-licenses] this run skipped: unmapped_addon=${summary.skipped.unmapped_addon} no_cloud_id=${summary.skipped.no_cloud_id} rtbf=${summary.skipped.rtbf} missing_email=${summary.skipped.missing_email}`,
   );

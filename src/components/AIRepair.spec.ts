@@ -66,6 +66,7 @@ const triggerRepair = async (wrapper: ReturnType<typeof mountRepair>) => {
 
 describe('AIRepair analytics', () => {
   beforeEach(() => {
+    localStorage.clear()
     vi.mocked(trackAnalyticsEvent).mockClear()
     vi.mocked(startFixDiagram as any).mockClear()
     vi.mocked(getFixDiagramStatus as any).mockClear()
@@ -109,6 +110,43 @@ describe('AIRepair analytics', () => {
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_requested', expect.objectContaining({
       ai_model: 'openai/gpt-5.6-luna',
     }))
+    wrapper.unmount()
+  })
+
+  it('uses the ai_repair_model localStorage value when starting a repair', async () => {
+    localStorage.setItem('ai_repair_model', ' anthropic/claude-sonnet-5 ')
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-local-model' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+
+    expect(startFixDiagram).toHaveBeenCalledWith(
+      ORIGINAL_CODE,
+      'syntax error on line 1',
+      'Sequence',
+      { model: 'anthropic/claude-sonnet-5' },
+    )
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_requested', expect.objectContaining({
+      ai_model: 'anthropic/claude-sonnet-5',
+    }))
+    wrapper.unmount()
+  })
+
+  it('falls back to the configured model when ai_repair_model is blank', async () => {
+    localStorage.setItem('ai_repair_model', '   ')
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-blank-local-model' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+
+    const wrapper = mountRepair({ model: 'openai/gpt-5.6-luna' })
+    await triggerRepair(wrapper)
+
+    expect(startFixDiagram).toHaveBeenCalledWith(
+      ORIGINAL_CODE,
+      'syntax error on line 1',
+      'Sequence',
+      { model: 'openai/gpt-5.6-luna' },
+    )
     wrapper.unmount()
   })
 

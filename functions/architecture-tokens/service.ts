@@ -96,24 +96,48 @@ function byActor(rows: OccurrenceRow[]): Map<string, OccurrenceRow> {
   return declarations;
 }
 
-/** At most PAGES_PER_KEY pages per comparison key, and one CQL batch overall. */
-export const PAGES_PER_KEY = 24;
-const PAGE_BUDGET = 100;
+/**
+ * A name that recurs across a large part of the tenant carries no information about the
+ * object — `DB`, `API`, `OrderController` land on hundreds of unrelated diagrams. Above
+ * this many distinct pages the key is dropped whole: no rows, no circle, not counted.
+ * Truncating such a key to a few rows would present noise as a relation.
+ */
+export const NOISE_PAGE_THRESHOLD = 50;
+/** Ceiling on one lookup's CQL work; CQL_BATCH ids per request. */
+const PAGE_BUDGET = 300;
 
-export function cappedPageIds(candidates: OccurrenceRow[]): string[] {
-  const perKey = new Map<string, Set<string>>();
-  const ordered: string[] = [];
-  const taken = new Set<string>();
+/** Drop noisy keys, then order what remains: this space first, newest content first. */
+export function usableCandidates(
+  candidates: OccurrenceRow[],
+  ownSpaceId: string,
+): OccurrenceRow[] {
+  const pagesByKey = new Map<string, Set<string>>();
   for (const candidate of candidates) {
-    let pages = perKey.get(candidate.comparisonKey);
-    if (!pages) perKey.set(candidate.comparisonKey, (pages = new Set()));
-    if (pages.size >= PAGES_PER_KEY || taken.has(candidate.pageId)) continue;
+    let pages = pagesByKey.get(candidate.comparisonKey);
+    if (!pages) pagesByKey.set(candidate.comparisonKey, (pages = new Set()));
     pages.add(candidate.pageId);
-    taken.add(candidate.pageId);
-    ordered.push(candidate.pageId);
-    if (ordered.length >= PAGE_BUDGET) break;
   }
-  return ordered;
+
+  const rank = (row: OccurrenceRow) => (row.spaceId === ownSpaceId ? 0 : 1);
+  const recency = (row: OccurrenceRow) => {
+    const value = Number(row.contentId);
+    return Number.isFinite(value) ? value : 0;
+  };
+  return candidates
+    .filter((candidate) => (pagesByKey.get(candidate.comparisonKey)?.size ?? 0) <= NOISE_PAGE_THRESHOLD)
+    .sort((a, b) => rank(a) - rank(b) || recency(b) - recency(a));
+}
+
+function budgetedPageIds(candidates: OccurrenceRow[]): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (seen.has(candidate.pageId)) continue;
+    seen.add(candidate.pageId);
+    ids.push(candidate.pageId);
+    if (ids.length >= PAGE_BUDGET) break;
+  }
+  return ids;
 }
 
 export async function relatedDiagrams(
@@ -130,14 +154,12 @@ export async function relatedDiagrams(
   const indexedAt = own[0].indexedAt;
   const contentVersion = own[0].contentVersion;
   const keys = [...new Set(own.map((occurrence) => occurrence.comparisonKey))];
-  const candidates = (await occurrencesForKeys(db, cloudId, keys))
-    .filter((candidate) => candidate.contentId !== contentId);
-
-  // A generic name recurs across a whole tenant: on lite-stg `order.controller` reaches
-  // 3,388 pages, which is 34 CQL round trips and misses the viewer's 8s budget, so the
-  // lookup times out and the reader sees nothing at all. Resolve at most one CQL batch,
-  // taken per key so one common name cannot crowd out the rest.
-  const pageIds = cappedPageIds(candidates);
+  const candidates = usableCandidates(
+    (await occurrencesForKeys(db, cloudId, keys))
+      .filter((candidate) => candidate.contentId !== contentId),
+    own[0].spaceId,
+  );
+  const pageIds = budgetedPageIds(candidates);
 
   let pages: Map<string, ConfluencePageInfo>;
   try {

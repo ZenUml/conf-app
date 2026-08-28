@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PAGES_PER_KEY, confluencePageResolver, relatedDiagrams } from './service';
+import { NOISE_PAGE_THRESHOLD, confluencePageResolver, relatedDiagrams } from './service';
 
 const row = (o: Partial<Record<string, unknown>>) => ({
   contentId: '1',
@@ -26,40 +26,59 @@ function dbWith(byContent: unknown[], byKeys: unknown[]) {
   } as unknown as D1Database;
 }
 
-describe('page budget', () => {
-  it('asks Confluence for one batch only, spread across keys, when a name recurs tenant-wide', async () => {
-    // `order.controller` reaches 3,388 pages on lite-stg; without a cap that is 34 CQL
-    // round trips, the 8s viewer budget expires and the reader sees nothing at all.
-    const wide = Array.from({ length: 3000 }, (_, i) =>
+describe('noisy keys', () => {
+  it('drops a key that reaches most of the tenant, and keeps the rare one', async () => {
+    // `order.controller` reaches 3,388 pages on lite-stg. Showing a few of them would
+    // present noise as a relation, and asking Confluence about all of them exceeded the
+    // viewer's 8s budget, so the reader saw nothing at all.
+    const wide = Array.from({ length: 200 }, (_, i) =>
       row({ contentId: `w${i}`, pageId: `${9000 + i}`, actorId: 'OC', comparisonKey: 'order.controller' }),
     );
     const narrow = Array.from({ length: 5 }, (_, i) =>
-      row({ contentId: `n${i}`, pageId: `${100 + i}`, actorId: 'INV', comparisonKey: 'invoice.service' }),
+      row({ contentId: `${500 + i}`, pageId: `${100 + i}`, actorId: 'INV', comparisonKey: 'invoice.service' }),
     );
     const own = [
-      row({ contentId: 'self', pageId: '1', actorId: 'OC', comparisonKey: 'order.controller' }),
-      row({ contentId: 'self', pageId: '1', actorId: 'INV', comparisonKey: 'invoice.service' }),
+      row({ contentId: 'self', pageId: '1', spaceId: '7', actorId: 'OC', comparisonKey: 'order.controller' }),
+      row({ contentId: 'self', pageId: '1', spaceId: '7', actorId: 'INV', comparisonKey: 'invoice.service' }),
     ];
     const resolve = vi.fn(async (pageIds: string[]) =>
       pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' })),
     );
 
-    const response = await relatedDiagrams(
-      dbWith(own, [...wide, ...narrow]),
-      'cloud-1',
-      'self',
-      resolve,
-    );
+    const response = await relatedDiagrams(dbWith(own, [...wide, ...narrow]), 'cloud-1', 'self', resolve);
 
-    const asked = resolve.mock.calls[0][0];
-    expect(asked.length).toBeLessThanOrEqual(100);
-    // the common key cannot crowd out the rarer one
-    expect(asked.filter((id) => Number(id) >= 9000)).toHaveLength(PAGES_PER_KEY);
-    expect(asked.filter((id) => Number(id) < 9000)).toHaveLength(5);
-    const oc = response.participants.find((p) => p.actorId === 'OC')!;
-    expect(oc.related).toHaveLength(PAGES_PER_KEY);
+    // Confluence is never asked about the noisy key's pages
+    expect(resolve.mock.calls[0][0].every((id) => Number(id) < 9000)).toBe(true);
+    expect(response.participants.find((p) => p.actorId === 'OC')!.related).toHaveLength(0);
     expect(response.participants.find((p) => p.actorId === 'INV')!.related).toHaveLength(5);
-  });
+  })
+
+  it('keeps a key that sits on the threshold', async () => {
+    const atLimit = Array.from({ length: NOISE_PAGE_THRESHOLD }, (_, i) =>
+      row({ contentId: `${1000 + i}`, pageId: `${200 + i}`, actorId: 'PA', comparisonKey: 'partner.app' }),
+    );
+    const own = [row({ contentId: 'self', pageId: '1', actorId: 'PA', comparisonKey: 'partner.app' })];
+    const resolve = async (pageIds: string[]) =>
+      pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' }));
+
+    const response = await relatedDiagrams(dbWith(own, atLimit), 'cloud-1', 'self', resolve);
+    expect(response.participants[0].related).toHaveLength(NOISE_PAGE_THRESHOLD)
+  })
+
+  it('lists this space first, then the newest content', async () => {
+    const own = [row({ contentId: 'self', pageId: '1', spaceId: 'HOME', actorId: 'PA', comparisonKey: 'partner.app' })];
+    const others = [
+      row({ contentId: '10', pageId: '10', spaceId: 'AWAY', actorId: 'PA' }),
+      row({ contentId: '20', pageId: '20', spaceId: 'HOME', actorId: 'PA' }),
+      row({ contentId: '30', pageId: '30', spaceId: 'AWAY', actorId: 'PA' }),
+      row({ contentId: '40', pageId: '40', spaceId: 'HOME', actorId: 'PA' }),
+    ];
+    const resolve = async (pageIds: string[]) =>
+      pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' }));
+
+    const response = await relatedDiagrams(dbWith(own, others), 'cloud-1', 'self', resolve);
+    expect(response.participants[0].related.map((r) => r.pageId)).toEqual(['40', '20', '30', '10'])
+  })
 });
 
 describe('relatedDiagrams', () => {
@@ -80,7 +99,8 @@ describe('relatedDiagrams', () => {
 
     const out = await relatedDiagrams(db, 'cid', '1', resolve);
 
-    expect(resolve).toHaveBeenCalledWith(['200', '300', '400']);
+    // newest content first, since every candidate here sits outside the viewer's space
+    expect(resolve).toHaveBeenCalledWith(['400', '300', '200']);
     expect(out.indexedAt).toBe('2026-08-27T05:00:00Z');
     expect(out.contentVersion).toBe(1);
     expect(out.participants).toEqual([

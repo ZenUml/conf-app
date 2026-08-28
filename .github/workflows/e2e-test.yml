@@ -222,7 +222,8 @@ jobs:
               # Keep the DrawIO Publish gate focused: graph-edit:5/6/7 cover
               # Diagram, Board, and the Board publish/view lifecycle while
               # sharing the existing auth/fullscreen projects. Do not silently
-              # run the entire fullscreen suite.
+              # run the entire fullscreen suite. The spec runs in parallel mode
+              # so the 4 shards below each get a share of its tests.
               PROJECTS="--project=auth --project=fullscreen"
               TEST_TARGET="tests/fullscreen/graph-edit.spec.ts"
               ;;

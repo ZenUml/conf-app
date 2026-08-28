@@ -149,10 +149,11 @@ jobs:
     with:
       app: zenuml-lite@stg
       suite: graph-publish
-      # Sharding splits by file, and this suite targets ONE file, so shard 1
-      # runs all of graph-edit.spec.ts serially (~6 min green) while the other
-      # three run zero tests. The shared 8-minute default killed it mid-retry.
-      timeout-minutes: 20
+      # graph-edit.spec.ts declares `test.describe.configure({ mode: 'parallel' })`,
+      # so `--shard=N/4` splits its 8 tests 2-per-shard instead of stacking all
+      # of them on shard 1 (which made this job an 8-minute critical path).
+      # Headroom for 2 tests x 3 attempts (retries: 2) plus job setup.
+      timeout-minutes: 12
       artifact-suffix: lite-stg-graph-publish
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

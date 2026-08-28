@@ -27,6 +27,8 @@ vi.mock("@/components/react/AIChatPanel", async () => {
       [
         ReactModule.createElement("span", { key: "code", "data-testid": "chat-code" }, props.currentCode),
         ReactModule.createElement("span", { key: "id", "data-testid": "chat-diagram-id" }, props.diagramlyDiagramId),
+        ReactModule.createElement("span", { key: "repair", "data-testid": "chat-repair-request-id" }, props.syntaxRepairRequestId),
+        ReactModule.createElement("span", { key: "error", "data-testid": "chat-syntax-error" }, props.syntaxError),
         ReactModule.createElement("button", {
           key: "apply",
           type: "button",
@@ -163,5 +165,19 @@ describe("SwaggerEditor AI Chat integration", () => {
     expect(container.querySelector(".swagger-editor-workspace")?.className)
       .not.toContain("code-editor-hidden");
     expect((container.querySelector("#syntax-error-box") as HTMLElement).style.display).toBe("block");
+  });
+
+  it("opens AI Chat and starts syntax repair from the Vue repair action", () => {
+    act(() => {
+      store.commit("updateError", "OpenAPI syntax error at line 3");
+      window.dispatchEvent(new CustomEvent("ai-chat-request-syntax-repair"));
+    });
+
+    expect(container.querySelector('[data-testid="react-ai-chat-panel-stub"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="chat-repair-request-id"]')?.textContent).toBe("1");
+    expect(container.querySelector('[data-testid="chat-syntax-error"]')?.textContent)
+      .toBe("OpenAPI syntax error at line 3");
+    expect(container.querySelector(".swagger-editor-workspace")?.className)
+      .toContain("code-editor-hidden");
   });
 });

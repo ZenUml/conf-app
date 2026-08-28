@@ -463,7 +463,11 @@ async function initializeMacro() {
     const syntaxErrorBoxContainer = document.getElementById('syntax-error-box');
     if (syntaxErrorBoxContainer) {
       syntaxErrorBoxContainer.style.fontSize = '14px'; // Set a consistent base font size
-      createApp(SyntaxErrorBox).use(store).mount(syntaxErrorBoxContainer);
+      createApp(SyntaxErrorBox, {
+        onRequestAiChatRepair: () => {
+          window.dispatchEvent(new CustomEvent('ai-chat-request-syntax-repair'));
+        },
+      }).use(store).mount(syntaxErrorBoxContainer);
     }
 
     // Track begin event (create or edit)

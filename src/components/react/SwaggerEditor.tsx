@@ -15,6 +15,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
   const [diagramlyDiagramId, setDiagramlyDiagramId] = useState(
     () => (store.state.diagram.metadata as any)?.aiChat?.diagramlyDiagramId || "",
   );
+  const [syntaxRepairRequestId, setSyntaxRepairRequestId] = useState(0);
 
   useEffect(() => store.subscribe((mutation, state) => {
     if (mutation.type === "updateError") {
@@ -52,6 +53,19 @@ const Component = ({ saveAndExit, exit }: Props) => {
     setShowCodeEditor(true);
   };
 
+  useEffect(() => {
+    const requestSyntaxRepair = () => {
+      setShowAIChat(true);
+      setShowCodeEditor(false);
+      setSyntaxRepairRequestId((current) => current + 1);
+    };
+
+    window.addEventListener("ai-chat-request-syntax-repair", requestSyntaxRepair);
+    return () => {
+      window.removeEventListener("ai-chat-request-syntax-repair", requestSyntaxRepair);
+    };
+  }, []);
+
   return (
     <div style={{ position: 'relative', height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flexShrink: 0 }}>
@@ -72,6 +86,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
               codeVisible={showCodeEditor}
               diagramType="openapi"
               syntaxError={syntaxError}
+              syntaxRepairRequestId={syntaxRepairRequestId}
               currentCode={currentCode}
               diagramTitle={store.state.diagram.title || ""}
               diagramlyDiagramId={diagramlyDiagramId}

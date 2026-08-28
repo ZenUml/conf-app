@@ -101,15 +101,28 @@ describe("Workspace AI Chat integration", () => {
       diagramType: String,
       currentCode: String,
       diagramlyDiagramId: String,
+      syntaxRepairRequestId: Number,
     },
     emits: ["apply-code", "diagramly-diagram-bound", "toggle-code", "close"],
     template: `
       <aside data-testid="ai-chat-panel-stub">
         <span data-testid="ai-chat-code-value">{{ currentCode }}</span>
+        <span data-testid="syntax-repair-request-id">{{ syntaxRepairRequestId }}</span>
         <button data-testid="apply-code" @click="$emit('apply-code', 'updated by AI')" />
         <button data-testid="bind-diagram" @click="$emit('diagramly-diagram-bound', 'diagramly-1')" />
         <button data-testid="toggle-code" @click="$emit('toggle-code')" />
       </aside>
+    `,
+  });
+
+  const SyntaxErrorBoxStub = defineComponent({
+    name: "SyntaxErrorBoxStub",
+    emits: ["request-ai-chat-repair"],
+    template: `
+      <button
+        data-testid="ai-repair-stub"
+        @click="$emit('request-ai-chat-repair')"
+      >AI Repair</button>
     `,
   });
 
@@ -121,7 +134,7 @@ describe("Workspace AI Chat integration", () => {
           Header: true,
           Editor: { template: '<div data-testid="editor-stub" />' },
           DiagramPortal: true,
-          SyntaxErrorBox: true,
+          SyntaxErrorBox: SyntaxErrorBoxStub,
           ForeignDialectHint: true,
           AIChatPanel: AIChatPanelStub,
         },
@@ -170,6 +183,15 @@ describe("Workspace AI Chat integration", () => {
         diagramlyDiagramId: "diagramly-1",
       },
     });
+  });
+
+  it("opens AI Chat and starts syntax repair from the repair action", async () => {
+    await wrapper.get('[data-testid="ai-repair-stub"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('[data-testid="ai-chat-panel-stub"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="syntax-repair-request-id"]').text()).toBe("1");
+    expect((wrapper.vm as any).showCodeEditor).toBe(false);
   });
 
   it("does not open AI Chat for Graph diagrams", async () => {

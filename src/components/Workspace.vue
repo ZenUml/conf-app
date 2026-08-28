@@ -14,6 +14,7 @@
             :code-visible="showCodeEditor"
             :diagram-type="diagramType"
             :syntax-error="syntaxError"
+            :syntax-repair-request-id="syntaxRepairRequestId"
             :current-code="currentCode"
             :diagram-title="diagramTitle"
             :diagramly-diagram-id="diagramlyDiagramId"
@@ -57,7 +58,7 @@
         style="position: sticky !important;"
       >
         <ForeignDialectHint />
-        <SyntaxErrorBox />
+        <SyntaxErrorBox @request-ai-chat-repair="requestAIChatSyntaxRepair" />
       </div>
     </div>
   </div>
@@ -83,6 +84,7 @@
       return {
         showAIChat: false,
         showCodeEditor: true,
+        syntaxRepairRequestId: 0,
         splitInstance: null as ReturnType<typeof Split> | null,
       }
     },
@@ -116,6 +118,11 @@
         this.destroySplit()
         this.showAIChat = true
         this.showCodeEditor = false
+      },
+      requestAIChatSyntaxRepair() {
+        if (this.diagramType === DiagramType.Graph) return
+        this.openAIChat()
+        this.syntaxRepairRequestId += 1
       },
       closeAIChat() {
         if (!this.showAIChat) return

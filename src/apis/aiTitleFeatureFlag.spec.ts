@@ -13,6 +13,7 @@ const featureFlagsState = vi.hoisted(() => ({
   instances: [] as any[],
   nextValue: true,
   initializeError: undefined as Error | undefined,
+  checkError: undefined as Error | undefined,
 }))
 
 vi.mock('@/model/globals/forgeGlobal', () => ({
@@ -26,7 +27,10 @@ vi.mock('@forge/bridge', () => ({
       initialize: vi.fn(async () => {
         if (featureFlagsState.initializeError) throw featureFlagsState.initializeError
       }),
-      checkFlag: vi.fn(() => featureFlagsState.nextValue),
+      checkFlag: vi.fn(() => {
+        if (featureFlagsState.checkError) throw featureFlagsState.checkError
+        return featureFlagsState.nextValue
+      }),
       shutdown: vi.fn(),
     }
     featureFlagsState.instances.push(instance)
@@ -35,6 +39,7 @@ vi.mock('@forge/bridge', () => ({
 }))
 
 import {
+  isAiChatEnabled,
   isAiTitleEnabled,
   isAiRepairEnabled,
   isAgentLinkEnabled,
@@ -54,6 +59,7 @@ describe('isAiTitleEnabled', () => {
     featureFlagsState.instances = []
     featureFlagsState.nextValue = true
     featureFlagsState.initializeError = undefined
+    featureFlagsState.checkError = undefined
     localStorage.clear()
   })
 
@@ -117,6 +123,7 @@ describe('isAiRepairEnabled', () => {
     featureFlagsState.instances = []
     featureFlagsState.nextValue = true
     featureFlagsState.initializeError = undefined
+    featureFlagsState.checkError = undefined
     localStorage.clear()
   })
 
@@ -146,6 +153,74 @@ describe('isAiRepairEnabled', () => {
   })
 })
 
+describe('isAiChatEnabled', () => {
+  beforeEach(() => {
+    resetAiTitleFlagForTests()
+    forgeState.isForge = true
+    forgeState.context = {
+      cloudId: 'cloud-1',
+      accountId: 'account-1',
+      environmentType: 'STAGING',
+    }
+    featureFlagsState.instances = []
+    featureFlagsState.nextValue = true
+    featureFlagsState.initializeError = undefined
+    featureFlagsState.checkError = undefined
+    localStorage.clear()
+  })
+
+  it('checks the independent Forge ai-chat-enabled flag with a false default', async () => {
+    await expect(isAiChatEnabled()).resolves.toBe(true)
+
+    const instance = featureFlagsState.instances[0]
+    expect(instance.checkFlag).toHaveBeenCalledWith('ai-chat-enabled', false)
+  })
+
+  it('reuses the feature flag client shared with the existing AI flags', async () => {
+    await isAiTitleEnabled()
+    await isAiRepairEnabled()
+    await isAiChatEnabled()
+
+    expect(featureFlagsState.instances).toHaveLength(1)
+    expect(featureFlagsState.instances[0].initialize).toHaveBeenCalledTimes(1)
+    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledTimes(3)
+  })
+
+  it('defaults to enabled in standalone local dev unless localStorage disables it', async () => {
+    forgeState.isForge = false
+    await expect(isAiChatEnabled()).resolves.toBe(true)
+
+    localStorage.setItem('mockAiChatEnabled', 'false')
+    await expect(isAiChatEnabled()).resolves.toBe(false)
+    expect(featureFlagsState.instances).toHaveLength(0)
+  })
+
+  it('returns disabled when Forge flag initialization fails and allows a later retry', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    featureFlagsState.initializeError = new Error('temporary bridge failure')
+    await expect(isAiChatEnabled()).resolves.toBe(false)
+
+    featureFlagsState.initializeError = undefined
+    await expect(isAiChatEnabled()).resolves.toBe(true)
+    expect(featureFlagsState.instances).toHaveLength(2)
+    expect(consoleError).toHaveBeenCalledOnce()
+    consoleError.mockRestore()
+  })
+
+  it('returns disabled when the Forge flag check fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    featureFlagsState.checkError = new Error('flag service unavailable')
+
+    await expect(isAiChatEnabled()).resolves.toBe(false)
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'Failed to load AI Chat feature flag:',
+      featureFlagsState.checkError,
+    )
+    consoleError.mockRestore()
+  })
+})
+
 describe('isAgentLinkEnabled', () => {
   beforeEach(() => {
     resetAiTitleFlagForTests()
@@ -158,6 +233,7 @@ describe('isAgentLinkEnabled', () => {
     featureFlagsState.instances = []
     featureFlagsState.nextValue = true
     featureFlagsState.initializeError = undefined
+    featureFlagsState.checkError = undefined
     localStorage.clear()
   })
 
@@ -207,6 +283,7 @@ describe('isArchitectureTokensEnabled', () => {
     featureFlagsState.instances = []
     featureFlagsState.nextValue = true
     featureFlagsState.initializeError = undefined
+    featureFlagsState.checkError = undefined
   })
 
   it('checks the Forge architecture-tokens-enabled flag with a false default', async () => {

@@ -1,7 +1,9 @@
 import { mount, flushPromises } from '@vue/test-utils'
+import { createStore } from 'vuex'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
+import extendedStore from '@/model/store2/ExtendedStore'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
@@ -138,6 +140,7 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.recoveredFromOrphan = false
     store.state.viewerLoadState = 'ready'
     store.state.loadError = null
+    store.commit('setDiagramAttribution', null)
     // @ts-ignore — matches the production `// @ts-ignore\nwindow.forgeGlobal = global`
     // assignment in forgeGlobal.ts; isFullscreenMode() reads this directly.
     window.forgeGlobal = {
@@ -1715,11 +1718,83 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
+    it.each([DiagramType.Sequence, DiagramType.PlantUml])(
+      'centers %s in the Fullscreen Agent Link content area without changing renderer width mode',
+      async diagramType => {
+        setFullscreen(true)
+        store.commit('updateDiagramType', diagramType)
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        const wrapper = mount(GenericViewer, {
+          global: { plugins: [store] },
+          props: { wide: false },
+          slots: { default: '<div class="diagram-stub" />' },
+        })
+        await flushPromises()
+
+        expect(wrapper.find('.viewer-canvas').classes()).toContain('viewer-canvas--agent-link')
+        expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--agent-link')
+        expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--auto')
+        expect(wrapper.find('.viewer-frame').classes()).not.toContain('viewer-frame--wide')
+      },
+    )
+
+    it('keeps Mermaid full-width while using the Fullscreen Agent Link centering area', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      await flushPromises()
+
+      expect(wrapper.find('.viewer-canvas').classes()).toContain('viewer-canvas--agent-link')
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--wide')
+      expect(wrapper.find('.screen-capture-content').classes()).toContain('w-full')
+    })
+
+    it('hides diagram attribution only in the Fullscreen Agent Link connection view', async () => {
+      const makeIsolatedStore = () => createStore({
+        ...extendedStore,
+        state: {
+          ...store.state,
+          diagram: { ...store.state.diagram },
+          diagramAttribution: {
+            customContentId: '987654321',
+            createdByAccountId: 'creator-1',
+          },
+        },
+      } as any)
+      const global = (viewerStore: ReturnType<typeof makeIsolatedStore>) => ({
+        plugins: [viewerStore],
+        stubs: {
+          DiagramAttributionFooter: {
+            template: '<footer data-testid="diagram-attribution" />',
+          },
+        },
+      })
+
+      const inlineWrapper = mount(GenericViewer, { global: global(makeIsolatedStore()) })
+      expect(inlineWrapper.find('[data-testid="diagram-attribution"]').exists()).toBe(true)
+      inlineWrapper.unmount()
+
+      setFullscreen(true)
+      const agentLinkWrapper = mount(GenericViewer, { global: global(makeIsolatedStore()) })
+      await flushPromises()
+      ;(agentLinkWrapper.vm as any).agentLinkFeatureEnabled = true
+      await agentLinkWrapper.vm.$nextTick()
+      expect(agentLinkWrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
+      expect(agentLinkWrapper.find('[data-testid="diagram-attribution"]').exists()).toBe(false)
+      agentLinkWrapper.unmount()
+    })
+
     it('does not mount the Fullscreen rail when the flag resolves false', async () => {
       setFullscreen(true)
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
+      expect(wrapper.find('.viewer-canvas').classes()).not.toContain('viewer-canvas--agent-link')
     })
 
     // Amendment D: the composable's alreadyLinkedUntil (set from a mint 409's
@@ -1739,7 +1814,7 @@ describe('GenericViewer (chrome-less)', () => {
 
       const notice = wrapper.find('[data-testid="agent-link-notice"]')
       expect(notice.exists()).toBe(true)
-      expect(notice.text()).toContain('expires in ~5 min')
+      expect(notice.text()).toContain('about 5 more min')
     })
 
     // Track F — perceived-latency thinking overlay on the diagram render surface.

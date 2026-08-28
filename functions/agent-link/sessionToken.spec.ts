@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   effectiveExpiryMs,
   isAtCap,
@@ -11,16 +11,25 @@ import {
 import type { SessionEvent, SessionState } from './sessionToken';
 
 describe('mintToken', () => {
-  it('matches the CL-XXXX-XXXX format using the Crockford base32 alphabet', () => {
+  it('matches one six-character CL-XXXXXX group using the Crockford base32 alphabet', () => {
     const token = mintToken();
     // Crockford base32 alphabet: digits + A-Z minus the ambiguous I, L, O, U.
     const charClass = '[0-9ABCDEFGHJKMNPQRSTVWXYZ]';
-    expect(token).toMatch(new RegExp(`^CL-${charClass}{4}-${charClass}{4}$`));
+    expect(token).toMatch(new RegExp(`^CL-${charClass}{6}$`));
   });
 
-  it('is unique across 1000 calls', () => {
-    const tokens = new Set(Array.from({ length: 1000 }, () => mintToken()));
-    expect(tokens.size).toBe(1000);
+  it('draws fresh entropy for every six-character code', () => {
+    let nextByte = 0;
+    const randomValues = vi.spyOn(crypto, 'getRandomValues').mockImplementation(array => {
+      (array as Uint8Array).fill(nextByte++);
+      return array;
+    });
+
+    expect(mintToken()).toBe('CL-000000');
+    expect(mintToken()).toBe('CL-111111');
+    expect(randomValues).toHaveBeenCalledTimes(2);
+
+    randomValues.mockRestore();
   });
 });
 

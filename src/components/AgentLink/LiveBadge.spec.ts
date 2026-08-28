@@ -25,13 +25,16 @@ describe('LiveBadge', () => {
   // so the original 'connected' rendering (asserted above) and the
   // idle/waiting/timeout hidden states are untouched (collapsed-macro usage
   // keeps working exactly as before).
-  it('renders the amber "Paused" variant when suspended (still resumable)', () => {
+  it('renders a minimal accessible amber "Connecting" status when suspended', () => {
     const wrapper = mount(LiveBadge, { props: { state: 'suspended' } })
 
     expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     const badge = wrapper.find('[data-testid="agent-link-live-badge-suspended"]')
     expect(badge.exists()).toBe(true)
-    expect(badge.text()).toContain('Paused')
+    expect(badge.text()).toContain('Connecting')
+    expect(badge.attributes('role')).toBe('status')
+    expect(badge.attributes('aria-live')).toBe('polite')
+    expect(badge.attributes('aria-label')).toBe('Connecting AI assistant')
   })
 
   it('renders the gray "Disconnected" variant when closed (terminal)', () => {

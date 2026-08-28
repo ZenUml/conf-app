@@ -24,6 +24,8 @@ import type {
   AgentLinkRenderOutcome,
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
+  AgentLinkConnectionDiagnosticOrigin,
+  AgentLinkReconnectOutcome,
   AgentLinkListScope,
   ActivationPath,
   ViewerRelation,
@@ -620,6 +622,17 @@ export type AnalyticsProperties = {
   // agent_link_session_suspended and this resume. Absent when the session
   // never actually suspended (e.g. a duplicate/no-op resume signal).
   resume_latency_ms?: number;
+  // Browser-to-relay reliability diagnostics
+  // (agent_link_connection_diagnostic only). These are deliberately
+  // low-cardinality transport observations, not inferred server causes.
+  // No message, URL, token, linking code, or document content is accepted by
+  // this contract. `reconnect_outcome` appears only on the terminal succeeded
+  // / exhausted signal.
+  diagnostic_origin?: AgentLinkConnectionDiagnosticOrigin;
+  close_code?: number;
+  was_clean?: boolean;
+  reconnect_attempt?: number;
+  reconnect_outcome?: AgentLinkReconnectOutcome;
   // U — discovery tool surface (agent_link_diagram_read / _search_performed /
   // _list_performed). `by_content_id` = read_diagram targeted a discovered
   // contentId rather than the bound diagram. `query_len` = search query length

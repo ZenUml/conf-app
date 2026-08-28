@@ -5,6 +5,11 @@ import AgentStatusHeader from './AgentStatusHeader.vue'
 import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
 import { GUARDRAIL_REJECTED_FEED_SUMMARY } from '@/composables/agentLink/useAgentLinkSession'
+import { rememberAgentLinkClient } from '@/composables/agentLink/clientMemory'
+import {
+  AGENT_LINK_PROTOCOL_HELP_PROMPT,
+  AGENT_LINK_SETUP_HELP_PROMPT,
+} from './helpPrompts'
 
 function mountPanel(props: {
   state:
@@ -13,6 +18,8 @@ function mountPanel(props: {
     | 'connected'
     | 'timeout'
     | 'suspended'
+    | 'recovery_exhausted'
+    | 'incompatible'
     | 'closed'
     | 'already_linked'
     | 'failed'
@@ -34,23 +41,33 @@ function mountPanel(props: {
 describe('ConnectPanel', () => {
   beforeEach(() => {
     vi.useRealTimers()
+    window.localStorage.clear()
     Object.assign(navigator, {
       clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
     })
   })
 
-  it('waiting: shows the paste-prompt block with the token', () => {
+  it('first-time pairing: shows one generic copyable pairing prompt', () => {
     const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
 
-    expect(wrapper.find('[data-testid="agent-link-waiting"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-pairing"]').exists()).toBe(true)
     const prompt = wrapper.find('[data-testid="agent-link-prompt"]').text()
-    expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
+    expect(wrapper.text()).toContain('Connect')
+    expect(prompt).toContain('Connect this AI assistant to my ZenUML diagram through Agent Link.')
     expect(prompt).toContain('session: tok-123')
     expect(prompt).toContain('reads this page · edits this diagram · 10 min idle / 60 min max')
-    expect(wrapper.find('[data-testid="agent-link-waiting-status"]').text()).toContain(
-      'Waiting for your agent to connect'
+    const help = wrapper.find('[data-testid="agent-link-help-disclosure"]')
+    expect(help.exists()).toBe(true)
+    expect(help.attributes('open')).toBeUndefined()
+    expect(help.find('summary').text()).toBe('Need help?')
+    expect(wrapper.text()).not.toContain('Codex')
+  })
+
+  it('keeps a modest gap between copyable prompts and their adjacent copy action', () => {
+    expect(connectPanelSource).toContain('.agent-link-panel__prompt + .agent-link-panel__btn')
+    expect(connectPanelSource).toMatch(
+      /\.agent-link-panel__prompt \+ \.agent-link-panel__btn\s*\{\s*margin-top: 8px;/
     )
-    expect(wrapper.find('[data-testid="agent-link-setup-disclosure"]').exists()).toBe(true)
   })
 
   it('connected: shows the activity feed entries and a Disconnect button', () => {
@@ -65,7 +82,7 @@ describe('ConnectPanel', () => {
     expect(entries[0].text()).toContain('added a step')
     expect(entries[1].text()).toContain('renamed participant')
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-session-line"]').text()).toContain('tok-123')
+    expect(wrapper.text()).not.toContain('tok-123')
   })
 
   it('connected: spins only the newest updating row while the agent is working', () => {
@@ -148,23 +165,19 @@ describe('ConnectPanel', () => {
       'agent-link-panel--connected'
     )
     expect(wrapper.find('[data-testid="agent-link-connected"]').exists()).toBe(true)
-    expect(wrapper.find('.agent-link-panel__live-dot').exists()).toBe(true)
     expect(connectPanelSource).toContain('.agent-link-panel--connected')
     expect(connectPanelSource).toContain('border-color: var(--agent-link-green)')
   })
 
-  it('timeout: shows the setup command', () => {
+  it('timeout keeps the same pairing handoff instead of showing an installation wall', () => {
     const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
 
-    expect(wrapper.find('[data-testid="agent-link-timeout"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain(
-      'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
-    )
-    // The dead "Add to Cursor" button (no click handler) and the dead
-    // "Use the no-install bridge instead" link (href="#") were removed —
-    // the working `claude mcp add` command is the single setup path.
-    expect(wrapper.find('[data-testid="agent-link-add-cursor-btn"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="agent-link-no-install-link"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-pairing"]').exists()).toBe(true)
+    const help = wrapper.find('[data-testid="agent-link-help-disclosure"]')
+    expect(help.exists()).toBe(true)
+    expect(help.attributes('open')).toBeUndefined()
+    expect(wrapper.text()).not.toContain('claude mcp add')
+    expect(wrapper.text()).not.toContain('http')
   })
 
   it('Copy prompt failure: shows "Copy failed — select the text above" on the button', async () => {
@@ -191,6 +204,46 @@ describe('ConnectPanel', () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       expect.stringContaining('session: tok-123')
     )
+    expect(wrapper.find('[data-testid="agent-link-waiting"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-client-carousel"]').exists()).toBe(true)
+    expect(wrapper.findAll('button')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="agent-link-help-disclosure"]').exists()).toBe(false)
+  })
+
+  it('shows remembered client only as a quiet cue in the ordinary pairing state', () => {
+    rememberAgentLinkClient('Codex')
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
+    expect(wrapper.find('[data-testid="agent-link-last-agent"]').text()).toContain('Last connected with Codex')
+    expect(wrapper.find('[data-testid="agent-link-last-agent"]').text()).not.toContain('another')
+    expect(wrapper.text()).not.toContain('Codex is installed')
+    expect(wrapper.text()).not.toContain('Codex is online')
+
+    const closed = mountPanel({ state: 'closed' })
+    expect(closed.find('[data-testid="agent-link-last-agent"]').exists()).toBe(false)
+  })
+
+  it.each([
+    ['setup', 'waiting', 'agent-link-setup-help-btn', AGENT_LINK_SETUP_HELP_PROMPT],
+    ['ended connection', 'recovery_exhausted', 'agent-link-setup-help-btn', AGENT_LINK_SETUP_HELP_PROMPT],
+    ['expired connection', 'expired', 'agent-link-setup-help-btn', AGENT_LINK_SETUP_HELP_PROMPT],
+    ['failed connection', 'failed', 'agent-link-setup-help-btn', AGENT_LINK_SETUP_HELP_PROMPT],
+    ['protocol', 'incompatible', 'agent-link-protocol-help-btn', AGENT_LINK_PROTOCOL_HELP_PROMPT],
+  ] as const)('%s help copies a safe state-aware prompt', async (_name, state, testId, expectedPrompt) => {
+    const wrapper = mountPanel({ state, token: 'tok-secret' })
+    await wrapper.find(`[data-testid="${testId}"]`).trigger('click')
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedPrompt)
+    expect(expectedPrompt).not.toMatch(/https?:\/\/|session:|CL-[A-Z0-9]+|codex exec/i)
+    expect(expectedPrompt).toContain('Agent Link MCP')
+  })
+
+  it('keeps optional help behind progressive disclosure and explains the paste destination', () => {
+    const wrapper = mountPanel({ state: 'recovery_exhausted', token: 'tok-123' })
+    const help = wrapper.find('[data-testid="agent-link-help-disclosure"]')
+    expect(help.attributes('open')).toBeUndefined()
+    expect(help.find('summary').text()).toBe('Need help?')
+    expect(help.text()).toContain('This is optional')
+    expect(help.text()).toContain('paste it into the AI assistant you are using')
+    expect(help.find('[data-testid="agent-link-setup-help-btn"]').text()).toBe('Copy help message')
   })
 
   it('Disconnect emits the disconnect event', async () => {
@@ -209,32 +262,40 @@ describe('ConnectPanel', () => {
     expect(wrapper.emitted('revoke')).toHaveLength(1)
   })
 
-  // Track G — suspended: the relay socket dropped unexpectedly but is still
-  // resumable within the token TTL. Copy verbatim from Track H's design
-  // contract (h-design-bundle/ui_kits/agent-link/README.md).
-  it('suspended: shows the reconnecting banner with Disconnect and Revoke & re-link', () => {
-    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123' })
+  it('suspended: reduces automatic recovery to the existing compact connection header', () => {
+    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123', lastActivityAt: 1000 })
 
-    expect(wrapper.find('[data-testid="agent-link-suspended"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain(
-      'agent-link-panel--suspended'
-    )
-    expect(wrapper.text()).toContain('Connection paused — reconnecting…')
-    expect(wrapper.find('[data-testid="agent-link-suspended-status"]').text()).toContain(
-      'Waiting for the macro to reconnect. The agent will retry its next request'
-    )
-    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-revoke-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-automatic-recovery"]').exists()).toBe(true)
+    expect(wrapper.findComponent(AgentStatusHeader).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-live-badge-suspended"]').text()).toContain('Connecting')
+    expect(wrapper.find('[data-testid="agent-link-live-badge-suspended"]').attributes('role')).toBe('status')
+    expect(wrapper.find('p').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/countdown|resume|reconnect/i)
+    expect(wrapper.findAll('button')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="agent-link-help-disclosure"]').exists()).toBe(false)
   })
 
-  it('suspended: Disconnect and Revoke & re-link emit their respective events', async () => {
-    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123' })
+  it('recovery exhausted: returns to the ordinary connect task without transport jargon', () => {
+    const wrapper = mountPanel({ state: 'recovery_exhausted', token: 'tok-123' })
+    expect(wrapper.find('h3').text()).toBe('Connect')
+    expect(wrapper.text()).toContain('This connection ended')
+    expect(wrapper.text()).not.toMatch(/reconnect|resume/i)
+    expect(wrapper.find('[data-testid="agent-link-copy-prompt-btn"]').text()).toBe('Copy prompt')
+    expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('session: tok-123')
+    expect(wrapper.find('[data-testid="agent-link-help-disclosure"]').attributes('open')).toBeUndefined()
+  })
 
-    await wrapper.find('[data-testid="agent-link-disconnect-btn"]').trigger('click')
-    await wrapper.find('[data-testid="agent-link-revoke-btn"]').trigger('click')
-
-    expect(wrapper.emitted('disconnect')).toHaveLength(1)
-    expect(wrapper.emitted('revoke')).toHaveLength(1)
+  it('protocol incompatibility offers a recovery prompt, not repeated retries', () => {
+    const wrapper = mountPanel({ state: 'incompatible', token: 'tok-123' })
+    expect(wrapper.text()).toContain('Your MCP needs an update')
+    expect(wrapper.text()).toContain('Update Agent Link MCP, then start a fresh AI assistant session')
+    expect(wrapper.find('[data-testid="agent-link-protocol-help-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-protocol-help-btn"]').text()).toContain(
+      'Copy prompt to upgrade your MCP'
+    )
+    expect(wrapper.text()).not.toContain('tok-123')
+    expect(wrapper.text()).not.toContain('Retry')
+    expect(wrapper.text()).not.toMatch(/reconnect/i)
   })
 
   it('already_linked: renders the rejected notice with honest (no-fake-time) copy and actions', async () => {
@@ -243,18 +304,16 @@ describe('ConnectPanel', () => {
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
     expect(notice.exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(
-      'This diagram is already linked to an agent'
+      'This diagram is already linked'
     )
     expect(notice.text()).toContain(
-      'Another agent session holds this diagram. Only one agent can hold the link at a time.'
+      'Connecting another AI agent will end the current link. Your diagram is saved.'
     )
-    expect(wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').text()).toContain('Revoke & re-link')
-    expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').text()).toContain('Cancel')
+    expect(wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').text()).toContain('Connect another AI agent')
+    expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').exists()).toBe(false)
 
     await wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').trigger('click')
-    await wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').trigger('click')
     expect(wrapper.emitted('revoke')).toHaveLength(1)
-    expect(wrapper.emitted('cancel')).toHaveLength(1)
   })
 
   it('already_linked: forwards lockExpiresAt to SessionNotice for an honest countdown', () => {
@@ -262,7 +321,7 @@ describe('ConnectPanel', () => {
     const wrapper = mountPanel({ state: 'already_linked', lockExpiresAt } as any)
 
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
-    expect(notice.text()).toContain('expires in ~5 min')
+    expect(notice.text()).toContain('about 5 more min')
   })
 
   it('failed: renders a visible retryable mint-failure notice', () => {
@@ -270,24 +329,22 @@ describe('ConnectPanel', () => {
 
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
     expect(notice.exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Could not link your agent')
-    expect(notice.text()).toContain('We could not create a link session. Try reconnecting in a moment')
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Could not start Agent Link')
+    expect(notice.text()).toContain('Your diagram is unchanged. Try creating a new pairing.')
     expect(wrapper.find('[data-testid="agent-link-reconnect-btn"]').exists()).toBe(true)
   })
 
-  // #314: the client-side TTL watchdog moves a stale session to 'expired' —
-  // the rail must show the (already-built) SessionNotice "expired" variant
-  // and a working Reconnect CTA, not stay stuck on the connected/suspended
-  // rendering with a dead "0:00" countdown.
-  it('expired: renders the "Session expired" notice and Reconnect emits reconnect', async () => {
+  // #314: the client-side TTL watchdog moves a stale session to 'expired'.
+  it('expired: creates a new pairing rather than reusing an expired code', async () => {
     const wrapper = mountPanel({ state: 'expired' })
 
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
     expect(notice.exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Session expired')
-    expect(notice.text()).toContain(
-      'Your session ended. Your diagram is saved — nothing was lost. Reconnect to link a new agent session'
-    )
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Connection expired')
+    expect(notice.text()).toContain('Start a new connection when you are ready.')
+    expect(notice.text()).not.toContain('diagram is saved')
+    expect(notice.text()).not.toMatch(/reconnect/i)
+    expect(wrapper.find('[data-testid="agent-link-reconnect-btn"]').text()).toBe('Connect')
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(false)
 
     await wrapper.find('[data-testid="agent-link-reconnect-btn"]').trigger('click')
@@ -302,6 +359,7 @@ describe('ConnectPanel — Track H rail composition', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-10T00:00:00Z'))
+    window.localStorage.clear()
     Object.assign(navigator, {
       clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
     })
@@ -326,8 +384,9 @@ describe('ConnectPanel — Track H rail composition', () => {
     // status header (wraps LiveBadge) with the generic client fallback
     const header = wrapper.find('[data-testid="agent-link-status-header"]')
     expect(header.exists()).toBe(true)
-    expect(header.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Connected agent')
+    expect(header.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Connected')
     expect(header.find('[data-testid="agent-link-live-badge"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-client-carousel"]').exists()).toBe(false)
     // bound-diagram line names the diagram, verbatim "Linked to"
     expect(wrapper.text()).toContain('Linked to')
     expect(wrapper.text()).toContain('Checkout flow')
@@ -346,7 +405,7 @@ describe('ConnectPanel — Track H rail composition', () => {
     expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Claude Code')
   })
 
-  it('passes lastActivityAt through to the connected and suspended status headers', () => {
+  it('passes lastActivityAt through to the connected and automatic-recovery status header', () => {
     const lastActivityAt = Date.now() - 1000
 
     const connected = mountRail({ state: 'connected', lastActivityAt })
@@ -376,34 +435,32 @@ describe('ConnectPanel — Track H rail composition', () => {
     expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').text()).toContain('· 6s')
   })
 
-  it('suspended: amber reconnecting banner with the resume countdown', () => {
+  it('suspended: shows only the compact amber connection header', () => {
     const wrapper = mountRail({
       state: 'suspended',
       diagramTitle: 'Checkout flow',
-      expiresAt: Date.now() + (6 * 60 + 12) * 1000,
+      clientName: 'Claude Code',
     })
 
-    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--suspended')
-    expect(wrapper.text()).toContain('Connection paused — reconnecting…')
-    expect(wrapper.find('[data-testid="agent-link-suspended-status"]').text()).toContain(
-      'Waiting for the macro to reconnect. The agent will retry its next request'
-    )
-    expect(wrapper.text()).toContain('Resumes if reconnected within 6:12')
-    // suspended keeps Disconnect + Revoke & re-link
-    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-revoke-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-status-header"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Claude Code')
+    expect(wrapper.find('[data-testid="agent-link-live-badge-suspended"]').text()).toContain('Connecting')
+    expect(wrapper.find('[data-testid="agent-link-client-brand-icon"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').exists()).toBe(false)
+    expect(wrapper.find('p').exists()).toBe(false)
+    expect(wrapper.findAll('button')).toHaveLength(0)
   })
 
-  it('closed (terminal): shows the disconnected notice and Reconnect, and emits reconnect', async () => {
+  it('closed (terminal): presents a neutral disconnected state and one Connect action', async () => {
     const wrapper = mountRail({ state: 'closed', diagramTitle: 'Checkout flow' })
 
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
     expect(notice.exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Agent disconnected')
-    expect(notice.text()).toContain(
-      'Your session ended. Your diagram is saved — nothing was lost. Reconnect to link a new agent session'
-    )
-    // no footer actions in the terminal state — Reconnect is the only CTA
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Disconnected')
+    expect(notice.text()).toContain('Start a new connection when you are ready.')
+    expect(notice.text()).not.toMatch(/another agent|AI agent/i)
+    expect(wrapper.find('[data-testid="agent-link-reconnect-btn"]').text()).toBe('Connect')
+    // no footer actions in the terminal state — Connect is the only CTA
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(false)
 
     await wrapper.find('[data-testid="agent-link-reconnect-btn"]').trigger('click')
@@ -416,17 +473,19 @@ describe('ConnectPanel — Track H rail composition', () => {
     expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--already_linked')
     expect(wrapper.find('[data-testid="agent-link-notice"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(
-      'This diagram is already linked to an agent'
+      'This diagram is already linked'
     )
     expect(wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').exists()).toBe(false)
   })
 
-  it('idle: renders an empty panel (no header, notice, feed or actions) — nothing before connect', () => {
+  it('idle: gives one clear start action', () => {
     const wrapper = mountRail({ state: 'idle' })
     expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--idle')
     expect(wrapper.find('[data-testid="agent-link-status-header"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="agent-link-notice"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-notice"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Connect')
+    expect(wrapper.find('[data-testid="agent-link-reconnect-btn"]').text()).toBe('Connect')
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(false)
   })
 })

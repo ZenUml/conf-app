@@ -1,10 +1,18 @@
 <template>
   <div class="agent-link-panel" :class="`agent-link-panel--${state}`" data-testid="agent-link-panel">
     <div class="agent-link-panel__scroll">
-      <!-- waiting: paste prompt + copy + pulsing status + collapsed setup -->
-      <template v-if="state === 'waiting'">
-        <div data-testid="agent-link-waiting">
-          <h3 class="agent-link-panel__heading">Edit with your agent</h3>
+      <!-- Pairing is one handoff: copy the prompt, then the screen becomes a
+           passive waiting state with no competing action. The 20s timeout
+           keeps the same lifecycle instead of replacing it with a help wall. -->
+      <template v-if="state === 'waiting' || state === 'timeout'">
+        <div v-if="!pairingPromptCopied" data-testid="agent-link-pairing">
+          <h3 class="agent-link-panel__heading">Connect</h3>
+
+          <p class="agent-link-panel__intro">Copy this prompt into the AI assistant you are using.</p>
+
+          <p v-if="lastAgentMemory" class="agent-link-panel__memory-cue" data-testid="agent-link-last-agent">
+            Last connected with {{ lastAgentMemory.label }}.
+          </p>
 
           <pre class="agent-link-panel__prompt" data-testid="agent-link-prompt">{{ promptText }}</pre>
 
@@ -15,15 +23,13 @@
             @click="onCopyPrompt"
           >{{ copyButtonLabel }}</button>
 
-          <p class="agent-link-panel__status agent-link-panel__status--pulse" data-testid="agent-link-waiting-status">
-            <span class="agent-link-panel__pulse-dot" aria-hidden="true"></span>
-            Waiting for your agent to connect…
-          </p>
+        </div>
 
-          <details class="agent-link-panel__disclosure" data-testid="agent-link-setup-disclosure">
-            <summary>First time? Set up the connector (once)</summary>
-            <SetupInstructions />
-          </details>
+        <div v-else class="agent-link-panel__quiet-state" data-testid="agent-link-waiting">
+          <span class="agent-link-panel__pulse-dot" aria-hidden="true"></span>
+          <h3 class="agent-link-panel__heading">Waiting for your AI assistant</h3>
+          <p data-testid="agent-link-waiting-status">Keep this window open. The connection will start from the prompt you copied.</p>
+          <SupportedClientCarousel />
         </div>
       </template>
 
@@ -80,60 +86,61 @@
             </li>
           </ul>
 
-          <p class="agent-link-panel__session-line" data-testid="agent-link-session-line">
-            session {{ token }} <span class="agent-link-panel__live-dot" aria-hidden="true"></span> live
-          </p>
         </div>
       </template>
 
-      <!-- suspended (Track G): the relay socket dropped unexpectedly but is
-           still resumable within the token TTL. Amber "reconnecting" banner. -->
+      <!-- Transient recovery stays non-blocking: the existing status header
+           carries one amber connection indicator while the diagram remains
+           usable. Details and actions appear only if recovery exhausts. -->
       <template v-else-if="state === 'suspended'">
-        <div data-testid="agent-link-suspended">
+        <div class="agent-link-panel__connection-status" data-testid="agent-link-automatic-recovery">
           <AgentStatusHeader
             :state="state"
             :client-name="clientName"
             :diagram-title="diagramTitle"
             :last-activity-at="lastActivityAt"
           />
-
-          <div class="agent-link-banner agent-link-banner--warn">
-            <svg class="agent-link-banner__spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            <div class="agent-link-banner__body">
-              <h3 class="agent-link-banner__title agent-link-panel__heading--warning">Connection paused — reconnecting…</h3>
-              <p class="agent-link-banner__sub" data-testid="agent-link-suspended-status">
-                Waiting for the macro to reconnect. The agent will retry its next request
-              </p>
-              <div v-if="resumeText" class="agent-link-banner__countdown">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                </svg>{{ resumeText }}
-              </div>
-            </div>
-          </div>
-
-          <h4 class="agent-link-panel__feed-head">Activity</h4>
-          <ul class="agent-link-panel__feed">
-            <li
-              v-for="(row, index) in feedRows"
-              :key="`${row.at}-${index}`"
-              class="agent-link-panel__feed-row"
-              data-testid="agent-link-activity-entry"
-            >
-              <span class="agent-link-panel__feed-ic" :class="`agent-link-panel__feed-ic--${row.tone}`" aria-hidden="true" v-html="row.icon"></span>
-              <span class="agent-link-panel__feed-summary">{{ row.summary }}</span>
-              <span class="agent-link-panel__feed-time">{{ formatTime(row.at) }}</span>
-            </li>
-          </ul>
         </div>
       </template>
 
-      <!-- closed (Track G, terminal): explicit Disconnect. The diagram is
-           saved; Reconnect mints a fresh session. -->
+      <template v-else-if="state === 'recovery_exhausted'">
+        <div data-testid="agent-link-recovery-exhausted">
+          <h3 class="agent-link-panel__heading">Connect</h3>
+          <p class="agent-link-panel__intro">This connection ended. Copy this prompt into the AI assistant you are using.</p>
+          <pre class="agent-link-panel__prompt" data-testid="agent-link-prompt">{{ promptText }}</pre>
+          <button
+            type="button"
+            class="agent-link-panel__btn agent-link-panel__btn--primary"
+            data-testid="agent-link-copy-prompt-btn"
+            @click="onCopyPrompt"
+          >{{ copyButtonLabel }}</button>
+        </div>
+      </template>
+
+      <template v-else-if="state === 'incompatible'">
+        <div class="agent-link-panel__quiet-state" data-testid="agent-link-incompatible">
+          <h3 class="agent-link-panel__heading agent-link-panel__heading--warning">Your MCP needs an update</h3>
+          <p>Nothing was changed. Update Agent Link MCP, then start a fresh AI assistant session.</p>
+          <button
+            type="button"
+            class="agent-link-panel__btn agent-link-panel__btn--primary"
+            data-testid="agent-link-protocol-help-btn"
+            @click="onCopyProtocolHelp"
+          >{{ protocolHelpButtonLabel }}</button>
+        </div>
+      </template>
+
+      <template v-else-if="state === 'idle'">
+        <div>
+          <SessionNotice variant="idle" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
+        </div>
+      </template>
+
+      <!-- closed (Track G, terminal): explicit Disconnect. -->
       <template v-else-if="state === 'closed'">
-        <SessionNotice variant="closed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
+        <div>
+          <SessionNotice variant="closed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
+        </div>
       </template>
 
       <!-- expired (#314, terminal): the client-side TTL watchdog noticed the
@@ -143,7 +150,9 @@
            emit the closed/failed notices use, rather than inventing a new
            bridge. -->
       <template v-else-if="state === 'expired'">
-        <SessionNotice variant="expired" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
+        <div>
+          <SessionNotice variant="expired" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
+        </div>
       </template>
 
       <!-- already_linked: mint rejected because another active session holds
@@ -161,34 +170,33 @@
 
       <!-- failed: generic mint failure. Keep it visible and retryable. -->
       <template v-else-if="state === 'failed'">
-        <SessionNotice variant="failed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
-      </template>
-
-      <!-- timeout: warning + expanded setup -->
-      <template v-else-if="state === 'timeout'">
-        <div data-testid="agent-link-timeout">
-          <h3 class="agent-link-panel__heading agent-link-panel__heading--warning">No agent yet — first time here?</h3>
-
-          <pre class="agent-link-panel__prompt" data-testid="agent-link-prompt">{{ promptText }}</pre>
-
-          <button
-            type="button"
-            class="agent-link-panel__btn agent-link-panel__btn--primary"
-            data-testid="agent-link-copy-prompt-btn"
-            @click="onCopyPrompt"
-          >{{ copyButtonLabel }}</button>
-
-          <SetupInstructions />
-
-          <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">Then paste the prompt again.</p>
+        <div>
+          <SessionNotice variant="failed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
         </div>
       </template>
+
+      <details
+        v-if="showHelpDisclosure"
+        class="agent-link-panel__disclosure"
+        data-testid="agent-link-help-disclosure"
+      >
+        <summary>Need help?</summary>
+        <div class="agent-link-panel__setup">
+          <p>This is optional. Copy the help message, then paste it into the AI assistant you are using.</p>
+          <button
+            type="button"
+            class="agent-link-panel__btn agent-link-panel__btn--secondary"
+            data-testid="agent-link-setup-help-btn"
+            @click="onCopySetupHelp"
+          >{{ setupHelpButtonLabel }}</button>
+        </div>
+      </details>
     </div>
 
     <!-- Pinned footer actions for the active + suspended rail. Closed renders
          its own Reconnect CTA inside SessionNotice. -->
     <RailActions
-      v-if="state === 'connected' || state === 'suspended'"
+      v-if="state === 'connected'"
       @disconnect="emit('disconnect')"
       @revoke="emit('revoke')"
     />
@@ -196,17 +204,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { AgentLinkClientState, AgentLinkThinkingState } from '@/composables/agentLink/agentLinkState'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
 import AgentStatusHeader from './AgentStatusHeader.vue'
+import SupportedClientCarousel from './SupportedClientCarousel.vue'
 import SessionTtl from './SessionTtl.vue'
 import RailActions from './RailActions.vue'
 import SessionNotice from './SessionNotice.vue'
-
-// The MCP command from the design doc (§9 / relay host decision §14.3 —
-// zenapi.zenuml.com to avoid a new egress host / re-consent).
-const MCP_ADD_COMMAND = 'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
+import {
+  AGENT_LINK_PROTOCOL_HELP_PROMPT,
+  AGENT_LINK_SETUP_HELP_PROMPT,
+} from './helpPrompts'
+import {
+  AGENT_LINK_CLIENT_MEMORY_EVENT,
+  readAgentLinkClientMemory,
+} from '@/composables/agentLink/clientMemory'
 
 const props = withDefaults(
   defineProps<{
@@ -250,29 +263,10 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-// Shared "setup the connector" block used by both the waiting-state collapsed
-// <details> and the always-expanded timeout state, so the copy and markup only
-// exist once. The `claude mcp add` command is the single working setup path
-// (the "Add to Cursor" button had no click handler and the "no-install
-// bridge" link was href="#" — both dead, removed per design review).
-const SetupInstructions = defineComponent({
-  name: 'AgentLinkSetupInstructions',
-  setup() {
-    return () =>
-      h('div', { class: 'agent-link-panel__setup', 'data-testid': 'agent-link-setup' }, [
-        h(
-          'pre',
-          { class: 'agent-link-panel__command', 'data-testid': 'agent-link-setup-command' },
-          MCP_ADD_COMMAND
-        ),
-      ])
-  },
-})
-
 const promptText = computed(() => {
   const sessionToken = props.token ?? ''
   return [
-    'Connect to my ZenUML diagram via the conf-agent MCP.',
+    'Connect this AI assistant to my ZenUML diagram through Agent Link.',
     `session: ${sessionToken}`,
     '# reads this page · edits this diagram · 10 min idle / 60 min max',
   ].join('\n')
@@ -280,6 +274,8 @@ const promptText = computed(() => {
 
 type CopyState = 'default' | 'copied' | 'failed'
 const copyState = ref<CopyState>('default')
+const copiedHelp = ref<'setup' | 'protocol' | null>(null)
+const pairingPromptCopied = ref(false)
 let copyRevertTimer: ReturnType<typeof setTimeout> | null = null
 
 const copyButtonLabel = computed(() => {
@@ -288,11 +284,26 @@ const copyButtonLabel = computed(() => {
   return 'Copy prompt'
 })
 
+const setupHelpButtonLabel = computed(() =>
+  copiedHelp.value === 'setup' ? '✓ Copied — paste into your AI assistant' : 'Copy help message'
+)
+const protocolHelpButtonLabel = computed(() =>
+  copiedHelp.value === 'protocol'
+    ? '✓ Upgrade prompt copied'
+    : 'Copy prompt to upgrade your MCP'
+)
+
+const showHelpDisclosure = computed(() => {
+  if ((props.state === 'waiting' || props.state === 'timeout') && !pairingPromptCopied.value) return true
+  return props.state === 'recovery_exhausted' || props.state === 'expired' || props.state === 'failed'
+})
+
 async function onCopyPrompt() {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(promptText.value)
       copyState.value = 'copied'
+      pairingPromptCopied.value = true
       if (copyRevertTimer) clearTimeout(copyRevertTimer)
       copyRevertTimer = setTimeout(() => {
         copyState.value = 'default'
@@ -303,6 +314,43 @@ async function onCopyPrompt() {
     console.warn('[agent-link] failed to copy connect prompt', e)
   }
   copyState.value = 'failed'
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch (e) {
+    console.warn('[agent-link] failed to copy help prompt', e)
+  }
+  return false
+}
+
+async function onCopySetupHelp() {
+  if (await copyText(AGENT_LINK_SETUP_HELP_PROMPT)) copiedHelp.value = 'setup'
+}
+
+async function onCopyProtocolHelp() {
+  if (await copyText(AGENT_LINK_PROTOCOL_HELP_PROMPT)) copiedHelp.value = 'protocol'
+}
+
+watch(
+  () => props.token,
+  () => {
+    pairingPromptCopied.value = false
+    copyState.value = 'default'
+  }
+)
+
+const lastAgentMemory = ref(readAgentLinkClientMemory())
+function refreshLastAgentMemory() {
+  lastAgentMemory.value = readAgentLinkClientMemory()
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', refreshLastAgentMemory)
+  window.addEventListener(AGENT_LINK_CLIENT_MEMORY_EVENT, refreshLastAgentMemory)
 }
 
 function formatTime(at: number): string {
@@ -339,7 +387,7 @@ function classifyRow(entry: AgentLinkActivityEntry, isCurrentWork: boolean): Fee
   const s = entry.summary
   if (s.startsWith('⚠')) return { ...entry, kind: 'normal', tone: 'err', icon: ICONS.error }
   if (s === 'Connection paused') return { ...entry, kind: 'normal', tone: 'warn', icon: ICONS.pause }
-  if (s.startsWith('Reconnected')) return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.resume }
+  if (s.startsWith('Connection restored')) return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.resume }
   // A working icon represents the current task only. The feed deliberately
   // retains prior "updating" rows as history, so inferring animation from the
   // row text alone leaves a spinner running after the task has settled.
@@ -394,46 +442,16 @@ watch(
 onBeforeUnmount(() => {
   stopThinkingTimer()
   if (copyRevertTimer) clearTimeout(copyRevertTimer)
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('storage', refreshLastAgentMemory)
+    window.removeEventListener(AGENT_LINK_CLIENT_MEMORY_EVENT, refreshLastAgentMemory)
+  }
 })
 
 const elapsedHint = computed(() =>
   thinkingElapsed.value >= ELAPSED_HINT_AFTER_SECONDS ? `· ${thinkingElapsed.value}s` : ''
 )
 
-// --- Suspended resume countdown ----------------------------------------------
-// Reuses the token expiry as the resume window (the session is resumable until
-// the token TTL lapses). Renders nothing when no expiry is known.
-const resumeNow = ref(Date.now())
-let resumeTimer: ReturnType<typeof setInterval> | null = null
-
-watch(
-  () => [props.state, props.expiresAt] as const,
-  ([st, exp]) => {
-    if (resumeTimer !== null) {
-      clearInterval(resumeTimer)
-      resumeTimer = null
-    }
-    if (st === 'suspended' && exp !== null && exp !== undefined) {
-      resumeNow.value = Date.now()
-      resumeTimer = setInterval(() => {
-        resumeNow.value = Date.now()
-      }, 1000)
-    }
-  },
-  { immediate: true }
-)
-
-onBeforeUnmount(() => {
-  if (resumeTimer !== null) clearInterval(resumeTimer)
-})
-
-const resumeText = computed(() => {
-  if (props.state !== 'suspended' || props.expiresAt === null || props.expiresAt === undefined) return ''
-  const remaining = Math.max(0, Math.ceil((props.expiresAt - resumeNow.value) / 1000))
-  const m = Math.floor(remaining / 60)
-  const sec = remaining % 60
-  return `Resumes if reconnected within ${m}:${sec.toString().padStart(2, '0')}`
-})
 </script>
 
 <style scoped>
@@ -474,10 +492,6 @@ const resumeText = computed(() => {
   border-color: var(--agent-link-green);
 }
 
-.agent-link-panel--suspended {
-  border-color: var(--agent-link-amber);
-}
-
 @media (prefers-color-scheme: dark) {
   .agent-link-panel {
     --agent-link-ink: #e6e8ee;
@@ -499,6 +513,45 @@ const resumeText = computed(() => {
   color: var(--agent-link-amber);
 }
 
+.agent-link-panel__intro,
+.agent-link-panel__reassurance,
+.agent-link-panel__memory-cue {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--agent-link-muted);
+}
+
+.agent-link-panel__memory-cue {
+  padding: 8px 10px;
+  border-left: 2px solid var(--agent-link-border);
+  background: var(--agent-link-surface-muted);
+}
+
+.agent-link-panel__memory-cue--centered {
+  text-align: center;
+  border-left: 0;
+}
+
+.agent-link-panel__quiet-state {
+  flex: 1 1 auto;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+}
+
+.agent-link-panel__quiet-state p {
+  max-width: 250px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--agent-link-muted);
+}
+
 .agent-link-panel__prompt,
 .agent-link-panel__command {
   margin: 0;
@@ -512,6 +565,12 @@ const resumeText = computed(() => {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--agent-link-ink);
+}
+
+/* Keep the connection handoff readable without changing the spacing
+   of primary actions elsewhere in the rail. */
+.agent-link-panel__prompt + .agent-link-panel__btn {
+  margin-top: 8px;
 }
 
 .agent-link-panel__btn {
@@ -590,7 +649,7 @@ const resumeText = computed(() => {
 .agent-link-panel__disclosure {
   font-size: 12px;
   color: var(--agent-link-muted);
-  margin-top: 10px;
+  margin-top: 14px;
 }
 .agent-link-panel__disclosure summary {
   cursor: pointer;
@@ -603,6 +662,17 @@ const resumeText = computed(() => {
   align-items: flex-start;
   gap: 8px;
   margin-top: 8px;
+}
+
+.agent-link-panel__setup p {
+  margin: 0;
+  color: var(--agent-link-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-link-panel__connection-status :deep(.agent-status-header) {
+  margin-bottom: 0;
 }
 
 .agent-link-panel__divider {
@@ -640,7 +710,7 @@ const resumeText = computed(() => {
   font-weight: 600;
 }
 
-/* thinking / suspended banner */
+/* thinking banner */
 .agent-link-banner {
   display: flex;
   gap: 10px;
@@ -653,9 +723,6 @@ const resumeText = computed(() => {
   flex: 0 0 18px;
   margin-top: 1px;
   animation: agent-link-banner-spin 1s linear infinite;
-}
-.agent-link-banner--warn .agent-link-banner__spin {
-  animation-duration: 1.1s;
 }
 .agent-link-banner__body {
   flex: 1 1 auto;
@@ -676,19 +743,6 @@ const resumeText = computed(() => {
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
 }
-.agent-link-banner__countdown {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.agent-link-banner__countdown svg {
-  width: 13px;
-  height: 13px;
-}
 .agent-link-banner--work {
   background: #eff4ff;
   color: #1d4ed8;
@@ -696,14 +750,6 @@ const resumeText = computed(() => {
 .agent-link-banner--work .agent-link-banner__sub {
   color: #3b62c0;
 }
-.agent-link-banner--warn {
-  background: #fbf3d6;
-  color: #8a6d00;
-}
-.agent-link-banner--warn .agent-link-banner__sub {
-  color: #96790c;
-}
-
 @keyframes agent-link-banner-spin {
   to { transform: rotate(360deg); }
 }
@@ -773,16 +819,6 @@ const resumeText = computed(() => {
 .agent-link-panel__feed-empty {
   font-size: 12px;
   color: var(--agent-link-muted);
-}
-
-.agent-link-panel__session-line {
-  margin: 4px 0 0;
-  font-size: 11px;
-  color: var(--agent-link-muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  word-break: break-all;
 }
 
 .agent-link-panel__hint {

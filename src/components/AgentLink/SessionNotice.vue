@@ -15,7 +15,7 @@
     <div class="agent-notice__title" data-testid="agent-link-notice-title">{{ title }}</div>
     <div class="agent-notice__sub">{{ subline }}</div>
 
-    <!-- rejected: primary Revoke & re-link + secondary Cancel -->
+    <!-- One primary action per terminal state. -->
     <div v-if="variant === 'rejected'" class="agent-notice__actions">
       <button
         type="button"
@@ -26,17 +26,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
-        Revoke &amp; re-link
+        Connect another AI agent
       </button>
-      <button
-        type="button"
-        class="agent-notice__btn agent-notice__btn--ghost"
-        data-testid="agent-link-notice-cancel-btn"
-        @click="emit('cancel')"
-      >Cancel</button>
     </div>
 
-    <!-- closed / expired / failed: primary Reconnect -->
+    <!-- idle / closed / expired / failed: one state-specific start action. -->
     <div v-else class="agent-notice__actions">
       <button
         type="button"
@@ -47,7 +41,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
         </svg>
-        Reconnect
+        {{ actionLabel }}
       </button>
     </div>
   </div>
@@ -61,7 +55,7 @@ const props = withDefaults(
     // 'closed' = explicit Disconnect; 'expired' = TTL lapse; 'rejected' =
     // a second link attempt on an already-bound diagram (mint 409);
     // 'failed' = the session mint failed for any other reason.
-    variant?: 'closed' | 'expired' | 'rejected' | 'failed'
+    variant?: 'idle' | 'closed' | 'expired' | 'rejected' | 'failed'
     diagramTitle?: string
     // Amendment D: absolute ms epoch when the existing lock on an
     // already-linked diagram releases (mint 409's lockExpiresAt), or
@@ -81,14 +75,16 @@ const emit = defineEmits<{
 
 const title = computed(() => {
   switch (props.variant) {
+    case 'idle':
+      return 'Connect'
     case 'expired':
-      return 'Session expired'
+      return 'Connection expired'
     case 'rejected':
-      return 'This diagram is already linked to an agent'
+      return 'This diagram is already linked'
     case 'failed':
-      return 'Could not link your agent'
+      return 'Could not start Agent Link'
     default:
-      return 'Agent disconnected'
+      return 'Disconnected'
   }
 })
 
@@ -99,14 +95,33 @@ const subline = computed(() => {
     // stale ("0 min" / negative) time.
     if (typeof props.lockExpiresAt === 'number' && props.lockExpiresAt > Date.now()) {
       const minutesRemaining = Math.ceil((props.lockExpiresAt - Date.now()) / 60000)
-      return `Another agent session holds this diagram — it expires in ~${minutesRemaining} min. Only one agent can hold the link at a time.`
+      return `Another AI agent has this link for about ${minutesRemaining} more min. Connecting another agent will end that link.`
     }
-    return 'Another agent session holds this diagram. Only one agent can hold the link at a time.'
+    return 'Connecting another AI agent will end the current link. Your diagram is saved.'
+  }
+  if (props.variant === 'idle') {
+    return 'Start a connection to edit this diagram with your AI assistant.'
   }
   if (props.variant === 'failed') {
-    return 'We could not create a link session. Try reconnecting in a moment'
+    return 'Your diagram is unchanged. Try creating a new pairing.'
   }
-  return 'Your session ended. Your diagram is saved — nothing was lost. Reconnect to link a new agent session'
+  if (props.variant === 'expired') {
+    return 'Start a new connection when you are ready.'
+  }
+  return 'Start a new connection when you are ready.'
+})
+
+const actionLabel = computed(() => {
+  switch (props.variant) {
+    case 'idle':
+      return 'Connect'
+    case 'expired':
+      return 'Connect'
+    case 'failed':
+      return 'Try again'
+    default:
+      return 'Connect'
+  }
 })
 
 const iconClass = computed(() =>

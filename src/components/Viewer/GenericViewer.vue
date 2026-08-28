@@ -16,7 +16,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--agent-link': showAgentLinkPanel}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -205,7 +205,7 @@
 
 
           <!-- Canvas + bottom-edge pill -->
-          <div class="viewer-canvas">
+          <div class="viewer-canvas" :class="{'viewer-canvas--agent-link': showAgentLinkPanel}">
             <div v-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
               <div class="viewer-lf-icon-wrap">
                 <svg v-if="hasRetryableFailure" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
@@ -260,7 +260,7 @@
               <slot></slot>
             </div>
             <DiagramAttributionFooter
-              v-if="!isLoadFailed && diagramAttribution"
+              v-if="!isLoadFailed && diagramAttribution && !showAgentLinkPanel"
               :attribution="diagramAttribution"
               :macro-type="diagramType"
               :ready="viewerLoadState === 'ready'"
@@ -1435,6 +1435,10 @@ export default {
   display: flex;
   flex-direction: column;
 }
+.viewer-frame--fullscreen.viewer-frame--agent-link {
+  width: 100%;
+  box-sizing: border-box;
+}
 /* height:100% here would need a DEFINITE height on .viewer-body, but
    min-height alone never makes a flex container's resolved size definite for
    percentage-resolution purposes — .viewer-surface's height would compute to
@@ -1759,6 +1763,21 @@ export default {
 }
 .viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
 .viewer-canvas .screen-capture-content.w-full { width: 100%; }
+
+/* Fullscreen Agent Link has a fixed rail on the right, so center the diagram
+   inside the remaining left pane rather than relying on the outer frame's
+   fit-content centering. The bottom padding removes the action pill's 40px
+   footprint, its 12px offset, and a little clearance from the visual content
+   area, keeping a small diagram centered below the title and above those
+   controls. `w-full`
+   still wins for Mermaid; intrinsic-width Sequence and PlantUML diagrams keep
+   their renderer sizing and are centered as a unit. */
+.viewer-canvas--agent-link {
+  align-items: center;
+  box-sizing: border-box;
+  padding-bottom: 54px;
+}
+.viewer-canvas--agent-link .screen-capture-content { max-width: 100%; }
 
 .viewer-edge-bottom-pill {
   position: absolute;

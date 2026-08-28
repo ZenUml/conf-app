@@ -712,6 +712,29 @@ describe("trackAnalyticsEvent", () => {
       );
     });
 
+    it("accepts agent_link_connection_diagnostic with transport-safe dimensions", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_connection_diagnostic", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        diagnostic_origin: "reconnect_succeeded",
+        close_code: 1006,
+        was_clean: false,
+        reconnect_attempt: 2,
+        reconnect_outcome: "succeeded",
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_connection_diagnostic",
+        expect.objectContaining({
+          diagnostic_origin: "reconnect_succeeded",
+          close_code: 1006,
+          was_clean: false,
+          reconnect_attempt: 2,
+          reconnect_outcome: "succeeded",
+        })
+      );
+    });
+
     // #314 events-first commit: registered ahead of the FSM/composable fix so
     // the fix's trackAnalyticsEvent call site (useAgentLinkSession.ts's
     // handleExpired()) is built against a reviewed name/property contract.

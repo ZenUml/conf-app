@@ -50,11 +50,12 @@ describe('LinkStatusChip', () => {
     expect(wrapper.find('[data-testid="agent-link-status-chip-ttl"]').exists()).toBe(false)
   })
 
-  it('suspended: shows the "Reconnecting…" chip', () => {
+  it('suspended: shows the lightweight "Connecting" chip', () => {
     const wrapper = mount(LinkStatusChip, { props: { state: 'suspended' } })
     const chip = wrapper.find('[data-testid="agent-link-status-chip"]')
     expect(chip.classes()).toContain('agent-chip--suspended')
-    expect(chip.text()).toContain('Reconnecting…')
+    expect(chip.text()).toContain('Connecting')
+    expect(chip.text()).not.toMatch(/reconnect/i)
   })
 
   it('closed: shows the gray "Disconnected" chip', () => {

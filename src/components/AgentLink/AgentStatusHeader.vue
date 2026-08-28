@@ -4,8 +4,17 @@
        tints with the session state (blue active/thinking, amber suspended,
        gray closed) to echo the badge without repeating its text. -->
   <div class="agent-status-header" data-testid="agent-link-status-header">
-    <span class="agent-status-header__avatar" :class="avatarClass" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <span
+      class="agent-status-header__avatar"
+      :class="avatarClass"
+      :style="brandColorStyle"
+      aria-hidden="true"
+      :data-client-brand="brandIcon?.label ?? 'generic'"
+    >
+      <svg v-if="brandIcon" viewBox="0 0 24 24" fill="currentColor" data-testid="agent-link-client-brand-icon">
+        <path :d="brandIcon.icon.path" />
+      </svg>
+      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" data-testid="agent-link-client-generic-icon">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
       </svg>
     </span>
@@ -22,6 +31,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import LiveBadge from './LiveBadge.vue'
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 import { ACTIVITY_LINGER_MS } from '@/composables/agentLink/useAgentLinkSession'
+import { getLiveClientBrand } from './agentClientBrands'
 
 const props = withDefaults(
   defineProps<{
@@ -36,7 +46,15 @@ const props = withDefaults(
   { thinking: false, clientName: '', diagramTitle: '', lastActivityAt: null }
 )
 
-const displayName = computed(() => props.clientName?.trim() || 'Connected agent')
+const RECOGNIZED_CLIENT_LABELS = new Set(['Codex', 'Claude Code', 'Cursor'])
+const displayName = computed(() => {
+  const label = props.clientName?.trim()
+  return label && RECOGNIZED_CLIENT_LABELS.has(label) ? label : 'Connected'
+})
+const brandIcon = computed(() => getLiveClientBrand(displayName.value))
+const brandColorStyle = computed(() =>
+  brandIcon.value ? { color: `#${brandIcon.value.icon.hex}` } : undefined
+)
 
 const nowMs = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
@@ -164,6 +182,9 @@ const avatarClass = computed(() => {
   .agent-status-header__avatar--blue {
     background: rgba(37, 99, 235, 0.2);
     color: #93b4ff;
+  }
+  .agent-status-header__avatar[data-client-brand="Cursor"] {
+    color: #ffffff !important;
   }
 }
 </style>

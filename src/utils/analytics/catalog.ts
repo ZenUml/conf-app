@@ -691,6 +691,12 @@ export type AnalyticsEventName =
   // between, not a replacement for the terminal event.
   | "agent_link_session_suspended"
   | "agent_link_session_resumed"
+  // Browser-to-relay reliability signal stream. Each observed close/error,
+  // reconnect attempt, and terminal reconnect outcome is emitted once. These
+  // values describe the browser WebSocket/retry phase only: they deliberately
+  // do not infer a relay/server root cause, and carry no message, URL, token,
+  // pairing code, or diagram/page content.
+  | "agent_link_connection_diagnostic"
   // #314 — the client-side TTL watchdog fires this the instant `expiresAt`
   // (the 10-min idle window, sliding — spec 2026-07-13 §3) lapses, from ANY still-live state (waiting/
   // timeout/connected/suspended). Distinct from agent_link_disconnected: no
@@ -851,6 +857,16 @@ export type AgentLinkGuardrailRejectReason = "parse_error" | "data_loss" | "othe
 // reconnect. A session suspended and never resumed within TTL still ends in
 // agent_link_disconnected(reason: 'timeout') — that terminal event is separate.
 export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "explicit";
+
+/** Literal browser WebSocket/retry phase, not an attributed root cause. */
+export type AgentLinkConnectionDiagnosticOrigin =
+  | "error"
+  | "close"
+  | "reconnect_attempt"
+  | "reconnect_succeeded"
+  | "reconnect_exhausted";
+
+export type AgentLinkReconnectOutcome = "succeeded" | "exhausted";
 
 // How a discovery `list_diagrams` was scoped (agent_link_list_performed).
 // 'page' = a single page's diagrams, 'space' = one space, 'site' = the whole

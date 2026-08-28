@@ -5,6 +5,11 @@ import { sessionRegistry } from './registrySingleton';
 import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 import { getToolSchemas } from './mcpTools';
+import {
+  AGENT_LINK_MCP_CAPABILITIES,
+  LATEST_MCP_PROTOCOL_VERSION,
+  SUPPORTED_MCP_PROTOCOL_VERSIONS,
+} from './mcpProtocol';
 
 const CTX: BoundContext = { cloudId: 'cloud-1', pageId: 'page-1', contentId: 'content-1' };
 
@@ -12,9 +17,21 @@ function rpc(method: string, params?: unknown, id: number | string = 1) {
   return { jsonrpc: '2.0', id, method, params };
 }
 
+function initializeRpc(
+  protocolVersion: string = LATEST_MCP_PROTOCOL_VERSION,
+  capabilities: Record<string, unknown> = {},
+  clientInfo: Record<string, unknown> = { name: 'agent-link-test-client', version: '1.0.0' },
+) {
+  return rpc('initialize', {
+    protocolVersion,
+    capabilities,
+    clientInfo,
+  });
+}
+
 function makeRequest(
   body: unknown,
-  opts: { token?: string; viaQuery?: boolean; rawBody?: string } = {},
+  opts: { token?: string; viaQuery?: boolean; rawBody?: string; protocolVersion?: string } = {},
 ): Request {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let url = 'https://example.com/agent-link/mcp';
@@ -26,6 +43,7 @@ function makeRequest(
       headers['Authorization'] = `Bearer ${opts.token}`;
     }
   }
+  if (opts.protocolVersion) headers['MCP-Protocol-Version'] = opts.protocolVersion;
 
   return new Request(url, {
     method: 'POST',
@@ -34,7 +52,10 @@ function makeRequest(
   });
 }
 
-async function post(body: unknown, opts?: { token?: string; viaQuery?: boolean; rawBody?: string }) {
+async function post(
+  body: unknown,
+  opts?: { token?: string; viaQuery?: boolean; rawBody?: string; protocolVersion?: string },
+) {
   const res = await onRequestPost({ request: makeRequest(body, opts) } as any);
   const json = await res.json();
   return { res, json };
@@ -143,18 +164,88 @@ describe('POST /agent-link/mcp', () => {
     expect(json.error.data?.code).toBe('bad_args');
   });
 
-  it('initialize returns protocol/capabilities + ZenUML DSL instructions', async () => {
+  it('initialize negotiates a matching protocol and exposes stable server capabilities', async () => {
     const record = sessionRegistry.create(CTX);
 
-    const { res, json } = await post(rpc('initialize'), { token: record.token });
+    const { res, json } = await post(initializeRpc(), { token: record.token });
 
     expect(res.status).toBe(200);
-    expect(json.result.protocolVersion).toBeTruthy();
-    expect(json.result.capabilities.tools).toBeDefined();
-    expect(json.result.capabilities.resources).toBeDefined();
+    expect(json.result.protocolVersion).toBe(LATEST_MCP_PROTOCOL_VERSION);
+    expect(json.result.capabilities).toEqual(AGENT_LINK_MCP_CAPABILITIES);
     // The ZenUML DSL guide is surfaced so any MCP client writes valid syntax.
     expect(json.result.instructions).toMatch(/ZenUML/);
     expect(json.result.instructions).toMatch(/update_diagram/);
+  });
+
+  it('initialize preserves a supported older client revision rather than silently upgrading it', async () => {
+    const record = sessionRegistry.create(CTX);
+    const supportedOlderVersion = SUPPORTED_MCP_PROTOCOL_VERSIONS.at(-1)!;
+
+    const { res, json } = await post(initializeRpc(supportedOlderVersion), { token: record.token });
+
+    expect(res.status).toBe(200);
+    expect(json.result.protocolVersion).toBe(supportedOlderVersion);
+  });
+
+  it('initialize rejects an incompatible protocol with an actionable machine-readable mismatch', async () => {
+    const record = sessionRegistry.create(CTX);
+
+    const { res, json } = await post(initializeRpc('2099-01-01'), { token: record.token });
+
+    expect(res.status).toBe(200);
+    expect(json.result).toBeUndefined();
+    expect(json.error.code).toBe(-32602);
+    expect(json.error.message).toMatch(/Update your AI agent.*Agent Link MCP configuration.*new agent session/i);
+    expect(json.error.data).toEqual({
+      code: 'protocol_version_mismatch',
+      requested: '2099-01-01',
+      supported: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
+      latest: LATEST_MCP_PROTOCOL_VERSION,
+    });
+  });
+
+  it('initialize negotiates only server-supported capabilities instead of mirroring client features', async () => {
+    const record = sessionRegistry.create(CTX);
+    const clientCapabilities = { roots: { listChanged: true }, sampling: {}, experimental: { x: {} } };
+
+    const { res, json } = await post(initializeRpc(LATEST_MCP_PROTOCOL_VERSION, clientCapabilities), {
+      token: record.token,
+    });
+
+    expect(res.status).toBe(200);
+    expect(json.result.capabilities).toEqual(AGENT_LINK_MCP_CAPABILITIES);
+    expect(json.result.capabilities).not.toHaveProperty('roots');
+    expect(json.result.capabilities).not.toHaveProperty('sampling');
+    expect(json.result.capabilities).not.toHaveProperty('experimental');
+  });
+
+  it('initialize rejects a missing client version/capability contract before partial connection', async () => {
+    const record = sessionRegistry.create(CTX);
+
+    const missingVersion = await post(rpc('initialize', { capabilities: {} }), { token: record.token });
+    expect(missingVersion.json.error.data.code).toBe('protocol_version_required');
+
+    const missingCapabilities = await post(
+      rpc('initialize', { protocolVersion: LATEST_MCP_PROTOCOL_VERSION }),
+      { token: record.token },
+    );
+    expect(missingCapabilities.json.error.data.code).toBe('client_capabilities_required');
+  });
+
+  it('rejects an incompatible negotiated-version header on later requests', async () => {
+    const record = sessionRegistry.create(CTX);
+
+    const { res, json } = await post(rpc('tools/list'), {
+      token: record.token,
+      protocolVersion: '2099-01-01',
+    });
+
+    expect(res.status).toBe(400);
+    expect(json.error.data).toMatchObject({
+      code: 'protocol_version_mismatch',
+      requested: '2099-01-01',
+      supported: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
+    });
   });
 
   it('resources/list advertises all four guides (three dialect DSLs + OpenAPI)', async () => {
@@ -374,6 +465,53 @@ async function postWithEnv(
 }
 
 describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () => {
+  it.each([
+    ['openai-codex', 'Codex'],
+    ['claude-code', 'Claude Code'],
+    ['Cursor', 'Cursor'],
+    ['untrusted-client-secret-name', 'an AI agent'],
+  ])('compatible initialize reduces clientInfo %s to the safe label %s', async (name, label) => {
+    const { env, activityBodies } = makeRecordingDoEnv({
+      session: () => sessionInfoResponse(),
+    });
+
+    const { res, json } = await postWithEnv(
+      initializeRpc(LATEST_MCP_PROTOCOL_VERSION, {}, { name, version: 'sensitive-version' }),
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    expect(json.result.protocolVersion).toBe(LATEST_MCP_PROTOCOL_VERSION);
+    expect(activityBodies).toEqual([{ type: 'client_identified', detail: label }]);
+    expect(JSON.stringify(activityBodies)).not.toContain('sensitive-version');
+    expect(JSON.stringify(activityBodies)).not.toContain('untrusted-client-secret-name');
+  });
+
+  it('an incompatible initialize reports the lifecycle state without raw clientInfo', async () => {
+    const { env, activityBodies } = makeRecordingDoEnv({
+      session: () => sessionInfoResponse(),
+    });
+    const { json } = await postWithEnv(
+      initializeRpc('2099-01-01', {}, { name: 'raw-client-secret', version: 'raw-version' }),
+      env,
+    );
+
+    expect(json.error.data.code).toBe('protocol_version_mismatch');
+    expect(activityBodies).toEqual([{ type: 'protocol_incompatible' }]);
+    expect(JSON.stringify(activityBodies)).not.toContain('raw-client-secret');
+    expect(JSON.stringify(activityBodies)).not.toContain('2099-01-01');
+  });
+
+  it('a client missing the initialization contract also reports incompatibility to the rail', async () => {
+    const { env, activityBodies } = makeRecordingDoEnv({
+      session: () => sessionInfoResponse(),
+    });
+    const { json } = await postWithEnv(rpc('initialize', { clientInfo: { name: 'legacy' } }), env);
+
+    expect(json.error.data.code).toBe('protocol_version_required');
+    expect(activityBodies).toEqual([{ type: 'protocol_incompatible' }]);
+  });
+
   it('tools/call read_page returns the DO-forwarded payload verbatim', async () => {
     const env = makeDoEnv({
       session: () => sessionInfoResponse(),
@@ -643,7 +781,7 @@ describe('POST /agent-link/mcp — per-dialect guide serving', () => {
   it('a bound mermaid session gets the Mermaid guide as initialize instructions + the Mermaid tool hint', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Mermaid' }) });
 
-    const init = await postWithEnv(rpc('initialize'), env);
+    const init = await postWithEnv(initializeRpc(), env);
     expect(init.res.status).toBe(200);
     expect(init.json.result.instructions).toMatch(/This is Mermaid/);
     expect(init.json.result.instructions).not.toMatch(/This is ZenUML/);
@@ -657,7 +795,7 @@ describe('POST /agent-link/mcp — per-dialect guide serving', () => {
   it('a bound sequence (ZenUML) session gets the ZenUML guide + hint', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Sequence' }) });
 
-    const init = await postWithEnv(rpc('initialize'), env);
+    const init = await postWithEnv(initializeRpc(), env);
     expect(init.json.result.instructions).toMatch(/This is ZenUML/);
 
     const list = await postWithEnv(rpc('tools/list'), env);
@@ -668,14 +806,14 @@ describe('POST /agent-link/mcp — per-dialect guide serving', () => {
   it('a bound plantuml session gets the PlantUML guide', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'PlantUml' }) });
 
-    const init = await postWithEnv(rpc('initialize'), env);
+    const init = await postWithEnv(initializeRpc(), env);
     expect(init.json.result.instructions).toMatch(/This is PlantUML/);
   });
 
   it('a bound Graph session gets NO instructions and a generic update_diagram description (never broken)', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Graph' }) });
 
-    const init = await postWithEnv(rpc('initialize'), env);
+    const init = await postWithEnv(initializeRpc(), env);
     expect(init.res.status).toBe(200);
     expect(init.json.result.instructions).toBeUndefined();
 
@@ -690,7 +828,7 @@ describe('POST /agent-link/mcp — per-dialect guide serving', () => {
   it('a bound OpenApi session gets its own minimal spec guide (budget-permitting tier)', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'OpenApi' }) });
 
-    const init = await postWithEnv(rpc('initialize'), env);
+    const init = await postWithEnv(initializeRpc(), env);
     expect(init.json.result.instructions).toMatch(/This is a SPEC, not a diagram DSL/);
 
     const list = await postWithEnv(rpc('tools/list'), env);
@@ -701,14 +839,14 @@ describe('POST /agent-link/mcp — per-dialect guide serving', () => {
   it('an AsyncApi session still gets no guide (generic behavior — no guide authored for it)', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'AsyncApi' }) });
 
-    const init = await postWithEnv(rpc('initialize'), env);
+    const init = await postWithEnv(initializeRpc(), env);
     expect(init.json.result.instructions).toBeUndefined();
   });
 
   it('before any read_diagram (no lastDiagram) the combined cross-dialect guide is served', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse() });
 
-    const init = await postWithEnv(rpc('initialize'), env);
+    const init = await postWithEnv(initializeRpc(), env);
     expect(init.json.result.instructions).toMatch(/DO NOT blend/);
 
     const list = await postWithEnv(rpc('tools/list'), env);

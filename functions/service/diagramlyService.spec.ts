@@ -3,6 +3,7 @@ import {
   callDiagramly,
   ensureDiagramlyDiagram,
   modifyDiagram,
+  modifyDiagramWithCommand,
 } from './diagramlyService';
 
 function makeContext(cloudId?: string) {
@@ -132,6 +133,77 @@ describe('callDiagramly', () => {
         'sequence',
       ),
     ).rejects.toThrow('No diagramId returned from Diagramly API');
+  });
+
+  it('always sends AI Chat changes to the versioned modification endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('{"jobId":"job-versioned-1"}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      modifyDiagramWithCommand(makeContext('verified-cloud-789'), {
+        diagramId: 'diagram-1',
+        diagramCode: 'A -> B',
+        command: 'Add payment',
+        errorMessage: 'Unexpected token',
+        diagramType: 'sequence',
+        model: 'anthropic/claude-sonnet-5',
+        disableReasoning: false,
+      }),
+    ).resolves.toEqual({ jobId: 'job-versioned-1' });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      'https://diagramly.example/api/chat/modify-version-async',
+    );
+    expect(JSON.parse(init.body)).toEqual({
+      diagramId: 'diagram-1',
+      diagramCode: 'A -> B',
+      diagramType: 'sequence',
+      languageKey: 'LANG_ZENUML',
+      command: 'Add payment',
+      subTypeKey: 'GENERAL',
+      errorMessage: 'Unexpected token',
+      model: 'anthropic/claude-sonnet-5',
+      disableReasoning: false,
+    });
+  });
+
+  it('creates a version for a normal AI Chat modification without repair context', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('{"jobId":"job-versioned-2"}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await modifyDiagramWithCommand(makeContext('verified-cloud-789'), {
+      diagramId: 'diagram-1',
+      diagramCode: 'A -> B',
+      command: 'Add payment',
+      diagramType: 'sequence',
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      'https://diagramly.example/api/chat/modify-version-async',
+    );
+    expect(JSON.parse(init.body)).not.toHaveProperty('errorMessage');
+  });
+
+  it('does not start an AI Chat modification without a diagramId', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      modifyDiagramWithCommand(makeContext('verified-cloud-789'), {
+        diagramCode: 'A -> B',
+        command: 'Add payment',
+        diagramType: 'sequence',
+      }),
+    ).rejects.toThrow('Missing diagramId');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects a request when cloudId is missing', async () => {

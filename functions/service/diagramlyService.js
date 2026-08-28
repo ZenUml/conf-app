@@ -14,6 +14,15 @@ function getTypeInfo(diagramType = 'sequence') {
   return typeInfo;
 }
 
+function extractJobId(result) {
+  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+  if (!jobId) {
+    console.error('[modifyDiagram] No jobId found in response:', result);
+    throw new Error('No jobId returned from Diagramly API');
+  }
+  return jobId;
+}
+
 // Asynchronous diagram modification - returns jobId for polling
 export async function modifyDiagram(
   context,
@@ -41,14 +50,39 @@ export async function modifyDiagram(
 
   const result = await callDiagramly(context, `/api/chat/modify-async`, diagramData);
 
-  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+  return { jobId: extractJobId(result) };
+}
 
-  if (!jobId) {
-    console.error('[modifyDiagram] No jobId found in response:', result);
-    throw new Error('No jobId returned from Diagramly API');
+export async function modifyDiagramWithCommand(context, request) {
+  if (!request.diagramId?.trim()) {
+    throw new Error('Missing diagramId');
+  }
+  if (!request.command?.trim()) {
+    throw new Error('Missing diagram modification command');
   }
 
-  return { jobId };
+  const typeInfo = getTypeInfo(request.diagramType);
+  const result = await callDiagramly(
+    context,
+    '/api/chat/modify-version-async',
+    {
+      diagramId: request.diagramId,
+      diagramCode: request.diagramCode,
+      diagramType: typeInfo.diagramType,
+      languageKey: typeInfo.languageKey,
+      command: request.command,
+      subTypeKey: typeInfo.subTypeKey,
+      ...(request.errorMessage !== undefined
+        ? { errorMessage: request.errorMessage }
+        : {}),
+      ...(request.model !== undefined ? { model: request.model } : {}),
+      ...(request.disableReasoning !== undefined
+        ? { disableReasoning: request.disableReasoning }
+        : {}),
+    },
+  );
+
+  return { jobId: extractJobId(result) };
 }
 
 export async function chat(context, messages) {

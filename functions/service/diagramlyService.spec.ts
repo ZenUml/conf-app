@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callDiagramly, modifyDiagram } from './diagramlyService';
+import {
+  callDiagramly,
+  ensureDiagramlyDiagram,
+  modifyDiagram,
+} from './diagramlyService';
 
 function makeContext(cloudId?: string) {
   return {
@@ -81,6 +85,53 @@ describe('callDiagramly', () => {
       model: 'anthropic/claude-sonnet-5',
       disableReasoning: false,
     });
+  });
+
+  it('ensures a diagram using the verified identity headers and language mapping', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(
+        '{"diagramId":"diagram-1","versionId":"version-1"}',
+      ),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await ensureDiagramlyDiagram(
+      makeContext('verified-cloud-789'),
+      'A -> B',
+      'sequence',
+      'Checkout',
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://diagramly.example/api/chat/ensure-diagram');
+    expect(init.headers).toMatchObject({
+      'x-external-id': 'client-account-123',
+      'x-team-id': 'verified-cloud-789',
+    });
+    expect(JSON.parse(init.body)).toEqual({
+      diagramCode: 'A -> B',
+      title: 'Checkout',
+      languageKey: 'LANG_ZENUML',
+      subTypeKey: 'GENERAL',
+    });
+  });
+
+  it('rejects an ensure response without a diagramId', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('{"versionId":"version-1"}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      ensureDiagramlyDiagram(
+        makeContext('verified-cloud-789'),
+        'A -> B',
+        'sequence',
+      ),
+    ).rejects.toThrow('No diagramId returned from Diagramly API');
   });
 
   it('rejects a request when cloudId is missing', async () => {

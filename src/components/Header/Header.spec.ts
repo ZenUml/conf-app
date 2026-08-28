@@ -9,7 +9,16 @@ import Example from "@/utils/sequence/Example";
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
 }))
+vi.mock('@/apis/aiTitleFeatureFlag', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/apis/aiTitleFeatureFlag')>()
+  return { ...actual, isAiChatEnabled: vi.fn().mockResolvedValue(true) }
+})
 import {trackAnalyticsEvent} from '@/utils/analytics/trackAnalyticsEvent'
+import {isAiChatEnabled} from '@/apis/aiTitleFeatureFlag'
+
+beforeEach(() => {
+  vi.mocked(isAiChatEnabled).mockResolvedValue(true)
+})
 
 describe('Header', () => {
   it('should render correctly', async () => {
@@ -40,6 +49,41 @@ describe('Header', () => {
     expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
     expect(mermaidButton.classes()).toContain('after:bg-[#FF3670]')
     expect(mermaidButton.classes()).toContain('text-[#8E0F33]')
+  })
+
+  it('shows the independently flagged AI Chat action and emits toggle', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, {
+      props: { aiChatOpen: true },
+      global: { plugins: [store] },
+    })
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="ai-chat-toggle"]')
+    expect(toggle.classes()).toContain('bg-violet-100')
+    await toggle.trigger('click')
+
+    expect(wrapper.emitted('toggle-ai-chat')).toHaveLength(1)
+  })
+
+  it('hides AI Chat when its feature flag is disabled', async () => {
+    vi.mocked(isAiChatEnabled).mockResolvedValue(false)
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false)
+  })
+
+  it('hides AI Chat for Graph diagrams', async () => {
+    store.commit('updateDiagramType', DiagramType.Graph)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false)
   })
 
   describe('the remembered diagram type', () => {

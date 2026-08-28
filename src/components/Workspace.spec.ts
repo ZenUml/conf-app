@@ -1,3 +1,4 @@
+import { defineComponent } from "vue";
 import { mount } from "@vue/test-utils";
 import { vi } from "vitest";
 import Workspace from "@/components/Workspace.vue";
@@ -59,7 +60,13 @@ describe("Workspace wiring (#373)", () => {
     return mount(Workspace, {
       global: {
         plugins: [store],
-        stubs: { Header: true, Editor: true, DiagramPortal: true, SyntaxErrorBox: true },
+        stubs: {
+          Header: true,
+          Editor: true,
+          DiagramPortal: true,
+          SyntaxErrorBox: true,
+          AIChatPanel: true,
+        },
       },
     });
   }
@@ -80,5 +87,96 @@ describe("Workspace wiring (#373)", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+  });
+});
+
+describe("Workspace AI Chat integration", () => {
+  let wrapper;
+
+  const AIChatPanelStub = defineComponent({
+    name: "AIChatPanelStub",
+    props: {
+      open: Boolean,
+      codeVisible: Boolean,
+      diagramType: String,
+      currentCode: String,
+      diagramlyDiagramId: String,
+    },
+    emits: ["apply-code", "diagramly-diagram-bound", "toggle-code", "close"],
+    template: `
+      <aside data-testid="ai-chat-panel-stub">
+        <span data-testid="ai-chat-code-value">{{ currentCode }}</span>
+        <button data-testid="apply-code" @click="$emit('apply-code', 'updated by AI')" />
+        <button data-testid="bind-diagram" @click="$emit('diagramly-diagram-bound', 'diagramly-1')" />
+        <button data-testid="toggle-code" @click="$emit('toggle-code')" />
+      </aside>
+    `,
+  });
+
+  function mountAIChatWorkspace() {
+    return mount(Workspace, {
+      global: {
+        plugins: [store],
+        stubs: {
+          Header: true,
+          Editor: { template: '<div data-testid="editor-stub" />' },
+          DiagramPortal: true,
+          SyntaxErrorBox: true,
+          ForeignDialectHint: true,
+          AIChatPanel: AIChatPanelStub,
+        },
+      },
+    });
+  }
+
+  beforeEach(() => {
+    store.commit("updateDiagramType", DiagramType.Mermaid);
+    store.commit("updateMermaidCode", "flowchart LR\nA --> B");
+    store.commit("updateMetadata", {
+      keep: "existing",
+      aiChat: { keepNested: "existing" },
+    });
+    wrapper = mountAIChatWorkspace();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+  });
+
+  it("opens the panel without unmounting the editor and toggles code visibility", async () => {
+    (wrapper.vm as any).toggleAIChat();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('[data-testid="ai-chat-panel-stub"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="ai-chat-code-value"]').text()).toContain("flowchart LR");
+    expect(wrapper.get('[data-testid="editor-stub"]').exists()).toBe(true);
+    expect(wrapper.get("#workspace-left").attributes("style")).toContain("display: none");
+
+    await wrapper.get('[data-testid="toggle-code"]').trigger("click");
+    expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+  });
+
+  it("applies AI code through the diagram-type action and merges Diagramly metadata", async () => {
+    (wrapper.vm as any).toggleAIChat();
+    await wrapper.vm.$nextTick();
+    await wrapper.get('[data-testid="apply-code"]').trigger("click");
+    await wrapper.get('[data-testid="bind-diagram"]').trigger("click");
+
+    expect(store.state.diagram.mermaidCode).toBe("updated by AI");
+    expect(store.state.diagram.metadata).toEqual({
+      keep: "existing",
+      aiChat: {
+        keepNested: "existing",
+        diagramlyDiagramId: "diagramly-1",
+      },
+    });
+  });
+
+  it("does not open AI Chat for Graph diagrams", async () => {
+    store.commit("updateDiagramType", DiagramType.Graph);
+    (wrapper.vm as any).toggleAIChat();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="ai-chat-panel-stub"]').exists()).toBe(false);
   });
 });

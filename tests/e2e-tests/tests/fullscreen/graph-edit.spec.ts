@@ -20,6 +20,16 @@ import {
 } from '../../helpers/CloseGuardHelper.js';
 
 test.describe('Graph (DrawIO) — Edit flow', () => {
+  // Every test seeds its own page (`seed()` publishes a fresh macro) and reads
+  // only that page's state, so there is nothing to share between them. Without
+  // this, the root config's `fullyParallel: false` makes the whole file ONE
+  // indivisible shard group: `--shard=N/4` put all 8 tests on shard 1 and left
+  // shards 2-4 with zero tests, so the DrawIO Publish gate ran 7.6 min serially
+  // and became the critical path of the whole build (run 33156603821). Parallel
+  // mode makes each test its own group, so the existing 4 shard runners split
+  // the work.
+  test.describe.configure({ mode: 'parallel' });
+
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('graph'), 'graph not in profile');
 

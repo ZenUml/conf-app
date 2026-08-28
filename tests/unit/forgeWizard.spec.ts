@@ -53,16 +53,21 @@ describe('forge-wizard manifest preview helpers', () => {
     }
   })
 
-  it('lite strips licensing, contentBylineItem, and asyncapi bits', () => {
+  it('lite strips licensing, contentBylineItem, and asyncapi bits (but keeps the AsyncAPI macro)', () => {
     const desc = getManifestEditDescriptions('lite')
     expect(desc).toContain('Remove licensing (lite is free)')
     expect(desc).toContain('Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)')
-    // Single edit strips both zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro.
+    // ADR-0005 Option A: Lite ships zenuml-asyncapi-macro (content stored
+    // under the shared zenuml-content-sequence type) and strips ONLY the
+    // embed macro, which references async-api-doc documents.
     expect(desc).toContain(
-      'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
+      'Remove asyncapi embed macro (zenuml-asyncapi-embed-macro; Lite keeps zenuml-asyncapi-macro per ADR-0005)',
     )
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
     expect(desc).toContain('Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)')
+    expect(desc).toContain(
+      "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
+    )
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
     expect(desc).toContain('Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)')
 
@@ -73,13 +78,19 @@ describe('forge-wizard manifest preview helpers', () => {
     // here would take both of them with it.
     expect(yq).toContain('del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))')
     expect(yq).not.toContain('del(.modules["confluence:contentBylineItem"])')
+    // The broad test("zenuml-asyncapi") filter would take the page macro too —
+    // Lite must use the exact embed-macro key.
     expect(yq).toContain(
+      'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro"))',
+    )
+    expect(yq).not.toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
     )
     expect(yq).toContain(
       'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc")))',
     )
     expect(yq).toContain('del(.modules["confluence:spacePage"])')
+    expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
     expect(yq).toContain('del(.connectModules)')
     expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
   })

@@ -170,6 +170,16 @@ async function initializeMacro() {
       import('@/components/Viewer/AsyncApiViewer/AsyncApiMacroViewer.vue'),
     ])
     const doc: Diagram = existing ?? { ...NULL_DIAGRAM, diagramType: DiagramType.AsyncApi, code: spec ?? '' }
+    // Fullscreen viewer paywall (Lite): blocking modal over the read-only
+    // spec on a saturated space. Same gate the other dedicated viewers get
+    // via bootstrapForgeViewer; no-ops outside fullscreen and on non-Lite.
+    const { tryFullscreenViewerPaywall } = await import('@/utils/paywall/mountPaywallGate')
+    if (await tryFullscreenViewerPaywall({
+      doc,
+      content: AsyncApiMacroViewer,
+      contentProps: { doc, loadError, hideEdit: isEmbedMacro },
+      macroKind: 'asyncapi',
+    })) return
     // mountRoot stuffs doc into the vuex store, but our Vue wrapper reads
     // from a `doc` prop (matches OpenApiViewer's signature). Pass it via
     // the props arg too — same for loadError, propagated from the

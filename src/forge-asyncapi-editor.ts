@@ -9,8 +9,10 @@ import ReactDOM from 'react-dom'
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, isInserting, isConfiguring } from '@/model/globals/forgeGlobal'
 import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'
-import { Diagram } from '@/model/Diagram/Diagram'
+import AsyncApiForgeEditorShell from '@/components/Editor/AsyncApiEditor/AsyncApiForgeEditorShell.vue'
+import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
+import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
 import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
@@ -210,15 +212,37 @@ async function initializeMacro() {
   // the Studio's own dark header with a floating Publish button) and
   // wants the same at edit time. ownTitleBar:false reproduces that
   // layout in every entry path.
-  ReactDOM.render(
-    React.createElement(AsyncApiStudioEditor, {
-      initialSpec,
-      onSave: handleSave,
-      onCancel: handleCancel,
-      ownTitleBar: false,
-    }),
-    root,
-  )
+  const mountStudio = (target: HTMLElement | null) => {
+    if (!target) return
+    ReactDOM.render(
+      React.createElement(AsyncApiStudioEditor, {
+        initialSpec,
+        onSave: handleSave,
+        onCancel: handleCancel,
+        ownTitleBar: false,
+      }),
+      target,
+    )
+  }
+
+  // Editor paywall (Lite): mount the Studio under PaywallGate so the iframe
+  // is never blank; save remains gated in the persistence layer. Same
+  // pattern as forge-swagger-editor.ts / forge-graph-editor.ts — the gate
+  // no-ops on non-Lite variants (shouldBlockActions is Lite-scoped).
+  const paywalled = await tryPageEditorPaywall({
+    doc: existing ?? NULL_DIAGRAM,
+    content: AsyncApiForgeEditorShell,
+    contentProps: {
+      onMountedBootstrap: () => {
+        mountStudio(document.getElementById('asyncapi-bootstrap-root'))
+      },
+    },
+    macroKind: 'asyncapi',
+    customContentId,
+  })
+  if (!paywalled) {
+    mountStudio(root)
+  }
 }
 
 void initializeMacro()

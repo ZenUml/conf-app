@@ -1039,11 +1039,16 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
     } else if(isEmbed) {
       await import(editable ? "@/forge-embed-editor" : "@/forge-embed-viewer");
-    } else if(isAsyncApi && import.meta.env.PRODUCT_TYPE === 'asyncapi') {
+    } else if(isAsyncApi && (import.meta.env.PRODUCT_TYPE === 'asyncapi' || import.meta.env.PRODUCT_TYPE === 'lite')) {
       // Build-time literal: Vite replaces PRODUCT_TYPE via `define` so
-      // non-asyncapi variants short-circuit and dead-code-eliminate the
-      // dynamic import. Keeps @asyncapi/parser (which pulls in Node `fs`)
-      // out of the lite/full/diagramly dependency graph entirely.
+      // full/diagramly short-circuit and dead-code-eliminate the dynamic
+      // import. Keeps @asyncapi/parser (which pulls in Node `fs`) out of
+      // the full/diagramly dependency graph entirely. Lite ships the
+      // AsyncAPI macro per ADR-0005 Option A: forgeGlobal.isAsyncApi stays
+      // FALSE there, so ApWrapper2.getContentKey() files the content under
+      // the shared zenuml-content-sequence type (discriminated by the
+      // body's diagramType), like OpenAPI — which is what keeps the Lite
+      // paywall count, enumeration, and copy-scan covering these macros.
       //
       // Three entry points for the asyncapi variant:
       //  - regular macro view  → forge-asyncapi-viewer

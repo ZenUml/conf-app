@@ -302,8 +302,11 @@ modules:
       icon: resource:main;image/diagram_macro_icon.png
       unlicensedAccess:
         - unlicensed
-    # AsyncAPI macro: ships only with the asyncapi variant; lite/full/diagramly
-    # strip this entry via manifestEdits in scripts/forge-wizard.mjs.
+    # AsyncAPI macro: ships with the asyncapi variant AND lite (ADR-0005
+    # Option A — on lite the content is stored under the shared
+    # zenuml-content-sequence type, discriminated by diagramType, like
+    # OpenAPI). full/diagramly strip this entry via manifestEdits in
+    # scripts/forge-wizard.mjs (mirrored in release.yml / staging-deploy.yml).
     - key: zenuml-asyncapi-macro
       title: AsyncAPI Spec
       description: Create an AsyncAPI Spec. ${APP_LABEL}
@@ -321,9 +324,11 @@ modules:
       icon: resource:main;image/openapi_macro_icon.png
     # AsyncAPI embed macro: lets the user reference an existing AsyncAPI
     # document (created from the dashboard or the regular asyncapi macro)
-    # from anywhere else on the site. Ships only with the asyncapi variant;
-    # the lite/full/diagramly yq edits strip it via the same `test(
-    # "zenuml-asyncapi")` filter that drops zenuml-asyncapi-macro.
+    # from anywhere else on the site. Ships only with the asyncapi variant —
+    # it references `async-api-doc` documents, a content type only that
+    # variant claims. full/diagramly strip it via the `test("zenuml-asyncapi")`
+    # filter that also drops zenuml-asyncapi-macro; lite strips it by exact
+    # key (keeping the page macro, per ADR-0005).
     - key: zenuml-asyncapi-embed-macro
       title: Embed AsyncAPI Spec
       description: Embed an existing AsyncAPI document. ${APP_LABEL}
@@ -688,8 +693,9 @@ modules:
       handler: export.handler
     # AsyncAPI macros use a dedicated export handler (asyncapi-export.js) so the
     # shared exportMacro stays free of asyncapi logic. Only the asyncapi macros
-    # reference it; on lite/full/diagramly the asyncapi macros are stripped, so
-    # this function is simply unused there (and could be stripped too).
+    # reference it — live on the asyncapi variant and lite (ADR-0005); on
+    # full/diagramly the asyncapi macros are stripped, so this function is
+    # simply unused there (and could be stripped too).
     - key: asyncApiExportMacro
       handler: asyncapi-export.handler
     - key: pageCaptureFn

@@ -177,6 +177,8 @@ import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
 
+const AI_REPAIR_MODEL_STORAGE_KEY = 'ai_repair_model';
+
 const props = defineProps({
   showDialog: Boolean,
   originalCode: String,
@@ -509,8 +511,19 @@ const backendAnalytics = (status?: RepairJobStatus) => {
   };
 };
 
+let activeRepairModel = props.model;
+
+const resolveRepairModel = () => {
+  try {
+    return window.localStorage.getItem(AI_REPAIR_MODEL_STORAGE_KEY)?.trim() || props.model;
+  } catch {
+    // localStorage may be unavailable in restrictive iframe/browser contexts.
+    return props.model;
+  }
+};
+
 const requestedConfigAnalytics = () => ({
-  ...(typeof props.model === 'string' ? { ai_model: props.model } : {}),
+  ...(typeof activeRepairModel === 'string' ? { ai_model: activeRepairModel } : {}),
   ...(typeof props.disableReasoning === 'boolean'
     ? { reasoning_disabled: props.disableReasoning }
     : {}),
@@ -547,6 +560,7 @@ const failRepair = (
 const triggerAiRepair = async () => {
   stopPolling();
   const generation = pollingGeneration;
+  activeRepairModel = resolveRepairModel();
   repairStartedAt = Date.now();
   pollCount = 0;
   const deadlineMs = repairStartedAt + REPAIR_TIMEOUT_BUDGET_MS;
@@ -570,7 +584,7 @@ const triggerAiRepair = async () => {
         props.error?.toString() || 'Syntax error',
         props.diagramType,
         {
-          ...(props.model !== undefined ? { model: props.model } : {}),
+          ...(activeRepairModel !== undefined ? { model: activeRepairModel } : {}),
           ...(props.disableReasoning !== undefined
             ? { disableReasoning: props.disableReasoning }
             : {}),

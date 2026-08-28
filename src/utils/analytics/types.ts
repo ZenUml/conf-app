@@ -693,6 +693,22 @@ export type AnalyticsProperties = {
   // field, which is the ambiguity #398 was filed about and the reason #435
   // chose `macro_type: 'none'` over omission.
   confluence_error_class?: string;
+  // Lifecycle email CRM (email_step_sent / email_step_engaged /
+  // email_unsubscribed — catalog.ts). Backend-emitted from the ingest/
+  // sequencer job against functions/migrations/0024_add_lifecycle_crm.sql's
+  // lifecycle_contact table; reuses `product_type` (the table's `app` column)
+  // and `cloud_id` above rather than declaring app/tenant identity twice.
+  // `step` mirrors lifecycle_contact.step (e.g. 'welcome', 'trial_reminder')
+  // — free-form, matching the column's TEXT type, not a closed enum, because
+  // the sequence's step names are configured, not compiled in.
+  step?: string;
+  // email_step_engaged only: which ESP webhook outcome this touchpoint
+  // reports for the step named above.
+  engagement?: 'delivered' | 'opened' | 'clicked';
+  // Days from event time to lifecycle_contact.eval_ends_at, so a step-send/
+  // engagement decision is legible against the evaluation window without a
+  // join back to D1 at read time. Negative once the eval window has lapsed.
+  eval_days_remaining?: number;
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

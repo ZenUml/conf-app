@@ -806,7 +806,22 @@ export type AnalyticsEventName =
   | "homepage_feed_viewed"
   | "homepage_feed_action_clicked"
   | "homepage_feed_diagram_opened"
-  | "homepage_feed_example_expanded";
+  | "homepage_feed_example_expanded"
+  // Lifecycle email CRM (functions/migrations/0024_add_lifecycle_crm.sql —
+  // lifecycle_contact + lifecycle_touchpoint — and scripts/lifecycle/
+  // ingest-licenses.mjs). Registered ahead of the sequencer that sends these
+  // — project rule: events before features. All three fire from the backend
+  // ingest/sequencer job, never from the macro iframe: there is no frontend
+  // call site, so this union documents the shape rather than enforcing it
+  // there (same convention as macro_export_* / #435 above).
+  //   email_step_sent    — the backend Worker dispatched a lifecycle email
+  //                        step via the ESP (Email Service Provider).
+  //   email_step_engaged — the ESP webhook reported delivered/opened/clicked
+  //                        for a previously sent step.
+  //   email_unsubscribed — the ESP unsubscribe webhook fired for a contact.
+  | "email_step_sent"
+  | "email_step_engaged"
+  | "email_unsubscribed";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

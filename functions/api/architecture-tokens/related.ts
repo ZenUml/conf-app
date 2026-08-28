@@ -1,5 +1,6 @@
 import { OkResponse, response } from '../../OkResponse';
 import {
+  confluenceContentResolver,
   confluencePageResolver,
   relatedDiagrams,
 } from '../../architecture-tokens/service';
@@ -43,6 +44,7 @@ export const onRequest = async ({
       cloudId,
       id,
       confluencePageResolver(apiBaseUrl, user),
+      confluenceContentResolver(apiBaseUrl, user),
     ));
   } catch (error) {
     console.error('architecture-tokens related lookup failed', error);

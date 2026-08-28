@@ -14,6 +14,21 @@ const row = (o: Partial<Record<string, unknown>>) => ({
   ...o,
 });
 
+/** Every content live at exactly the version and page the index recorded. */
+function liveAsIndexed(...rows: Array<Record<string, any>>[]) {
+  return async (contentIds: string[]) => {
+    const map = new Map<string, { version: number; pageId: string }>();
+    for (const set of rows) {
+      for (const r of set) {
+        if (contentIds.includes(r.contentId)) {
+          map.set(r.contentId, { version: r.contentVersion, pageId: r.pageId });
+        }
+      }
+    }
+    return map;
+  };
+}
+
 function dbWith(byContent: unknown[], byKeys: unknown[]) {
   return {
     prepare(sql: string) {
@@ -45,7 +60,10 @@ describe('noisy keys', () => {
       pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' })),
     );
 
-    const response = await relatedDiagrams(dbWith(own, [...wide, ...narrow]), 'cloud-1', 'self', resolve);
+    const response = await relatedDiagrams(
+      dbWith(own, [...wide, ...narrow]), 'cloud-1', 'self', resolve,
+      liveAsIndexed(own, wide, narrow),
+    );
 
     // Confluence is never asked about the noisy key's pages
     expect(resolve.mock.calls[0][0].every((id) => Number(id) < 9000)).toBe(true);
@@ -61,7 +79,9 @@ describe('noisy keys', () => {
     const resolve = async (pageIds: string[]) =>
       pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' }));
 
-    const response = await relatedDiagrams(dbWith(own, atLimit), 'cloud-1', 'self', resolve);
+    const response = await relatedDiagrams(
+      dbWith(own, atLimit), 'cloud-1', 'self', resolve, liveAsIndexed(own, atLimit),
+    );
     expect(response.participants[0].related).toHaveLength(NOISE_PAGE_THRESHOLD)
   })
 
@@ -76,7 +96,9 @@ describe('noisy keys', () => {
     const resolve = async (pageIds: string[]) =>
       pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' }));
 
-    const response = await relatedDiagrams(dbWith(own, others), 'cloud-1', 'self', resolve);
+    const response = await relatedDiagrams(
+      dbWith(own, others), 'cloud-1', 'self', resolve, liveAsIndexed(own, others),
+    );
     expect(response.participants[0].related.map((r) => r.pageId)).toEqual(['40', '20', '30', '10'])
   })
 });
@@ -97,7 +119,11 @@ describe('relatedDiagrams', () => {
       .filter((id) => id !== '300')
       .map((id) => ({ id, title: `Page ${id}`, spaceKey: id === '200' ? 'VPAY' : 'OP' })));
 
-    const out = await relatedDiagrams(db, 'cid', '1', resolve);
+    const out = await relatedDiagrams(db, 'cid', '1', resolve, liveAsIndexed(
+      [row({})],
+      [row({ contentId: '2', pageId: '200' }), row({ contentId: '3', pageId: '300' }),
+       row({ contentId: '4', pageId: '400' })],
+    ));
 
     // newest content first, since every candidate here sits outside the viewer's space
     expect(resolve).toHaveBeenCalledWith(['400', '300', '200']);
@@ -131,7 +157,7 @@ describe('relatedDiagrams', () => {
 
   it('unindexed diagram returns empty participants, null indexedAt, and makes no resolver call', async () => {
     const resolve = vi.fn();
-    const out = await relatedDiagrams(dbWith([], []), 'cid', '9', resolve);
+    const out = await relatedDiagrams(dbWith([], []), 'cid', '9', resolve, liveAsIndexed());
     expect(out).toEqual({ indexedAt: null, contentVersion: null, participants: [] });
     expect(resolve).not.toHaveBeenCalled();
   });
@@ -142,9 +168,64 @@ describe('relatedDiagrams', () => {
       'cid',
       '1',
       async () => { throw new Error('boom'); },
+      liveAsIndexed([row({})], [row({ contentId: '2', pageId: '200' })]),
     );
     expect(out.participants).toEqual([]);
     expect(out.error_kind).toBe('confluence_unavailable');
+  });
+
+  it('shows nothing when this diagram has been edited since it was indexed', async () => {
+    // content 128483345: indexed at version 2, live at version 56 — every row about it
+    // describes text that is 54 versions old
+    const out = await relatedDiagrams(
+      dbWith([row({})], [row({ contentId: '2', pageId: '200' })]),
+      'cid',
+      '1',
+      async (ids: string[]) => ids.map((id) => ({ id, title: `Page ${id}`, spaceKey: 'OP' })),
+      async () => new Map([['1', { version: 56, pageId: '100' }]]),
+    );
+    expect(out.participants).toEqual([]);
+    expect(out.error_kind).toBe('stale_index');
+  });
+
+  it('drops a target edited since indexing, and opens a moved one at its page today', async () => {
+    const resolve = vi.fn(async (ids: string[]) =>
+      ids.map((id) => ({ id, title: `Page ${id}`, spaceKey: 'OP' })));
+    const out = await relatedDiagrams(
+      dbWith([row({})], [
+        row({ contentId: '2', pageId: '200' }),
+        row({ contentId: '3', pageId: '300' }),
+      ]),
+      'cid',
+      '1',
+      resolve,
+      async () => new Map([
+        ['1', { version: 1, pageId: '100' }],
+        // edited since the index run
+        ['2', { version: 7, pageId: '200' }],
+        // same version, moved to another page
+        ['3', { version: 1, pageId: '999' }],
+      ]),
+    );
+    expect(resolve).toHaveBeenCalledWith(['999']);
+    expect(out.participants[0].related).toEqual([{
+      contentId: '3',
+      pageId: '999',
+      pageTitle: 'Page 999',
+      spaceKey: 'OP',
+      rawLabelThere: 'Partner App',
+    }]);
+  });
+
+  it('a target that no longer exists is dropped', async () => {
+    const out = await relatedDiagrams(
+      dbWith([row({})], [row({ contentId: '2', pageId: '200' })]),
+      'cid',
+      '1',
+      async (ids: string[]) => ids.map((id) => ({ id, title: `Page ${id}`, spaceKey: 'OP' })),
+      async () => new Map([['1', { version: 1, pageId: '100' }]]),
+    );
+    expect(out.participants[0].related).toEqual([]);
   });
 });
 

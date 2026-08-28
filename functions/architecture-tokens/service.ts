@@ -33,7 +33,16 @@ export interface ConfluencePageInfo {
 
 export type PageResolver = (pageIds: string[]) => Promise<ConfluencePageInfo[]>;
 
+/** Where a diagram lives now, and which version of it that is. */
+export interface LiveContent {
+  version: number;
+  pageId: string;
+}
+
+export type ContentResolver = (contentIds: string[]) => Promise<Map<string, LiveContent>>;
+
 const CQL_BATCH = 100;
+const CONTENT_BATCH = 100;
 
 /**
  * Permission filter, as the requesting user: one CQL `id in (...)` per 100 ids.
@@ -140,11 +149,57 @@ function budgetedPageIds(candidates: OccurrenceRow[]): string[] {
   return ids;
 }
 
+/**
+ * The index is rebuilt on a cadence, so a row can describe a diagram that has since been
+ * edited: content 128483345 was indexed at version 2 and is live at version 56, and the
+ * participant the row promised has not been in that diagram for 54 versions. One batched
+ * v2 read gives both the current version and the page the diagram sits on now.
+ */
+export function confluenceContentResolver(
+  apiBaseUrl: string,
+  forgeOAuthUser: string,
+  fetchImpl: typeof fetch = fetch,
+): ContentResolver {
+  return async (contentIds) => {
+    const out = new Map<string, LiveContent>();
+    for (let i = 0; i < contentIds.length; i += CONTENT_BATCH) {
+      const ids = contentIds
+        .slice(i, i + CONTENT_BATCH)
+        .map((id) => id.replace(/\D/g, ''))
+        .filter(Boolean);
+      if (ids.length === 0) continue;
+
+      const query = ids.map((id) => `id=${id}`).join('&');
+      const response = await fetchImpl(
+        `${apiBaseUrl}/api/v2/custom-content?${query}&limit=${CONTENT_BATCH}`,
+        {
+          method: 'GET',
+          headers: { Accept: 'application/json', Authorization: `Bearer ${forgeOAuthUser}` },
+        },
+      );
+      if (!response.ok) throw new Error(`confluence custom-content ${response.status}`);
+
+      const body = await response.json() as {
+        results?: Array<{ id?: string; pageId?: string; version?: { number?: number } }>;
+      };
+      for (const result of body.results ?? []) {
+        const id = String(result?.id ?? '');
+        const version = Number(result?.version?.number);
+        const pageId = String(result?.pageId ?? '');
+        if (!id || !Number.isFinite(version) || !pageId) continue;
+        out.set(id, { version, pageId });
+      }
+    }
+    return out;
+  };
+}
+
 export async function relatedDiagrams(
   db: D1Database,
   cloudId: string,
   contentId: string,
   resolve: PageResolver,
+  resolveContent: ContentResolver,
 ): Promise<RelatedResponse> {
   const own = await occurrencesForContent(db, cloudId, contentId);
   if (own.length === 0) {
@@ -159,7 +214,32 @@ export async function relatedDiagrams(
       .filter((candidate) => candidate.contentId !== contentId),
     own[0].spaceId,
   );
-  const pageIds = budgetedPageIds(candidates);
+
+  // One batched read covers this diagram and every candidate: a row whose live version
+  // differs from the indexed one describes a diagram that has changed since, so it is
+  // dropped rather than shown. The response also carries where each diagram sits now,
+  // which is the page the reader should open.
+  let live: Map<string, LiveContent>;
+  try {
+    live = await resolveContent([contentId, ...new Set(candidates.map((c) => c.contentId))]);
+  } catch {
+    return { indexedAt, contentVersion, participants: [], error_kind: 'confluence_unavailable' };
+  }
+
+  const self = live.get(contentId);
+  if (!self || self.version !== contentVersion) {
+    // The index predates this diagram's current text; every row about it is unreliable.
+    return { indexedAt, contentVersion, participants: [], error_kind: 'stale_index' };
+  }
+
+  const current = candidates.filter((candidate) => {
+    const now = live.get(candidate.contentId);
+    return now !== undefined && now.version === candidate.contentVersion;
+  });
+  const pageIds = budgetedPageIds(current.map((candidate) => ({
+    ...candidate,
+    pageId: live.get(candidate.contentId)!.pageId,
+  })));
 
   let pages: Map<string, ConfluencePageInfo>;
   try {
@@ -177,20 +257,22 @@ export async function relatedDiagrams(
   for (const [actorId, occurrence] of byActor(own)) {
     const seen = new Set<string>();
     const related: RelatedPage[] = [];
-    for (const candidate of candidates) {
+    for (const candidate of current) {
       if (
         candidate.comparisonKey !== occurrence.comparisonKey
         || seen.has(candidate.contentId)
       ) {
         continue;
       }
-      const page = pages.get(candidate.pageId);
+      // where the diagram sits now, not where it sat when the index was built
+      const pageId = live.get(candidate.contentId)!.pageId;
+      const page = pages.get(pageId);
       if (!page) continue;
 
       seen.add(candidate.contentId);
       related.push({
         contentId: candidate.contentId,
-        pageId: candidate.pageId,
+        pageId,
         pageTitle: page.title,
         spaceKey: page.spaceKey,
         rawLabelThere: candidate.rawLabel,

@@ -34,6 +34,7 @@ import { RelatedLookupError } from '@/services/ArchitectureTokens'
 import RelatedDiagramsFooter from './RelatedDiagramsFooter.vue'
 
 const actorRects: Record<string, DOMRect> = {
+  MAN: { left: 500, right: 522, top: 40, bottom: 65, width: 22, height: 25 } as DOMRect,
   PA: { left: 100, right: 220, top: 40, bottom: 70, width: 120, height: 30 } as DOMRect,
   U: { left: 260, right: 380, top: 40, bottom: 70, width: 120, height: 30 } as DOMRect,
   GONE: { left: 420, right: 540, top: 40, bottom: 70, width: 120, height: 30 } as DOMRect,
@@ -44,12 +45,13 @@ function host(): HTMLElement {
   div.style.position = 'relative'
   div.innerHTML =
     '<svg><rect class="actor actor-top" name="PA"></rect><text name="PA">Partner App</text>' +
-    '<rect class="actor actor-top" name="U"></rect><rect class="actor actor-top" name="GONE"></rect></svg>'
+    '<rect class="actor actor-top" name="U"></rect><rect class="actor actor-top" name="GONE"></rect>' +
+    '<line class="actor-line" name="MAN"></line><g class="actor-man actor-top" name="MAN"></g></svg>'
   Object.defineProperty(div, 'getBoundingClientRect', {
     configurable: true,
     value: () => ({ left: 20, right: 620, top: 10, bottom: 410, width: 600, height: 400 }),
   })
-  div.querySelectorAll<SVGRectElement>('rect.actor-top').forEach((rect) => {
+  div.querySelectorAll<SVGGraphicsElement>('.actor-top').forEach((rect) => {
     Object.defineProperty(rect, 'getBoundingClientRect', {
       configurable: true,
       value: () => actorRects[rect.getAttribute('name')!],
@@ -595,6 +597,37 @@ describe('RelatedDiagramsFooter', () => {
     expect(rows[0].textContent!.trim()).toBe('Another diagram on this page')
     expect(rows[1].textContent!.trim()).toBe('Refunds')
     expect(pill(h, 'PA')!.textContent!.trim()).toBe('2')
+  })
+
+  it('anchors a circle on an actor-shaped participant, which Mermaid draws without a rect', async () => {
+    related.value = {
+      indexedAt: twoParticipants.indexedAt,
+      contentVersion: twoParticipants.contentVersion,
+      participants: [
+        {
+          actorId: 'MAN',
+          rawLabel: 'Developer',
+          related: [
+            {
+              contentId: '7',
+              pageId: '700',
+              pageTitle: 'Access review',
+              spaceKey: 'OP',
+              rawLabelThere: 'Developer',
+            },
+          ],
+        },
+      ],
+    }
+    const { h } = mountFooter({ pageId: '999' })
+    await flushPromises()
+
+    // g.actor-man.actor-top carries the name; matching only rect.actor-top dropped it,
+    // so the footer counted a participant whose circle never appeared
+    const button = pill(h, 'MAN')!
+    expect(button).not.toBeNull()
+    expect(button.style.left).toBe('492px')
+    expect(button.style.top).toBe('47px')
   })
 
   it('keeps a thrown lookup failure silent and records its error kind', async () => {

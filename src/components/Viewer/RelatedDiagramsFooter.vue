@@ -223,13 +223,15 @@ const countProperties = () => ({
     : undefined,
 })
 
+// `.actor-top` covers both shapes Mermaid draws: `rect.actor.actor-top` for a
+// `participant`, and `g.actor-man.actor-top` for an `actor`. Matching only the rect
+// dropped every actor-shaped participant — the footer counted it, the diagram could
+// not show its circle (lite-stg page 237043717, participant `Dev`).
 function actorBox(actorId: string): SVGGraphicsElement | null {
   const escaped = (globalThis as any).CSS?.escape
     ? (globalThis as any).CSS.escape(actorId)
     : actorId.replace(/["\\]/g, '\\$&')
-  return (
-    hostEl.value?.querySelector<SVGGraphicsElement>(`rect.actor-top[name="${escaped}"]`) ?? null
-  )
+  return hostEl.value?.querySelector<SVGGraphicsElement>(`.actor-top[name="${escaped}"]`) ?? null
 }
 
 function layoutPills() {

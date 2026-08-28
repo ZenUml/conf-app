@@ -80,14 +80,40 @@ const SQL = {
   SELECT_LAPSE_CANDIDATES:
     "SELECT contact_email, app FROM lifecycle_contact WHERE step NOT IN ('done', 'lapsed')",
   MARK_LAPSED: `UPDATE lifecycle_contact SET step = 'lapsed' WHERE contact_email = ? AND app = ?`,
+  // One row per lapse TRANSITION, not per lapse pass -- markLapsedContactsCore
+  // only ever calls this for a row returned by SELECT_LAPSE_CANDIDATES, and
+  // that query's `step NOT IN ('done', 'lapsed')` guard already excludes a
+  // contact that lapsed on a prior run, so re-running the ingest against an
+  // already-lapsed contact never re-inserts a touchpoint for it (see
+  // ingestCore.spec.ts's "does not duplicate" test).
+  INSERT_LAPSE_TOUCHPOINT: `INSERT INTO lifecycle_touchpoint
+      (contact_email, app, kind, step, meta, created_at)
+   VALUES (?, ?, 'lapsed', 'lapsed', ?, ?)`,
   SELECT_FUNNEL: `SELECT app, step, license_type, COUNT(*) as count
      FROM lifecycle_contact
     GROUP BY app, step, license_type
     ORDER BY app, step, license_type`,
-  SELECT_TENANTS: `SELECT cloud_id, app, license_type, step, eval_ends_at, suppressed, last_seen_at
+  // contact_email is selected here ONLY to join against
+  // SELECT_LATEST_LAPSE_TOUCHPOINTS below (lapseKey()) -- buildSnapshotCore /
+  // buildSnapshotAsyncCore must never put it in the returned tenant object
+  // (privacy: the snapshot carries domains, never emails).
+  SELECT_TENANTS: `SELECT contact_email, cloud_id, app, seat_tier, license_type, step, eval_ends_at, suppressed, last_seen_at
      FROM lifecycle_contact
     ORDER BY app, last_seen_at DESC`,
+  // Latest lapse touchpoint per (contact_email, app) -- a contact can only be
+  // "not lapsed" (never lapsed) or "currently lapsed" (SELECT_LAPSE_CANDIDATES
+  // excludes step='lapsed' from ever lapsing again), so MAX(created_at) here
+  // is really "the" lapse touchpoint, but MAX is used defensively rather than
+  // assuming exactly one row.
+  SELECT_LATEST_LAPSE_TOUCHPOINTS: `SELECT contact_email, app, MAX(created_at) as lapsed_at
+     FROM lifecycle_touchpoint
+    WHERE kind = 'lapsed'
+    GROUP BY contact_email, app`,
 };
+
+// JSON meta stored on every lapse touchpoint -- one constant so the insert
+// and any future reader agree on shape without re-deriving it.
+const LAPSE_TOUCHPOINT_META = JSON.stringify({ reason: 'absent-or-inactive' });
 
 // ---------------------------------------------------------------------------
 // Row transform (pure, DB-free -- identical in both node and Worker runtime)
@@ -301,12 +327,17 @@ export function upsertContactCore(
 // 'done' is never overwritten -- excluded via the WHERE guard below; (2) the
 // UPDATE touches ONLY the `step` column, so `suppressed` (and every other
 // column) is never modified by lapsing.
-export function markLapsedContactsCore(adapter, seenActiveKeys) {
+//
+// Each transition also appends ONE lifecycle_touchpoint row (kind='lapsed',
+// step='lapsed', meta={reason:'absent-or-inactive'}, created_at=now) -- see
+// SQL.INSERT_LAPSE_TOUCHPOINT above for why this never duplicates on re-run.
+export function markLapsedContactsCore(adapter, seenActiveKeys, now = new Date().toISOString()) {
   const rows = adapter.all(SQL.SELECT_LAPSE_CANDIDATES, []);
   let lapsed = 0;
   for (const row of rows) {
     if (seenActiveKeys.has(lapseKey(row.contact_email, row.app))) continue;
     adapter.run(SQL.MARK_LAPSED, [row.contact_email, row.app]);
+    adapter.run(SQL.INSERT_LAPSE_TOUCHPOINT, [row.contact_email, row.app, LAPSE_TOUCHPOINT_META, now]);
     lapsed += 1;
   }
   return lapsed;
@@ -356,7 +387,7 @@ export function ingestRowsCore(adapter, rawRows, { bootstrap = false, now = new 
       summary.byApp[record.app][result] += 1;
     }
 
-    summary.lapsed = markLapsedContactsCore(adapter, seenActiveKeys);
+    summary.lapsed = markLapsedContactsCore(adapter, seenActiveKeys, now);
 
     adapter.exec('COMMIT');
   } catch (err) {
@@ -379,14 +410,19 @@ export function buildSnapshotCore(adapter, hostnameByCloudId, { generatedAt = ne
     .map((r) => ({ app: r.app, step: r.step, license_type: r.license_type, count: r.count }));
 
   const tenantRows = adapter.all(SQL.SELECT_TENANTS, []);
+  const lapsedAtByContact = new Map(
+    adapter.all(SQL.SELECT_LATEST_LAPSE_TOUCHPOINTS, []).map((r) => [lapseKey(r.contact_email, r.app), r.lapsed_at]),
+  );
 
   const tenants = tenantRows.map((r) => ({
     domain: hostnameByCloudId.get(r.cloud_id) ?? null,
     app: r.app,
+    seat_tier: r.seat_tier,
     license_type: r.license_type,
     step: r.step,
     eval_ends_at: r.eval_ends_at,
     eval_days_remaining: computeEvalDaysRemaining(r.license_type, r.eval_ends_at, generatedAt),
+    lapsed_at: lapsedAtByContact.get(lapseKey(r.contact_email, r.app)) ?? null,
     suppressed: r.suppressed,
     last_seen_at: r.last_seen_at,
   }));
@@ -438,12 +474,13 @@ export async function upsertContactAsyncCore(
   return 'inserted';
 }
 
-export async function markLapsedContactsAsyncCore(adapter, seenActiveKeys) {
+export async function markLapsedContactsAsyncCore(adapter, seenActiveKeys, now = new Date().toISOString()) {
   const rows = await adapter.all(SQL.SELECT_LAPSE_CANDIDATES, []);
   let lapsed = 0;
   for (const row of rows) {
     if (seenActiveKeys.has(lapseKey(row.contact_email, row.app))) continue;
     await adapter.run(SQL.MARK_LAPSED, [row.contact_email, row.app]);
+    await adapter.run(SQL.INSERT_LAPSE_TOUCHPOINT, [row.contact_email, row.app, LAPSE_TOUCHPOINT_META, now]);
     lapsed += 1;
   }
   return lapsed;
@@ -492,7 +529,7 @@ export async function ingestRowsAsyncCore(adapter, rawRows, { bootstrap = false,
     summary.byApp[record.app][result] += 1;
   }
 
-  summary.lapsed = await markLapsedContactsAsyncCore(adapter, seenActiveKeys);
+  summary.lapsed = await markLapsedContactsAsyncCore(adapter, seenActiveKeys, now);
 
   return { summary, hostnameByCloudId };
 }
@@ -502,14 +539,20 @@ export async function buildSnapshotAsyncCore(adapter, hostnameByCloudId, { gener
   const funnel = funnelRows.map((r) => ({ app: r.app, step: r.step, license_type: r.license_type, count: r.count }));
 
   const tenantRows = await adapter.all(SQL.SELECT_TENANTS, []);
+  const lapsedTouchpointRows = await adapter.all(SQL.SELECT_LATEST_LAPSE_TOUCHPOINTS, []);
+  const lapsedAtByContact = new Map(
+    lapsedTouchpointRows.map((r) => [lapseKey(r.contact_email, r.app), r.lapsed_at]),
+  );
 
   const tenants = tenantRows.map((r) => ({
     domain: hostnameByCloudId.get(r.cloud_id) ?? null,
     app: r.app,
+    seat_tier: r.seat_tier,
     license_type: r.license_type,
     step: r.step,
     eval_ends_at: r.eval_ends_at,
     eval_days_remaining: computeEvalDaysRemaining(r.license_type, r.eval_ends_at, generatedAt),
+    lapsed_at: lapsedAtByContact.get(lapseKey(r.contact_email, r.app)) ?? null,
     suppressed: r.suppressed,
     last_seen_at: r.last_seen_at,
   }));

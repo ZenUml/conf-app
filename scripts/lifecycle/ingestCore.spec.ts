@@ -62,6 +62,12 @@ function allContacts(db: InstanceType<typeof DatabaseSync>) {
     .all() as Array<Record<string, unknown>>;
 }
 
+function allTouchpoints(db: InstanceType<typeof DatabaseSync>) {
+  return db
+    .prepare('SELECT * FROM lifecycle_touchpoint ORDER BY id')
+    .all() as Array<Record<string, unknown>>;
+}
+
 // Minimal fake D1Database: same node:sqlite DatabaseSync underneath, wrapped
 // so `.prepare(sql).bind(...params).first()/.all()/.run()` behaves like the
 // real D1 API (results wrapped in `{ results }` for `.all()`), just
@@ -141,6 +147,18 @@ describe('createD1Adapter + ingestRowsAsyncCore parity with the sync core', () =
 
     expect(asyncSecondRun.summary.lapsed).toBe(2);
     expect(allContacts(asyncDb)).toEqual(allContacts(syncDb));
+
+    // Lapsing also writes a lifecycle_touchpoint row per transition (see
+    // ingestCore.mjs's INSERT_LAPSE_TOUCHPOINT) -- proves the async twin's
+    // touchpoint writes match the sync core's byte-for-byte, same as the
+    // contact rows above.
+    const syncTouchpoints = allTouchpoints(syncDb);
+    expect(syncTouchpoints).toHaveLength(2);
+    for (const tp of syncTouchpoints) {
+      expect(tp).toMatchObject({ kind: 'lapsed', step: 'lapsed', created_at: secondNow });
+      expect(JSON.parse(tp.meta as string)).toEqual({ reason: 'absent-or-inactive' });
+    }
+    expect(allTouchpoints(asyncDb)).toEqual(syncTouchpoints);
   });
 
   it('buildSnapshotAsyncCore matches buildSnapshotCore for the same D1 state', async () => {

@@ -38,7 +38,7 @@
 // entry point, and the node:sqlite driver.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -79,6 +79,31 @@ export function ingestRows(db, rawRows, opts) {
 
 export function buildSnapshot(db, hostnameByCloudId, opts) {
   return buildSnapshotCore(createNodeSqliteAdapter(db), hostnameByCloudId, opts);
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot file writes (real filesystem — Node-only). Factored out of main()
+// so it's independently unit-testable (pure fs side effects, no DB/network).
+// ---------------------------------------------------------------------------
+
+// Writes `snapshot` to `snapshotPath`, then ALSO writes a same-content daily
+// archive copy to `<dirname(snapshotPath)>/archive/<YYYY-MM-DD>.json`, UTC
+// date derived from `now` (an ISO string, always UTC per toISOString()).
+// Node CLI path only -- the Worker (workers/lifecycle-ingest/src/index.ts)
+// has no filesystem, so it has no equivalent call. Overwrites both files
+// unconditionally, so a same-day re-run replaces rather than duplicates that
+// day's archive entry. Returns the paths written, for logging/tests.
+export function writeSnapshotFiles(snapshotPath, snapshot, now) {
+  const snapshotJson = JSON.stringify(snapshot, null, 2);
+  writeFileSync(snapshotPath, snapshotJson);
+
+  const archiveDir = path.join(path.dirname(snapshotPath), 'archive');
+  const archiveDate = now.slice(0, 10); // YYYY-MM-DD, UTC
+  const archivePath = path.join(archiveDir, `${archiveDate}.json`);
+  mkdirSync(archiveDir, { recursive: true });
+  writeFileSync(archivePath, snapshotJson);
+
+  return { snapshotPath, archivePath };
 }
 
 // ---------------------------------------------------------------------------
@@ -214,10 +239,11 @@ async function main() {
 
   if (args.snapshot) {
     const snapshot = buildSnapshot(db, hostnameByCloudId, { generatedAt: now });
-    writeFileSync(args.snapshot, JSON.stringify(snapshot, null, 2));
+    const { snapshotPath, archivePath } = writeSnapshotFiles(args.snapshot, snapshot, now);
     console.log(
-      `[ingest-licenses] snapshot written to ${args.snapshot} (${snapshot.tenants.length} tenants, ${snapshot.funnel.length} funnel rows)`,
+      `[ingest-licenses] snapshot written to ${snapshotPath} (${snapshot.tenants.length} tenants, ${snapshot.funnel.length} funnel rows)`,
     );
+    console.log(`[ingest-licenses] daily archive written to ${archivePath}`);
   }
 
   db.close();

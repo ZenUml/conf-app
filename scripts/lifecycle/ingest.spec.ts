@@ -1,7 +1,8 @@
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ADDON_APP_MAP,
   buildSnapshot,
@@ -9,6 +10,7 @@ import {
   ingestRows,
   mapEvalWindow,
   transformRow,
+  writeSnapshotFiles,
 } from './ingest-licenses.mjs';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
@@ -48,6 +50,12 @@ function migratedDb() {
 function allContacts(db: InstanceType<typeof DatabaseSync>) {
   return db
     .prepare('SELECT * FROM lifecycle_contact ORDER BY app, contact_email')
+    .all() as Array<Record<string, unknown>>;
+}
+
+function allTouchpoints(db: InstanceType<typeof DatabaseSync>) {
+  return db
+    .prepare('SELECT * FROM lifecycle_touchpoint ORDER BY id')
     .all() as Array<Record<string, unknown>>;
 }
 
@@ -268,10 +276,12 @@ describe('buildSnapshot', () => {
     expect(liteTenant).toEqual({
       domain: 'example-tenant-one.atlassian.net',
       app: 'lite',
+      seat_tier: '1 Users', // makeRow()'s default tier, mapped straight through from the export
       license_type: 'FREE',
       step: 'welcome',
       eval_ends_at: null,
       eval_days_remaining: null, // FREE, not EVALUATION -> no countdown
+      lapsed_at: null, // never lapsed -> no lifecycle_touchpoint row to read from
       suppressed: 0,
       last_seen_at: now,
     });
@@ -463,6 +473,63 @@ describe('lapsed detection and re-appearance', () => {
       });
     },
   );
+
+  it('a lapse transition writes one lifecycle_touchpoint row (kind=lapsed, step=lapsed, meta.reason=absent-or-inactive)', () => {
+    const db = migratedDb();
+    const row = makeRow({ contactDetails: { technicalContact: { email: 'ada@example.com' } } });
+    ingestRows(db, [row], { bootstrap: false, now: '2026-08-20T00:00:00.000Z' });
+
+    ingestRows(db, [], { bootstrap: false, now: '2026-08-28T00:00:00.000Z' }); // absent -> lapses
+
+    const touchpoints = allTouchpoints(db);
+    expect(touchpoints).toHaveLength(1);
+    expect(touchpoints[0]).toMatchObject({
+      contact_email: 'ada@example.com',
+      app: 'lite',
+      kind: 'lapsed',
+      step: 'lapsed',
+      created_at: '2026-08-28T00:00:00.000Z',
+    });
+    expect(JSON.parse(touchpoints[0].meta as string)).toEqual({ reason: 'absent-or-inactive' });
+  });
+
+  it('re-lapse of an already-lapsed contact does NOT duplicate the touchpoint row', () => {
+    const db = migratedDb();
+    const row = makeRow({ contactDetails: { technicalContact: { email: 'ada@example.com' } } });
+    ingestRows(db, [row], { bootstrap: false, now: '2026-08-01T00:00:00.000Z' });
+    ingestRows(db, [], { bootstrap: false, now: '2026-08-10T00:00:00.000Z' }); // lapses -> 1 touchpoint
+
+    // Two more runs, both still absent: SELECT_LAPSE_CANDIDATES excludes
+    // step='lapsed', so neither one touches this contact again.
+    ingestRows(db, [], { bootstrap: false, now: '2026-08-20T00:00:00.000Z' });
+    ingestRows(db, [], { bootstrap: false, now: '2026-08-30T00:00:00.000Z' });
+
+    expect(allTouchpoints(db)).toHaveLength(1);
+  });
+
+  it('buildSnapshot exposes lapsed_at from the latest lapse touchpoint, and seat_tier from the contact record', () => {
+    const db = migratedDb();
+    const hostnameByCloudId = new Map([['cloud-example-1', 'example-tenant-one.atlassian.net']]);
+    const row = makeRow({
+      cloudId: 'cloud-example-1',
+      tier: '5 Users',
+      contactDetails: { technicalContact: { email: 'ada@example.com' } },
+    });
+    ingestRows(db, [row], { bootstrap: false, now: '2026-08-01T00:00:00.000Z' });
+    ingestRows(db, [], { bootstrap: false, now: '2026-08-10T00:00:00.000Z' }); // lapses
+
+    const snapshot = buildSnapshot(db, hostnameByCloudId, { generatedAt: '2026-08-10T00:00:00.000Z' });
+    const tenant = snapshot.tenants.find((t: Record<string, unknown>) => t.app === 'lite');
+    expect(tenant).toMatchObject({
+      seat_tier: '5 Users',
+      step: 'lapsed',
+      lapsed_at: '2026-08-10T00:00:00.000Z',
+    });
+
+    // lapsed_at, like every other tenant field, must never expose the email
+    // used to join it.
+    expect(JSON.stringify(snapshot)).not.toMatch(/@example\.com/);
+  });
 });
 
 describe('edge cases: malformed export rows', () => {
@@ -492,5 +559,50 @@ describe('edge cases: malformed export rows', () => {
     expect(summary.skipped.unmapped_addon).toBe(1);
     expect(summary.inserted).toBe(1);
     expect(allContacts(db)).toHaveLength(1);
+  });
+});
+
+describe('writeSnapshotFiles', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'lifecycle-snapshot-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('writes the snapshot to snapshotPath AND a same-content daily archive copy at archive/<YYYY-MM-DD>.json (UTC)', () => {
+    const snapshotPath = join(dir, 'lifecycle.json');
+    const snapshot = { generated_at: '2026-08-29T03:15:00.000Z', funnel: [], tenants: [] };
+
+    const { archivePath } = writeSnapshotFiles(snapshotPath, snapshot, '2026-08-29T03:15:00.000Z');
+
+    expect(archivePath).toBe(join(dir, 'archive', '2026-08-29.json'));
+    expect(existsSync(snapshotPath)).toBe(true);
+    expect(existsSync(archivePath)).toBe(true);
+    expect(JSON.parse(readFileSync(snapshotPath, 'utf8'))).toEqual(snapshot);
+    expect(JSON.parse(readFileSync(archivePath, 'utf8'))).toEqual(snapshot);
+  });
+
+  it('overwrites the same UTC day archive file on a second same-day run rather than duplicating it', () => {
+    const snapshotPath = join(dir, 'lifecycle.json');
+    const morningSnapshot = { generated_at: '2026-08-29T01:00:00.000Z', funnel: [], tenants: [{ app: 'lite' }] };
+    const eveningSnapshot = { generated_at: '2026-08-29T22:00:00.000Z', funnel: [], tenants: [] };
+
+    writeSnapshotFiles(snapshotPath, morningSnapshot, '2026-08-29T01:00:00.000Z');
+    const { archivePath } = writeSnapshotFiles(snapshotPath, eveningSnapshot, '2026-08-29T22:00:00.000Z');
+
+    expect(archivePath).toBe(join(dir, 'archive', '2026-08-29.json'));
+    expect(JSON.parse(readFileSync(archivePath, 'utf8'))).toEqual(eveningSnapshot); // replaced, not appended
+  });
+
+  it('derives the archive filename from the UTC calendar date, not local time', () => {
+    const snapshotPath = join(dir, 'lifecycle.json');
+    // 23:30 UTC is still 2026-08-29 in UTC even if the runner's local
+    // timezone would already have rolled over to 2026-08-30.
+    const { archivePath } = writeSnapshotFiles(snapshotPath, { generated_at: 'x', funnel: [], tenants: [] }, '2026-08-29T23:30:00.000Z');
+
+    expect(archivePath).toBe(join(dir, 'archive', '2026-08-29.json'));
   });
 });

@@ -65,6 +65,12 @@ export async function runLifecycleIngest(env: Env, now: string = new Date().toIS
   const { summary, hostnameByCloudId } = await ingestRowsAsyncCore(adapter, rawRows, { bootstrap: false, now });
   const snapshot = await buildSnapshotAsyncCore(adapter, hostnameByCloudId, { generatedAt: now });
 
+  // NOTE: the node CLI (scripts/lifecycle/ingest-licenses.mjs) additionally
+  // writes a daily archive copy of this snapshot to <snapshot-dir>/archive/
+  // <YYYY-MM-DD>.json. That step is intentionally skipped here: a Worker has
+  // no filesystem, so there is nothing to write to. If this path ever needs
+  // an archive, it has to be a D1 table or an R2/KV write, not a file.
+
   console.log(
     `[lifecycle-ingest] inserted=${summary.inserted} updated=${summary.updated} lapsed=${summary.lapsed} ` +
       `skipped=${JSON.stringify(summary.skipped)}`,

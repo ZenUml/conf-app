@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { confluencePageResolver, relatedDiagrams } from './service';
+import { PAGES_PER_KEY, confluencePageResolver, relatedDiagrams } from './service';
 
 const row = (o: Partial<Record<string, unknown>>) => ({
   contentId: '1',
@@ -25,6 +25,42 @@ function dbWith(byContent: unknown[], byKeys: unknown[]) {
     },
   } as unknown as D1Database;
 }
+
+describe('page budget', () => {
+  it('asks Confluence for one batch only, spread across keys, when a name recurs tenant-wide', async () => {
+    // `order.controller` reaches 3,388 pages on lite-stg; without a cap that is 34 CQL
+    // round trips, the 8s viewer budget expires and the reader sees nothing at all.
+    const wide = Array.from({ length: 3000 }, (_, i) =>
+      row({ contentId: `w${i}`, pageId: `${9000 + i}`, actorId: 'OC', comparisonKey: 'order.controller' }),
+    );
+    const narrow = Array.from({ length: 5 }, (_, i) =>
+      row({ contentId: `n${i}`, pageId: `${100 + i}`, actorId: 'INV', comparisonKey: 'invoice.service' }),
+    );
+    const own = [
+      row({ contentId: 'self', pageId: '1', actorId: 'OC', comparisonKey: 'order.controller' }),
+      row({ contentId: 'self', pageId: '1', actorId: 'INV', comparisonKey: 'invoice.service' }),
+    ];
+    const resolve = vi.fn(async (pageIds: string[]) =>
+      pageIds.map((id) => ({ id, title: `page ${id}`, spaceKey: 'OP' })),
+    );
+
+    const response = await relatedDiagrams(
+      dbWith(own, [...wide, ...narrow]),
+      'cloud-1',
+      'self',
+      resolve,
+    );
+
+    const asked = resolve.mock.calls[0][0];
+    expect(asked.length).toBeLessThanOrEqual(100);
+    // the common key cannot crowd out the rarer one
+    expect(asked.filter((id) => Number(id) >= 9000)).toHaveLength(PAGES_PER_KEY);
+    expect(asked.filter((id) => Number(id) < 9000)).toHaveLength(5);
+    const oc = response.participants.find((p) => p.actorId === 'OC')!;
+    expect(oc.related).toHaveLength(PAGES_PER_KEY);
+    expect(response.participants.find((p) => p.actorId === 'INV')!.related).toHaveLength(5);
+  });
+});
 
 describe('relatedDiagrams', () => {
   it('returns only pages the resolver (as-user) returned, excludes self, dedupes content, and keeps the label used there', async () => {

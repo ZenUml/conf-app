@@ -96,6 +96,26 @@ function byActor(rows: OccurrenceRow[]): Map<string, OccurrenceRow> {
   return declarations;
 }
 
+/** At most PAGES_PER_KEY pages per comparison key, and one CQL batch overall. */
+export const PAGES_PER_KEY = 24;
+const PAGE_BUDGET = 100;
+
+export function cappedPageIds(candidates: OccurrenceRow[]): string[] {
+  const perKey = new Map<string, Set<string>>();
+  const ordered: string[] = [];
+  const taken = new Set<string>();
+  for (const candidate of candidates) {
+    let pages = perKey.get(candidate.comparisonKey);
+    if (!pages) perKey.set(candidate.comparisonKey, (pages = new Set()));
+    if (pages.size >= PAGES_PER_KEY || taken.has(candidate.pageId)) continue;
+    pages.add(candidate.pageId);
+    taken.add(candidate.pageId);
+    ordered.push(candidate.pageId);
+    if (ordered.length >= PAGE_BUDGET) break;
+  }
+  return ordered;
+}
+
 export async function relatedDiagrams(
   db: D1Database,
   cloudId: string,
@@ -112,7 +132,12 @@ export async function relatedDiagrams(
   const keys = [...new Set(own.map((occurrence) => occurrence.comparisonKey))];
   const candidates = (await occurrencesForKeys(db, cloudId, keys))
     .filter((candidate) => candidate.contentId !== contentId);
-  const pageIds = [...new Set(candidates.map((candidate) => candidate.pageId))];
+
+  // A generic name recurs across a whole tenant: on lite-stg `order.controller` reaches
+  // 3,388 pages, which is 34 CQL round trips and misses the viewer's 8s budget, so the
+  // lookup times out and the reader sees nothing at all. Resolve at most one CQL batch,
+  // taken per key so one common name cannot crowd out the rest.
+  const pageIds = cappedPageIds(candidates);
 
   let pages: Map<string, ConfluencePageInfo>;
   try {

@@ -102,7 +102,7 @@ function latestRowsBySourceId(rows) {
   return [...latest.values()];
 }
 
-export async function readCorpus({ clientDomain, spaceId, appId, database, runWrangler: run = runWrangler }) {
+export async function readCorpus({ clientDomain, spaceId, extraSpaceIds, appId, database, runWrangler: run = runWrangler }) {
   let cloudId = null;
   let spaceIds;
   if (clientDomain) {
@@ -113,6 +113,13 @@ export async function readCorpus({ clientDomain, spaceId, appId, database, runWr
   } else {
     if (!spaceId) throw new Error('need --client-domain or --space-id');
     spaceIds = [String(spaceId)];
+  }
+  // `tenantSpacesSql` reaches spaces through DiagramAudience, so a space nobody has
+  // viewed yet contributes nothing — on lite-stg that hid 7 of 9 spaces and the last
+  // run indexed 2. Pass the tenant's remaining space ids (Confluence is the source of
+  // truth for which spaces the tenant owns) to close that gap.
+  if (extraSpaceIds?.length) {
+    spaceIds = [...new Set([...spaceIds, ...extraSpaceIds.map(String)])].sort();
   }
   const rows = (await run(corpusSql({ spaceIds, appId }), database))[0]?.results ?? [];
   // `mermaidRows` is the legacy report field; it reports effective current
@@ -125,14 +132,15 @@ export async function readCorpus({ clientDomain, spaceId, appId, database, runWr
 if (import.meta.url === `file://${process.argv[1]}`) {
   const clientDomain = arg('client-domain');
   const spaceId = arg('space-id');
+  const extraSpaceIds = (arg('space-ids') ?? '').split(',').map((v) => v.trim()).filter(Boolean);
   const appId = arg('app-id');
   const database = arg('database');
   const out = arg('out');
   if ((!clientDomain && !spaceId) || !database || !out) {
-    console.error('usage: read-corpus.mjs (--client-domain <d> | --space-id <id> [--app-id <uuid>]) --database <d1-name> --out <file>');
+    console.error('usage: read-corpus.mjs (--client-domain <d> [--space-ids <id,id>] | --space-id <id> [--app-id <uuid>]) --database <d1-name> --out <file>');
     process.exit(2);
   }
-  const corpus = await readCorpus({ clientDomain, spaceId, appId, database });
+  const corpus = await readCorpus({ clientDomain, spaceId, extraSpaceIds, appId, database });
   await writeFile(out, JSON.stringify(corpus), { mode: 0o600 });
   console.log(JSON.stringify({ spaces: corpus.spaceIds.length, mermaidRows: corpus.mermaidRows, sequenceSources: corpus.sources.length, notSequence: corpus.notSequence, out }));
 }

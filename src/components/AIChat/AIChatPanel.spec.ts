@@ -2,14 +2,37 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AIChatPanel from './AIChatPanel.vue'
 import { runAIChatSession } from '@/services/AIChatSessionService'
+import {
+  getDiagramlyVersions,
+  restoreDiagramlyVersion,
+} from '@/services/GenerateService'
 
 vi.mock('@/services/AIChatSessionService', () => ({
   runAIChatSession: vi.fn(),
 }))
 
+vi.mock('@/services/GenerateService', () => ({
+  getDiagramlyVersions: vi.fn(),
+  restoreDiagramlyVersion: vi.fn(),
+}))
+
+const initialVersion = {
+  id: 'version-1',
+  diagramId: 'diagram-1',
+  versionNumber: 1,
+  createdAt: '2026-08-29T01:00:00.000Z',
+  content: { code: 'A->B: original' },
+}
+
 describe('AIChatPanel core flow', () => {
   beforeEach(() => {
     vi.mocked(runAIChatSession).mockReset()
+    vi.mocked(getDiagramlyVersions).mockReset()
+    vi.mocked(restoreDiagramlyVersion).mockReset()
+    vi.mocked(getDiagramlyVersions).mockResolvedValue({
+      versions: [initialVersion],
+      diagram: { id: 'diagram-1', currentVersionId: 'version-1' },
+    })
   })
 
   it('only renders while open', async () => {
@@ -77,6 +100,7 @@ describe('AIChatPanel core flow', () => {
     expect(wrapper.emitted('apply-code')).toEqual([['A->B: updated']])
     expect(wrapper.emitted('apply')).toHaveLength(1)
     expect(wrapper.get('[data-testid="ai-change-preview"]').text()).toContain('Changes applied')
+    expect(wrapper.get('[data-testid="ai-chat-undo"]').exists()).toBe(true)
 
     await wrapper.get('.ai-chat-diff-toggle').trigger('click')
     const diff = wrapper.get('[data-testid="ai-chat-diff"]')
@@ -141,6 +165,203 @@ describe('AIChatPanel core flow', () => {
     expect(wrapper.text()).toContain('Syntax fixed')
     expect(wrapper.find('[data-testid="ai-chat-syntax-issue"]').exists()).toBe(false)
     expect(wrapper.emitted('apply-code')).toEqual([['A->B: fixed']])
+  })
+
+  it('loads the complete saved history once and marks the current version', async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValueOnce({
+      versions: [
+        initialVersion,
+        {
+          id: 'version-2',
+          diagramId: 'diagram-1',
+          versionNumber: 2,
+          instruction: 'Add retry path',
+          createdAt: '2026-08-29T01:01:00.000Z',
+          content: { code: 'A->B: retry' },
+        },
+      ],
+      diagram: { id: 'diagram-1', currentVersionId: 'version-2' },
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramlyDiagramId: 'diagram-1',
+        currentCode: 'A->B: retry',
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+    const history = wrapper.get('[data-testid="ai-chat-history-panel"]')
+
+    expect(history.text()).toContain('Initial version')
+    expect(history.text()).toContain('Add retry path')
+    expect(history.get('.is-current').text()).toContain('v2')
+    expect(history.get('.is-current').text()).toContain('Current')
+
+    await history.get('[aria-label="Close diagram versions"]').trigger('click')
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+    expect(getDiagramlyVersions).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores a historical version as a new audited version and applies its code', async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValueOnce({
+      versions: [
+        initialVersion,
+        {
+          id: 'version-2',
+          diagramId: 'diagram-1',
+          versionNumber: 2,
+          instruction: 'Current update',
+          createdAt: '2026-08-29T01:01:00.000Z',
+          content: { code: 'A->B: current' },
+        },
+      ],
+      diagram: { id: 'diagram-1', currentVersionId: 'version-2' },
+    })
+    vi.mocked(restoreDiagramlyVersion).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      diagramCode: 'A->B: original',
+      version: {
+        id: 'version-3',
+        diagramId: 'diagram-1',
+        versionNumber: 3,
+        instruction: 'Restored from version 1',
+        createdAt: '2026-08-29T01:02:00.000Z',
+        content: { code: 'A->B: original' },
+      },
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramlyDiagramId: 'diagram-1',
+        currentCode: 'A->B: current',
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+    const restore = wrapper.findAll('.ai-chat-rollback').find(
+      (button) => button.text() === 'Restore version',
+    )
+    expect(restore).toBeDefined()
+    await restore!.trigger('click')
+    await flushPromises()
+
+    expect(restoreDiagramlyVersion).toHaveBeenCalledWith('diagram-1', 'version-1')
+    expect(wrapper.emitted('apply-code')).toEqual([['A->B: original']])
+    expect(wrapper.text()).toContain('Version restored')
+    expect(wrapper.text()).toContain('saved it as v3')
+    expect(wrapper.find('[data-testid="ai-chat-history-panel"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+    expect(wrapper.get('[data-testid="ai-chat-history-panel"]').text()).toContain('v3')
+    expect(wrapper.get('[data-testid="ai-chat-history-panel"] .is-current').text()).toContain('v3')
+  })
+
+  it('undoes an AI change through restore-version and disables repeated undo', async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValueOnce({
+      versions: [initialVersion],
+      diagram: { id: 'diagram-1', currentVersionId: 'version-1' },
+    })
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      diagramCreated: false,
+      updatedCode: 'A->B: changed',
+      versionId: 'version-2',
+      versionNumber: 2,
+      jobId: 'job-1',
+    })
+    vi.mocked(restoreDiagramlyVersion).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      diagramCode: 'A->B: original',
+      version: {
+        id: 'version-3',
+        diagramId: 'diagram-1',
+        versionNumber: 3,
+        instruction: 'Restored from version 1',
+        createdAt: '2026-08-29T01:02:00.000Z',
+        content: { code: 'A->B: original' },
+      },
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramlyDiagramId: 'diagram-1',
+        currentCode: 'A->B: original',
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Change the flow')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper.get('[data-testid="ai-chat-undo"]').trigger('click')
+    await flushPromises()
+
+    expect(restoreDiagramlyVersion).toHaveBeenCalledWith('diagram-1', 'version-1')
+    expect(wrapper.text()).toContain('Changes undone')
+    expect(wrapper.emitted('apply-code')).toEqual([
+      ['A->B: changed'],
+      ['A->B: original'],
+    ])
+    expect(wrapper.find('[data-testid="ai-chat-undo"]').exists()).toBe(false)
+  })
+
+  it('opens and closes the selected line diff in a full-screen dialog', async () => {
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      diagramCreated: false,
+      updatedCode: 'A->B: changed',
+      versionId: 'version-2',
+      versionNumber: 2,
+      jobId: 'job-1',
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramlyDiagramId: 'diagram-1',
+        currentCode: 'A->B: original',
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Change the flow')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper.get('.ai-chat-diff-toggle').trigger('click')
+    await wrapper.get('[data-testid="ai-chat-diff-expand"]').trigger('click')
+
+    const fullscreen = wrapper.get('[data-testid="ai-chat-diff-fullscreen"]')
+    expect(fullscreen.attributes('aria-modal')).toBe('true')
+    expect(fullscreen.text()).toContain('A->B: original')
+    expect(fullscreen.text()).toContain('A->B: changed')
+
+    await fullscreen.get('[data-testid="ai-chat-diff-fullscreen-close"]').trigger('click')
+    expect(wrapper.find('[data-testid="ai-chat-diff-fullscreen"]').exists()).toBe(false)
+  })
+
+  it('shows a retryable version-history error', async () => {
+    vi.mocked(getDiagramlyVersions)
+      .mockRejectedValueOnce(new Error('History unavailable'))
+      .mockResolvedValueOnce({
+        versions: [initialVersion],
+        diagram: { id: 'diagram-1', currentVersionId: 'version-1' },
+      })
+    const wrapper = mount(AIChatPanel, {
+      props: { open: true, diagramlyDiagramId: 'diagram-1' },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+    expect(wrapper.get('[data-testid="ai-chat-history-error"]').text()).toContain(
+      'Saved versions could not be loaded',
+    )
+    await wrapper.get('[data-testid="ai-chat-history-retry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="ai-chat-history-error"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="ai-chat-history-panel"]').text()).toContain('Initial version')
+    expect(getDiagramlyVersions).toHaveBeenCalledTimes(2)
   })
 
   it('aborts active work when closing or unmounting', async () => {

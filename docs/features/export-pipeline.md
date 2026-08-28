@@ -126,7 +126,15 @@ Query pattern: find `macro_export_failed` events and join to `attachment_upload_
 
 ## Failure modes and mitigations
 
-### attachment_not_found — 65% of failures
+### attachment_not_found — 96% of failures
+
+> **Stale figures warning.** The percentages and counts in this section (and
+> the "517/mo" in `docs/features/paywall.md`) predate commit `528817f`, which
+> gave export events a UUID `$insert_id`; before it Mixpanel collapsed every
+> macro of one page export into one event, undercounting by ~190x. A second
+> break follows on 2026-08-26 (event sampling). For current numbers and the
+> failure breakdown by format, tenant and diagram type, see
+> [attachment-not-found-analysis.md](../analytics/attachment-not-found-analysis.md).
 
 **Cause A — Race condition:** Export triggered before the viewer finishes uploading the PNG (seconds-level window). Confirmed by same-session recoveries with avg time ~9 min; some recover in < 10 seconds.
 

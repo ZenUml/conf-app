@@ -92,7 +92,7 @@ The gating decision below blocks all nudge-funnel code.
 
 ### C. Cross-funnel — ship regardless
 
-9. **Failure-taxonomy debt** — triage `unexpected_error` (142/mo, 20% of export failures); kill `attachment_not_found` (517/mo, 71%) by auto-regenerating the PNG on export when missing.
+9. **Failure-taxonomy debt** — triage `unexpected_error` (142/mo, 20% of export failures); kill `attachment_not_found` (~58k/28d and 96% of export failures once measured correctly — see [attachment-not-found-analysis.md](../analytics/attachment-not-found-analysis.md); the old 517/mo figure undercounted ~190x) by auto-regenerating the PNG on export when missing.
 
 ### D. Open strategic questions
 

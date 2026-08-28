@@ -709,6 +709,75 @@ export type AnalyticsProperties = {
   // engagement decision is legible against the evaluation window without a
   // join back to D1 at read time. Negative once the eval window has lapsed.
   eval_days_remaining?: number;
+  // Lifecycle CRM auto-welcome (lifecycle_contact_imported / welcome_auto_queued
+  // / welcome_blocked / email_step_failed / email_step_retried /
+  // lifecycle_automation_toggled / contact_duplicate_detected /
+  // lifecycle_config_published — catalog.ts, migration 0025). `step`,
+  // `product_type`, `cloud_id` and `failure_reason` above are reused rather
+  // than re-declared.
+  //
+  // lifecycle_contact_imported only: whether ingestCore inserted this
+  // contact with suppressed=1 (pre-existing Marketplace backlog, --bootstrap
+  // run) rather than suppressed=0 (a genuinely new contact seen on an
+  // incremental run).
+  bootstrap?: boolean;
+  // welcome_blocked only: which deterministic eligibility check failed, in
+  // evaluateEligibility()'s check order (senderCore.mjs, migration 0025):
+  // invalid_email (fails the RFC-lite regex) -> app_not_allowed (app not in
+  // the allowed map) -> rtbf (email === 'RTBF') -> unsubscribed
+  // (unsubscribed_at set) -> suppressed (suppressed=1, not a bootstrap row)
+  // -> bootstrap_backlog (suppressed=1 AND the imported touchpoint's
+  // meta.bootstrap=true — the pre-existing Marketplace backlog, never
+  // auto-sent) -> already_sent (a prior touchpoint kind='email_sent'
+  // step='welcome' exists) -> retries_exhausted (retry_count >= max_retries).
+  // Two more values come from the RUN-level gates rather than per-contact
+  // eligibility: automation_off (the global kill switch) and app_paused (the
+  // contact's app is in paused_apps) — both are transient (not persisted as
+  // the contact's welcome_state) and rate_limited (the run's
+  // rate_limit_per_run cap was reached before this contact was reached; also
+  // not persisted). duplicate_uncertain is reserved for a future stricter
+  // dedup pass — the current duplicate check (see duplicate_reason below) is
+  // deliberately non-blocking.
+  block_reason?:
+    | 'invalid_email'
+    | 'app_not_allowed'
+    | 'rtbf'
+    | 'unsubscribed'
+    | 'suppressed'
+    | 'bootstrap_backlog'
+    | 'already_sent'
+    | 'duplicate_uncertain'
+    | 'automation_off'
+    | 'app_paused'
+    | 'rate_limited'
+    | 'retries_exhausted';
+  // lifecycle_contact.retry_count (migration 0025) after this event's
+  // change — email_step_failed's post-increment count, or
+  // email_step_retried's reset-to-0.
+  retry_count?: number;
+  // email_step_retried only: who reset retry_count to 0 — the sender itself
+  // re-queuing a 'failed' (not yet exhausted) contact on its next due pass,
+  // or an operator running `lifecycle-admin.mjs retry <email> <app>`.
+  retry_source?: 'auto' | 'operator';
+  // lifecycle_automation_toggled only: whether the toggle applied to the
+  // global automation_enabled kill switch or a single app's entry in
+  // paused_apps (product_type above identifies which app, when
+  // automation_scope='app').
+  automation_scope?: 'global' | 'app';
+  automation_enabled?: boolean;
+  // contact_duplicate_detected only: which of ingestCore's two grouping
+  // rules matched — the same email address used across different apps, or
+  // the same (cloud_id, app) tenant registering more than one contact email
+  // — and how many contacts are now in that duplicate group. Non-blocking:
+  // this only flags the group for operator review (see block_reason above).
+  duplicate_reason?: 'same_email_multi_app' | 'same_tenant_multi_email';
+  duplicate_count?: number;
+  // lifecycle_config_published only: the one release-gated event in the
+  // whole flow (see block_reason's header comment) — which kind of config
+  // was published, and its new version string. Individual welcome sends are
+  // never gated; only template/rule CHANGES go through this event.
+  config_kind?: 'template' | 'rule';
+  config_version?: string;
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

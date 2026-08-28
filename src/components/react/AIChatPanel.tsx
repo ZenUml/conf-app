@@ -8,15 +8,24 @@ import React, {
 } from "react";
 import {
   AI_CHAT_SUGGESTIONS,
+  buildDiffLines,
   createCodePreview,
+  formatVersionTime,
+  type AIChatChangePreview,
   type AIChatChangeKind,
   type AIChatMessage,
   type AIChatSuggestion,
+  type AIChatVersion,
 } from "@/components/AIChat/aiChatPrototype";
 import {
   runAIChatSession,
   type AIChatSessionStage,
 } from "@/services/AIChatSessionService";
+import {
+  getDiagramlyVersions,
+  restoreDiagramlyVersion,
+  type DiagramlyVersion,
+} from "@/services/GenerateService";
 
 export type { AIChatMessage };
 
@@ -81,14 +90,29 @@ export default function AIChatPanel({
     initialMessages.map(cloneMessage),
   );
   const [isThinking, setIsThinking] = useState(false);
+  const [isRestoringVersion, setIsRestoringVersion] = useState(false);
   const [activeStage, setActiveStage] = useState<AIChatSessionStage | null>(null);
   const [openDiffIds, setOpenDiffIds] = useState<string[]>([]);
+  const [expandedDiffMessageId, setExpandedDiffMessageId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [versions, setVersions] = useState<AIChatVersion[]>([]);
+  const [versionsStatus, setVersionsStatus] = useState<
+    "idle" | "loading" | "loaded" | "failed"
+  >("idle");
+  const [restoringVersionId, setRestoringVersionId] = useState("");
+  const [restoringAction, setRestoringAction] = useState<"undo" | "rollback" | null>(null);
   const [syntaxResolved, setSyntaxResolved] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeControllerRef = useRef<AbortController | null>(null);
   const activeDiagramIdRef = useRef(diagramlyDiagramId.trim());
   const activeCodeRef = useRef(currentCode);
   const activeVersionIdRef = useRef("");
+  const versionsRef = useRef<AIChatVersion[]>([]);
+  const versionsStatusRef = useRef<"idle" | "loading" | "loaded" | "failed">("idle");
+  const versionsDiagramIdRef = useRef("");
+  const versionsRequestSequenceRef = useRef(0);
+  const versionLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const restoreRequestSequenceRef = useRef(0);
   const lastHandledSyntaxRepairRequestIdRef = useRef(0);
   const messageSequenceRef = useRef(0);
 
@@ -102,19 +126,137 @@ export default function AIChatPanel({
     return labels[diagramType.toLowerCase()] || "Current";
   }, [diagramType]);
   const activeStageIndex = stages.findIndex((stage) => stage.key === activeStage);
-  const canSubmit = prompt.trim().length > 0 && !isThinking;
+  const isBusy = isThinking || isRestoringVersion;
+  const canSubmit = prompt.trim().length > 0 && !isBusy;
   const visibleSyntaxError = Boolean(syntaxError) && !syntaxResolved;
   const syntaxErrorSummary = syntaxError.split("\n")[0];
+  const reversedVersions = useMemo(
+    () => [...versions].sort((first, second) => second.versionNumber - first.versionNumber),
+    [versions],
+  );
+  const versionCountLabel = versionsStatus === "loading"
+    ? "..."
+    : versionsStatus === "failed"
+      ? "!"
+      : String(versions.length);
+  const expandedDiffPreview = useMemo(
+    () => messages.find((message) => message.id === expandedDiffMessageId)?.preview || null,
+    [expandedDiffMessageId, messages],
+  );
 
   function nextMessageId(role: AIChatMessage["role"]): string {
     messageSequenceRef.current += 1;
     return `${role}-${Date.now()}-${messageSequenceRef.current}`;
   }
 
+  function updateVersionsStatus(
+    status: "idle" | "loading" | "loaded" | "failed",
+  ): void {
+    versionsStatusRef.current = status;
+    setVersionsStatus(status);
+  }
+
+  function replaceVersions(nextVersions: AIChatVersion[]): void {
+    versionsRef.current = nextVersions;
+    setVersions(nextVersions);
+  }
+
+  function toAIChatVersion(version: DiagramlyVersion): AIChatVersion {
+    const instruction = version.instruction?.trim();
+    return {
+      id: version.id,
+      versionNumber: version.versionNumber,
+      summary: version.versionNumber === 1
+        ? "Initial version"
+        : instruction || version.title || `Version ${version.versionNumber}`,
+      detail: version.comment || (instruction
+        ? `Created from: ${instruction}`
+        : `Saved Diagramly version ${version.versionNumber}.`),
+      syntaxResolved: true,
+      time: formatVersionTime(version.createdAt),
+      code: version.content?.code,
+    };
+  }
+
+  function nextVersionNumber(): number {
+    return Math.max(0, ...versionsRef.current.map((version) => version.versionNumber)) + 1;
+  }
+
+  function upsertVersion(version: AIChatVersion): void {
+    const existingIndex = versionsRef.current.findIndex((item) => item.id === version.id);
+    const nextVersions = [...versionsRef.current];
+    if (existingIndex >= 0) nextVersions.splice(existingIndex, 1, version);
+    else nextVersions.push(version);
+    replaceVersions(nextVersions);
+  }
+
+  async function loadPersistedVersions(
+    diagramId = activeDiagramIdRef.current,
+    force = false,
+  ): Promise<void> {
+    if (!diagramId) {
+      replaceVersions([]);
+      updateVersionsStatus("loaded");
+      versionsDiagramIdRef.current = "";
+      activeVersionIdRef.current = "";
+      return;
+    }
+    if (!force && versionsDiagramIdRef.current === diagramId) {
+      if (versionsStatusRef.current === "loaded") return;
+      if (versionsStatusRef.current === "loading" && versionLoadPromiseRef.current) {
+        await versionLoadPromiseRef.current;
+        return;
+      }
+    }
+
+    const requestId = ++versionsRequestSequenceRef.current;
+    versionsDiagramIdRef.current = diagramId;
+    updateVersionsStatus("loading");
+    const request = (async () => {
+      try {
+        const result = await getDiagramlyVersions(diagramId);
+        if (
+          requestId !== versionsRequestSequenceRef.current
+          || activeDiagramIdRef.current !== diagramId
+        ) {
+          return;
+        }
+
+        const nextVersions = [...(result.versions || [])]
+          .sort((first, second) => first.versionNumber - second.versionNumber)
+          .map(toAIChatVersion);
+        replaceVersions(nextVersions);
+        activeVersionIdRef.current = result.diagram?.currentVersionId
+          || nextVersions[nextVersions.length - 1]?.id
+          || "";
+        updateVersionsStatus("loaded");
+      } catch {
+        if (
+          requestId === versionsRequestSequenceRef.current
+          && activeDiagramIdRef.current === diagramId
+        ) {
+          updateVersionsStatus("failed");
+        }
+      }
+    })();
+
+    versionLoadPromiseRef.current = request;
+    await request;
+    if (versionLoadPromiseRef.current === request) versionLoadPromiseRef.current = null;
+  }
+
+  function retryLoadVersions(): void {
+    void loadPersistedVersions(activeDiagramIdRef.current, true);
+  }
+
   function cancelActiveRequest(): void {
     activeControllerRef.current?.abort();
     activeControllerRef.current = null;
+    restoreRequestSequenceRef.current += 1;
     setIsThinking(false);
+    setIsRestoringVersion(false);
+    setRestoringVersionId("");
+    setRestoringAction(null);
     setActiveStage(null);
   }
 
@@ -128,13 +270,41 @@ export default function AIChatPanel({
   }
 
   function toggleDiff(messageId: string): void {
-    setOpenDiffIds((current) => current.includes(messageId)
-      ? current.filter((id) => id !== messageId)
-      : [...current, messageId]);
+    const opened = !openDiffIds.includes(messageId);
+    setOpenDiffIds((current) => opened
+      ? [...current, messageId]
+      : current.filter((id) => id !== messageId));
+    if (!opened && expandedDiffMessageId === messageId) closeExpandedDiff();
+  }
+
+  function openExpandedDiff(messageId: string): void {
+    const message = messages.find((item) => item.id === messageId);
+    if (!message?.preview) return;
+    setExpandedDiffMessageId(messageId);
+    setHistoryOpen(false);
+  }
+
+  function closeExpandedDiff(): void {
+    setExpandedDiffMessageId(null);
+  }
+
+  function openHistory(): void {
+    if (!activeDiagramIdRef.current) return;
+    setExpandedDiffMessageId(null);
+    setHistoryOpen(true);
+    if (versionsStatusRef.current === "idle") {
+      void loadPersistedVersions(activeDiagramIdRef.current);
+    }
+  }
+
+  function closeHistory(): void {
+    setHistoryOpen(false);
   }
 
   function handleClose(): void {
     cancelActiveRequest();
+    closeExpandedDiff();
+    closeHistory();
     onClose();
   }
 
@@ -150,10 +320,9 @@ export default function AIChatPanel({
     textOverride?: string,
   ): Promise<boolean> {
     const text = (textOverride ?? prompt).trim();
-    if (!text || isThinking) return false;
+    if (!text || isBusy) return false;
 
     const previousCode = activeCodeRef.current;
-    const previousVersionId = activeVersionIdRef.current;
     const controller = new AbortController();
     activeControllerRef.current = controller;
     setIsThinking(true);
@@ -166,6 +335,11 @@ export default function AIChatPanel({
     onSend?.(text);
 
     try {
+      if (activeDiagramIdRef.current && versionsStatusRef.current !== "loaded") {
+        await loadPersistedVersions(activeDiagramIdRef.current);
+        if (controller.signal.aborted) return false;
+      }
+
       const result = await runAIChatSession({
         diagramId: activeDiagramIdRef.current,
         diagramCode: previousCode,
@@ -181,13 +355,27 @@ export default function AIChatPanel({
           if (activeControllerRef.current !== controller) return;
           activeDiagramIdRef.current = diagramId;
           await onDiagramlyDiagramBound?.(diagramId);
+          await loadPersistedVersions(diagramId, true);
         },
       });
       if (activeControllerRef.current !== controller) return false;
 
+      const previousVersionId = activeVersionIdRef.current;
       activeDiagramIdRef.current = result.diagramId;
       activeCodeRef.current = result.updatedCode;
       activeVersionIdRef.current = result.versionId;
+      upsertVersion({
+        id: result.versionId,
+        versionNumber: result.versionNumber || nextVersionNumber(),
+        summary: kind === "syntax_repair" ? "Fixed syntax issue" : text,
+        detail: kind === "syntax_repair"
+          ? "Corrected the syntax issue through AI Chat."
+          : `Created from: ${text}`,
+        syntaxResolved: kind === "syntax_repair" || !syntaxError,
+        time: result.createdAt ? formatVersionTime(result.createdAt) : formatVersionTime(),
+        code: result.updatedCode,
+      });
+      if (versionsStatusRef.current !== "failed") updateVersionsStatus("loaded");
       const preview = createCodePreview(
         diagramTypeLabel,
         kind,
@@ -195,7 +383,9 @@ export default function AIChatPanel({
         result.updatedCode,
       );
       preview.versionId = result.versionId;
-      preview.previousVersionId = previousVersionId || undefined;
+      preview.previousVersionId = previousVersionId && previousVersionId !== result.versionId
+        ? previousVersionId
+        : undefined;
       const message: AIChatMessage = {
         id: nextMessageId("assistant"),
         role: "assistant",
@@ -235,6 +425,100 @@ export default function AIChatPanel({
     }
   }
 
+  async function undoPreview(preview: AIChatChangePreview): Promise<void> {
+    const targetVersionId = preview.previousVersionId;
+    if (!targetVersionId) return;
+
+    const restored = await restoreTargetVersion(targetVersionId, "undo");
+    if (restored) {
+      setMessages((current) => current.map((message) => (
+        message.preview === preview
+          ? { ...message, preview: { ...preview, previousVersionId: undefined } }
+          : message
+      )));
+    }
+  }
+
+  function restoreVersion(version: AIChatVersion): void {
+    if (version.id === activeVersionIdRef.current) return;
+    void restoreTargetVersion(version.id, "rollback");
+  }
+
+  async function restoreTargetVersion(
+    targetVersionId: string,
+    kind: "undo" | "rollback",
+  ): Promise<boolean> {
+    if (!activeDiagramIdRef.current || isBusy) return false;
+
+    const requestId = ++restoreRequestSequenceRef.current;
+    const previousCode = activeCodeRef.current;
+    const targetVersion = versionsRef.current.find(
+      (version) => version.id === targetVersionId,
+    );
+    setIsRestoringVersion(true);
+    setRestoringVersionId(targetVersionId);
+    setRestoringAction(kind);
+
+    try {
+      const result = await restoreDiagramlyVersion(
+        activeDiagramIdRef.current,
+        targetVersionId,
+      );
+      if (requestId !== restoreRequestSequenceRef.current) return false;
+
+      const restoredVersion = toAIChatVersion(result.version);
+      const restoredCode = result.diagramCode ?? result.version.content?.code ?? "";
+      if (!restoredCode) {
+        throw new Error("Diagramly restored a version without diagram code");
+      }
+
+      activeCodeRef.current = restoredCode;
+      activeVersionIdRef.current = restoredVersion.id;
+      upsertVersion({ ...restoredVersion, code: restoredCode });
+      updateVersionsStatus("loaded");
+      const message: AIChatMessage = {
+        id: nextMessageId("assistant"),
+        role: "assistant",
+        text: "",
+        preview: {
+          title: kind === "undo" ? "Changes undone" : "Version restored",
+          kind,
+          versionId: restoredVersion.id,
+          updatedCode: restoredCode,
+          items: [
+            `Restored v${targetVersion?.versionNumber || "?"} and saved it as v${restoredVersion.versionNumber}.`,
+          ],
+          diffLocation: `${diagramTypeLabel} diagram`,
+          diffLines: buildDiffLines(previousCode, restoredCode),
+        },
+      };
+
+      setMessages((current) => [...current, message]);
+      setHistoryOpen(false);
+      onApplyCode?.(restoredCode);
+      onApply?.(message);
+      return true;
+    } catch (error) {
+      if (requestId !== restoreRequestSequenceRef.current) return false;
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      setMessages((current) => [
+        ...current,
+        {
+          id: nextMessageId("assistant"),
+          role: "assistant",
+          text: `AI Chat could not restore the version: ${detail}`,
+        },
+      ]);
+      return false;
+    } finally {
+      if (requestId === restoreRequestSequenceRef.current) {
+        setIsRestoringVersion(false);
+        setRestoringVersionId("");
+        setRestoringAction(null);
+      }
+    }
+  }
+
   function submitForm(event: FormEvent): void {
     event.preventDefault();
     void submitPrompt();
@@ -247,15 +531,45 @@ export default function AIChatPanel({
     }
   }
 
+  function handlePanelKeyDown(event: KeyboardEvent<HTMLElement>): void {
+    if (event.key !== "Escape") return;
+    if (expandedDiffMessageId) {
+      closeExpandedDiff();
+      return;
+    }
+    if (historyOpen) {
+      closeHistory();
+      return;
+    }
+    handleClose();
+  }
+
   useEffect(() => {
     if (!activeControllerRef.current) activeCodeRef.current = currentCode;
   }, [currentCode]);
 
   useEffect(() => {
     if (!activeControllerRef.current) {
-      activeDiagramIdRef.current = diagramlyDiagramId.trim();
+      const normalizedDiagramId = diagramlyDiagramId.trim();
+      if (normalizedDiagramId !== activeDiagramIdRef.current) {
+        activeDiagramIdRef.current = normalizedDiagramId;
+        activeVersionIdRef.current = "";
+        replaceVersions([]);
+        versionsDiagramIdRef.current = "";
+        updateVersionsStatus("idle");
+      }
     }
   }, [diagramlyDiagramId]);
+
+  useEffect(() => {
+    if (
+      open
+      && activeDiagramIdRef.current
+      && versionsStatusRef.current === "idle"
+    ) {
+      void loadPersistedVersions(activeDiagramIdRef.current);
+    }
+  }, [diagramlyDiagramId, open]);
 
   useEffect(() => {
     if (syntaxError) setSyntaxResolved(false);
@@ -267,21 +581,27 @@ export default function AIChatPanel({
       || !syntaxRepairRequestId
       || syntaxRepairRequestId === lastHandledSyntaxRepairRequestIdRef.current
       || !syntaxError
-      || isThinking
+      || isBusy
     ) {
       return;
     }
 
     lastHandledSyntaxRepairRequestIdRef.current = syntaxRepairRequestId;
     repairSyntax();
-  }, [isThinking, open, syntaxError, syntaxRepairRequestId]);
+  }, [isBusy, open, syntaxError, syntaxRepairRequestId]);
 
   useEffect(() => {
-    if (!open) cancelActiveRequest();
+    if (!open) {
+      cancelActiveRequest();
+      closeExpandedDiff();
+      closeHistory();
+    }
   }, [open]);
 
   useEffect(() => () => {
     activeControllerRef.current?.abort();
+    versionsRequestSequenceRef.current += 1;
+    restoreRequestSequenceRef.current += 1;
   }, []);
 
   if (!open) return null;
@@ -291,6 +611,7 @@ export default function AIChatPanel({
       className="ai-chat-panel"
       aria-label="AI OpenAPI assistant"
       data-testid="react-ai-chat-panel"
+      onKeyDown={handlePanelKeyDown}
     >
       <header className="ai-chat-header">
         <div className="ai-chat-head-row">
@@ -328,7 +649,7 @@ export default function AIChatPanel({
             <button
               type="button"
               data-testid="react-ai-chat-auto-fix"
-              disabled={isThinking}
+              disabled={isBusy}
               onClick={repairSyntax}
             >
               Fix syntax
@@ -367,7 +688,19 @@ export default function AIChatPanel({
                 {message.text && <p>{message.text}</p>}
                 {message.preview && (
                   <div className="ai-chat-preview" data-testid="react-ai-change-preview">
-                    <strong>{message.preview.title}</strong>
+                    <div className="ai-chat-preview-header">
+                      <strong>{message.preview.title}</strong>
+                      {message.preview.previousVersionId && (
+                        <button
+                          type="button"
+                          data-testid="react-ai-chat-undo"
+                          disabled={isBusy}
+                          onClick={() => void undoPreview(message.preview!)}
+                        >
+                          {restoringAction === "undo" ? "Undoing..." : "Undo"}
+                        </button>
+                      )}
+                    </div>
                     <ul>
                       {message.preview.items.map((item) => <li key={item}>{item}</li>)}
                     </ul>
@@ -382,8 +715,18 @@ export default function AIChatPanel({
                     {isDiffOpen(message.id) && (
                       <div className="ai-chat-diff" data-testid="react-ai-chat-diff">
                         <div className="ai-chat-diff-header">
-                          <strong>Code diff</strong>
-                          <span>{message.preview.diffLocation}</span>
+                          <span>
+                            <strong>Code diff</strong>
+                            <span>{message.preview.diffLocation}</span>
+                          </span>
+                          <button
+                            type="button"
+                            aria-label="Expand code diff"
+                            data-testid="react-ai-chat-diff-expand"
+                            onClick={() => openExpandedDiff(message.id)}
+                          >
+                            Expand
+                          </button>
                         </div>
                         {message.preview.diffLines.map((line, index) => (
                           <div
@@ -403,35 +746,148 @@ export default function AIChatPanel({
               </article>
             ))}
 
-            {isThinking && (
+            {isBusy && (
               <article
                 className="ai-chat-progress"
                 role="status"
                 aria-live="polite"
                 data-testid="react-ai-chat-thinking"
               >
-                <ol>
-                  {stages.map((stage, index) => (
-                    <li
-                      key={stage.key}
-                      className={
-                        index < activeStageIndex
-                          ? "is-complete"
-                          : index === activeStageIndex
-                            ? "is-active"
-                            : "is-pending"
-                      }
-                    >
-                      <span aria-hidden="true">{index + 1}</span>
-                      <strong>{stage.label}</strong>
-                    </li>
-                  ))}
-                </ol>
+                {isRestoringVersion ? (
+                  <p>Restoring version...</p>
+                ) : (
+                  <ol>
+                    {stages.map((stage, index) => (
+                      <li
+                        key={stage.key}
+                        className={
+                          index < activeStageIndex
+                            ? "is-complete"
+                            : index === activeStageIndex
+                              ? "is-active"
+                              : "is-pending"
+                        }
+                      >
+                        <span aria-hidden="true">{index + 1}</span>
+                        <strong>{stage.label}</strong>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </article>
             )}
           </section>
         )}
       </main>
+
+      {expandedDiffPreview && (
+        <section
+          className="ai-chat-diff-fullscreen"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Expanded code diff"
+          data-testid="react-ai-chat-diff-fullscreen"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeExpandedDiff();
+          }}
+        >
+          <div className="ai-chat-diff-fullscreen-panel">
+            <header>
+              <span>
+                <strong>Code diff</strong>
+                <span>{expandedDiffPreview.diffLocation}</span>
+              </span>
+              <button
+                type="button"
+                aria-label="Close expanded code diff"
+                data-testid="react-ai-chat-diff-fullscreen-close"
+                onClick={closeExpandedDiff}
+              >
+                Close
+              </button>
+            </header>
+            <div className="ai-chat-diff-code">
+              {expandedDiffPreview.diffLines.map((line, index) => (
+                <div
+                  key={`expanded-${expandedDiffMessageId}-${index}`}
+                  className={`ai-chat-diff-line is-${line.type}`}
+                >
+                  <span aria-hidden="true">
+                    {line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}
+                  </span>
+                  <code>{line.code}</code>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {historyOpen && (
+        <section
+          className="ai-chat-history-panel"
+          role="region"
+          aria-label="Diagram versions"
+          data-testid="react-ai-chat-history-panel"
+        >
+          <header>
+            <h3>Diagram versions</h3>
+            <button type="button" aria-label="Close diagram versions" onClick={closeHistory}>
+              Close
+            </button>
+          </header>
+          {versionsStatus === "loading" ? (
+            <div role="status" data-testid="react-ai-chat-history-loading">
+              Loading saved versions...
+            </div>
+          ) : versionsStatus === "failed" ? (
+            <div role="status" data-testid="react-ai-chat-history-error">
+              <p>Saved versions could not be loaded.</p>
+              <button
+                type="button"
+                data-testid="react-ai-chat-history-retry"
+                onClick={retryLoadVersions}
+              >
+                Retry
+              </button>
+            </div>
+          ) : reversedVersions.length === 0 ? (
+            <p>No saved versions yet.</p>
+          ) : (
+            <ol className="ai-chat-history-list">
+              {reversedVersions.map((version) => (
+                <li
+                  key={version.id}
+                  className={`ai-chat-history-item${
+                    version.id === activeVersionIdRef.current ? " is-current" : ""
+                  }`}
+                >
+                  <div>
+                    <p>
+                      <strong>v{version.versionNumber}</strong>
+                      <span>{version.summary}</span>
+                    </p>
+                    <p>{version.detail}</p>
+                    <small>{version.time}</small>
+                  </div>
+                  <button
+                    type="button"
+                    className="ai-chat-rollback"
+                    disabled={version.id === activeVersionIdRef.current || isBusy}
+                    onClick={() => restoreVersion(version)}
+                  >
+                    {version.id === activeVersionIdRef.current
+                      ? "Current"
+                      : restoringVersionId === version.id
+                        ? "Restoring..."
+                        : "Restore version"}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      )}
 
       <form className="ai-chat-composer" onSubmit={submitForm}>
         <textarea
@@ -441,9 +897,20 @@ export default function AIChatPanel({
           placeholder="Describe the API definition change..."
           aria-label="AI change request"
           data-testid="react-ai-chat-input"
+          disabled={isRestoringVersion}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={handleInputKeyDown}
         />
+        <button
+          type="button"
+          aria-label="Open diagram versions"
+          data-testid="react-ai-chat-history-trigger"
+          aria-expanded={historyOpen}
+          disabled={!activeDiagramIdRef.current}
+          onClick={openHistory}
+        >
+          Diagram versions <span>{versionCountLabel}</span>
+        </button>
         <button
           type="submit"
           aria-label="Send message"

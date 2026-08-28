@@ -4,10 +4,27 @@ import { act, Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AIChatPanel from "./AIChatPanel";
 import { runAIChatSession } from "@/services/AIChatSessionService";
+import {
+  getDiagramlyVersions,
+  restoreDiagramlyVersion,
+} from "@/services/GenerateService";
 
 vi.mock("@/services/AIChatSessionService", () => ({
   runAIChatSession: vi.fn(),
 }));
+
+vi.mock("@/services/GenerateService", () => ({
+  getDiagramlyVersions: vi.fn(),
+  restoreDiagramlyVersion: vi.fn(),
+}));
+
+const initialVersion = {
+  id: "version-1",
+  diagramId: "diagram-1",
+  versionNumber: 1,
+  createdAt: "2026-08-29T01:00:00.000Z",
+  content: { code: "openapi: 3.0.0\ninfo:\n  title: Original" },
+};
 
 describe("React AIChatPanel core flow", () => {
   let container: HTMLDivElement;
@@ -16,6 +33,12 @@ describe("React AIChatPanel core flow", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     vi.mocked(runAIChatSession).mockReset();
+    vi.mocked(getDiagramlyVersions).mockReset();
+    vi.mocked(restoreDiagramlyVersion).mockReset();
+    vi.mocked(getDiagramlyVersions).mockResolvedValue({
+      versions: [initialVersion],
+      diagram: { id: "diagram-1", currentVersionId: "version-1" },
+    });
   });
 
   afterEach(() => {
@@ -138,6 +161,7 @@ describe("React AIChatPanel core flow", () => {
     expect(onApply).toHaveBeenCalledOnce();
     expect(container.querySelector('[data-testid="react-ai-change-preview"]')?.textContent)
       .toContain("Changes applied");
+    expect(container.querySelector('[data-testid="react-ai-chat-undo"]')).not.toBeNull();
 
     act(() => {
       Simulate.click(container.querySelector(".ai-chat-diff-toggle")!);
@@ -188,6 +212,212 @@ describe("React AIChatPanel core flow", () => {
     expect(container.textContent).toContain("Syntax fixed");
     expect(container.querySelector('[data-testid="react-ai-chat-syntax-issue"]')).toBeNull();
     expect(onApplyCode).toHaveBeenCalledOnce();
+  });
+
+  it("loads the complete saved history once and marks the current version", async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValueOnce({
+      versions: [
+        initialVersion,
+        {
+          id: "version-2",
+          diagramId: "diagram-1",
+          versionNumber: 2,
+          instruction: "Add an error response",
+          createdAt: "2026-08-29T01:01:00.000Z",
+          content: { code: "openapi: 3.0.0\ninfo:\n  title: Current" },
+        },
+      ],
+      diagram: { id: "diagram-1", currentVersionId: "version-2" },
+    });
+    renderPanel({
+      diagramlyDiagramId: "diagram-1",
+      currentCode: "openapi: 3.0.0\ninfo:\n  title: Current",
+    });
+    await flushAsyncWork();
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
+    });
+    const history = container.querySelector('[data-testid="react-ai-chat-history-panel"]')!;
+    expect(history.textContent).toContain("Initial version");
+    expect(history.textContent).toContain("Add an error response");
+    expect(history.querySelector(".is-current")?.textContent).toContain("v2");
+    expect(history.querySelector(".is-current")?.textContent).toContain("Current");
+
+    act(() => {
+      Simulate.click(history.querySelector('[aria-label="Close diagram versions"]')!);
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
+    });
+    expect(getDiagramlyVersions).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores a historical version as a new audited version and applies its code", async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValueOnce({
+      versions: [
+        initialVersion,
+        {
+          id: "version-2",
+          diagramId: "diagram-1",
+          versionNumber: 2,
+          instruction: "Current update",
+          createdAt: "2026-08-29T01:01:00.000Z",
+          content: { code: "openapi: 3.0.0\ninfo:\n  title: Current" },
+        },
+      ],
+      diagram: { id: "diagram-1", currentVersionId: "version-2" },
+    });
+    vi.mocked(restoreDiagramlyVersion).mockResolvedValueOnce({
+      diagramId: "diagram-1",
+      diagramCode: initialVersion.content.code,
+      version: {
+        ...initialVersion,
+        id: "version-3",
+        versionNumber: 3,
+        instruction: "Restored from version 1",
+        createdAt: "2026-08-29T01:02:00.000Z",
+      },
+    });
+    const onApplyCode = vi.fn();
+    renderPanel({
+      diagramlyDiagramId: "diagram-1",
+      currentCode: "openapi: 3.0.0\ninfo:\n  title: Current",
+      onApplyCode,
+    });
+    await flushAsyncWork();
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
+    });
+    const restore = Array.from(container.querySelectorAll(".ai-chat-rollback")).find(
+      (button) => button.textContent === "Restore version",
+    );
+    expect(restore).toBeDefined();
+    act(() => {
+      Simulate.click(restore!);
+    });
+    await flushAsyncWork();
+
+    expect(restoreDiagramlyVersion).toHaveBeenCalledWith("diagram-1", "version-1");
+    expect(onApplyCode).toHaveBeenCalledWith(initialVersion.content.code);
+    expect(container.textContent).toContain("Version restored");
+    expect(container.textContent).toContain("saved it as v3");
+    expect(container.querySelector('[data-testid="react-ai-chat-history-panel"]')).toBeNull();
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
+    });
+    const history = container.querySelector('[data-testid="react-ai-chat-history-panel"]')!;
+    expect(history.textContent).toContain("v3");
+    expect(history.querySelector(".is-current")?.textContent).toContain("v3");
+  });
+
+  it("undoes an AI change through restore-version and disables repeated undo", async () => {
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: "diagram-1",
+      diagramCreated: false,
+      updatedCode: "openapi: 3.0.0\ninfo:\n  title: Changed",
+      versionId: "version-2",
+      versionNumber: 2,
+      jobId: "job-1",
+    });
+    vi.mocked(restoreDiagramlyVersion).mockResolvedValueOnce({
+      diagramId: "diagram-1",
+      diagramCode: initialVersion.content.code,
+      version: {
+        ...initialVersion,
+        id: "version-3",
+        versionNumber: 3,
+        instruction: "Restored from version 1",
+        createdAt: "2026-08-29T01:02:00.000Z",
+      },
+    });
+    const onApplyCode = vi.fn();
+    renderPanel({
+      diagramlyDiagramId: "diagram-1",
+      currentCode: initialVersion.content.code,
+      onApplyCode,
+    });
+    await flushAsyncWork();
+
+    submit("Change the API title");
+    await flushAsyncWork();
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-undo"]')!);
+    });
+    await flushAsyncWork();
+
+    expect(restoreDiagramlyVersion).toHaveBeenCalledWith("diagram-1", "version-1");
+    expect(container.textContent).toContain("Changes undone");
+    expect(onApplyCode).toHaveBeenNthCalledWith(
+      1,
+      "openapi: 3.0.0\ninfo:\n  title: Changed",
+    );
+    expect(onApplyCode).toHaveBeenNthCalledWith(2, initialVersion.content.code);
+    expect(container.querySelector('[data-testid="react-ai-chat-undo"]')).toBeNull();
+  });
+
+  it("opens and closes the selected line diff in a full-screen dialog", async () => {
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: "diagram-1",
+      diagramCreated: false,
+      updatedCode: "openapi: 3.0.0\ninfo:\n  title: Changed",
+      versionId: "version-2",
+      versionNumber: 2,
+      jobId: "job-1",
+    });
+    renderPanel({
+      diagramlyDiagramId: "diagram-1",
+      currentCode: initialVersion.content.code,
+    });
+    await flushAsyncWork();
+    submit("Change the API title");
+    await flushAsyncWork();
+    act(() => {
+      Simulate.click(container.querySelector(".ai-chat-diff-toggle")!);
+    });
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-diff-expand"]')!);
+    });
+
+    const fullscreen = container.querySelector(
+      '[data-testid="react-ai-chat-diff-fullscreen"]',
+    )!;
+    expect(fullscreen.getAttribute("aria-modal")).toBe("true");
+    expect(fullscreen.textContent).toContain("title: Original");
+    expect(fullscreen.textContent).toContain("title: Changed");
+
+    act(() => {
+      Simulate.click(fullscreen.querySelector(
+        '[data-testid="react-ai-chat-diff-fullscreen-close"]',
+      )!);
+    });
+    expect(container.querySelector('[data-testid="react-ai-chat-diff-fullscreen"]')).toBeNull();
+  });
+
+  it("shows a retryable version-history error", async () => {
+    vi.mocked(getDiagramlyVersions)
+      .mockRejectedValueOnce(new Error("History unavailable"))
+      .mockResolvedValueOnce({
+        versions: [initialVersion],
+        diagram: { id: "diagram-1", currentVersionId: "version-1" },
+      });
+    renderPanel({ diagramlyDiagramId: "diagram-1" });
+    await flushAsyncWork();
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
+    });
+    expect(container.querySelector('[data-testid="react-ai-chat-history-error"]')?.textContent)
+      .toContain("Saved versions could not be loaded");
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-retry"]')!);
+    });
+    await flushAsyncWork();
+
+    expect(container.querySelector('[data-testid="react-ai-chat-history-error"]')).toBeNull();
+    expect(container.querySelector('[data-testid="react-ai-chat-history-panel"]')?.textContent)
+      .toContain("Initial version");
+    expect(getDiagramlyVersions).toHaveBeenCalledTimes(2);
   });
 
   it("aborts active work when closing or unmounting", () => {

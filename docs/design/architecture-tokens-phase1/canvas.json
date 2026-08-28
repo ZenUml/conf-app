@@ -1,0 +1,79 @@
+{
+  "artboards": [
+    {
+      "file": "Default.dc.html",
+      "title": "1 · Pointer off the diagram",
+      "x": 0,
+      "y": 0,
+      "w": 1000,
+      "h": 560
+    },
+    {
+      "file": "Circles.dc.html",
+      "title": "2 · Pointer on the diagram",
+      "x": 1080,
+      "y": 0,
+      "w": 1000,
+      "h": 560
+    },
+    {
+      "file": "Main.dc.html",
+      "title": "3 · A circle was clicked — try it",
+      "x": 2160,
+      "y": 0,
+      "w": 1000,
+      "h": 560,
+      "is_interactive": true
+    },
+    {
+      "file": "PopoverSpec.dc.html",
+      "title": "The popover at 1:1",
+      "x": 0,
+      "y": 720,
+      "w": 820,
+      "h": 460
+    },
+    {
+      "file": "EdgeCases.dc.html",
+      "title": "Staying inside the iframe",
+      "x": 900,
+      "y": 720,
+      "w": 1500,
+      "h": 540
+    },
+    {
+      "file": "Fullscreen.dc.html",
+      "title": "Fullscreen",
+      "x": 0,
+      "y": 1360,
+      "w": 1440,
+      "h": 900
+    }
+  ],
+  "annotations": [
+    {
+      "id": "note-states",
+      "x": 0,
+      "y": -340,
+      "w": 560,
+      "text": "Three viewer states, left to right.\n1 The pointer is not on the diagram. Nothing is drawn on it. The existing footer line stays.\n2 The pointer is anywhere on the diagram. Every participant that appears somewhere else shows its count on the box's bottom-right corner, 16px, clear of the top of the diagram. A participant with no other position shows nothing. Moving off the diagram hides them all.\n3 A circle was clicked. Hover alone never opens the popover. Escape, or a click outside, closes it.\nArtboard 3 works: move the pointer onto the diagram, then click a circle."
+    },
+    {
+      "id": "note-popover",
+      "x": 2160,
+      "y": -340,
+      "w": 540,
+      "text": "Popover content.\nHeading: 'Also appears in'. A related diagram can sit on this page or on another page, so the heading names no collection.\nRows: one page per row, page title only, opening that page. A related diagram on the current page is listed first as 'Another diagram on this page' — plain text, no link. The unit of the relation is a diagram and the unit of the list is a page, so on the current page the row states the relation; the page title would repeat what the reader can see. A page that holds two related diagrams is still one row. The count on the circle equals the number of rows.\nLeft out on purpose: the participant name (the outlined box carries it), the space key, the label variant, internal identifiers, and any sentence about how the relation was found. There is no 'pick a page' instruction — the row is a link and reads as one."
+    },
+    {
+      "id": "note-followup",
+      "x": 2480,
+      "y": 720,
+      "w": 460,
+      "text": "A row promises one thing: it opens the page. Scrolling to the diagram and highlighting it needs a cross-page, cross-iframe protocol that does not exist yet, so nothing in this UI implies it. That is separate work.\nOutside this design: whether two participants with the same name are the same real object, and the wording of the footer line, which is unchanged."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

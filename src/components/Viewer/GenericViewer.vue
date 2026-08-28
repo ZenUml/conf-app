@@ -259,12 +259,26 @@
             <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
               <slot></slot>
             </div>
-            <DiagramAttributionFooter
-              v-if="!isLoadFailed && diagramAttribution"
-              :attribution="diagramAttribution"
-              :macro-type="diagramType"
-              :ready="viewerLoadState === 'ready'"
-            />
+            <div
+              v-if="!isLoadFailed && (diagramAttribution || (architectureTokensEnabled && showRelatedDiagrams))"
+              class="viewer-footer-row"
+            >
+              <RelatedDiagramsFooter
+                v-if="architectureTokensEnabled && showRelatedDiagrams"
+                :custom-content-id="relatedCustomContentId"
+                :ready="viewerLoadState === 'ready'"
+                :enabled="architectureTokensEnabled"
+                :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+                :svg-host="getCaptureNode"
+                :page-id="currentPageId"
+              />
+              <DiagramAttributionFooter
+                v-if="diagramAttribution"
+                :attribution="diagramAttribution"
+                :macro-type="diagramType"
+                :ready="viewerLoadState === 'ready'"
+              />
+            </div>
             <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
                  defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
                  vite.config.mjs). See SecondDiagramPrompt.vue for the full
@@ -413,7 +427,7 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
-import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled } from '@/apis/aiTitleFeatureFlag'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
@@ -423,9 +437,14 @@ import DiagramAttributionFooter from '@/components/Viewer/DiagramAttributionFoot
 import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
 import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
+import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
+
+function isMermaidSequenceSource(source) {
+  return /^\s*\uFEFF?\s*(?:---(?:\r?\n)[\s\S]*?(?:\r?\n)---\s*)?(?:(?:%%[^\r\n]*)(?:\r?\n|$)\s*)*sequenceDiagram(?:\s|$)/.test(source ?? '')
+}
 
 export default {
   name: "GenericViewer",
@@ -455,6 +474,7 @@ export default {
     // controls the ENTIRE feature — until it resolves true, this macro
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
+    architectureTokensEnabled: false,
     agentLinkSession: null,
     loadFailedTelemetryEmitted: false,
     // Onboarding funnel "second diagram" prompt (SecondDiagramPrompt.vue):
@@ -478,6 +498,7 @@ export default {
     ThinkingOverlay,
     DiagramAttributionFooter,
     SecondDiagramPrompt,
+    RelatedDiagramsFooter,
   },
   computed: {
     ...mapState({
@@ -498,6 +519,17 @@ export default {
     },
     failedCustomContentId() {
       return getForgeCustomContentId();
+    },
+    showRelatedDiagrams() {
+      const isSupportedDiagram = this.diagramType === DiagramType.Sequence
+        || (this.diagramType === DiagramType.Mermaid && isMermaidSequenceSource(this.diagram?.mermaidCode));
+      return isSupportedDiagram && Boolean(this.relatedCustomContentId);
+    },
+    relatedCustomContentId() {
+      return getForgeCustomContentId() ?? this.diagramAttribution?.customContentId ?? '';
+    },
+    currentPageId() {
+      return window.forgeGlobal?.forgeContext?.extension?.content?.id ?? undefined;
     },
     // Every macro on the page shares one sessionStorage (same Forge iframe
     // origin), so the retry marker is keyed on the macro's own localId. The
@@ -806,6 +838,11 @@ export default {
     } catch (e) {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
+    }
+    try {
+      this.architectureTokensEnabled = await isArchitectureTokensEnabled();
+    } catch {
+      this.architectureTokensEnabled = false;
     }
     // Live Agent Link real bridge (design §4.2/§4.4): once the flag resolves
     // ON and a real Forge-bridge context (globals.apWrapper) is available,
@@ -1759,6 +1796,23 @@ export default {
 }
 .viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
 .viewer-canvas .screen-capture-content.w-full { width: 100%; }
+
+.viewer-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.viewer-footer-row :deep(.diagram-attribution) { margin-left: auto; }
+.viewer-frame--fullscreen .viewer-footer-row {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  border-top: 1px solid #E5E7EB;
+  background: #fff;
+  z-index: 1;
+}
+.viewer-footer-row:not(:empty) ~ .viewer-edge-bottom-pill { bottom: 44px; }
 
 .viewer-edge-bottom-pill {
   position: absolute;

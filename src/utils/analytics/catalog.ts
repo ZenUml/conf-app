@@ -19,7 +19,10 @@ export type FeatureArea =
   // activation surface disconnected from any macro's lifecycle, rendered on
   // the Home page rather than on a page carrying a diagram.
   | "homepage_feed"
-  | "diagram_impact";
+  | "diagram_impact"
+  // Architecture Tokens: "also appears in other diagrams" context for Mermaid
+  // sequence participants. Read-only in Phase 1; index built offline.
+  | "architecture_tokens";
 
 /** Current user's relationship to the diagram being measured. */
 export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
@@ -572,6 +575,13 @@ export type AnalyticsEventName =
   | "diagram_audience_view_qualified"
   | "diagram_audience_registration_succeeded"
   | "diagram_audience_registration_failed"
+  // Architecture Tokens Phase 1 (viewer footer + lifeline popover). No label
+  // text, page id, or tenant vocabulary on any of these.
+  | "related_diagrams_lookup_succeeded"
+  | "related_diagrams_lookup_failed"
+  | "related_diagrams_shown"
+  | "related_diagram_popover_opened"
+  | "related_diagram_link_clicked"
   // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG
   // to /forge-upload-attachment with `async: true`, gets an ack after
   // validation, emits `attachment_upload_queued` and returns — the real

@@ -38,6 +38,7 @@ import {
   isAiTitleEnabled,
   isAiRepairEnabled,
   isAgentLinkEnabled,
+  isArchitectureTokensEnabled,
   resetAiTitleFlagForTests,
 } from './aiTitleFeatureFlag'
 
@@ -191,5 +192,27 @@ describe('isAgentLinkEnabled', () => {
     localStorage.setItem('mockAgentLinkEnabled', 'true')
     await expect(isAgentLinkEnabled()).resolves.toBe(true)
     expect(featureFlagsState.instances).toHaveLength(0)
+  })
+})
+
+describe('isArchitectureTokensEnabled', () => {
+  beforeEach(() => {
+    resetAiTitleFlagForTests()
+    forgeState.isForge = true
+    forgeState.context = {
+      cloudId: 'cloud-1',
+      accountId: 'account-1',
+      environmentType: 'STAGING',
+    }
+    featureFlagsState.instances = []
+    featureFlagsState.nextValue = true
+    featureFlagsState.initializeError = undefined
+  })
+
+  it('checks the Forge architecture-tokens-enabled flag with a false default', async () => {
+    await expect(isArchitectureTokensEnabled()).resolves.toBe(true)
+
+    const instance = featureFlagsState.instances[0]
+    expect(instance.checkFlag).toHaveBeenCalledWith('architecture-tokens-enabled', false)
   })
 })

@@ -15,6 +15,7 @@ export const AUTHENTICATED_PATHS = [
   '/deeplink-ticket',
   '/activation-prepared',
   '/api/diagram-impact',
+  '/api/architecture-tokens',
   // Conversion queue endpoints re-verify the FIT themselves, but the claim
   // response's app identity (environmentId for the ADF extensionKey rewrite)
   // is read from the middleware-populated forgeContext — without this entry

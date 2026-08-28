@@ -22,6 +22,7 @@ The private companion repo `ZenUml/conf-app-private` is mounted as a git submodu
 - Use generic placeholders (`tenant-a`, `tenant-b`, `example-tenant`, `example.atlassian.net`, `example-one`, `example-two`) in pedagogical examples, JSDoc, or help text.
 - For operational scripts that need to enumerate real domains, read them from the live KV/D1 source at runtime — never hardcode (see `.claude/skills/paywall/SKILL.md` for the `jq` pattern that pulls from `CUSTOMER_SUCCESS_SERVICE`).
 - If a public-side doc legitimately needs a worked example with a real tenant, put the example in `private/<area>/<file>.md` and link from the public doc with a one-line summary that names no tenant.
+- Customer **content** — diagram bodies, extracted participant labels, model outputs, per-tenant pilot artifacts, space/app ids — is never committed to any repository, the `private/` submodule included (user rule, 2026-08-27). Keep it under the git-ignored `private/local-data/` folder and point tools at it through an environment variable (see `tools/architecture-tokens/README.md`, `$ARCHTOK_DIR`).
 - The `.gitignore` excludes `/page-snapshot.yml`, `/paywall-snap-*.yml`, `/spotcheck-*.yml` at repo root — these often capture real page content and must stay local.
 
 ## Pre-commit discovery check

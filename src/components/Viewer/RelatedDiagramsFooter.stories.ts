@@ -311,7 +311,7 @@ export const LookupResultFooter: Story = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
     await expect(
-      await canvas.findByText(/5 of 7 participants also appear in other diagrams you can access/),
+      await canvas.findByText(/5 of 7 participants also appear in other diagrams/),
     ).toBeVisible()
     const pills = await canvas.findAllByTestId('related-diagrams-pill')
     expect(pills).toHaveLength(5)

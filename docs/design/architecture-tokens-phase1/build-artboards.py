@@ -227,8 +227,7 @@ def related_line(shown=True):
     return (f'<div data-testid="related-diagrams-footer" style="display:flex; align-items:center; gap:6px; '
             f'padding:8px 12px; color:#6b7280; font-size:12px;">{ICON_NODES}'
             f'<span><span style="color:#374151;">{len(RELATED)} of {PARTICIPANT_TOTAL} participants</span> '
-            f'also appear in other diagrams you can access</span>'
-            f'<span style="color:#9CA3AF;">· as of {AS_OF}</span></div>')
+            f'also appear in other diagrams</span></div>')
 
 
 def attribution():

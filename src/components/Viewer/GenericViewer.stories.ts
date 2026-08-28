@@ -419,7 +419,7 @@ export const ArchitectureTokensMermaidIntegration: Story = {
     })
     store.commit('setViewerLoadState', { viewerLoadState: 'ready' })
     await expect(await canvas.findByTestId('related-diagrams-footer')).toHaveTextContent(
-      '1 of 2 participants also appear in other diagrams you can access',
+      '1 of 2 participants also appear in other diagrams',
     )
     await expect(await canvas.findByTestId('diagram-attribution')).toHaveTextContent('3 views')
     actor = document.querySelector<SVGRectElement>('rect.actor-top[name="Client"]')

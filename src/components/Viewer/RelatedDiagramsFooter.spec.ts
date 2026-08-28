@@ -143,10 +143,12 @@ describe('RelatedDiagramsFooter', () => {
     const { wrapper, h } = mountFooter()
     await flushPromises()
 
-    expect(wrapper.text()).toContain(
-      '1 of 2 participants also appear in other diagrams you can access',
-    )
-    expect(wrapper.text()).toMatch(/as of \d{1,2} \w{3}/)
+    expect(wrapper.text()).toContain('1 of 2 participants also appear in other diagrams')
+    // the index date is a date with no referent on the line itself; it rides in the tooltip
+    expect(wrapper.text()).not.toMatch(/as of \d{1,2} \w{3}/)
+    expect(
+      wrapper.find('[data-testid="related-diagrams-footer"]').attributes('title'),
+    ).toMatch(/^Updated \d{1,2} \w{3}$/)
     expect(pill(h, 'PA')?.textContent?.trim()).toBe('2')
     expect(pill(h, 'U')).toBeNull()
     expect(pill(h, 'RENAMED')).toBeNull()

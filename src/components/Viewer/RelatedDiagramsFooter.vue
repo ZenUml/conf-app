@@ -1,8 +1,11 @@
 <template>
+  <!-- The index is rebuilt weekly, so its date can matter to someone who just added a
+       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->
   <footer
     v-if="withRelated.length"
     class="related-diagrams"
     data-testid="related-diagrams-footer"
+    :title="asOf ? `Updated ${asOf}` : undefined"
   >
     <svg
       width="14"
@@ -19,8 +22,7 @@
       <circle cx="12" cy="12" r="2" />
       <path d="M5.8 7L10.2 4.8M5.8 9L10.2 11.2" />
     </svg>
-    <span><span class="related-diagrams-strong">{{ withRelated.length }} of {{ participants.length }} participants</span>{{ ' also appear in other diagrams you can access' }}</span>
-    <span v-if="asOf" class="related-diagrams-muted">· as of {{ asOf }}</span>
+    <span><span class="related-diagrams-strong">{{ withRelated.length }} of {{ participants.length }} participants</span>{{ ' also appear in other diagrams' }}</span>
   </footer>
 
   <!-- The overlay is teleported into the rendered diagram's positioned host.

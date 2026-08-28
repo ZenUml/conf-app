@@ -7,22 +7,15 @@
 -- Tokens index is partitioned by cloudId, so an unattributable diagram cannot
 -- be indexed for anyone.
 --
--- The save handler already derives cloudId from the Forge apiBaseUrl for
--- ForgeInstallation; this column records it on the content row as well.
+-- Schema only. The backfill is 0023: a correlated subquery here read
+-- DiagramAudience once per CustomContent row — 63,154 x 4,654 with no index on
+-- the audience side — and D1 aborted the migration (code 7500, prod deploy of
+-- v2026.08.280853-diagramly). The index below is what makes that join cheap.
 
 ALTER TABLE CustomContent ADD COLUMN cloudId TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_custom_content_cloud_id
   ON CustomContent (cloudId, appId, status);
 
--- Backfill what the view-time table already knows. Rows outside it stay NULL
--- and are filled by the next save of that diagram.
-UPDATE CustomContent
-SET cloudId = (
-  SELECT a.cloudId
-  FROM DiagramAudience a
-  WHERE a.customContentId = CustomContent.contentId
-    AND a.forgeAppId = CustomContent.appId
-  LIMIT 1
-)
-WHERE cloudId IS NULL;
+CREATE INDEX IF NOT EXISTS idx_diagram_audience_content
+  ON DiagramAudience (customContentId, forgeAppId);

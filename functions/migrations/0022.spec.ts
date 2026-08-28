@@ -23,22 +23,34 @@ function migrated() {
     INSERT INTO DiagramAudience (cloudId, forgeAppId, customContentId) VALUES ('cloud-1', 'app-a', '1');
     INSERT INTO DiagramAudience (cloudId, forgeAppId, customContentId) VALUES ('cloud-9', 'app-b', '1');
   `);
-  db.exec(
-    readFileSync(
-      resolve(process.cwd(), 'functions/migrations/0022_add_custom_content_cloud_id.sql'),
-      'utf8',
-    ),
-  );
+  for (const file of [
+    '0022_add_custom_content_cloud_id.sql',
+    '0023_backfill_custom_content_cloud_id.sql',
+  ]) {
+    db.exec(readFileSync(resolve(process.cwd(), 'functions/migrations', file), 'utf8'));
+  }
   return db;
 }
 
-describe('0022_add_custom_content_cloud_id', () => {
-  it('adds the column and the lookup index', () => {
+describe('0022_add_custom_content_cloud_id + 0023 backfill', () => {
+  it('adds the column and both lookup indexes', () => {
     const db = migrated();
     const cols = db.prepare("PRAGMA table_info('CustomContent')").all().map((c: any) => c.name);
     expect(cols).toContain('cloudId');
     const indexes = db.prepare("PRAGMA index_list('CustomContent')").all().map((i: any) => i.name);
     expect(indexes).toContain('idx_custom_content_cloud_id');
+    // the audience side needs its own index: without it the backfill read 4,654 rows
+    // per content row and D1 aborted the migration on 63,154 rows (code 7500)
+    const audience = db.prepare("PRAGMA index_list('DiagramAudience')").all().map((i: any) => i.name);
+    expect(audience).toContain('idx_diagram_audience_content');
+  });
+
+  it('keeps the schema change separate from the backfill, so one cannot block the other', () => {
+    const schemaOnly = readFileSync(
+      resolve(process.cwd(), 'functions/migrations/0022_add_custom_content_cloud_id.sql'),
+      'utf8',
+    );
+    expect(schemaOnly).not.toMatch(/\bUPDATE\b/i);
   });
 
   it('backfills from the view-time table, matching on the app as well as the content', () => {

@@ -15,7 +15,7 @@
             :aria-label="codeVisible ? 'Hide code editor' : 'Show code editor'"
             :aria-pressed="codeVisible"
             data-testid="ai-chat-code-toggle"
-            @click="emit('toggle-code')"
+            @click="toggleCode"
           >
             {{ codeVisible ? 'Hide code' : 'Show code' }}
           </button>
@@ -315,6 +315,8 @@ import {
   restoreDiagramlyVersion,
   type DiagramlyVersion,
 } from '@/services/GenerateService'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import type { MacroTypeValue } from '@/utils/analytics/catalog'
 
 type Props = {
   open: boolean
@@ -407,6 +409,28 @@ const diagramTypeLabel = computed(() => {
   }
   return labels[props.diagramType.toLowerCase()] || 'Current'
 })
+const macroType = computed<MacroTypeValue>(() => {
+  const value = props.diagramType.toLowerCase()
+  const supported: MacroTypeValue[] = [
+    'sequence',
+    'mermaid',
+    'graph',
+    'openapi',
+    'embed',
+    'plantuml',
+  ]
+  return supported.includes(value as MacroTypeValue)
+    ? value as MacroTypeValue
+    : 'none'
+})
+
+function analyticsBase() {
+  return {
+    feature_area: 'ai' as const,
+    surface: 'editor' as const,
+    macro_type: macroType.value,
+  }
+}
 
 function cloneMessage(message: AIChatMessage): AIChatMessage {
   return {
@@ -509,6 +533,10 @@ function retryLoadVersions(): void {
 
 function selectSuggestion(suggestion: AIChatSuggestion): void {
   prompt.value = suggestion.label
+  trackAnalyticsEvent('ai_chat_suggestion_selected', {
+    ...analyticsBase(),
+    suggestion_id: suggestion.id,
+  })
   nextTick(() => input.value?.focus())
 }
 
@@ -523,12 +551,17 @@ function isDiffOpen(messageId: string): boolean {
 }
 
 function toggleDiff(messageId: string): void {
-  openDiffIds.value = isDiffOpen(messageId)
-    ? openDiffIds.value.filter((id) => id !== messageId)
-    : [...openDiffIds.value, messageId]
-  if (!isDiffOpen(messageId) && expandedDiffMessageId.value === messageId) {
+  const opened = !isDiffOpen(messageId)
+  openDiffIds.value = opened
+    ? [...openDiffIds.value, messageId]
+    : openDiffIds.value.filter((id) => id !== messageId)
+  if (!opened && expandedDiffMessageId.value === messageId) {
     closeExpandedDiff()
   }
+  trackAnalyticsEvent('ai_chat_diff_toggled', {
+    ...analyticsBase(),
+    interaction_state: opened ? 'opened' : 'closed',
+  })
 }
 
 function openExpandedDiff(messageId: string): void {
@@ -536,16 +569,31 @@ function openExpandedDiff(messageId: string): void {
   if (!message?.preview) return
   expandedDiffMessageId.value = messageId
   historyOpen.value = false
+  trackAnalyticsEvent('ai_chat_diff_toggled', {
+    ...analyticsBase(),
+    interaction_state: 'shown',
+    ui_component: 'code_diff_fullscreen',
+  })
 }
 
 function closeExpandedDiff(): void {
+  if (!expandedDiffMessageId.value) return
   expandedDiffMessageId.value = null
+  trackAnalyticsEvent('ai_chat_diff_toggled', {
+    ...analyticsBase(),
+    interaction_state: 'hidden',
+    ui_component: 'code_diff_fullscreen',
+  })
 }
 
 function openHistory(): void {
   if (!activeDiagramId.value) return
   expandedDiffMessageId.value = null
   historyOpen.value = true
+  trackAnalyticsEvent('ai_chat_history_opened', {
+    ...analyticsBase(),
+    version_id: activeVersionId.value,
+  })
   if (versionsStatus.value === 'idle') {
     void loadPersistedVersions(activeDiagramId.value)
   }
@@ -573,6 +621,14 @@ function closePanel(): void {
   emit('close')
 }
 
+function toggleCode(): void {
+  trackAnalyticsEvent('ai_chat_code_visibility_toggled', {
+    ...analyticsBase(),
+    interaction_state: props.codeVisible ? 'hidden' : 'shown',
+  })
+  emit('toggle-code')
+}
+
 function handleEscape(): void {
   if (expandedDiffMessageId.value) {
     closeExpandedDiff()
@@ -586,6 +642,11 @@ function handleEscape(): void {
 }
 
 function repairSyntax(): void {
+  if (isBusy.value) return
+  trackAnalyticsEvent('ai_chat_syntax_repair_requested', {
+    ...analyticsBase(),
+    change_kind: 'syntax_repair',
+  })
   void submitPrompt(
     'syntax_repair',
     'Fix the current syntax issue without changing the rest of the diagram.',
@@ -606,6 +667,13 @@ async function submitPrompt(
   activeStage.value = activeDiagramId.value ? 'queued' : 'ensuring'
   messages.value.push({ id: nextMessageId('user'), role: 'user', text })
   prompt.value = ''
+  trackAnalyticsEvent('ai_chat_prompt_submitted', {
+    ...analyticsBase(),
+    generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',
+    prompt_length: text.length,
+    chat_message_count: messages.value.length,
+    change_kind: kind,
+  })
   emit('send', text)
 
   try {
@@ -669,6 +737,12 @@ async function submitPrompt(
     }
     messages.value.push(message)
     if (kind === 'syntax_repair') syntaxResolved.value = true
+    trackAnalyticsEvent('ai_chat_change_applied', {
+      ...analyticsBase(),
+      chat_message_count: messages.value.length,
+      change_kind: kind,
+      version_id: result.versionId,
+    })
     emit('apply-code', result.updatedCode)
     emit('apply', message)
     return true
@@ -750,6 +824,14 @@ async function restoreTargetVersion(
     }
     messages.value.push(message)
     historyOpen.value = false
+    trackAnalyticsEvent(
+      kind === 'undo' ? 'ai_chat_change_undone' : 'ai_chat_version_restored',
+      {
+        ...analyticsBase(),
+        change_kind: kind,
+        version_id: targetVersionId,
+      },
+    )
     emit('apply-code', restoredCode)
     emit('apply', message)
     return true

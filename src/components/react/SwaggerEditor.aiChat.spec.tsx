@@ -58,9 +58,14 @@ vi.mock("@/components/react/AIChatPanel", async () => {
   };
 });
 
+vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
+  trackAnalyticsEvent: vi.fn(),
+}));
+
 import SwaggerEditor from "./SwaggerEditor";
 import store from "@/model/store2";
 import { DiagramType } from "@/model/Diagram/Diagram";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 describe("SwaggerEditor AI Chat integration", () => {
   let container: HTMLDivElement;
@@ -68,6 +73,7 @@ describe("SwaggerEditor AI Chat integration", () => {
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
+    vi.mocked(trackAnalyticsEvent).mockClear();
     store.state.diagram = {
       id: "macro-1",
       diagramType: DiagramType.OpenApi,
@@ -113,6 +119,10 @@ describe("SwaggerEditor AI Chat integration", () => {
     expect(container.querySelector(".swagger-editor-workspace")?.className)
       .not.toContain("code-editor-hidden");
     expect(container.querySelector("#swagger-editor")).not.toBeNull();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_opened",
+      expect.objectContaining({ entry_point: "ai_prompt", macro_type: "openapi" }),
+    );
   });
 
   it("captures document hydration that happens before the first store mutation", () => {
@@ -165,6 +175,10 @@ describe("SwaggerEditor AI Chat integration", () => {
     expect(container.querySelector(".swagger-editor-workspace")?.className)
       .not.toContain("code-editor-hidden");
     expect((container.querySelector("#syntax-error-box") as HTMLElement).style.display).toBe("block");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_closed",
+      expect.objectContaining({ macro_type: "openapi" }),
+    );
   });
 
   it("opens AI Chat and starts syntax repair from the Vue repair action", () => {
@@ -179,5 +193,9 @@ describe("SwaggerEditor AI Chat integration", () => {
       .toBe("OpenAPI syntax error at line 3");
     expect(container.querySelector(".swagger-editor-workspace")?.className)
       .toContain("code-editor-hidden");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_opened",
+      expect.objectContaining({ entry_point: "ai_repair", macro_type: "openapi" }),
+    );
   });
 });

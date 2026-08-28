@@ -4,6 +4,7 @@ import { vi } from "vitest";
 import Workspace from "@/components/Workspace.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import store from "@/model/store2/";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -111,6 +112,7 @@ describe("Workspace AI Chat integration", () => {
         <button data-testid="apply-code" @click="$emit('apply-code', 'updated by AI')" />
         <button data-testid="bind-diagram" @click="$emit('diagramly-diagram-bound', 'diagramly-1')" />
         <button data-testid="toggle-code" @click="$emit('toggle-code')" />
+        <button data-testid="close-chat" @click="$emit('close')" />
       </aside>
     `,
   });
@@ -143,6 +145,7 @@ describe("Workspace AI Chat integration", () => {
   }
 
   beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
     store.commit("updateDiagramType", DiagramType.Mermaid);
     store.commit("updateMermaidCode", "flowchart LR\nA --> B");
     store.commit("updateMetadata", {
@@ -167,6 +170,16 @@ describe("Workspace AI Chat integration", () => {
 
     await wrapper.get('[data-testid="toggle-code"]').trigger("click");
     expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_opened",
+      expect.objectContaining({ entry_point: "ai_prompt", macro_type: "mermaid" }),
+    );
+
+    await wrapper.get('[data-testid="close-chat"]').trigger("click");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_closed",
+      expect.objectContaining({ macro_type: "mermaid" }),
+    );
   });
 
   it("applies AI code through the diagram-type action and merges Diagramly metadata", async () => {
@@ -192,6 +205,10 @@ describe("Workspace AI Chat integration", () => {
     expect(wrapper.get('[data-testid="ai-chat-panel-stub"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="syntax-repair-request-id"]').text()).toBe("1");
     expect((wrapper.vm as any).showCodeEditor).toBe(false);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_opened",
+      expect.objectContaining({ entry_point: "ai_repair", macro_type: "mermaid" }),
+    );
   });
 
   it("does not open AI Chat for Graph diagrams", async () => {

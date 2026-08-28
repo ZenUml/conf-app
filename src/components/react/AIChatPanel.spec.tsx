@@ -4,6 +4,7 @@ import { act, Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AIChatPanel from "./AIChatPanel";
 import { runAIChatSession } from "@/services/AIChatSessionService";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import {
   getDiagramlyVersions,
   restoreDiagramlyVersion,
@@ -11,6 +12,10 @@ import {
 
 vi.mock("@/services/AIChatSessionService", () => ({
   runAIChatSession: vi.fn(),
+}));
+
+vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
+  trackAnalyticsEvent: vi.fn(),
 }));
 
 vi.mock("@/services/GenerateService", () => ({
@@ -32,6 +37,7 @@ describe("React AIChatPanel core flow", () => {
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
+    vi.mocked(trackAnalyticsEvent).mockClear();
     vi.mocked(runAIChatSession).mockReset();
     vi.mocked(getDiagramlyVersions).mockReset();
     vi.mocked(restoreDiagramlyVersion).mockReset();
@@ -114,6 +120,10 @@ describe("React AIChatPanel core flow", () => {
     ) as HTMLTextAreaElement;
     expect(input.value).toBe("Add an error handling path");
     expect(document.activeElement).toBe(input);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_suggestion_selected",
+      expect.objectContaining({ suggestion_id: "add-error-path", macro_type: "openapi" }),
+    );
   });
 
   it("runs the OpenAPI session, binds the diagram, applies code, and exposes line diff", async () => {
@@ -169,6 +179,18 @@ describe("React AIChatPanel core flow", () => {
     const diff = container.querySelector('[data-testid="react-ai-chat-diff"]');
     expect(diff?.textContent).toContain("title: Original");
     expect(diff?.textContent).toContain("title: Updated");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_prompt_submitted",
+      expect.objectContaining({ change_kind: "request", prompt_length: 20 }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_change_applied",
+      expect.objectContaining({ change_kind: "request", version_id: "version-2" }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_diff_toggled",
+      expect.objectContaining({ interaction_state: "opened" }),
+    );
   });
 
   it("keeps the composer editable but prevents a second send while work is active", () => {
@@ -212,6 +234,14 @@ describe("React AIChatPanel core flow", () => {
     expect(container.textContent).toContain("Syntax fixed");
     expect(container.querySelector('[data-testid="react-ai-chat-syntax-issue"]')).toBeNull();
     expect(onApplyCode).toHaveBeenCalledOnce();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_syntax_repair_requested",
+      expect.objectContaining({ change_kind: "syntax_repair" }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_prompt_submitted",
+      expect.objectContaining({ generation_source: "syntax_repair" }),
+    );
   });
 
   it("loads the complete saved history once and marks the current version", async () => {
@@ -243,6 +273,10 @@ describe("React AIChatPanel core flow", () => {
     expect(history.textContent).toContain("Add an error response");
     expect(history.querySelector(".is-current")?.textContent).toContain("v2");
     expect(history.querySelector(".is-current")?.textContent).toContain("Current");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_history_opened",
+      expect.objectContaining({ version_id: "version-2" }),
+    );
 
     act(() => {
       Simulate.click(history.querySelector('[aria-label="Close diagram versions"]')!);
@@ -309,6 +343,10 @@ describe("React AIChatPanel core flow", () => {
     const history = container.querySelector('[data-testid="react-ai-chat-history-panel"]')!;
     expect(history.textContent).toContain("v3");
     expect(history.querySelector(".is-current")?.textContent).toContain("v3");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_version_restored",
+      expect.objectContaining({ change_kind: "rollback", version_id: "version-1" }),
+    );
   });
 
   it("undoes an AI change through restore-version and disables repeated undo", async () => {
@@ -354,6 +392,10 @@ describe("React AIChatPanel core flow", () => {
     );
     expect(onApplyCode).toHaveBeenNthCalledWith(2, initialVersion.content.code);
     expect(container.querySelector('[data-testid="react-ai-chat-undo"]')).toBeNull();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_change_undone",
+      expect.objectContaining({ change_kind: "undo", version_id: "version-1" }),
+    );
   });
 
   it("opens and closes the selected line diff in a full-screen dialog", async () => {
@@ -392,6 +434,28 @@ describe("React AIChatPanel core flow", () => {
       )!);
     });
     expect(container.querySelector('[data-testid="react-ai-chat-diff-fullscreen"]')).toBeNull();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_diff_toggled",
+      expect.objectContaining({ interaction_state: "shown", ui_component: "code_diff_fullscreen" }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_diff_toggled",
+      expect.objectContaining({ interaction_state: "hidden", ui_component: "code_diff_fullscreen" }),
+    );
+  });
+
+  it("tracks code visibility changes from the panel header", () => {
+    const props = renderPanel({ codeVisible: false });
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-code-toggle"]')!);
+    });
+
+    expect(props.onToggleCode).toHaveBeenCalledOnce();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_code_visibility_toggled",
+      expect.objectContaining({ interaction_state: "shown" }),
+    );
   });
 
   it("shows a retryable version-history error", async () => {

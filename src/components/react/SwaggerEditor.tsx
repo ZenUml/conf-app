@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Header from "@/components/react/Header";
 import AIChatPanel from "@/components/react/AIChatPanel";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import store from "@/model/store2";
 
 interface Props {
@@ -44,18 +45,40 @@ const Component = ({ saveAndExit, exit }: Props) => {
     setShowAIChat((current) => {
       const next = !current;
       setShowCodeEditor(!next);
+      trackAnalyticsEvent(next ? "ai_chat_opened" : "ai_chat_closed", {
+        feature_area: "ai",
+        surface: "editor",
+        macro_type: "openapi",
+        ...(next ? { entry_point: "ai_prompt" as const } : {}),
+      });
       return next;
     });
   };
 
   const closeAIChat = () => {
+    if (!showAIChat) return;
     setShowAIChat(false);
     setShowCodeEditor(true);
+    trackAnalyticsEvent("ai_chat_closed", {
+      feature_area: "ai",
+      surface: "editor",
+      macro_type: "openapi",
+    });
   };
 
   useEffect(() => {
     const requestSyntaxRepair = () => {
-      setShowAIChat(true);
+      setShowAIChat((current) => {
+        if (!current) {
+          trackAnalyticsEvent("ai_chat_opened", {
+            feature_area: "ai",
+            surface: "editor",
+            macro_type: "openapi",
+            entry_point: "ai_repair",
+          });
+        }
+        return true;
+      });
       setShowCodeEditor(false);
       setSyntaxRepairRequestId((current) => current + 1);
     };

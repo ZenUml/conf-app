@@ -72,6 +72,7 @@
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
   import ForeignDialectHint from '@/components/ForeignDialectHint.vue'
   import AIChatPanel from '@/components/AIChat/AIChatPanel.vue'
+  import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
   import { DiagramType } from '@/model/Diagram/Diagram'
   import { getCodeFromDiagram, getStoreUpdateAction } from '@/model/Diagram/DiagramTypeConfig'
 
@@ -111,17 +112,23 @@
           this.closeAIChat()
           return
         }
-        this.openAIChat()
+        this.openAIChat('ai_prompt')
       },
-      openAIChat() {
+      openAIChat(entryPoint: 'ai_prompt' | 'ai_repair') {
         if (this.diagramType === DiagramType.Graph || this.showAIChat) return
         this.destroySplit()
         this.showAIChat = true
         this.showCodeEditor = false
+        trackAnalyticsEvent('ai_chat_opened', {
+          feature_area: 'ai',
+          surface: 'editor',
+          macro_type: this.diagramType || 'none',
+          entry_point: entryPoint,
+        })
       },
       requestAIChatSyntaxRepair() {
         if (this.diagramType === DiagramType.Graph) return
-        this.openAIChat()
+        this.openAIChat('ai_repair')
         this.syntaxRepairRequestId += 1
       },
       closeAIChat() {
@@ -129,6 +136,11 @@
         this.showAIChat = false
         this.showCodeEditor = true
         this.initializeSplit()
+        trackAnalyticsEvent('ai_chat_closed', {
+          feature_area: 'ai',
+          surface: 'editor',
+          macro_type: this.diagramType || 'none',
+        })
       },
       toggleCodeEditor() {
         this.showCodeEditor = !this.showCodeEditor

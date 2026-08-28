@@ -26,6 +26,8 @@ import {
   restoreDiagramlyVersion,
   type DiagramlyVersion,
 } from "@/services/GenerateService";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import type { MacroTypeValue } from "@/utils/analytics/catalog";
 
 export type { AIChatMessage };
 
@@ -125,6 +127,20 @@ export default function AIChatPanel({
     };
     return labels[diagramType.toLowerCase()] || "Current";
   }, [diagramType]);
+  const macroType = useMemo<MacroTypeValue>(() => {
+    const value = diagramType.toLowerCase();
+    const supported: MacroTypeValue[] = [
+      "sequence",
+      "mermaid",
+      "graph",
+      "openapi",
+      "embed",
+      "plantuml",
+    ];
+    return supported.includes(value as MacroTypeValue)
+      ? value as MacroTypeValue
+      : "none";
+  }, [diagramType]);
   const activeStageIndex = stages.findIndex((stage) => stage.key === activeStage);
   const isBusy = isThinking || isRestoringVersion;
   const canSubmit = prompt.trim().length > 0 && !isBusy;
@@ -143,6 +159,14 @@ export default function AIChatPanel({
     () => messages.find((message) => message.id === expandedDiffMessageId)?.preview || null,
     [expandedDiffMessageId, messages],
   );
+
+  function analyticsBase() {
+    return {
+      feature_area: "ai" as const,
+      surface: "editor" as const,
+      macro_type: macroType,
+    };
+  }
 
   function nextMessageId(role: AIChatMessage["role"]): string {
     messageSequenceRef.current += 1;
@@ -262,6 +286,10 @@ export default function AIChatPanel({
 
   function selectSuggestion(suggestion: AIChatSuggestion): void {
     setPrompt(suggestion.label);
+    trackAnalyticsEvent("ai_chat_suggestion_selected", {
+      ...analyticsBase(),
+      suggestion_id: suggestion.id,
+    });
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }
 
@@ -275,6 +303,10 @@ export default function AIChatPanel({
       ? [...current, messageId]
       : current.filter((id) => id !== messageId));
     if (!opened && expandedDiffMessageId === messageId) closeExpandedDiff();
+    trackAnalyticsEvent("ai_chat_diff_toggled", {
+      ...analyticsBase(),
+      interaction_state: opened ? "opened" : "closed",
+    });
   }
 
   function openExpandedDiff(messageId: string): void {
@@ -282,16 +314,31 @@ export default function AIChatPanel({
     if (!message?.preview) return;
     setExpandedDiffMessageId(messageId);
     setHistoryOpen(false);
+    trackAnalyticsEvent("ai_chat_diff_toggled", {
+      ...analyticsBase(),
+      interaction_state: "shown",
+      ui_component: "code_diff_fullscreen",
+    });
   }
 
   function closeExpandedDiff(): void {
+    if (!expandedDiffMessageId) return;
     setExpandedDiffMessageId(null);
+    trackAnalyticsEvent("ai_chat_diff_toggled", {
+      ...analyticsBase(),
+      interaction_state: "hidden",
+      ui_component: "code_diff_fullscreen",
+    });
   }
 
   function openHistory(): void {
     if (!activeDiagramIdRef.current) return;
     setExpandedDiffMessageId(null);
     setHistoryOpen(true);
+    trackAnalyticsEvent("ai_chat_history_opened", {
+      ...analyticsBase(),
+      version_id: activeVersionIdRef.current,
+    });
     if (versionsStatusRef.current === "idle") {
       void loadPersistedVersions(activeDiagramIdRef.current);
     }
@@ -309,6 +356,11 @@ export default function AIChatPanel({
   }
 
   function repairSyntax(): void {
+    if (isBusy) return;
+    trackAnalyticsEvent("ai_chat_syntax_repair_requested", {
+      ...analyticsBase(),
+      change_kind: "syntax_repair",
+    });
     void submitPrompt(
       "syntax_repair",
       "Fix the current syntax issue without changing the rest of the API definition.",
@@ -332,6 +384,13 @@ export default function AIChatPanel({
       { id: nextMessageId("user"), role: "user", text },
     ]);
     setPrompt("");
+    trackAnalyticsEvent("ai_chat_prompt_submitted", {
+      ...analyticsBase(),
+      generation_source: kind === "syntax_repair" ? "syntax_repair" : "chat_panel",
+      prompt_length: text.length,
+      chat_message_count: messages.length + 1,
+      change_kind: kind,
+    });
     onSend?.(text);
 
     try {
@@ -395,6 +454,12 @@ export default function AIChatPanel({
 
       setMessages((current) => [...current, message]);
       if (kind === "syntax_repair") setSyntaxResolved(true);
+      trackAnalyticsEvent("ai_chat_change_applied", {
+        ...analyticsBase(),
+        chat_message_count: messages.length + 2,
+        change_kind: kind,
+        version_id: result.versionId,
+      });
       onApplyCode?.(result.updatedCode);
       onApply?.(message);
       return true;
@@ -495,6 +560,14 @@ export default function AIChatPanel({
 
       setMessages((current) => [...current, message]);
       setHistoryOpen(false);
+      trackAnalyticsEvent(
+        kind === "undo" ? "ai_chat_change_undone" : "ai_chat_version_restored",
+        {
+          ...analyticsBase(),
+          change_kind: kind,
+          version_id: targetVersionId,
+        },
+      );
       onApplyCode?.(restoredCode);
       onApply?.(message);
       return true;
@@ -623,7 +696,13 @@ export default function AIChatPanel({
                 aria-label={codeVisible ? "Hide code editor" : "Show code editor"}
                 aria-pressed={codeVisible}
                 data-testid="react-ai-chat-code-toggle"
-                onClick={onToggleCode}
+                onClick={() => {
+                  trackAnalyticsEvent("ai_chat_code_visibility_toggled", {
+                    ...analyticsBase(),
+                    interaction_state: codeVisible ? "hidden" : "shown",
+                  });
+                  onToggleCode();
+                }}
               >
                 {codeVisible ? "Hide code" : "Show code"}
               </button>

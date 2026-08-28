@@ -134,6 +134,13 @@ interface Pill {
   actorHeight: number
 }
 
+// Two renderers mark a lifeline differently: Mermaid puts the declaration name in `name`
+// on `rect.actor.actor-top` (a `participant`) or `g.actor-man.actor-top` (an `actor`);
+// ZenUML puts it in `data-participant-id` on `div.participant`. Both are read here, so a
+// participant is discoverable and anchorable whichever renderer drew the diagram.
+const ACTOR_ID_ATTRIBUTES = ['name', 'data-participant-id']
+const ACTOR_BOX_SELECTORS = ['.actor-top[name=', '.participant[data-participant-id=']
+
 // The circle sits on the participant box's bottom-right corner, so it never crosses the
 // top of the diagram; the shell opens 8px under the circle.
 const PILL = 16
@@ -227,11 +234,24 @@ const countProperties = () => ({
 // `participant`, and `g.actor-man.actor-top` for an `actor`. Matching only the rect
 // dropped every actor-shaped participant — the footer counted it, the diagram could
 // not show its circle (lite-stg page 237043717, participant `Dev`).
-function actorBox(actorId: string): SVGGraphicsElement | null {
+function actorBox(actorId: string): Element | null {
   const escaped = (globalThis as any).CSS?.escape
     ? (globalThis as any).CSS.escape(actorId)
     : actorId.replace(/["\\]/g, '\\$&')
-  return hostEl.value?.querySelector<SVGGraphicsElement>(`.actor-top[name="${escaped}"]`) ?? null
+  const selector = ACTOR_BOX_SELECTORS.map((prefix) => `${prefix}"${escaped}"]`).join(', ')
+  return hostEl.value?.querySelector(selector) ?? null
+}
+
+/** Every lifeline the rendered diagram actually shows, whichever renderer drew it. */
+function renderedActorIds(): Set<string> {
+  const ids = new Set<string>()
+  for (const attribute of ACTOR_ID_ATTRIBUTES) {
+    for (const element of hostEl.value?.querySelectorAll(`[${attribute}]`) ?? []) {
+      const value = element.getAttribute(attribute)
+      if (value) ids.add(value)
+    }
+  }
+  return ids
 }
 
 function layoutPills() {
@@ -311,11 +331,7 @@ async function load() {
   }
 
   hostEl.value = props.svgHost()
-  const presentActorIds = new Set(
-    [...(hostEl.value?.querySelectorAll('[name]') ?? [])].map((element) =>
-      element.getAttribute('name'),
-    ),
-  )
+  const presentActorIds = renderedActorIds()
   participants.value = response.participants.filter((participant) =>
     presentActorIds.has(participant.actorId),
   )

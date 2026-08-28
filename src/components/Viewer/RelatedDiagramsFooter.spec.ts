@@ -102,6 +102,32 @@ const twoParticipants = {
   ],
 }
 
+const zenumlRects: Record<string, DOMRect> = {
+  OrderController: { left: 60, right: 200, top: 30, bottom: 74, width: 140, height: 44 } as DOMRect,
+  'order:Order': { left: 220, right: 340, top: 30, bottom: 74, width: 120, height: 44 } as DOMRect,
+}
+
+/** ZenUML renders participants as divs carrying `data-participant-id`; there is no SVG. */
+function zenumlHost(): HTMLElement {
+  const div = document.createElement('div')
+  div.style.position = 'relative'
+  div.innerHTML =
+    '<div class="participant" data-participant-id="_STARTER_"></div>' +
+    '<div class="participant" data-participant-id="OrderController">OrderController</div>' +
+    '<div class="participant" data-participant-id="order:Order">order:Order</div>'
+  Object.defineProperty(div, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({ left: 20, right: 620, top: 10, bottom: 410, width: 600, height: 400 }),
+  })
+  div.querySelectorAll<HTMLElement>('[data-participant-id]').forEach((node) => {
+    const rect = zenumlRects[node.getAttribute('data-participant-id')!]
+    if (!rect) return
+    Object.defineProperty(node, 'getBoundingClientRect', { configurable: true, value: () => rect })
+  })
+  document.body.appendChild(div)
+  return div
+}
+
 function mountFooter(props: Partial<any> = {}, suppliedHost = host()) {
   const wrapper = mount(RelatedDiagramsFooter, {
     props: {
@@ -628,6 +654,58 @@ describe('RelatedDiagramsFooter', () => {
     expect(button).not.toBeNull()
     expect(button.style.left).toBe('492px')
     expect(button.style.top).toBe('47px')
+  })
+
+  it('reads a ZenUML diagram, which marks lifelines with data-participant-id and has no SVG', async () => {
+    related.value = {
+      indexedAt: twoParticipants.indexedAt,
+      contentVersion: twoParticipants.contentVersion,
+      participants: [
+        {
+          actorId: 'OrderController',
+          rawLabel: 'OrderController',
+          related: [
+            {
+              contentId: '8',
+              pageId: '800',
+              pageTitle: 'Order intake',
+              spaceKey: 'OP',
+              rawLabelThere: 'OrderController',
+            },
+          ],
+        },
+        {
+          actorId: 'order:Order',
+          rawLabel: 'order:Order',
+          related: [
+            {
+              contentId: '9',
+              pageId: '900',
+              pageTitle: 'Order model',
+              spaceKey: 'OP',
+              rawLabelThere: 'order:Order',
+            },
+          ],
+        },
+        // absent from this diagram: it must not produce a circle
+        { actorId: 'Ghost', rawLabel: 'Ghost', related: [{ contentId: '10', pageId: '1000', pageTitle: 'X', spaceKey: 'OP', rawLabelThere: 'Ghost' }] },
+      ],
+    }
+    const { h, wrapper } = mountFooter({ pageId: '999' }, zenumlHost())
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2 of 2 participants also appear in other diagrams')
+    expect(pill(h, 'Ghost')).toBeNull()
+    const button = pill(h, 'OrderController')!
+    expect(button.textContent!.trim()).toBe('1')
+    expect(button.style.left).toBe('170px')
+    expect(button.style.top).toBe('56px')
+    // a colon in the id is a valid ZenUML declaration name and must survive the selector
+    expect(pill(h, 'order:Order')).not.toBeNull()
+
+    button.click()
+    await flushPromises()
+    expect(popover()!.textContent).toContain('Order intake')
   })
 
   it('keeps a thrown lookup failure silent and records its error kind', async () => {

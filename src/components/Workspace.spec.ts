@@ -1,8 +1,10 @@
+import { defineComponent } from "vue";
 import { mount } from "@vue/test-utils";
 import { vi } from "vitest";
 import Workspace from "@/components/Workspace.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import store from "@/model/store2/";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -59,7 +61,13 @@ describe("Workspace wiring (#373)", () => {
     return mount(Workspace, {
       global: {
         plugins: [store],
-        stubs: { Header: true, Editor: true, DiagramPortal: true, SyntaxErrorBox: true },
+        stubs: {
+          Header: true,
+          Editor: true,
+          DiagramPortal: true,
+          SyntaxErrorBox: true,
+          AIChatPanel: true,
+        },
       },
     });
   }
@@ -80,5 +88,144 @@ describe("Workspace wiring (#373)", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+  });
+});
+
+describe("Workspace AI Chat integration", () => {
+  let wrapper;
+
+  const AIChatPanelStub = defineComponent({
+    name: "AIChatPanelStub",
+    props: {
+      open: Boolean,
+      codeVisible: Boolean,
+      diagramType: String,
+      currentCode: String,
+      diagramlyDiagramId: String,
+      syntaxRepairRequestId: Number,
+    },
+    emits: ["apply-code", "diagramly-diagram-bound", "toggle-code", "close"],
+    template: `
+      <aside data-testid="ai-chat-panel-stub">
+        <span data-testid="ai-chat-code-value">{{ currentCode }}</span>
+        <span data-testid="syntax-repair-request-id">{{ syntaxRepairRequestId }}</span>
+        <button data-testid="apply-code" @click="$emit('apply-code', 'updated by AI')" />
+        <button data-testid="bind-diagram" @click="$emit('diagramly-diagram-bound', 'diagramly-1')" />
+        <button data-testid="toggle-code" @click="$emit('toggle-code')" />
+        <button data-testid="close-chat" @click="$emit('close')" />
+      </aside>
+    `,
+  });
+
+  const SyntaxErrorBoxStub = defineComponent({
+    name: "SyntaxErrorBoxStub",
+    emits: ["request-ai-chat-repair"],
+    template: `
+      <button
+        data-testid="ai-repair-stub"
+        @click="$emit('request-ai-chat-repair')"
+      >AI Repair</button>
+    `,
+  });
+
+  function mountAIChatWorkspace() {
+    return mount(Workspace, {
+      global: {
+        plugins: [store],
+        stubs: {
+          Header: true,
+          Editor: { template: '<div data-testid="editor-stub" />' },
+          DiagramPortal: true,
+          SyntaxErrorBox: SyntaxErrorBoxStub,
+          ForeignDialectHint: true,
+          AIChatPanel: AIChatPanelStub,
+        },
+      },
+    });
+  }
+
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    store.commit("updateDiagramType", DiagramType.Mermaid);
+    store.commit("updateMermaidCode", "flowchart LR\nA --> B");
+    store.commit("updateMetadata", {
+      keep: "existing",
+      aiChat: { keepNested: "existing" },
+    });
+    wrapper = mountAIChatWorkspace();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+  });
+
+  it("opens the panel without unmounting the editor and toggles code visibility", async () => {
+    (wrapper.vm as any).toggleAIChat();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('[data-testid="ai-chat-panel-stub"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="ai-chat-code-value"]').text()).toContain("flowchart LR");
+    expect(wrapper.get('[data-testid="editor-stub"]').exists()).toBe(true);
+    expect(wrapper.get("#workspace-left").attributes("style")).toContain("display: none");
+
+    await wrapper.get('[data-testid="toggle-code"]').trigger("click");
+    expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_opened",
+      expect.objectContaining({ entry_point: "ai_prompt", macro_type: "mermaid" }),
+    );
+
+    await wrapper.get('[data-testid="close-chat"]').trigger("click");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_closed",
+      expect.objectContaining({ macro_type: "mermaid" }),
+    );
+  });
+
+  it("applies AI code through the diagram-type action and merges Diagramly metadata", async () => {
+    (wrapper.vm as any).toggleAIChat();
+    await wrapper.vm.$nextTick();
+    await wrapper.get('[data-testid="apply-code"]').trigger("click");
+    await wrapper.get('[data-testid="bind-diagram"]').trigger("click");
+
+    expect(store.state.diagram.mermaidCode).toBe("updated by AI");
+    expect(store.state.diagram.metadata).toEqual({
+      keep: "existing",
+      aiChat: {
+        keepNested: "existing",
+        diagramlyDiagramId: "diagramly-1",
+      },
+    });
+  });
+
+  it("opens AI Chat and starts syntax repair from the repair action", async () => {
+    await wrapper.get('[data-testid="ai-repair-stub"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('[data-testid="ai-chat-panel-stub"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="syntax-repair-request-id"]').text()).toBe("1");
+    expect((wrapper.vm as any).showCodeEditor).toBe(false);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_opened",
+      expect.objectContaining({ entry_point: "ai_repair", macro_type: "mermaid" }),
+    );
+  });
+
+  it("closes the overlay from the responsive workspace backdrop", async () => {
+    (wrapper.vm as any).toggleAIChat();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[data-testid="ai-chat-backdrop"]').trigger("click");
+
+    expect(wrapper.find('[data-testid="ai-chat-panel-stub"]').exists()).toBe(false);
+    expect((wrapper.vm as any).showCodeEditor).toBe(true);
+  });
+
+  it("does not open AI Chat for Graph diagrams", async () => {
+    store.commit("updateDiagramType", DiagramType.Graph);
+    (wrapper.vm as any).toggleAIChat();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="ai-chat-panel-stub"]').exists()).toBe(false);
   });
 });

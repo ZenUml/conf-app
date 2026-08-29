@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callDiagramly, modifyDiagram } from './diagramlyService';
+import {
+  callDiagramly,
+  ensureDiagramlyDiagram,
+  getDiagramlyVersions,
+  modifyDiagram,
+  modifyDiagramWithCommand,
+  restoreDiagramlyVersion,
+} from './diagramlyService';
 
 function makeContext(cloudId?: string) {
   return {
@@ -80,6 +87,172 @@ describe('callDiagramly', () => {
     expect(JSON.parse(init.body)).toMatchObject({
       model: 'anthropic/claude-sonnet-5',
       disableReasoning: false,
+    });
+  });
+
+  it('ensures a diagram using the verified identity headers and language mapping', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(
+        '{"diagramId":"diagram-1","versionId":"version-1"}',
+      ),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await ensureDiagramlyDiagram(
+      makeContext('verified-cloud-789'),
+      'A -> B',
+      'sequence',
+      'Checkout',
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://diagramly.example/api/chat/ensure-diagram');
+    expect(init.headers).toMatchObject({
+      'x-external-id': 'client-account-123',
+      'x-team-id': 'verified-cloud-789',
+    });
+    expect(JSON.parse(init.body)).toEqual({
+      diagramCode: 'A -> B',
+      title: 'Checkout',
+      languageKey: 'LANG_ZENUML',
+      subTypeKey: 'GENERAL',
+    });
+  });
+
+  it('rejects an ensure response without a diagramId', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('{"versionId":"version-1"}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      ensureDiagramlyDiagram(
+        makeContext('verified-cloud-789'),
+        'A -> B',
+        'sequence',
+      ),
+    ).rejects.toThrow('No diagramId returned from Diagramly API');
+  });
+
+  it('always sends AI Chat changes to the versioned modification endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('{"jobId":"job-versioned-1"}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      modifyDiagramWithCommand(makeContext('verified-cloud-789'), {
+        diagramId: 'diagram-1',
+        diagramCode: 'A -> B',
+        command: 'Add payment',
+        errorMessage: 'Unexpected token',
+        diagramType: 'sequence',
+        model: 'anthropic/claude-sonnet-5',
+        disableReasoning: false,
+      }),
+    ).resolves.toEqual({ jobId: 'job-versioned-1' });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      'https://diagramly.example/api/chat/modify-version-async',
+    );
+    expect(JSON.parse(init.body)).toEqual({
+      diagramId: 'diagram-1',
+      diagramCode: 'A -> B',
+      diagramType: 'sequence',
+      languageKey: 'LANG_ZENUML',
+      command: 'Add payment',
+      subTypeKey: 'GENERAL',
+      errorMessage: 'Unexpected token',
+      model: 'anthropic/claude-sonnet-5',
+      disableReasoning: false,
+    });
+  });
+
+  it('creates a version for a normal AI Chat modification without repair context', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('{"jobId":"job-versioned-2"}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await modifyDiagramWithCommand(makeContext('verified-cloud-789'), {
+      diagramId: 'diagram-1',
+      diagramCode: 'A -> B',
+      command: 'Add payment',
+      diagramType: 'sequence',
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      'https://diagramly.example/api/chat/modify-version-async',
+    );
+    expect(JSON.parse(init.body)).not.toHaveProperty('errorMessage');
+  });
+
+  it('does not start an AI Chat modification without a diagramId', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      modifyDiagramWithCommand(makeContext('verified-cloud-789'), {
+        diagramCode: 'A -> B',
+        command: 'Add payment',
+        diagramType: 'sequence',
+      }),
+    ).rejects.toThrow('Missing diagramId');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('loads a diagram version history through the versioned API', async () => {
+    const responseBody = {
+      diagram: { id: 'diagram-1' },
+      versions: [{ id: 'version-1', versionNumber: 1 }],
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(JSON.stringify(responseBody)),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      getDiagramlyVersions(makeContext('verified-cloud-789'), 'diagram-1'),
+    ).resolves.toEqual(responseBody);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://diagramly.example/api/chat/versions');
+    expect(JSON.parse(init.body)).toEqual({ diagramId: 'diagram-1' });
+  });
+
+  it('restores history by requesting a new audited version', async () => {
+    const responseBody = {
+      diagramId: 'diagram-1',
+      version: { id: 'version-3', versionNumber: 3 },
+      diagramCode: 'A -> B',
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(JSON.stringify(responseBody)),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      restoreDiagramlyVersion(
+        makeContext('verified-cloud-789'),
+        'diagram-1',
+        'version-1',
+      ),
+    ).resolves.toEqual(responseBody);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://diagramly.example/api/chat/restore-version');
+    expect(JSON.parse(init.body)).toEqual({
+      diagramId: 'diagram-1',
+      versionId: 'version-1',
     });
   });
 

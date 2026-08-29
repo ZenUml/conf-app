@@ -9,7 +9,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/services/GenerateService', () => mocks)
 
 import { DiagramType } from '@/model/Diagram/Diagram'
-import { runAIChatSession } from './AIChatSessionService'
+import {
+  getAIChatFailureTelemetry,
+  runAIChatSession,
+} from './AIChatSessionService'
 
 const completedStatus = {
   id: 'job-1',
@@ -65,6 +68,7 @@ describe('runAIChatSession', () => {
       versionNumber: 2,
       createdAt: '2026-08-28T00:00:00.000Z',
       jobId: 'job-1',
+      pollCount: 3,
     })
 
     expect(mocks.ensureDiagramlyDiagram).not.toHaveBeenCalled()
@@ -110,9 +114,13 @@ describe('runAIChatSession', () => {
   })
 
   it.each([
-    ['FAILED', 'Model unavailable'],
-    ['CANCELLED', 'Request cancelled'],
-  ] as const)('surfaces a %s terminal job without applying code', async (status, error) => {
+    ['FAILED', 'Model unavailable', 'job_failed'],
+    ['CANCELLED', 'Request cancelled', 'job_cancelled'],
+  ] as const)('surfaces a %s terminal job without applying code', async (
+    status,
+    error,
+    failureReason,
+  ) => {
     mocks.getDiagramlyJobStatus.mockResolvedValue({
       id: 'job-1',
       status,
@@ -128,14 +136,19 @@ describe('runAIChatSession', () => {
         diagramType: DiagramType.Sequence,
         prompt: 'Add payment',
       }),
-    ).rejects.toThrow(error)
+    ).rejects.toMatchObject({
+      message: error,
+      failurePhase: 'server',
+      failureReason,
+      pollCount: 1,
+    })
   })
 
-  it('rejects completed jobs that did not persist a version', async () => {
-    mocks.getDiagramlyJobStatus.mockResolvedValue({
-      ...completedStatus,
-      output: { diagramCode: 'A -> Payment' },
-    })
+  it.each([
+    [{ versionId: 'version-2' }, 'diagram_code_missing'],
+    [{ diagramCode: 'A -> Payment' }, 'version_id_missing'],
+  ] as const)('classifies incomplete completed-job output', async (output, failureReason) => {
+    mocks.getDiagramlyJobStatus.mockResolvedValue({ ...completedStatus, output })
 
     await expect(
       runAIChatSession({
@@ -144,7 +157,11 @@ describe('runAIChatSession', () => {
         diagramType: DiagramType.Sequence,
         prompt: 'Add payment',
       }),
-    ).rejects.toThrow('without a persisted version')
+    ).rejects.toMatchObject({
+      failurePhase: 'sync',
+      failureReason,
+      pollCount: 1,
+    })
   })
 
   it('uses one wall-clock timeout budget for polling', async () => {
@@ -163,8 +180,98 @@ describe('runAIChatSession', () => {
         prompt: 'Add payment',
         timeoutMs: 0,
       }),
-    ).rejects.toThrow('timed out after 0ms')
+    ).rejects.toMatchObject({
+      message: 'Diagram update timed out after 0ms',
+      failurePhase: 'timeout',
+      failureReason: 'timeout',
+      pollCount: 1,
+    })
     expect(mocks.getDiagramlyJobStatus).toHaveBeenCalledOnce()
+  })
+
+  it('classifies diagram preparation request and response failures', async () => {
+    mocks.ensureDiagramlyDiagram.mockRejectedValueOnce(new Error('Unavailable'))
+
+    await expect(
+      runAIChatSession({
+        diagramCode: 'A -> B',
+        diagramType: DiagramType.Sequence,
+        prompt: 'Add payment',
+      }),
+    ).rejects.toMatchObject({
+      failurePhase: 'ensure',
+      failureReason: 'diagram_binding_failed',
+      pollCount: 0,
+    })
+
+    mocks.ensureDiagramlyDiagram.mockResolvedValueOnce({ diagramId: '' })
+    await expect(
+      runAIChatSession({
+        diagramCode: 'A -> B',
+        diagramType: DiagramType.Sequence,
+        prompt: 'Add payment',
+      }),
+    ).rejects.toMatchObject({
+      failurePhase: 'ensure',
+      failureReason: 'diagram_id_missing',
+      pollCount: 0,
+    })
+  })
+
+  it('classifies job start request and response failures', async () => {
+    mocks.startDiagramChatModification.mockRejectedValueOnce(new Error('Unavailable'))
+
+    await expect(
+      runAIChatSession({
+        diagramId: 'diagram-1',
+        diagramCode: 'A -> B',
+        diagramType: DiagramType.Sequence,
+        prompt: 'Add payment',
+      }),
+    ).rejects.toMatchObject({
+      failurePhase: 'start',
+      failureReason: 'job_start_failed',
+      pollCount: 0,
+    })
+
+    mocks.startDiagramChatModification.mockResolvedValueOnce({ jobId: '' })
+    await expect(
+      runAIChatSession({
+        diagramId: 'diagram-1',
+        diagramCode: 'A -> B',
+        diagramType: DiagramType.Sequence,
+        prompt: 'Add payment',
+      }),
+    ).rejects.toMatchObject({
+      failurePhase: 'start',
+      failureReason: 'job_id_missing',
+      pollCount: 0,
+    })
+  })
+
+  it('classifies status polling failures with the attempted poll count', async () => {
+    mocks.getDiagramlyJobStatus.mockRejectedValueOnce(new Error('Unavailable'))
+
+    await expect(
+      runAIChatSession({
+        diagramId: 'diagram-1',
+        diagramCode: 'A -> B',
+        diagramType: DiagramType.Sequence,
+        prompt: 'Add payment',
+      }),
+    ).rejects.toMatchObject({
+      failurePhase: 'poll',
+      failureReason: 'status_poll_failed',
+      pollCount: 1,
+    })
+  })
+
+  it('maps unknown UI-layer errors to a privacy-safe fallback category', () => {
+    expect(getAIChatFailureTelemetry(new Error('Sensitive raw detail'))).toEqual({
+      failurePhase: 'sync',
+      failureReason: 'unexpected_error',
+      pollCount: 0,
+    })
   })
 
   it('does not start work for an already aborted request', async () => {

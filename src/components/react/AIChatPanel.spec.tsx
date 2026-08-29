@@ -10,7 +10,8 @@ import {
   restoreDiagramlyVersion,
 } from "@/services/GenerateService";
 
-vi.mock("@/services/AIChatSessionService", () => ({
+vi.mock("@/services/AIChatSessionService", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/services/AIChatSessionService")>(),
   runAIChatSession: vi.fn(),
 }));
 
@@ -143,6 +144,7 @@ describe("React AIChatPanel core flow", () => {
         versionId: "version-2",
         versionNumber: 2,
         jobId: "job-1",
+        pollCount: 2,
       };
     });
     const onDiagramlyDiagramBound = vi.fn();
@@ -181,11 +183,23 @@ describe("React AIChatPanel core flow", () => {
     expect(diff?.textContent).toContain("title: Updated");
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_prompt_submitted",
-      expect.objectContaining({ change_kind: "request", prompt_length: 20 }),
+      expect.objectContaining({
+        change_kind: "request",
+        prompt_length: 20,
+        turn_index: 1,
+        input_source: "typed",
+        retry_after_failure: false,
+      }),
     );
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_change_applied",
-      expect.objectContaining({ change_kind: "request", version_id: "version-2" }),
+      expect.objectContaining({
+        change_kind: "request",
+        version_id: "version-2",
+        poll_count: 2,
+        lines_added: 1,
+        lines_removed: 1,
+      }),
     );
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_diff_toggled",
@@ -239,6 +253,10 @@ describe("React AIChatPanel core flow", () => {
       expect.objectContaining({ change_kind: "syntax_repair" }),
     );
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_syntax_issue_shown",
+      expect.objectContaining({ error_category: "syntax_error" }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_prompt_submitted",
       expect.objectContaining({ generation_source: "syntax_repair" }),
     );
@@ -276,6 +294,10 @@ describe("React AIChatPanel core flow", () => {
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_history_opened",
       expect.objectContaining({ version_id: "version-2" }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_history_load_succeeded",
+      expect.objectContaining({ version_count: 2, is_retry: false }),
     );
 
     act(() => {
@@ -345,6 +367,10 @@ describe("React AIChatPanel core flow", () => {
     expect(history.querySelector(".is-current")?.textContent).toContain("v3");
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_version_restored",
+      expect.objectContaining({ change_kind: "rollback", version_id: "version-1" }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_version_restore_requested",
       expect.objectContaining({ change_kind: "rollback", version_id: "version-1" }),
     );
   });
@@ -482,6 +508,65 @@ describe("React AIChatPanel core flow", () => {
     expect(container.querySelector('[data-testid="react-ai-chat-history-panel"]')?.textContent)
       .toContain("Initial version");
     expect(getDiagramlyVersions).toHaveBeenCalledTimes(2);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_history_load_failed",
+      expect.objectContaining({
+        failure_phase: "history_load",
+        failure_reason: "history_request_failed",
+      }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_history_load_succeeded",
+      expect.objectContaining({ version_count: 1, is_retry: true }),
+    );
+  });
+
+  it("tracks a failed historical-version restore without leaking the raw error", async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValueOnce({
+      versions: [
+        initialVersion,
+        {
+          ...initialVersion,
+          id: "version-2",
+          versionNumber: 2,
+          content: { code: "openapi: 3.0.0\ninfo:\n  title: Current" },
+        },
+      ],
+      diagram: { id: "diagram-1", currentVersionId: "version-2" },
+    });
+    vi.mocked(restoreDiagramlyVersion).mockRejectedValueOnce(
+      new Error("Sensitive backend detail"),
+    );
+    renderPanel({
+      diagramlyDiagramId: "diagram-1",
+      currentCode: "openapi: 3.0.0\ninfo:\n  title: Current",
+    });
+    await flushAsyncWork();
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
+    });
+    const restore = Array.from(container.querySelectorAll(".ai-chat-rollback")).find(
+      (button) => button.textContent === "Restore version",
+    );
+    act(() => {
+      Simulate.click(restore!);
+    });
+    await flushAsyncWork();
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_version_restore_failed",
+      expect.objectContaining({
+        failure_phase: "version_restore",
+        failure_reason: "restore_request_failed",
+        change_kind: "rollback",
+        version_id: "version-1",
+      }),
+    );
+    const failureCall = vi.mocked(trackAnalyticsEvent).mock.calls.find(
+      ([eventName]) => eventName === "ai_chat_version_restore_failed",
+    );
+    expect(JSON.stringify(failureCall?.[1])).not.toContain("Sensitive backend detail");
   });
 
   it("aborts active work when closing or unmounting", () => {
@@ -498,16 +583,32 @@ describe("React AIChatPanel core flow", () => {
     });
     expect(signals[0].aborted).toBe(true);
     expect(props.onClose).toHaveBeenCalledOnce();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_prompt_cancelled",
+      expect.objectContaining({ cancel_reason: "panel_closed" }),
+    );
 
     submit("Update twice");
     act(() => {
       ReactDOM.unmountComponentAtNode(container);
     });
     expect(signals[1].aborted).toBe(true);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_prompt_cancelled",
+      expect.objectContaining({ cancel_reason: "component_unmounted" }),
+    );
   });
 
   it("renders a recoverable assistant error and unlocks the composer", async () => {
-    vi.mocked(runAIChatSession).mockRejectedValueOnce(new Error("Diagramly unavailable"));
+    vi.mocked(runAIChatSession)
+      .mockRejectedValueOnce(new Error("Diagramly unavailable"))
+      .mockResolvedValueOnce({
+        diagramId: "diagram-1",
+        diagramCreated: false,
+        updatedCode: "updated",
+        versionId: "version-2",
+        jobId: "job-2",
+      });
     renderPanel({ currentCode: "openapi: 3.0.0" });
 
     submit("Update");
@@ -521,5 +622,19 @@ describe("React AIChatPanel core flow", () => {
     expect((container.querySelector(
       '[data-testid="react-ai-chat-send"]',
     ) as HTMLButtonElement).disabled).toBe(false);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_prompt_failed",
+      expect.objectContaining({
+        failure_phase: "sync",
+        failure_reason: "unexpected_error",
+        change_kind: "request",
+      }),
+    );
+    submit("Retry");
+    await flushAsyncWork();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_prompt_submitted",
+      expect.objectContaining({ retry_after_failure: true, turn_index: 2 }),
+    );
   });
 });

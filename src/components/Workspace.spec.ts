@@ -178,7 +178,11 @@ describe("Workspace AI Chat integration", () => {
     await wrapper.get('[data-testid="close-chat"]').trigger("click");
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_closed",
-      expect.objectContaining({ macro_type: "mermaid" }),
+      expect.objectContaining({
+        macro_type: "mermaid",
+        close_reason: "user_closed",
+        session_duration_ms: expect.any(Number),
+      }),
     );
   });
 

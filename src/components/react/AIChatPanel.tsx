@@ -18,7 +18,9 @@ import {
   type AIChatVersion,
 } from "@/components/AIChat/aiChatPrototype";
 import {
+  getAIChatFailureTelemetry,
   runAIChatSession,
+  type AIChatFailurePhase,
   type AIChatSessionStage,
 } from "@/services/AIChatSessionService";
 import {
@@ -157,6 +159,9 @@ export default function AIChatPanel({
   const [syntaxResolved, setSyntaxResolved] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeControllerRef = useRef<AbortController | null>(null);
+  const activeStageRef = useRef<AIChatSessionStage | null>(null);
+  const activeRequestStartedAtRef = useRef(0);
+  const activeRequestKindRef = useRef<AIChatChangeKind | null>(null);
   const activeDiagramIdRef = useRef(diagramlyDiagramId.trim());
   const activeCodeRef = useRef(currentCode);
   const activeVersionIdRef = useRef("");
@@ -166,8 +171,15 @@ export default function AIChatPanel({
   const versionsRequestSequenceRef = useRef(0);
   const versionLoadPromiseRef = useRef<Promise<void> | null>(null);
   const restoreRequestSequenceRef = useRef(0);
+  const restoreStartedAtRef = useRef(0);
+  const restoringVersionIdRef = useRef("");
+  const restoringActionRef = useRef<"undo" | "rollback" | null>(null);
   const lastHandledSyntaxRepairRequestIdRef = useRef(0);
   const messageSequenceRef = useRef(0);
+  const messageCountRef = useRef(initialMessages.length);
+  const pendingInputSourceRef = useRef<"typed" | "suggestion">("typed");
+  const lastPromptFailedRef = useRef(false);
+  const lastTrackedSyntaxIssueRef = useRef("");
 
   const diagramTypeLabel = useMemo(() => {
     const labels: Record<string, string> = {
@@ -219,6 +231,24 @@ export default function AIChatPanel({
     };
   }
 
+  function durationSince(startedAt: number): number {
+    return Math.max(0, Date.now() - startedAt);
+  }
+
+  function failurePhaseForStage(stage: AIChatSessionStage | null): AIChatFailurePhase {
+    if (stage === "ensuring") return "ensure";
+    if (stage === "syncing") return "sync";
+    if (stage === "queued" || stage === "processing" || stage === "generating") {
+      return "poll";
+    }
+    return "start";
+  }
+
+  function updateActiveStage(stage: AIChatSessionStage | null): void {
+    activeStageRef.current = stage;
+    setActiveStage(stage);
+  }
+
   function nextMessageId(role: AIChatMessage["role"]): string {
     messageSequenceRef.current += 1;
     return `${role}-${Date.now()}-${messageSequenceRef.current}`;
@@ -268,6 +298,7 @@ export default function AIChatPanel({
   async function loadPersistedVersions(
     diagramId = activeDiagramIdRef.current,
     force = false,
+    isRetry = false,
   ): Promise<void> {
     if (!diagramId) {
       replaceVersions([]);
@@ -285,6 +316,7 @@ export default function AIChatPanel({
     }
 
     const requestId = ++versionsRequestSequenceRef.current;
+    const startedAt = Date.now();
     versionsDiagramIdRef.current = diagramId;
     updateVersionsStatus("loading");
     const request = (async () => {
@@ -305,12 +337,27 @@ export default function AIChatPanel({
           || nextVersions[nextVersions.length - 1]?.id
           || "";
         updateVersionsStatus("loaded");
+        trackAnalyticsEvent("ai_chat_history_load_succeeded", {
+          ...analyticsBase(),
+          duration_ms: durationSince(startedAt),
+          version_count: nextVersions.length,
+          is_retry: isRetry,
+          ui_component: "version_history",
+        });
       } catch {
         if (
           requestId === versionsRequestSequenceRef.current
           && activeDiagramIdRef.current === diagramId
         ) {
           updateVersionsStatus("failed");
+          trackAnalyticsEvent("ai_chat_history_load_failed", {
+            ...analyticsBase(),
+            failure_phase: "history_load",
+            failure_reason: "history_request_failed",
+            duration_ms: durationSince(startedAt),
+            is_retry: isRetry,
+            ui_component: "version_history",
+          });
         }
       }
     })();
@@ -321,22 +368,59 @@ export default function AIChatPanel({
   }
 
   function retryLoadVersions(): void {
-    void loadPersistedVersions(activeDiagramIdRef.current, true);
+    void loadPersistedVersions(activeDiagramIdRef.current, true, true);
   }
 
-  function cancelActiveRequest(): void {
-    activeControllerRef.current?.abort();
+  function cancelActiveRequest(
+    cancelReason: "panel_closed" | "component_unmounted" = "component_unmounted",
+    resetUi = true,
+  ): void {
+    const controller = activeControllerRef.current;
+    if (controller && !controller.signal.aborted) {
+      trackAnalyticsEvent("ai_chat_prompt_cancelled", {
+        ...analyticsBase(),
+        failure_phase: failurePhaseForStage(activeStageRef.current),
+        failure_reason: "user_cancelled",
+        cancel_reason: cancelReason,
+        duration_ms: activeRequestStartedAtRef.current
+          ? durationSince(activeRequestStartedAtRef.current)
+          : 0,
+        chat_message_count: messageCountRef.current,
+        change_kind: activeRequestKindRef.current || "request",
+      });
+    }
+    if (restoreStartedAtRef.current && restoringVersionIdRef.current) {
+      trackAnalyticsEvent("ai_chat_version_restore_failed", {
+        ...analyticsBase(),
+        failure_phase: "version_restore",
+        failure_reason: "cancelled",
+        cancel_reason: cancelReason,
+        duration_ms: durationSince(restoreStartedAtRef.current),
+        change_kind: restoringActionRef.current || "rollback",
+        version_id: restoringVersionIdRef.current,
+      });
+    }
+    controller?.abort();
     activeControllerRef.current = null;
     restoreRequestSequenceRef.current += 1;
-    setIsThinking(false);
-    setIsRestoringVersion(false);
-    setRestoringVersionId("");
-    setRestoringAction(null);
-    setActiveStage(null);
+    activeStageRef.current = null;
+    activeRequestStartedAtRef.current = 0;
+    activeRequestKindRef.current = null;
+    restoreStartedAtRef.current = 0;
+    restoringVersionIdRef.current = "";
+    restoringActionRef.current = null;
+    if (resetUi) {
+      setIsThinking(false);
+      setIsRestoringVersion(false);
+      setRestoringVersionId("");
+      setRestoringAction(null);
+      setActiveStage(null);
+    }
   }
 
   function selectSuggestion(suggestion: AIChatSuggestion): void {
     setPrompt(suggestion.label);
+    pendingInputSourceRef.current = "suggestion";
     trackAnalyticsEvent("ai_chat_suggestion_selected", {
       ...analyticsBase(),
       suggestion_id: suggestion.id,
@@ -400,7 +484,7 @@ export default function AIChatPanel({
   }
 
   function handleClose(): void {
-    cancelActiveRequest();
+    cancelActiveRequest("panel_closed");
     closeExpandedDiff();
     closeHistory();
     onClose();
@@ -426,20 +510,32 @@ export default function AIChatPanel({
     if (!text || isBusy) return false;
 
     const previousCode = activeCodeRef.current;
+    const startedAt = Date.now();
+    const inputSource = kind === "syntax_repair"
+      ? "syntax_repair"
+      : pendingInputSourceRef.current;
+    const retryAfterFailure = lastPromptFailedRef.current;
     const controller = new AbortController();
     activeControllerRef.current = controller;
+    activeRequestStartedAtRef.current = startedAt;
+    activeRequestKindRef.current = kind;
     setIsThinking(true);
-    setActiveStage(activeDiagramIdRef.current ? "queued" : "ensuring");
+    updateActiveStage(activeDiagramIdRef.current ? "queued" : "ensuring");
+    messageCountRef.current = messages.length + 1;
     setMessages((current) => [
       ...current,
       { id: nextMessageId("user"), role: "user", text },
     ]);
     setPrompt("");
+    pendingInputSourceRef.current = "typed";
     trackAnalyticsEvent("ai_chat_prompt_submitted", {
       ...analyticsBase(),
       generation_source: kind === "syntax_repair" ? "syntax_repair" : "chat_panel",
       prompt_length: text.length,
       chat_message_count: messages.length + 1,
+      turn_index: messages.filter((message) => message.role === "user").length + 1,
+      input_source: inputSource,
+      retry_after_failure: retryAfterFailure,
       change_kind: kind,
     });
     onSend?.(text);
@@ -459,7 +555,7 @@ export default function AIChatPanel({
         ...(kind === "syntax_repair" ? { errorMessage: syntaxError } : {}),
         signal: controller.signal,
         onStage(stage) {
-          if (activeControllerRef.current === controller) setActiveStage(stage);
+          if (activeControllerRef.current === controller) updateActiveStage(stage);
         },
         async onDiagramBound(diagramId) {
           if (activeControllerRef.current !== controller) return;
@@ -504,12 +600,19 @@ export default function AIChatPanel({
       };
 
       setMessages((current) => [...current, message]);
+      messageCountRef.current += 1;
       if (kind === "syntax_repair") setSyntaxResolved(true);
+      lastPromptFailedRef.current = false;
       trackAnalyticsEvent("ai_chat_change_applied", {
         ...analyticsBase(),
         chat_message_count: messages.length + 2,
         change_kind: kind,
         version_id: result.versionId,
+        version_number: result.versionNumber,
+        duration_ms: durationSince(startedAt),
+        poll_count: result.pollCount || 0,
+        lines_added: preview.diffLines.filter((line) => line.type === "add").length,
+        lines_removed: preview.diffLines.filter((line) => line.type === "remove").length,
       });
       onApplyCode?.(result.updatedCode);
       onApply?.(message);
@@ -522,7 +625,20 @@ export default function AIChatPanel({
         return false;
       }
 
+      const failure = getAIChatFailureTelemetry(error);
+      lastPromptFailedRef.current = true;
+      trackAnalyticsEvent("ai_chat_prompt_failed", {
+        ...analyticsBase(),
+        failure_phase: failure.failurePhase,
+        failure_reason: failure.failureReason,
+        duration_ms: durationSince(startedAt),
+        poll_count: failure.pollCount,
+        chat_message_count: messageCountRef.current,
+        change_kind: kind,
+        generation_source: kind === "syntax_repair" ? "syntax_repair" : "chat_panel",
+      });
       const detail = error instanceof Error ? error.message : "Unknown error";
+      messageCountRef.current += 1;
       setMessages((current) => [
         ...current,
         {
@@ -536,7 +652,9 @@ export default function AIChatPanel({
       if (activeControllerRef.current === controller) {
         activeControllerRef.current = null;
         setIsThinking(false);
-        setActiveStage(null);
+        updateActiveStage(null);
+        activeRequestStartedAtRef.current = 0;
+        activeRequestKindRef.current = null;
       }
     }
   }
@@ -574,6 +692,14 @@ export default function AIChatPanel({
     setIsRestoringVersion(true);
     setRestoringVersionId(targetVersionId);
     setRestoringAction(kind);
+    restoreStartedAtRef.current = Date.now();
+    restoringVersionIdRef.current = targetVersionId;
+    restoringActionRef.current = kind;
+    trackAnalyticsEvent("ai_chat_version_restore_requested", {
+      ...analyticsBase(),
+      change_kind: kind,
+      version_id: targetVersionId,
+    });
 
     try {
       const result = await restoreDiagramlyVersion(
@@ -610,6 +736,7 @@ export default function AIChatPanel({
       };
 
       setMessages((current) => [...current, message]);
+      messageCountRef.current += 1;
       setHistoryOpen(false);
       trackAnalyticsEvent(
         kind === "undo" ? "ai_chat_change_undone" : "ai_chat_version_restored",
@@ -617,6 +744,8 @@ export default function AIChatPanel({
           ...analyticsBase(),
           change_kind: kind,
           version_id: targetVersionId,
+          version_number: restoredVersion.versionNumber,
+          duration_ms: durationSince(restoreStartedAtRef.current),
         },
       );
       onApplyCode?.(restoredCode);
@@ -624,7 +753,19 @@ export default function AIChatPanel({
       return true;
     } catch (error) {
       if (requestId !== restoreRequestSequenceRef.current) return false;
+      trackAnalyticsEvent("ai_chat_version_restore_failed", {
+        ...analyticsBase(),
+        failure_phase: "version_restore",
+        failure_reason: error instanceof Error
+          && error.message === "Diagramly restored a version without diagram code"
+          ? "restored_code_missing"
+          : "restore_request_failed",
+        duration_ms: durationSince(restoreStartedAtRef.current),
+        change_kind: kind,
+        version_id: targetVersionId,
+      });
       const detail = error instanceof Error ? error.message : "Unknown error";
+      messageCountRef.current += 1;
       setMessages((current) => [
         ...current,
         {
@@ -639,6 +780,9 @@ export default function AIChatPanel({
         setIsRestoringVersion(false);
         setRestoringVersionId("");
         setRestoringAction(null);
+        restoreStartedAtRef.current = 0;
+        restoringVersionIdRef.current = "";
+        restoringActionRef.current = null;
       }
     }
   }
@@ -700,6 +844,20 @@ export default function AIChatPanel({
   }, [syntaxError]);
 
   useEffect(() => {
+    if (!open || !visibleSyntaxError || !syntaxError) {
+      lastTrackedSyntaxIssueRef.current = "";
+      return;
+    }
+    if (lastTrackedSyntaxIssueRef.current === syntaxError) return;
+    lastTrackedSyntaxIssueRef.current = syntaxError;
+    trackAnalyticsEvent("ai_chat_syntax_issue_shown", {
+      ...analyticsBase(),
+      error_category: "syntax_error",
+      ui_component: "syntax_issue_banner",
+    });
+  }, [open, syntaxError, visibleSyntaxError]);
+
+  useEffect(() => {
     if (
       !open
       || !syntaxRepairRequestId
@@ -716,16 +874,15 @@ export default function AIChatPanel({
 
   useEffect(() => {
     if (!open) {
-      cancelActiveRequest();
+      cancelActiveRequest("panel_closed");
       closeExpandedDiff();
       closeHistory();
     }
   }, [open]);
 
   useEffect(() => () => {
-    activeControllerRef.current?.abort();
+    cancelActiveRequest("component_unmounted", false);
     versionsRequestSequenceRef.current += 1;
-    restoreRequestSequenceRef.current += 1;
   }, []);
 
   if (!open) return null;
@@ -1085,7 +1242,10 @@ export default function AIChatPanel({
             aria-label="AI change request"
             data-testid="react-ai-chat-input"
             disabled={isRestoringVersion}
-            onChange={(event) => setPrompt(event.target.value)}
+            onChange={(event) => {
+              pendingInputSourceRef.current = "typed";
+              setPrompt(event.target.value);
+            }}
             onKeyDown={handleInputKeyDown}
           />
           <div className="ai-chat-composer-hint" aria-hidden="true">

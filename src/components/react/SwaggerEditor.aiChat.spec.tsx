@@ -177,7 +177,11 @@ describe("SwaggerEditor AI Chat integration", () => {
     expect((container.querySelector("#syntax-error-box") as HTMLElement).style.display).toBe("block");
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_closed",
-      expect.objectContaining({ macro_type: "openapi" }),
+      expect.objectContaining({
+        macro_type: "openapi",
+        close_reason: "user_closed",
+        session_duration_ms: expect.any(Number),
+      }),
     );
   });
 

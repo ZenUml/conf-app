@@ -86,6 +86,7 @@
         showAIChat: false,
         showCodeEditor: true,
         syntaxRepairRequestId: 0,
+        aiChatOpenedAt: 0,
         splitInstance: null as ReturnType<typeof Split> | null,
       }
     },
@@ -119,6 +120,7 @@
         this.destroySplit()
         this.showAIChat = true
         this.showCodeEditor = false
+        this.aiChatOpenedAt = Date.now()
         trackAnalyticsEvent('ai_chat_opened', {
           feature_area: 'ai',
           surface: 'editor',
@@ -140,7 +142,12 @@
           feature_area: 'ai',
           surface: 'editor',
           macro_type: this.diagramType || 'none',
+          session_duration_ms: this.aiChatOpenedAt
+            ? Math.max(0, Date.now() - this.aiChatOpenedAt)
+            : 0,
+          close_reason: 'user_closed',
         })
+        this.aiChatOpenedAt = 0
       },
       toggleCodeEditor() {
         this.showCodeEditor = !this.showCodeEditor

@@ -325,6 +325,7 @@
           aria-label="AI change request"
           data-testid="ai-chat-input"
           :disabled="isRestoringVersion"
+          @input="markPromptTyped"
           @keydown.enter.exact.prevent="submitPrompt()"
         />
         <div class="ai-chat-composer-hint" aria-hidden="true">
@@ -390,7 +391,9 @@ import {
   type AIChatVersion,
 } from './aiChatPrototype'
 import {
+  getAIChatFailureTelemetry,
   runAIChatSession,
+  type AIChatFailurePhase,
   type AIChatSessionStage,
 } from '@/services/AIChatSessionService'
 import {
@@ -466,6 +469,12 @@ let versionsRequestSequence = 0
 let restoreRequestSequence = 0
 let versionLoadPromise: Promise<void> | null = null
 let messageSequence = 0
+let activeRequestStartedAt = 0
+let activeRequestKind: AIChatChangeKind | null = null
+let restoreStartedAt = 0
+let pendingInputSource: 'typed' | 'suggestion' = 'typed'
+let lastPromptFailed = false
+let trackedSyntaxIssue = ''
 
 const isBusy = computed(() => isThinking.value || isRestoringVersion.value)
 const canSubmit = computed(() => prompt.value.trim().length > 0 && !isBusy.value)
@@ -513,6 +522,17 @@ function analyticsBase() {
     surface: 'editor' as const,
     macro_type: macroType.value,
   }
+}
+
+function durationSince(startedAt: number): number {
+  return Math.max(0, Date.now() - startedAt)
+}
+
+function failurePhaseForStage(stage: AIChatSessionStage | null): AIChatFailurePhase {
+  if (stage === 'ensuring') return 'ensure'
+  if (stage === 'syncing') return 'sync'
+  if (stage === 'queued' || stage === 'processing' || stage === 'generating') return 'poll'
+  return 'start'
 }
 
 function cloneMessage(message: AIChatMessage): AIChatMessage {
@@ -566,6 +586,7 @@ function upsertVersion(version: AIChatVersion): void {
 async function loadPersistedVersions(
   diagramId = activeDiagramId.value,
   force = false,
+  isRetry = false,
 ): Promise<void> {
   if (!diagramId) {
     versions.value = []
@@ -583,6 +604,7 @@ async function loadPersistedVersions(
   }
 
   const requestId = ++versionsRequestSequence
+  const startedAt = Date.now()
   versionsDiagramId.value = diagramId
   versionsStatus.value = 'loading'
   const request = (async () => {
@@ -598,9 +620,24 @@ async function loadPersistedVersions(
         || versions.value[versions.value.length - 1]?.id
         || ''
       versionsStatus.value = 'loaded'
+      trackAnalyticsEvent('ai_chat_history_load_succeeded', {
+        ...analyticsBase(),
+        duration_ms: durationSince(startedAt),
+        version_count: versions.value.length,
+        is_retry: isRetry,
+        ui_component: 'version_history',
+      })
     } catch {
       if (requestId === versionsRequestSequence && activeDiagramId.value === diagramId) {
         versionsStatus.value = 'failed'
+        trackAnalyticsEvent('ai_chat_history_load_failed', {
+          ...analyticsBase(),
+          failure_phase: 'history_load',
+          failure_reason: 'history_request_failed',
+          duration_ms: durationSince(startedAt),
+          is_retry: isRetry,
+          ui_component: 'version_history',
+        })
       }
     }
   })()
@@ -611,16 +648,21 @@ async function loadPersistedVersions(
 }
 
 function retryLoadVersions(): void {
-  void loadPersistedVersions(activeDiagramId.value, true)
+  void loadPersistedVersions(activeDiagramId.value, true, true)
 }
 
 function selectSuggestion(suggestion: AIChatSuggestion): void {
   prompt.value = suggestion.label
+  pendingInputSource = 'suggestion'
   trackAnalyticsEvent('ai_chat_suggestion_selected', {
     ...analyticsBase(),
     suggestion_id: suggestion.id,
   })
   nextTick(() => input.value?.focus())
+}
+
+function markPromptTyped(): void {
+  pendingInputSource = 'typed'
 }
 
 function stageClass(index: number): string {
@@ -686,7 +728,31 @@ function closeHistory(): void {
   historyOpen.value = false
 }
 
-function cancelActiveRequest(): void {
+function cancelActiveRequest(
+  cancelReason: 'panel_closed' | 'component_unmounted' = 'component_unmounted',
+): void {
+  if (activeController && !activeController.signal.aborted) {
+    trackAnalyticsEvent('ai_chat_prompt_cancelled', {
+      ...analyticsBase(),
+      failure_phase: failurePhaseForStage(activeStage.value),
+      failure_reason: 'user_cancelled',
+      cancel_reason: cancelReason,
+      duration_ms: activeRequestStartedAt ? durationSince(activeRequestStartedAt) : 0,
+      chat_message_count: messages.value.length,
+      change_kind: activeRequestKind || 'request',
+    })
+  }
+  if (isRestoringVersion.value && restoringVersionId.value) {
+    trackAnalyticsEvent('ai_chat_version_restore_failed', {
+      ...analyticsBase(),
+      failure_phase: 'version_restore',
+      failure_reason: 'cancelled',
+      cancel_reason: cancelReason,
+      duration_ms: restoreStartedAt ? durationSince(restoreStartedAt) : 0,
+      change_kind: restoringAction.value || 'rollback',
+      version_id: restoringVersionId.value,
+    })
+  }
   activeController?.abort()
   activeController = null
   restoreRequestSequence += 1
@@ -695,10 +761,13 @@ function cancelActiveRequest(): void {
   restoringVersionId.value = ''
   restoringAction.value = null
   activeStage.value = null
+  activeRequestStartedAt = 0
+  activeRequestKind = null
+  restoreStartedAt = 0
 }
 
 function closePanel(): void {
-  cancelActiveRequest()
+  cancelActiveRequest('panel_closed')
   closeExpandedDiff()
   closeHistory()
   emit('close')
@@ -744,17 +813,26 @@ async function submitPrompt(
   if (!text || isBusy.value) return false
 
   const previousCode = activeCode.value
+  const startedAt = Date.now()
+  const inputSource = kind === 'syntax_repair' ? 'syntax_repair' : pendingInputSource
+  const retryAfterFailure = lastPromptFailed
   const controller = new AbortController()
   activeController = controller
+  activeRequestStartedAt = startedAt
+  activeRequestKind = kind
   isThinking.value = true
   activeStage.value = activeDiagramId.value ? 'queued' : 'ensuring'
   messages.value.push({ id: nextMessageId('user'), role: 'user', text })
   prompt.value = ''
+  pendingInputSource = 'typed'
   trackAnalyticsEvent('ai_chat_prompt_submitted', {
     ...analyticsBase(),
     generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',
     prompt_length: text.length,
     chat_message_count: messages.value.length,
+    turn_index: messages.value.filter((message) => message.role === 'user').length,
+    input_source: inputSource,
+    retry_after_failure: retryAfterFailure,
     change_kind: kind,
   })
   emit('send', text)
@@ -820,11 +898,17 @@ async function submitPrompt(
     }
     messages.value.push(message)
     if (kind === 'syntax_repair') syntaxResolved.value = true
+    lastPromptFailed = false
     trackAnalyticsEvent('ai_chat_change_applied', {
       ...analyticsBase(),
       chat_message_count: messages.value.length,
       change_kind: kind,
       version_id: result.versionId,
+      version_number: result.versionNumber,
+      duration_ms: durationSince(startedAt),
+      poll_count: result.pollCount || 0,
+      lines_added: preview.diffLines.filter((line) => line.type === 'add').length,
+      lines_removed: preview.diffLines.filter((line) => line.type === 'remove').length,
     })
     emit('apply-code', result.updatedCode)
     emit('apply', message)
@@ -834,6 +918,18 @@ async function submitPrompt(
       return false
     }
 
+    const failure = getAIChatFailureTelemetry(error)
+    lastPromptFailed = true
+    trackAnalyticsEvent('ai_chat_prompt_failed', {
+      ...analyticsBase(),
+      failure_phase: failure.failurePhase,
+      failure_reason: failure.failureReason,
+      duration_ms: durationSince(startedAt),
+      poll_count: failure.pollCount,
+      chat_message_count: messages.value.length,
+      change_kind: kind,
+      generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',
+    })
     const detail = error instanceof Error ? error.message : 'Unknown error'
     messages.value.push({
       id: nextMessageId('assistant'),
@@ -846,6 +942,8 @@ async function submitPrompt(
       activeController = null
       isThinking.value = false
       activeStage.value = null
+      activeRequestStartedAt = 0
+      activeRequestKind = null
     }
   }
 }
@@ -875,6 +973,12 @@ async function restoreTargetVersion(
   isRestoringVersion.value = true
   restoringVersionId.value = targetVersionId
   restoringAction.value = kind
+  restoreStartedAt = Date.now()
+  trackAnalyticsEvent('ai_chat_version_restore_requested', {
+    ...analyticsBase(),
+    change_kind: kind,
+    version_id: targetVersionId,
+  })
 
   try {
     const result = await restoreDiagramlyVersion(activeDiagramId.value, targetVersionId)
@@ -913,6 +1017,8 @@ async function restoreTargetVersion(
         ...analyticsBase(),
         change_kind: kind,
         version_id: targetVersionId,
+        version_number: restoredVersion.versionNumber,
+        duration_ms: durationSince(restoreStartedAt),
       },
     )
     emit('apply-code', restoredCode)
@@ -920,6 +1026,17 @@ async function restoreTargetVersion(
     return true
   } catch (error) {
     if (requestId !== restoreRequestSequence) return false
+    trackAnalyticsEvent('ai_chat_version_restore_failed', {
+      ...analyticsBase(),
+      failure_phase: 'version_restore',
+      failure_reason: error instanceof Error
+        && error.message === 'Diagramly restored a version without diagram code'
+        ? 'restored_code_missing'
+        : 'restore_request_failed',
+      duration_ms: durationSince(restoreStartedAt),
+      change_kind: kind,
+      version_id: targetVersionId,
+    })
     const detail = error instanceof Error ? error.message : 'Unknown error'
     messages.value.push({
       id: nextMessageId('assistant'),
@@ -932,6 +1049,7 @@ async function restoreTargetVersion(
       isRestoringVersion.value = false
       restoringVersionId.value = ''
       restoringAction.value = null
+      restoreStartedAt = 0
     }
   }
 }
@@ -969,6 +1087,24 @@ watch(
 )
 
 watch(
+  [() => props.open, visibleSyntaxError, () => props.syntaxError],
+  ([open, visible, syntaxError]) => {
+    if (!open || !visible || !syntaxError) {
+      trackedSyntaxIssue = ''
+      return
+    }
+    if (trackedSyntaxIssue === syntaxError) return
+    trackedSyntaxIssue = syntaxError
+    trackAnalyticsEvent('ai_chat_syntax_issue_shown', {
+      ...analyticsBase(),
+      error_category: 'syntax_error',
+      ui_component: 'syntax_issue_banner',
+    })
+  },
+  { immediate: true },
+)
+
+watch(
   [() => props.syntaxRepairRequestId, () => props.open, isBusy],
   ([requestId, open, busy]) => {
     if (
@@ -991,7 +1127,7 @@ watch(
   () => props.open,
   (open) => {
     if (!open) {
-      cancelActiveRequest()
+      cancelActiveRequest('panel_closed')
       closeExpandedDiff()
       closeHistory()
       return
@@ -1004,7 +1140,7 @@ watch(
 
 onBeforeUnmount(() => {
   versionsRequestSequence += 1
-  cancelActiveRequest()
+  cancelActiveRequest('component_unmounted')
 })
 </script>
 

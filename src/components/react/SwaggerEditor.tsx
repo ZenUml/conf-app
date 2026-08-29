@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Header from "@/components/react/Header";
 import AIChatPanel from "@/components/react/AIChatPanel";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -17,6 +17,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
     () => (store.state.diagram.metadata as any)?.aiChat?.diagramlyDiagramId || "",
   );
   const [syntaxRepairRequestId, setSyntaxRepairRequestId] = useState(0);
+  const aiChatOpenedAtRef = useRef(0);
 
   useEffect(() => store.subscribe((mutation, state) => {
     if (mutation.type === "updateError") {
@@ -45,12 +46,20 @@ const Component = ({ saveAndExit, exit }: Props) => {
     setShowAIChat((current) => {
       const next = !current;
       setShowCodeEditor(!next);
+      const sessionDurationMs = aiChatOpenedAtRef.current
+        ? Math.max(0, Date.now() - aiChatOpenedAtRef.current)
+        : 0;
+      if (next) aiChatOpenedAtRef.current = Date.now();
       trackAnalyticsEvent(next ? "ai_chat_opened" : "ai_chat_closed", {
         feature_area: "ai",
         surface: "editor",
         macro_type: "openapi",
         ...(next ? { entry_point: "ai_prompt" as const } : {}),
+        ...(!next
+          ? { session_duration_ms: sessionDurationMs, close_reason: "user_closed" as const }
+          : {}),
       });
+      if (!next) aiChatOpenedAtRef.current = 0;
       return next;
     });
   };
@@ -63,13 +72,19 @@ const Component = ({ saveAndExit, exit }: Props) => {
       feature_area: "ai",
       surface: "editor",
       macro_type: "openapi",
+      session_duration_ms: aiChatOpenedAtRef.current
+        ? Math.max(0, Date.now() - aiChatOpenedAtRef.current)
+        : 0,
+      close_reason: "user_closed",
     });
+    aiChatOpenedAtRef.current = 0;
   };
 
   useEffect(() => {
     const requestSyntaxRepair = () => {
       setShowAIChat((current) => {
         if (!current) {
+          aiChatOpenedAtRef.current = Date.now();
           trackAnalyticsEvent("ai_chat_opened", {
             feature_area: "ai",
             surface: "editor",

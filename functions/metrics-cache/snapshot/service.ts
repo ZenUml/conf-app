@@ -9,6 +9,7 @@ import {
   claimKey,
   countBucket,
   countsEqual,
+  normalizeCounts,
   errorResponse,
   isSnapshotEnrolled,
   jsonResponse,
@@ -700,11 +701,10 @@ function changedMetrics(previous: SpaceMetrics | undefined, current: MacroCounts
 function compatibleSpace(spaceKey: string, counts: MacroCounts, capturedAt: string): SpaceMetrics {
   return {
     space: spaceKey,
-    ...counts,
-    // Normalize AFTER integrity verification: this object is persisted, not
-    // re-hashed, so an old client's missing bucket becomes an explicit 0 here
-    // rather than an absent key downstream consumers must guard.
-    ...Object.fromEntries(COUNT_FIELDS.map((field) => [field, countBucket(counts, field)])),
+    // normalizeCounts, not `...counts`: this object is PERSISTED (not re-hashed),
+    // so an old client's absent bucket becomes an explicit 0 rather than a
+    // missing key downstream consumers must guard.
+    ...normalizeCounts(counts),
     isLite: true,
     lastUpdated: capturedAt,
   };

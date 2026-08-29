@@ -7,6 +7,7 @@ import {
   isSnapshotEnrolled,
   jsonResponse,
   metricsKvKey,
+  normalizeCounts,
   readLatestPointer,
   type DomainMetrics,
   type MacroCounts,
@@ -58,15 +59,11 @@ export const onRequest = async ({
     domainData.domain = context.clientDomain;
     domainData.spaces[body.space] = {
       space: body.space,
-      total: body.metrics.total,
-      sequence: body.metrics.sequence,
-      graph: body.metrics.graph,
-      openapi: body.metrics.openapi,
-      mermaid: body.metrics.mermaid,
-      plantuml: body.metrics.plantuml,
-      // ?? 0: clients predating this bucket omit it — see countBucket.
-      asyncapi: body.metrics.asyncapi ?? 0,
-      unknown: body.metrics.unknown,
+      // normalizeCounts, not a field-by-field copy: assertCounts tolerates an
+      // absent bucket (a client predating it — the total-vs-buckets invariant
+      // still holds), so copying raw would persist `undefined` for any bucket
+      // the client omitted. Every bucket lands as a number or not at all.
+      ...normalizeCounts(body.metrics),
       isLite: context.productType === 'lite',
       lastUpdated: new Date().toISOString(),
     };

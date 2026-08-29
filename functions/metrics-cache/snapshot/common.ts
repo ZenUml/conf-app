@@ -359,6 +359,24 @@ export function countBucket(metrics: MacroCounts, field: CountField): number {
 }
 
 /**
+ * A full count set with every bucket present, absent ones defaulted to 0.
+ *
+ * Use this at every point that PERSISTS counts. `assertCounts` tolerates an
+ * absent bucket (a client predating it), which is correct — the total-vs-buckets
+ * invariant still holds, the payload just omits a zero. But tolerating it on
+ * read must not mean writing `undefined` into KV: consumers would then have to
+ * guard a field the type says is a number.
+ *
+ * NOT for chunk payloads, which are integrity-checked against a
+ * client-computed sha256 of the exact bytes sent — those must stay untouched.
+ */
+export function normalizeCounts(metrics: MacroCounts): MacroCounts {
+  const out = { total: metrics.total } as MacroCounts;
+  for (const field of COUNT_FIELDS) out[field] = countBucket(metrics, field);
+  return out;
+}
+
+/**
  * Compare two count sets bucket by bucket.
  *
  * NOT `JSON.stringify(a) === JSON.stringify(b)`: that is sensitive to key order

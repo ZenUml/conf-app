@@ -50,7 +50,11 @@ const PAYWALL_COUNT_CEILING = 100;
 // DiagramTypeConfig describes, so giving it a full config would hand it
 // capabilities (agent-link writes, the diagram portal, the template gallery)
 // that have never been validated for it. It still needs to be counted.
-const EXTRA_METRIC_FIELDS: Partial<Record<DiagramType, string>> = {
+// Typed to `keyof IMacroMetrics`, not `string`: a mistyped field name would
+// otherwise compile, and `(stats[field] as number)++` on a key that isn't there
+// is `undefined++` → NaN — a silently wrong count, which is the exact defect
+// class this bucket exists to prevent.
+const EXTRA_METRIC_FIELDS: Partial<Record<DiagramType, keyof IMacroMetrics>> = {
   [DiagramType.AsyncApi]: 'asyncapi',
 };
 
@@ -217,8 +221,8 @@ export class MacroMetrics {
   }
 
   private updateDiagramStats(stats: Partial<IMacroMetrics>, diagramType: DiagramType): void {
-    const field = (getDiagramConfig(diagramType)?.metricField
-      ?? EXTRA_METRIC_FIELDS[diagramType]) as keyof IMacroMetrics | undefined;
+    const field = (getDiagramConfig(diagramType)?.metricField as keyof IMacroMetrics | undefined)
+      ?? EXTRA_METRIC_FIELDS[diagramType];
     if (field) {
       (stats[field] as number)++;
     } else {

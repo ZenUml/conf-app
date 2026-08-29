@@ -238,6 +238,17 @@ async function confluenceJson(path: ReturnType<typeof route>, init?: ConfluenceI
 }
 
 /** Effective batch size for this job. */
+/**
+ * Macro keys the space sweep searches for. Exported so a test can pin the
+ * invariant that makes the cursorless sweep terminate: EVERY key here must be
+ * convertible by mapLiteMacroKey. See resolvePageIds for what breaks otherwise.
+ */
+export const LITE_DISCOVERY_MACRO_KEYS = [
+  'zenuml-sequence-macro-lite',
+  'zenuml-openapi-macro-lite',
+  'zenuml-graph-macro-lite',
+] as const;
+
 export function batchLimitFor(job: { pageBatchLimit?: number | null }): number {
   const override = job.pageBatchLimit;
   return typeof override === 'number' && override > 0 && override <= PAGE_BATCH_LIMIT
@@ -257,19 +268,23 @@ async function resolvePageIds(job: ClaimedJob): Promise<string[]> {
     return job.pageIds.slice(offset, offset + limit);
   }
   if (!job.spaceKey) return [];
-  // Discovery only — which pages to open. What actually converts is decided
-  // per node by mapLiteMacroKey. asyncapi is listed so a page carrying ONLY an
-  // AsyncAPI macro is still visited and reported on; today mapLiteMacroKey
-  // skips it (Full ships no AsyncAPI macro), so such a page converts nothing
-  // and is left untouched. Listing it now means lifting that skip is a
-  // one-place change rather than two.
-  const liteMacroKeys = [
-    'zenuml-sequence-macro-lite',
-    'zenuml-openapi-macro-lite',
-    'zenuml-graph-macro-lite',
-    'zenuml-asyncapi-macro-lite',
-  ];
-  const cql = `space = "${job.spaceKey}" and macro in (${liteMacroKeys
+  // ONLY keys mapLiteMacroKey can actually convert belong here. The no-cursor
+  // sweep above depends on a page dropping out of this query once converted;
+  // a key that never converts would match forever, re-reading the same pages
+  // every tick and holding slots in the batch. Worse, a batch made entirely of
+  // such pages yields macrosConverted === 0, which shouldRequeue reads as
+  // "nothing left to do" — the job would report `done` with convertible pages
+  // still unmigrated. So `zenuml-asyncapi-macro-lite` is deliberately NOT
+  // listed while mapLiteMacroKey skips it.
+  //
+  // Consequence, accepted: a page whose ONLY Lite macro is AsyncAPI is never
+  // visited, so it contributes nothing to macrosSkippedAsyncApi. That stat
+  // counts AsyncAPI macros on pages that also carry a convertible macro —
+  // a floor on what stayed behind, not a total.
+  //
+  // TO LIFT: add the key here in the same change that stops mapLiteMacroKey
+  // returning null for asyncapi — never before it.
+  const cql = `space = "${job.spaceKey}" and macro in (${LITE_DISCOVERY_MACRO_KEYS
     .map((k) => `"${k}"`)
     .join(', ')})`;
   const ids: string[] = [];

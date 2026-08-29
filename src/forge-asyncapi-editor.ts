@@ -67,6 +67,12 @@ async function initializeMacro() {
   // closes the paywall never started authoring. Fired below on the ungated
   // path, or from PaywallGate's explicit "Continue editing" — same rule
   // forgeIndex applies to the sequence family.
+  //
+  // Deferring it past the `loadFailed` early return below also stops a failed
+  // document load counting as an authoring session. That is a deliberate
+  // change on EVERY variant, not just Lite: the asyncapi app used to emit
+  // macro_edit_started before it knew whether the document loaded, so its
+  // start-vs-save funnel counted opens that could never reach a save.
   const trackAsyncApiAuthoringStarted = () => trackAuthoringStarted({
     macroType: 'asyncapi',
     entryPoint,

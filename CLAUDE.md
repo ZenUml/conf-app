@@ -264,3 +264,26 @@ Reach for Playwright MCP only when a skill needs something agent-browser lacks, 
 - **Issue tracker** — issues live as GitHub issues on `ZenUml/conf-app`; use the `gh` CLI for all operations.
 - **Triage labels** — five canonical roles, names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
 - **Domain docs** — single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
+
+## Cursor Cloud specific instructions
+
+Node 22 and `pnpm@10.34.5` are preinstalled. The startup update script runs `pnpm install --frozen-lockfile` and `ln -sf wrangler-dev.toml wrangler.toml` (this repo's `wrangler.toml` is a gitignored symlink to the committed `wrangler-dev.toml`; `pnpm wrangler:link` does the same). Do not re-run installs by hand unless dependencies changed. Standard commands live in `package.json` scripts — don't duplicate them here.
+
+### Local services (two-server split)
+
+- **Frontend (Vite, :8080)** — `pnpm start:local`. Vite's dev root serves `sandbox.html` at `http://127.0.0.1:8080/` (a card index of per-diagram-type editor/viewer scenarios). For standalone dev the config aliases `@forge/bridge` to `src/stubs/forge-bridge.ts`, so the frontend and all diagram rendering (ZenUML, Mermaid, DrawIO, OpenAPI) work **with no backend and no credentials**. This is the fastest way to exercise/verify UI and renderer changes.
+- **Backend (Cloudflare Pages Functions, :8788)** — `pnpm wrangler:serve`. It serves the **built `dist/`**, so run `pnpm build:lite` (or another `build:*`) first, otherwise `functions/` routing has no static assets to sit behind. Vite proxies `/api/*`, `/track`, `/authenticate`, `/diagram-likes`, etc. from :8080 to :8788. Only paths in `public/_routes.json` execute as functions; anything else (e.g. `/api/features`, `/authenticate`) intentionally returns the SPA HTML fallback.
+- **Combined** — `pnpm start:sit` applies local D1 migrations (`db:migrate:local`) then runs backend + frontend concurrently. D1/KV/R2 all bind to **local** wrangler storage; no cloud account is needed for those.
+
+### Gotcha: the Workers `AI` binding blocks the backend without Cloudflare creds
+
+`wrangler-dev.toml` declares an `[ai]` (Workers AI) binding, which wrangler always runs in **remote** mode. In a non-interactive VM this makes `pnpm wrangler:serve` / `pnpm start:sit` exit with `it's necessary to set a CLOUDFLARE_API_TOKEN`. Provide `CLOUDFLARE_API_TOKEN` (+ `CLOUDFLARE_ACCOUNT_ID`) as secrets to run the full backend as documented. Everything else in the backend (D1/KV/R2 + all non-AI functions) runs purely locally — the only feature that actually needs the token is AI Repair / AI-title generation. Frontend-only work never needs it.
+
+### Tests
+
+- **Unit (Vitest):** `pnpm test:unit` — the authoritative local automated suite (~2800 tests), no services or creds required. `pnpm lint` is warning-heavy but should stay at 0 errors.
+- **E2E (Playwright):** lives in the **standalone** `tests/e2e-tests/` package (`pnpm install --ignore-workspace` there, then `pnpm exec playwright install --with-deps chromium`). These run against **remote staging/prod Confluence sites**, not the local servers, and need robot-account secrets (`ZENUML_STAGE_USERNAME`, `ZENUML_STAGE_PASSWORD`, `ATLASSIAN_OTP`; see `tests/e2e-tests/.env.example`). Not part of the local dev loop.
+
+### AsyncAPI variant
+
+`pnpm build:asyncapi` needs the `vendor/asyncapi-studio` git submodule (`git submodule update --init --depth 1 vendor/asyncapi-studio`). The `private/` submodule uses an SSH URL and is not accessible from the cloud VM — skip it; it is not needed for lite/full/diagramly dev, builds, or unit tests.

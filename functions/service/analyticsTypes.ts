@@ -62,11 +62,6 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "extension_action_requested",
   "extension_action_succeeded",
   "extension_action_failed",
-  // Loopback-only Local CRM Extensions read lifecycle. Identity-bearing
-  // properties are forbidden; emit aggregate source/count/duration only.
-  "local_crm_extensions_requested",
-  "local_crm_extensions_succeeded",
-  "local_crm_extensions_failed",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

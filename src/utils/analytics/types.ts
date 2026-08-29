@@ -278,14 +278,6 @@ export type AnalyticsProperties = {
     | 'license_write'
     | 'license_verify'
     | 'unexpected';
-  // Local CRM Extensions read lifecycle. The loopback backend emits only
-  // aggregate, identity-free properties. `cloudflare_redacted` means the
-  // server read live stores and sanitized every identity before responding;
-  // it does not mean raw records reached the browser or Mixpanel.
-  local_crm_data_source?: 'sanitized_fixture' | 'cloudflare_redacted';
-  local_crm_record_count?: number;
-  local_crm_active_count?: number;
-  local_crm_audited_count?: number;
   // Attribution token embedded in the Stripe Payment Link URL
   // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment

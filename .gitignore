@@ -46,6 +46,10 @@ test-results/
 *.png
 !public/image/*.png
 !public/drawio/**/*.png
+# Documentation screenshots referenced from PRs and docs pages. Narrow on
+# purpose, same as the two above: *.png stays ignored everywhere else so
+# stray captures and test artifacts cannot be committed by accident.
+!docs/images/*.png
 .harness/
 .worktrees/
 .worktree/

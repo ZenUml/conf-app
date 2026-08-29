@@ -247,22 +247,21 @@
       data-testid="ai-chat-history-panel"
     >
       <header>
+        <button
+          type="button"
+          class="ai-chat-history-back"
+          aria-label="Back to AI chat"
+          title="Back to AI chat"
+          @click="closeHistory"
+        >
+          <ArrowLeftIcon aria-hidden="true" />
+        </button>
         <div class="ai-chat-history-title">
-          <ClockIcon aria-hidden="true" />
           <span>
             <h3>Diagram versions</h3>
             <p>Review or restore a saved change.</p>
           </span>
         </div>
-        <button
-          type="button"
-          class="ai-chat-icon-button"
-          aria-label="Close diagram versions"
-          title="Close diagram versions"
-          @click="closeHistory"
-        >
-          <XMarkIcon aria-hidden="true" />
-        </button>
       </header>
       <div
         v-if="versionsStatus === 'loading'"
@@ -365,6 +364,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
+  ArrowLeftIcon,
   ArrowPathIcon,
   ArrowRightIcon,
   ArrowUturnLeftIcon,

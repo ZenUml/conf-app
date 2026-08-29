@@ -723,13 +723,26 @@
   min-height: 64px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 8px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--ai-chat-border);
 }
 
+.ai-chat-history-panel > header .ai-chat-history-back {
+  width: 32px;
+  flex: 0 0 auto;
+  padding: 0;
+  color: var(--ai-chat-muted);
+}
+
+.ai-chat-history-panel > header .ai-chat-history-back:hover {
+  color: var(--ai-chat-fg);
+  background: var(--ai-chat-rail);
+}
+
 .ai-chat-history-title {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: flex-start;

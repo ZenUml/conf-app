@@ -62,6 +62,7 @@ const stages: Array<{ key: AIChatSessionStage; label: string }> = [
 
 type AIChatIconName =
   | "arrow"
+  | "back"
   | "check"
   | "chevron-down"
   | "chevron-up"
@@ -77,6 +78,7 @@ type AIChatIconName =
 
 const iconPaths: Record<AIChatIconName, string[]> = {
   arrow: ["M5 12h14", "m13-6 6 6-6 6"],
+  back: ["M19 12H5", "m11 18-6-6 6-6"],
   check: ["m5 12 4 4L19 6"],
   "chevron-down": ["m6 9 6 6 6-6"],
   "chevron-up": ["m6 15 6-6 6 6"],
@@ -1162,22 +1164,21 @@ export default function AIChatPanel({
           data-testid="react-ai-chat-history-panel"
         >
           <header>
+            <button
+              type="button"
+              className="ai-chat-history-back"
+              aria-label="Back to AI chat"
+              title="Back to AI chat"
+              onClick={closeHistory}
+            >
+              <AIChatIcon name="back" />
+            </button>
             <div className="ai-chat-history-title">
-              <AIChatIcon name="clock" />
               <span>
                 <h3>Diagram versions</h3>
                 <p>Review or restore a saved change.</p>
               </span>
             </div>
-            <button
-              type="button"
-              className="ai-chat-icon-button"
-              aria-label="Close diagram versions"
-              title="Close diagram versions"
-              onClick={closeHistory}
-            >
-              <AIChatIcon name="close" />
-            </button>
           </header>
           {versionsStatus === "loading" ? (
             <div role="status" data-testid="react-ai-chat-history-loading">

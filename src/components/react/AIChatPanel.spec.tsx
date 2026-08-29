@@ -301,7 +301,7 @@ describe("React AIChatPanel core flow", () => {
     );
 
     act(() => {
-      Simulate.click(history.querySelector('[aria-label="Close diagram versions"]')!);
+      Simulate.click(history.querySelector('[aria-label="Back to AI chat"]')!);
       Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
     });
     expect(getDiagramlyVersions).toHaveBeenCalledTimes(1);

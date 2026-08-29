@@ -255,7 +255,7 @@ describe('AIChatPanel core flow', () => {
       expect.objectContaining({ version_count: 2, is_retry: false }),
     )
 
-    await history.get('[aria-label="Close diagram versions"]').trigger('click')
+    await history.get('[aria-label="Back to AI chat"]').trigger('click')
     await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
     expect(getDiagramlyVersions).toHaveBeenCalledTimes(1)
   })

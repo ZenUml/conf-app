@@ -13,12 +13,19 @@ pnpm --dir local-crm dev
 
 Open `http://127.0.0.1:7331`. The server is explicitly bound to loopback.
 
-The Extensions slice needs the existing local operator credentials in the
-process environment:
+The Extensions slice needs the existing local operator credentials:
 
 - `FORGE_EMAIL` / `FORGE_API_TOKEN` for the Marketplace vendor export
 - `JSM_EMAIL` / `JSM_API_TOKEN` for the ZEN service desk
 - an authenticated Wrangler session for `SPACE_LICENSE_KV` and production D1
+
+The Vite server keeps these values server-side. It first preserves credentials
+already present in the process, then fills missing values from
+`.env.forge.local` in this worktree or the primary checkout discovered through
+Git's common directory. This lets the same `pnpm --dir local-crm dev` command
+work from an isolated worktree without copying the ignored credential file.
+Only the four named server credential keys are admitted; they are never exposed
+as `VITE_*` client variables and are not loaded for tests, builds, or preview.
 
 If a required grant-KV read fails, the Extensions page leaves the sanitized
 fixture visible and labels it as a failed live load. Optional source failures

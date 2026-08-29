@@ -37,6 +37,7 @@ const CONTENT = '170721444';
 /** Unsuffixed macro keys; isMacro() substring-matches so Lite's `-lite` fits. */
 const GRAPH_KEY = 'zenuml-graph-macro';
 const OPENAPI_KEY = 'zenuml-openapi-macro';
+const ASYNCAPI_KEY = 'zenuml-asyncapi-macro';
 
 interface TypeCase {
   /** URL path segment, and the label the byline tile carries. */
@@ -54,6 +55,14 @@ const CASES: TypeCase[] = [
   { segment: 'mermaid', macroKey: testConfig.sequenceMacroKey, requires: 'mermaid' },
   { segment: 'graph', macroKey: GRAPH_KEY, requires: 'graph' },
   { segment: 'openapi', macroKey: OPENAPI_KEY, requires: 'openapi' },
+  // Lite only, and only Lite's app profile lists 'asyncapi' — the macro exists
+  // in Lite per ADR-0005 Option A, and full/diagramly delete the module while
+  // the asyncapi variant keeps the macro but has its typed matchers stripped
+  // (it ships no byline to mint them). Substring matching means the key below
+  // also covers `zenuml-asyncapi-macro-lite`; it must NOT match the sibling
+  // `zenuml-asyncapi-embed-macro`, which Lite strips and which claims only the
+  // 3-segment /d/*/* embed form.
+  { segment: 'asyncapi', macroKey: ASYNCAPI_KEY, requires: 'asyncapi' },
 ];
 
 function describeConversion(conv: EditorConversion): string {

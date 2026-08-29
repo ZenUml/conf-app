@@ -1,4 +1,4 @@
-export type MacroType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid';
+export type MacroType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid' | 'asyncapi';
 
 /** Same axis as `PRODUCT_TYPE` in Vite / `scripts/forge-wizard.mjs` (`lite` | `full` | `diagramly` | `asyncapi`). */
 export type ProductType = 'lite' | 'full' | 'diagramly' | 'asyncapi';
@@ -59,6 +59,21 @@ export interface AppProfile {
 
 const ALL_MACROS: MacroType[] = ['sequence', 'graph', 'openapi', 'embed', 'mermaid'];
 const NO_EMBED: MacroType[] = ['sequence', 'graph', 'openapi', 'mermaid'];
+// Lite ships the AsyncAPI macro (ADR-0005 Option A); full/diagramly/zenuml
+// strip it, so it is NOT in ALL_MACROS. Deliberately absent from `renderMacros`
+// too: the render suite builds its pages through the API, and no API-created
+// AsyncAPI fixture exists — the macro's coverage is UI-driven (tests/asyncapi/,
+// tests/insert/byline-asyncapi.spec.ts).
+//
+// Safe to widen this axis because nothing ITERATES it: every consumer is an
+// `.includes(...)` skip guard, so adding a member enables only the specs that
+// name it.
+//
+// Applied to the STAGING and DEV Lite profiles only. `zenuml-lite@prod` stays on
+// ALL_MACROS until the release carrying the AsyncAPI macro ships — a prod run
+// would otherwise look for a macro that install does not have and fail for the
+// wrong reason. Move it over in the same change that releases Lite.
+const LITE_MACROS: MacroType[] = [...ALL_MACROS, 'asyncapi'];
 
 export const APP_PROFILES: Record<string, AppProfile> = {
   'zenuml-lite@stg': {
@@ -70,7 +85,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: true,
     productType: 'lite',
     isForge: true,
-    macros: ALL_MACROS,
+    macros: LITE_MACROS,
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',
@@ -87,7 +102,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: true,
     productType: 'lite',
     isForge: true,
-    macros: ALL_MACROS,
+    macros: LITE_MACROS,
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',

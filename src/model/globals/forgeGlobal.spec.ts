@@ -1,5 +1,34 @@
-import { describe, it, expect } from 'vitest'
-import { resolveZenumlRemoteBaseUrl } from './forgeGlobal'
+import { describe, it, expect, vi } from 'vitest'
+import { resolveZenumlRemoteBaseUrl, openModal } from './forgeGlobal'
+
+const modalOpen = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@forge/bridge', () => ({
+  Modal: class {
+    constructor(public opts: any) {}
+    open() {
+      return modalOpen()
+    }
+  },
+}))
+
+describe('openModal', () => {
+  // Regression: `modal.open()` was called without await or return, so this
+  // function resolved immediately and a rejected open escaped as an unhandled
+  // promise rejection. Every caller already writes `await openModal(...)`, so
+  // their try/catch could never see a failed open — in the byline that left
+  // `creating` stuck true (all picker tiles disabled, no error shown) and made
+  // its `editor_never_opened` analytics outcome unreachable.
+  it('propagates a failed open to the caller instead of swallowing it', async () => {
+    modalOpen.mockRejectedValueOnce(new Error('Unable to open modal.'))
+    await expect(openModal({ resource: 'main' })).rejects.toThrow('Unable to open modal.')
+  })
+
+  it('resolves once the modal has opened', async () => {
+    modalOpen.mockResolvedValueOnce(undefined)
+    await expect(openModal({ resource: 'main' })).resolves.toBeUndefined()
+    expect(modalOpen).toHaveBeenCalled()
+  })
+})
 
 // Guards the variant→backend-origin mapping used by callRemote/invokeRemote.
 // The resolved origin MUST match the `connect` remote's baseUrl (manifest

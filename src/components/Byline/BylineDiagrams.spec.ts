@@ -42,6 +42,7 @@ vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
 // read to imply it.
 const paywall = vi.hoisted(() => ({
   shouldBlock: false,
+  countSource: 'kv' as string,
   initialize: vi.fn(async (_opts?: { persistMarker?: boolean }) => {}),
 }));
 vi.mock('@/composables/useCustomerSuccessService', () => ({
@@ -49,7 +50,7 @@ vi.mock('@/composables/useCustomerSuccessService', () => ({
     initialize: paywall.initialize,
     shouldBlockActions: { value: paywall.shouldBlock },
     macrosCreated: { value: 128 },
-    macroCountSource: { value: 'kv' },
+    macroCountSource: { value: paywall.countSource },
   }),
 }));
 
@@ -95,6 +96,7 @@ describe('BylineDiagrams', () => {
     // the tracker throw would leak that into every test after it.
     vi.mocked(trackAnalyticsEvent).mockImplementation(() => {});
     paywall.shouldBlock = false;
+    paywall.countSource = 'kv';
     spaceKey.value = 'SPACE';
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1' };
     apWrapper._getCurrentPageId.mockResolvedValue('page-1');
@@ -389,6 +391,13 @@ describe('BylineDiagrams', () => {
         await openEditorFrom(wrapper);
 
         expect(events('byline_editor_deeplinked')[0][1]).toMatchObject({ result: 'failed' });
+        // The tiles must come back. `creating` stuck true is what the missing
+        // await in forgeGlobal.openModal actually caused in production: every
+        // picker tile permanently disabled with no error surfaced.
+        await flushPromises();
+        expect(
+          wrapper.find('[data-testid="byline-type-sequence"]').attributes('disabled'),
+        ).toBeUndefined();
         expect(events('byline_create_unresolved')).toHaveLength(1);
         expect(events('byline_create_unresolved')[0][1]).toMatchObject({
           result: 'editor_never_opened',
@@ -484,6 +493,56 @@ describe('BylineDiagrams', () => {
         await mountByline();
 
         expect(paywall.initialize).toHaveBeenCalledWith({ persistMarker: false });
+      });
+
+      it('warns once per open, not once per list load', async () => {
+        // loadDiagrams' finally runs the check, and onRetry re-runs loadDiagrams.
+        // Unguarded, a retry counted as a second warning — and only users who hit
+        // a load failure can retry, so the inflation is biased toward the failure
+        // population. Exactly what the byline_opened guard exists to prevent.
+        paywall.shouldBlock = true;
+        apWrapper.listPageDiagramContents.mockResolvedValue([forbidden]);
+        const wrapper = await mountByline();
+        expect(events('byline_create_limit_warned')).toHaveLength(1);
+
+        apWrapper.listPageDiagramContents.mockResolvedValue([
+          ok(child('1', 'Login', DiagramType.Sequence)),
+        ]);
+        await wrapper.find('[data-testid="byline-retry"]').trigger('click');
+        await flushPromises();
+
+        expect(events('byline_create_limit_warned')).toHaveLength(1);
+      });
+
+      it('treats an unreadable macro count as unknown, not as zero', async () => {
+        // Every loader inside initialize() catches its own error, so a failed
+        // count read never reaches the catch — it arrives as macroCountSource
+        // 'undefined' with the count left at 0, which would otherwise resolve to
+        // "not blocked" and stamp create_limit_reached: false on a space we know
+        // nothing about.
+        paywall.countSource = 'undefined';
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+
+        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(false);
+        expect(events('byline_create_limit_warned')).toHaveLength(0);
+        await openEditorFrom(wrapper);
+        expect(events('byline_create_clicked')[0][1].create_limit_reached).toBeUndefined();
+      });
+
+      it('carries the count source so a degraded read stays filterable', async () => {
+        // An empty space and an under-returning read both surface as 'zero' and
+        // are indistinguishable by construction, so the source rides along rather
+        // than the decision pretending to more certainty than it has.
+        paywall.countSource = 'zero';
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+
+        await openEditorFrom(wrapper);
+        expect(events('byline_create_clicked')[0][1]).toMatchObject({
+          create_limit_reached: false,
+          macro_count_source: 'zero',
+        });
       });
 
       it('claims no limit it could not actually read', async () => {

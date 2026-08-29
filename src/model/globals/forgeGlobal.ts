@@ -220,7 +220,17 @@ export async function isFullscreenMode() {
 export async function openModal(_options: any) {
   const { Modal } = await import("@forge/bridge");
   const modal = new Modal(_options);
-  modal.open();
+  // AWAITED deliberately. `open()` resolves when the bridge call returns — on
+  // OPEN, not on close (`onClose` is a separate callback), so awaiting cannot
+  // hang a caller. It rejects with BridgeAPIError both when the bridge reports
+  // `success === false` and when the bridge call itself throws.
+  //
+  // Without the await that rejection escaped as an unhandled promise rejection:
+  // this function resolved immediately, every caller's `await openModal(...)`
+  // was meaningless, and a caller's try/catch could never see a failed open.
+  // In the byline that left `creating` stuck true — every picker tile disabled
+  // with no error surfaced — and its `editor_never_opened` outcome unreachable.
+  await modal.open();
 }
 
 export async function isInserting() {

@@ -359,7 +359,7 @@ import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
-import type { MacroTypeValue } from '@/utils/analytics/catalog'
+import type { MacroTypeValue, MacroCountSource } from '@/utils/analytics/catalog'
 import {
   parsePageDiagrams,
   summarizeDiagrams,
@@ -621,8 +621,16 @@ let pageId = ''
 let createOutcomePending = false
 
 /** True once the limit pre-check has resolved and found the space blocked.
- *  `undefined` while the check is still in flight — see create_limit_reached. */
+ *  `undefined` while the check is still in flight, and when it resolved against
+ *  a macro count that could not be read — see create_limit_reached. */
 const createLimitReached = ref<boolean | undefined>(undefined)
+
+/** Where the macro count behind `createLimitReached` came from, so a degraded
+ *  read is filterable rather than indistinguishable from a real small space. */
+let createLimitSource: MacroCountSource | undefined
+
+/** byline_create_limit_warned fires at most once per modal open. */
+let limitWarnedTracked = false
 
 /**
  * Emit the one terminal event for the create attempt in flight, or nothing if
@@ -771,19 +779,37 @@ async function checkCreateLimit() {
     // the banner eligible on pages where no macro rendered, and risk clobbering
     // a good marker with a degraded read. See initialize()'s doc comment.
     await customerSuccess.initialize({ persistMarker: false })
+
+    // A count we could not actually read is NOT a count of zero. Every loader
+    // inside initialize() catches its own error, so the catch below never sees
+    // a failed macro-count read: it surfaces as macroCountSource 'undefined'
+    // (the #302 fail-open) with macrosCreated left at 0, which would otherwise
+    // resolve to "not blocked" and stamp create_limit_reached: false on a space
+    // we know nothing about. Leave it undefined instead — that is exactly what
+    // the property documents, and what the notice's hidden state means here.
+    createLimitSource = customerSuccess.macroCountSource.value
+    if (createLimitSource === 'undefined') return
+
     const blocked = isPageEditorCreateBlocked(customerSuccess.shouldBlockActions.value)
     createLimitReached.value = blocked
     if (!blocked) return
+    // Once per open, not once per load. loadDiagrams' finally calls this, and
+    // onRetry re-runs loadDiagrams — so an unguarded emit counts a retry as a
+    // second warning, and only users who hit a load failure can retry, biasing
+    // the metric toward the failure population. Same defect the byline_opened
+    // guard directly above exists to prevent.
+    if (limitWarnedTracked) return
+    limitWarnedTracked = true
     trackAnalyticsEvent('byline_create_limit_warned', {
       ...baseProps(),
       create_limit_reached: true,
       macro_count: customerSuccess.macrosCreated.value,
-      macro_count_source: customerSuccess.macroCountSource.value,
+      macro_count_source: createLimitSource,
     })
   } catch (e) {
-    // A failed read must not invent a limit the user is not actually at. Leaving
-    // this undefined keeps the notice hidden and keeps create_limit_reached
-    // honest about not knowing.
+    // Unreachable for a network failure (see above); kept for a genuine throw
+    // from the composable itself. Leaving createLimitReached undefined keeps the
+    // notice hidden and the property honest about not knowing.
     console.warn('[byline] could not resolve the create limit', e)
   }
 }
@@ -1047,6 +1073,11 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
     ...(createLimitReached.value === undefined
       ? {}
       : { create_limit_reached: createLimitReached.value }),
+    // Carried whenever the check ran at all, so `create_limit_reached: false`
+    // from a 'zero' read (an empty space and an under-returning one are
+    // indistinguishable by construction — see useCustomerSuccessService) can be
+    // separated from one backed by a real 'kv'/'collect' count.
+    ...(createLimitSource ? { macro_count_source: createLimitSource } : {}),
   })
 
   const before = diagrams.value.map(d => d.id)

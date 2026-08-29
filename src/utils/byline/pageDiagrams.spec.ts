@@ -203,6 +203,18 @@ describe('toModalDiagramType', () => {
     expect(toModalDiagramType(DiagramType.AsyncApi)).toBe('asyncapi')
   })
 
+  // Regression: the routing table was indexed exactly while its siblings folded
+  // case. Real stored bodies say `openapi` / `asyncapi`, so BOTH missed and fell
+  // back to 'sequence' — the byline opened a swagger/AsyncAPI document in the
+  // sequence viewer. These are the spellings that actually arrive from
+  // parsePageDiagrams, not the enum members the tests above use.
+  it('routes the spellings real stored bodies use, not just the enum members', () => {
+    expect(toModalDiagramType('openapi')).toBe('openapi')
+    expect(toModalDiagramType('asyncapi')).toBe('asyncapi')
+    expect(toModalDiagramType('AsyncAPI')).toBe('asyncapi')
+    expect(toModalDiagramType('graph')).toBe('graph')
+  })
+
   it('falls back to the family that can render an unknown body', () => {
     expect(toModalDiagramType(DiagramType.Unknown)).toBe('sequence')
     expect(toModalDiagramType('something-new')).toBe('sequence')

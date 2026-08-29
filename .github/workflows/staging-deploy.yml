@@ -259,7 +259,7 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: |
-            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
+            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
 
       # The Lite->Full conversion executor ships only in Full
       # (docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md).

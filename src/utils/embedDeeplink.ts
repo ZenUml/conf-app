@@ -108,7 +108,15 @@ export interface TypedDiagramDeeplink extends EmbedDeeplink {
   type: string;
 }
 
-const DEEPLINK_TYPES = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi'];
+// `asyncapi` is here because Lite ships the AsyncAPI macro (ADR-0005 Option A)
+// and the byline picker offers it: the post-create panel hands back a
+// `/d/<type>/...` link to PLACE the diagram, and a type missing from this list
+// makes buildDiagramDeeplink return undefined — a diagram the user just saved
+// with no way to get it onto the page. Every picker tile must appear here.
+// Adding a type here is only half the contract: the matching `/new/<type>` and
+// `/d/<type>/*/*` autoConvert matchers must exist on that type's macro module
+// in manifest.yml, or the pasted link converts to nothing.
+export const DEEPLINK_TYPES: readonly string[] = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi', 'asyncapi'];
 
 // Parsing accepts every host the embed form accepts, so a typed link keeps
 // resolving after the #382 host migration completes. MINTING stays on

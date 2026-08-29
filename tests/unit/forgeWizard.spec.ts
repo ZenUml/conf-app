@@ -8,6 +8,8 @@ import {
   getManifestEditYqArgs,
 } from '../../scripts/forge-wizard.mjs'
 
+import { DEEPLINK_TYPES } from '../../src/utils/embedDeeplink'
+
 describe('forge-wizard manifest preview helpers', () => {
   it('keeps PlantUML egress client-only', () => {
     const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
@@ -163,6 +165,74 @@ describe('forge-wizard manifest preview helpers', () => {
     })
   })
 
+  // The other half of the paste-to-place contract. buildDiagramDeeplink mints a
+  // link for every type in DEEPLINK_TYPES; a type with no matching autoConvert
+  // matcher in the manifest produces a link that pastes as inert text, so the
+  // byline's post-create panel reports `linked` and hands the user a URL that
+  // does nothing. The two lists have to move together, and only a test that
+  // reads both can say so.
+  it('every minted deeplink type has autoConvert matchers in the manifest', () => {
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    const patterns: string[] = manifest.modules.macro.flatMap(
+      (m: any) => (m.autoConvert?.matchers ?? []).map((x: any) => String(x.pattern)),
+    )
+    for (const type of DEEPLINK_TYPES) {
+      expect(patterns, type).toContain(`https://confluence.zenuml.com/new/${type}`)
+      expect(patterns, type).toContain(`https://confluence.zenuml.com/d/${type}/*/*`)
+    }
+  })
+
+  // BylineDiagrams.vue renders its picker tiles unconditionally, on the strength
+  // of this: whatever variant keeps the byline keeps every macro a tile points
+  // at. A variant with the panel but no AsyncAPI macro would NOT show a dead
+  // tile — forgeIndex reads `modal.diagramType === 'asyncapi'` but falls through
+  // to the OpenAPI branch when its product gate fails, so the user would pick
+  // AsyncAPI and get a swagger document filed under the wrong type.
+  it('no variant keeps the byline panel without the macros its tiles create', () => {
+    const TILE_MACRO_KEYS = [
+      '${SEQUENCE_MACRO_KEY}',
+      'zenuml-graph-macro${LITE_KEY_SUFFIX}',
+      'zenuml-openapi-macro${LITE_KEY_SUFFIX}',
+      'zenuml-asyncapi-macro${LITE_KEY_SUFFIX}',
+    ]
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    const baseMacroKeys: string[] = manifest.modules.macro.map((m: any) => m.key)
+    // Sanity: the tile list is written against the base manifest, so a renamed
+    // macro key must break here rather than silently pass the loop below.
+    for (const key of TILE_MACRO_KEYS) expect(baseMacroKeys, key).toContain(key)
+
+    for (const variant of ['lite', 'full', 'diagramly', 'asyncapi'] as const) {
+      const exprs = getManifestEditYqArgs(variant).map((x: { expr: string }) => x.expr)
+      const keepsByline = !exprs.some(
+        (e: string) =>
+          e.includes('zenuml-byline-diagrams') || e.includes('del(.modules["confluence:contentBylineItem"])'),
+      )
+      if (!keepsByline) continue
+      const macroStrips = exprs.filter(
+        // `| not` inverts the selector into a KEEP-list (the asyncapi variant's
+        // shape). No byline-keeping variant uses one today, and reading it as a
+        // strip would invert the whole assertion, so it is excluded explicitly
+        // rather than by accident.
+        (e: string) => e.includes('.modules.macro') && !e.includes('| not'),
+      )
+      // Two ways a macro gets stripped, and the second is the one that actually
+      // regressed once: an exact `select(.key == "...")`, or a broad
+      // `select(.key | test("..."))` whose regex happens to cover the key. The
+      // broad `test("zenuml-asyncapi")` filter removed the very macro Lite is
+      // meant to ship, so the regex form is evaluated, not just string-matched.
+      const broadPatterns = macroStrips.flatMap(
+        (e: string) => Array.from(e.matchAll(/test\("([^"]+)"\)/g)).map(m => m[1]),
+      )
+      for (const key of TILE_MACRO_KEYS) {
+        const strippedByKey = macroStrips.some((e: string) => e.includes(`"${key}"`))
+        expect(strippedByKey, `${variant} strips ${key} by key but keeps the byline`).toBe(false)
+        const strippedByPattern = broadPatterns.find((p: string) => new RegExp(p).test(key))
+        expect(strippedByPattern, `${variant} strips ${key} via /${strippedByPattern}/ but keeps the byline`)
+          .toBeUndefined()
+      }
+    }
+  })
+
   it('only Lite keeps the byline paste-to-create matchers', () => {
     // The /new/<type> and /d/<type>/*/* patterns are minted only by the Lite
     // byline. Any other variant carrying them races Lite for the same pasted
@@ -178,7 +248,7 @@ describe('forge-wizard manifest preview helpers', () => {
         .find((e: string) => e.includes('autoConvert.matchers'))
       // `[.]` not `\.`: a backslash escape would be eaten by the JS string
       // literal and silently widen the regex.
-      expect(expr, variant).toContain('test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)")')
+      expect(expr, variant).toContain('test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)")')
       // The follow-up clause must drop only EMPTIED autoConvert blocks — the
       // embed macro's 3-segment matchers survive the first del and keep theirs.
       expect(expr, variant).toContain('length == 0) | .autoConvert)')

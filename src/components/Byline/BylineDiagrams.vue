@@ -511,7 +511,19 @@ interface TypeTile {
  *  Flowchart leads and is highlighted from measured Lite usage, not intuition: over
  *  the 90 days to 2026-08-07, `macro_create_succeeded` on `product_type: lite`
  *  counted 15,577 flowchart creates (mermaid 13,698 + plantuml 1,879) against
- *  1,885 sequence, 2,852 graph and 1,481 openapi. */
+ *  1,885 sequence, 2,852 graph and 1,481 openapi. AsyncAPI sits last because it
+ *  has no usage to rank on — Lite only started shipping the macro with ADR-0005
+ *  Option A — not because it is judged least useful. Re-rank once it has 90
+ *  days of `macro_create_succeeded` like the rest.
+ *
+ *  No per-variant filter, deliberately: this panel is Lite-only
+ *  (`zenuml-byline-diagrams`; full/diagramly strip it, asyncapi strips the whole
+ *  contentBylineItem module) and Lite ships every macro a tile creates. A
+ *  variant that kept the panel WITHOUT one would not show a dead tile — it would
+ *  show the wrong editor, because forgeIndex reads `modal.diagramType` but falls
+ *  through to the OpenAPI branch when its product gate fails, so an AsyncAPI
+ *  pick would save a swagger document. `tests/unit/forgeWizard.spec.ts` pins the
+ *  invariant that keeps that unreachable. */
 const DIAGRAM_TYPES: TypeTile[] = [
   {
     key: 'flowchart',
@@ -549,6 +561,15 @@ const DIAGRAM_TYPES: TypeTile[] = [
     icon: './image/openapi_macro_icon.png',
     example: './image/byline-example-openapi.png',
     macroType: 'openapi',
+  },
+  {
+    key: 'asyncapi',
+    diagramType: DiagramType.AsyncApi,
+    name: typeLabel(DiagramType.AsyncApi),
+    desc: 'Event-driven API spec',
+    icon: './image/openapi_macro_icon.png',
+    example: './image/byline-example-asyncapi.png',
+    macroType: 'asyncapi',
   },
 ]
 

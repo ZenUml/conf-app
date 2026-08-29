@@ -708,13 +708,32 @@ describe('BylineDiagrams', () => {
       expect(opts.context.diagramType).toBe('graph');
     });
 
+    // ADR-0005 Option A put the AsyncAPI macro in Lite, and the byline is the
+    // Lite-only surface. Routing is what this pins: the tile must announce
+    // `asyncapi` as the modal diagramType, because that field is the ONLY
+    // signal forgeIndex has here — a byline modal carries moduleKey
+    // 'zenuml-byline-diagrams', so every moduleKey discriminator misses and an
+    // unrecognised type falls through to the sequence editor.
+    it('creates an AsyncAPI diagram from its own tile', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-type-asyncapi"]').trigger('click');
+      await flushPromises();
+
+      expect(events('byline_create_clicked')[0][1]).toMatchObject({ macro_type: 'asyncapi' });
+      const opts = vi.mocked(openModal).mock.calls.at(-1)?.[0] as any;
+      expect(opts.context.diagramType).toBe('asyncapi');
+      expect(opts.context.macroMode).toBe('editor');
+    });
+
     it('offers a sample render for every type, not just the two that had one', async () => {
       // Graph and OpenAPI fell back to a 30px icon at 45% opacity on grey,
       // which reads as "unavailable" rather than "no preview".
       apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
       const wrapper = await mountByline();
 
-      for (const key of ['flowchart', 'sequence', 'graph', 'openapi']) {
+      for (const key of ['flowchart', 'sequence', 'graph', 'openapi', 'asyncapi']) {
         const img = wrapper.find(`[data-testid="byline-type-${key}"] img`);
         expect(img.exists(), `${key} has no sample render`).toBe(true);
         expect(img.attributes('src')).toBe(`./image/byline-example-${key}.png`);

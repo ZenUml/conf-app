@@ -333,6 +333,21 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
+      # Paste-to-create / paste-to-place, for the Lite byline picker's AsyncAPI
+      # tile — same contract as the openapi and graph macros above. `/new/...`
+      # opens a blank AsyncAPI editor; `/d/asyncapi/<cloudId>/<contentId>`
+      # places an already-saved document (resolved by
+      # resolveEffectiveCustomContentId, which both AsyncAPI entries now use).
+      #
+      # ONLY Lite mints these links — it is the only variant with a byline. The
+      # asyncapi variant strips them (scripts/forge-wizard.mjs) for the same
+      # reason full/diagramly strip the other types': identical patterns in two
+      # installed apps race for one pasted URL, and losing that race yields a
+      # macro pointing at app-scoped content it cannot read.
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/new/asyncapi
+          - pattern: https://confluence.zenuml.com/d/asyncapi/*/*
     # AsyncAPI embed macro: lets the user reference an existing AsyncAPI
     # document (created from the dashboard or the regular asyncapi macro)
     # from anywhere else on the site. Ships only with the asyncapi variant —

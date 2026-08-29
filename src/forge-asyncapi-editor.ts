@@ -16,6 +16,7 @@ import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
 import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId'
 // info.title → custom-content title mirroring now lives in
 // buildAsyncApiSaveDiagram (it parses the spec when no explicit title is
 // passed), so every save path stays in sync without each entry re-parsing.
@@ -46,12 +47,19 @@ operations:
 
 async function initializeMacro() {
   const context = await initForgeContext()
-  // Read customContentId from config (macro context) AND modal context —
-  // the dashboard's Edit flow opens this editor via a modal with the
-  // contentId passed through extension.modal.customContentId.
+  // Read customContentId from config (macro context), modal context AND a
+  // pasted typed deeplink — the dashboard's Edit flow opens this editor via a
+  // modal with the contentId passed through extension.modal.customContentId,
+  // and a macro created by pasting `/d/asyncapi/<cloudId>/<contentId>` has no
+  // config at all, only the matched URL in the page ADF.
+  //
+  // configContentId / modalContentId stay RAW reads: isDashboardEdit below
+  // means "no config, came in through the modal", so it must not see the
+  // deeplink fallback — a pasted AsyncAPI macro is a page macro, not a
+  // dashboard edit. Same split as forge-swagger-editor.ts.
   const configContentId = context.extension?.config?.customContentId
   const modalContentId = context.extension?.modal?.customContentId
-  const customContentId = configContentId || modalContentId
+  const customContentId = resolveEffectiveCustomContentId(context)
 
   const entryPoint = context.extension?.type === 'confluence:spacePage'
     ? 'dashboard'

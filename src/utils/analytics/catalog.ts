@@ -521,17 +521,27 @@ export type AnalyticsEventName =
   // The byline editor closed without saving. Splits abandonment from failure,
   // which byline_create_clicked alone cannot distinguish.
   | "byline_create_cancelled"
-  // The create has NO KNOWN OUTCOME: the editor closed (or went away) and we
-  // could not establish whether a diagram was saved. Introduced by #572, which
-  // measured 278 byline_create_clicked against 180 cancelled + 35 created —
-  // 63 clicks (22.7%) with no terminal event at all, because two of the four
-  // unresolved paths emitted nothing.
+  // The create has NO KNOWN OUTCOME: the editor closed and we could not
+  // establish whether a diagram was saved. Introduced by #572, which measured
+  // 278 byline_create_clicked against 180 cancelled + 35 created — 63 clicks
+  // (22.7%) with no terminal event at all.
   //
-  // This event exists so the create funnel SUMS, per resolution attempt:
+  // This event exists so the create funnel SUMS, per resolution attempt, for
+  // every create the editor modal RESOLVES:
   //   byline_create_clicked
   //     = byline_diagram_created + byline_create_cancelled + byline_create_unresolved
+  //       + creates abandoned at teardown (still unmeasured — see below)
   // Without it an abandonment and a failure we never saw are indistinguishable,
   // and every fix aimed at the 12.6% completion rate is unmeasurable.
+  //
+  // KNOWN REMAINING GAP: a create whose modal `onClose` never runs (the byline
+  // iframe torn down by a host navigation, a closed tab, a view↔edit
+  // transition) still emits nothing. A `pagehide` reporter for it was written
+  // and reverted after a lite-stg spot check showed it never reaching Mixpanel
+  // — with a passing control on the same listener, so not a delivery excuse.
+  // The mechanism is unidentified; see the note above the pagehide listener in
+  // BylineDiagrams.vue. Do NOT read the residual as measured: the difference
+  // between clicked and the three results below is that gap plus anything new.
   //
   // `result` names which path could not resolve:
   // - 'listing_failed'  — the post-editor re-read failed entirely.
@@ -540,10 +550,6 @@ export type AnalyticsEventName =
   // - 'resolve_failed'  — an exception during resolution (`failure_reason`
   //                       carries it). Previously silent: the catch only set
   //                       the retry UI.
-  // - 'editor_never_closed' — teardown (pagehide/unmount) while a create was
-  //                       still in flight, i.e. the modal's onClose never ran.
-  //                       Best-effort delivery, on the same localStorage-batch
-  //                       reasoning as byline_dismissed.
   // - 'editor_never_opened' — openModal itself threw. Pairs with the
   //                       byline_editor_deeplinked `result: 'failed'` already
   //                       emitted there, which answers a different question

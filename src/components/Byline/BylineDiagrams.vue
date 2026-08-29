@@ -604,18 +604,19 @@ let pageId = ''
  *
  * Set when the editor modal is opened and cleared by whichever of
  * byline_diagram_created / byline_create_cancelled / byline_create_unresolved
- * fires for it. Two things depend on it:
- *
- *  - `trackCreateOutcome` uses it to emit EXACTLY ONE outcome per attempt. The
- *    try block in afterEditorClosed wraps the success path too, so a throw from
- *    the trailing copy/thumbnail work lands in the same catch that reports an
- *    unresolved create — without this guard that would report a second outcome
- *    for a create already counted as saved.
- *  - teardown reports `editor_never_closed` when it is still set, which is the
- *    only signal we get when the modal's onClose never runs.
+ * fires for it, so `trackCreateOutcome` emits EXACTLY ONE outcome per attempt.
+ * That guard is load-bearing rather than defensive: the try block in
+ * afterEditorClosed wraps the success path too, so a throw from the trailing
+ * copy/thumbnail work — both of which run AFTER byline_diagram_created has
+ * fired — lands in the same catch that reports an unresolved create, and
+ * without this it would report a second outcome for a create already counted
+ * as saved.
  *
  * Re-armed by onRetryCreate, because a retry is a fresh resolution attempt and
  * must be allowed to report its own outcome (`is_retry` marks it).
+ *
+ * Nothing reads this at teardown: see the note above the pagehide listener for
+ * why the abandoned-create reporter was reverted.
  */
 let createOutcomePending = false
 
@@ -798,32 +799,35 @@ function trackDismissed() {
 }
 
 /**
- * Report a create that was still in flight when this iframe went away.
+ * NOT reported: a create still in flight when this iframe goes away.
  *
  * The editor modal's `onClose` is the only thing that resolves a create, and it
  * does not run if Confluence tears the byline down first (a host navigation, a
  * closed tab, the view↔edit transition this iframe cannot outlive). Those
- * creates emitted NOTHING before #572 and are the second arm of its 22.7%
- * unattributed clicks.
+ * creates emit nothing, and they are the one arm of #572's 22.7% unattributed
+ * clicks that this component does NOT close.
  *
- * Separate from trackDismissed rather than folded into it, for two reasons:
- * `acted` is already true by the time a create is in flight, so trackDismissed
- * returns early; and these are different outcomes — "looked and left" is not
- * "started a diagram and we lost the thread". Delivery is best-effort on the
- * same reasoning as byline_dismissed above.
+ * A `pagehide` reporter for it was written and REVERTED (#572, spot-checked on
+ * lite-stg 2026-08-29). It never reached Mixpanel, and the failure was not the
+ * usual best-effort-delivery excuse:
+ *   - `byline_dismissed`, which rides this very listener, DID deliver in the
+ *     same run as a control, so the teardown path itself works;
+ *   - re-booting a byline iframe on the same origin afterwards flushed nothing,
+ *     so it was not the localStorage batch waiting for a send;
+ *   - dispatching `pagehide` directly inside the live byline frame produced
+ *     nothing either, and threw no error, so the browser signal was not at
+ *     fault. At teardown the frame is still attached, on the same URL, with the
+ *     byline DOM intact.
+ * That points at `createOutcomePending` being false by then, which was not
+ * confirmed. Shipping the reporter anyway would have put an event in the
+ * catalog that never fires — worse than a documented gap, because a zero would
+ * read as "this never happens".
+ *
+ * Consequence for the funnel: the identity in the byline_create_unresolved
+ * catalog entry holds for every create the modal resolves, and teardown-
+ * abandoned creates remain unmeasured. Reopening this needs the flag's state at
+ * teardown established first, not another reporter.
  */
-function trackCreateAbandoned() {
-  trackCreateOutcome('byline_create_unresolved', {
-    ...baseProps(),
-    result: 'editor_never_closed',
-    dwell_ms: Date.now() - openedAt,
-  })
-}
-
-function trackTeardown() {
-  trackCreateAbandoned()
-  trackDismissed()
-}
 
 /**
  * The dismissal signal that actually fires in production. Closing the Forge
@@ -837,14 +841,14 @@ function trackTeardown() {
  * on the app's CDN origin, so an event enqueued during teardown that misses
  * its network flush is sent by the next iframe boot from this origin.
  */
-window.addEventListener('pagehide', trackTeardown)
+window.addEventListener('pagehide', trackDismissed)
 
 onBeforeUnmount(() => {
   // Object URLs are never created (thumbnails are inlined as data: URLs), so
   // there is nothing to revoke here.
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
-  window.removeEventListener('pagehide', trackTeardown)
-  trackTeardown()
+  window.removeEventListener('pagehide', trackDismissed)
+  trackDismissed()
 })
 
 /**

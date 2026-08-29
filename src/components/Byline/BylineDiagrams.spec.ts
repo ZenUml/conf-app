@@ -355,10 +355,13 @@ describe('BylineDiagrams', () => {
         expect(events('byline_create_unresolved')).toHaveLength(0);
       });
 
-      it('reports editor_never_closed when the iframe goes away mid-create', async () => {
-        // onClose is the only thing that resolves a create, and it does not run
-        // if Confluence tears the byline down first. pagehide is the signal that
-        // actually fires in production — see the comment on trackDismissed.
+      it('emits NOTHING when the iframe goes away mid-create — the known gap', async () => {
+        // Pins the shipped behaviour, not an aspiration. A pagehide reporter for
+        // this was written and reverted (#572): a lite-stg spot check showed it
+        // never reaching Mixpanel, while byline_dismissed on the same listener
+        // did, so it was not a delivery problem and the mechanism is unknown.
+        // This test exists so re-adding one is a deliberate change with a
+        // failing test attached, rather than a silent no-op in production.
         apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
         const wrapper = await mountByline();
         await openEditorFrom(wrapper);
@@ -366,12 +369,9 @@ describe('BylineDiagrams', () => {
         window.dispatchEvent(new Event('pagehide'));
         await flushPromises();
 
-        expect(events('byline_create_unresolved')).toHaveLength(1);
-        expect(events('byline_create_unresolved')[0][1]).toMatchObject({
-          result: 'editor_never_closed',
-        });
-        // Not a dismissal: "looked and left" is a different outcome from
-        // "started a diagram and we lost the thread".
+        expect(events('byline_create_unresolved')).toHaveLength(0);
+        // byline_dismissed stays suppressed too: `acted` is true once a create
+        // has started, so a teardown mid-create is not a "looked and left".
         expect(events('byline_dismissed')).toHaveLength(0);
       });
 
@@ -392,7 +392,7 @@ describe('BylineDiagrams', () => {
           failure_reason: 'modal refused',
         });
 
-        // ...and that outcome is final: teardown must not report it again.
+        // ...and that outcome is final: nothing later adds a second one.
         window.dispatchEvent(new Event('pagehide'));
         await flushPromises();
         expect(events('byline_create_unresolved')).toHaveLength(1);

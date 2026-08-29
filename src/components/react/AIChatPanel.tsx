@@ -58,6 +58,56 @@ const stages: Array<{ key: AIChatSessionStage; label: string }> = [
   { key: "syncing", label: "Syncing changes" },
 ];
 
+type AIChatIconName =
+  | "arrow"
+  | "check"
+  | "chevron-down"
+  | "chevron-up"
+  | "clock"
+  | "close"
+  | "code"
+  | "expand"
+  | "send"
+  | "sparkles"
+  | "spinner"
+  | "undo"
+  | "warning";
+
+const iconPaths: Record<AIChatIconName, string[]> = {
+  arrow: ["M5 12h14", "m13-6 6 6-6 6"],
+  check: ["m5 12 4 4L19 6"],
+  "chevron-down": ["m6 9 6 6 6-6"],
+  "chevron-up": ["m6 15 6-6 6 6"],
+  clock: ["M12 6v6l4 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"],
+  close: ["M6 6l12 12", "M18 6 6 18"],
+  code: ["m8 8-4 4 4 4", "m8-8 4 4-4 4", "m14 4-4 16"],
+  expand: ["M8 3H3v5", "m3 3 6 6", "M16 21h5v-5", "m-3-3 6 6"],
+  send: ["m4 4 16 8-16 8 3-8-3-8Z", "M7 12h13"],
+  sparkles: [
+    "m9 3 1.2 3.3L13.5 7.5l-3.3 1.2L9 12 7.8 8.7 4.5 7.5l3.3-1.2L9 3Z",
+    "m17 12 .8 2.2L20 15l-2.2.8L17 18l-.8-2.2L14 15l2.2-.8L17 12Z",
+  ],
+  spinner: ["M20 12a8 8 0 1 1-2.3-5.7"],
+  undo: ["M9 8 5 12l4 4", "M5 12h8a6 6 0 0 1 6 6"],
+  warning: ["M12 9v4", "M12 17h.01", "M10.3 4.6 2.5 18a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0Z"],
+};
+
+function AIChatIcon({ name, className }: { name: AIChatIconName; className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {iconPaths[name].map((path) => <path key={path} d={path} />)}
+    </svg>
+  );
+}
+
 function cloneMessage(message: AIChatMessage): AIChatMessage {
   return {
     ...message,
@@ -689,13 +739,23 @@ export default function AIChatPanel({
     >
       <header className="ai-chat-header">
         <div className="ai-chat-head-row">
-          <strong>AI Chat</strong>
+          <div className="ai-chat-title">
+            <span className="ai-chat-title-icon" aria-hidden="true">
+              <AIChatIcon name="sparkles" />
+            </span>
+            <span>
+              <strong>AI chat</strong>
+              <small>{diagramTypeLabel} assistant</small>
+            </span>
+          </div>
           <div className="ai-chat-head-actions">
             {onToggleCode && (
               <button
                 type="button"
+                className="ai-chat-code-button"
                 aria-label={codeVisible ? "Hide code editor" : "Show code editor"}
                 aria-pressed={codeVisible}
+                title={codeVisible ? "Hide code editor" : "Show code editor"}
                 data-testid="react-ai-chat-code-toggle"
                 onClick={() => {
                   trackAnalyticsEvent("ai_chat_code_visibility_toggled", {
@@ -705,16 +765,19 @@ export default function AIChatPanel({
                   onToggleCode();
                 }}
               >
-                {codeVisible ? "Hide code" : "Show code"}
+                <AIChatIcon name="code" />
+                <span>{codeVisible ? "Hide code" : "Show code"}</span>
               </button>
             )}
             <button
               type="button"
+              className="ai-chat-icon-button"
               aria-label="Close AI chat"
+              title="Close AI chat"
               data-testid="react-ai-chat-close"
               onClick={handleClose}
             >
-              Close
+              <AIChatIcon name="close" />
             </button>
           </div>
         </div>
@@ -725,7 +788,13 @@ export default function AIChatPanel({
             role="status"
             data-testid="react-ai-chat-syntax-issue"
           >
-            <span>{syntaxErrorSummary}</span>
+            <div className="ai-chat-syntax-message">
+              <AIChatIcon name="warning" />
+              <span>
+                <strong>Syntax issue</strong>
+                <span>{syntaxErrorSummary}</span>
+              </span>
+            </div>
             <button
               type="button"
               data-testid="react-ai-chat-auto-fix"
@@ -741,8 +810,16 @@ export default function AIChatPanel({
       <main className="ai-chat-content">
         {messages.length === 0 && !isThinking ? (
           <section className="ai-chat-empty" data-testid="react-ai-chat-empty-state">
-            <h3>What should change?</h3>
-            <p>Suggested edits</p>
+            <div className="ai-chat-empty-intro">
+              <span className="ai-chat-empty-icon" aria-hidden="true">
+                <AIChatIcon name="sparkles" />
+              </span>
+              <div>
+                <h3>What would you like to change?</h3>
+                <p>Describe an edit or start with a suggestion.</p>
+              </div>
+            </div>
+            <p className="ai-chat-section-label">Suggested edits</p>
             {AI_CHAT_SUGGESTIONS.map((suggestion) => (
               <button
                 key={suggestion.id}
@@ -752,8 +829,11 @@ export default function AIChatPanel({
                 title={suggestion.description}
                 onClick={() => selectSuggestion(suggestion)}
               >
-                <strong>{suggestion.label}</strong>
-                <span>{suggestion.description}</span>
+                <span className="ai-chat-quick-copy">
+                  <strong>{suggestion.label}</strong>
+                  <span>{suggestion.description}</span>
+                </span>
+                <AIChatIcon name="arrow" />
               </button>
             ))}
           </section>
@@ -769,7 +849,10 @@ export default function AIChatPanel({
                 {message.preview && (
                   <div className="ai-chat-preview" data-testid="react-ai-change-preview">
                     <div className="ai-chat-preview-header">
-                      <strong>{message.preview.title}</strong>
+                      <span className="ai-chat-preview-title">
+                        <span aria-hidden="true"><AIChatIcon name="check" /></span>
+                        <strong>{message.preview.title}</strong>
+                      </span>
                       {message.preview.previousVersionId && (
                         <button
                           type="button"
@@ -777,7 +860,8 @@ export default function AIChatPanel({
                           disabled={isBusy}
                           onClick={() => void undoPreview(message.preview!)}
                         >
-                          {restoringAction === "undo" ? "Undoing..." : "Undo"}
+                          <AIChatIcon name="undo" />
+                          {restoringAction === "undo" ? "Undoing…" : "Undo"}
                         </button>
                       )}
                     </div>
@@ -790,7 +874,8 @@ export default function AIChatPanel({
                       aria-expanded={isDiffOpen(message.id)}
                       onClick={() => toggleDiff(message.id)}
                     >
-                      {isDiffOpen(message.id) ? "Hide code diff" : "View code diff"}
+                      <span>{isDiffOpen(message.id) ? "Hide code diff" : "View code diff"}</span>
+                      <AIChatIcon name={isDiffOpen(message.id) ? "chevron-up" : "chevron-down"} />
                     </button>
                     {isDiffOpen(message.id) && (
                       <div className="ai-chat-diff" data-testid="react-ai-chat-diff">
@@ -805,6 +890,7 @@ export default function AIChatPanel({
                             data-testid="react-ai-chat-diff-expand"
                             onClick={() => openExpandedDiff(message.id)}
                           >
+                            <AIChatIcon name="expand" />
                             Expand
                           </button>
                         </div>
@@ -848,7 +934,15 @@ export default function AIChatPanel({
                               : "is-pending"
                         }
                       >
-                        <span aria-hidden="true">{index + 1}</span>
+                        <span className="ai-chat-stage-marker" aria-hidden="true">
+                          {index < activeStageIndex ? (
+                            <AIChatIcon name="check" />
+                          ) : index === activeStageIndex ? (
+                            <AIChatIcon name="spinner" className="ai-chat-spin" />
+                          ) : (
+                            <span>{index + 1}</span>
+                          )}
+                        </span>
                         <strong>{stage.label}</strong>
                       </li>
                     ))}
@@ -883,7 +977,7 @@ export default function AIChatPanel({
                 data-testid="react-ai-chat-diff-fullscreen-close"
                 onClick={closeExpandedDiff}
               >
-                Close
+                <AIChatIcon name="close" />
               </button>
             </header>
             <div className="ai-chat-diff-code">
@@ -911,9 +1005,21 @@ export default function AIChatPanel({
           data-testid="react-ai-chat-history-panel"
         >
           <header>
-            <h3>Diagram versions</h3>
-            <button type="button" aria-label="Close diagram versions" onClick={closeHistory}>
-              Close
+            <div className="ai-chat-history-title">
+              <AIChatIcon name="clock" />
+              <span>
+                <h3>Diagram versions</h3>
+                <p>Review or restore a saved change.</p>
+              </span>
+            </div>
+            <button
+              type="button"
+              className="ai-chat-icon-button"
+              aria-label="Close diagram versions"
+              title="Close diagram versions"
+              onClick={closeHistory}
+            >
+              <AIChatIcon name="close" />
             </button>
           </header>
           {versionsStatus === "loading" ? (
@@ -970,35 +1076,48 @@ export default function AIChatPanel({
       )}
 
       <form className="ai-chat-composer" onSubmit={submitForm}>
-        <textarea
-          ref={inputRef}
-          value={prompt}
-          rows={2}
-          placeholder="Describe the API definition change..."
-          aria-label="AI change request"
-          data-testid="react-ai-chat-input"
-          disabled={isRestoringVersion}
-          onChange={(event) => setPrompt(event.target.value)}
-          onKeyDown={handleInputKeyDown}
-        />
-        <button
-          type="button"
-          aria-label="Open diagram versions"
-          data-testid="react-ai-chat-history-trigger"
-          aria-expanded={historyOpen}
-          disabled={!activeDiagramIdRef.current}
-          onClick={openHistory}
-        >
-          Diagram versions <span>{versionCountLabel}</span>
-        </button>
-        <button
-          type="submit"
-          aria-label="Send message"
-          data-testid="react-ai-chat-send"
-          disabled={!canSubmit}
-        >
-          Send
-        </button>
+        <div className="ai-chat-composer-field">
+          <textarea
+            ref={inputRef}
+            value={prompt}
+            rows={2}
+            placeholder="Describe the API definition change…"
+            aria-label="AI change request"
+            data-testid="react-ai-chat-input"
+            disabled={isRestoringVersion}
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={handleInputKeyDown}
+          />
+          <div className="ai-chat-composer-hint" aria-hidden="true">
+            <span>Enter to send</span>
+            <span>Shift + Enter for a new line</span>
+          </div>
+        </div>
+        <div className="ai-chat-composer-actions">
+          <button
+            type="button"
+            className="ai-chat-history-trigger"
+            aria-label="Open diagram versions"
+            data-testid="react-ai-chat-history-trigger"
+            aria-expanded={historyOpen}
+            disabled={!activeDiagramIdRef.current}
+            onClick={openHistory}
+          >
+            <AIChatIcon name="clock" />
+            <span>Versions</span>
+            <span className="ai-chat-count">{versionCountLabel}</span>
+          </button>
+          <button
+            type="submit"
+            className="ai-chat-send-button"
+            aria-label="Send message"
+            data-testid="react-ai-chat-send"
+            disabled={!canSubmit}
+          >
+            <AIChatIcon name="send" />
+            Send
+          </button>
+        </div>
       </form>
     </aside>
   );

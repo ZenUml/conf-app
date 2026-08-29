@@ -38,7 +38,18 @@ API's `asOf`, current grants, correlated JSM context, and grant-origin buckets.
 Registrations, contact ingest, Marketplace acquisition totals, and workflow
 panels remain the labelled sanitized baseline. Expiry rows are derived from the
 current KV `expiresAt`; the console does not present them as stored event
-history. Sites, Pending, and Automation continue to use the sanitized dataset.
+history. Sites and Automation continue to use the sanitized dataset.
+
+Pending also reuses the Extensions snapshot client-side; there is no second API
+read. Queue membership is available only when both `SPACE_LICENSE_KV` and the
+Marketplace export were read successfully, and includes only current grants
+whose cloud ID cannot be joined to a site hostname. A Marketplace outage never
+turns every grant into a pending row, and a healthy empty result never falls
+back to fixtures. JSM and `ExtensionAction` failures retain the queue but label
+their review evidence unavailable. Rows open the existing grant drawer by the
+API's stable grant id. No assignment, Site Contact, case-note, or mutation store
+is connected, so the page makes no ownership claim and exposes no write action.
+Open JSM requests without a current KV grant are outside this slice.
 
 Verification commands:
 

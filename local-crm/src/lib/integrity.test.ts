@@ -227,6 +227,103 @@ describe('reviewed lifecycle integrity rules', () => {
     expect(model.facts.some(row => row.k === 'typed domain')).toBe(false)
   })
 
+  it('does not manufacture typed-target mismatches from unknown JSM fields', () => {
+    const grant = {
+      ...data.grants[0],
+      id: 'grant_unknown_typed_target',
+      domain: 'mapped-example',
+      ticketKey: 'ZEN-999998',
+      requestTicket: 'ZEN-999998',
+      requestMatchedBy: 'ticket_key' as const,
+      status: 'active' as const,
+      active: true
+    }
+    const isolated = {
+      ...data,
+      grants: [grant],
+      jsm: {
+        'ZEN-999998': {
+          requester: 'Synthetic requester',
+          accountId: 'synthetic-account',
+          status: 'Waiting for support',
+          lastReply: '29 Aug',
+          replies: 0,
+          typedDomain: '(unknown)',
+          typedSpace: '(unknown)',
+          portalUnsigned: null,
+          note: ''
+        }
+      }
+    }
+    const event = buildEvents(isolated).find(row => row.kind === 'granted')!
+    const model = buildCase(isolated, event)
+
+    expect(model.facts.some(row => row.k === 'typed domain')).toBe(false)
+    expect(model.facts.some(row => row.k === 'typed space')).toBe(false)
+  })
+
+  it('keeps an unmapped current grant applied while site details remain unresolved', () => {
+    const grant = {
+      ...data.grants[0],
+      id: 'grant_unmapped_current',
+      domain: '(not in Marketplace · cloud example)',
+      siteMapping: 'unmatched' as const,
+      ticketKey: undefined,
+      requestTicket: undefined,
+      status: 'active' as const,
+      active: true,
+      sourceObservedAt: '2026-08-30T10:00:00.000Z',
+      marketplace: [],
+      unknowns: [
+        'site domain is not available',
+        'no JSM request candidate matched in the fetched search window',
+        'no ExtensionAction audit row exists'
+      ]
+    }
+    const isolated = { ...data, grants: [grant], jsm: {} }
+    const event = buildEvents(isolated).find(row => row.kind === 'granted')!
+    const model = buildCase(isolated, event)
+    const actions = buildActions(model, event.id, null, {})
+
+    expect(model.lifecycle.stages.find(stage => stage.name === 'needs-details')?.state).toBe('open')
+    expect(model.lifecycle.stages.find(stage => stage.name === 'applying')?.state).toBe('done')
+    expect(model.lifecycle.stages.find(stage => stage.name === 'applied')?.state).toBe('now')
+    expect(model.actions.find(action => action.key === 'ticket')?.blocked)
+      .toContain('correlation requires a verified Marketplace site')
+    expect(model.tracks.map(track => track.name)).toEqual(['Requester', 'Site Contact'])
+    expect(model.tracks[0].rows.find(row => row.k === 'conversation')?.v)
+      .toContain('correlation cannot run without a verified Marketplace site')
+    expect(actions.next.showButton).toBe(false)
+    expect(actions.more.find(action => action.key === 'feedback')?.showButton).toBe(false)
+    expect(actions.more.find(action => action.key === 'revoke')?.showButton).toBe(false)
+  })
+
+  it('distinguishes a hostname gap from no Marketplace licence row in blockers', () => {
+    const grant = {
+      ...data.grants[0],
+      id: 'grant_hostname_missing',
+      domain: '(not in Marketplace · cloud example)',
+      siteMapping: 'unmatched' as const,
+      status: 'active' as const,
+      active: true,
+      marketplace: [{
+        app: 'lite' as const,
+        licenseType: 'FREE',
+        status: 'active',
+        tier: '10 users',
+        evaluationStartedAt: null,
+        evaluationEndsAt: null
+      }],
+      unknowns: ['site domain is not available']
+    }
+    const isolated = { ...data, grants: [grant] }
+    const event = buildEvents(isolated).find(row => row.kind === 'granted')!
+    const model = buildCase(isolated, event)
+
+    expect(model.blockers[0]).toContain('licence context is present but no site hostname')
+    expect(model.blockers[0]).not.toContain('matches no row')
+  })
+
   it('does not attribute a shared expiry day to one of several tenants', () => {
     const base = data.grants.find(row => row.active) ?? data.grants[0]
     const sharedDay = {

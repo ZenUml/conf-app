@@ -373,32 +373,9 @@ export function buildTenants(data: Dataset): TenantRow[] {
     }))
 }
 
-/** Grants whose cloud ID matches nothing in the licence export. */
+/** Grants whose current site hostname is unavailable or unresolved. */
 export function unresolvedGrants(data: Dataset): Grant[] {
   return data.grants.filter(grant => grant.domain.startsWith('('))
-}
-
-export interface UnresolvedRow {
-  key: string
-  detail: string
-  audit: string
-  state: string
-  active: boolean
-  expires: string
-}
-
-export function buildUnresolved(data: Dataset): UnresolvedRow[] {
-  return unresolvedGrants(data).map(grant => ({
-    key: `license:<cloudId>:${grant.space}:<accountId>`,
-    detail:
-      grant.kind === 'test marker'
-        ? 'Granted space-wide by an end-to-end test in April and set to run until the end of 2027. No licence row anywhere carries this cloud ID, so no client can be attached to it.'
-        : 'Granted automatically from a support ticket. The cloud ID resolved at grant time but appears in no current licence export, so the site behind it cannot be identified.',
-    audit: `activatedBy ${grant.origin} · granted ${grant.created}`,
-    state: grantStatusOf(grant),
-    active: grantStatusOf(grant) === 'active',
-    expires: `expires ${grant.expires}`
-  }))
 }
 
 /** Filter pill counts, computed over the past stream only. */

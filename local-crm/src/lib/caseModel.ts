@@ -259,14 +259,14 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
     }
   ]
   // Conditional rows appear only on mismatch — never a row that repeats its neighbour.
-  if (!marketplaceUnavailable && jsm) {
-    if (grant.domain.startsWith('(') && jsm.typedDomain !== '(unknown)') {
+  if (!marketplaceUnavailable && jsm && jsm.typedDomain !== '(unknown)') {
+    if (grant.domain.startsWith('(')) {
       facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — requester-typed and unverified; Marketplace resolved no site`, problem: true })
     } else if (jsm.typedDomain !== grant.domain) {
       facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — does not resolve to this site`, problem: true })
     }
   }
-  if (jsm && jsm.typedSpace !== grant.space) {
+  if (jsm && jsm.typedSpace !== '(unknown)' && jsm.typedSpace !== grant.space) {
     facts.push({ k: 'typed space', v: `${jsm.typedSpace} — does not match the granted space`, problem: true })
   }
   if (jsm && jsm.note) {
@@ -339,7 +339,9 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
             ? 'The JSM source failed, so absence cannot be established.'
             : ticket
               ? 'The grant names a ticket, but the JSM source did not return it.'
-              : 'Neither activatedBy nor the exact domain + space + target + time fallback matched a request in the fetched JSM window.',
+              : needsDetails
+                ? 'No explicit ticket is recorded, and domain correlation requires a verified Marketplace site.'
+                : 'Neither activatedBy nor the exact domain + space + target + time fallback matched a request in the fetched JSM window.',
           note: 'No conversation facts are inferred without a matching request.'
         },
     {
@@ -419,7 +421,9 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
           k: 'conversation',
           v: jsmUnavailable
             ? 'unknown — JSM request source is unavailable'
-            : 'no request conversation candidate matched in the fetched JSM window',
+            : needsDetails
+              ? 'unknown — no explicit ticket is recorded; correlation cannot run without a verified Marketplace site'
+              : 'no request conversation candidate matched in the fetched JSM window',
           problem: true
         }
       ]
@@ -441,9 +445,11 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
       ? [
           marketplaceUnavailable
             ? `Marketplace site mapping for the cloud ID in ${keyPath} is unavailable`
-            : `The cloud ID in ${keyPath} matches no row in the Marketplace export`,
+            : marketplace.length
+              ? `Marketplace licence context is present but no site hostname is available for the cloud ID in ${keyPath}`
+              : `The cloud ID in ${keyPath} matches no row in the Marketplace export`,
           'Without a verified site mapping there is no independently verified site-metrics count, paid-rail check or contact to notify',
-          'Revoking blind would end editing for a site nobody here can name'
+          'Revoking blind would end editing for a site that cannot be independently identified here'
         ]
       : [],
     classes: [],

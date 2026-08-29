@@ -1,6 +1,7 @@
 import { human } from '@/lib/format'
 import { grantStatusOf } from '@/lib/lifecycle'
 import { todayGrantMode } from '@/data/todayApi'
+import { pendingGrantMode } from '@/data/pendingApi'
 import { useCrmStore } from '@/stores/crm'
 
 export default function TopBar() {
@@ -10,6 +11,7 @@ export default function TopBar() {
     store.data.grants.map(grant => grant.cloudId ?? grant.domain)
   ).size
   const todayMode = todayGrantMode(store.extensionsLoad)
+  const pendingMode = pendingGrantMode(store.extensionsLoad)
   const screenCopy = {
     today: [
       'Today',
@@ -42,7 +44,11 @@ export default function TopBar() {
     ],
     pending: [
       'Pending assignment',
-      `${store.navCounts.pending} grants whose cloud ID matches nothing in the licence export`
+      pendingMode === 'live' || pendingMode === 'partial'
+        ? `${store.navCounts.pending} source-backed grants need site-mapping evidence review${pendingMode === 'partial' ? ' · evidence partial' : ''}`
+        : pendingMode === 'loading'
+          ? 'loading source-backed mapping evidence · no fixture queue substituted'
+          : 'mapping evidence unavailable · no fixture queue substituted'
     ],
     automation: [
       'Automation',
@@ -53,7 +59,7 @@ export default function TopBar() {
   const extensionFreshness = (store.extensionsLoad.state === 'live' || store.extensionsLoad.state === 'partial') && store.extensionsLoad.generatedAt
     ? `Extensions API ${store.extensionsLoad.state === 'partial' ? 'partial · ' : ''}${new Date(store.extensionsLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : `Extensions ${store.extensionsLoad.state}`
-  const usesExtensionFreshness = store.screen === 'extensions' || store.screen === 'today'
+  const usesExtensionFreshness = store.screen === 'extensions' || store.screen === 'today' || store.screen === 'pending'
   const freshness = usesExtensionFreshness
     ? extensionFreshness
     : store.data.marketplace.freshness

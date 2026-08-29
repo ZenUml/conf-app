@@ -83,6 +83,10 @@ describe('Extensions API frontend adapter', () => {
     expect(result.load).toMatchObject({ state: 'partial', incompleteGrantCount: 1 })
     expect(result.data.grants).toHaveLength(2)
     expect(result.data.grants.map(row => row.status)).toEqual(['inactive', 'unknown'])
+    expect(result.data.grants[0]).toMatchObject({
+      updatedAt: '2026-08-20T00:00:00.000Z',
+      siteMapping: 'matched'
+    })
     expect(buildEvents(result.data).filter(event => event.kind === 'expired')).toHaveLength(0)
     expect(buildEvents(result.data).find(event => event.grant?.id === 'grant_unknown')).toMatchObject({
       tag: 'observed grant · createdAt unknown'
@@ -126,5 +130,69 @@ describe('Extensions API frontend adapter', () => {
     expect(result.load.state).toBe('partial')
     expect(result.load.sources?.marketplace.state).toBe('error')
     expect(result.data.grants[0].domain).toBe('(site mapping unavailable · cloud cloud-te)')
+    expect(result.data.grants[0].siteMapping).toBe('unavailable')
+  })
+
+  it('marks a healthy missing Marketplace join as unmatched without turning unknown request fields into mismatches', async () => {
+    const response: ExtensionsResponse = {
+      contractVersion: 1,
+      generatedAt: '2026-08-29T10:00:00.000Z',
+      asOf: '2026-08-29',
+      sources: {
+        marketplace: source(1),
+        jsm: source(1),
+        space_license_kv: source(1),
+        extension_action_d1: source(0)
+      },
+      summary: {
+        grantCount: 1,
+        activeCount: 0,
+        expiredCount: 0,
+        inactiveCount: 1,
+        unknownStatusCount: 0,
+        tenantCount: 1,
+        auditedGrantCount: 0,
+        matchedRequestCount: 1,
+        originBuckets: []
+      },
+      grants: [grant({
+        id: 'grant_unmatched',
+        domain: null,
+        ticketKey: 'ZEN-999001',
+        request: {
+          ticketKey: 'ZEN-999001',
+          status: 'Resolved',
+          requester: 'Synthetic requester',
+          requesterAccountId: 'synthetic-reporter',
+          targetUserAccountId: null,
+          typedDomain: '(unknown)',
+          typedSpace: '(unknown)',
+          macroCount: null,
+          macrosLimit: null,
+          createdAt: '2026-08-19T00:00:00.000Z',
+          updatedAt: '2026-08-20T00:00:00.000Z',
+          matchedBy: 'ticket_key',
+          comments: {
+            state: 'known',
+            publicCommentCount: 0,
+            requesterCommentCount: 0,
+            lastCommentAt: null,
+            lastCommentAuthor: null,
+            lastCommentAuthorship: 'unknown',
+            reason: null
+          }
+        },
+        unknowns: ['site domain is not available']
+      })]
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })))
+
+    const result = await loadExtensionsDataset(placeholderDataset)
+
+    expect(result.data.grants[0].siteMapping).toBe('unmatched')
+    expect(result.data.jsm['ZEN-999001'].note).toBe('')
   })
 })

@@ -51,11 +51,17 @@ function toGrant(row: ExtensionGrantRecord): Grant {
     id: row.id,
     created: row.createdAt ? displayDate(row.createdAt) : 'unknown',
     createdAt: row.createdAt ?? undefined,
+    updatedAt: row.updatedAt ?? undefined,
     domain: row.domain ?? (
       marketplaceUnavailable
         ? `(site mapping unavailable · cloud ${row.cloudId.slice(0, 8)})`
         : `(not in Marketplace · cloud ${row.cloudId.slice(0, 8)})`
     ),
+    siteMapping: row.domain
+      ? 'matched'
+      : marketplaceUnavailable
+        ? 'unavailable'
+        : 'unmatched',
     space: row.spaceKey,
     wide: row.scope === 'space',
     origin: row.activatedBy ?? '(not recorded)',
@@ -85,10 +91,10 @@ function jsmNote(row: ExtensionGrantRecord): string {
   if (!request) return ''
   const notes: string[] = []
   if (request.matchedBy === 'domain_space') notes.push('matched by domain + space, not activatedBy ticket')
-  if (request.typedDomain && row.domain && request.typedDomain !== row.domain) {
+  if (request.typedDomain && request.typedDomain !== '(unknown)' && row.domain && request.typedDomain !== row.domain) {
     notes.push('typed domain differs from Marketplace site')
   }
-  if (request.typedSpace && request.typedSpace !== row.spaceKey) {
+  if (request.typedSpace && request.typedSpace !== '(unknown)' && request.typedSpace !== row.spaceKey) {
     notes.push('typed space differs from KV grant')
   }
   if (request.comments.state === 'unknown') notes.push(request.comments.reason ?? 'comments unavailable')

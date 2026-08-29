@@ -39,8 +39,11 @@ export interface Grant {
   id?: string
   created: string
   createdAt?: string
+  updatedAt?: string
   /** '(not in export)' when the cloud ID resolves to no site in the licence export. */
   domain: string
+  /** Live Marketplace join result; absent on the sanitized fixture. */
+  siteMapping?: 'matched' | 'unmatched' | 'unavailable'
   space: string
   /** Space-wide when true, one requester when absent. */
   wide?: boolean

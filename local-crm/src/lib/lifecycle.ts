@@ -87,6 +87,11 @@ export function requesterOf(data: Dataset, grant: Grant): string {
       ? 'target account is present; JSM request matching is unavailable'
       : 'target account unavailable; JSM request matching is unavailable'
   }
+  if (!ticketOf(grant) && grant.domain.startsWith('(')) {
+    return grant.userAccountId
+      ? 'target account is present; request correlation requires a verified Marketplace site'
+      : 'request correlation requires a verified Marketplace site; target account unavailable'
+  }
   return grant.userAccountId
     ? 'target account is present; no JSM candidate matched in the fetched search window'
     : 'no JSM candidate matched in the fetched search window; target account unavailable in this fixture'
@@ -109,7 +114,9 @@ export function grantState(data: Dataset, grant: Grant): [string, string] {
       mappingUnavailable ? 'site mapping unavailable' : 'needs-details',
       mappingUnavailable
         ? 'Marketplace could not be read, so this cloud ID cannot currently be resolved to a site.'
-        : 'The cloud ID in this key matches no site in the Marketplace export, so the eligibility evidence behind it cannot be rebuilt.'
+        : grant.marketplace?.length
+          ? 'Marketplace licence context is present for this cloud ID, but no site hostname is available, so the grant cannot be independently joined to a site.'
+          : 'The cloud ID in this key matches no site in the Marketplace export, so the grant cannot be independently joined to a site.'
     ]
   }
   const status = grantStatusOf(grant)
@@ -225,13 +232,17 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
                 : '; no matching issue was returned by the JSM pull.'}`
             : correlatedOnly
               ? `${ticket} is correlated by exact domain, space, target scope and causal time; it is not proven to be this grant's origin.`
+              : needsDetails
+                ? state === 'site mapping unavailable'
+                  ? `No explicit ticket is recorded; Marketplace site mapping is unavailable, so domain correlation cannot run. activatedBy is ${grant.origin}.`
+                  : `No explicit ticket is recorded; domain correlation cannot run without a verified Marketplace site. activatedBy is ${grant.origin}.`
               : jsmUnavailable
                 ? `JSM request matching is unavailable; activatedBy is ${grant.origin}.`
                 : `No JSM request candidate matched in the fetched search window. activatedBy is ${grant.origin}.`
         },
         {
           name: 'needs-details',
-          state: needsDetails ? 'now' : 'skip',
+          state: needsDetails ? 'open' : 'skip',
           note: state === 'site mapping unavailable'
             ? 'Marketplace site mapping is unavailable, so the cloud ID cannot be resolved.'
             : needsDetails
@@ -260,7 +271,7 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
         },
         {
           name: 'applying',
-          state: needsDetails ? 'todo' : 'done',
+          state: 'done',
           note: hasAudit
             ? 'The KV record and matching action row are both present.'
             : auditUnavailable
@@ -269,12 +280,10 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
         },
         {
           name: 'applied',
-          state: needsDetails ? 'todo' : 'now',
-          note: needsDetails
-            ? ''
-            : observed
-              ? `Current KV value observed at ${grant.sourceObservedAt}.`
-              : 'This is a fixture row with no live source observation.'
+          state: 'now',
+          note: observed
+            ? `Current KV value observed at ${grant.sourceObservedAt}.`
+            : 'This is a fixture row with no live source observation.'
         },
         {
           name: 'already-applied',

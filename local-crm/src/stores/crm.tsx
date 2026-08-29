@@ -16,11 +16,15 @@ import {
 } from '@/data/extensionsApi'
 import { buildTodayDataset } from '@/data/todayApi'
 import {
+  buildPendingDataset,
+  buildPendingRows,
+  type PendingAssignmentRow
+} from '@/data/pendingApi'
+import {
   buildEvents,
   buildSites,
   buildSiteStats,
   buildTenants,
-  buildUnresolved,
   filterCounts,
   groupByDay,
   latestGrantEventForDomain,
@@ -34,8 +38,7 @@ import {
   type ScheduledDay,
   type SiteRow,
   type SiteStat,
-  type TenantRow,
-  type UnresolvedRow
+  type TenantRow
 } from '@/lib/derive'
 import { buildCase, type CaseModel } from '@/lib/caseModel'
 
@@ -123,7 +126,7 @@ export interface CrmStoreValue extends CrmState {
   sites: SiteRow[]
   siteStats: SiteStat[]
   tenants: TenantRow[]
-  unresolved: UnresolvedRow[]
+  pendingRows: PendingAssignmentRow[]
   rules: AutomationRule[]
   navCounts: Record<Screen, number>
   selectedEvent: CaseEvent | null
@@ -168,13 +171,19 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad),
     [extensionsData, extensionsLoad]
   )
-  // Today intentionally mixes live grant-backed fields with the sanitized
-  // registration/contact/workflow baseline. Other screens stay isolated.
+  const pendingData = useMemo(
+    () => buildPendingDataset(initialDataset, extensionsData, extensionsLoad),
+    [extensionsData, extensionsLoad]
+  )
+  // Today and Pending intentionally reuse only the source-backed grant fields.
+  // Their unrelated registration/contact/workflow fields stay sanitized.
   const data = state.screen === 'extensions'
     ? extensionsData
     : state.screen === 'today'
       ? todayData
-      : initialDataset
+      : state.screen === 'pending'
+        ? pendingData
+        : initialDataset
   const needle = state.query.trim().toLowerCase()
 
   useEffect(() => {
@@ -206,7 +215,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const ahead = useMemo(() => scheduledEvents(data, events), [data, events])
   const allSites = useMemo(() => buildSites(data), [data])
   const allTenants = useMemo(() => buildTenants(data), [data])
-  const allUnresolved = useMemo(() => buildUnresolved(data), [data])
+  const allPendingRows = useMemo(() => buildPendingRows(pendingData), [pendingData])
   const counts = useMemo(() => filterCounts(past), [past])
   const siteStats = useMemo(() => buildSiteStats(data, allSites), [data, allSites])
   const scheduled = useMemo<ScheduledView>(() => ({
@@ -218,9 +227,9 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     today: initialDataset.registrations.length,
     sites: buildSites(initialDataset).length,
     extensions: extensionsData.grants.length,
-    pending: buildUnresolved(initialDataset).length,
+    pending: allPendingRows.length,
     automation: initialDataset.rules.length
-  }), [extensionsData.grants.length])
+  }), [allPendingRows.length, extensionsData.grants.length])
 
   const feed = useMemo(() => {
     const rows = past.filter(
@@ -263,12 +272,24 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     [allTenants, needle]
   )
 
-  const unresolved = useMemo(
+  const pendingRows = useMemo(
     () =>
-      allUnresolved.filter(row =>
-        includes(needle, row.key, row.detail, row.audit, row.state, row.expires)
+      allPendingRows.filter(row =>
+        includes(
+          needle,
+          row.cloudPrefix,
+          row.space,
+          row.scope,
+          row.status,
+          row.reviewBand,
+          row.mappingEvidence,
+          row.requestEvidence,
+          row.actionEvidence,
+          row.origin,
+          row.unknowns.join(' ')
+        )
       ),
-    [allUnresolved, needle]
+    [allPendingRows, needle]
   )
 
   const rules = useMemo(
@@ -329,7 +350,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       sites,
       siteStats,
       tenants,
-      unresolved,
+      pendingRows,
       rules,
       navCounts,
       selectedEvent,
@@ -355,7 +376,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       sites,
       siteStats,
       tenants,
-      unresolved,
+      pendingRows,
       rules,
       navCounts,
       selectedEvent,

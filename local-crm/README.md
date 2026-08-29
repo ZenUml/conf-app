@@ -28,10 +28,17 @@ Only the four named server credential keys are admitted; they are never exposed
 as `VITE_*` client variables and are not loaded for tests, builds, or preview.
 
 If a required grant-KV read fails, the Extensions page leaves the sanitized
-fixture visible and labels it as a failed live load. Optional source failures
-stay explicit in the source badges and in each record's `unknowns` list. Live
-grant data is not merged into Today, Sites, or Pending; those screens continue
-to use the labelled sanitized dataset.
+fixture visible and labels it as a failed live load. Today does not substitute
+those fixture grants: its grant and expiry rows remain empty and explicitly
+unavailable until the authoritative KV read succeeds. Optional source failures
+stay explicit in the source badges and in each record's `unknowns` list.
+
+Today reuses the same Extensions snapshot client-side. It overlays only the
+API's `asOf`, current grants, correlated JSM context, and grant-origin buckets.
+Registrations, contact ingest, Marketplace acquisition totals, and workflow
+panels remain the labelled sanitized baseline. Expiry rows are derived from the
+current KV `expiresAt`; the console does not present them as stored event
+history. Sites, Pending, and Automation continue to use the sanitized dataset.
 
 Verification commands:
 

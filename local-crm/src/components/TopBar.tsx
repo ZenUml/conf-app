@@ -1,5 +1,6 @@
 import { human } from '@/lib/format'
 import { grantStatusOf } from '@/lib/lifecycle'
+import { todayGrantMode } from '@/data/todayApi'
 import { useCrmStore } from '@/stores/crm'
 
 export default function TopBar() {
@@ -8,6 +9,7 @@ export default function TopBar() {
   const extensionTenantCount = new Set(
     store.data.grants.map(grant => grant.cloudId ?? grant.domain)
   ).size
+  const todayMode = todayGrantMode(store.extensionsLoad)
   const screenCopy = {
     today: [
       'Today',
@@ -16,7 +18,15 @@ export default function TopBar() {
         month: 'long',
         year: 'numeric',
         timeZone: 'UTC'
-      }).format(new Date(`${store.data.today}T00:00:00Z`))} · one stream of registrations, grants and expiries`
+      }).format(new Date(`${store.data.today}T00:00:00Z`))} · ${
+        todayMode === 'live'
+          ? `${store.data.grants.length} source-backed grant records · registrations sanitized`
+          : todayMode === 'partial'
+            ? `${store.data.grants.length} partial source-backed grant records · registrations sanitized`
+            : todayMode === 'unavailable'
+              ? 'grant and expiry rows unavailable · registrations sanitized'
+              : 'loading grant and expiry rows · registrations sanitized'
+      }`
     ],
     sites: [
       'Sites',
@@ -43,7 +53,8 @@ export default function TopBar() {
   const extensionFreshness = (store.extensionsLoad.state === 'live' || store.extensionsLoad.state === 'partial') && store.extensionsLoad.generatedAt
     ? `Extensions API ${store.extensionsLoad.state === 'partial' ? 'partial · ' : ''}${new Date(store.extensionsLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : `Extensions ${store.extensionsLoad.state}`
-  const freshness = store.screen === 'extensions'
+  const usesExtensionFreshness = store.screen === 'extensions' || store.screen === 'today'
+  const freshness = usesExtensionFreshness
     ? extensionFreshness
     : store.data.marketplace.freshness
 
@@ -76,9 +87,11 @@ export default function TopBar() {
       </label>
       <div className="flex h-7 shrink-0 items-center gap-[6px] whitespace-nowrap rounded-full bg-bg3 px-[10px] text-micro text-fg2">
         <span className={`size-[6px] rounded-full ${
-          store.screen === 'extensions' && (store.extensionsLoad.state === 'error' || store.extensionsLoad.state === 'partial')
-            ? 'bg-[color:var(--color-danger)]'
-            : 'bg-ok'
+          usesExtensionFreshness && store.extensionsLoad.state === 'loading'
+            ? 'bg-fg3'
+            : usesExtensionFreshness && (store.extensionsLoad.state === 'error' || store.extensionsLoad.state === 'partial')
+              ? 'bg-[color:var(--color-danger)]'
+              : 'bg-ok'
         }`} />
         {freshness}
       </div>

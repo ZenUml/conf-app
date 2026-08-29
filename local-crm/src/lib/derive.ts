@@ -195,14 +195,19 @@ export interface ScheduledDay {
 /** The next three upcoming days, one line each. */
 export function scheduledHead(data: Dataset, ahead: CaseEvent[]): ScheduledDay[] {
   const days = groupByDay(data, ahead)
-  return days.slice(0, 3).map(day => ({
-    date: day.date,
-    rel: day.rel,
-    what:
-      day.events.length === 1
-        ? `${day.events[0].who} — space ${day.events[0].space}`
-        : `${day.events.length} spaces at ${day.events[0].who}`
-  }))
+  return days.slice(0, 3).map(day => {
+    const tenants = new Set(day.events.map(event => event.who))
+    return {
+      date: day.date,
+      rel: day.rel,
+      what:
+        day.events.length === 1
+          ? `${day.events[0].who} — space ${day.events[0].space}`
+          : tenants.size === 1
+            ? `${day.events.length} spaces at ${day.events[0].who}`
+            : `${day.events.length} expiries across ${tenants.size} tenants`
+    }
+  })
 }
 
 /**

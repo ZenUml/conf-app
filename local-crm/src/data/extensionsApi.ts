@@ -46,11 +46,16 @@ function grantKind(row: ExtensionGrantRecord): Grant['kind'] {
 }
 
 function toGrant(row: ExtensionGrantRecord): Grant {
+  const marketplaceUnavailable = row.unknowns.includes('Marketplace site mapping is unavailable')
   return {
     id: row.id,
     created: row.createdAt ? displayDate(row.createdAt) : 'unknown',
     createdAt: row.createdAt ?? undefined,
-    domain: row.domain ?? `(not in Marketplace · cloud ${row.cloudId.slice(0, 8)})`,
+    domain: row.domain ?? (
+      marketplaceUnavailable
+        ? `(site mapping unavailable · cloud ${row.cloudId.slice(0, 8)})`
+        : `(not in Marketplace · cloud ${row.cloudId.slice(0, 8)})`
+    ),
     space: row.spaceKey,
     wide: row.scope === 'space',
     origin: row.activatedBy ?? '(not recorded)',

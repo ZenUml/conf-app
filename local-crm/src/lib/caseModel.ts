@@ -259,10 +259,12 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
     }
   ]
   // Conditional rows appear only on mismatch — never a row that repeats its neighbour.
-  if (jsm && grant.domain.startsWith('(') && jsm.typedDomain !== '(unknown)') {
-    facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — requester-typed and unverified; Marketplace resolved no site`, problem: true })
-  } else if (jsm && jsm.typedDomain !== grant.domain) {
-    facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — does not resolve to this site`, problem: true })
+  if (!marketplaceUnavailable && jsm) {
+    if (grant.domain.startsWith('(') && jsm.typedDomain !== '(unknown)') {
+      facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — requester-typed and unverified; Marketplace resolved no site`, problem: true })
+    } else if (jsm.typedDomain !== grant.domain) {
+      facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — does not resolve to this site`, problem: true })
+    }
   }
   if (jsm && jsm.typedSpace !== grant.space) {
     facts.push({ k: 'typed space', v: `${jsm.typedSpace} — does not match the granted space`, problem: true })
@@ -514,8 +516,16 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
   const past = currentStatus === 'expired'
   const expiredCount = data.grants.filter(g => grantStatusOf(g) === 'expired').length
   const activeCount = data.grants.filter(g => grantStatusOf(g) === 'active').length
+  const marketplace = grant.marketplace ?? []
+  const marketplaceUnavailable = Boolean(
+    grant.unknowns?.includes('Marketplace site mapping is unavailable')
+  )
+  const auditCount = grant.actionAudit?.length ?? 0
+  const auditUnavailable = Boolean(
+    grant.unknowns?.includes('ExtensionAction audit source is unavailable')
+  )
   const evaluationEnds = [...new Set(
-    (grant.marketplace ?? [])
+    marketplace
       .filter(row => row.app === 'lite' && row.licenseType === 'EVALUATION')
       .map(row => row.evaluationEndsAt)
       .filter((value): value is string => Boolean(value))
@@ -530,12 +540,21 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
       { k: 'space', v: grant.space },
       { k: 'scope', v: grant.wide ? 'whole space' : 'one requester' },
       { k: 'granted', v: grant.created },
-      { k: 'ran', v: grant.days ?? '7-day' },
+      { k: 'ran', v: grant.days ?? 'duration unknown' },
       { k: 'expires', v: grant.expires, problem: past },
       { k: 'activatedBy', v: grant.activatedBy ?? grant.origin },
       { k: 'stored status', v: grant.storedStatus ?? 'unknown' },
       { k: 'KV observation', v: grant.sourceObservedAt ?? 'fixture only' },
-      { k: 'follow-up evidence', v: 'not present in the joined sources', problem: true }
+      {
+        k: 'Marketplace',
+        v: marketplaceUnavailable
+          ? 'source unavailable — no mapping or licence claim can be made'
+          : marketplace.length
+            ? marketplace.map(row => `${row.app} · ${row.licenseType ?? 'type unknown'} · ${row.status ?? 'status unknown'}`).join(' | ')
+            : 'no licence row matched this cloud ID',
+        problem: marketplaceUnavailable || marketplace.length === 0
+      },
+      { k: 'follow-up evidence', v: 'not joined — no follow-up source is connected', problem: true }
     ],
     actions: [
       {
@@ -544,9 +563,11 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
         cta: 'Review',
         tone: 'primary',
         note: 'Shows the licence rows already joined by cloud ID; this does not infer conversion.',
-        result: grant.marketplace?.length
-          ? grant.marketplace.map(row => `${row.app} · ${row.licenseType ?? 'type unknown'} · ${row.status ?? 'status unknown'}`).join(' | ')
-          : 'No Marketplace licence row matched this cloud ID.'
+        result: marketplaceUnavailable
+          ? 'Marketplace source unavailable; absence or licence state cannot be established.'
+          : marketplace.length
+            ? marketplace.map(row => `${row.app} · ${row.licenseType ?? 'type unknown'} · ${row.status ?? 'status unknown'}`).join(' | ')
+            : 'No Marketplace licence row matched this cloud ID.'
       },
       {
         key: 'regrant',
@@ -578,23 +599,31 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
       },
       {
         name: 'evaluation-ended',
-        verdict: evaluationEnd
-          ? (evaluationEnd.slice(0, 10) <= data.today ? 'ended' : 'not ended')
-          : evaluationEnds.length > 1
-            ? 'ambiguous'
-            : 'not available',
-        applies: Boolean(evaluationEnd && evaluationEnd.slice(0, 10) <= data.today),
-        note: evaluationEnd
-          ? `Marketplace evaluationEndsAt is ${evaluationEnd.slice(0, 10)}.`
-          : evaluationEnds.length > 1
-            ? 'Multiple Lite evaluation end dates are joined; none is selected as canonical.'
-            : 'No joined Lite Marketplace evaluation row carries an evaluation end date.'
+        verdict: marketplaceUnavailable
+          ? 'unknown'
+          : evaluationEnd
+            ? (evaluationEnd.slice(0, 10) <= data.today ? 'ended' : 'not ended')
+            : evaluationEnds.length > 1
+              ? 'ambiguous'
+              : 'not available',
+        applies: Boolean(!marketplaceUnavailable && evaluationEnd && evaluationEnd.slice(0, 10) <= data.today),
+        note: marketplaceUnavailable
+          ? 'Marketplace source is unavailable; evaluation state cannot be established.'
+          : evaluationEnd
+            ? `Marketplace evaluationEndsAt is ${evaluationEnd.slice(0, 10)}.`
+            : evaluationEnds.length > 1
+              ? 'Multiple Lite evaluation end dates are joined; none is selected as canonical.'
+              : 'No joined Lite Marketplace evaluation row carries an evaluation end date.'
       },
       {
         name: 'marketplace-lapsed',
         verdict: 'not derivable',
         applies: false,
-        note: 'Marketplace licence rows are present, but no lifecycle lapse transition is joined to this grant and no cancellation reason is inferred.'
+        note: marketplaceUnavailable
+          ? 'Marketplace source is unavailable; neither licence presence nor a lifecycle lapse transition can be established.'
+          : marketplace.length
+            ? 'Marketplace licence rows are present, but no lifecycle lapse transition is joined to this grant and no cancellation reason is inferred.'
+            : 'No Marketplace licence row matched this cloud ID; no lifecycle lapse transition or cancellation reason is inferred.'
       },
       {
         name: 'cancellation-unverified',
@@ -622,7 +651,13 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
       { k: 'original scope', v: grant.wide ? `whole space ${grant.space}` : `${grant.space}, one requester` },
       { k: 'original expiry', v: grant.expires },
       { k: 'expiry event', v: 'no separate expiry-event evidence is joined — this row is derived', problem: true },
-      { k: 'ExtensionAction', v: `${grant.actionAudit?.length ?? 0} matching rows` },
+      {
+        k: 'ExtensionAction',
+        v: auditUnavailable
+          ? 'source unavailable'
+          : `${auditCount} matching ${auditCount === 1 ? 'row' : 'rows'}`,
+        problem: auditUnavailable || auditCount === 0
+      },
       ...((grant.history ?? []).map((row, index) => ({
         k: `history ${index + 1}`,
         v: `${row.label} · ${row.at ?? 'time unknown'} · ${row.evidence}`
@@ -630,7 +665,7 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
       { k: 'operator/source', v: grant.activatedBy ?? grant.origin }
     ],
     provenance: grant.sourceObservedAt
-      ? `Loopback API · current KV expiresAt observed ${grant.sourceObservedAt}; no separate expiry event is stored.`
+      ? `Loopback API · current KV expiresAt observed ${grant.sourceObservedAt} + ${marketplaceUnavailable ? 'Marketplace unavailable' : 'Marketplace'} + ${auditUnavailable ? 'ExtensionAction D1 unavailable' : 'ExtensionAction D1'}; no separate expiry event is stored.`
       : 'Sanitized fixture · derived from expiresAt; no live source observation is attached.',
     footer: past
       ? `${expiredCount} of the ${data.grants.length} current grant records are past expiresAt.`

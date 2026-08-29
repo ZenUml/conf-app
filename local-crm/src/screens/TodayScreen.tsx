@@ -1,6 +1,7 @@
 import Chip from '@/components/Chip'
 import EventCard from '@/components/EventCard'
 import SectionLabel from '@/components/SectionLabel'
+import { todayGrantMode } from '@/data/todayApi'
 import { count } from '@/lib/format'
 import { PRODUCT } from '@/lib/palette'
 import { useCrmStore } from '@/stores/crm'
@@ -14,7 +15,24 @@ const FILTERS: Array<{ key: FeedFilter; label: string }> = [
 ]
 
 export default function TodayScreen() {
-  const { data, filter, setFilter, feed, counts, scheduled, open, query } = useCrmStore()
+  const {
+    data,
+    filter,
+    setFilter,
+    feed,
+    counts,
+    scheduled,
+    open,
+    query,
+    extensionsLoad
+  } = useCrmStore()
+  const grantMode = todayGrantMode(extensionsLoad)
+  const sourceLabels = {
+    marketplace: 'Marketplace',
+    jsm: 'JSM',
+    space_license_kv: 'grant KV',
+    extension_action_d1: 'action D1'
+  } as const
   const maxStepCount = Math.max(
     1,
     ...data.steps.map(step => step.welcome + step.lapsed)
@@ -22,6 +40,59 @@ export default function TodayScreen() {
 
   return (
     <div className="px-6 pb-7 pt-5">
+      <section
+        data-testid="today-grant-source-status"
+        data-grant-mode={grantMode}
+        className={`mb-5 rounded-lg border px-4 py-3 ${
+          grantMode === 'live'
+            ? 'border-[color:var(--color-success)] bg-bg1'
+            : grantMode === 'partial'
+              ? 'border-[color:var(--accent-drawio-500)] bg-bg1'
+              : grantMode === 'unavailable'
+                ? 'border-[color:var(--color-danger)] bg-bg1'
+                : 'border-line bg-bg1'
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-[760px]">
+            <div className="text-body-sm font-semibold">
+              {grantMode === 'live'
+                ? 'Live grant and expiry rows'
+                : grantMode === 'partial'
+                  ? 'Partial live grant and expiry rows'
+                  : grantMode === 'unavailable'
+                    ? 'Grant and expiry rows unavailable'
+                    : 'Loading live grant and expiry rows…'}
+            </div>
+            <div className="mt-1 text-micro leading-6 text-fg2">
+              {grantMode === 'live' || grantMode === 'partial'
+                ? `Current grant records come from SPACE_LICENSE_KV${extensionsLoad.generatedAt ? `, read ${new Date(extensionsLoad.generatedAt).toLocaleString()}` : ''}. Expiry rows are derived from current expiresAt; they are not stored expiry history.${grantMode === 'partial' ? ' Some context or timestamp evidence remains explicitly unavailable.' : ''}`
+                : grantMode === 'unavailable'
+                  ? `${extensionsLoad.error ?? 'The authoritative grant KV read is unavailable.'} No sanitized grant or expiry rows are substituted.`
+                  : 'The authoritative grant KV read is in progress. No sanitized grant or expiry rows are substituted.'}
+            </div>
+            <div
+              data-testid="today-fixture-notice"
+              className="mt-1 text-micro leading-6 text-fg3"
+            >
+              Registrations, contact ingest, Marketplace acquisition totals and workflow panels remain sanitized fixtures; no communication outcome is inferred.
+            </div>
+          </div>
+          {extensionsLoad.sources ? (
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(extensionsLoad.sources).map(([key, source]) => (
+                <span
+                  key={key}
+                  data-testid={`today-source-${key}`}
+                  className="rounded-full border border-line bg-bg2 px-2 py-1 font-mono text-micro text-fg2"
+                >
+                  {sourceLabels[key as keyof typeof sourceLabels]} · {source.records} · {source.state}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
       <div className="flex flex-wrap items-start gap-5">
         <div className="min-w-[520px] flex-1">
           <div
@@ -29,9 +100,9 @@ export default function TodayScreen() {
             data-testid="today-filter-bar"
           >
             <div className="mb-3 flex flex-wrap items-baseline gap-2.5">
-              <h3 className="text-h3 font-semibold">Everything that happened</h3>
+              <h3 className="text-h3 font-semibold">Known activity stream</h3>
               <span className="text-body-sm text-fg2">
-                registrations, extension grants and expiries in one stream · newest first
+                sanitized registrations + current grant records + derived expiries · latest known dates first
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -89,7 +160,9 @@ export default function TodayScreen() {
             <div className="mb-1">
               <SectionLabel>New this month, by app</SectionLabel>
             </div>
-            <div className="mb-3 text-micro text-fg2">against the skill’s own baselines</div>
+            <div className="mb-3 text-micro text-fg2">
+              sanitized Marketplace fixture · against the skill’s own baselines
+            </div>
             <div className="flex flex-col gap-[11px]">
               {data.byApp.map(row => {
                 const product = PRODUCT[row.app]
@@ -122,7 +195,7 @@ export default function TodayScreen() {
               <SectionLabel>Ingested contacts</SectionLabel>
             </div>
             <div className="mb-3 text-micro text-fg2">
-              {count(data.ingest.contactsWritten)} rows · all held as backlog
+              sanitized contact fixture · {count(data.ingest.contactsWritten)} rows · all held as backlog
             </div>
             <div className="flex flex-col gap-[9px]">
               {data.steps.map(step => {
@@ -174,6 +247,13 @@ export default function TodayScreen() {
                 {count(scheduled.total)} scheduled
               </span>
             </div>
+            <div className="text-micro text-fg2">
+              {grantMode === 'live' || grantMode === 'partial'
+                ? 'live KV expiresAt · derived, not stored history'
+                : grantMode === 'loading'
+                  ? 'waiting for the authoritative grant KV read'
+                  : 'authoritative grant KV unavailable'}
+            </div>
             <div className="mt-3 flex flex-col gap-2">
               {scheduled.head.map(item => (
                 <div key={`${item.date}:${item.what}`} className="flex flex-wrap items-baseline gap-2.5">
@@ -185,6 +265,11 @@ export default function TodayScreen() {
                   <span className="text-body-sm text-fg2 [overflow-wrap:anywhere]">{item.what}</span>
                 </div>
               ))}
+              {!scheduled.head.length ? (
+                <div className="text-micro leading-6 text-fg3">
+                  No source-backed scheduled expiries are available.
+                </div>
+              ) : null}
             </div>
             {scheduled.rest ? (
               <div className="mt-3 border-t border-bg3 pt-2.5 text-micro leading-6 text-fg3">

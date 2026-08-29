@@ -14,6 +14,7 @@ import {
   loadExtensionsDataset,
   type ExtensionsLoadState
 } from '@/data/extensionsApi'
+import { buildTodayDataset } from '@/data/todayApi'
 import {
   buildEvents,
   buildSites,
@@ -163,10 +164,17 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(crmReducer, INITIAL_CRM_STATE)
   const [extensionsData, setExtensionsData] = useState(initialDataset)
   const [extensionsLoad, setExtensionsLoad] = useState(INITIAL_EXTENSIONS_LOAD)
-  // The completed non-Extensions screens remain on the sanitized dataset.
-  // Live customer grant data is visible only on the explicitly labelled
-  // Extensions surface and its drawer.
-  const data = state.screen === 'extensions' ? extensionsData : initialDataset
+  const todayData = useMemo(
+    () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad),
+    [extensionsData, extensionsLoad]
+  )
+  // Today intentionally mixes live grant-backed fields with the sanitized
+  // registration/contact/workflow baseline. Other screens stay isolated.
+  const data = state.screen === 'extensions'
+    ? extensionsData
+    : state.screen === 'today'
+      ? todayData
+      : initialDataset
   const needle = state.query.trim().toLowerCase()
 
   useEffect(() => {

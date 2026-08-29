@@ -111,7 +111,11 @@ describe('Extensions API frontend adapter', () => {
         matchedRequestCount: 0,
         originBuckets: []
       },
-      grants: [grant({ id: 'grant_partial' })]
+      grants: [grant({
+        id: 'grant_partial',
+        domain: null,
+        unknowns: ['Marketplace site mapping is unavailable']
+      })]
     }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
       status: 200,
@@ -121,5 +125,6 @@ describe('Extensions API frontend adapter', () => {
     const result = await loadExtensionsDataset(placeholderDataset)
     expect(result.load.state).toBe('partial')
     expect(result.load.sources?.marketplace.state).toBe('error')
+    expect(result.data.grants[0].domain).toBe('(site mapping unavailable · cloud cloud-te)')
   })
 })

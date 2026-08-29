@@ -157,6 +157,109 @@ describe('reviewed lifecycle integrity rules', () => {
     expect(model.footer).toContain('absence cannot be established')
   })
 
+  it('keeps unavailable Marketplace and action evidence unknown in expiry cases', () => {
+    const grant = {
+      ...data.grants[0],
+      id: 'grant_expiry_sources_unavailable',
+      createdAt: '2026-08-01T00:00:00.000Z',
+      expiresAt: '2026-08-20T00:00:00.000Z',
+      created: '01 Aug',
+      expires: '20 Aug',
+      days: undefined,
+      status: 'expired' as const,
+      active: false,
+      marketplace: [],
+      actionAudit: [],
+      unknowns: [
+        'Marketplace site mapping is unavailable',
+        'ExtensionAction audit source is unavailable'
+      ]
+    }
+    const isolated = { ...data, grants: [grant] }
+    const event = buildEvents(isolated).find(row => row.kind === 'expired')!
+    const model = buildCase(isolated, event)
+
+    expect(model.facts.find(row => row.k === 'ran')?.v).toBe('duration unknown')
+    expect(model.facts.find(row => row.k === 'Marketplace')?.v).toContain('source unavailable')
+    expect(model.audits.find(row => row.k === 'ExtensionAction')?.v).toBe('source unavailable')
+    expect(model.classes.find(row => row.name === 'evaluation-ended')).toMatchObject({
+      verdict: 'unknown',
+      applies: false
+    })
+    expect(model.classes.find(row => row.name === 'marketplace-lapsed')?.note)
+      .toContain('source is unavailable')
+  })
+
+  it('does not present requester-typed domain context as a mismatch when site mapping is unavailable', () => {
+    const grant = {
+      ...data.grants[0],
+      id: 'grant_marketplace_unavailable',
+      domain: '(site mapping unavailable · cloud example)',
+      ticketKey: 'ZEN-999999',
+      requestTicket: 'ZEN-999999',
+      requestMatchedBy: 'ticket_key' as const,
+      status: 'active' as const,
+      active: true,
+      marketplace: [],
+      unknowns: ['Marketplace site mapping is unavailable']
+    }
+    const isolated = {
+      ...data,
+      grants: [grant],
+      jsm: {
+        'ZEN-999999': {
+          requester: 'Synthetic requester',
+          accountId: 'synthetic-account',
+          status: 'Waiting for support',
+          lastReply: '29 Aug',
+          replies: 1,
+          typedDomain: 'requester-typed-example',
+          typedSpace: grant.space,
+          portalUnsigned: null,
+          note: ''
+        }
+      }
+    }
+    const event = buildEvents(isolated).find(row => row.kind === 'granted')!
+    const model = buildCase(isolated, event)
+
+    expect(model.facts.find(row => row.k === 'Marketplace')?.v).toContain('source unavailable')
+    expect(model.facts.some(row => row.k === 'typed domain')).toBe(false)
+  })
+
+  it('does not attribute a shared expiry day to one of several tenants', () => {
+    const base = data.grants.find(row => row.active) ?? data.grants[0]
+    const sharedDay = {
+      ...data,
+      registrations: [],
+      grants: [
+        {
+          ...base,
+          id: 'grant_tenant_one',
+          domain: 'example-one',
+          space: 'SPACE1',
+          status: 'active' as const,
+          active: true,
+          expires: '01 Sep',
+          expiresAt: '2026-09-01T00:00:00.000Z'
+        },
+        {
+          ...base,
+          id: 'grant_tenant_two',
+          domain: 'example-two',
+          space: 'SPACE2',
+          status: 'active' as const,
+          active: true,
+          expires: '01 Sep',
+          expiresAt: '2026-09-01T00:00:00.000Z'
+        }
+      ]
+    }
+    const ahead = scheduledEvents(sharedDay, buildEvents(sharedDay))
+
+    expect(scheduledHead(sharedDay, ahead)[0].what).toBe('2 expiries across 2 tenants')
+  })
+
   it('opens the newest grant by full timestamp when two grants share a day', () => {
     const base = data.grants[0]
     const sameTenant = {

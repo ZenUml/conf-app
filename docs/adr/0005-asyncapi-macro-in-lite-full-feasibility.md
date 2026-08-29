@@ -196,18 +196,34 @@ later:
   deliberately: the standalone app keeps the dashboard, the embed macro and the cross-page
   `async-api-doc` document model, none of which Lite gets.
 
-### Known gap, not resolved by this decision
+### Lite → Full migration: handled, with one deliberate skip
 
-**Lite → Full upgrade drops AsyncAPI diagrams.** `src/lite-full-conversion.ts` resolves pages by
-CQL over `zenuml-sequence-macro-lite` / `zenuml-openapi-macro-lite` / `zenuml-graph-macro-lite`
-only, and Full does not ship the macro at all — so a Lite customer who authors AsyncAPI specs and
-then upgrades loses them: not converted, and no macro on Full to render them. Note that the
-earlier draft of this ADR cited `functions/conversion/service.ts:13` as evidence that the
-conversion queue "explicitly rejects AsyncAPI"; that line rejects the AsyncAPI **app's FIT** from
-operating the queue and says nothing about AsyncAPI **diagrams**. There is no diagramType filter
-anywhere in the conversion path.
+Lite→Full macro and custom-content migration is run **on demand**
+(`src/lite-full-conversion.ts`, driven by the `ConversionJob` queue in
+`functions/conversion/`). Two of its three moving parts already handle AsyncAPI generically, and
+one deliberately does not:
 
-Resolving this needs a product call that is out of scope here — either ship the macro in Full too
-(which extends the `unsafe-eval` and Studio-weight costs to Full), or block/warn on conversion for
-spaces containing AsyncAPI diagrams. Until one is made, this is a real data-loss path on the
-primary monetization route and should gate a production release of the Lite AsyncAPI macro.
+- **Custom content — works.** Lite files AsyncAPI under the shared `zenuml-content-sequence` type
+  (Option A above), and `fullContentTypeForLiteType()` rewrites the Lite prefix to the Full one
+  with no per-type knowledge. Nothing to add.
+- **Macro key — works, *because* the key is suffixed.** `mapLiteMacroKey()` accepts any
+  `zenuml-*-lite` key and strips the suffix. This is why the macro is declared as
+  `zenuml-asyncapi-macro${LITE_KEY_SUFFIX}` rather than a bare literal: without the `-lite`
+  suffix the key fails that check and every AsyncAPI macro is silently counted as
+  `macrosSkippedUnknownKey` and left behind.
+- **Rendering on Full — the blocker.** Full ships **no** `zenuml-asyncapi-macro` module (the
+  full/diagramly `manifestEdits` strip it via `test("zenuml-asyncapi")`). Converting would rewrite
+  the page ADF to point at a module Full cannot resolve and republish the page, replacing a
+  working diagram with a broken macro. So `mapLiteMacroKey()` returns `null` for asyncapi and the
+  executor counts it as `macrosSkippedAsyncApi` — the same treatment the embed macro already gets,
+  and strictly better than manufacturing broken macros. The diagrams stay as working Lite macros.
+
+**To lift:** ship `zenuml-asyncapi-macro` in Full, then delete the asyncapi guard in
+`mapLiteMacroKey()` (and its test). Key mapping, content-type mapping and CQL discovery are
+already generic, so that is the only code change — at the cost of extending the `unsafe-eval`
+relaxation and the Studio build weight to Full.
+
+Correction to an earlier draft of this ADR: it cited `functions/conversion/service.ts:13` as
+evidence that the conversion queue "explicitly rejects AsyncAPI". That line rejects the AsyncAPI
+**app's FIT** from operating the queue and says nothing about AsyncAPI **diagrams**; there is no
+diagramType filter anywhere in the conversion path.

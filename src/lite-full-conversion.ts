@@ -68,6 +68,18 @@ export function mapLiteMacroKey(liteKey: string): string | null {
   // Embed macros reference other diagrams' ids and need an old->new mapping
   // built after everything they point at is converted — phase 2.
   if (fullKey === 'zenuml-embed-macro') return null;
+  // Lite ships the AsyncAPI macro (ADR-0005 Option A); Full does NOT — the
+  // full/diagramly manifestEdits strip it via test("zenuml-asyncapi"). The
+  // custom content would migrate fine (Lite files AsyncAPI under the shared
+  // zenuml-content-sequence type, which fullContentTypeForLiteType maps
+  // cleanly), but rewriting the ADF to a module Full has no manifest entry for
+  // republishes the page with a BROKEN macro where a working diagram was.
+  // Leaving it as a Lite macro is strictly better than that.
+  //
+  // TO LIFT: when Full ships zenuml-asyncapi-macro, delete these two lines.
+  // Nothing else here needs to change — the key mapping and content-type
+  // mapping above are already generic.
+  if (fullKey === 'zenuml-asyncapi-macro') return null;
   return fullKey;
 }
 
@@ -182,6 +194,11 @@ interface JobStats {
   pagesFailed: number;
   macrosConverted: number;
   macrosSkippedEmbed: number;
+  // Counted separately from macrosSkippedUnknownKey: these are a deliberate,
+  // known skip (Full ships no AsyncAPI macro — see mapLiteMacroKey), not an
+  // unrecognised key. A non-zero value here tells the operator exactly what
+  // was left behind on Lite rather than burying it in an "unknown" bucket.
+  macrosSkippedAsyncApi: number;
   macrosSkippedUnknownKey: number;
   macrosSkippedBodyMissing: number;
   dryRun: boolean;
@@ -240,10 +257,17 @@ async function resolvePageIds(job: ClaimedJob): Promise<string[]> {
     return job.pageIds.slice(offset, offset + limit);
   }
   if (!job.spaceKey) return [];
+  // Discovery only — which pages to open. What actually converts is decided
+  // per node by mapLiteMacroKey. asyncapi is listed so a page carrying ONLY an
+  // AsyncAPI macro is still visited and reported on; today mapLiteMacroKey
+  // skips it (Full ships no AsyncAPI macro), so such a page converts nothing
+  // and is left untouched. Listing it now means lifting that skip is a
+  // one-place change rather than two.
   const liteMacroKeys = [
     'zenuml-sequence-macro-lite',
     'zenuml-openapi-macro-lite',
     'zenuml-graph-macro-lite',
+    'zenuml-asyncapi-macro-lite',
   ];
   const cql = `space = "${job.spaceKey}" and macro in (${liteMacroKeys
     .map((k) => `"${k}"`)
@@ -345,6 +369,7 @@ async function convertPage(
     const liteContentId = node.attrs.parameters?.guestParams?.customContentId;
     if (!fullKey) {
       if (parsed.macroKey === 'zenuml-embed-macro-lite') stats.macrosSkippedEmbed += 1;
+      else if (parsed.macroKey === 'zenuml-asyncapi-macro-lite') stats.macrosSkippedAsyncApi += 1;
       else stats.macrosSkippedUnknownKey += 1;
       continue;
     }
@@ -447,6 +472,7 @@ export async function runConversionTick(): Promise<void> {
     pagesFailed: 0,
     macrosConverted: 0,
     macrosSkippedEmbed: 0,
+    macrosSkippedAsyncApi: 0,
     macrosSkippedUnknownKey: 0,
     macrosSkippedBodyMissing: 0,
     dryRun: job.dryRun,

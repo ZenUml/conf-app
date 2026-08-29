@@ -66,6 +66,14 @@ describe('mapLiteMacroKey', () => {
     expect(mapLiteMacroKey(lite)).toBe(full);
   });
 
+  // Full ships no zenuml-asyncapi-macro (the full/diagramly manifestEdits strip
+  // it). Converting would rewrite the ADF to a module Full cannot render and
+  // republish the page with a broken macro, so the migration deliberately
+  // leaves these on Lite. Delete this expectation when Full ships the macro.
+  it('refuses asyncapi while Full has no AsyncAPI macro module', () => {
+    expect(mapLiteMacroKey('zenuml-asyncapi-macro-lite')).toBeNull();
+  });
+
   it('refuses embed (phase-2) and non-lite keys', () => {
     expect(mapLiteMacroKey('zenuml-embed-macro-lite')).toBeNull();
     expect(mapLiteMacroKey('zenuml-sequence-macro')).toBeNull();

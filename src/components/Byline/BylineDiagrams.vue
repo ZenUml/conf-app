@@ -765,7 +765,12 @@ async function loadDiagrams() {
 async function checkCreateLimit() {
   try {
     const customerSuccess = useCustomerSuccessService()
-    await customerSuccess.initialize()
+    // persistMarker: false — this is a READ of the paywall decision, not a
+    // macro render. The paywall warning banner's targeting marker is
+    // single-writer (the macro iframe); writing it from here would both make
+    // the banner eligible on pages where no macro rendered, and risk clobbering
+    // a good marker with a degraded read. See initialize()'s doc comment.
+    await customerSuccess.initialize({ persistMarker: false })
     const blocked = isPageEditorCreateBlocked(customerSuccess.shouldBlockActions.value)
     createLimitReached.value = blocked
     if (!blocked) return

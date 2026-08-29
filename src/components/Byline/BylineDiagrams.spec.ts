@@ -40,7 +40,10 @@ vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
 // composable so these tests state the ONE input they care about — is this space
 // blocked — instead of assembling a macro count, a policy read and a paid-status
 // read to imply it.
-const paywall = vi.hoisted(() => ({ shouldBlock: false, initialize: vi.fn(async () => {}) }));
+const paywall = vi.hoisted(() => ({
+  shouldBlock: false,
+  initialize: vi.fn(async (_opts?: { persistMarker?: boolean }) => {}),
+}));
 vi.mock('@/composables/useCustomerSuccessService', () => ({
   useCustomerSuccessService: () => ({
     initialize: paywall.initialize,
@@ -468,6 +471,19 @@ describe('BylineDiagrams', () => {
         expect(events('byline_create_clicked')[0][1]).toMatchObject({
           create_limit_reached: false,
         });
+      });
+
+      it('reads the paywall decision without writing the banner targeting marker', async () => {
+        // The targeting marker is single-writer by design — only the macro
+        // iframe writes it, when a macro renders (see warningBanner.ts). The
+        // byline is a READER. Writing it from here would create a marker on
+        // pages where no macro rendered, which alone makes the warning banner
+        // eligible for a space admin, and a degraded read could clobber a good
+        // marker and suppress a banner that should have shown.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        await mountByline();
+
+        expect(paywall.initialize).toHaveBeenCalledWith({ persistMarker: false });
       });
 
       it('claims no limit it could not actually read', async () => {

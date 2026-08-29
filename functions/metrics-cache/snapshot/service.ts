@@ -7,6 +7,8 @@ import {
   assertCounts,
   authenticateMetricsRequest,
   claimKey,
+  countBucket,
+  countsEqual,
   errorResponse,
   isSnapshotEnrolled,
   jsonResponse,
@@ -197,13 +199,16 @@ function emptyCounts(): MacroCounts {
     openapi: 0,
     mermaid: 0,
     plantuml: 0,
+    asyncapi: 0,
     unknown: 0,
   };
 }
 
 function addCounts(target: MacroCounts, source: MacroCounts): void {
   target.total += source.total;
-  for (const field of COUNT_FIELDS) target[field] += source[field];
+  // countBucket, not source[field]: a client predating a bucket omits it, and
+  // `+= undefined` would poison the whole aggregate with NaN.
+  for (const field of COUNT_FIELDS) target[field] += countBucket(source, field);
 }
 
 function indexSuffix(index: number): string {
@@ -669,7 +674,7 @@ async function verifySpace(
   const manifest = await readJsonObject<SpaceManifest>(env.MACRO_COUNT_SNAPSHOT_BUCKET, key);
   if (!manifest) throw new HttpError(409, 'Space manifest is missing');
   assertStoredSpaceManifest(manifest, claim, aggregate.spaceId);
-  if (manifest.spaceKey !== aggregate.spaceKey || JSON.stringify(manifest.metrics) !== JSON.stringify(aggregate.metrics)) {
+  if (manifest.spaceKey !== aggregate.spaceKey || !countsEqual(manifest.metrics, aggregate.metrics)) {
     throw new HttpError(409, 'Aggregate and space manifest disagree');
   }
   for (const ref of manifest.contentChunks) {
@@ -689,13 +694,17 @@ async function verifySpace(
 function changedMetrics(previous: SpaceMetrics | undefined, current: MacroCounts): boolean {
   if (!previous) return true;
   return previous.total !== current.total
-    || COUNT_FIELDS.some((field) => previous[field] !== current[field]);
+    || COUNT_FIELDS.some((field) => (previous[field] ?? 0) !== countBucket(current, field));
 }
 
 function compatibleSpace(spaceKey: string, counts: MacroCounts, capturedAt: string): SpaceMetrics {
   return {
     space: spaceKey,
     ...counts,
+    // Normalize AFTER integrity verification: this object is persisted, not
+    // re-hashed, so an old client's missing bucket becomes an explicit 0 here
+    // rather than an absent key downstream consumers must guard.
+    ...Object.fromEntries(COUNT_FIELDS.map((field) => [field, countBucket(counts, field)])),
     isLite: true,
     lastUpdated: capturedAt,
   };
@@ -772,7 +781,7 @@ export async function handleCommit(
         verifiedContentChunks += manifest.contentChunks.length;
       }
     }
-    if (JSON.stringify(verifiedCounts) !== JSON.stringify(body.aggregateMetrics)) {
+    if (!countsEqual(verifiedCounts, body.aggregateMetrics)) {
       throw new HttpError(409, 'Verified aggregate counts disagree with commit');
     }
     const verifiedChunkCount = verifiedContentChunks + rows.length + body.aggregateChunks.length;

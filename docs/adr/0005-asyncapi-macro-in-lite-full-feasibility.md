@@ -1,7 +1,7 @@
 # ADR-0005: Feasibility & risk of enabling the AsyncAPI macro in Lite and Full
 
-**Status**: Proposed — analysis only, no implementation
-**Date**: 2026-08-19
+**Status**: Accepted for **Lite** (Option A) — shipped in PR #537. Full and Diagramly unchanged.
+**Date**: 2026-08-19 (analysis) / 2026-08-28 (decision)
 **Related**: `scripts/forge-wizard.mjs`, `vite.config.mjs`, `manifest.yml`, `src/forgeIndex.ts`, `src/model/ApWrapper2.ts`, `src/macro-count-snapshot.ts`
 
 ## Context
@@ -10,7 +10,8 @@ Today the AsyncAPI macro (`zenuml-asyncapi-macro`, custom content `async-api-doc
 "My API Documents" space page) ships **only** in the `asyncapi` product variant. This ADR
 answers whether the same macro can be surfaced in the **Lite** and **Full** variants, at what
 risk, and what the smallest correct change is — so a later dispatch can execute a slice without
-re-deriving the analysis. **No production code is changed by this ADR.**
+re-deriving the analysis. The analysis below was written before the decision; see **Decision** at
+the foot of this document for what was actually adopted and what it costs.
 
 The headline finding: the codebase treats "AsyncAPI" as a **whole-variant identity**
 (`import.meta.env.PRODUCT_TYPE === 'asyncapi'`), not as one macro type among several. The macro
@@ -173,8 +174,40 @@ quarantined to a standalone app in the first place.
 
 ## Decision
 
-Not yet made. This ADR establishes that enabling the macro is **feasible via Option A with a small,
-well-bounded change set**, that the persistence union-refactor is **avoidable**, and that the
-**binding cost is the permanent `unsafe-eval` CSP relaxation on the flagship iframes** plus 9.9 MB
-of Studio assets in each deploy. A go/no-go should weigh that security cost and the marketplace
-cannibalization against demand for asyncapi inside the main apps.
+**Adopt Option A for Lite only** (PR #537). Lite ships `zenuml-asyncapi-macro`; content is stored
+under the shared `zenuml-content-sequence` type discriminated by `diagramType`, so the paywall
+count, enumeration, copy-scan, byline and agent-link search cover it with no persistence refactor.
+The `async-api-doc` custom content, the embed macro and the dashboard space page stay
+asyncapi-variant-only. **Full and Diagramly are explicitly NOT included** — they keep the broad
+`test("zenuml-asyncapi")` strip and gain neither the Studio assets nor the CSP relaxation.
+
+Costs accepted with this decision, both permanent and both stated above rather than discovered
+later:
+
+- **`unsafe-eval` in Lite's content CSP** (risk #1). `permissions.content` is app-level in
+  `manifest.yml`, so this applies to every Lite Custom UI iframe on every install — including
+  sequence/mermaid/graph macro views that render user-authored content — not just the Studio
+  editor. Scoping it narrower would require a separate Forge app, which is what the asyncapi
+  variant already is. This is the load-bearing cost of the decision.
+- **~9.9 MB of Studio assets in every Lite deploy** plus the submodule checkout and Next.js build
+  in the Lite pipeline (risk #2). Neither payload loads for users who never open an asyncapi
+  macro; the cost is deploy weight and CI time.
+- **Marketplace overlap** with the paid "AsyncAPI for Confluence" listing (risk #4), accepted
+  deliberately: the standalone app keeps the dashboard, the embed macro and the cross-page
+  `async-api-doc` document model, none of which Lite gets.
+
+### Known gap, not resolved by this decision
+
+**Lite → Full upgrade drops AsyncAPI diagrams.** `src/lite-full-conversion.ts` resolves pages by
+CQL over `zenuml-sequence-macro-lite` / `zenuml-openapi-macro-lite` / `zenuml-graph-macro-lite`
+only, and Full does not ship the macro at all — so a Lite customer who authors AsyncAPI specs and
+then upgrades loses them: not converted, and no macro on Full to render them. Note that the
+earlier draft of this ADR cited `functions/conversion/service.ts:13` as evidence that the
+conversion queue "explicitly rejects AsyncAPI"; that line rejects the AsyncAPI **app's FIT** from
+operating the queue and says nothing about AsyncAPI **diagrams**. There is no diagramType filter
+anywhere in the conversion path.
+
+Resolving this needs a product call that is out of scope here — either ship the macro in Full too
+(which extends the `unsafe-eval` and Studio-weight costs to Full), or block/warn on conversion for
+spaces containing AsyncAPI diagrams. Until one is made, this is a real data-loss path on the
+primary monetization route and should gate a production release of the Lite AsyncAPI macro.

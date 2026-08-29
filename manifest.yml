@@ -307,7 +307,18 @@ modules:
     # zenuml-content-sequence type, discriminated by diagramType, like
     # OpenAPI). full/diagramly strip this entry via manifestEdits in
     # scripts/forge-wizard.mjs (mirrored in release.yml / staging-deploy.yml).
-    - key: zenuml-asyncapi-macro
+    #
+    # ${LITE_KEY_SUFFIX} for the same reason every other Lite macro carries it:
+    # it resolves to `-lite` on Lite and to empty everywhere else, so this key
+    # is UNCHANGED for the asyncapi variant and becomes
+    # `zenuml-asyncapi-macro-lite` on Lite — matching zenuml-openapi-macro,
+    # zenuml-graph-macro and zenuml-embed-macro above, and keeping Lite's macro
+    # keys distinguishable in the CQL `macro in (...)` searches that key on the
+    # bare macro name (e.g. src/lite-full-conversion.ts). Lite has never
+    # shipped this macro, so there is no stored content under the unsuffixed
+    # key to migrate — settling it now costs nothing and after release would
+    # be breaking.
+    - key: zenuml-asyncapi-macro${LITE_KEY_SUFFIX}
       title: AsyncAPI Spec
       description: Create an AsyncAPI Spec. ${APP_LABEL}
       resource: main

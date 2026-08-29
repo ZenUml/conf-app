@@ -95,6 +95,74 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
   })
 
+  // scripts/forge-wizard.mjs is the source of truth, but three workflows carry
+  // hand-copied duplicates of its yq edits and have drifted before (#383/#460,
+  // and deploy-whimet4.yml was missed when ADR-0005 landed). Pin the Lite
+  // asyncapi edits across every workflow that deploys Lite, so the next drift
+  // fails here instead of shipping a manifest nobody intended.
+  describe('Lite asyncapi manifest edits are mirrored in every Lite-deploying workflow', () => {
+    const LITE_WORKFLOWS = [
+      '.github/workflows/release.yml',
+      '.github/workflows/staging-deploy.yml',
+      '.github/workflows/deploy-whimet4.yml',
+    ]
+    const BROAD_ASYNCAPI_STRIP =
+      'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))'
+    const liteYq = (): string[] =>
+      getManifestEditYqArgs('lite').map((x: { expr: string }) => x.expr)
+
+    it.each(LITE_WORKFLOWS)('%s carries the wizard\'s Lite asyncapi edits', (file: string) => {
+      const yaml = fs.readFileSync(file, 'utf8')
+      const yq = liteYq()
+      const embedStrip = yq.find((e: string) => e.includes('zenuml-asyncapi-embed-macro'))
+      const cspEdit = yq.find((e: string) => e.includes('unsafe-eval'))
+      expect(embedStrip).toBeDefined()
+      expect(cspEdit).toBeDefined()
+      expect(yaml).toContain(embedStrip!)
+      expect(yaml).toContain(cspEdit!)
+    })
+
+    // deploy-whimet4.yml deploys ONLY Lite, so unlike release.yml /
+    // staging-deploy.yml it has no legitimate reason to carry the broad
+    // filter — that filter would strip the page macro Lite is meant to ship.
+    it('deploy-whimet4.yml never uses the broad asyncapi filter', () => {
+      const yaml = fs.readFileSync('.github/workflows/deploy-whimet4.yml', 'utf8')
+      expect(yaml).not.toContain(BROAD_ASYNCAPI_STRIP)
+    })
+
+    // Every macro Lite ships must carry ${LITE_KEY_SUFFIX} so its key resolves
+    // to a `-lite` name, the way the CQL `macro in (...)` searches that key on
+    // the bare macro name expect (src/lite-full-conversion.ts). The AsyncAPI
+    // macro was added unsuffixed when ADR-0005 landed.
+    it('every macro Lite keeps is templated with the Lite key suffix', () => {
+      const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+      const liteStrips = getManifestEditYqArgs('lite')
+        .map((x: { expr: string }) => x.expr)
+        .filter((e: string) => e.includes('.modules.macro'))
+      const strippedFromLite = (key: string) =>
+        liteStrips.some((e: string) => e.includes(`"${key}"`))
+
+      const kept = manifest.modules.macro
+        .map((m: { key: string }) => m.key)
+        .filter((key: string) => !strippedFromLite(key))
+      expect(kept).toContain('zenuml-asyncapi-macro${LITE_KEY_SUFFIX}')
+      for (const key of kept) {
+        // ${SEQUENCE_MACRO_KEY} is substituted whole per variant, so it needs
+        // no suffix of its own.
+        if (key === '${SEQUENCE_MACRO_KEY}') continue
+        expect(key).toContain('${LITE_KEY_SUFFIX}')
+      }
+    })
+
+    // `pnpm build:lite` chains `build:studio`, which needs the submodule.
+    it('every Lite-deploying workflow inits the asyncapi-studio submodule', () => {
+      for (const file of LITE_WORKFLOWS) {
+        expect(fs.readFileSync(file, 'utf8'))
+          .toContain('git submodule update --init --depth 1 vendor/asyncapi-studio')
+      }
+    })
+  })
+
   it('only Lite keeps the byline paste-to-create matchers', () => {
     // The /new/<type> and /d/<type>/*/* patterns are minted only by the Lite
     // byline. Any other variant carrying them races Lite for the same pasted

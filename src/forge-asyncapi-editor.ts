@@ -62,7 +62,12 @@ async function initializeMacro() {
         : 'page_editor'
   // Emit from this iframe, not the viewer that opened it: Session Replay is
   // scoped to an iframe, and the Studio interaction happens here.
-  trackAuthoringStarted({
+  //
+  // NOT fired here: on Lite the paywall can block this mount, and a user who
+  // closes the paywall never started authoring. Fired below on the ungated
+  // path, or from PaywallGate's explicit "Continue editing" — same rule
+  // forgeIndex applies to the sequence family.
+  const trackAsyncApiAuthoringStarted = () => trackAuthoringStarted({
     macroType: 'asyncapi',
     entryPoint,
     customContentId,
@@ -226,9 +231,11 @@ async function initializeMacro() {
   }
 
   // Editor paywall (Lite): mount the Studio under PaywallGate so the iframe
-  // is never blank; save remains gated in the persistence layer. Same
-  // pattern as forge-swagger-editor.ts / forge-graph-editor.ts — the gate
-  // no-ops on non-Lite variants (shouldBlockActions is Lite-scoped).
+  // is never blank — the block is the gate's modal on top of a real editor
+  // (metered: "Continue editing (N)" dismisses it), not a refusal in
+  // saveToPlatform. Same pattern as forge-swagger-editor.ts /
+  // forge-graph-editor.ts — the gate no-ops on non-Lite variants
+  // (shouldBlockActions is Lite-scoped).
   const paywalled = await tryPageEditorPaywall({
     doc: existing ?? NULL_DIAGRAM,
     content: AsyncApiForgeEditorShell,
@@ -239,9 +246,14 @@ async function initializeMacro() {
     },
     macroKind: 'asyncapi',
     customContentId,
+    // The gated path returns before the ungated mount below, so defer the
+    // authoring event to the explicit continue action rather than counting a
+    // blocked mount as an authoring session.
+    onContinueEditing: trackAsyncApiAuthoringStarted,
   })
   if (!paywalled) {
     mountStudio(root)
+    trackAsyncApiAuthoringStarted()
   }
 }
 

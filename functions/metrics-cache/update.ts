@@ -64,6 +64,8 @@ export const onRequest = async ({
       openapi: body.metrics.openapi,
       mermaid: body.metrics.mermaid,
       plantuml: body.metrics.plantuml,
+      // ?? 0: clients predating this bucket omit it — see countBucket.
+      asyncapi: body.metrics.asyncapi ?? 0,
       unknown: body.metrics.unknown,
       isLite: context.productType === 'lite',
       lastUpdated: new Date().toISOString(),

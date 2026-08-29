@@ -10,6 +10,9 @@ export type FeatureArea =
   | "feedback"
   | "system"
   | "agent_link"
+  // Loopback-only operator console. Events from this area carry aggregate
+  // load outcomes only; customer identifiers are forbidden.
+  | "internal_crm"
   // The confluence:contentBylineItem entry point under the page title. Its own
   // area because it is an activation surface, not part of a macro's lifecycle:
   // it renders on every page, including pages with no diagram at all.
@@ -62,6 +65,10 @@ export type Surface =
   // deliberately separate from `route`: it measures a support workflow, not
   // customer traffic to a Pages endpoint.
   | "support_automation"
+  // Local CRM served on 127.0.0.1. This is deliberately distinct from
+  // dashboard/route so internal operator activity cannot be mistaken for a
+  // customer-facing product surface.
+  | "local_crm"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
@@ -359,6 +366,12 @@ export type AnalyticsEventName =
   | "extension_action_requested"
   | "extension_action_succeeded"
   | "extension_action_failed"
+  // Local CRM Extensions read lifecycle. Backend-emitted from the loopback
+  // server only. Properties are aggregate counts/source/duration; never add
+  // tenant, cloud, account, space, ticket, contact, or grant identifiers.
+  | "local_crm_extensions_requested"
+  | "local_crm_extensions_succeeded"
+  | "local_crm_extensions_failed"
   | "content_sync_requested"
   | "content_sync_succeeded"
   | "content_sync_failed"

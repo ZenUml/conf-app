@@ -544,6 +544,12 @@ export type AnalyticsEventName =
   //                       still in flight, i.e. the modal's onClose never ran.
   //                       Best-effort delivery, on the same localStorage-batch
   //                       reasoning as byline_dismissed.
+  // - 'editor_never_opened' — openModal itself threw. Pairs with the
+  //                       byline_editor_deeplinked `result: 'failed'` already
+  //                       emitted there, which answers a different question
+  //                       (did the open route?) and so cannot stand in as the
+  //                       create's outcome without putting an exception in the
+  //                       identity above.
   //
   // The first two MOVED here from byline_diagram_created, which reported them
   // with a `result` marker to avoid inverting the funnel the other way (see the

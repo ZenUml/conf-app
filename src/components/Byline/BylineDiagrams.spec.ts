@@ -375,6 +375,29 @@ describe('BylineDiagrams', () => {
         expect(events('byline_dismissed')).toHaveLength(0);
       });
 
+      it('still reports an outcome when the editor never opens', async () => {
+        // byline_editor_deeplinked result:'failed' answers whether the open
+        // routed, not what became of the create, so on its own it leaves the
+        // same silent gap this event exists to remove.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        vi.mocked(openModal).mockRejectedValueOnce(new Error('modal refused'));
+
+        await openEditorFrom(wrapper);
+
+        expect(events('byline_editor_deeplinked')[0][1]).toMatchObject({ result: 'failed' });
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+        expect(events('byline_create_unresolved')[0][1]).toMatchObject({
+          result: 'editor_never_opened',
+          failure_reason: 'modal refused',
+        });
+
+        // ...and that outcome is final: teardown must not report it again.
+        window.dispatchEvent(new Event('pagehide'));
+        await flushPromises();
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+      });
+
       it('does not report an abandoned create once the editor has resolved', async () => {
         apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
         const wrapper = await mountByline();

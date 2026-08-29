@@ -1066,15 +1066,24 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
     })
   } catch (e) {
     creating.value = false
-    // The editor never opened, so there is no create to resolve. This event is
-    // this attempt's terminal outcome; disarm so teardown does not also report
-    // it as editor_never_closed.
-    createOutcomePending = false
     console.error('[byline] failed to open the editor', e)
+    const failureReason = (e as any)?.message ? String((e as any).message) : String(e)
     trackAnalyticsEvent('byline_editor_deeplinked', {
       ...baseProps(),
       result: 'failed',
-      failure_reason: (e as any)?.message ? String((e as any).message) : String(e),
+      failure_reason: failureReason,
+    })
+    // byline_editor_deeplinked answers a different question (did the open
+    // route?), so this attempt still owes the funnel an outcome — otherwise a
+    // click whose editor never opened is exactly the silent gap #572 exists to
+    // remove, and the created + cancelled + unresolved identity acquires an
+    // exception. Emitted after the deeplink event so the two read in order, and
+    // it also disarms the teardown reporter.
+    trackCreateOutcome('byline_create_unresolved', {
+      ...baseProps(),
+      macro_type: macroType,
+      result: 'editor_never_opened',
+      failure_reason: failureReason,
     })
   }
 }

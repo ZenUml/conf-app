@@ -119,6 +119,28 @@ and `PRODUCT_TYPE: "diagramly"`. If a real Forge iframe reports
 `Forge context missing extension`, check these invariants first. Do not weaken
 the context guard or manufacture a Forge context in application code.
 
+### Macro identity versus local build identity
+
+An existing Forge macro stores its module key, configuration, and content; it
+does not pin a copy of the frontend bundle used when the macro was created.
+Every view or edit loads the app resource again. While a Forge tunnel is
+active, an existing macro can therefore execute the bundle currently served by
+the local Vite process.
+
+- Treat `context.moduleKey` as the macro identity. For example, a key ending in
+  `-lite` is a Lite macro.
+- Treat `import.meta.env.PRODUCT_TYPE` as the local bundle identity only. Never
+  use it to decide which Forge macro or app owns persisted content.
+- If a Lite `moduleKey` executes a bundle compiled with
+  `PRODUCT_TYPE=diagramly`, diagnose a tunnel/Vite variant mismatch. The macro
+  has not been converted and its saved content has not changed.
+- Running `pnpm forge:upgrade:diagramly:dev` upgrades the Diagramly development
+  installation; it does not convert existing Lite macros. Verify that the
+  active tunnel, the macro's `moduleKey`, and the Vite `PRODUCT_TYPE` match the
+  variant being tested before investigating feature flags or UI visibility.
+- To test a Diagramly-only feature, use a Diagramly macro. Do not treat a Lite
+  macro that happens to receive the Diagramly local bundle as a Diagramly macro.
+
 ### Codex-managed monitoring
 
 When the user asks Codex to start, own, monitor, or automatically diagnose the stack, do not run the AppleScript helper. Launch five long-running managed PTY sessions and retain every session ID:

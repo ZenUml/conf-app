@@ -8,24 +8,37 @@
   >
     <header class="ai-chat-header">
       <div class="ai-chat-head-row">
-        <strong>AI Chat</strong>
+        <div class="ai-chat-title">
+          <span class="ai-chat-title-icon" aria-hidden="true">
+            <SparklesIcon />
+          </span>
+          <span>
+            <strong>AI chat</strong>
+            <small>{{ diagramTypeLabel }} assistant</small>
+          </span>
+        </div>
         <div class="ai-chat-head-actions">
           <button
             type="button"
+            class="ai-chat-code-button"
             :aria-label="codeVisible ? 'Hide code editor' : 'Show code editor'"
             :aria-pressed="codeVisible"
+            :title="codeVisible ? 'Hide code editor' : 'Show code editor'"
             data-testid="ai-chat-code-toggle"
             @click="toggleCode"
           >
-            {{ codeVisible ? 'Hide code' : 'Show code' }}
+            <CodeBracketIcon aria-hidden="true" />
+            <span>{{ codeVisible ? 'Hide code' : 'Show code' }}</span>
           </button>
           <button
             type="button"
+            class="ai-chat-icon-button"
             aria-label="Close AI chat"
+            title="Close AI chat"
             data-testid="ai-chat-close"
             @click="closePanel"
           >
-            Close
+            <XMarkIcon aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -36,7 +49,13 @@
         role="status"
         data-testid="ai-chat-syntax-issue"
       >
-        <span>{{ syntaxErrorSummary }}</span>
+        <div class="ai-chat-syntax-message">
+          <ExclamationTriangleIcon aria-hidden="true" />
+          <span>
+            <strong>Syntax issue</strong>
+            <span>{{ syntaxErrorSummary }}</span>
+          </span>
+        </div>
         <button
           type="button"
           data-testid="ai-chat-auto-fix"
@@ -54,8 +73,16 @@
         class="ai-chat-empty"
         data-testid="ai-chat-empty-state"
       >
-        <h3>What should change?</h3>
-        <p>Suggested edits</p>
+        <div class="ai-chat-empty-intro">
+          <span class="ai-chat-empty-icon" aria-hidden="true">
+            <SparklesIcon />
+          </span>
+          <div>
+            <h3>What would you like to change?</h3>
+            <p>Describe an edit or start with a suggestion.</p>
+          </div>
+        </div>
+        <p class="ai-chat-section-label">Suggested edits</p>
         <button
           v-for="suggestion in suggestions"
           :key="suggestion.id"
@@ -65,8 +92,11 @@
           :title="suggestion.description"
           @click="selectSuggestion(suggestion)"
         >
-          <strong>{{ suggestion.label }}</strong>
-          <span>{{ suggestion.description }}</span>
+          <span class="ai-chat-quick-copy">
+            <strong>{{ suggestion.label }}</strong>
+            <span>{{ suggestion.description }}</span>
+          </span>
+          <ArrowRightIcon aria-hidden="true" />
         </button>
       </section>
 
@@ -81,7 +111,10 @@
           <p v-if="message.text">{{ message.text }}</p>
           <div v-if="message.preview" class="ai-chat-preview" data-testid="ai-change-preview">
             <div class="ai-chat-preview-header">
-              <strong>{{ message.preview.title }}</strong>
+              <span class="ai-chat-preview-title">
+                <span aria-hidden="true"><CheckIcon /></span>
+                <strong>{{ message.preview.title }}</strong>
+              </span>
               <button
                 v-if="message.preview.previousVersionId"
                 type="button"
@@ -89,7 +122,8 @@
                 :disabled="isBusy"
                 @click="undoPreview(message.preview)"
               >
-                {{ restoringAction === 'undo' ? 'Undoing...' : 'Undo' }}
+                <ArrowUturnLeftIcon aria-hidden="true" />
+                {{ restoringAction === 'undo' ? 'Undoing…' : 'Undo' }}
               </button>
             </div>
             <ul>
@@ -101,7 +135,9 @@
               :aria-expanded="isDiffOpen(message.id)"
               @click="toggleDiff(message.id)"
             >
-              {{ isDiffOpen(message.id) ? 'Hide code diff' : 'View code diff' }}
+              <span>{{ isDiffOpen(message.id) ? 'Hide code diff' : 'View code diff' }}</span>
+              <ChevronUpIcon v-if="isDiffOpen(message.id)" aria-hidden="true" />
+              <ChevronDownIcon v-else aria-hidden="true" />
             </button>
             <div v-if="isDiffOpen(message.id)" class="ai-chat-diff" data-testid="ai-chat-diff">
               <div class="ai-chat-diff-header">
@@ -115,6 +151,7 @@
                   data-testid="ai-chat-diff-expand"
                   @click="openExpandedDiff(message.id)"
                 >
+                  <ArrowsPointingOutIcon aria-hidden="true" />
                   Expand
                 </button>
               </div>
@@ -147,7 +184,14 @@
               :key="stage.key"
               :class="stageClass(index)"
             >
-              <span aria-hidden="true">{{ index + 1 }}</span>
+              <span class="ai-chat-stage-marker" aria-hidden="true">
+                <CheckIcon v-if="stageClass(index) === 'is-complete'" />
+                <ArrowPathIcon
+                  v-else-if="stageClass(index) === 'is-active'"
+                  class="ai-chat-spin"
+                />
+                <span v-else>{{ index + 1 }}</span>
+              </span>
               <strong>{{ stage.label }}</strong>
             </li>
           </ol>
@@ -176,7 +220,7 @@
             data-testid="ai-chat-diff-fullscreen-close"
             @click="closeExpandedDiff"
           >
-            Close
+            <XMarkIcon aria-hidden="true" />
           </button>
         </header>
         <div class="ai-chat-diff-code">
@@ -203,10 +247,21 @@
       data-testid="ai-chat-history-panel"
     >
       <header>
-        <h3>Diagram versions</h3>
-        <button type="button" aria-label="Close diagram versions" @click="closeHistory">
-          Close
+        <button
+          type="button"
+          class="ai-chat-history-back"
+          aria-label="Back to AI chat"
+          title="Back to AI chat"
+          @click="closeHistory"
+        >
+          <ArrowLeftIcon aria-hidden="true" />
         </button>
+        <div class="ai-chat-history-title">
+          <span>
+            <h3>Diagram versions</h3>
+            <p>Review or restore a saved change.</p>
+          </span>
+        </div>
       </header>
       <div
         v-if="versionsStatus === 'loading'"
@@ -260,41 +315,70 @@
     </section>
 
     <form class="ai-chat-composer" @submit.prevent="submitPrompt()">
-      <textarea
-        ref="input"
-        v-model="prompt"
-        rows="2"
-        placeholder="Describe the diagram change..."
-        aria-label="AI change request"
-        data-testid="ai-chat-input"
-        :disabled="isRestoringVersion"
-        @keydown.enter.exact.prevent="submitPrompt()"
-      />
-      <button
-        type="button"
-        aria-label="Open diagram versions"
-        data-testid="ai-chat-history-trigger"
-        :aria-expanded="historyOpen"
-        :disabled="!activeDiagramId"
-        @click="openHistory"
-      >
-        Diagram versions
-        <span>{{ versionCountLabel }}</span>
-      </button>
-      <button
-        type="submit"
-        aria-label="Send message"
-        data-testid="ai-chat-send"
-        :disabled="!canSubmit"
-      >
-        Send
-      </button>
+      <div class="ai-chat-composer-field">
+        <textarea
+          ref="input"
+          v-model="prompt"
+          rows="2"
+          placeholder="Describe the diagram change…"
+          aria-label="AI change request"
+          data-testid="ai-chat-input"
+          :disabled="isRestoringVersion"
+          @input="markPromptTyped"
+          @keydown.enter.exact.prevent="submitPrompt()"
+        />
+        <div class="ai-chat-composer-hint" aria-hidden="true">
+          <span>Enter to send</span>
+          <span>Shift + Enter for a new line</span>
+        </div>
+      </div>
+      <div class="ai-chat-composer-actions">
+        <button
+          type="button"
+          class="ai-chat-history-trigger"
+          aria-label="Open diagram versions"
+          data-testid="ai-chat-history-trigger"
+          :aria-expanded="historyOpen"
+          :disabled="!activeDiagramId"
+          @click="openHistory"
+        >
+          <ClockIcon aria-hidden="true" />
+          <span>Versions</span>
+          <span class="ai-chat-count">{{ versionCountLabel }}</span>
+        </button>
+        <button
+          type="submit"
+          class="ai-chat-send-button"
+          aria-label="Send message"
+          data-testid="ai-chat-send"
+          :disabled="!canSubmit"
+        >
+          <PaperAirplaneIcon aria-hidden="true" />
+          Send
+        </button>
+      </div>
     </form>
   </aside>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import {
+  ArrowLeftIcon,
+  ArrowPathIcon,
+  ArrowRightIcon,
+  ArrowUturnLeftIcon,
+  ArrowsPointingOutIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  ClockIcon,
+  CodeBracketIcon,
+  ExclamationTriangleIcon,
+  PaperAirplaneIcon,
+  SparklesIcon,
+  XMarkIcon,
+} from '@heroicons/vue/24/outline'
 import {
   AI_CHAT_SUGGESTIONS,
   buildDiffLines,
@@ -307,7 +391,9 @@ import {
   type AIChatVersion,
 } from './aiChatPrototype'
 import {
+  getAIChatFailureTelemetry,
   runAIChatSession,
+  type AIChatFailurePhase,
   type AIChatSessionStage,
 } from '@/services/AIChatSessionService'
 import {
@@ -383,6 +469,12 @@ let versionsRequestSequence = 0
 let restoreRequestSequence = 0
 let versionLoadPromise: Promise<void> | null = null
 let messageSequence = 0
+let activeRequestStartedAt = 0
+let activeRequestKind: AIChatChangeKind | null = null
+let restoreStartedAt = 0
+let pendingInputSource: 'typed' | 'suggestion' = 'typed'
+let lastPromptFailed = false
+let trackedSyntaxIssue = ''
 
 const isBusy = computed(() => isThinking.value || isRestoringVersion.value)
 const canSubmit = computed(() => prompt.value.trim().length > 0 && !isBusy.value)
@@ -430,6 +522,17 @@ function analyticsBase() {
     surface: 'editor' as const,
     macro_type: macroType.value,
   }
+}
+
+function durationSince(startedAt: number): number {
+  return Math.max(0, Date.now() - startedAt)
+}
+
+function failurePhaseForStage(stage: AIChatSessionStage | null): AIChatFailurePhase {
+  if (stage === 'ensuring') return 'ensure'
+  if (stage === 'syncing') return 'sync'
+  if (stage === 'queued' || stage === 'processing' || stage === 'generating') return 'poll'
+  return 'start'
 }
 
 function cloneMessage(message: AIChatMessage): AIChatMessage {
@@ -483,6 +586,7 @@ function upsertVersion(version: AIChatVersion): void {
 async function loadPersistedVersions(
   diagramId = activeDiagramId.value,
   force = false,
+  isRetry = false,
 ): Promise<void> {
   if (!diagramId) {
     versions.value = []
@@ -500,6 +604,7 @@ async function loadPersistedVersions(
   }
 
   const requestId = ++versionsRequestSequence
+  const startedAt = Date.now()
   versionsDiagramId.value = diagramId
   versionsStatus.value = 'loading'
   const request = (async () => {
@@ -515,9 +620,24 @@ async function loadPersistedVersions(
         || versions.value[versions.value.length - 1]?.id
         || ''
       versionsStatus.value = 'loaded'
+      trackAnalyticsEvent('ai_chat_history_load_succeeded', {
+        ...analyticsBase(),
+        duration_ms: durationSince(startedAt),
+        version_count: versions.value.length,
+        is_retry: isRetry,
+        ui_component: 'version_history',
+      })
     } catch {
       if (requestId === versionsRequestSequence && activeDiagramId.value === diagramId) {
         versionsStatus.value = 'failed'
+        trackAnalyticsEvent('ai_chat_history_load_failed', {
+          ...analyticsBase(),
+          failure_phase: 'history_load',
+          failure_reason: 'history_request_failed',
+          duration_ms: durationSince(startedAt),
+          is_retry: isRetry,
+          ui_component: 'version_history',
+        })
       }
     }
   })()
@@ -528,16 +648,21 @@ async function loadPersistedVersions(
 }
 
 function retryLoadVersions(): void {
-  void loadPersistedVersions(activeDiagramId.value, true)
+  void loadPersistedVersions(activeDiagramId.value, true, true)
 }
 
 function selectSuggestion(suggestion: AIChatSuggestion): void {
   prompt.value = suggestion.label
+  pendingInputSource = 'suggestion'
   trackAnalyticsEvent('ai_chat_suggestion_selected', {
     ...analyticsBase(),
     suggestion_id: suggestion.id,
   })
   nextTick(() => input.value?.focus())
+}
+
+function markPromptTyped(): void {
+  pendingInputSource = 'typed'
 }
 
 function stageClass(index: number): string {
@@ -603,7 +728,31 @@ function closeHistory(): void {
   historyOpen.value = false
 }
 
-function cancelActiveRequest(): void {
+function cancelActiveRequest(
+  cancelReason: 'panel_closed' | 'component_unmounted' = 'component_unmounted',
+): void {
+  if (activeController && !activeController.signal.aborted) {
+    trackAnalyticsEvent('ai_chat_prompt_cancelled', {
+      ...analyticsBase(),
+      failure_phase: failurePhaseForStage(activeStage.value),
+      failure_reason: 'user_cancelled',
+      cancel_reason: cancelReason,
+      duration_ms: activeRequestStartedAt ? durationSince(activeRequestStartedAt) : 0,
+      chat_message_count: messages.value.length,
+      change_kind: activeRequestKind || 'request',
+    })
+  }
+  if (isRestoringVersion.value && restoringVersionId.value) {
+    trackAnalyticsEvent('ai_chat_version_restore_failed', {
+      ...analyticsBase(),
+      failure_phase: 'version_restore',
+      failure_reason: 'cancelled',
+      cancel_reason: cancelReason,
+      duration_ms: restoreStartedAt ? durationSince(restoreStartedAt) : 0,
+      change_kind: restoringAction.value || 'rollback',
+      version_id: restoringVersionId.value,
+    })
+  }
   activeController?.abort()
   activeController = null
   restoreRequestSequence += 1
@@ -612,10 +761,13 @@ function cancelActiveRequest(): void {
   restoringVersionId.value = ''
   restoringAction.value = null
   activeStage.value = null
+  activeRequestStartedAt = 0
+  activeRequestKind = null
+  restoreStartedAt = 0
 }
 
 function closePanel(): void {
-  cancelActiveRequest()
+  cancelActiveRequest('panel_closed')
   closeExpandedDiff()
   closeHistory()
   emit('close')
@@ -661,17 +813,26 @@ async function submitPrompt(
   if (!text || isBusy.value) return false
 
   const previousCode = activeCode.value
+  const startedAt = Date.now()
+  const inputSource = kind === 'syntax_repair' ? 'syntax_repair' : pendingInputSource
+  const retryAfterFailure = lastPromptFailed
   const controller = new AbortController()
   activeController = controller
+  activeRequestStartedAt = startedAt
+  activeRequestKind = kind
   isThinking.value = true
   activeStage.value = activeDiagramId.value ? 'queued' : 'ensuring'
   messages.value.push({ id: nextMessageId('user'), role: 'user', text })
   prompt.value = ''
+  pendingInputSource = 'typed'
   trackAnalyticsEvent('ai_chat_prompt_submitted', {
     ...analyticsBase(),
     generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',
     prompt_length: text.length,
     chat_message_count: messages.value.length,
+    turn_index: messages.value.filter((message) => message.role === 'user').length,
+    input_source: inputSource,
+    retry_after_failure: retryAfterFailure,
     change_kind: kind,
   })
   emit('send', text)
@@ -737,11 +898,17 @@ async function submitPrompt(
     }
     messages.value.push(message)
     if (kind === 'syntax_repair') syntaxResolved.value = true
+    lastPromptFailed = false
     trackAnalyticsEvent('ai_chat_change_applied', {
       ...analyticsBase(),
       chat_message_count: messages.value.length,
       change_kind: kind,
       version_id: result.versionId,
+      version_number: result.versionNumber,
+      duration_ms: durationSince(startedAt),
+      poll_count: result.pollCount || 0,
+      lines_added: preview.diffLines.filter((line) => line.type === 'add').length,
+      lines_removed: preview.diffLines.filter((line) => line.type === 'remove').length,
     })
     emit('apply-code', result.updatedCode)
     emit('apply', message)
@@ -751,6 +918,18 @@ async function submitPrompt(
       return false
     }
 
+    const failure = getAIChatFailureTelemetry(error)
+    lastPromptFailed = true
+    trackAnalyticsEvent('ai_chat_prompt_failed', {
+      ...analyticsBase(),
+      failure_phase: failure.failurePhase,
+      failure_reason: failure.failureReason,
+      duration_ms: durationSince(startedAt),
+      poll_count: failure.pollCount,
+      chat_message_count: messages.value.length,
+      change_kind: kind,
+      generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',
+    })
     const detail = error instanceof Error ? error.message : 'Unknown error'
     messages.value.push({
       id: nextMessageId('assistant'),
@@ -763,6 +942,8 @@ async function submitPrompt(
       activeController = null
       isThinking.value = false
       activeStage.value = null
+      activeRequestStartedAt = 0
+      activeRequestKind = null
     }
   }
 }
@@ -792,6 +973,12 @@ async function restoreTargetVersion(
   isRestoringVersion.value = true
   restoringVersionId.value = targetVersionId
   restoringAction.value = kind
+  restoreStartedAt = Date.now()
+  trackAnalyticsEvent('ai_chat_version_restore_requested', {
+    ...analyticsBase(),
+    change_kind: kind,
+    version_id: targetVersionId,
+  })
 
   try {
     const result = await restoreDiagramlyVersion(activeDiagramId.value, targetVersionId)
@@ -830,6 +1017,8 @@ async function restoreTargetVersion(
         ...analyticsBase(),
         change_kind: kind,
         version_id: targetVersionId,
+        version_number: restoredVersion.versionNumber,
+        duration_ms: durationSince(restoreStartedAt),
       },
     )
     emit('apply-code', restoredCode)
@@ -837,6 +1026,17 @@ async function restoreTargetVersion(
     return true
   } catch (error) {
     if (requestId !== restoreRequestSequence) return false
+    trackAnalyticsEvent('ai_chat_version_restore_failed', {
+      ...analyticsBase(),
+      failure_phase: 'version_restore',
+      failure_reason: error instanceof Error
+        && error.message === 'Diagramly restored a version without diagram code'
+        ? 'restored_code_missing'
+        : 'restore_request_failed',
+      duration_ms: durationSince(restoreStartedAt),
+      change_kind: kind,
+      version_id: targetVersionId,
+    })
     const detail = error instanceof Error ? error.message : 'Unknown error'
     messages.value.push({
       id: nextMessageId('assistant'),
@@ -849,6 +1049,7 @@ async function restoreTargetVersion(
       isRestoringVersion.value = false
       restoringVersionId.value = ''
       restoringAction.value = null
+      restoreStartedAt = 0
     }
   }
 }
@@ -886,6 +1087,24 @@ watch(
 )
 
 watch(
+  [() => props.open, visibleSyntaxError, () => props.syntaxError],
+  ([open, visible, syntaxError]) => {
+    if (!open || !visible || !syntaxError) {
+      trackedSyntaxIssue = ''
+      return
+    }
+    if (trackedSyntaxIssue === syntaxError) return
+    trackedSyntaxIssue = syntaxError
+    trackAnalyticsEvent('ai_chat_syntax_issue_shown', {
+      ...analyticsBase(),
+      error_category: 'syntax_error',
+      ui_component: 'syntax_issue_banner',
+    })
+  },
+  { immediate: true },
+)
+
+watch(
   [() => props.syntaxRepairRequestId, () => props.open, isBusy],
   ([requestId, open, busy]) => {
     if (
@@ -908,7 +1127,7 @@ watch(
   () => props.open,
   (open) => {
     if (!open) {
-      cancelActiveRequest()
+      cancelActiveRequest('panel_closed')
       closeExpandedDiff()
       closeHistory()
       return
@@ -921,7 +1140,7 @@ watch(
 
 onBeforeUnmount(() => {
   versionsRequestSequence += 1
-  cancelActiveRequest()
+  cancelActiveRequest('component_unmounted')
 })
 </script>
 

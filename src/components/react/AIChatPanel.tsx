@@ -18,7 +18,9 @@ import {
   type AIChatVersion,
 } from "@/components/AIChat/aiChatPrototype";
 import {
+  getAIChatFailureTelemetry,
   runAIChatSession,
+  type AIChatFailurePhase,
   type AIChatSessionStage,
 } from "@/services/AIChatSessionService";
 import {
@@ -57,6 +59,58 @@ const stages: Array<{ key: AIChatSessionStage; label: string }> = [
   { key: "generating", label: "Generating code" },
   { key: "syncing", label: "Syncing changes" },
 ];
+
+type AIChatIconName =
+  | "arrow"
+  | "back"
+  | "check"
+  | "chevron-down"
+  | "chevron-up"
+  | "clock"
+  | "close"
+  | "code"
+  | "expand"
+  | "send"
+  | "sparkles"
+  | "spinner"
+  | "undo"
+  | "warning";
+
+const iconPaths: Record<AIChatIconName, string[]> = {
+  arrow: ["M5 12h14", "m13-6 6 6-6 6"],
+  back: ["M19 12H5", "m11 18-6-6 6-6"],
+  check: ["m5 12 4 4L19 6"],
+  "chevron-down": ["m6 9 6 6 6-6"],
+  "chevron-up": ["m6 15 6-6 6 6"],
+  clock: ["M12 6v6l4 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"],
+  close: ["M6 6l12 12", "M18 6 6 18"],
+  code: ["m8 8-4 4 4 4", "m8-8 4 4-4 4", "m14 4-4 16"],
+  expand: ["M8 3H3v5", "m3 3 6 6", "M16 21h5v-5", "m-3-3 6 6"],
+  send: ["m4 4 16 8-16 8 3-8-3-8Z", "M7 12h13"],
+  sparkles: [
+    "m9 3 1.2 3.3L13.5 7.5l-3.3 1.2L9 12 7.8 8.7 4.5 7.5l3.3-1.2L9 3Z",
+    "m17 12 .8 2.2L20 15l-2.2.8L17 18l-.8-2.2L14 15l2.2-.8L17 12Z",
+  ],
+  spinner: ["M20 12a8 8 0 1 1-2.3-5.7"],
+  undo: ["M9 8 5 12l4 4", "M5 12h8a6 6 0 0 1 6 6"],
+  warning: ["M12 9v4", "M12 17h.01", "M10.3 4.6 2.5 18a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0Z"],
+};
+
+function AIChatIcon({ name, className }: { name: AIChatIconName; className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {iconPaths[name].map((path) => <path key={path} d={path} />)}
+    </svg>
+  );
+}
 
 function cloneMessage(message: AIChatMessage): AIChatMessage {
   return {
@@ -107,6 +161,9 @@ export default function AIChatPanel({
   const [syntaxResolved, setSyntaxResolved] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeControllerRef = useRef<AbortController | null>(null);
+  const activeStageRef = useRef<AIChatSessionStage | null>(null);
+  const activeRequestStartedAtRef = useRef(0);
+  const activeRequestKindRef = useRef<AIChatChangeKind | null>(null);
   const activeDiagramIdRef = useRef(diagramlyDiagramId.trim());
   const activeCodeRef = useRef(currentCode);
   const activeVersionIdRef = useRef("");
@@ -116,8 +173,15 @@ export default function AIChatPanel({
   const versionsRequestSequenceRef = useRef(0);
   const versionLoadPromiseRef = useRef<Promise<void> | null>(null);
   const restoreRequestSequenceRef = useRef(0);
+  const restoreStartedAtRef = useRef(0);
+  const restoringVersionIdRef = useRef("");
+  const restoringActionRef = useRef<"undo" | "rollback" | null>(null);
   const lastHandledSyntaxRepairRequestIdRef = useRef(0);
   const messageSequenceRef = useRef(0);
+  const messageCountRef = useRef(initialMessages.length);
+  const pendingInputSourceRef = useRef<"typed" | "suggestion">("typed");
+  const lastPromptFailedRef = useRef(false);
+  const lastTrackedSyntaxIssueRef = useRef("");
 
   const diagramTypeLabel = useMemo(() => {
     const labels: Record<string, string> = {
@@ -169,6 +233,24 @@ export default function AIChatPanel({
     };
   }
 
+  function durationSince(startedAt: number): number {
+    return Math.max(0, Date.now() - startedAt);
+  }
+
+  function failurePhaseForStage(stage: AIChatSessionStage | null): AIChatFailurePhase {
+    if (stage === "ensuring") return "ensure";
+    if (stage === "syncing") return "sync";
+    if (stage === "queued" || stage === "processing" || stage === "generating") {
+      return "poll";
+    }
+    return "start";
+  }
+
+  function updateActiveStage(stage: AIChatSessionStage | null): void {
+    activeStageRef.current = stage;
+    setActiveStage(stage);
+  }
+
   function nextMessageId(role: AIChatMessage["role"]): string {
     messageSequenceRef.current += 1;
     return `${role}-${Date.now()}-${messageSequenceRef.current}`;
@@ -218,6 +300,7 @@ export default function AIChatPanel({
   async function loadPersistedVersions(
     diagramId = activeDiagramIdRef.current,
     force = false,
+    isRetry = false,
   ): Promise<void> {
     if (!diagramId) {
       replaceVersions([]);
@@ -235,6 +318,7 @@ export default function AIChatPanel({
     }
 
     const requestId = ++versionsRequestSequenceRef.current;
+    const startedAt = Date.now();
     versionsDiagramIdRef.current = diagramId;
     updateVersionsStatus("loading");
     const request = (async () => {
@@ -255,12 +339,27 @@ export default function AIChatPanel({
           || nextVersions[nextVersions.length - 1]?.id
           || "";
         updateVersionsStatus("loaded");
+        trackAnalyticsEvent("ai_chat_history_load_succeeded", {
+          ...analyticsBase(),
+          duration_ms: durationSince(startedAt),
+          version_count: nextVersions.length,
+          is_retry: isRetry,
+          ui_component: "version_history",
+        });
       } catch {
         if (
           requestId === versionsRequestSequenceRef.current
           && activeDiagramIdRef.current === diagramId
         ) {
           updateVersionsStatus("failed");
+          trackAnalyticsEvent("ai_chat_history_load_failed", {
+            ...analyticsBase(),
+            failure_phase: "history_load",
+            failure_reason: "history_request_failed",
+            duration_ms: durationSince(startedAt),
+            is_retry: isRetry,
+            ui_component: "version_history",
+          });
         }
       }
     })();
@@ -271,22 +370,59 @@ export default function AIChatPanel({
   }
 
   function retryLoadVersions(): void {
-    void loadPersistedVersions(activeDiagramIdRef.current, true);
+    void loadPersistedVersions(activeDiagramIdRef.current, true, true);
   }
 
-  function cancelActiveRequest(): void {
-    activeControllerRef.current?.abort();
+  function cancelActiveRequest(
+    cancelReason: "panel_closed" | "component_unmounted" = "component_unmounted",
+    resetUi = true,
+  ): void {
+    const controller = activeControllerRef.current;
+    if (controller && !controller.signal.aborted) {
+      trackAnalyticsEvent("ai_chat_prompt_cancelled", {
+        ...analyticsBase(),
+        failure_phase: failurePhaseForStage(activeStageRef.current),
+        failure_reason: "user_cancelled",
+        cancel_reason: cancelReason,
+        duration_ms: activeRequestStartedAtRef.current
+          ? durationSince(activeRequestStartedAtRef.current)
+          : 0,
+        chat_message_count: messageCountRef.current,
+        change_kind: activeRequestKindRef.current || "request",
+      });
+    }
+    if (restoreStartedAtRef.current && restoringVersionIdRef.current) {
+      trackAnalyticsEvent("ai_chat_version_restore_failed", {
+        ...analyticsBase(),
+        failure_phase: "version_restore",
+        failure_reason: "cancelled",
+        cancel_reason: cancelReason,
+        duration_ms: durationSince(restoreStartedAtRef.current),
+        change_kind: restoringActionRef.current || "rollback",
+        version_id: restoringVersionIdRef.current,
+      });
+    }
+    controller?.abort();
     activeControllerRef.current = null;
     restoreRequestSequenceRef.current += 1;
-    setIsThinking(false);
-    setIsRestoringVersion(false);
-    setRestoringVersionId("");
-    setRestoringAction(null);
-    setActiveStage(null);
+    activeStageRef.current = null;
+    activeRequestStartedAtRef.current = 0;
+    activeRequestKindRef.current = null;
+    restoreStartedAtRef.current = 0;
+    restoringVersionIdRef.current = "";
+    restoringActionRef.current = null;
+    if (resetUi) {
+      setIsThinking(false);
+      setIsRestoringVersion(false);
+      setRestoringVersionId("");
+      setRestoringAction(null);
+      setActiveStage(null);
+    }
   }
 
   function selectSuggestion(suggestion: AIChatSuggestion): void {
     setPrompt(suggestion.label);
+    pendingInputSourceRef.current = "suggestion";
     trackAnalyticsEvent("ai_chat_suggestion_selected", {
       ...analyticsBase(),
       suggestion_id: suggestion.id,
@@ -350,7 +486,7 @@ export default function AIChatPanel({
   }
 
   function handleClose(): void {
-    cancelActiveRequest();
+    cancelActiveRequest("panel_closed");
     closeExpandedDiff();
     closeHistory();
     onClose();
@@ -376,20 +512,32 @@ export default function AIChatPanel({
     if (!text || isBusy) return false;
 
     const previousCode = activeCodeRef.current;
+    const startedAt = Date.now();
+    const inputSource = kind === "syntax_repair"
+      ? "syntax_repair"
+      : pendingInputSourceRef.current;
+    const retryAfterFailure = lastPromptFailedRef.current;
     const controller = new AbortController();
     activeControllerRef.current = controller;
+    activeRequestStartedAtRef.current = startedAt;
+    activeRequestKindRef.current = kind;
     setIsThinking(true);
-    setActiveStage(activeDiagramIdRef.current ? "queued" : "ensuring");
+    updateActiveStage(activeDiagramIdRef.current ? "queued" : "ensuring");
+    messageCountRef.current = messages.length + 1;
     setMessages((current) => [
       ...current,
       { id: nextMessageId("user"), role: "user", text },
     ]);
     setPrompt("");
+    pendingInputSourceRef.current = "typed";
     trackAnalyticsEvent("ai_chat_prompt_submitted", {
       ...analyticsBase(),
       generation_source: kind === "syntax_repair" ? "syntax_repair" : "chat_panel",
       prompt_length: text.length,
       chat_message_count: messages.length + 1,
+      turn_index: messages.filter((message) => message.role === "user").length + 1,
+      input_source: inputSource,
+      retry_after_failure: retryAfterFailure,
       change_kind: kind,
     });
     onSend?.(text);
@@ -409,7 +557,7 @@ export default function AIChatPanel({
         ...(kind === "syntax_repair" ? { errorMessage: syntaxError } : {}),
         signal: controller.signal,
         onStage(stage) {
-          if (activeControllerRef.current === controller) setActiveStage(stage);
+          if (activeControllerRef.current === controller) updateActiveStage(stage);
         },
         async onDiagramBound(diagramId) {
           if (activeControllerRef.current !== controller) return;
@@ -454,12 +602,19 @@ export default function AIChatPanel({
       };
 
       setMessages((current) => [...current, message]);
+      messageCountRef.current += 1;
       if (kind === "syntax_repair") setSyntaxResolved(true);
+      lastPromptFailedRef.current = false;
       trackAnalyticsEvent("ai_chat_change_applied", {
         ...analyticsBase(),
         chat_message_count: messages.length + 2,
         change_kind: kind,
         version_id: result.versionId,
+        version_number: result.versionNumber,
+        duration_ms: durationSince(startedAt),
+        poll_count: result.pollCount || 0,
+        lines_added: preview.diffLines.filter((line) => line.type === "add").length,
+        lines_removed: preview.diffLines.filter((line) => line.type === "remove").length,
       });
       onApplyCode?.(result.updatedCode);
       onApply?.(message);
@@ -472,7 +627,20 @@ export default function AIChatPanel({
         return false;
       }
 
+      const failure = getAIChatFailureTelemetry(error);
+      lastPromptFailedRef.current = true;
+      trackAnalyticsEvent("ai_chat_prompt_failed", {
+        ...analyticsBase(),
+        failure_phase: failure.failurePhase,
+        failure_reason: failure.failureReason,
+        duration_ms: durationSince(startedAt),
+        poll_count: failure.pollCount,
+        chat_message_count: messageCountRef.current,
+        change_kind: kind,
+        generation_source: kind === "syntax_repair" ? "syntax_repair" : "chat_panel",
+      });
       const detail = error instanceof Error ? error.message : "Unknown error";
+      messageCountRef.current += 1;
       setMessages((current) => [
         ...current,
         {
@@ -486,7 +654,9 @@ export default function AIChatPanel({
       if (activeControllerRef.current === controller) {
         activeControllerRef.current = null;
         setIsThinking(false);
-        setActiveStage(null);
+        updateActiveStage(null);
+        activeRequestStartedAtRef.current = 0;
+        activeRequestKindRef.current = null;
       }
     }
   }
@@ -524,6 +694,14 @@ export default function AIChatPanel({
     setIsRestoringVersion(true);
     setRestoringVersionId(targetVersionId);
     setRestoringAction(kind);
+    restoreStartedAtRef.current = Date.now();
+    restoringVersionIdRef.current = targetVersionId;
+    restoringActionRef.current = kind;
+    trackAnalyticsEvent("ai_chat_version_restore_requested", {
+      ...analyticsBase(),
+      change_kind: kind,
+      version_id: targetVersionId,
+    });
 
     try {
       const result = await restoreDiagramlyVersion(
@@ -560,6 +738,7 @@ export default function AIChatPanel({
       };
 
       setMessages((current) => [...current, message]);
+      messageCountRef.current += 1;
       setHistoryOpen(false);
       trackAnalyticsEvent(
         kind === "undo" ? "ai_chat_change_undone" : "ai_chat_version_restored",
@@ -567,6 +746,8 @@ export default function AIChatPanel({
           ...analyticsBase(),
           change_kind: kind,
           version_id: targetVersionId,
+          version_number: restoredVersion.versionNumber,
+          duration_ms: durationSince(restoreStartedAtRef.current),
         },
       );
       onApplyCode?.(restoredCode);
@@ -574,7 +755,19 @@ export default function AIChatPanel({
       return true;
     } catch (error) {
       if (requestId !== restoreRequestSequenceRef.current) return false;
+      trackAnalyticsEvent("ai_chat_version_restore_failed", {
+        ...analyticsBase(),
+        failure_phase: "version_restore",
+        failure_reason: error instanceof Error
+          && error.message === "Diagramly restored a version without diagram code"
+          ? "restored_code_missing"
+          : "restore_request_failed",
+        duration_ms: durationSince(restoreStartedAtRef.current),
+        change_kind: kind,
+        version_id: targetVersionId,
+      });
       const detail = error instanceof Error ? error.message : "Unknown error";
+      messageCountRef.current += 1;
       setMessages((current) => [
         ...current,
         {
@@ -589,6 +782,9 @@ export default function AIChatPanel({
         setIsRestoringVersion(false);
         setRestoringVersionId("");
         setRestoringAction(null);
+        restoreStartedAtRef.current = 0;
+        restoringVersionIdRef.current = "";
+        restoringActionRef.current = null;
       }
     }
   }
@@ -650,6 +846,20 @@ export default function AIChatPanel({
   }, [syntaxError]);
 
   useEffect(() => {
+    if (!open || !visibleSyntaxError || !syntaxError) {
+      lastTrackedSyntaxIssueRef.current = "";
+      return;
+    }
+    if (lastTrackedSyntaxIssueRef.current === syntaxError) return;
+    lastTrackedSyntaxIssueRef.current = syntaxError;
+    trackAnalyticsEvent("ai_chat_syntax_issue_shown", {
+      ...analyticsBase(),
+      error_category: "syntax_error",
+      ui_component: "syntax_issue_banner",
+    });
+  }, [open, syntaxError, visibleSyntaxError]);
+
+  useEffect(() => {
     if (
       !open
       || !syntaxRepairRequestId
@@ -666,16 +876,15 @@ export default function AIChatPanel({
 
   useEffect(() => {
     if (!open) {
-      cancelActiveRequest();
+      cancelActiveRequest("panel_closed");
       closeExpandedDiff();
       closeHistory();
     }
   }, [open]);
 
   useEffect(() => () => {
-    activeControllerRef.current?.abort();
+    cancelActiveRequest("component_unmounted", false);
     versionsRequestSequenceRef.current += 1;
-    restoreRequestSequenceRef.current += 1;
   }, []);
 
   if (!open) return null;
@@ -689,13 +898,23 @@ export default function AIChatPanel({
     >
       <header className="ai-chat-header">
         <div className="ai-chat-head-row">
-          <strong>AI Chat</strong>
+          <div className="ai-chat-title">
+            <span className="ai-chat-title-icon" aria-hidden="true">
+              <AIChatIcon name="sparkles" />
+            </span>
+            <span>
+              <strong>AI chat</strong>
+              <small>{diagramTypeLabel} assistant</small>
+            </span>
+          </div>
           <div className="ai-chat-head-actions">
             {onToggleCode && (
               <button
                 type="button"
+                className="ai-chat-code-button"
                 aria-label={codeVisible ? "Hide code editor" : "Show code editor"}
                 aria-pressed={codeVisible}
+                title={codeVisible ? "Hide code editor" : "Show code editor"}
                 data-testid="react-ai-chat-code-toggle"
                 onClick={() => {
                   trackAnalyticsEvent("ai_chat_code_visibility_toggled", {
@@ -705,16 +924,19 @@ export default function AIChatPanel({
                   onToggleCode();
                 }}
               >
-                {codeVisible ? "Hide code" : "Show code"}
+                <AIChatIcon name="code" />
+                <span>{codeVisible ? "Hide code" : "Show code"}</span>
               </button>
             )}
             <button
               type="button"
+              className="ai-chat-icon-button"
               aria-label="Close AI chat"
+              title="Close AI chat"
               data-testid="react-ai-chat-close"
               onClick={handleClose}
             >
-              Close
+              <AIChatIcon name="close" />
             </button>
           </div>
         </div>
@@ -725,7 +947,13 @@ export default function AIChatPanel({
             role="status"
             data-testid="react-ai-chat-syntax-issue"
           >
-            <span>{syntaxErrorSummary}</span>
+            <div className="ai-chat-syntax-message">
+              <AIChatIcon name="warning" />
+              <span>
+                <strong>Syntax issue</strong>
+                <span>{syntaxErrorSummary}</span>
+              </span>
+            </div>
             <button
               type="button"
               data-testid="react-ai-chat-auto-fix"
@@ -741,8 +969,16 @@ export default function AIChatPanel({
       <main className="ai-chat-content">
         {messages.length === 0 && !isThinking ? (
           <section className="ai-chat-empty" data-testid="react-ai-chat-empty-state">
-            <h3>What should change?</h3>
-            <p>Suggested edits</p>
+            <div className="ai-chat-empty-intro">
+              <span className="ai-chat-empty-icon" aria-hidden="true">
+                <AIChatIcon name="sparkles" />
+              </span>
+              <div>
+                <h3>What would you like to change?</h3>
+                <p>Describe an edit or start with a suggestion.</p>
+              </div>
+            </div>
+            <p className="ai-chat-section-label">Suggested edits</p>
             {AI_CHAT_SUGGESTIONS.map((suggestion) => (
               <button
                 key={suggestion.id}
@@ -752,8 +988,11 @@ export default function AIChatPanel({
                 title={suggestion.description}
                 onClick={() => selectSuggestion(suggestion)}
               >
-                <strong>{suggestion.label}</strong>
-                <span>{suggestion.description}</span>
+                <span className="ai-chat-quick-copy">
+                  <strong>{suggestion.label}</strong>
+                  <span>{suggestion.description}</span>
+                </span>
+                <AIChatIcon name="arrow" />
               </button>
             ))}
           </section>
@@ -769,7 +1008,10 @@ export default function AIChatPanel({
                 {message.preview && (
                   <div className="ai-chat-preview" data-testid="react-ai-change-preview">
                     <div className="ai-chat-preview-header">
-                      <strong>{message.preview.title}</strong>
+                      <span className="ai-chat-preview-title">
+                        <span aria-hidden="true"><AIChatIcon name="check" /></span>
+                        <strong>{message.preview.title}</strong>
+                      </span>
                       {message.preview.previousVersionId && (
                         <button
                           type="button"
@@ -777,7 +1019,8 @@ export default function AIChatPanel({
                           disabled={isBusy}
                           onClick={() => void undoPreview(message.preview!)}
                         >
-                          {restoringAction === "undo" ? "Undoing..." : "Undo"}
+                          <AIChatIcon name="undo" />
+                          {restoringAction === "undo" ? "Undoing…" : "Undo"}
                         </button>
                       )}
                     </div>
@@ -790,7 +1033,8 @@ export default function AIChatPanel({
                       aria-expanded={isDiffOpen(message.id)}
                       onClick={() => toggleDiff(message.id)}
                     >
-                      {isDiffOpen(message.id) ? "Hide code diff" : "View code diff"}
+                      <span>{isDiffOpen(message.id) ? "Hide code diff" : "View code diff"}</span>
+                      <AIChatIcon name={isDiffOpen(message.id) ? "chevron-up" : "chevron-down"} />
                     </button>
                     {isDiffOpen(message.id) && (
                       <div className="ai-chat-diff" data-testid="react-ai-chat-diff">
@@ -805,6 +1049,7 @@ export default function AIChatPanel({
                             data-testid="react-ai-chat-diff-expand"
                             onClick={() => openExpandedDiff(message.id)}
                           >
+                            <AIChatIcon name="expand" />
                             Expand
                           </button>
                         </div>
@@ -848,7 +1093,15 @@ export default function AIChatPanel({
                               : "is-pending"
                         }
                       >
-                        <span aria-hidden="true">{index + 1}</span>
+                        <span className="ai-chat-stage-marker" aria-hidden="true">
+                          {index < activeStageIndex ? (
+                            <AIChatIcon name="check" />
+                          ) : index === activeStageIndex ? (
+                            <AIChatIcon name="spinner" className="ai-chat-spin" />
+                          ) : (
+                            <span>{index + 1}</span>
+                          )}
+                        </span>
                         <strong>{stage.label}</strong>
                       </li>
                     ))}
@@ -883,7 +1136,7 @@ export default function AIChatPanel({
                 data-testid="react-ai-chat-diff-fullscreen-close"
                 onClick={closeExpandedDiff}
               >
-                Close
+                <AIChatIcon name="close" />
               </button>
             </header>
             <div className="ai-chat-diff-code">
@@ -911,10 +1164,21 @@ export default function AIChatPanel({
           data-testid="react-ai-chat-history-panel"
         >
           <header>
-            <h3>Diagram versions</h3>
-            <button type="button" aria-label="Close diagram versions" onClick={closeHistory}>
-              Close
+            <button
+              type="button"
+              className="ai-chat-history-back"
+              aria-label="Back to AI chat"
+              title="Back to AI chat"
+              onClick={closeHistory}
+            >
+              <AIChatIcon name="back" />
             </button>
+            <div className="ai-chat-history-title">
+              <span>
+                <h3>Diagram versions</h3>
+                <p>Review or restore a saved change.</p>
+              </span>
+            </div>
           </header>
           {versionsStatus === "loading" ? (
             <div role="status" data-testid="react-ai-chat-history-loading">
@@ -970,35 +1234,51 @@ export default function AIChatPanel({
       )}
 
       <form className="ai-chat-composer" onSubmit={submitForm}>
-        <textarea
-          ref={inputRef}
-          value={prompt}
-          rows={2}
-          placeholder="Describe the API definition change..."
-          aria-label="AI change request"
-          data-testid="react-ai-chat-input"
-          disabled={isRestoringVersion}
-          onChange={(event) => setPrompt(event.target.value)}
-          onKeyDown={handleInputKeyDown}
-        />
-        <button
-          type="button"
-          aria-label="Open diagram versions"
-          data-testid="react-ai-chat-history-trigger"
-          aria-expanded={historyOpen}
-          disabled={!activeDiagramIdRef.current}
-          onClick={openHistory}
-        >
-          Diagram versions <span>{versionCountLabel}</span>
-        </button>
-        <button
-          type="submit"
-          aria-label="Send message"
-          data-testid="react-ai-chat-send"
-          disabled={!canSubmit}
-        >
-          Send
-        </button>
+        <div className="ai-chat-composer-field">
+          <textarea
+            ref={inputRef}
+            value={prompt}
+            rows={2}
+            placeholder="Describe the API definition change…"
+            aria-label="AI change request"
+            data-testid="react-ai-chat-input"
+            disabled={isRestoringVersion}
+            onChange={(event) => {
+              pendingInputSourceRef.current = "typed";
+              setPrompt(event.target.value);
+            }}
+            onKeyDown={handleInputKeyDown}
+          />
+          <div className="ai-chat-composer-hint" aria-hidden="true">
+            <span>Enter to send</span>
+            <span>Shift + Enter for a new line</span>
+          </div>
+        </div>
+        <div className="ai-chat-composer-actions">
+          <button
+            type="button"
+            className="ai-chat-history-trigger"
+            aria-label="Open diagram versions"
+            data-testid="react-ai-chat-history-trigger"
+            aria-expanded={historyOpen}
+            disabled={!activeDiagramIdRef.current}
+            onClick={openHistory}
+          >
+            <AIChatIcon name="clock" />
+            <span>Versions</span>
+            <span className="ai-chat-count">{versionCountLabel}</span>
+          </button>
+          <button
+            type="submit"
+            className="ai-chat-send-button"
+            aria-label="Send message"
+            data-testid="react-ai-chat-send"
+            disabled={!canSubmit}
+          >
+            <AIChatIcon name="send" />
+            Send
+          </button>
+        </div>
       </form>
     </aside>
   );

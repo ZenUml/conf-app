@@ -579,7 +579,7 @@ export type AnalyticsEventName =
   // text, page id, or tenant vocabulary on any of these.
   | "related_diagrams_lookup_succeeded"
   | "related_diagrams_lookup_failed"
-  | "related_diagrams_shown"
+  | "related_token_indicators_shown"
   | "related_diagram_popover_opened"
   | "related_diagram_link_clicked"
   // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG

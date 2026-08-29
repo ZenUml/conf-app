@@ -360,7 +360,7 @@ async function load() {
   })
 
   if (!withRelated.value.length) return
-  trackAnalyticsEvent('related_diagrams_shown', {
+  trackAnalyticsEvent('related_token_indicators_shown', {
     ...baseProperties(),
     ...countProperties(),
   })

@@ -12,6 +12,7 @@ jobs:
 #    environment:  # It will wait for approval if we add an environment
 #      name: staging
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
       FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
@@ -305,6 +306,7 @@ jobs:
   deploy-cron-worker:
     name: Deploy Cron Worker to Production
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
         with:

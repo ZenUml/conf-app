@@ -34,6 +34,7 @@ jobs:
   deploy:
     name: 'Deploy: whimet4'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # whimet4-specific Forge credentials, falling back to the shared CI ones.
       # The shared principal (support@zenuml.com) is not a site admin of

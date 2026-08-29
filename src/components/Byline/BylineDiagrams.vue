@@ -244,6 +244,28 @@
          where the plus says *create*. The heading is a 13px semibold dark
          "Add a diagram", not a 12px grey caption that read as metadata about
          the list above. -->
+    <!-- Lite macro-limit warning. Placed AFTER the whole v-if/v-else-if chain
+         for the same reason the add-another strip is (see the comment above):
+         a v-if wedged between two branches re-parents everything after it.
+         One notice covers the empty, failed and list states rather than three
+         copies inside them.
+
+         Suppressed once a diagram has been created or is unresolved: the panel
+         is then about placing what was saved, and a limit warning there is
+         answering a question the user has already stopped asking.
+
+         It warns; it does not block. Every tile below still opens the editor,
+         whose own gate carries the "Continue editing" allowance — see
+         checkCreateLimit. -->
+    <div
+      v-if="createLimitReached && !createdLink && !createUnresolved"
+      class="limitnote"
+      data-testid="byline-limit-notice"
+    >
+      <div class="limitnote__title">This space has reached the free diagram limit</div>
+      <div class="limitnote__sub">You can still start one — you'll be asked to upgrade when you save.</div>
+    </div>
+
     <div v-if="showAddAnother" class="addrow" data-testid="byline-type-strip">
       <div class="addrow__label">Add a diagram</div>
       <div class="chips">
@@ -353,6 +375,8 @@ import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnail
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
+import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
+import { isPageEditorCreateBlocked } from '@/utils/paywall/preEditGate'
 
 /** Drives nothing in the template any more — the picker renders immediately
  *  rather than behind a skeleton (see the empty-state comment) — but the list
@@ -576,6 +600,43 @@ let acted = false
 let pageId = ''
 
 /**
+ * A create is in flight and has produced no terminal event yet.
+ *
+ * Set when the editor modal is opened and cleared by whichever of
+ * byline_diagram_created / byline_create_cancelled / byline_create_unresolved
+ * fires for it. Two things depend on it:
+ *
+ *  - `trackCreateOutcome` uses it to emit EXACTLY ONE outcome per attempt. The
+ *    try block in afterEditorClosed wraps the success path too, so a throw from
+ *    the trailing copy/thumbnail work lands in the same catch that reports an
+ *    unresolved create — without this guard that would report a second outcome
+ *    for a create already counted as saved.
+ *  - teardown reports `editor_never_closed` when it is still set, which is the
+ *    only signal we get when the modal's onClose never runs.
+ *
+ * Re-armed by onRetryCreate, because a retry is a fresh resolution attempt and
+ * must be allowed to report its own outcome (`is_retry` marks it).
+ */
+let createOutcomePending = false
+
+/** True once the limit pre-check has resolved and found the space blocked.
+ *  `undefined` while the check is still in flight — see create_limit_reached. */
+const createLimitReached = ref<boolean | undefined>(undefined)
+
+/**
+ * Emit the one terminal event for the create attempt in flight, or nothing if
+ * that attempt has already reported. See `createOutcomePending`.
+ */
+function trackCreateOutcome(
+  name: 'byline_diagram_created' | 'byline_create_cancelled' | 'byline_create_unresolved',
+  props: Record<string, unknown>,
+) {
+  if (!createOutcomePending) return
+  createOutcomePending = false
+  trackAnalyticsEvent(name, props)
+}
+
+/**
  * Whether the host page is already in the editor. Read once at mount: the
  * byline iframe is booted by Confluence per host render, so it cannot outlive a
  * view↔edit transition, and re-reading it per event would only add noise.
@@ -675,6 +736,49 @@ async function loadDiagrams() {
     }
     void loadThumbnails()
     reportPlacement()
+    void checkCreateLimit()
+  }
+}
+
+/**
+ * Resolve whether a create started from here would meet the Lite paywall.
+ *
+ * Runs in the same after-the-list-paints slot as the thumbnail and placement
+ * scans, and for the same reason: `initialize()` is a set of network reads, and
+ * byline_opened is the Phase 1 readout — it must never wait on them. The notice
+ * appears when the check lands, which is why `create_limit_reached` is
+ * `undefined` rather than `false` on a click that beats it.
+ *
+ * Uses the SAME predicate as the editor's own gate (`shouldBlockActions` via
+ * isPageEditorCreateBlocked), so the two can never disagree about whether this
+ * space is over the limit. `shouldBlockActions` already returns false on Full
+ * and Diagramly, so no variant check is needed here.
+ *
+ * Deliberately does NOT block: see the byline_create_limit_warned catalog entry.
+ * The editor's gate carries the "Continue editing (N)" allowance, and 6 of the
+ * 27 byline creates blocked over 2026-08-21..27 used it. Reading the remaining
+ * balance here would also mean calling getOrCreateContinueAttempts, which
+ * CREATES the record as a side effect — stamping firstTriggeredAt for a user
+ * who never triggered the paywall. So the notice warns without a count.
+ */
+async function checkCreateLimit() {
+  try {
+    const customerSuccess = useCustomerSuccessService()
+    await customerSuccess.initialize()
+    const blocked = isPageEditorCreateBlocked(customerSuccess.shouldBlockActions.value)
+    createLimitReached.value = blocked
+    if (!blocked) return
+    trackAnalyticsEvent('byline_create_limit_warned', {
+      ...baseProps(),
+      create_limit_reached: true,
+      macro_count: customerSuccess.macrosCreated.value,
+      macro_count_source: customerSuccess.macroCountSource.value,
+    })
+  } catch (e) {
+    // A failed read must not invent a limit the user is not actually at. Leaving
+    // this undefined keeps the notice hidden and keeps create_limit_reached
+    // honest about not knowing.
+    console.warn('[byline] could not resolve the create limit', e)
   }
 }
 
@@ -694,6 +798,34 @@ function trackDismissed() {
 }
 
 /**
+ * Report a create that was still in flight when this iframe went away.
+ *
+ * The editor modal's `onClose` is the only thing that resolves a create, and it
+ * does not run if Confluence tears the byline down first (a host navigation, a
+ * closed tab, the view↔edit transition this iframe cannot outlive). Those
+ * creates emitted NOTHING before #572 and are the second arm of its 22.7%
+ * unattributed clicks.
+ *
+ * Separate from trackDismissed rather than folded into it, for two reasons:
+ * `acted` is already true by the time a create is in flight, so trackDismissed
+ * returns early; and these are different outcomes — "looked and left" is not
+ * "started a diagram and we lost the thread". Delivery is best-effort on the
+ * same reasoning as byline_dismissed above.
+ */
+function trackCreateAbandoned() {
+  trackCreateOutcome('byline_create_unresolved', {
+    ...baseProps(),
+    result: 'editor_never_closed',
+    dwell_ms: Date.now() - openedAt,
+  })
+}
+
+function trackTeardown() {
+  trackCreateAbandoned()
+  trackDismissed()
+}
+
+/**
  * The dismissal signal that actually fires in production. Closing the Forge
  * modal destroys this iframe without ever unmounting the Vue app, so
  * onBeforeUnmount alone NEVER runs outside unit tests (which call unmount()
@@ -705,14 +837,14 @@ function trackDismissed() {
  * on the app's CDN origin, so an event enqueued during teardown that misses
  * its network flush is sent by the next iframe boot from this origin.
  */
-window.addEventListener('pagehide', trackDismissed)
+window.addEventListener('pagehide', trackTeardown)
 
 onBeforeUnmount(() => {
   // Object URLs are never created (thumbnails are inlined as data: URLs), so
   // there is nothing to revoke here.
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
-  window.removeEventListener('pagehide', trackDismissed)
-  trackDismissed()
+  window.removeEventListener('pagehide', trackTeardown)
+  trackTeardown()
 })
 
 /**
@@ -898,9 +1030,20 @@ async function onCopyUrl(d: PageDiagram) {
  */
 async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
   acted = true
-  trackAnalyticsEvent('byline_create_clicked', { ...baseProps(), macro_type: macroType })
+  trackAnalyticsEvent('byline_create_clicked', {
+    ...baseProps(),
+    macro_type: macroType,
+    // Undefined when the pre-check has not resolved yet — it runs after the
+    // list paints and a fast click beats it. That is deliberately not `false`.
+    ...(createLimitReached.value === undefined
+      ? {}
+      : { create_limit_reached: createLimitReached.value }),
+  })
 
   const before = diagrams.value.map(d => d.id)
+  // Armed BEFORE the modal opens, not in onClose: the whole point is to report
+  // a create whose onClose never runs, which cannot arm anything itself.
+  createOutcomePending = true
   creating.value = true
   try {
     await openModal({
@@ -923,6 +1066,10 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
     })
   } catch (e) {
     creating.value = false
+    // The editor never opened, so there is no create to resolve. This event is
+    // this attempt's terminal outcome; disarm so teardown does not also report
+    // it as editor_never_closed.
+    createOutcomePending = false
     console.error('[byline] failed to open the editor', e)
     trackAnalyticsEvent('byline_editor_deeplinked', {
       ...baseProps(),
@@ -936,7 +1083,7 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
  * Re-read the page after the editor closes. A new id means the user saved;
  * no new id means they cancelled, and the modal simply returns to the list.
  */
-async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
+async function afterEditorClosed(before: string[], macroType: MacroTypeValue, isRetry = false) {
   try {
     const responses = await globals.apWrapper.listPageDiagramContents(pageId)
     const health = summarizeListing(responses)
@@ -951,11 +1098,12 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
       // Hold the list, say so, and offer a retry.
       pendingCreate = { before, macroType }
       createUnresolved.value = true
-      trackAnalyticsEvent('byline_diagram_created', {
+      trackCreateOutcome('byline_create_unresolved', {
         ...baseProps(),
         macro_type: macroType,
         ...health,
         result: 'listing_failed',
+        ...(isRetry ? { is_retry: true } : {}),
       })
       return
     }
@@ -970,11 +1118,12 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     if (!newId && health.failed_type_count > 0) {
       pendingCreate = { before, macroType }
       createUnresolved.value = true
-      trackAnalyticsEvent('byline_diagram_created', {
+      trackCreateOutcome('byline_create_unresolved', {
         ...baseProps(),
         macro_type: macroType,
         ...health,
         result: 'listing_partial',
+        ...(isRetry ? { is_retry: true } : {}),
       })
       return
     }
@@ -982,7 +1131,11 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     pendingCreate = null
     diagrams.value = after
     if (!newId) {
-      trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })
+      trackCreateOutcome('byline_create_cancelled', {
+        ...baseProps(),
+        macro_type: macroType,
+        ...(isRetry ? { is_retry: true } : {}),
+      })
       return
     }
     // Same accessor model/Attachment.ts uses — `globals` is the app singleton
@@ -998,10 +1151,11 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     // type-check .vue files, which is why the arity mismatch stayed green.)
     const created = after.find(d => d.id === newId)
     const link = buildDiagramDeeplink(toMacroType(created?.diagramType || ''), cloudId || '', newId)
-    trackAnalyticsEvent('byline_diagram_created', {
+    trackCreateOutcome('byline_diagram_created', {
       ...baseProps(),
       macro_type: macroType,
       custom_content_id: String(newId),
+      ...(isRetry ? { is_retry: true } : {}),
       // buildDiagramDeeplink returns undefined for a missing cloudId or a type
       // outside DEEPLINK_TYPES; every picker tile is in that set, so the second
       // case means the saved diagram's stored type was not what we asked for.
@@ -1030,6 +1184,18 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     console.error('[byline] failed to resolve the created diagram', e)
     pendingCreate = { before, macroType }
     createUnresolved.value = true
+    // Previously silent, and the largest arm of #572's 22.7% unattributed
+    // clicks. trackCreateOutcome is a no-op when the attempt already reported,
+    // which is what keeps a throw from the trailing copy/thumbnail work — both
+    // of which run AFTER byline_diagram_created has fired — from reporting a
+    // second outcome for a create already counted as saved.
+    trackCreateOutcome('byline_create_unresolved', {
+      ...baseProps(),
+      macro_type: macroType,
+      result: 'resolve_failed',
+      failure_reason: (e as any)?.message ? String((e as any).message) : String(e),
+      ...(isRetry ? { is_retry: true } : {}),
+    })
   } finally {
     creating.value = false
   }
@@ -1042,7 +1208,11 @@ function onRetryCreate() {
   const { before, macroType } = pendingCreate
   createUnresolved.value = false
   creating.value = true
-  void afterEditorClosed(before, macroType)
+  // A retry is a fresh resolution attempt and must be allowed to report its own
+  // outcome — the first attempt's byline_create_unresolved already cleared the
+  // flag. `is_retry` is what keeps the two separable in the funnel.
+  createOutcomePending = true
+  void afterEditorClosed(before, macroType, true)
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -1715,6 +1885,24 @@ async function onLearnMore() {
 }
 
 /* Error banner ------------------------------------------------------------ */
+.limitnote {
+  flex: none;
+  border: 1px solid #f0d9a8;
+  border-radius: 6px;
+  background: #fffaef;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+.limitnote__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #7a5b06;
+}
+.limitnote__sub {
+  font-size: 12px;
+  color: #5e6c84;
+  margin-top: 2px;
+}
 .banner {
   flex: none;
   border: 1px solid #dfe1e6;

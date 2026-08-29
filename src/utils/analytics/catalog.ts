@@ -521,6 +521,56 @@ export type AnalyticsEventName =
   // The byline editor closed without saving. Splits abandonment from failure,
   // which byline_create_clicked alone cannot distinguish.
   | "byline_create_cancelled"
+  // The create has NO KNOWN OUTCOME: the editor closed (or went away) and we
+  // could not establish whether a diagram was saved. Introduced by #572, which
+  // measured 278 byline_create_clicked against 180 cancelled + 35 created —
+  // 63 clicks (22.7%) with no terminal event at all, because two of the four
+  // unresolved paths emitted nothing.
+  //
+  // This event exists so the create funnel SUMS, per resolution attempt:
+  //   byline_create_clicked
+  //     = byline_diagram_created + byline_create_cancelled + byline_create_unresolved
+  // Without it an abandonment and a failure we never saw are indistinguishable,
+  // and every fix aimed at the 12.6% completion rate is unmeasurable.
+  //
+  // `result` names which path could not resolve:
+  // - 'listing_failed'  — the post-editor re-read failed entirely.
+  // - 'listing_partial' — a partial listing failure with no new id, so the save
+  //                       may have landed in exactly the type that errored.
+  // - 'resolve_failed'  — an exception during resolution (`failure_reason`
+  //                       carries it). Previously silent: the catch only set
+  //                       the retry UI.
+  // - 'editor_never_closed' — teardown (pagehide/unmount) while a create was
+  //                       still in flight, i.e. the modal's onClose never ran.
+  //                       Best-effort delivery, on the same localStorage-batch
+  //                       reasoning as byline_dismissed.
+  //
+  // The first two MOVED here from byline_diagram_created, which reported them
+  // with a `result` marker to avoid inverting the funnel the other way (see the
+  // comments in afterEditorClosed). That kept the funnel from under-counting
+  // saves at the cost of making `byline_diagram_created` mean two different
+  // things; it now means only what its own comment claims — a custom content
+  // exists. No historical data is disturbed: both results measured ZERO
+  // occurrences over 2026-08-14..27.
+  //
+  // `is_retry` marks an outcome produced by onRetryCreate re-running the
+  // resolution, so a create that failed to resolve and then succeeded on retry
+  // (emitting both this and byline_diagram_created) is separable from a first
+  // attempt.
+  | "byline_create_unresolved"
+  // The space is already at the Lite 100-macro limit when the byline's create
+  // picker is shown, so a create started from here would meet the paywall only
+  // after the fullscreen editor had already booted. #572 measured 27 of 272
+  // byline creates blocked that way. Fired at most once per open, from the same
+  // after-the-list-paints slot as the thumbnail and placement scans — the check
+  // is a network read and must never delay byline_opened, which is the Phase 1
+  // readout.
+  //
+  // Deliberately a WARNING, not a gate: the notice appears but every tile still
+  // opens the editor, because the editor's own gate carries the "Continue
+  // editing (N)" allowance and 6 of those 27 blocked creates used it. Blocking
+  // here would silently take that allowance away.
+  | "byline_create_limit_warned"
   // "Done" was pressed on the post-create panel while the host page was in the
   // editor, and the app asked Confluence to close the byline view. Forge
   // documents view.close() as a *request* with no module restrictions stated,

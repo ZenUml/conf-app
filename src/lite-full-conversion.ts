@@ -76,8 +76,11 @@ export function mapLiteMacroKey(liteKey: string): string | null {
   // republishes the page with a BROKEN macro where a working diagram was.
   // Leaving it as a Lite macro is strictly better than that.
   //
-  // TO LIFT: when Full ships zenuml-asyncapi-macro, delete these two lines.
-  // Nothing else here needs to change — the key mapping and content-type
+  // Full IS expected to enable AsyncAPI later. TO LIFT: delete these two lines
+  // AND add the key to LITE_DISCOVERY_MACRO_KEYS below, in the same commit —
+  // see the "To lift" checklist in docs/adr/0005-asyncapi-macro-in-lite-full-
+  // feasibility.md, which also covers the manifest/build work Full needs first.
+  // Within this function nothing else changes: the key mapping and content-type
   // mapping above are already generic.
   if (fullKey === 'zenuml-asyncapi-macro') return null;
   return fullKey;
@@ -283,7 +286,9 @@ async function resolvePageIds(job: ClaimedJob): Promise<string[]> {
   // a floor on what stayed behind, not a total.
   //
   // TO LIFT: add the key here in the same change that stops mapLiteMacroKey
-  // returning null for asyncapi — never before it.
+  // returning null for asyncapi — never before it. Full enabling AsyncAPI is
+  // planned; docs/adr/0005-asyncapi-macro-in-lite-full-feasibility.md carries
+  // the ordered checklist.
   const cql = `space = "${job.spaceKey}" and macro in (${LITE_DISCOVERY_MACRO_KEYS
     .map((k) => `"${k}"`)
     .join(', ')})`;

@@ -218,10 +218,48 @@ one deliberately does not:
   executor counts it as `macrosSkippedAsyncApi` — the same treatment the embed macro already gets,
   and strictly better than manufacturing broken macros. The diagrams stay as working Lite macros.
 
-**To lift:** ship `zenuml-asyncapi-macro` in Full, then delete the asyncapi guard in
-`mapLiteMacroKey()` (and its test). Key mapping, content-type mapping and CQL discovery are
-already generic, so that is the only code change — at the cost of extending the `unsafe-eval`
-relaxation and the Studio build weight to Full.
+### To lift — checklist for when Full enables AsyncAPI
+
+Full **is** expected to enable AsyncAPI later, so the skip above is a staging decision, not a
+permanent one. The two halves must land in this order: Full must be able to *render* the macro
+before the converter is allowed to *point pages at it*.
+
+**Half 1 — ship the macro on Full**
+
+1. Narrow the broad `del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))` strip to
+   `select(.key == "zenuml-asyncapi-embed-macro")` — the shape Lite already uses — in all three
+   Full-deploying places: `scripts/forge-wizard.mjs` (full `manifestEdits`),
+   `.github/workflows/release.yml`, `.github/workflows/staging-deploy.yml`. The broad filter takes
+   the page macro with the embed macro.
+2. **Keep** the `async-api-doc` custom-content strip. Option A means Full stores AsyncAPI under the
+   shared `zenuml-content-sequence`; `fullContentTypeForLiteType()` maps Lite content to that type
+   and nothing writes `async-api-doc`.
+3. Grant `permissions.content.scripts = ["unsafe-eval"]` on Full, as the Lite edits already do —
+   the Studio's runtime schema compilation needs it. Minor version bump, no admin re-consent
+   (Connect-migrated app).
+4. Build wiring, easy to miss: `build:full` must run `build:studio` first (today only `build:lite`
+   and `build:asyncapi` do), and `vite.config.ts`'s `_hasAsyncApiRuntime` must include `'full'` —
+   it gates the CJS interop, the `fs`/`stream` stubs, `nodePolyfills`, and copying
+   `static/asyncapi-studio` into `dist`. Without it the macro deploys and fails at runtime.
+5. Diagramly carries the same broad strip and is a **separate** decision — "Full enables AsyncAPI"
+   does not imply it.
+
+**Half 2 — enable migration (both edits in one commit, never one alone)**
+
+6. Delete the asyncapi guard in `mapLiteMacroKey()` and its test
+   `refuses asyncapi while Full has no AsyncAPI macro module`.
+7. Add `'zenuml-asyncapi-macro-lite'` to `LITE_DISCOVERY_MACRO_KEYS`. Adding it *without* step 6
+   breaks the cursorless sweep: an unconvertible key matches the same pages forever, and a batch
+   made only of such pages yields `macrosConverted === 0`, which `shouldRequeue` reads as "nothing
+   left to do" — the job reports `done` with convertible pages unmigrated. The test
+   `every discovery key is one mapLiteMacroKey can actually convert` pins this pairing.
+8. `macrosSkippedAsyncApi` goes to zero for new jobs. Keep the field and its `sanitizeStats`
+   allow-list entry so historical reports still render.
+
+Key mapping (`mapLiteMacroKey`) and content-type mapping (`fullContentTypeForLiteType`) are already
+generic and need no change. The `${LITE_KEY_SUFFIX}` on the Lite key is what makes Half 2 safe:
+once Full ships the bare `zenuml-asyncapi-macro`, the CQL sweep's `macro in (...)` clause — which
+has no way to filter by app — still separates Lite's macros from Full's own.
 
 Correction to an earlier draft of this ADR: it cited `functions/conversion/service.ts:13` as
 evidence that the conversion queue "explicitly rejects AsyncAPI". That line rejects the AsyncAPI

@@ -36,6 +36,17 @@ export interface DrawerActions {
   more: ActionView[]
 }
 
+export type DrawerActionModel = Pick<
+  CaseModel,
+  'actions' | 'blockers' | 'nextKey' | 'nextLabel' | 'nextWhy'
+>
+
+const UNCONFIRMED_SIMULATED_ACTIONS = new Set(['revoke', 'regrant'])
+
+export function isCurrentScopeCase(model: CaseModel): boolean {
+  return model.caseType === 'Extension'
+}
+
 /**
  * Blocked means no button. When a case carries blockers, every write-class
  * action is suppressed everywhere in the drawer — not greyed, not confirm-gated:
@@ -43,14 +54,14 @@ export interface DrawerActions {
  * Read-only actions (readback, open ticket) stay live.
  */
 export function buildActions(
-  model: CaseModel,
+  model: DrawerActionModel,
   eventId: string,
   confirming: string | null,
   done: Record<string, string>
 ): DrawerActions {
   const stalled = model.blockers.length > 0
   const mapped = model.actions
-    .filter(action => action.key !== 'preview')
+    .filter(action => action.key !== 'preview' && !UNCONFIRMED_SIMULATED_ACTIONS.has(action.key))
     .map(action => view(action, eventId, stalled, confirming, done))
 
   const primary = model.nextKey ? (mapped.find(item => item.key === model.nextKey) ?? null) : null

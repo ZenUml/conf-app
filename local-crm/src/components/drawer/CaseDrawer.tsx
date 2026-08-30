@@ -4,7 +4,7 @@ import SectionLabel from '../SectionLabel'
 import AuditTab from './AuditTab'
 import CommunicationTab from './CommunicationTab'
 import EvidenceTab from './EvidenceTab'
-import { buildActions } from '@/lib/actions'
+import { buildActions, isCurrentScopeCase } from '@/lib/actions'
 import { useCrmStore, type DrawerTab } from '@/stores/crm'
 
 const TABS = [
@@ -21,7 +21,7 @@ export default function CaseDrawer() {
       ? buildActions(model, store.selectedEvent.id, store.confirming, store.done)
       : null
 
-  if (!model || !actions) return null
+  if (!model || !isCurrentScopeCase(model) || !actions) return null
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">

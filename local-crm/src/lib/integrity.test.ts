@@ -300,7 +300,7 @@ describe('reviewed lifecycle integrity rules', () => {
       .toContain('correlation cannot run without a verified Marketplace site')
     expect(actions.next.showButton).toBe(false)
     expect(actions.more.find(action => action.key === 'feedback')?.showButton).toBe(false)
-    expect(actions.more.find(action => action.key === 'revoke')?.showButton).toBe(false)
+    expect(actions.more.find(action => action.key === 'revoke')).toBeUndefined()
   })
 
   it('distinguishes a hostname gap from no Marketplace licence row in blockers', () => {

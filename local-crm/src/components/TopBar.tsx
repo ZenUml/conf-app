@@ -1,7 +1,24 @@
 import { human } from '@/lib/format'
 import { grantStatusOf } from '@/lib/lifecycle'
 import { todayGrantMode } from '@/data/todayApi'
+import type { ExtensionsLoadState } from '@/data/extensionsApi'
 import { useCrmStore } from '@/stores/crm'
+
+export function automationStatus(
+  load: ExtensionsLoadState,
+  auditedCount: number
+): readonly [subtitle: string, freshness: string] {
+  const d1 = load.sources?.extension_action_d1
+  const subtitle = d1?.state === 'ok'
+    ? `${auditedCount} observed ExtensionAction audit rows · read-only`
+    : load.state === 'loading'
+      ? 'loading ExtensionAction audit · no fixture automation rows substituted'
+      : 'ExtensionAction audit unavailable · no fixture automation rows substituted'
+  const freshness = d1?.state === 'ok' && load.generatedAt
+    ? `ExtensionAction ${new Date(load.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `ExtensionAction ${d1?.state ?? load.state}`
+  return [subtitle, freshness]
+}
 
 export default function TopBar() {
   const store = useCrmStore()
@@ -10,6 +27,10 @@ export default function TopBar() {
     store.data.grants.map(grant => grant.cloudId ?? grant.domain)
   ).size
   const todayMode = todayGrantMode(store.extensionsLoad)
+  const [automationSubtitle, automationFreshness] = automationStatus(
+    store.extensionsLoad,
+    store.navCounts.automation
+  )
   const screenCopy = {
     today: [
       'Today',
@@ -48,13 +69,7 @@ export default function TopBar() {
     ],
     automation: [
       'Automation',
-      store.lifecycleLoad.state === 'live'
-        ? `${store.lifecycleLoad.data?.summary.contacts ?? 0} local bootstrap contacts · ${store.navCounts.automation} observed ExtensionAction audit rows · read-only`
-        : store.extensionsLoad.sources?.extension_action_d1.state === 'ok'
-          ? `${store.navCounts.automation} observed ExtensionAction audit rows · lifecycle contacts loading`
-        : store.extensionsLoad.state === 'loading'
-          ? 'loading ExtensionAction audit · no fixture automation rows substituted'
-          : 'ExtensionAction audit unavailable · no fixture automation rows substituted'
+      automationSubtitle
     ]
   } as const
   const [title, subtitle] = screenCopy[store.screen]
@@ -64,10 +79,7 @@ export default function TopBar() {
   const sitesFreshness = store.sitesLoad.state === 'live' && store.sitesLoad.generatedAt
     ? `Marketplace ${new Date(store.sitesLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : `Marketplace ${store.sitesLoad.state}`
-  const lifecycleFreshness = store.lifecycleLoad.state === 'live' && store.lifecycleLoad.generatedAt
-    ? `Local lifecycle ${new Date(store.lifecycleLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    : `Local lifecycle ${store.lifecycleLoad.state}`
-  const freshness = store.screen === 'sites' ? sitesFreshness : store.screen === 'automation' ? lifecycleFreshness : extensionFreshness
+  const freshness = store.screen === 'sites' ? sitesFreshness : store.screen === 'automation' ? automationFreshness : extensionFreshness
   const usesExtensionFreshness = store.screen === 'today' || store.screen === 'extensions'
 
   return (

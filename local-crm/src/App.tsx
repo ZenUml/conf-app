@@ -23,11 +23,12 @@ function CurrentScreen() {
 }
 
 export default function App() {
+  const { screen } = useCrmStore()
   return (
     <div className="flex h-full min-h-[720px] overflow-hidden bg-bg2 font-sans text-body text-fg1">
       <NavRail />
       <main className="flex min-w-0 flex-1 flex-col">
-        <TopBar />
+        {screen === 'today' ? null : <TopBar />}
         <div data-testid="screen-scroll" className="min-h-0 flex-1 overflow-y-auto">
           <CurrentScreen />
         </div>

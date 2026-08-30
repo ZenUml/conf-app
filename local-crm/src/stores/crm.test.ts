@@ -1,5 +1,13 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { crmReducer, INITIAL_CRM_STATE } from './crm'
+import App from '@/App'
+import { INITIAL_EXTENSIONS_LOAD } from '@/data/extensionsApi'
+import { automationStatus } from '@/components/TopBar'
+import { DeferredLifecycleTodos } from '@/screens/AutomationScreen'
+import { buildActions, isCurrentScopeCase, type DrawerActionModel } from '@/lib/actions'
+import type { CaseModel } from '@/lib/caseModel'
+import { CrmProvider, crmReducer, INITIAL_CRM_STATE } from './crm'
 import type { QueueRow } from '@/lib/queue'
 
 const REQUEST_ROW: QueueRow = {
@@ -81,5 +89,64 @@ describe('CRM session state', () => {
       selected: null,
       selectedQueueRow: null
     })
+  })
+})
+
+describe('current UI scope', () => {
+  it('renders Today as an untitled queue', () => {
+    const html = renderToStaticMarkup(
+      createElement(CrmProvider, null, createElement(App))
+    )
+
+    expect(html).not.toMatch(/<h1[^>]*>Today<\/h1>/)
+    expect(html).toContain('data-testid="today-queue"')
+  })
+
+  it('shows Welcome and Expiry/Cancellation only as TODOs', () => {
+    const html = renderToStaticMarkup(createElement(DeferredLifecycleTodos))
+
+    expect(html).toContain('Welcome · TODO')
+    expect(html).toContain('Expiry / cancellation · TODO')
+    expect(html).not.toMatch(/preview|contacts|lifecycle observations/i)
+    expect(html).not.toContain('<iframe')
+    expect(html).not.toContain('<table')
+  })
+
+  it('does not expose unconfirmed revoke or regrant affordances', () => {
+    const model = {
+      actions: [
+        { key: 'verify', label: 'Review current evidence', cta: 'Review' },
+        { key: 'revoke', label: 'Revoke is read-only here', blocked: 'not connected' },
+        { key: 'regrant', label: 'Renew is read-only here', blocked: 'not connected' }
+      ],
+      blockers: [],
+      nextKey: 'verify',
+      nextLabel: 'Review current evidence',
+      nextWhy: 'Read-only evidence is in scope.'
+    } satisfies DrawerActionModel
+
+    const actions = buildActions(model, 'grant:g1:created', null, {})
+
+    expect(actions.next.key).toBe('verify')
+    expect(actions.more.map(action => action.key)).toEqual([])
+  })
+
+  it('allows only Extension cases into the drawer', () => {
+    const model = (caseType: string) => ({ caseType }) as CaseModel
+
+    expect(isCurrentScopeCase(model('Extension'))).toBe(true)
+    expect(isCurrentScopeCase(model('Welcome'))).toBe(false)
+    expect(isCurrentScopeCase(model('Retention'))).toBe(false)
+    expect(isCurrentScopeCase(model('Ingest run'))).toBe(false)
+  })
+
+  it('describes Automation without lifecycle dashboard signals', () => {
+    const copy = automationStatus(
+      { ...INITIAL_EXTENSIONS_LOAD, state: 'error', error: 'unavailable' },
+      0
+    ).join(' ')
+
+    expect(copy).toContain('ExtensionAction')
+    expect(copy).not.toMatch(/lifecycle|contact|welcome|expiry|cancell/i)
   })
 })

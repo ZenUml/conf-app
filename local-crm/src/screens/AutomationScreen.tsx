@@ -1,17 +1,36 @@
 import { count } from '@/lib/format'
 import { useCrmStore } from '@/stores/crm'
-import { lifecycleTouchpointSummary, localObservationLabel } from '@/data/lifecycleTouchpoints'
+
+export function DeferredLifecycleTodos() {
+  return (
+    <section
+      data-testid="deferred-lifecycle-todos"
+      className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3"
+    >
+      <article className="rounded-lg border border-dashed border-line bg-bg1 px-4 py-3">
+        <h4 className="text-body-sm font-semibold">Welcome · TODO</h4>
+        <p className="mt-1 text-micro leading-[1.5] text-fg2">
+          Not in the current active scope. No delivery workflow or operator action is exposed.
+        </p>
+      </article>
+      <article className="rounded-lg border border-dashed border-line bg-bg1 px-4 py-3">
+        <h4 className="text-body-sm font-semibold">Expiry / cancellation · TODO</h4>
+        <p className="mt-1 text-micro leading-[1.5] text-fg2">
+          Not in the current active scope. No outcome or follow-up workflow is exposed.
+        </p>
+      </article>
+    </section>
+  )
+}
 
 export default function AutomationScreen() {
-  const { data, extensionsLoad, lifecycleLoad, query } = useCrmStore()
+  const { data, extensionsLoad, query } = useCrmStore()
   const actions = data.grants.flatMap(grant => (grant.actionAudit ?? []).map(action => ({ grant, action })))
   const visible = actions.filter(({ grant, action }) => {
     const needle = query.trim().toLowerCase()
     return !needle || [grant.domain, grant.cloudId, grant.space, action.action, action.status].some(value => value?.toLowerCase().includes(needle))
   })
   const d1 = extensionsLoad.sources?.extension_action_d1
-  const touchpoints = lifecycleLoad.data?.touchpoints ?? []
-  const touchpointSummary = lifecycleTouchpointSummary(touchpoints)
 
   return (
     <div className="px-6 pb-7 pt-5">
@@ -28,53 +47,7 @@ export default function AutomationScreen() {
             ? 'ExtensionAction D1 is loading. No fixture automation rows are substituted.'
             : `${d1?.detail ?? extensionsLoad.error ?? 'ExtensionAction D1 is unavailable'}. No fixture automation rows are substituted.`}
       </div>
-      <section className="mb-6 rounded-lg border border-line bg-bg1 p-4">
-        <div className="mb-1 flex flex-wrap items-baseline gap-2">
-          <h4 className="text-body font-semibold">Local lifecycle contacts and Welcome previews</h4>
-          <span className="text-micro text-fg2">loopback-only · bootstrap contacts are suppressed · no send endpoint</span>
-        </div>
-        {lifecycleLoad.state === 'live' && lifecycleLoad.data ? (
-          <>
-            <p className="mb-3 text-micro text-fg2">
-              {lifecycleLoad.data.summary.contacts} contacts across {lifecycleLoad.data.summary.tenants} tenants · {lifecycleLoad.data.summary.suppressed} suppressed · source: {lifecycleLoad.data.source.marketplaceRows} Marketplace rows → local SQLite
-            </p>
-            <div className="mb-4 rounded-md border border-line bg-bg2 px-3 py-2">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <h5 className="text-body-sm font-semibold">Local lifecycle observations</h5>
-                <span className="text-micro text-fg2">{touchpointSummary.total} rows in local SQLite · not email sends, delivery, customer contact, or engagement</span>
-              </div>
-              {touchpoints.length ? (
-                <ul className="mt-2 space-y-1 text-micro text-fg2">
-                  {touchpoints.slice(0, 25).map(touchpoint => (
-                    <li key={touchpoint.id}>{localObservationLabel(touchpoint)} · {touchpoint.app} · {touchpoint.createdAt}{touchpoint.meta?.reason ? ` · reason: ${String(touchpoint.meta.reason)}` : ''}</li>
-                  ))}
-                </ul>
-              ) : <p className="mt-2 text-micro text-fg2">No local lifecycle observations are recorded.</p>}
-            </div>
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
-              {lifecycleLoad.data.previews.map(preview => (
-                <details key={preview.app} className="rounded-md border border-line bg-bg2 px-3 py-2">
-                  <summary className="cursor-pointer text-body-sm font-medium">{preview.app} · {preview.subject}</summary>
-                  <iframe
-                    title={`${preview.app} welcome email preview`}
-                    sandbox=""
-                    srcDoc={preview.html}
-                    className="mt-3 h-[300px] w-full rounded border border-line bg-white"
-                  />
-                </details>
-              ))}
-            </div>
-            <div className="mt-4 overflow-x-auto rounded-md border border-line">
-              <table className="min-w-full text-left text-micro">
-                <thead className="bg-bg2 text-fg2"><tr><th className="px-3 py-2">contact</th><th className="px-3 py-2">app</th><th className="px-3 py-2">step</th><th className="px-3 py-2">site</th><th className="px-3 py-2">seen</th></tr></thead>
-                <tbody>{lifecycleLoad.data.contacts.slice(0, 25).map(contact => <tr key={contact.id} className="border-t border-line"><td className="px-3 py-2">{contact.email}</td><td className="px-3 py-2">{contact.app}</td><td className="px-3 py-2">{contact.step}</td><td className="px-3 py-2">{contact.domain ?? 'unknown'}</td><td className="px-3 py-2">{contact.lastSeenAt}</td></tr>)}</tbody>
-              </table>
-            </div>
-          </>
-        ) : (
-          <p className="text-micro text-fg2">{lifecycleLoad.state === 'loading' ? 'Loading local lifecycle SQLite…' : `Local lifecycle source unavailable: ${lifecycleLoad.error}`}</p>
-        )}
-      </section>
+      <DeferredLifecycleTodos />
       {visible.length ? (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-4">
           {visible.map(({ grant, action }) => {

@@ -183,8 +183,8 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const [sitesLoad, setSitesLoad] = useState(INITIAL_SITES_LOAD)
   const [lifecycleLoad, setLifecycleLoad] = useState(INITIAL_LIFECYCLE_LOAD)
   const todayData = useMemo(
-    () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad),
-    [extensionsData, extensionsLoad]
+    () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad, lifecycleLoad),
+    [extensionsData, extensionsLoad, lifecycleLoad]
   )
   const pendingData = useMemo(
     () => buildPendingDataset(initialDataset, extensionsData, extensionsLoad),

@@ -24,7 +24,8 @@ export default function TodayScreen() {
     scheduled,
     open,
     query,
-    extensionsLoad
+    extensionsLoad,
+    lifecycleLoad
   } = useCrmStore()
   const grantMode = todayGrantMode(extensionsLoad)
   const sourceLabels = {
@@ -35,8 +36,19 @@ export default function TodayScreen() {
   } as const
   const maxStepCount = Math.max(
     1,
-    ...data.steps.map(step => step.welcome + step.lapsed)
+    ...(lifecycleLoad.data
+      ? ['lite', 'full', 'dia', 'api'].map(app => lifecycleLoad.data?.contacts.filter(contact => contact.app === app).length ?? 0)
+      : data.steps.map(step => step.welcome + step.lapsed))
   )
+  const lifecycleByApp = ['lite', 'full', 'dia', 'api'].map(app => ({
+    app: app as keyof typeof PRODUCT,
+    contacts: lifecycleLoad.data?.contacts.filter(contact => contact.app === app) ?? [],
+  }))
+  const lifecycleGaps = [
+    'Registration event history is not available from the Marketplace export; the local first_seen_at value is only this machine’s bootstrap observation.',
+    'No sender-run, delivery, bounce, unsubscribe, or recipient engagement source is connected; email previews are read-only.',
+    'No assignment, Site Contact, or per-contact eligibility store is connected; the console does not infer any of those states.'
+  ]
 
   return (
     <div className="px-6 pb-7 pt-5">
@@ -75,7 +87,7 @@ export default function TodayScreen() {
               data-testid="today-fixture-notice"
               className="mt-1 text-micro leading-6 text-fg3"
             >
-              Registrations, contact ingest, Marketplace acquisition totals and workflow panels remain sanitized fixtures; no communication outcome is inferred.
+              Registration event history is unavailable: the local Marketplace ingest proves current contacts, not when an installation was registered. No synthetic registration rows are shown.
             </div>
           </div>
           {extensionsLoad.sources ? (
@@ -102,7 +114,7 @@ export default function TodayScreen() {
             <div className="mb-3 flex flex-wrap items-baseline gap-2.5">
               <h3 className="text-h3 font-semibold">Known activity stream</h3>
               <span className="text-body-sm text-fg2">
-                sanitized registrations + current grant records + derived expiries · latest known dates first
+                current grant records + derived expiries · latest known dates first
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -158,13 +170,13 @@ export default function TodayScreen() {
         <aside className="flex min-w-[320px] flex-1 flex-col gap-4">
           <section className="rounded-lg border border-line bg-bg1 p-4">
             <div className="mb-1">
-              <SectionLabel>New this month, by app</SectionLabel>
+              <SectionLabel>Current local contacts, by app</SectionLabel>
             </div>
             <div className="mb-3 text-micro text-fg2">
-              sanitized Marketplace fixture · against the skill’s own baselines
+              current Marketplace bootstrap inventory · not acquisition history
             </div>
             <div className="flex flex-col gap-[11px]">
-              {data.byApp.map(row => {
+              {lifecycleByApp.map(row => {
                 const product = PRODUCT[row.app]
                 return (
                   <div key={row.app} className="flex items-baseline gap-2.5">
@@ -173,20 +185,14 @@ export default function TodayScreen() {
                       style={{ background: product.color }}
                     />
                     <span className="flex-1 font-mono text-[12px]">{product.name}</span>
-                    <span className="lc-num text-body font-semibold">{count(row.n)}</span>
-                    <span
-                      className={`whitespace-nowrap text-micro ${row.unverified ? 'text-bad' : 'text-fg2'}`}
-                    >
-                      {row.note}
-                    </span>
+                    <span className="lc-num text-body font-semibold">{count(row.contacts.length)}</span>
+                    <span className="whitespace-nowrap text-micro text-fg2">bootstrap-suppressed</span>
                   </div>
                 )
               })}
             </div>
             <div className="mt-3 border-t border-bg3 pt-2.5 font-mono text-micro leading-6 text-fg3">
-              {count(data.marketplace.licences)} licences · {count(data.marketplace.transactions)} transactions
-              <br />
-              synced {data.marketplace.syncedOn} · vendor {data.marketplace.vendor}
+              {lifecycleLoad.data ? `${count(lifecycleLoad.data.source.marketplaceRows)} Marketplace rows · local SQLite` : 'local contact source loading'}
             </div>
           </section>
 
@@ -195,19 +201,21 @@ export default function TodayScreen() {
               <SectionLabel>Ingested contacts</SectionLabel>
             </div>
             <div className="mb-3 text-micro text-fg2">
-              sanitized contact fixture · {count(data.ingest.contactsWritten)} rows · all held as backlog
+              {lifecycleLoad.data ? `${count(lifecycleLoad.data.summary.contacts)} source-backed rows · all bootstrap-suppressed` : 'local contact source loading'}
             </div>
             <div className="flex flex-col gap-[9px]">
-              {data.steps.map(step => {
+              {lifecycleByApp.map(step => {
                 const product = PRODUCT[step.app]
-                const welcomeWidth = `${(step.welcome / maxStepCount) * 100}%`
-                const lapsedWidth = `${(step.lapsed / maxStepCount) * 100}%`
+                const welcome = step.contacts.filter(contact => contact.step === 'welcome').length
+                const lapsed = step.contacts.filter(contact => contact.step === 'lapsed').length
+                const welcomeWidth = `${(welcome / maxStepCount) * 100}%`
+                const lapsedWidth = `${(lapsed / maxStepCount) * 100}%`
                 return (
                   <div key={step.app}>
                     <div className="mb-1 flex items-baseline gap-2">
                       <span className="flex-1 font-mono text-[12px]">{product.name}</span>
                       <span className="lc-num font-mono text-micro text-fg2">
-                        {count(step.welcome)} welcome · {count(step.lapsed)} lapsed
+                        {count(welcome)} welcome · {count(lapsed)} lapsed
                       </span>
                     </div>
                     <div className="flex h-[5px] overflow-hidden rounded-full bg-bg3">
@@ -221,7 +229,7 @@ export default function TodayScreen() {
             <div className="mt-3 border-t border-bg3 pt-2.5 text-micro leading-6 text-fg3">
               Solid is <span className="font-mono">welcome</span>, grey is{' '}
               <span className="font-mono">lapsed</span>. Every{' '}
-              <span className="font-mono">first_seen_at</span> is 28 Aug — the bootstrap timestamp,
+              <span className="font-mono">first_seen_at</span> is a local bootstrap timestamp,
               not an acquisition date.
             </div>
           </section>
@@ -231,7 +239,7 @@ export default function TodayScreen() {
               <SectionLabel className="!text-rust-800">No data source yet</SectionLabel>
             </div>
             <div className="flex flex-col gap-[9px]">
-              {data.gaps.map(gap => (
+              {lifecycleGaps.map(gap => (
                 <div key={gap} className="flex items-start gap-[9px]">
                   <span className="mt-1.5 size-[5px] shrink-0 rounded-full bg-rust-500" />
                   <div className="text-micro leading-6 text-fg2">{gap}</div>

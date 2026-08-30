@@ -119,16 +119,21 @@ export function buildEvents(data: Dataset): CaseEvent[] {
     }
   })
 
+  const localLifecycleIngest = data.ingest.localSchema === 'lifecycle.sqlite'
   out.push({
     id: `ingest:${data.ingest.runDay}`,
     day: iso(data.ingest.runDay),
     kind: 'ingest',
-    who: 'bootstrap ingest',
+    who: localLifecycleIngest ? 'local Marketplace ingest' : 'bootstrap ingest',
     tag: 'ingest',
     chip: 'ingest',
     dot: 'var(--accent-plantuml-500)',
-    what: `${data.ingest.contactsWritten.toLocaleString('en-US')} contacts written across four apps and held as backlog, so the existing base can never be welcomed retroactively.`,
-    meta: `ingest-licenses.mjs --bootstrap · ${data.ingest.rowsRead.toLocaleString('en-US')} rows read, ${data.ingest.rejected} rejected`
+    what: localLifecycleIngest
+      ? `${data.ingest.contactsWritten.toLocaleString('en-US')} current contacts observed across four apps and stored locally as suppressed bootstrap records; this is not registration history.`
+      : `${data.ingest.contactsWritten.toLocaleString('en-US')} contacts written across four apps and held as backlog, so the existing base can never be welcomed retroactively.`,
+    meta: localLifecycleIngest
+      ? `Local CRM loopback · ${data.ingest.rowsRead.toLocaleString('en-US')} Marketplace rows read`
+      : `ingest-licenses.mjs --bootstrap · ${data.ingest.rowsRead.toLocaleString('en-US')} rows read, ${data.ingest.rejected} rejected`
   })
 
   return out.sort((a, b) => b.day.localeCompare(a.day) || a.id.localeCompare(b.id))

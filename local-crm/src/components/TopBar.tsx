@@ -22,12 +22,12 @@ export default function TopBar() {
         timeZone: 'UTC'
       }).format(new Date(`${store.data.today}T00:00:00Z`))} · ${
         todayMode === 'live'
-          ? `${store.data.grants.length} source-backed grant records · registrations sanitized`
+          ? `${store.data.grants.length} source-backed grant records · registration history unavailable`
           : todayMode === 'partial'
-            ? `${store.data.grants.length} partial source-backed grant records · registrations sanitized`
+            ? `${store.data.grants.length} partial source-backed grant records · registration history unavailable`
             : todayMode === 'unavailable'
-              ? 'grant and expiry rows unavailable · registrations sanitized'
-              : 'loading grant and expiry rows · registrations sanitized'
+              ? 'grant and expiry rows unavailable · registration history unavailable'
+              : 'loading grant and expiry rows · registration history unavailable'
       }`
     ],
     sites: [

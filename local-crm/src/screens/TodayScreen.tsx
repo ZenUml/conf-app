@@ -28,6 +28,8 @@ export default function TodayScreen() {
     lifecycleLoad
   } = useCrmStore()
   const grantMode = todayGrantMode(extensionsLoad)
+  const openRequests = extensionsLoad.openRequests
+  const withoutCurrentGrant = openRequests?.rows.filter(row => row.currentGrant === 'not_observed') ?? []
   const sourceLabels = {
     marketplace: 'Marketplace',
     jsm: 'JSM',
@@ -103,6 +105,64 @@ export default function TodayScreen() {
               ))}
             </div>
           ) : null}
+        </div>
+      </section>
+      <section
+        data-testid="today-open-jsm-requests"
+        className="mb-5 rounded-lg border border-line bg-bg1 px-4 py-3"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-[760px]">
+            <SectionLabel>Open JSM extension requests</SectionLabel>
+            <div className="mt-1 text-micro leading-6 text-fg2">
+              {openRequests
+                ? openRequests.detail
+                : 'Waiting for the shared JSM and current grant KV snapshot. No fixture requests are shown.'}
+            </div>
+          </div>
+          {openRequests ? (
+            <div className="flex flex-wrap gap-1.5 font-mono text-micro text-fg2">
+              {openRequests.state === 'truncated' ? (
+                <span className="rounded-full border border-rust-100 bg-bg2 px-2 py-1 text-rust-800">fetched subset</span>
+              ) : null}
+              <span className="rounded-full border border-line bg-bg2 px-2 py-1">
+                {count(openRequests.summary.currentGrantObserved)} current grant observed
+              </span>
+              <span className="rounded-full border border-rust-100 bg-bg2 px-2 py-1 text-rust-800">
+                {count(openRequests.summary.noCurrentGrantObserved)} no current grant observed
+              </span>
+              <span className="rounded-full border border-line bg-bg2 px-2 py-1">
+                {count(openRequests.summary.insufficientEvidence)} insufficient evidence
+              </span>
+            </div>
+          ) : null}
+        </div>
+        {openRequests?.state === 'unavailable' ? (
+          <div className="mt-3 text-micro leading-6 text-fg3">
+            No request rows are asserted while either JSM or the current grant KV is unavailable.
+          </div>
+        ) : withoutCurrentGrant.length ? (
+          <div className="mt-3 flex flex-col gap-2">
+            {withoutCurrentGrant.map(row => (
+              <div key={row.ticketKey} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border border-rust-100 bg-bg2 px-3 py-2">
+                <span className="font-mono text-body-sm font-semibold">{row.ticketKey}</span>
+                <span className="rounded-full border border-rust-100 px-2 py-0.5 font-mono text-micro text-rust-800">
+                  no current grant observed
+                </span>
+                <span className="text-micro text-fg2">{row.status ?? 'status unavailable'}</span>
+                <span className="text-micro text-fg3">
+                  {row.createdAt ? `requested ${new Date(row.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' })}` : 'request date unavailable'}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : openRequests ? (
+          <div className="mt-3 text-micro leading-6 text-fg3">
+            No fetched open JSM requests lack an exact recorded current-grant ticket match.
+          </div>
+        ) : null}
+        <div className="mt-2 text-micro leading-6 text-fg3">
+          “No current grant observed” is not a rejected, denied, or unprocessed verdict. Matching uses only the exact ticket recorded in a current KV grant’s <span className="font-mono">activatedBy</span> value.
         </div>
       </section>
       <div className="flex flex-wrap items-start gap-5">

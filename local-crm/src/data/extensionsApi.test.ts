@@ -10,6 +10,17 @@ const source = (records: number) => ({
   detail: 'test source'
 })
 
+const openRequests = () => ({
+  state: 'complete' as const,
+  detail: 'test stream',
+  rows: [],
+  summary: {
+    currentGrantObserved: 0,
+    noCurrentGrantObserved: 0,
+    insufficientEvidence: 0
+  }
+})
+
 function grant(overrides: Partial<ExtensionGrantRecord>): ExtensionGrantRecord {
   return {
     id: 'grant_test',
@@ -60,6 +71,7 @@ describe('Extensions API frontend adapter', () => {
         matchedRequestCount: 0,
         originBuckets: []
       },
+      openRequests: openRequests(),
       grants: [
         grant({ id: 'grant_inactive' }),
         grant({
@@ -115,6 +127,7 @@ describe('Extensions API frontend adapter', () => {
         matchedRequestCount: 0,
         originBuckets: []
       },
+      openRequests: openRequests(),
       grants: [grant({
         id: 'grant_partial',
         domain: null,
@@ -131,6 +144,43 @@ describe('Extensions API frontend adapter', () => {
     expect(result.load.sources?.marketplace.state).toBe('error')
     expect(result.data.grants[0].domain).toBe('(site mapping unavailable · cloud cloud-te)')
     expect(result.data.grants[0].siteMapping).toBe('unavailable')
+  })
+
+  it('carries source-backed open-request observations without substituting fixture requests', async () => {
+    const response: ExtensionsResponse = {
+      contractVersion: 1,
+      generatedAt: '2026-08-29T10:00:00.000Z',
+      asOf: '2026-08-29',
+      sources: {
+        marketplace: source(1),
+        jsm: source(1),
+        space_license_kv: source(0),
+        extension_action_d1: source(0)
+      },
+      summary: {
+        grantCount: 0, activeCount: 0, expiredCount: 0, inactiveCount: 0,
+        unknownStatusCount: 0, tenantCount: 0, auditedGrantCount: 0,
+        matchedRequestCount: 0, originBuckets: []
+      },
+      openRequests: {
+        state: 'complete',
+        detail: 'test stream',
+        rows: [{
+          ticketKey: 'ZEN-123', status: 'Waiting for support',
+          createdAt: '2026-08-20T00:00:00.000Z', updatedAt: null,
+          typedDomain: 'example', typedSpace: 'SPACE', currentGrant: 'not_observed'
+        }],
+        summary: { currentGrantObserved: 0, noCurrentGrantObserved: 1, insufficientEvidence: 0 }
+      },
+      grants: []
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200, headers: { 'content-type': 'application/json' }
+    })))
+
+    const result = await loadExtensionsDataset(placeholderDataset)
+    expect(result.load.openRequests?.rows).toEqual(response.openRequests.rows)
+    expect(result.load.openRequests?.summary.noCurrentGrantObserved).toBe(1)
   })
 
   it('marks a healthy missing Marketplace join as unmatched without turning unknown request fields into mismatches', async () => {
@@ -155,6 +205,7 @@ describe('Extensions API frontend adapter', () => {
         matchedRequestCount: 1,
         originBuckets: []
       },
+      openRequests: openRequests(),
       grants: [grant({
         id: 'grant_unmatched',
         domain: null,

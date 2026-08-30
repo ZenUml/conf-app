@@ -15,6 +15,7 @@ export interface ExtensionsLoadState {
   sources: Record<ExtensionSourceName, ExtensionSourceStatus> | null
   summary: ExtensionsResponse['summary'] | null
   incompleteGrantCount: number
+  openRequests: ExtensionsResponse['openRequests'] | null
   error: string | null
 }
 
@@ -24,6 +25,7 @@ export const INITIAL_EXTENSIONS_LOAD: ExtensionsLoadState = {
   sources: null,
   summary: null,
   incompleteGrantCount: 0,
+  openRequests: null,
   error: null
 }
 
@@ -207,6 +209,7 @@ export async function loadExtensionsDataset(base: Dataset): Promise<{
       sources: body.sources,
       summary: body.summary,
       incompleteGrantCount,
+      openRequests: body.openRequests,
       error: null
     }
   }

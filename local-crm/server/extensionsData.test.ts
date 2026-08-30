@@ -114,6 +114,40 @@ function input() {
 }
 
 describe('Extensions API transformer', () => {
+  it('classifies each fetched open JSM request only by an exact recorded KV ticket', () => {
+    const base = input()
+    const response = buildExtensionsResponse({
+      ...base,
+      openJsmTicketKeys: ['ZEN-123', 'ZEN-456'],
+      jsmIssues: [
+        ...base.jsmIssues,
+        {
+          key: 'ZEN-456',
+          fields: {
+            status: { name: 'Waiting for support' },
+            reporter: { displayName: 'Second requester', accountId: 'second-reporter' },
+            description: DESCRIPTION,
+            created: '2026-08-22T00:00:00Z',
+            updated: '2026-08-22T00:00:00Z'
+          }
+        }
+      ]
+    })
+
+    expect(response.openRequests).toMatchObject({
+      state: 'complete',
+      summary: {
+        currentGrantObserved: 1,
+        noCurrentGrantObserved: 1,
+        insufficientEvidence: 0
+      }
+    })
+    expect(response.openRequests.rows.map(row => [row.ticketKey, row.currentGrant])).toEqual([
+      ['ZEN-123', 'observed'],
+      ['ZEN-456', 'not_observed']
+    ])
+  })
+
   it('joins KV to Marketplace, JSM, comments and exact-scope action audit', () => {
     const response = buildExtensionsResponse(input())
     const userGrant = response.grants.find(row => row.scope === 'user')
@@ -172,6 +206,47 @@ describe('Extensions API transformer', () => {
       'JSM request matching is unavailable',
       'ExtensionAction audit source is unavailable'
     ]))
+    expect(response.openRequests).toMatchObject({
+      state: 'unavailable',
+      rows: [],
+      summary: { noCurrentGrantObserved: 0 }
+    })
+  })
+
+  it.each(['jsm', 'space_license_kv'] as const)(
+    'does not fabricate open-request conclusions when %s is unavailable',
+    unavailable => {
+      const base = input()
+      const response = buildExtensionsResponse({
+        ...base,
+        openJsmTicketKeys: ['ZEN-123'],
+        sourceErrors: { [unavailable]: `${unavailable} unavailable` }
+      })
+
+      expect(response.openRequests).toMatchObject({
+        state: 'unavailable',
+        rows: [],
+        summary: {
+          currentGrantObserved: 0,
+          noCurrentGrantObserved: 0,
+          insufficientEvidence: 0
+        }
+      })
+    }
+  )
+
+  it('marks the open-request stream as a fetched subset when the bounded JSM query truncates', () => {
+    const response = buildExtensionsResponse({
+      ...input(),
+      openJsmTicketKeys: ['ZEN-123'],
+      openJsmSearchTruncated: true
+    })
+
+    expect(response.openRequests).toMatchObject({
+      state: 'truncated',
+      detail: expect.stringContaining('1,000-result search window'),
+      summary: { currentGrantObserved: 1 }
+    })
   })
 
   it('does not attach a later JSM request through the domain + space fallback', () => {

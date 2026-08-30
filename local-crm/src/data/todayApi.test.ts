@@ -23,6 +23,7 @@ function load(
           extension_action_d1: { state: sourceErrors.includes('extension_action_d1') ? 'error' : 'ok', records: 0, detail: 'test' }
         }
       : null
+    ,openRequests: null
   }
 }
 

@@ -90,6 +90,33 @@ export interface ExtensionOriginBucket {
   count: number
 }
 
+/**
+ * An open request returned by the dedicated JSM search window. A missing
+ * exact ticket match says only that this KV snapshot does not currently
+ * observe a grant for that request; it does not imply rejection or denial.
+ */
+export interface OpenExtensionRequest {
+  ticketKey: string
+  status: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  typedDomain: string | null
+  typedSpace: string | null
+  currentGrant: 'observed' | 'not_observed' | 'insufficient'
+}
+
+export interface OpenExtensionRequestStream {
+  /** Complete means JSM and KV both returned, within the documented fetch limit. */
+  state: 'complete' | 'truncated' | 'unavailable'
+  detail: string
+  rows: OpenExtensionRequest[]
+  summary: {
+    currentGrantObserved: number
+    noCurrentGrantObserved: number
+    insufficientEvidence: number
+  }
+}
+
 export interface ExtensionsResponse {
   contractVersion: typeof EXTENSIONS_CONTRACT_VERSION
   generatedAt: string
@@ -107,6 +134,7 @@ export interface ExtensionsResponse {
     originBuckets: ExtensionOriginBucket[]
   }
   grants: ExtensionGrantRecord[]
+  openRequests: OpenExtensionRequestStream
 }
 
 export interface ExtensionDetailResponse {

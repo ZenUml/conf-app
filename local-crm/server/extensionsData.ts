@@ -5,6 +5,7 @@ import {
   type ExtensionGrantRecord,
   type ExtensionHistoryEntry,
   type ExtensionOriginBucket,
+  type OpenExtensionRequestStream,
   type ExtensionRequestContext,
   type ExtensionSourceName,
   type ExtensionSourceStatus,
@@ -26,6 +27,10 @@ export interface ExtensionsDataInput {
   jsmCommentsByTicket: Map<string, unknown[] | null>
   grantValues: RawGrantValue[]
   actionRows: unknown[]
+  /** Keys returned by JSM's open-request query, separate from historic joins. */
+  openJsmTicketKeys?: string[]
+  /** The bounded JSM search may stop before the complete open-request set. */
+  openJsmSearchTruncated?: boolean
   sourceErrors?: Partial<Record<ExtensionSourceName, string>>
 }
 
@@ -501,6 +506,48 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
     .map(([key, count]) => ({ key, count }))
     .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
 
+  const openRequestTicketKeys = [...new Set(input.openJsmTicketKeys ?? [])]
+  const recordedGrantTickets = new Set(
+    grants.flatMap(grant => grant.ticketKey ? [grant.ticketKey] : [])
+  )
+  const openRequests: OpenExtensionRequestStream = sourceErrors.jsm || sourceErrors.space_license_kv
+    ? {
+        state: 'unavailable',
+        detail: sourceErrors.jsm
+          ? 'Open JSM request comparison is unavailable because JSM could not be read.'
+          : 'Open JSM request comparison is unavailable because the current grant KV could not be read.',
+        rows: [],
+        summary: { currentGrantObserved: 0, noCurrentGrantObserved: 0, insufficientEvidence: 0 }
+      }
+    : {
+        state: input.openJsmSearchTruncated ? 'truncated' : 'complete',
+        detail: input.openJsmSearchTruncated
+          ? 'Open JSM requests exceeded the fetched 1,000-result search window; displayed rows are only that fetched subset.'
+          : 'Open JSM requests are compared to current KV grants by exact ticket key only.',
+        rows: openRequestTicketKeys
+          .map(ticketKey => {
+            const issue = issuesByTicket.get(ticketKey)
+            return {
+              ticketKey,
+              status: issue?.status ?? null,
+              createdAt: issue?.createdAt ?? null,
+              updatedAt: issue?.updatedAt ?? null,
+              typedDomain: issue?.typedDomain ?? null,
+              typedSpace: issue?.typedSpace ?? null,
+              currentGrant: (issue
+                ? (recordedGrantTickets.has(ticketKey) ? 'observed' : 'not_observed')
+                : 'insufficient') as 'observed' | 'not_observed' | 'insufficient'
+            }
+          })
+          .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.ticketKey.localeCompare(b.ticketKey)),
+        summary: { currentGrantObserved: 0, noCurrentGrantObserved: 0, insufficientEvidence: 0 }
+      }
+  openRequests.rows.forEach(row => {
+    if (row.currentGrant === 'observed') openRequests.summary.currentGrantObserved += 1
+    else if (row.currentGrant === 'not_observed') openRequests.summary.noCurrentGrantObserved += 1
+    else openRequests.summary.insufficientEvidence += 1
+  })
+
   return {
     contractVersion: EXTENSIONS_CONTRACT_VERSION,
     generatedAt: input.generatedAt,
@@ -542,6 +589,7 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
       matchedRequestCount: grants.filter(grant => grant.request !== null).length,
       originBuckets
     },
-    grants
+    grants,
+    openRequests
   }
 }

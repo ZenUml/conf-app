@@ -209,6 +209,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
           sources: null,
           summary: null,
           incompleteGrantCount: 0,
+          openRequests: null,
           error: error instanceof Error ? error.message : String(error)
         })
       })

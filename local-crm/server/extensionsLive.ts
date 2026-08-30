@@ -19,6 +19,8 @@ const WRANGLER = join(REPO_ROOT, 'node_modules', '.bin', 'wrangler')
 const MARKETPLACE_EXPORT =
   'https://marketplace.atlassian.com/rest/2/vendors/1215266/reporting/licenses/export?accept=json'
 const JSM_ORIGIN = 'https://zenuml.atlassian.net'
+const JSM_SEARCH_PAGE_SIZE = 100
+const JSM_SEARCH_PAGE_LIMIT = 10
 const SOURCE_TIMEOUT_MS = 60_000
 const CACHE_MS = 30_000
 
@@ -195,14 +197,14 @@ function jsmHistoryStart(grants: RawGrantValue[]): string | null {
   return start.toISOString().slice(0, 10)
 }
 
-async function jsmSearch(jql: string, authorization: string): Promise<unknown[]> {
+async function jsmSearch(jql: string, authorization: string): Promise<{ issues: unknown[]; truncated: boolean }> {
   const issues: unknown[] = []
   let nextPageToken: string | null = null
-  for (let page = 0; page < 10; page += 1) {
+  for (let page = 0; page < JSM_SEARCH_PAGE_LIMIT; page += 1) {
     const query = new URLSearchParams({
       jql,
       fields: 'summary,created,updated,status,reporter,customfield_10070,description',
-      maxResults: '100'
+      maxResults: String(JSM_SEARCH_PAGE_SIZE)
     })
     if (nextPageToken) query.set('nextPageToken', nextPageToken)
     const body = record(await fetchJson(`${JSM_ORIGIN}/rest/api/3/search/jql?${query}`, {
@@ -213,7 +215,7 @@ async function jsmSearch(jql: string, authorization: string): Promise<unknown[]>
     nextPageToken = typeof body?.nextPageToken === 'string' ? body.nextPageToken : null
     if (!nextPageToken || pageIssues.length === 0) break
   }
-  return issues
+  return { issues, truncated: Boolean(nextPageToken) }
 }
 
 async function mapLimit<T, R>(
@@ -236,6 +238,8 @@ async function mapLimit<T, R>(
 async function loadJsm(grants: RawGrantValue[]): Promise<{
   issues: unknown[]
   comments: Map<string, unknown[] | null>
+  openTicketKeys: string[]
+  openSearchTruncated: boolean
 }> {
   const user = process.env.JSM_EMAIL
   const token = process.env.JSM_API_TOKEN
@@ -243,16 +247,15 @@ async function loadJsm(grants: RawGrantValue[]): Promise<{
   const authorization = basicAuth(user, token)
   const tickets = ticketsFromGrants(grants)
   const historyStart = jsmHistoryStart(grants)
-  const searches: Promise<unknown[]>[] = [
-    jsmSearch('project = ZEN AND statusCategory != Done ORDER BY created ASC', authorization)
-  ]
+  const openSearch = jsmSearch('project = ZEN AND statusCategory != Done ORDER BY created ASC', authorization)
+  const searches: Promise<{ issues: unknown[]; truncated: boolean }>[] = []
   if (historyStart) {
     searches.push(jsmSearch(`project = ZEN AND created >= "${historyStart}" ORDER BY created ASC`, authorization))
   }
   if (tickets.length) searches.push(jsmSearch(`key in (${tickets.join(',')})`, authorization))
-  const issueSets = await Promise.all(searches)
+  const [openResult, ...issueSets] = await Promise.all([openSearch, ...searches])
   const byKey = new Map<string, unknown>()
-  issueSets.flat().forEach(issue => {
+  ;[openResult, ...issueSets].flatMap(result => result.issues).forEach(issue => {
     const key = record(issue)?.key
     if (typeof key === 'string') byKey.set(key, issue)
   })
@@ -277,7 +280,12 @@ async function loadJsm(grants: RawGrantValue[]): Promise<{
   })
   return {
     issues,
-    comments: new Map(commentEntries.filter((entry): entry is NonNullable<typeof entry> => entry !== null))
+    comments: new Map(commentEntries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)),
+    openTicketKeys: openResult.issues.flatMap(issue => {
+      const key = record(issue)?.key
+      return typeof key === 'string' ? [key] : []
+    }),
+    openSearchTruncated: openResult.truncated
   }
 }
 
@@ -333,6 +341,8 @@ async function loadFresh(): Promise<ExtensionsResponse> {
     jsmCommentsByTicket,
     grantValues,
     actionRows,
+    openJsmTicketKeys: jsmResult.status === 'fulfilled' ? jsmResult.value.openTicketKeys : [],
+    openJsmSearchTruncated: jsmResult.status === 'fulfilled' && jsmResult.value.openSearchTruncated,
     sourceErrors
   })
 }

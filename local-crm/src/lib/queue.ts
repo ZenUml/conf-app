@@ -36,7 +36,7 @@ export interface QueueRow {
   reason: QueueReason
   /** The stored date this row displays, ISO day. */
   date: string
-  /** Ascending sort key: days until the item stops being actionable. Never rendered. */
+  /** Action urgency retained as data; display order is newest stored date first. */
   score: number
   title: string
   /** Why the row is here, in the words of the rule that put it there. */
@@ -234,6 +234,6 @@ const TODOS: TodoRow[] = [
 
 export function buildQueue({ grants, openRequests, today }: QueueInput): QueueView {
   const rows = [...fromRequests(openRequests, today), ...fromGrants(grants, today)]
-    .sort((a, b) => a.score - b.score || a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
   return { rows, settled: settledTail(grants, today), todos: TODOS }
 }

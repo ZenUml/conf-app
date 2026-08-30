@@ -4,11 +4,11 @@ import { buildQueue, type QueueRow } from '@/lib/queue'
 import { useCrmStore } from '@/stores/crm'
 
 /**
- * Today is one queue: what the next move belongs to us on, soonest first.
+ * Today is one queue: what the next move belongs to us on, newest first.
  *
  * No title, no bands, no filters, no rail. A row states the rule that put it there
- * and carries the facts the decision needs. The score that orders the list is never
- * rendered — each row shows its own stored date.
+ * and carries the facts the decision needs. Action score is never rendered; each row
+ * shows its own stored date and the list orders those dates newest first.
  */
 
 const LIFECYCLE_LABEL: Record<string, string> = {

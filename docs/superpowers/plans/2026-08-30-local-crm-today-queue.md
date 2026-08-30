@@ -40,8 +40,9 @@ the customer, and a queue that lists them is not a day's work.
 
 ## Ordering
 
-One numeric score per row, ascending. The score is days until the item stops being
-actionable, computed from stored fields only:
+Cards display newest to oldest by their stored date. The numeric score remains
+available as action context only; it does not control display order. It is days
+until the item stops being actionable, computed from stored fields only:
 
 - waiting on support / in progress → `0`
 - expiry → days until `expiresAt`

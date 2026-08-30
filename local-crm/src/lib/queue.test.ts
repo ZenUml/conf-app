@@ -118,7 +118,7 @@ describe('what enters the queue', () => {
 })
 
 describe('ordering', () => {
-  it('puts the soonest action first and never shows the score', () => {
+  it('puts the newest stored date first while retaining the action score', () => {
     const idle = (days: number) => {
       const date = new Date(`${TODAY}T00:00:00.000Z`)
       date.setUTCDate(date.getUTCDate() - days)
@@ -132,9 +132,8 @@ describe('ordering', () => {
       ]),
       today: TODAY
     })
-    // overdue nudge first (negative), then act-today, then the expiry two days out
-    expect(rows.map(row => row.ticketKey ?? row.id)).toEqual(['ZEN-STALE', 'ZEN-NOW', 'expiry:soon'])
-    expect(rows.map(row => row.score)).toEqual([-417, 0, 2]) // 507 idle days is past the close threshold, not the nudge one
+    expect(rows.map(row => row.ticketKey ?? row.id)).toEqual(['expiry:soon', 'ZEN-NOW', 'ZEN-STALE'])
+    expect(rows.map(row => row.score)).toEqual([2, 0, -417]) // 507 idle days is past the close threshold, not the nudge one
   })
 
   it('opens the grant case behind an expiry row, and nothing behind a request', () => {
@@ -153,7 +152,7 @@ describe('ordering', () => {
       openRequests: stream([request({})]),
       today: TODAY
     })
-    expect(rows.map(row => row.date)).toEqual(['2026-08-29', '2026-09-01'])
+    expect(rows.map(row => row.date)).toEqual(['2026-09-01', '2026-08-29'])
   })
 })
 

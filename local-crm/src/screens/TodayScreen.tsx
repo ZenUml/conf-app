@@ -2,7 +2,7 @@ import Chip from '@/components/Chip'
 import EventCard from '@/components/EventCard'
 import SectionLabel from '@/components/SectionLabel'
 import { todayGrantMode } from '@/data/todayApi'
-import { count, requestedLabel } from '@/lib/format'
+import { count } from '@/lib/format'
 import { PRODUCT } from '@/lib/palette'
 import { useCrmStore } from '@/stores/crm'
 import type { FeedFilter } from '@/lib/derive'
@@ -28,14 +28,6 @@ export default function TodayScreen() {
     lifecycleLoad
   } = useCrmStore()
   const grantMode = todayGrantMode(extensionsLoad)
-  const openRequests = extensionsLoad.openRequests
-  const withoutCurrentGrant = openRequests?.rows.filter(row => row.currentGrant === 'not_observed') ?? []
-  const sourceLabels = {
-    marketplace: 'Marketplace',
-    jsm: 'JSM',
-    space_license_kv: 'grant KV',
-    extension_action_d1: 'action D1'
-  } as const
   const maxStepCount = Math.max(
     1,
     ...(lifecycleLoad.data
@@ -54,117 +46,6 @@ export default function TodayScreen() {
 
   return (
     <div className="px-6 pb-7 pt-5">
-      <section
-        data-testid="today-grant-source-status"
-        data-grant-mode={grantMode}
-        className={`mb-5 rounded-lg border px-4 py-3 ${
-          grantMode === 'live'
-            ? 'border-[color:var(--color-success)] bg-bg1'
-            : grantMode === 'partial'
-              ? 'border-[color:var(--accent-drawio-500)] bg-bg1'
-              : grantMode === 'unavailable'
-                ? 'border-[color:var(--color-danger)] bg-bg1'
-                : 'border-line bg-bg1'
-        }`}
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="max-w-[760px]">
-            <div className="text-body-sm font-semibold">
-              {grantMode === 'live'
-                ? 'Live grant and expiry rows'
-                : grantMode === 'partial'
-                  ? 'Partial live grant and expiry rows'
-                  : grantMode === 'unavailable'
-                    ? 'Grant and expiry rows unavailable'
-                    : 'Loading live grant and expiry rows…'}
-            </div>
-            <div className="mt-1 text-micro leading-6 text-fg2">
-              {grantMode === 'live' || grantMode === 'partial'
-                ? `Current grant records come from SPACE_LICENSE_KV${extensionsLoad.generatedAt ? `, read ${new Date(extensionsLoad.generatedAt).toLocaleString()}` : ''}. Expiry rows are derived from current expiresAt; they are not stored expiry history.${grantMode === 'partial' ? ' Some context or timestamp evidence remains explicitly unavailable.' : ''}`
-                : grantMode === 'unavailable'
-                  ? `${extensionsLoad.error ?? 'The authoritative grant KV read is unavailable.'} No sanitized grant or expiry rows are substituted.`
-                  : 'The authoritative grant KV read is in progress. No sanitized grant or expiry rows are substituted.'}
-            </div>
-            <div
-              data-testid="today-fixture-notice"
-              className="mt-1 text-micro leading-6 text-fg3"
-            >
-              Registration event history is unavailable: the local Marketplace ingest proves current contacts, not when an installation was registered. No synthetic registration rows are shown.
-            </div>
-          </div>
-          {extensionsLoad.sources ? (
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(extensionsLoad.sources).map(([key, source]) => (
-                <span
-                  key={key}
-                  data-testid={`today-source-${key}`}
-                  className="rounded-full border border-line bg-bg2 px-2 py-1 font-mono text-micro text-fg2"
-                >
-                  {sourceLabels[key as keyof typeof sourceLabels]} · {source.records} · {source.state}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </section>
-      <section
-        data-testid="today-open-jsm-requests"
-        className="mb-5 rounded-lg border border-line bg-bg1 px-4 py-3"
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="max-w-[760px]">
-            <SectionLabel>Open JSM extension requests</SectionLabel>
-            <div className="mt-1 text-micro leading-6 text-fg2">
-              {openRequests
-                ? openRequests.detail
-                : 'Waiting for the shared JSM and current grant KV snapshot. No fixture requests are shown.'}
-            </div>
-          </div>
-          {openRequests ? (
-            <div className="flex flex-wrap gap-1.5 font-mono text-micro text-fg2">
-              {openRequests.state === 'truncated' ? (
-                <span className="rounded-full border border-rust-100 bg-bg2 px-2 py-1 text-rust-800">fetched subset</span>
-              ) : null}
-              <span className="rounded-full border border-line bg-bg2 px-2 py-1">
-                {count(openRequests.summary.currentGrantObserved)} current grant observed
-              </span>
-              <span className="rounded-full border border-rust-100 bg-bg2 px-2 py-1 text-rust-800">
-                {count(openRequests.summary.noCurrentGrantObserved)} no current grant observed
-              </span>
-              <span className="rounded-full border border-line bg-bg2 px-2 py-1">
-                {count(openRequests.summary.insufficientEvidence)} insufficient evidence
-              </span>
-            </div>
-          ) : null}
-        </div>
-        {openRequests?.state === 'unavailable' ? (
-          <div className="mt-3 text-micro leading-6 text-fg3">
-            No request rows are asserted while either JSM or the current grant KV is unavailable.
-          </div>
-        ) : withoutCurrentGrant.length ? (
-          <div className="mt-3 flex flex-col gap-2">
-            {withoutCurrentGrant.map(row => (
-              <div key={row.ticketKey} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border border-rust-100 bg-bg2 px-3 py-2">
-                <span className="font-mono text-body-sm font-semibold">{row.ticketKey}</span>
-                <span className="rounded-full border border-rust-100 px-2 py-0.5 font-mono text-micro text-rust-800">
-                  no current grant observed
-                </span>
-                <span className="text-micro text-fg2">{row.status ?? 'status unavailable'}</span>
-                <span className="text-micro text-fg3">
-                  {requestedLabel(row.createdAt) ? `requested ${requestedLabel(row.createdAt)}` : 'request date unavailable'}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : openRequests ? (
-          <div className="mt-3 text-micro leading-6 text-fg3">
-            No fetched open JSM requests lack an exact recorded current-grant ticket match.
-          </div>
-        ) : null}
-        <div className="mt-2 text-micro leading-6 text-fg3">
-          “No current grant observed” is not a rejected, denied, or unprocessed verdict. Matching uses only the exact ticket recorded in a current KV grant’s <span className="font-mono">activatedBy</span> value.
-        </div>
-      </section>
       <div className="flex flex-wrap items-start gap-5">
         <div className="min-w-[520px] flex-1">
           <div

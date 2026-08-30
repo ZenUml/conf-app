@@ -37,6 +37,16 @@ function contactId(email, app) {
   return `${app}:${email}`
 }
 
+function parseMeta(value) {
+  if (typeof value !== 'string' || !value) return null
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 export async function loadLifecycleResponse({ fresh = false } = {}) {
   if (!fresh && cached?.expiresAt > Date.now()) return cached.value
   const value = (async () => {
@@ -62,6 +72,15 @@ export async function loadLifecycleResponse({ fresh = false } = {}) {
         firstSeenAt: row.first_seen_at,
         lastSeenAt: row.last_seen_at
       }))
+      const touchpoints = db.prepare(`SELECT id, app, kind, step, meta, created_at
+        FROM lifecycle_touchpoint ORDER BY created_at DESC, id DESC`).all().map(row => ({
+        id: Number(row.id),
+        app: row.app,
+        kind: row.kind,
+        step: row.step ?? null,
+        meta: parseMeta(row.meta),
+        createdAt: row.created_at
+      }))
       const byStep = Object.fromEntries([...new Set(contacts.map(contact => contact.step))].sort().map(step => [step, contacts.filter(contact => contact.step === step).length]))
       return {
         contractVersion: 1,
@@ -79,6 +98,7 @@ export async function loadLifecycleResponse({ fresh = false } = {}) {
           byStep
         },
         contacts,
+        touchpoints,
         previews: APP_KEYS.map(previewFor)
       }
     } finally {

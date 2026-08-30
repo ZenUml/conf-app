@@ -1,5 +1,6 @@
 import { count } from '@/lib/format'
 import { useCrmStore } from '@/stores/crm'
+import { lifecycleTouchpointSummary, localObservationLabel } from '@/data/lifecycleTouchpoints'
 
 export default function AutomationScreen() {
   const { data, extensionsLoad, lifecycleLoad, query } = useCrmStore()
@@ -9,6 +10,8 @@ export default function AutomationScreen() {
     return !needle || [grant.domain, grant.cloudId, grant.space, action.action, action.status].some(value => value?.toLowerCase().includes(needle))
   })
   const d1 = extensionsLoad.sources?.extension_action_d1
+  const touchpoints = lifecycleLoad.data?.touchpoints ?? []
+  const touchpointSummary = lifecycleTouchpointSummary(touchpoints)
 
   return (
     <div className="px-6 pb-7 pt-5">
@@ -35,6 +38,19 @@ export default function AutomationScreen() {
             <p className="mb-3 text-micro text-fg2">
               {lifecycleLoad.data.summary.contacts} contacts across {lifecycleLoad.data.summary.tenants} tenants · {lifecycleLoad.data.summary.suppressed} suppressed · source: {lifecycleLoad.data.source.marketplaceRows} Marketplace rows → local SQLite
             </p>
+            <div className="mb-4 rounded-md border border-line bg-bg2 px-3 py-2">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <h5 className="text-body-sm font-semibold">Local lifecycle observations</h5>
+                <span className="text-micro text-fg2">{touchpointSummary.total} rows in local SQLite · not email sends, delivery, customer contact, or engagement</span>
+              </div>
+              {touchpoints.length ? (
+                <ul className="mt-2 space-y-1 text-micro text-fg2">
+                  {touchpoints.slice(0, 25).map(touchpoint => (
+                    <li key={touchpoint.id}>{localObservationLabel(touchpoint)} · {touchpoint.app} · {touchpoint.createdAt}{touchpoint.meta?.reason ? ` · reason: ${String(touchpoint.meta.reason)}` : ''}</li>
+                  ))}
+                </ul>
+              ) : <p className="mt-2 text-micro text-fg2">No local lifecycle observations are recorded.</p>}
+            </div>
             <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
               {lifecycleLoad.data.previews.map(preview => (
                 <details key={preview.app} className="rounded-md border border-line bg-bg2 px-3 py-2">

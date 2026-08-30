@@ -23,6 +23,15 @@ export interface LifecyclePreview {
   html: string
 }
 
+export interface LifecycleTouchpointRecord {
+  id: number
+  app: AppKey
+  kind: string
+  step: string | null
+  meta: Record<string, unknown> | null
+  createdAt: string
+}
+
 export interface LifecycleResponse {
   contractVersion: typeof LIFECYCLE_CONTRACT_VERSION
   generatedAt: string
@@ -39,5 +48,7 @@ export interface LifecycleResponse {
     byStep: Record<string, number>
   }
   contacts: LifecycleContactRecord[]
+  /** Local records only. They do not prove an email send, delivery, or engagement. */
+  touchpoints: LifecycleTouchpointRecord[]
   previews: LifecyclePreview[]
 }

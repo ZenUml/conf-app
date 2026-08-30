@@ -61,17 +61,25 @@ on:
 # shards do pure test work (no per-shard login), so scaling shards finally cuts
 # wall-clock instead of multiplying auth-flake exposure (the reason an earlier
 # N=4 attempt without dedup was slower). N=4 splits the insert suite, which is
-# 23 tests across 14 files (`--list`, 2026-08-08) since the typed-deeplink and
-# byline specs were added. Variant skips are evaluated at RUN time, so that
+# 17 files (`ls tests/insert`, 2026-08-30) since the typed-deeplink, byline and
+# byline-asyncapi specs were added. Variant skips are evaluated at RUN time, so a
 # static count is an upper bound rather than the Lite figure.
 # Note: `--shard` splits CONTIGUOUSLY by file and can't split within a
 # file, so the dense paywall spec bounds the heaviest shard — and files sort by
-# name, so `byline-create` lands next to `byline-paywall` on shard 1. That is
+# name, so every `byline-*` spec piles onto shard 1. That is
 # why byline-create folds its listing assertion into the create test rather than
-# adding a third slow test to that shard. Measured membership
-# on 2026-08-08: shard 1 = byline-create + byline-paywall + close-guard +
-# edit-graph (6 tests, four of them test.slow() — the shard to watch against the
-# 8-min reap below), shard 4 = typed-deeplink-render + upgrade-prompt.
+# adding a third slow test to that shard.
+#
+# Shard 1 is the one to watch, and it has grown. Measured on the Lite job:
+#   2026-08-08  6 tests         byline-create + byline-paywall + close-guard + edit-graph
+#   2026-08-29  6 tests  3m36s  run 33252116691 (head b15caec)
+#   2026-08-30  8 tests  5m35s  run 33281984333 (head 6b1f6f2) — byline-asyncapi
+#                               sorts at #2 of 17 and landed here
+# The Lite caller therefore raises timeout-minutes above the 8 default; the retry
+# arithmetic is on the `E2E: Lite` job in build-test-deploy.yml. If shard 1 grows
+# again, move a byline spec out of the `byline-*` name range rather than raising
+# the ceiling a second time.
+# shard 4 = typed-deeplink-render + upgrade-prompt.
 # typed-deeplink-render builds its own fixture (insert a graph, publish, read
 # back its custom content, paste a link to it on a second page) and is the
 # longest single test; it no longer gets a shard to itself, so if shard 4 starts

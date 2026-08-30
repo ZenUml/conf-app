@@ -1,4 +1,21 @@
-export type MacroType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid' | 'asyncapi';
+/**
+ * Macro types that can be created through the REST API, and therefore have a
+ * fixture page in the render suite. `utils/page-registry.ts` (which page id) and
+ * `utils/page-creator.ts` (which emoji) are both keyed on exactly this set.
+ */
+export type RenderMacroType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid';
+
+/**
+ * Every macro an app profile can claim to ship.
+ *
+ * Derived from RenderMacroType rather than re-listed, so the two can never drift
+ * — which is exactly how adding 'asyncapi' broke things: page-registry.ts kept
+ * its OWN hardcoded copy of the five, `macro-test.ts` aliased this type to it,
+ * and widening one made the assignment fail. AsyncAPI is UI-only (no API-created
+ * fixture: Studio owns the document), so it belongs here and NOT in
+ * RenderMacroType.
+ */
+export type MacroType = RenderMacroType | 'asyncapi';
 
 /** Same axis as `PRODUCT_TYPE` in Vite / `scripts/forge-wizard.mjs` (`lite` | `full` | `diagramly` | `asyncapi`). */
 export type ProductType = 'lite' | 'full' | 'diagramly' | 'asyncapi';

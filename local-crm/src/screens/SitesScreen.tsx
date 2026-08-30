@@ -3,9 +3,10 @@ import { count } from '@/lib/format'
 import { PRODUCT } from '@/lib/palette'
 import { useCrmStore } from '@/stores/crm'
 import type { SiteStat } from '@/lib/derive'
+import { MARKETPLACE_TECHNICAL_CONTACT_LABEL } from '@/data/sitesApi'
 
 const GRID =
-  'grid min-w-[696px] grid-cols-[minmax(170px,1.6fr)_96px_minmax(110px,0.9fr)_minmax(150px,1.2fr)_100px] gap-2'
+  'grid min-w-[880px] grid-cols-[minmax(170px,1.45fr)_96px_minmax(110px,0.8fr)_minmax(150px,1.1fr)_minmax(180px,1.2fr)_100px] gap-2'
 
 function statColor(tone: SiteStat['tone']): string {
   if (tone === 'brand') return 'var(--color-primary)'
@@ -14,7 +15,7 @@ function statColor(tone: SiteStat['tone']): string {
 }
 
 export default function SitesScreen() {
-  const { sites, siteStats, query, sitesLoad } = useCrmStore()
+  const { sites, siteStats, query, sitesLoad, lifecycleLoad } = useCrmStore()
 
   return (
     <div className="px-6 pb-7 pt-5">
@@ -50,7 +51,7 @@ export default function SitesScreen() {
 
       <div className="overflow-x-auto rounded-lg border border-line bg-bg1">
         <div className={`${GRID} border-b border-line bg-bg2 px-[18px] py-[9px]`}>
-          {['Client', 'Cloud ID', 'Apps', 'Extensions', 'Source'].map(label => (
+          {['Client', 'Cloud ID', 'Apps', 'Extensions', MARKETPLACE_TECHNICAL_CONTACT_LABEL, 'Source'].map(label => (
             <div key={label} className="lc-label whitespace-nowrap">
               {label}
             </div>
@@ -89,11 +90,16 @@ export default function SitesScreen() {
               >
                 {site.extensions}
               </div>
+              <div className="min-w-0 break-words text-micro text-fg2" title={site.technicalContacts.join(', ')}>
+                {lifecycleLoad.state === 'live'
+                  ? (site.technicalContacts.length ? site.technicalContacts.join(', ') : '—')
+                  : lifecycleLoad.state === 'error' ? 'local contact source unavailable' : 'local contacts loading'}
+              </div>
               <div className="whitespace-nowrap font-mono text-micro text-fg3">{site.last}</div>
             </div>
           ))
         ) : (
-          <div className="min-w-[696px] px-[18px] py-10 text-center text-body-sm text-fg2">
+          <div className="min-w-[880px] px-[18px] py-10 text-center text-body-sm text-fg2">
             {query.trim() ? `No sites match “${query.trim()}”.` : sitesLoad.state === 'loading' ? 'Loading Marketplace sites…' : 'No Marketplace sites are available.'}
           </div>
         )}
@@ -101,7 +107,7 @@ export default function SitesScreen() {
 
       <div className="mt-2 text-micro leading-6 text-fg3">
         Marketplace is authoritative for this inventory. Current editing grants are joined by cloud ID;
-        grant-only tenants with no Marketplace row are kept out of site inventory instead of being invented as sites.
+        grant-only tenants with no Marketplace row are kept out of site inventory instead of being invented as sites. Technical contacts are current Marketplace export records joined by cloud ID, not confirmed Site Contacts.
       </div>
     </div>
   )

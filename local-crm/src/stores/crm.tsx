@@ -251,8 +251,8 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const past = useMemo(() => pastEvents(data, events), [data, events])
   const ahead = useMemo(() => scheduledEvents(data, events), [data, events])
   const allSites = useMemo(
-    () => sitesResponse ? sitesFromResponse(sitesResponse, extensionsData) : [],
-    [sitesResponse, extensionsData]
+    () => sitesResponse ? sitesFromResponse(sitesResponse, extensionsData, lifecycleLoad.data) : [],
+    [sitesResponse, extensionsData, lifecycleLoad.data]
   )
   const allTenants = useMemo(() => buildTenants(data), [data])
   const counts = useMemo(() => filterCounts(past), [past])

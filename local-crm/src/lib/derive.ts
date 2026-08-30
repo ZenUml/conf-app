@@ -250,6 +250,8 @@ export interface SiteRow {
   apps: AppKey[]
   extensions: string
   last: string
+  /** Current Marketplace export contacts joined only by cloud ID; never a site-owner assertion. */
+  technicalContacts: string[]
 }
 
 /**
@@ -302,7 +304,8 @@ export function buildSites(data: Dataset): SiteRow[] {
       extensions: entry.grants
         ? `${plural(entry.grants, 'grant')} · ${entry.active} active`
         : '—',
-      last: human(entry.day)
+      last: human(entry.day),
+      technicalContacts: []
     }))
 }
 

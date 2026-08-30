@@ -86,7 +86,7 @@ function Row({ row, onOpen }: { row: QueueRow; onOpen: (() => void) | null }) {
 }
 
 export default function TodayScreen() {
-  const { data, extensionsLoad, open } = useCrmStore()
+  const { data, extensionsLoad, open, openQueue } = useCrmStore()
   const { rows, settled, todos } = useMemo(
     () => buildQueue({
       grants: data.grants,
@@ -108,7 +108,7 @@ export default function TodayScreen() {
             <Row
               key={row.id}
               row={row}
-              onOpen={row.eventId ? () => open(row.eventId as string) : null}
+              onOpen={row.eventId ? () => open(row.eventId as string) : () => openQueue(row)}
             />
           ))
         )}

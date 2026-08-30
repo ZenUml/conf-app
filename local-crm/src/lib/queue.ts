@@ -1,5 +1,5 @@
 import type { Grant } from '@/data/types'
-import type { OpenExtensionRequest, OpenExtensionRequestStream } from '@/data/extensionsContract'
+import type { ExtensionCommentEvidence, OpenExtensionRequest, OpenExtensionRequestStream } from '@/data/extensionsContract'
 import { count, human } from './format'
 
 /**
@@ -48,6 +48,8 @@ export interface QueueRow {
   cloudId: string | null
   spaceKey: string | null
   requester: string | null
+  /** JSM comment metadata only; bodies are intentionally absent from the contract. */
+  comments: ExtensionCommentEvidence | null
   /** Copy-ready grant command, or null when the site did not resolve. */
   command: string | null
   /**
@@ -165,6 +167,7 @@ function fromRequests(stream: OpenExtensionRequestStream | null, today: string):
       cloudId: row.cloudId,
       spaceKey: row.typedSpace,
       requester: row.requester,
+      comments: row.comments,
       command: grantCommand(row.cloudId, row.typedSpace),
       eventId: null
     }]
@@ -194,6 +197,7 @@ function fromGrants(grants: Grant[], today: string): QueueRow[] {
       cloudId: grant.cloudId ?? null,
       spaceKey: space,
       requester: null,
+      comments: null,
       command: grantCommand(grant.cloudId ?? null, space),
       eventId: grant.id ? `grant:${grant.id}:created` : null
     }]

@@ -47,6 +47,7 @@ import {
 } from '@/lib/derive'
 import { buildCase, type CaseModel } from '@/lib/caseModel'
 import { buildQueue } from '@/lib/queue'
+import type { QueueRow } from '@/lib/queue'
 import { buildActions } from '@/lib/actions'
 
 export type Screen = 'today' | 'sites' | 'extensions' | 'automation'
@@ -57,6 +58,8 @@ export interface CrmState {
   filter: FeedFilter
   /** Selected event id. The drawer is open whenever this is non-null. */
   selected: string | null
+  /** A Today request has no grant event, so its drawer keeps the queue projection. */
+  selectedQueueRow: QueueRow | null
   tab: DrawerTab
   /** Action key awaiting confirmation, as `<eventId>:<actionKey>`. */
   confirming: string | null
@@ -69,6 +72,7 @@ export const INITIAL_CRM_STATE: CrmState = {
   screen: 'today',
   filter: 'all',
   selected: null,
+  selectedQueueRow: null,
   tab: 'evidence',
   confirming: null,
   done: {},
@@ -79,6 +83,7 @@ type CrmAction =
   | { type: 'go'; screen: Screen }
   | { type: 'filter'; filter: FeedFilter }
   | { type: 'open'; id: string }
+  | { type: 'openQueue'; row: QueueRow }
   | { type: 'close' }
   | { type: 'tab'; tab: DrawerTab }
   | { type: 'query'; query: string }
@@ -94,14 +99,17 @@ export function crmReducer(state: CrmState, action: CrmAction): CrmState {
         screen: action.screen,
         filter: 'all',
         selected: null,
+        selectedQueueRow: null,
         confirming: null
       }
     case 'filter':
       return { ...state, filter: action.filter }
     case 'open':
-      return { ...state, selected: action.id, confirming: null, tab: 'evidence' }
+      return { ...state, selected: action.id, selectedQueueRow: null, confirming: null, tab: 'evidence' }
+    case 'openQueue':
+      return { ...state, selected: null, selectedQueueRow: action.row, confirming: null, tab: 'evidence' }
     case 'close':
-      return { ...state, selected: null, confirming: null }
+      return { ...state, selected: null, selectedQueueRow: null, confirming: null }
     case 'tab':
       return { ...state, tab: action.tab }
     case 'query':
@@ -114,6 +122,7 @@ export function crmReducer(state: CrmState, action: CrmAction): CrmState {
       if (action.needsConfirm) {
         return { ...state, confirming: action.key }
       }
+      if (state.confirming === action.key) return state
       return {
         ...state,
         confirming: null,
@@ -148,6 +157,7 @@ export interface CrmStoreValue extends CrmState {
   rules: AutomationRule[]
   navCounts: Record<Screen, number>
   selectedEvent: CaseEvent | null
+  selectedQueueRow: QueueRow | null
   detail: CaseModel | null
   sessionLog: string[]
   extensionsLoad: ExtensionsLoadState
@@ -158,6 +168,7 @@ export interface CrmStoreValue extends CrmState {
   setTab: (tab: DrawerTab) => void
   setQuery: (query: string) => void
   open: (id: string) => void
+  openQueue: (row: QueueRow) => void
   openExtension: (domain: string) => void
   close: () => void
   run: (key: string, needsConfirm: boolean) => void
@@ -394,6 +405,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const setTab = useCallback((tab: DrawerTab) => dispatch({ type: 'tab', tab }), [])
   const setQuery = useCallback((query: string) => dispatch({ type: 'query', query }), [])
   const open = useCallback((id: string) => dispatch({ type: 'open', id }), [])
+  const openQueue = useCallback((row: QueueRow) => dispatch({ type: 'openQueue', row }), [])
   const openExtension = useCallback((domain: string) => {
     const event = latestGrantEventForDomain(events, domain)
     if (event) dispatch({ type: 'open', id: event.id })
@@ -433,6 +445,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       rules,
       navCounts,
       selectedEvent,
+      selectedQueueRow: state.selectedQueueRow,
       detail,
       sessionLog,
       extensionsLoad,
@@ -443,6 +456,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       setTab,
       setQuery,
       open,
+      openQueue,
       openExtension,
       close,
       run,
@@ -461,6 +475,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       rules,
       navCounts,
       selectedEvent,
+      state.selectedQueueRow,
       detail,
       sessionLog,
       extensionsLoad,
@@ -471,6 +486,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       setTab,
       setQuery,
       open,
+      openQueue,
       openExtension,
       close,
       run,

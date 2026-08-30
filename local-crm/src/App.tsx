@@ -1,4 +1,5 @@
 import CaseDrawer from '@/components/drawer/CaseDrawer'
+import QueueRequestDrawer from '@/components/drawer/QueueRequestDrawer'
 import NavRail from '@/components/NavRail'
 import TopBar from '@/components/TopBar'
 import AutomationScreen from '@/screens/AutomationScreen'
@@ -32,6 +33,7 @@ export default function App() {
         </div>
       </main>
       <CaseDrawer />
+      <QueueRequestDrawer />
     </div>
   )
 }

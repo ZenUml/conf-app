@@ -51,7 +51,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('Extensions API frontend adapter', () => {
   it('retains incomplete records and preserves inactive/unknown status without expiry claims', async () => {
     const response: ExtensionsResponse = {
-      contractVersion: 1,
+      contractVersion: 2,
       generatedAt: '2026-08-29T10:00:00.000Z',
       asOf: '2026-08-29',
       sources: {
@@ -107,7 +107,7 @@ describe('Extensions API frontend adapter', () => {
 
   it('marks an otherwise complete response partial when an optional source failed', async () => {
     const response: ExtensionsResponse = {
-      contractVersion: 1,
+      contractVersion: 2,
       generatedAt: '2026-08-29T10:00:00.000Z',
       asOf: '2026-08-29',
       sources: {
@@ -148,7 +148,7 @@ describe('Extensions API frontend adapter', () => {
 
   it('carries source-backed open-request observations without substituting fixture requests', async () => {
     const response: ExtensionsResponse = {
-      contractVersion: 1,
+      contractVersion: 2,
       generatedAt: '2026-08-29T10:00:00.000Z',
       asOf: '2026-08-29',
       sources: {
@@ -168,7 +168,12 @@ describe('Extensions API frontend adapter', () => {
         rows: [{
           ticketKey: 'ZEN-123', status: 'Waiting for support',
           createdAt: '2026-08-20T00:00:00.000Z', updatedAt: null,
-          typedDomain: 'example', typedSpace: 'SPACE', currentGrant: 'not_observed'
+          typedDomain: 'example', typedSpace: 'SPACE', currentGrant: 'not_observed',
+          cloudId: 'cloud-example', requester: 'someone@example.com',
+          macroCount: 128, macrosLimit: 100,
+          priorGrants: { count: 0, activeCount: 0, latestExpiresAt: null },
+          comments: { state: 'known', publicCommentCount: 0, requesterCommentCount: 0,
+            lastCommentAt: null, lastCommentAuthor: null, lastCommentAuthorship: 'unknown', reason: null }
         }],
         summary: { currentGrantObserved: 0, noCurrentGrantObserved: 1, insufficientEvidence: 0 }
       },
@@ -185,7 +190,7 @@ describe('Extensions API frontend adapter', () => {
 
   it('marks a healthy missing Marketplace join as unmatched without turning unknown request fields into mismatches', async () => {
     const response: ExtensionsResponse = {
-      contractVersion: 1,
+      contractVersion: 2,
       generatedAt: '2026-08-29T10:00:00.000Z',
       asOf: '2026-08-29',
       sources: {

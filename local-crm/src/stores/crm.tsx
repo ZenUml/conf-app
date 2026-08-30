@@ -46,6 +46,7 @@ import {
   type TenantRow
 } from '@/lib/derive'
 import { buildCase, type CaseModel } from '@/lib/caseModel'
+import { buildQueue } from '@/lib/queue'
 import { buildActions } from '@/lib/actions'
 
 export type Screen = 'today' | 'sites' | 'extensions' | 'automation'
@@ -291,12 +292,23 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     head: scheduledHead(data, ahead),
     rest: scheduledRest(data, ahead)
   }), [ahead, data])
+  // Today's badge counts the queue itself. It used to count fixture registrations,
+  // a number with no relation to what the screen shows.
+  const queueCount = useMemo(
+    () => buildQueue({
+      grants: extensionsData.grants,
+      openRequests: extensionsLoad.openRequests,
+      today: extensionsData.today
+    }).rows.length,
+    [extensionsData.grants, extensionsData.today, extensionsLoad.openRequests]
+  )
+
   const navCounts = useMemo<Record<Screen, number>>(() => ({
-    today: initialDataset.registrations.length,
+    today: queueCount,
     sites: allSites.length,
     extensions: extensionsData.grants.length,
     automation: extensionsData.grants.reduce((total, grant) => total + (grant.actionAudit?.length ?? 0), 0)
-  }), [allSites.length, extensionsData.grants])
+  }), [allSites.length, extensionsData.grants, queueCount])
 
   const feed = useMemo(() => {
     const rows = past.filter(

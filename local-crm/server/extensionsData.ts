@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   EXTENSIONS_CONTRACT_VERSION,
+  type PriorGrantSummary,
   type ExtensionActionAudit,
   type ExtensionGrantRecord,
   type ExtensionHistoryEntry,
@@ -339,9 +340,39 @@ function originBucket(activatedBy: string | null, ticketKey: string | null): Ext
   return 'other'
 }
 
+/**
+ * Current KV grants for one cloud ID and space. A request for a space that already
+ * holds an active grant is a different decision from a first ask, and nothing in KV
+ * records that a grant was a repeat.
+ */
+function priorGrantsFor(
+  grants: ExtensionGrantRecord[],
+  cloudId: string | null,
+  spaceKey: string | null
+): PriorGrantSummary {
+  if (!cloudId || !spaceKey) return { count: 0, activeCount: 0, latestExpiresAt: null }
+  const matching = grants.filter(grant => grant.cloudId === cloudId && grant.spaceKey === spaceKey)
+  return {
+    count: matching.length,
+    activeCount: matching.filter(grant => grant.status === 'active').length,
+    latestExpiresAt: matching
+      .map(grant => grant.expiresAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) ?? null
+  }
+}
+
 export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsResponse {
   const sourceErrors = input.sourceErrors ?? {}
   const marketplace = marketplaceByCloudId(input.marketplaceRows)
+  // The JSM form records a domain, KV records a cloud ID. The Marketplace rows are
+  // the only join between them, and a request whose domain matches no site keeps a
+  // null cloud ID rather than a guess.
+  const cloudIdByDomain = new Map<string, string>()
+  marketplace.forEach((site, cloudId) => {
+    if (site.domain && !cloudIdByDomain.has(site.domain)) cloudIdByDomain.set(site.domain, cloudId)
+  })
   const issues = input.jsmIssues
     .map(parseJsmIssue)
     .filter((value): value is ParsedJsmIssue => value !== null)
@@ -527,6 +558,11 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
         rows: openRequestTicketKeys
           .map(ticketKey => {
             const issue = issuesByTicket.get(ticketKey)
+            // The queue decides grant-or-refuse from the row itself, so the row
+            // carries what that decision needs: where the site is, who asked, how
+            // far past the limit they are, and whether this space was granted
+            // before. Every field here is already parsed above.
+            const cloudId = issue?.typedDomain ? (cloudIdByDomain.get(issue.typedDomain) ?? null) : null
             return {
               ticketKey,
               status: issue?.status ?? null,
@@ -536,7 +572,16 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
               typedSpace: issue?.typedSpace ?? null,
               currentGrant: (issue
                 ? (recordedGrantTickets.has(ticketKey) ? 'observed' : 'not_observed')
-                : 'insufficient') as 'observed' | 'not_observed' | 'insufficient'
+                : 'insufficient') as 'observed' | 'not_observed' | 'insufficient',
+              cloudId,
+              requester: issue?.requester ?? null,
+              macroCount: issue?.macroCount ?? null,
+              macrosLimit: issue?.macrosLimit ?? null,
+              priorGrants: priorGrantsFor(grants, cloudId, issue?.typedSpace ?? null),
+              comments: commentEvidence(
+                input.jsmCommentsByTicket.get(ticketKey),
+                issue?.requesterAccountId ?? null
+              )
             }
           })
           .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.ticketKey.localeCompare(b.ticketKey)),

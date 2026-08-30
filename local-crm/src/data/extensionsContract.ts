@@ -1,4 +1,4 @@
-export const EXTENSIONS_CONTRACT_VERSION = 1 as const
+export const EXTENSIONS_CONTRACT_VERSION = 2 as const
 
 export type ExtensionSourceName =
   | 'marketplace'
@@ -95,6 +95,13 @@ export interface ExtensionOriginBucket {
  * exact ticket match says only that this KV snapshot does not currently
  * observe a grant for that request; it does not imply rejection or denial.
  */
+/** What one prior grant history says about the space a request names. */
+export interface PriorGrantSummary {
+  count: number
+  activeCount: number
+  latestExpiresAt: string | null
+}
+
 export interface OpenExtensionRequest {
   ticketKey: string
   status: string | null
@@ -103,6 +110,15 @@ export interface OpenExtensionRequest {
   typedDomain: string | null
   typedSpace: string | null
   currentGrant: 'observed' | 'not_observed' | 'insufficient'
+  /** Resolved from the Marketplace rows by typed domain; null when no site matches. */
+  cloudId: string | null
+  requester: string | null
+  /** As the requester typed it into the JSM form, against the plan's own limit. */
+  macroCount: number | null
+  macrosLimit: number | null
+  /** Current KV grants for the same cloud ID and space, so a repeat ask is visible. */
+  priorGrants: PriorGrantSummary
+  comments: ExtensionCommentEvidence
 }
 
 export interface OpenExtensionRequestStream {

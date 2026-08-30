@@ -1219,6 +1219,7 @@ EventBus.$on('edit', async(params: any) => {
 // top of the page; each editor's mount logic emits the event on reopen.
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from '@/model/saveFailureDiagnosis';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
@@ -1284,9 +1285,20 @@ EventBus.$on('save', async () => {
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+      error_code: (error as any)?.code,
+      error_shape: (error as any)?.errorShape,
       macro_type: store.state.diagram.diagramType as MacroTypeValue,
     });
-    toast({ message: 'Failed to save. Please try again.', duration: 5000 });
+    // A create-time 404 is probed once (save_failed_diagnosed) so the toast can
+    // name a missing space permission instead of inviting a retry that cannot
+    // succeed — see model/saveFailureDiagnosis.ts. Any other failure keeps the
+    // generic copy; the dialog stays open either way.
+    const message = await diagnoseSaveFailure(
+      error,
+      { surface: 'editor', macro_type: store.state.diagram.diagramType as MacroTypeValue },
+      globals.apWrapper,
+    );
+    toast({ message, duration: message === GENERIC_SAVE_FAILED_MESSAGE ? 5000 : 12000 });
     // Do NOT close the dialog — let the user retry
     return;
   }

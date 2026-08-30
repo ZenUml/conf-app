@@ -12,7 +12,7 @@ import store from '@/model/store2'
 import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
-import { resetAiTitleFlagForTests } from '@/apis/aiTitleFeatureFlag'
+import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
 
@@ -113,7 +113,7 @@ function stubForge(moduleKey?: string, architectureTokensEnabled = false, custom
 }
 
 function stubFeatureFlags(architectureTokensEnabled: boolean) {
-  resetAiTitleFlagForTests()
+  resetFeatureFlagsForTests()
   FeatureFlags.prototype.checkFlag = function (key: string, defaultValue = false) {
     return key === 'architecture-tokens-enabled' ? architectureTokensEnabled : defaultValue
   }

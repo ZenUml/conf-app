@@ -74,7 +74,6 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
   };
 
   useEffect(() => {
-    let active = true;
     autoTitle.reset();
     setState(snapshot(autoTitle));
     const stop = watch(
@@ -104,14 +103,10 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
       { flush: 'sync' },
     );
 
-    void autoTitle.initFlag().then(() => {
-      if (!active) return;
-      setState(snapshot(autoTitle));
-      if (autoTitle.aiTitleEnabled.value) scheduleAutoGenerate();
-    });
+    setState(snapshot(autoTitle));
+    scheduleAutoGenerate();
 
     return () => {
-      active = false;
       stop();
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       autoTitle.reset();

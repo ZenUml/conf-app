@@ -1,7 +1,6 @@
 import { FeatureFlags, type FeatureFlagUser, type ForgeFeatureFlagConfig } from '@forge/bridge'
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
-const AI_TITLE_FLAG_ID = 'ai-title-enabled'
 const AI_CHAT_FLAG_ID = 'ai-chat-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
@@ -9,14 +8,6 @@ const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
-
-function standaloneAiTitleEnabled(): boolean {
-  try {
-    return localStorage.getItem('mockAiTitleEnabled') !== 'false'
-  } catch {
-    return true
-  }
-}
 
 function standaloneAiRepairEnabled(): boolean {
   try {
@@ -84,13 +75,6 @@ async function getFeatureFlagsClient(): Promise<FeatureFlags> {
   }
 }
 
-export async function isAiTitleEnabled(): Promise<boolean> {
-  if (!forgeGlobal.isForge) return standaloneAiTitleEnabled()
-
-  const client = await getFeatureFlagsClient()
-  return client.checkFlag(AI_TITLE_FLAG_ID, false)
-}
-
 export async function isAiRepairEnabled(): Promise<boolean> {
   if (!forgeGlobal.isForge) return standaloneAiRepairEnabled()
 
@@ -134,7 +118,7 @@ export async function isArchitectureTokensEnabled(): Promise<boolean> {
   return client.checkFlag(ARCHITECTURE_TOKENS_FLAG_ID, false)
 }
 
-export function resetAiTitleFlagForTests(): void {
+export function resetFeatureFlagsForTests(): void {
   featureFlags?.shutdown()
   featureFlags = undefined
   initializePromise = undefined

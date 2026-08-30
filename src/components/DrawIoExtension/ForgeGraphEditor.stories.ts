@@ -68,7 +68,6 @@ function configureStory({
   clearDraftKeys()
   setupForge()
   ;(useAutoTitle as any).__resetForTests?.()
-  localStorage.setItem('mockAiTitleEnabled', 'false')
   store.commit('updateDiagramType', DiagramType.Graph)
   store.commit('updateTitle', title)
   ;(store.state as any).diagram.isNew = isNew

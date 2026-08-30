@@ -40,80 +40,15 @@ vi.mock('@forge/bridge', () => ({
 
 import {
   isAiChatEnabled,
-  isAiTitleEnabled,
   isAiRepairEnabled,
   isAgentLinkEnabled,
   isArchitectureTokensEnabled,
-  resetAiTitleFlagForTests,
+  resetFeatureFlagsForTests,
 } from './aiTitleFeatureFlag'
-
-describe('isAiTitleEnabled', () => {
-  beforeEach(() => {
-    resetAiTitleFlagForTests()
-    forgeState.isForge = true
-    forgeState.context = {
-      cloudId: 'cloud-1',
-      accountId: 'account-1',
-      environmentType: 'STAGING',
-    }
-    featureFlagsState.instances = []
-    featureFlagsState.nextValue = true
-    featureFlagsState.initializeError = undefined
-    featureFlagsState.checkError = undefined
-    localStorage.clear()
-  })
-
-  it('checks the Forge ai-title-enabled flag using site, account, and environment context', async () => {
-    await expect(isAiTitleEnabled()).resolves.toBe(true)
-
-    const instance = featureFlagsState.instances[0]
-    expect(instance.initialize).toHaveBeenCalledWith(
-      {
-        identifiers: {
-          installContext: 'ari:cloud:confluence::site/cloud-1',
-          accountId: 'account-1',
-        },
-        attributes: {
-          installContext: 'ari:cloud:confluence::site/cloud-1',
-          accountId: 'account-1',
-        },
-      },
-      { environment: 'staging' },
-    )
-    expect(instance.checkFlag).toHaveBeenCalledWith('ai-title-enabled', false)
-  })
-
-  it('reuses the initialized Forge client between checks', async () => {
-    await isAiTitleEnabled()
-    await isAiTitleEnabled()
-
-    expect(featureFlagsState.instances).toHaveLength(1)
-    expect(featureFlagsState.instances[0].initialize).toHaveBeenCalledTimes(1)
-    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledTimes(2)
-  })
-
-  it('defaults to enabled in standalone local dev unless localStorage disables it', async () => {
-    forgeState.isForge = false
-    await expect(isAiTitleEnabled()).resolves.toBe(true)
-
-    localStorage.setItem('mockAiTitleEnabled', 'false')
-    await expect(isAiTitleEnabled()).resolves.toBe(false)
-    expect(featureFlagsState.instances).toHaveLength(0)
-  })
-
-  it('retries Forge initialization after a transient SDK failure', async () => {
-    featureFlagsState.initializeError = new Error('temporary bridge failure')
-    await expect(isAiTitleEnabled()).rejects.toThrow('temporary bridge failure')
-
-    featureFlagsState.initializeError = undefined
-    await expect(isAiTitleEnabled()).resolves.toBe(true)
-    expect(featureFlagsState.instances).toHaveLength(2)
-  })
-})
 
 describe('isAiRepairEnabled', () => {
   beforeEach(() => {
-    resetAiTitleFlagForTests()
+    resetFeatureFlagsForTests()
     forgeState.isForge = true
     forgeState.context = {
       cloudId: 'cloud-1',
@@ -134,7 +69,7 @@ describe('isAiRepairEnabled', () => {
     expect(instance.checkFlag).toHaveBeenCalledWith('ai-repair-enabled', false)
   })
 
-  it('reuses the initialized Forge client shared with ai-title-enabled', async () => {
+  it('reuses the initialized Forge client between checks', async () => {
     await isAiRepairEnabled()
     await isAiRepairEnabled()
 
@@ -155,7 +90,7 @@ describe('isAiRepairEnabled', () => {
 
 describe('isAiChatEnabled', () => {
   beforeEach(() => {
-    resetAiTitleFlagForTests()
+    resetFeatureFlagsForTests()
     forgeState.isForge = true
     forgeState.context = {
       cloudId: 'cloud-1',
@@ -176,14 +111,13 @@ describe('isAiChatEnabled', () => {
     expect(instance.checkFlag).toHaveBeenCalledWith('ai-chat-enabled', false)
   })
 
-  it('reuses the feature flag client shared with the existing AI flags', async () => {
-    await isAiTitleEnabled()
+  it('reuses the feature flag client across AI feature checks', async () => {
     await isAiRepairEnabled()
     await isAiChatEnabled()
 
     expect(featureFlagsState.instances).toHaveLength(1)
     expect(featureFlagsState.instances[0].initialize).toHaveBeenCalledTimes(1)
-    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledTimes(3)
+    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledTimes(2)
   })
 
   it('defaults to enabled in standalone local dev unless localStorage disables it', async () => {
@@ -223,7 +157,7 @@ describe('isAiChatEnabled', () => {
 
 describe('isAgentLinkEnabled', () => {
   beforeEach(() => {
-    resetAiTitleFlagForTests()
+    resetFeatureFlagsForTests()
     forgeState.isForge = true
     forgeState.context = {
       cloudId: 'cloud-1',
@@ -252,7 +186,7 @@ describe('isAgentLinkEnabled', () => {
     await expect(isAgentLinkEnabled()).resolves.toBe(false)
   })
 
-  it('reuses the initialized Forge client shared with ai-title-enabled / ai-repair-enabled', async () => {
+  it('reuses the initialized Forge client between checks', async () => {
     await isAgentLinkEnabled()
     await isAgentLinkEnabled()
 
@@ -273,7 +207,7 @@ describe('isAgentLinkEnabled', () => {
 
 describe('isArchitectureTokensEnabled', () => {
   beforeEach(() => {
-    resetAiTitleFlagForTests()
+    resetFeatureFlagsForTests()
     forgeState.isForge = true
     forgeState.context = {
       cloudId: 'cloud-1',

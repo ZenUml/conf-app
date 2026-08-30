@@ -409,6 +409,10 @@ export default defineConfig(({ command }) => ({
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.
       '**/vendor/asyncapi-studio/**',
+      // local-crm is its own package with its own vitest config: its `@` alias
+      // points at local-crm/src, which this config resolves to the app's src.
+      // Collecting it here fails at import. CI runs it as its own step.
+      '**/local-crm/**',
     ],
   },
   server: {

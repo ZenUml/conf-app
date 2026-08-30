@@ -29,6 +29,15 @@ describe('date parsing under hostile input', () => {
     expect(() => iso('30 Sept')).toThrow()
   })
 
+  it('rejects nonexistent calendar dates while respecting month length and leap years', () => {
+    expect(() => iso('31 Feb')).toThrow()
+    expect(() => iso('31 Apr')).toThrow()
+    expect(() => iso('29 Feb 23')).toThrow()
+    expect(iso('29 Feb 24')).toBe('2024-02-29')
+    expect(iso('30 Apr')).toBe('2026-04-30')
+    expect(iso('31 Jan')).toBe('2026-01-31')
+  })
+
   it('offers a non-throwing reader for values that may be absent', () => {
     expect(isoOrNull('unknown')).toBeNull()
     expect(isoOrNull('27 Aug 25')).toBe('2025-08-27')

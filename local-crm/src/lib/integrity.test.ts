@@ -372,4 +372,73 @@ describe('reviewed lifecycle integrity rules', () => {
 
     expect(latest?.grant?.id).toBe('grant_z')
   })
+
+  it('keeps idless same-day grant event ids stable and unique across input order', () => {
+    const base = data.grants[0]
+    const firstGrant = {
+      ...base,
+      id: undefined,
+      domain: 'same-tenant',
+      space: 'SAME',
+      wide: false,
+      userAccountId: 'requester-a',
+      created: '25 Jul',
+      origin: 'ZEN-990002',
+      requestTicket: 'ZEN-990002'
+    }
+    const secondGrant = {
+      ...base,
+      id: undefined,
+      domain: 'same-tenant',
+      space: 'SAME',
+      wide: false,
+      userAccountId: 'requester-b',
+      created: '25 Jul',
+      origin: 'ZEN-990003',
+      requestTicket: 'ZEN-990003'
+    }
+    const eventsFor = (grants: typeof data.grants) => buildEvents({
+      ...data,
+      registrations: [],
+      grants
+    }).filter(event => event.kind === 'granted')
+
+    const forward = eventsFor([firstGrant, secondGrant])
+    const reversed = eventsFor([secondGrant, firstGrant])
+    const idByGrant = (rows: typeof forward) => Object.fromEntries(
+      rows.map(event => [
+        `${event.grant?.requestTicket}:${event.grant?.userAccountId}`,
+        event.id
+      ])
+    )
+
+    expect(new Set(forward.map(event => event.id))).toHaveLength(2)
+    expect(idByGrant(reversed)).toEqual(idByGrant(forward))
+    forward.forEach(card => {
+      const selected = forward.filter(event => event.id === card.id)
+      expect(selected).toEqual([card])
+      expect(selected[0].grant).toMatchObject({
+        requestTicket: card.grant?.requestTicket,
+        userAccountId: card.grant?.userAccountId
+      })
+    })
+  })
+
+  it('does not assign today to a grant whose created date is unavailable', () => {
+    const grant = {
+      ...data.grants[0],
+      id: 'grant_without_created_day',
+      created: 'unknown',
+      createdAt: undefined,
+      sourceObservedAt: undefined,
+      status: 'active' as const,
+      active: true
+    }
+    const isolated = { ...data, registrations: [], grants: [grant] }
+    const rows = buildEvents(isolated).filter(event => event.grant === grant)
+
+    expect(rows.find(event => event.kind === 'granted')).toBeUndefined()
+    expect(rows.find(event => event.kind === 'expired')?.day).toBe('2026-09-22')
+    expect(rows.some(event => event.day === data.today)).toBe(false)
+  })
 })

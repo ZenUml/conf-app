@@ -45,6 +45,25 @@ export interface FeedDay {
 }
 
 /**
+ * Live grants carry an id derived from their authoritative KV key. Older and
+ * fixture rows do not, so identify those from the source facts that distinguish
+ * one grant from another instead of their current array position.
+ */
+function grantEventId(grant: Grant): string {
+  if (grant.id) return grant.id
+  const identity = [
+    grant.cloudId ?? grant.domain,
+    grant.space,
+    grant.wide ? 'space' : `user:${grant.userAccountId ?? 'unknown'}`,
+    grant.createdAt ?? grant.created,
+    grant.ticketKey ?? '',
+    grant.requestTicket ?? '',
+    grant.activatedBy ?? grant.origin
+  ].join('\u0000')
+  return `derived-${encodeURIComponent(identity)}`
+}
+
+/**
  * One reverse-chronological stream: a licence row appearing for the first time,
  * an editing extension granted, and that grant running out.
  *
@@ -72,14 +91,14 @@ export function buildEvents(data: Dataset): CaseEvent[] {
     })
   })
 
-  data.grants.forEach((grant, index) => {
+  data.grants.forEach(grant => {
     const site = hostname(grant.domain)
     const scope = grant.wide ? 'whole space' : 'one requester'
-    const grantId = grant.id ?? `fixture-${index}`
+    const grantId = grantEventId(grant)
     const status = grantStatusOf(grant)
     const createdDay = grantCreatedDay(grant)
     const expiryDay = grantExpiryDay(grant)
-    const eventDay = createdDay ?? grant.sourceObservedAt?.slice(0, 10) ?? data.today
+    const eventDay = createdDay ?? grant.sourceObservedAt?.slice(0, 10)
     const timing = status === 'active'
       ? `Runs to ${grant.expires}.`
       : status === 'expired'
@@ -87,19 +106,21 @@ export function buildEvents(data: Dataset): CaseEvent[] {
         : status === 'inactive'
           ? `KV status is inactive; recorded expiresAt is ${grant.expires}.`
           : `Current grant status is unknown; recorded expiresAt is ${grant.expires}.`
-    out.push({
-      id: `grant:${grantId}:created`,
-      day: eventDay,
-      kind: 'granted',
-      grant,
-      space: grant.space,
-      who: site,
-      tag: createdDay ? `${grant.days ?? 'duration-unknown'} extension` : 'observed grant · createdAt unknown',
-      chip: 'grant',
-      dot: 'var(--color-primary)',
-      what: `${createdDay ? 'Editing extension' : 'Current extension record observed; createdAt is unknown'} on space ${grant.space}, scoped to ${scope}. ${timing}`,
-      meta: `${grantState(data, grant)[0]} · requester ${requesterOf(data, grant)}`
-    })
+    if (eventDay) {
+      out.push({
+        id: `grant:${grantId}:created`,
+        day: eventDay,
+        kind: 'granted',
+        grant,
+        space: grant.space,
+        who: site,
+        tag: createdDay ? `${grant.days ?? 'duration-unknown'} extension` : 'observed grant · createdAt unknown',
+        chip: 'grant',
+        dot: 'var(--color-primary)',
+        what: `${createdDay ? 'Editing extension' : 'Current extension record observed; createdAt is unknown'} on space ${grant.space}, scoped to ${scope}. ${timing}`,
+        meta: `${grantState(data, grant)[0]} · requester ${requesterOf(data, grant)}`
+      })
+    }
     if ((status === 'active' || status === 'expired') && expiryDay) {
       out.push({
         id: `grant:${grantId}:expires`,

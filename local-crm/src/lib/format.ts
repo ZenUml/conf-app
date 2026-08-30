@@ -42,7 +42,11 @@ export function iso(value: string): string {
   const month = MONTHS[monthName]
   if (!month) throw new RangeError(`iso: unknown month ${JSON.stringify(monthName)}`)
   const dayNumber = Number(day)
-  if (dayNumber < 1 || dayNumber > 31) {
+  const year = Number(shortYear ? `20${shortYear}` : bareDateYear)
+  const monthNumber = Number(month)
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][monthNumber - 1]
+  if (dayNumber < 1 || dayNumber > daysInMonth) {
     throw new RangeError(`iso: day out of range ${JSON.stringify(value)}`)
   }
   return `${shortYear ? `20${shortYear}` : bareDateYear}-${month}-${day.padStart(2, '0')}`

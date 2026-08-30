@@ -56,11 +56,14 @@ Open JSM requests without a current KV grant are outside this slice.
 `GET /api/local-crm/sites` is a separate, read-only loopback route. It returns
 the full Marketplace inventory grouped by cloud ID, including app coverage and
 license-row counts. It deliberately does not include Marketplace contact
-blocks. There is no source-backed registration, recipient-contact, assignment,
-or workflow-configuration contract yet. The repository has a local
-welcome-email CLI and templates, but production lifecycle-contact migration
-0024 is not applied; Local CRM consequently has no recipient-level preview or
-send action.
+blocks. Local CRM also owns a loopback-only lifecycle import: it writes
+Marketplace technical-contact rows into ignored `local-crm/.local/lifecycle.sqlite`
+as bootstrap-suppressed records and serves read-only contact rows plus the four
+Welcome-template previews. This is current-contact inventory, not registration
+history. Production migration 0024 exists but no lifecycle ingest Worker is
+running; Local CRM does not depend on it. There is still no source-backed
+assignment, Site Contact, workflow-configuration, delivery, engagement, or
+recipient eligibility contract. There is no send endpoint.
 
 Verification commands:
 

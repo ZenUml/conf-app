@@ -40,6 +40,29 @@ body {
   overflow-y: scroll;
 }
 
+#swagger-editor {
+  position: relative;
+}
+
+.swagger-editor-workspace {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.swagger-editor-workspace.code-editor-hidden #swagger-editor .Pane1,
+.swagger-editor-workspace.code-editor-hidden #swagger-editor .Resizer {
+  display: none !important;
+}
+
+.swagger-editor-workspace.code-editor-hidden #swagger-editor .Pane2 {
+  width: auto !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+}
+
 .save-and-exit {
   position: fixed;
   z-index: 1000;

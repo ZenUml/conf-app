@@ -1,8 +1,26 @@
 const typeMap = {
-  'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML'},
+  'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML', subTypeKey: 'GENERAL'},
   'mermaid': {diagramType: 'flow', languageKey: 'LANG_MERMAID', subTypeKey: "FLOWCHART"},
-  'OpenAPI': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI'},
-  'plantuml': {diagramType: 'plantuml', languageKey: 'LANG_PLANTUML'},
+  'OpenAPI': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI', subTypeKey: 'GENERAL'},
+  'openapi': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI', subTypeKey: 'GENERAL'},
+  'plantuml': {diagramType: 'plantuml', languageKey: 'LANG_PLANTUML', subTypeKey: 'GENERAL'},
+}
+
+function getTypeInfo(diagramType = 'sequence') {
+  const typeInfo = typeMap[diagramType];
+  if (!typeInfo) {
+    throw new Error(`Unsupported diagram type for AI Chat: ${diagramType}`);
+  }
+  return typeInfo;
+}
+
+function extractJobId(result) {
+  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+  if (!jobId) {
+    console.error('[modifyDiagram] No jobId found in response:', result);
+    throw new Error('No jobId returned from Diagramly API');
+  }
+  return jobId;
 }
 
 // Asynchronous diagram modification - returns jobId for polling
@@ -13,7 +31,7 @@ export async function modifyDiagram(
   diagramType = 'sequence',
   options = {},
 ) {
-  const typeInfo = typeMap[diagramType];
+  const typeInfo = getTypeInfo(diagramType);
 
   const command = `Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.`;
 
@@ -32,20 +50,90 @@ export async function modifyDiagram(
 
   const result = await callDiagramly(context, `/api/chat/modify-async`, diagramData);
 
-  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+  return { jobId: extractJobId(result) };
+}
 
-  if (!jobId) {
-    console.error('[modifyDiagram] No jobId found in response:', result);
-    throw new Error('No jobId returned from Diagramly API');
+export async function modifyDiagramWithCommand(context, request) {
+  if (!request.diagramId?.trim()) {
+    throw new Error('Missing diagramId');
+  }
+  if (!request.command?.trim()) {
+    throw new Error('Missing diagram modification command');
   }
 
-  return { jobId };
+  const typeInfo = getTypeInfo(request.diagramType);
+  const result = await callDiagramly(
+    context,
+    '/api/chat/modify-version-async',
+    {
+      diagramId: request.diagramId,
+      diagramCode: request.diagramCode,
+      diagramType: typeInfo.diagramType,
+      languageKey: typeInfo.languageKey,
+      command: request.command,
+      subTypeKey: typeInfo.subTypeKey,
+      ...(request.errorMessage !== undefined
+        ? { errorMessage: request.errorMessage }
+        : {}),
+      ...(request.model !== undefined ? { model: request.model } : {}),
+      ...(request.disableReasoning !== undefined
+        ? { disableReasoning: request.disableReasoning }
+        : {}),
+    },
+  );
+
+  return { jobId: extractJobId(result) };
 }
 
 export async function chat(context, messages) {
   const response = await callDiagramly(context, `/api/chat/messages`, {messages});
 
   return { messages: response.messages };
+}
+
+export async function ensureDiagramlyDiagram(
+  context,
+  diagramCode,
+  diagramType = 'sequence',
+  title,
+  diagramId,
+) {
+  const typeInfo = getTypeInfo(diagramType);
+  const result = await callDiagramly(context, '/api/chat/ensure-diagram', {
+    ...(diagramId ? { diagramId } : {}),
+    ...(diagramCode ? { diagramCode } : {}),
+    ...(title ? { title } : {}),
+    languageKey: typeInfo.languageKey,
+    subTypeKey: typeInfo.subTypeKey,
+  });
+
+  if (!result?.diagramId) {
+    throw new Error('No diagramId returned from Diagramly API');
+  }
+
+  return result;
+}
+
+export async function getDiagramlyVersions(context, diagramId) {
+  if (typeof diagramId !== 'string' || !diagramId.trim()) {
+    throw new Error('Missing diagramId');
+  }
+
+  return callDiagramly(context, '/api/chat/versions', { diagramId });
+}
+
+export async function restoreDiagramlyVersion(context, diagramId, versionId) {
+  if (typeof diagramId !== 'string' || !diagramId.trim()) {
+    throw new Error('Missing diagramId');
+  }
+  if (typeof versionId !== 'string' || !versionId.trim()) {
+    throw new Error('Missing versionId');
+  }
+
+  return callDiagramly(context, '/api/chat/restore-version', {
+    diagramId,
+    versionId,
+  });
 }
 
 export async function getDiagram(context, diagramId) {

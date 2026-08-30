@@ -2,6 +2,7 @@ import { FeatureFlags, type FeatureFlagUser, type ForgeFeatureFlagConfig } from 
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
 const AI_TITLE_FLAG_ID = 'ai-title-enabled'
+const AI_CHAT_FLAG_ID = 'ai-chat-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
@@ -22,6 +23,14 @@ function standaloneAiRepairEnabled(): boolean {
     return localStorage.getItem('mockAiRepairEnabled') !== 'false'
   } catch {
     return true
+  }
+}
+
+function standaloneAiChatEnabled(): boolean {
+  try {
+    return localStorage.getItem('mockAiChatEnabled') !== 'false'
+  } catch {
+    return false
   }
 }
 
@@ -87,6 +96,23 @@ export async function isAiRepairEnabled(): Promise<boolean> {
 
   const client = await getFeatureFlagsClient()
   return client.checkFlag(AI_REPAIR_FLAG_ID, false)
+}
+
+/**
+ * AI Chat is independently gated from AI Title and AI Repair. A Forge flag
+ * lookup failure must keep Chat disabled so callers can preserve the existing
+ * editor and AI Repair behavior.
+ */
+export async function isAiChatEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneAiChatEnabled()
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(AI_CHAT_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load AI Chat feature flag:', error)
+    return false
+  }
 }
 
 // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)

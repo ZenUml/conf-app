@@ -70,6 +70,8 @@ export type AnalyticsProperties = {
   // (dashboard_format_filtered). "all" = both AsyncAPI and OpenAPI shown.
   format_filter?: DashboardFormatFilter;
   result?: string;
+  // AI Chat failure events use only closed-vocabulary categories here. Never
+  // attach the raw backend error, prompt, diagram code, or job id.
   failure_reason?: string;
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
   // _failed). `duration_ms` below is click-to-visible-result wall time;
@@ -85,7 +87,15 @@ export type AnalyticsProperties = {
   repair_attempts?: number;
   ai_model?: string;
   reasoning_disabled?: boolean;
-  failure_phase?: 'start' | 'poll' | 'server' | 'timeout';
+  failure_phase?:
+    | 'ensure'
+    | 'start'
+    | 'poll'
+    | 'server'
+    | 'timeout'
+    | 'sync'
+    | 'history_load'
+    | 'version_restore';
   // Upgrade
   product_option?: string;
   ui_component?: string;
@@ -186,6 +196,22 @@ export type AnalyticsProperties = {
   prompt_length?: number;
   generation_source?: string;
   accepted_title?: string;
+  suggestion_id?: string;
+  chat_message_count?: number;
+  turn_index?: number;
+  input_source?: "typed" | "suggestion" | "syntax_repair";
+  retry_after_failure?: boolean;
+  interaction_state?: "opened" | "closed" | "shown" | "hidden";
+  change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
+  version_id?: string;
+  version_number?: number;
+  version_count?: number;
+  is_retry?: boolean;
+  error_category?: "syntax_error";
+  lines_added?: number;
+  lines_removed?: number;
+  cancel_reason?: "panel_closed" | "component_unmounted";
+  close_reason?: "user_closed";
   // Feedback
   feedback_value?: FeedbackValue;
   feedback_score?: number;

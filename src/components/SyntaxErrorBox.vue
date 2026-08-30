@@ -27,8 +27,10 @@
           <p>Syntax error</p>
         </div>
         <button
-          v-if="isAiRepairEnabled"
-          @click="showAIRepairDialog = true"
+          v-if="shouldShowAiRepair"
+          type="button"
+          data-testid="ai-repair-button"
+          @click="requestRepair"
           class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
         >
           AI Repair
@@ -47,6 +49,7 @@
     </output>
   </div>
   <AIRepair
+    v-if="useLegacyAiRepair"
     :show-dialog="showAIRepairDialog"
     :original-code="code"
     :diagram-type="diagramType"
@@ -62,8 +65,12 @@
 import { computed, ref, onMounted } from "vue";
 import { useStore } from "vuex";
 import AIRepair from "@/components/AIRepair.vue";
+import { DiagramType } from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
-import { isAiRepairEnabled as checkAiRepairEnabled } from '@/apis/aiTitleFeatureFlag';
+import {
+  isAiChatEnabled as checkAiChatEnabled,
+  isAiRepairEnabled as checkAiRepairEnabled,
+} from '@/apis/aiTitleFeatureFlag';
 const props = defineProps({
   aiRepairModel: String,
   aiRepairDisableReasoning: {
@@ -71,9 +78,11 @@ const props = defineProps({
     default: undefined,
   },
 });
+const emit = defineEmits(["request-ai-chat-repair"]);
 const store = useStore();
 const showAIRepairDialog = ref(false);
 const aiRepairFeatureEnabled = ref(false);
+const aiChatFeatureEnabled = ref(false);
 const aiRepairModel = computed(() => props.aiRepairModel);
 const aiRepairDisableReasoning = computed(() => props.aiRepairDisableReasoning);
 // Get the error from the store
@@ -84,10 +93,25 @@ const code = computed(() => {
 });
 // Get the diagram type
 const diagramType = computed(() => store.state.diagram.diagramType);
-// Computed property to determine if AI repair is enabled
-const isAiRepairEnabled = computed(() => {
-  return aiRepairFeatureEnabled.value;
-});
+const isSupportedDiagramType = computed(() => [
+  DiagramType.Sequence,
+  DiagramType.Mermaid,
+  DiagramType.PlantUml,
+  DiagramType.OpenApi,
+].includes(diagramType.value));
+const shouldShowAiRepair = computed(() => (
+  aiRepairFeatureEnabled.value && isSupportedDiagramType.value
+));
+const useLegacyAiRepair = computed(() => (
+  shouldShowAiRepair.value && !aiChatFeatureEnabled.value
+));
+const requestRepair = () => {
+  if (aiChatFeatureEnabled.value) {
+    emit("request-ai-chat-repair");
+    return;
+  }
+  showAIRepairDialog.value = true;
+};
 // Handle applying the repair
 const handleApplyRepair = (repairedCode) => {
   store.dispatch(getStoreUpdateAction(store.state.diagram.diagramType), repairedCode);
@@ -95,12 +119,24 @@ const handleApplyRepair = (repairedCode) => {
 };
 // Load the AI repair feature flag when component mounts
 onMounted(async () => {
+  let repairEnabled = false;
   try {
-    aiRepairFeatureEnabled.value = await checkAiRepairEnabled();
+    repairEnabled = await checkAiRepairEnabled();
   } catch (error) {
     console.error('Failed to load AI repair feature flag:', error);
-    aiRepairFeatureEnabled.value = false;
   }
+
+  let chatEnabled = false;
+  if (repairEnabled) {
+    try {
+      chatEnabled = await checkAiChatEnabled();
+    } catch (error) {
+      console.error('Failed to load AI Chat feature flag:', error);
+    }
+  }
+
+  aiRepairFeatureEnabled.value = repairEnabled;
+  aiChatFeatureEnabled.value = chatEnabled;
 });
 </script>
 <style scoped>

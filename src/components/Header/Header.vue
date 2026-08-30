@@ -10,6 +10,20 @@
       />
     </div>
     <div class="flex items-center gap-3 shrink-0 ml-auto">
+      <button
+        v-if="aiChatAvailable"
+        class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-sm font-medium rounded-md transition-colors duration-200"
+        :class="
+          aiChatOpen
+            ? 'bg-violet-100 text-violet-800'
+            : 'text-gray-500 hover:bg-violet-50 hover:text-violet-700'
+        "
+        data-testid="ai-chat-toggle"
+        @click="$emit('toggle-ai-chat')"
+      >
+        <SparklesIcon class="w-4 h-4" />
+        <span>AI Chat</span>
+      </button>
       <button class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="openTemplateGallery()">
         <LightBulbIcon class="w-4 h-4" />
@@ -58,12 +72,14 @@ import { getEditJourneyId, getOrCreateSession } from "@/utils/journeyTracking";
 import { openUrl } from "@/model/globals/forgeGlobal";
 import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
+import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon';
 import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
 import TemplateGallery from "@/components/TemplateGallery/TemplateGallery.vue";
 import { PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
 import { getTemplatesForType } from "@/model/Diagram/EditorTemplates";
 import { hasAutoOpenedStarterGallery, markStarterGalleryAutoOpened } from "@/utils/starterGallery/autoOpenMarker";
 import Example from "@/utils/sequence/Example";
+import { isAiChatEnabled } from '@/apis/aiTitleFeatureFlag';
 
 // forgeIndex.ts never mounts a genuinely new Sequence/Mermaid/PlantUml macro
 // with an empty code string — it always seeds Example.Sequence / .Mermaid /
@@ -86,6 +102,13 @@ function isBlankOrUntouchedSeed(diagramType, code, isNewDiagram) {
 
 export default {
   name: "Header",
+  props: {
+    aiChatOpen: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  emits: ["toggle-ai-chat"],
   components: {
     PublishButton,
     TabSwitcher,
@@ -93,6 +116,7 @@ export default {
     TemplateGallery,
     LightBulbIcon: { render: LightBulbIcon },
     QuestionMarkCircleIcon: { render: QuestionMarkCircleIcon },
+    SparklesIcon: { render: SparklesIcon },
   },
   data() {
     return {
@@ -108,6 +132,7 @@ export default {
       // link (which sent the user to zenuml.com/mermaid.js.org/plantuml.com
       // docs) with an in-product panel of curated, one-click templates.
       isTemplateGalleryOpen: false,
+      aiChatEnabled: false,
     };
   },
   computed: {
@@ -170,6 +195,9 @@ export default {
       const block = this.$store.state.publishBlock;
       if (block) return PUBLISH_BLOCK_MESSAGES[block] || 'Publishing is unavailable for this diagram here.';
       return 'Add a diagram title to publish';
+    },
+    aiChatAvailable: function () {
+      return this.aiChatEnabled && this.diagramType !== DiagramType.Graph;
     },
   },
   methods: {
@@ -272,6 +300,8 @@ export default {
     },
   },
   async mounted() {
+    this.aiChatEnabled = await isAiChatEnabled();
+
     // Load user's preferred diagram type from localStorage for new diagrams.
     //
     // Skipped when the type was explicitly ASKED for — the byline's type picker

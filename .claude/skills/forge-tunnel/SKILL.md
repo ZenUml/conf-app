@@ -21,6 +21,7 @@ pnpm build:lite           # build the variant you care about
 pnpm forge:deploy:dev     # uploads dist/ + manifest to your dev env
 pnpm forge:upgrade:dev    # upgrades the install on your test site
 pnpm start:local          # vite dev server on :8080 — leave running (separate terminal)
+                         # stop any existing Forge tunnel on this machine first
 pnpm forge:tunnel         # starts the tunnel — leave running (separate terminal)
 ```
 
@@ -32,6 +33,7 @@ If `forge:deploy:dev` succeeds but `forge:upgrade:dev` errors with "scopes diffe
 
 ## Key constraints
 
+- **Only one Forge tunnel may run for the same machine and Forge account. This is a hard preflight invariant.** Before every `forge tunnel` start or restart, inspect the whole machine for an existing `pnpm forge:tunnel` parent and `@forge/cli ... tunnel` child. If either exists, terminate that exact process tree first, wait for it to exit, and verify that no Forge tunnel process or tunnel listener remains. Never start a second tunnel alongside an existing one, even when the old tunnel points at the desired site/environment. Do not kill Vite, Wrangler, or unrelated development servers as part of this cleanup; they have separate ownership and lifecycle.
 - **Tunnel only works with DEVELOPMENT environments** — `-e staging` and `-e production` fail with "Cannot create tunnels outside of the development environment".
 - **The tunnel is identity-gated: it serves ONLY the browser logged in as the `FORGE_EMAIL` account** (set in `.env.forge.local`; `./scripts/forgex whoami` prints the account it resolves to). Any other identity silently receives the last-deployed CDN bundle — no error, no warning, no tunnel log line, while backend functions keep tunnelling normally for everyone. The default browser recipe in `CLAUDE.md` (`agent-browser --session conf-app --restore=stg`) restores the **robot test account**, so it CANNOT see tunnel code. Use a Chrome profile already logged in as the `FORGE_EMAIL` account instead:
 
@@ -121,7 +123,25 @@ If upgrade errors "Could not find an installation", the app isn't on that site y
 
 The `!` runs it in the user's terminal. Forge will print the scope list and prompt for confirmation — press Enter/Y to accept.
 
-### 4. Start the tunnel
+### 4. Stop any existing Forge tunnel, then start the tunnel
+
+Forge tunnel is machine/account singleton state. Inspect before starting:
+
+```bash
+pgrep -lf '(@forge/cli/.*/cli\.js tunnel|pnpm forge:tunnel)' || true
+```
+
+For every returned PID, inspect its command and working directory, then terminate only the confirmed Forge tunnel parent/child processes:
+
+```bash
+ps -p <pid> -o pid=,ppid=,etime=,command=
+lsof -a -p <pid> -d cwd -Fn
+kill -TERM <confirmed-forge-tunnel-pid> [...]
+```
+
+Wait for graceful exit and run the `pgrep` check again. Do not continue until it returns no Forge tunnel processes. If the tunnel belongs to a managed terminal/tool session, interrupt that session as well so it cannot respawn or retain stale ownership.
+
+Then start the single replacement tunnel:
 
 ```bash
 pnpm forge:tunnel

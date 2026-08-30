@@ -1,6 +1,6 @@
 import type { Grant } from '@/data/types'
 import type { ExtensionCommentEvidence, OpenExtensionRequest, OpenExtensionRequestStream } from '@/data/extensionsContract'
-import { count, human } from './format'
+import { count, hostname, human } from './format'
 
 /**
  * Today's work queue.
@@ -158,8 +158,8 @@ function fromRequests(stream: OpenExtensionRequestStream | null, today: string):
       // An older ticket form recorded neither field; the row says that once rather
       // than printing two placeholders where a target should be.
       title: row.typedDomain || row.typedSpace
-        ? `${row.typedDomain ?? 'site not recorded'} / ${row.typedSpace ?? 'space not recorded'}`
-        : 'target not recorded on the ticket',
+        ? `${row.typedDomain ?? `Unavailable · ${row.unavailableReasons.typedDomain ?? 'JSM form Client domain unavailable'}`} / ${row.typedSpace ?? `Unavailable · ${row.unavailableReasons.typedSpace ?? 'JSM form Space key unavailable'}`}`
+        : 'Unavailable · JSM request target facts unavailable',
       detail,
       evidence: requestEvidence(row),
       ticketKey: row.ticketKey,
@@ -187,11 +187,11 @@ function fromGrants(grants: Grant[], today: string): QueueRow[] {
       reason: 'expiring' as const,
       date: expires,
       score: remaining,
-      title: `${grant.domain} / ${space ?? 'space unknown'}`,
+      title: `${hostname(grant.domain, grant.domainUnavailableReason)} / ${space ?? 'space unknown'}`,
       detail: remaining === 0
         ? 'access stops today'
         : `access stops in ${remaining} day${remaining === 1 ? '' : 's'}`,
-      evidence: `granted ${grant.created}${grant.origin ? ` · ${grant.origin}` : ''}`,
+      evidence: `granted ${grant.created ?? `unavailable (${grant.createdUnavailableReason ?? 'KV grant createdAt is unavailable'})`}${grant.origin ? ` · ${grant.origin}` : ` · unavailable (${grant.originUnavailableReason ?? 'KV grant activatedBy is unavailable'})`}`,
       ticketKey: grant.ticketKey ?? null,
       ticketUrl: grant.ticketKey ? `${JSM_BROWSE}${grant.ticketKey}` : null,
       cloudId: grant.cloudId ?? null,
@@ -211,11 +211,11 @@ function settledTail(grants: Grant[], today: string): SettledRow[] {
     const space = grant.space ?? 'space unknown'
     const created = day(grant.createdAt)
     if (created && daysBetween(created, today) >= 0 && daysBetween(created, today) <= SETTLED_WINDOW_DAYS) {
-      rows.push({ date: created, text: `granted ${grant.domain} / ${space}` })
+      rows.push({ date: created, text: `granted ${hostname(grant.domain, grant.domainUnavailableReason)} / ${space}` })
     }
     const expires = day(grant.expiresAt)
     if (expires && daysBetween(expires, today) >= 0 && daysBetween(expires, today) <= SETTLED_WINDOW_DAYS) {
-      rows.push({ date: expires, text: `expired ${grant.domain} / ${space}` })
+      rows.push({ date: expires, text: `expired ${hostname(grant.domain, grant.domainUnavailableReason)} / ${space}` })
     }
   })
   return rows.sort((a, b) => b.date.localeCompare(a.date))

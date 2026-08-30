@@ -42,6 +42,7 @@ function grant(overrides: Partial<ExtensionGrantRecord>): ExtensionGrantRecord {
     actionAudit: [],
     history: [],
     unknowns: [],
+    unavailableReasons: {},
     ...overrides
   }
 }
@@ -51,7 +52,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('Extensions API frontend adapter', () => {
   it('retains incomplete records and preserves inactive/unknown status without expiry claims', async () => {
     const response: ExtensionsResponse = {
-      contractVersion: 2,
+      contractVersion: 3,
       generatedAt: '2026-08-29T10:00:00.000Z',
       asOf: '2026-08-29',
       sources: {
@@ -78,10 +79,17 @@ describe('Extensions API frontend adapter', () => {
           id: 'grant_unknown',
           status: 'unknown',
           storedStatus: 'unknown',
+          activatedBy: null,
           createdAt: null,
           updatedAt: null,
           expiresAt: null,
-          unknowns: ['grant expiry is missing or invalid']
+          unknowns: ['grant expiry is missing or invalid'],
+          unavailableReasons: {
+            createdAt: 'KV grant createdAt is unavailable or invalid',
+            updatedAt: 'KV grant updatedAt is unavailable or invalid',
+            expiresAt: 'KV grant expiresAt is unavailable or invalid',
+            activatedBy: 'KV grant activatedBy is unavailable'
+          }
         })
       ]
     }
@@ -95,6 +103,14 @@ describe('Extensions API frontend adapter', () => {
     expect(result.load).toMatchObject({ state: 'partial', incompleteGrantCount: 1 })
     expect(result.data.grants).toHaveLength(2)
     expect(result.data.grants.map(row => row.status)).toEqual(['inactive', 'unknown'])
+    expect(result.data.grants[1]).toMatchObject({
+      created: null,
+      createdUnavailableReason: 'KV grant createdAt is unavailable or invalid',
+      expires: null,
+      expiresUnavailableReason: 'KV grant expiresAt is unavailable or invalid',
+      origin: null,
+      originUnavailableReason: 'KV grant activatedBy is unavailable'
+    })
     expect(result.data.grants[0]).toMatchObject({
       updatedAt: '2026-08-20T00:00:00.000Z',
       siteMapping: 'matched'
@@ -107,7 +123,7 @@ describe('Extensions API frontend adapter', () => {
 
   it('marks an otherwise complete response partial when an optional source failed', async () => {
     const response: ExtensionsResponse = {
-      contractVersion: 2,
+      contractVersion: 3,
       generatedAt: '2026-08-29T10:00:00.000Z',
       asOf: '2026-08-29',
       sources: {
@@ -142,13 +158,16 @@ describe('Extensions API frontend adapter', () => {
     const result = await loadExtensionsDataset(placeholderDataset)
     expect(result.load.state).toBe('partial')
     expect(result.load.sources?.marketplace.state).toBe('error')
-    expect(result.data.grants[0].domain).toBe('(site mapping unavailable · cloud cloud-te)')
+    expect(result.data.grants[0]).toMatchObject({
+      domain: null,
+      domainUnavailableReason: 'Marketplace site mapping is unavailable'
+    })
     expect(result.data.grants[0].siteMapping).toBe('unavailable')
   })
 
   it('carries source-backed open-request observations without substituting fixture requests', async () => {
     const response: ExtensionsResponse = {
-      contractVersion: 2,
+      contractVersion: 3,
       generatedAt: '2026-08-29T10:00:00.000Z',
       asOf: '2026-08-29',
       sources: {
@@ -171,9 +190,12 @@ describe('Extensions API frontend adapter', () => {
           typedDomain: 'example', typedSpace: 'SPACE', currentGrant: 'not_observed',
           cloudId: 'cloud-example', requester: 'someone@example.com',
           macroCount: 128, macrosLimit: 100,
+          macroCountRaw: '128', macrosLimitRaw: '100',
           priorGrants: { count: 0, activeCount: 0, latestExpiresAt: null },
           comments: { state: 'known', publicCommentCount: 0, requesterCommentCount: 0,
-            lastCommentAt: null, lastCommentAuthor: null, lastCommentAuthorship: 'unknown', reason: null }
+            lastCommentAt: null, lastCommentAuthor: null, lastCommentAuthorship: 'unknown',
+            lastCommentFirstLine: null, reason: null, unavailableReasons: {} },
+          unavailableReasons: {}
         }],
         summary: { currentGrantObserved: 0, noCurrentGrantObserved: 1, insufficientEvidence: 0 }
       },
@@ -190,7 +212,7 @@ describe('Extensions API frontend adapter', () => {
 
   it('marks a healthy missing Marketplace join as unmatched without turning unknown request fields into mismatches', async () => {
     const response: ExtensionsResponse = {
-      contractVersion: 2,
+      contractVersion: 3,
       generatedAt: '2026-08-29T10:00:00.000Z',
       asOf: '2026-08-29',
       sources: {
@@ -218,13 +240,15 @@ describe('Extensions API frontend adapter', () => {
         request: {
           ticketKey: 'ZEN-999001',
           status: 'Resolved',
-          requester: 'Synthetic requester',
-          requesterAccountId: 'synthetic-reporter',
+          requester: null,
+          requesterAccountId: null,
           targetUserAccountId: null,
-          typedDomain: '(unknown)',
-          typedSpace: '(unknown)',
+          typedDomain: null,
+          typedSpace: null,
           macroCount: null,
           macrosLimit: null,
+          macroCountRaw: null,
+          macrosLimitRaw: null,
           createdAt: '2026-08-19T00:00:00.000Z',
           updatedAt: '2026-08-20T00:00:00.000Z',
           matchedBy: 'ticket_key',
@@ -235,7 +259,18 @@ describe('Extensions API frontend adapter', () => {
             lastCommentAt: null,
             lastCommentAuthor: null,
             lastCommentAuthorship: 'unknown',
-            reason: null
+            lastCommentFirstLine: null,
+            reason: null,
+            unavailableReasons: {}
+          },
+          unavailableReasons: {
+            requester: 'JSM reporter identity was unavailable',
+            requesterAccountId: 'JSM reporter account id was unavailable',
+            targetUserAccountId: 'JSM form User account ID was unavailable',
+            typedDomain: 'JSM form Client domain was unavailable',
+            typedSpace: 'JSM form Space key was unavailable',
+            macroCount: 'JSM form Macro count was unavailable or non-numeric',
+            macrosLimit: 'JSM form Limit was unavailable or non-numeric'
           }
         },
         unknowns: ['site domain is not available']
@@ -250,5 +285,18 @@ describe('Extensions API frontend adapter', () => {
 
     expect(result.data.grants[0].siteMapping).toBe('unmatched')
     expect(result.data.jsm['ZEN-999001'].note).toBe('')
+    expect(result.data.jsm['ZEN-999001']).toMatchObject({
+      requester: null,
+      accountId: null,
+      typedDomain: null,
+      typedSpace: null,
+      replies: 0,
+      unavailableReasons: {
+        requester: 'JSM reporter identity was unavailable',
+        accountId: 'JSM form User account ID was unavailable',
+        typedDomain: 'JSM form Client domain was unavailable',
+        typedSpace: 'JSM form Space key was unavailable'
+      }
+    })
   })
 })

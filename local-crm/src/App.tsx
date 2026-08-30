@@ -24,7 +24,7 @@ function CurrentScreen() {
 
 export default function App() {
   return (
-    <div className="flex h-screen min-h-[720px] overflow-hidden bg-bg2 font-sans text-body text-fg1">
+    <div className="flex h-full min-h-[720px] overflow-hidden bg-bg2 font-sans text-body text-fg1">
       <NavRail />
       <main className="flex min-w-0 flex-1 flex-col">
         <TopBar />

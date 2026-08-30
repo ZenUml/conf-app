@@ -20,6 +20,10 @@ export interface Fact {
   problem?: boolean
 }
 
+function available(value: string | null | undefined, reason: string | null | undefined): string {
+  return value ?? `unavailable — ${reason ?? 'source fact unavailable'}`
+}
+
 export interface ActionSpec {
   key: string
   label: string
@@ -186,7 +190,7 @@ function registeredCase(data: Dataset, row: Dataset['registrations'][number]): C
         chip: 'skipped',
         rows: [
           { k: 'reply', v: 'no message was sent, so no reply can exist', problem: true },
-          { k: 'address', v: 'dropped at extraction — the contact column was not carried through', problem: true }
+          { k: 'address', v: 'unavailable — no source-backed contact address fact is present in this dataset', problem: true }
         ]
       },
       {
@@ -259,14 +263,14 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
     }
   ]
   // Conditional rows appear only on mismatch — never a row that repeats its neighbour.
-  if (!marketplaceUnavailable && jsm && jsm.typedDomain !== '(unknown)') {
-    if (grant.domain.startsWith('(')) {
+  if (!marketplaceUnavailable && jsm?.typedDomain) {
+    if (!grant.domain) {
       facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — requester-typed and unverified; Marketplace resolved no site`, problem: true })
     } else if (jsm.typedDomain !== grant.domain) {
       facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — does not resolve to this site`, problem: true })
     }
   }
-  if (jsm && jsm.typedSpace !== '(unknown)' && jsm.typedSpace !== grant.space) {
+  if (jsm?.typedSpace && jsm.typedSpace !== grant.space) {
     facts.push({ k: 'typed space', v: `${jsm.typedSpace} — does not match the granted space`, problem: true })
   }
   if (jsm && jsm.note) {
@@ -282,9 +286,9 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
     { k: 'space', v: grant.space },
     { k: 'scope', v: grant.wide ? 'whole space' : 'one requester' },
     { k: 'duration', v: grant.days ?? 'duration unknown' },
-    { k: 'activatedBy', v: grant.activatedBy ?? grant.origin },
-    { k: 'granted', v: grant.created },
-    { k: 'expires', v: grant.expires },
+    { k: 'activatedBy', v: available(grant.activatedBy ?? grant.origin, grant.originUnavailableReason) },
+    { k: 'granted', v: available(grant.created, grant.createdUnavailableReason) },
+    { k: 'expires', v: available(grant.expires, grant.expiresUnavailableReason) },
     { k: 'state', v: currentState, problem: currentState !== 'active' },
     {
       k: 'Marketplace',
@@ -326,7 +330,7 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
           note: correlatedOnly
             ? 'Correlated by exact domain, space, target scope and causal time; not proven to be the grant origin.'
             : 'Matched by the ticket key recorded in activatedBy.',
-          result: `${ticket} is ${jsm.status}; ${jsm.commentsKnown ? `${jsm.publicComments ?? 0} public comments are visible` : 'comment evidence is unavailable'}.${correlatedOnly ? ' This remains contextual correlation, not grant-origin proof.' : ''}`
+          result: `${ticket} is ${jsm.status ?? `unavailable (${jsm.unavailableReasons?.status ?? 'JSM status was unavailable'})`}; ${jsm.commentsKnown ? `${jsm.publicComments ?? 0} public comments are visible` : 'comment evidence is unavailable'}.${correlatedOnly ? ' This remains contextual correlation, not grant-origin proof.' : ''}`
         }
       : {
           key: 'ticket',
@@ -372,7 +376,7 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
   const requesterRows: Fact[] = ticket
     ? jsm
       ? [
-          { k: 'requester', v: jsm.requester },
+          { k: 'requester', v: jsm.requester ?? `unavailable — ${jsm.unavailableReasons?.requester ?? 'JSM reporter identity was unavailable'}`, problem: !jsm.requester },
           {
             k: 'identity',
             v: jsm.portalUnsigned === true
@@ -385,7 +389,7 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
           {
             k: 'public comments',
             v: jsm.commentsKnown
-              ? `${jsm.publicComments ?? 0}; last comment ${jsm.lastReply}`
+              ? `${jsm.publicComments ?? 0}; last comment ${jsm.lastReply ?? `unavailable — ${jsm.unavailableReasons?.lastReply ?? 'JSM comment timestamp was unavailable'}`}`
               : 'unknown — comment fetch failed',
             problem: !jsm.commentsKnown
           },
@@ -403,7 +407,7 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
             problem: jsm.requesterComments === null || jsm.requesterComments === undefined
           },
           { k: 'last comment author', v: jsm.lastCommentAuthor ?? 'unknown' },
-          { k: 'jsm status', v: jsm.status }
+          { k: 'jsm status', v: jsm.status ?? `unavailable — ${jsm.unavailableReasons?.status ?? 'JSM status was unavailable'}`, problem: !jsm.status }
         ]
       : [
           {
@@ -504,7 +508,7 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
         k: `history ${index + 1}`,
         v: `${row.label} · ${row.at ?? 'time unknown'} · ${row.evidence}`
       }))),
-      { k: 'operator/source', v: grant.activatedBy ?? grant.origin }
+      { k: 'operator/source', v: available(grant.activatedBy ?? grant.origin, grant.originUnavailableReason) }
     ],
     provenance: grant.sourceObservedAt
       ? `Loopback API · SPACE_LICENSE_KV current value + ${marketplaceUnavailable ? 'Marketplace unavailable' : 'Marketplace'} + ${jsmUnavailable ? 'JSM unavailable' : 'JSM'} + ${auditUnavailable ? 'ExtensionAction D1 unavailable' : 'ExtensionAction D1'} · observed ${grant.sourceObservedAt}`
@@ -545,10 +549,10 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
     facts: [
       { k: 'space', v: grant.space },
       { k: 'scope', v: grant.wide ? 'whole space' : 'one requester' },
-      { k: 'granted', v: grant.created },
+      { k: 'granted', v: available(grant.created, grant.createdUnavailableReason) },
       { k: 'ran', v: grant.days ?? 'duration unknown' },
-      { k: 'expires', v: grant.expires, problem: past },
-      { k: 'activatedBy', v: grant.activatedBy ?? grant.origin },
+      { k: 'expires', v: available(grant.expires, grant.expiresUnavailableReason), problem: past },
+      { k: 'activatedBy', v: available(grant.activatedBy ?? grant.origin, grant.originUnavailableReason) },
       { k: 'stored status', v: grant.storedStatus ?? 'unknown' },
       { k: 'KV observation', v: grant.sourceObservedAt ?? 'fixture only' },
       {
@@ -655,7 +659,7 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
       'No communication outcome is inferred from the grant expiry or Marketplace licence state.',
     audits: [
       { k: 'original scope', v: grant.wide ? `whole space ${grant.space}` : `${grant.space}, one requester` },
-      { k: 'original expiry', v: grant.expires },
+      { k: 'original expiry', v: available(grant.expires, grant.expiresUnavailableReason) },
       { k: 'expiry event', v: 'no separate expiry-event evidence is joined — this row is derived', problem: true },
       {
         k: 'ExtensionAction',
@@ -668,7 +672,7 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
         k: `history ${index + 1}`,
         v: `${row.label} · ${row.at ?? 'time unknown'} · ${row.evidence}`
       }))),
-      { k: 'operator/source', v: grant.activatedBy ?? grant.origin }
+      { k: 'operator/source', v: available(grant.activatedBy ?? grant.origin, grant.originUnavailableReason) }
     ],
     provenance: grant.sourceObservedAt
       ? `Loopback API · current KV expiresAt observed ${grant.sourceObservedAt} + ${marketplaceUnavailable ? 'Marketplace unavailable' : 'Marketplace'} + ${auditUnavailable ? 'ExtensionAction D1 unavailable' : 'ExtensionAction D1'}; no separate expiry event is stored.`

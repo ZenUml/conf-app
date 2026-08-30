@@ -83,7 +83,7 @@ export const placeholderDataset: Dataset = {
     { created: '25 Aug', domain: 'tenant-g', space: 'DEMO06', origin: 'ZEN-990015', expires: '01 Sep', active: true },
     { created: '21 Aug', domain: 'tenant-c', space: 'DEMO07', origin: 'ZEN-990014', expires: '28 Aug' },
     { created: '19 Aug', domain: 'tenant-h', space: 'DEMO08', origin: 'ZEN-990012', expires: '26 Aug' },
-    { created: '19 Aug', domain: '(not in export)', space: 'DEMO09', origin: 'ZEN-990013', kind: 'automatic', expires: '26 Aug' },
+    { created: '19 Aug', domain: null, domainUnavailableReason: 'Fixture has no source-backed Marketplace site mapping', space: 'DEMO09', origin: 'ZEN-990013', kind: 'automatic', expires: '26 Aug' },
     { created: '18 Aug', domain: 'tenant-i', space: 'DEMO10', origin: 'ZEN-990011', expires: '26 Aug' },
     { created: '16 Aug', domain: 'tenant-b', space: 'DEMO11', origin: 'ZEN-990010', expires: '23 Aug' },
     { created: '13 Aug', domain: 'tenant-b', space: 'DEMO11', origin: 'ZEN-990009', expires: '20 Aug' },
@@ -109,7 +109,7 @@ export const placeholderDataset: Dataset = {
     { created: '22 Jun', domain: 'tenant-d', space: 'DEMO25', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '06 Jul' },
     { created: '22 Jun', domain: 'tenant-p', space: 'DEMO26', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '07 Jul' },
     { created: '16 Jun', domain: 'tenant-f', space: 'DEMO27', wide: true, origin: 'pengxiao', kind: 'off-convention', expires: '30 Jun' },
-    { created: '06 Apr', domain: '(not in export)', space: 'DEMO09', wide: true, origin: 'upgrade-prompt-e2e', kind: 'test marker', expires: '31 Dec 27', active: true },
+    { created: '06 Apr', domain: null, domainUnavailableReason: 'Fixture has no source-backed Marketplace site mapping', space: 'DEMO09', wide: true, origin: 'upgrade-prompt-e2e', kind: 'test marker', expires: '31 Dec 27', active: true },
     { created: '06 Apr', domain: 'example-stg', space: 'DEMO28', wide: true, origin: 'peng', kind: 'off-convention', expires: '06 Apr 27', active: true },
     { created: '26 Nov 25', domain: 'tenant-q', space: 'DEMO29', wide: true, origin: '(customer address)', kind: 'off-convention', expires: '26 Nov', active: true }
   ],

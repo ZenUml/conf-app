@@ -8,7 +8,8 @@ import {
   useState,
   type ReactNode
 } from 'react'
-import { dataset as initialDataset, type AutomationRule, type Dataset } from '@/data'
+import { datasetSelection, type AutomationRule, type Dataset } from '@/data'
+import { shouldLoadLiveSources } from '@/data/datasetSelection'
 import {
   INITIAL_EXTENSIONS_LOAD,
   loadExtensionsDataset,
@@ -178,7 +179,7 @@ export interface CrmStoreValue extends CrmState {
 
 const CrmContext = createContext<CrmStoreValue | null>(null)
 
-function includes(needle: string, ...fields: Array<string | undefined>): boolean {
+function includes(needle: string, ...fields: Array<string | null | undefined>): boolean {
   if (!needle) return true
   return fields.some(field => field?.toLowerCase().includes(needle))
 }
@@ -208,12 +209,27 @@ export function isKeyForSelected(selected: string | null, key: string): boolean 
 }
 
 export function CrmProvider({ children }: { children: ReactNode }) {
+  const initialDataset = datasetSelection.data
+  if (!initialDataset) {
+    throw new Error(datasetSelection.reason)
+  }
   const [state, dispatch] = useReducer(crmReducer, INITIAL_CRM_STATE)
   const [extensionsData, setExtensionsData] = useState(initialDataset)
-  const [extensionsLoad, setExtensionsLoad] = useState(INITIAL_EXTENSIONS_LOAD)
+  const liveSourcesEnabled = shouldLoadLiveSources(datasetSelection)
+  const [extensionsLoad, setExtensionsLoad] = useState<ExtensionsLoadState>(liveSourcesEnabled
+    ? INITIAL_EXTENSIONS_LOAD
+    : {
+        state: 'error', generatedAt: null, sources: null, summary: null,
+        incompleteGrantCount: 0, openRequests: null,
+        error: 'Live sources are disabled in explicit fixture mode.'
+      })
   const [sitesResponse, setSitesResponse] = useState<Awaited<ReturnType<typeof loadSitesResponse>> | null>(null)
-  const [sitesLoad, setSitesLoad] = useState(INITIAL_SITES_LOAD)
-  const [lifecycleLoad, setLifecycleLoad] = useState(INITIAL_LIFECYCLE_LOAD)
+  const [sitesLoad, setSitesLoad] = useState<SitesLoadState>(liveSourcesEnabled
+    ? INITIAL_SITES_LOAD
+    : { state: 'error', generatedAt: null, summary: null, error: 'Live sources are disabled in explicit fixture mode.' })
+  const [lifecycleLoad, setLifecycleLoad] = useState<LifecycleLoadState>(liveSourcesEnabled
+    ? INITIAL_LIFECYCLE_LOAD
+    : { state: 'error', generatedAt: null, data: null, error: 'Live sources are disabled in explicit fixture mode.' })
   const todayData = useMemo(
     () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad, lifecycleLoad),
     [extensionsData, extensionsLoad, lifecycleLoad]
@@ -232,6 +248,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const needle = state.query.trim().toLowerCase()
 
   useEffect(() => {
+    if (!liveSourcesEnabled) return
     let current = true
     loadExtensionsDataset(initialDataset)
       .then(result => {
@@ -254,9 +271,10 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     return () => {
       current = false
     }
-  }, [])
+  }, [liveSourcesEnabled])
 
   useEffect(() => {
+    if (!liveSourcesEnabled) return
     let current = true
     loadLifecycleResponse()
       .then(data => {
@@ -268,9 +286,10 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         setLifecycleLoad({ state: 'error', generatedAt: null, data: null, error: error instanceof Error ? error.message : String(error) })
       })
     return () => { current = false }
-  }, [])
+  }, [liveSourcesEnabled])
 
   useEffect(() => {
+    if (!liveSourcesEnabled) return
     let current = true
     loadSitesResponse()
       .then(result => {
@@ -283,7 +302,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         setSitesLoad({ state: 'error', generatedAt: null, summary: null, error: error instanceof Error ? error.message : String(error) })
       })
     return () => { current = false }
-  }, [])
+  }, [liveSourcesEnabled])
 
   const events = useMemo(() => buildEvents(data), [data])
   const past = useMemo(() => pastEvents(data, events), [data, events])

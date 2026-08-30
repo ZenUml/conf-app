@@ -92,20 +92,21 @@ export function buildEvents(data: Dataset): CaseEvent[] {
   })
 
   data.grants.forEach(grant => {
-    const site = hostname(grant.domain)
+    const site = hostname(grant.domain, grant.domainUnavailableReason)
     const scope = grant.wide ? 'whole space' : 'one requester'
     const grantId = grantEventId(grant)
     const status = grantStatusOf(grant)
+    const expiry = grant.expires ?? `unavailable (${grant.expiresUnavailableReason ?? 'KV grant expiresAt is unavailable'})`
     const createdDay = grantCreatedDay(grant)
     const expiryDay = grantExpiryDay(grant)
     const eventDay = createdDay ?? grant.sourceObservedAt?.slice(0, 10)
     const timing = status === 'active'
-      ? `Runs to ${grant.expires}.`
+      ? `Runs to ${expiry}.`
       : status === 'expired'
-        ? `Recorded expiry ${grant.expires}.`
+        ? `Recorded expiry ${expiry}.`
         : status === 'inactive'
-          ? `KV status is inactive; recorded expiresAt is ${grant.expires}.`
-          : `Current grant status is unknown; recorded expiresAt is ${grant.expires}.`
+          ? `KV status is inactive; recorded expiresAt is ${expiry}.`
+          : `Current grant status is unknown; recorded expiresAt is ${expiry}.`
     if (eventDay) {
       out.push({
         id: `grant:${grantId}:created`,
@@ -135,7 +136,7 @@ export function buildEvents(data: Dataset): CaseEvent[] {
         what: status === 'active'
           ? `Editing access on space ${grant.space} runs out unless it is renewed.`
           : `The recorded expiresAt for editing access on space ${grant.space} has passed; access impact is not joined.`,
-        meta: `granted ${grant.created} · ${grant.origin}`
+        meta: `granted ${grant.created ?? `unavailable (${grant.createdUnavailableReason ?? 'KV grant createdAt is unavailable'})`} · ${grant.origin ?? `unavailable (${grant.originUnavailableReason ?? 'KV grant activatedBy is unavailable'})`}`
       })
     }
   })
@@ -308,7 +309,7 @@ export function buildSites(data: Dataset): SiteRow[] {
   // An editing extension is a Lite-only mechanism, so a grant implies lite.
   data.grants.forEach(grant => {
     const day = grantCreatedDay(grant) ?? grant.sourceObservedAt?.slice(0, 10) ?? data.today
-    const entry = touch(grant.domain, day)
+    const entry = touch(grant.domain ?? `Unavailable · ${grant.domainUnavailableReason ?? 'Marketplace site domain unavailable'}`, day)
     if (grant.cloudId) entry.cloudId ??= grant.cloudId
     entry.apps.add('lite')
     entry.grants += 1
@@ -318,7 +319,7 @@ export function buildSites(data: Dataset): SiteRow[] {
   return [...sites.values()]
     .sort((a, b) => b.day.localeCompare(a.day))
     .map(entry => ({
-      domain: hostname(entry.domain),
+      domain: entry.domain.startsWith('Unavailable ·') ? entry.domain : hostname(entry.domain),
       cloudId: entry.cloudId ?? 'none on file',
       cloudIdMissing: !entry.cloudId,
       apps: [...entry.apps],
@@ -358,7 +359,8 @@ export interface TenantRow {
 /** Current grant records grouped by tenant, highest grant count first. */
 export function buildTenants(data: Dataset): TenantRow[] {
   interface Acc {
-    domain: string
+    domain: string | null
+    domainUnavailableReason?: string
     n: number
     active: number
     spaces: Set<string>
@@ -368,13 +370,14 @@ export function buildTenants(data: Dataset): TenantRow[] {
   }
   const tenants = new Map<string, Acc>()
   data.grants.forEach(grant => {
-    const tenantKey = grant.cloudId ?? grant.domain
+    const tenantKey = grant.cloudId ?? grant.domain ?? `unavailable:${grant.domainUnavailableReason ?? 'unknown'}`
     let entry = tenants.get(tenantKey)
     if (!entry) {
-      entry = { domain: grant.domain, n: 0, active: 0, spaces: new Set(), first: null, last: null, unknownDates: 0 }
+      entry = { domain: grant.domain, domainUnavailableReason: grant.domainUnavailableReason, n: 0, active: 0, spaces: new Set(), first: null, last: null, unknownDates: 0 }
       tenants.set(tenantKey, entry)
-    } else if (entry.domain.startsWith('(') && !grant.domain.startsWith('(')) {
+    } else if (!entry.domain && grant.domain) {
       entry.domain = grant.domain
+      entry.domainUnavailableReason = undefined
     }
     const day = grantCreatedDay(grant)
     entry.n += 1
@@ -391,7 +394,7 @@ export function buildTenants(data: Dataset): TenantRow[] {
   return [...tenants.values()]
     .sort((a, b) => b.n - a.n || (b.last ?? '').localeCompare(a.last ?? ''))
     .map(entry => ({
-      domain: hostname(entry.domain),
+      domain: hostname(entry.domain, entry.domainUnavailableReason),
       grants: entry.n,
       active: `${entry.active} active`,
       hasActive: entry.active > 0,
@@ -404,7 +407,7 @@ export function buildTenants(data: Dataset): TenantRow[] {
 
 /** Grants whose current site hostname is unavailable or unresolved. */
 export function unresolvedGrants(data: Dataset): Grant[] {
-  return data.grants.filter(grant => grant.domain.startsWith('('))
+  return data.grants.filter(grant => grant.domain === null)
 }
 
 /** Filter pill counts, computed over the past stream only. */

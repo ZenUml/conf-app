@@ -51,14 +51,18 @@ function toGrant(row: ExtensionGrantRecord): Grant {
   const marketplaceUnavailable = row.unknowns.includes('Marketplace site mapping is unavailable')
   return {
     id: row.id,
-    created: row.createdAt ? displayDate(row.createdAt) : 'unknown',
+    created: row.createdAt ? displayDate(row.createdAt) : null,
+    createdUnavailableReason: row.createdAt ? undefined : (row.unavailableReasons?.createdAt ?? 'KV grant createdAt is unavailable or invalid'),
     createdAt: row.createdAt ?? undefined,
     updatedAt: row.updatedAt ?? undefined,
-    domain: row.domain ?? (
-      marketplaceUnavailable
-        ? `(site mapping unavailable · cloud ${row.cloudId.slice(0, 8)})`
-        : `(not in Marketplace · cloud ${row.cloudId.slice(0, 8)})`
-    ),
+    domain: row.domain,
+    domainUnavailableReason: row.domain === null
+      ? (row.unavailableReasons?.domain ?? (
+          marketplaceUnavailable
+            ? 'Marketplace site mapping is unavailable'
+            : 'Marketplace export has no site domain for this cloud ID'
+        ))
+      : undefined,
     siteMapping: row.domain
       ? 'matched'
       : marketplaceUnavailable
@@ -66,12 +70,14 @@ function toGrant(row: ExtensionGrantRecord): Grant {
         : 'unmatched',
     space: row.spaceKey,
     wide: row.scope === 'space',
-    origin: row.activatedBy ?? '(not recorded)',
+    origin: row.activatedBy,
+    originUnavailableReason: row.activatedBy ? undefined : (row.unavailableReasons?.activatedBy ?? 'KV grant activatedBy is unavailable'),
     activatedBy: row.activatedBy ?? undefined,
     ticketKey: row.ticketKey ?? undefined,
     requestTicket: row.request?.ticketKey,
     requestMatchedBy: row.request?.matchedBy,
-    expires: row.expiresAt ? displayDate(row.expiresAt) : 'unknown',
+    expires: row.expiresAt ? displayDate(row.expiresAt) : null,
+    expiresUnavailableReason: row.expiresAt ? undefined : (row.unavailableReasons?.expiresAt ?? 'KV grant expiresAt is unavailable or invalid'),
     expiresAt: row.expiresAt ?? undefined,
     active: row.status === 'active',
     status: row.status,
@@ -93,36 +99,54 @@ function jsmNote(row: ExtensionGrantRecord): string {
   if (!request) return ''
   const notes: string[] = []
   if (request.matchedBy === 'domain_space') notes.push('matched by domain + space, not activatedBy ticket')
-  if (request.typedDomain && request.typedDomain !== '(unknown)' && row.domain && request.typedDomain !== row.domain) {
+  if (request.typedDomain && row.domain && normalizedDomain(request.typedDomain) !== row.domain) {
     notes.push('typed domain differs from Marketplace site')
   }
-  if (request.typedSpace && request.typedSpace !== '(unknown)' && request.typedSpace !== row.spaceKey) {
+  if (request.typedSpace && request.typedSpace !== row.spaceKey) {
     notes.push('typed space differs from KV grant')
   }
   if (request.comments.state === 'unknown') notes.push(request.comments.reason ?? 'comments unavailable')
   return notes.join(' · ')
 }
 
+function normalizedDomain(value: string): string {
+  const withoutProtocol = value.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0]
+  return withoutProtocol.endsWith('.atlassian.net')
+    ? withoutProtocol.slice(0, -'.atlassian.net'.length)
+    : withoutProtocol
+}
+
 function toJsm(grants: ExtensionGrantRecord[]): Record<string, JsmTicket> {
   const entries = grants.flatMap(row => {
     const request = row.request
     if (!request) return []
-    const accountId = request.targetUserAccountId ?? row.userAccountId ?? 'unknown'
+    const accountId = request.targetUserAccountId ?? row.userAccountId ?? null
     const reporterAccountId = request.requesterAccountId ?? undefined
     const lastCommentDate = request.comments.lastCommentAt
       ? displayDate(request.comments.lastCommentAt)
       : request.updatedAt
         ? displayDate(request.updatedAt)
-        : 'unknown'
+        : null
+    const unavailableReasons: Record<string, string> = {}
+    if (!request.requester) unavailableReasons.requester = request.unavailableReasons.requester ?? 'JSM reporter identity was unavailable'
+    if (!accountId) unavailableReasons.accountId = request.unavailableReasons.targetUserAccountId ?? 'JSM target account id was unavailable'
+    if (!request.status) unavailableReasons.status = request.unavailableReasons.status ?? 'JSM status was unavailable'
+    if (!lastCommentDate) {
+      unavailableReasons.lastReply = request.comments.unavailableReasons.lastCommentAt
+        ?? request.unavailableReasons.updatedAt
+        ?? 'JSM comment and update timestamps were unavailable'
+    }
+    if (!request.typedDomain) unavailableReasons.typedDomain = request.unavailableReasons.typedDomain ?? 'JSM form Client domain was unavailable'
+    if (!request.typedSpace) unavailableReasons.typedSpace = request.unavailableReasons.typedSpace ?? 'JSM form Space key was unavailable'
     return [[request.ticketKey, {
-      requester: request.requester ?? 'unknown requester',
+      requester: request.requester,
       accountId,
       reporterAccountId,
-      status: request.status ?? 'unknown',
+      status: request.status,
       lastReply: lastCommentDate,
-      replies: request.comments.publicCommentCount ?? 0,
-      typedDomain: request.typedDomain ?? '(unknown)',
-      typedSpace: request.typedSpace ?? '(unknown)',
+      replies: request.comments.state === 'known' ? request.comments.publicCommentCount : null,
+      typedDomain: request.typedDomain,
+      typedSpace: request.typedSpace,
       // The JSM payload used here carries a reporter account id, not an
       // authenticated-vs-portal fact. Account-id shape is not proof.
       portalUnsigned: null,
@@ -131,9 +155,11 @@ function toJsm(grants: ExtensionGrantRecord[]): Record<string, JsmTicket> {
       publicComments: request.comments.publicCommentCount,
       requesterComments: request.comments.requesterCommentCount,
       lastCommentAuthor: request.comments.lastCommentAuthor,
+      lastCommentFirstLine: request.comments.lastCommentFirstLine,
       matchedBy: request.matchedBy,
       macroCount: request.macroCount,
-      macrosLimit: request.macrosLimit
+      macrosLimit: request.macrosLimit,
+      unavailableReasons
     } satisfies JsmTicket] as const]
   })
   return Object.fromEntries(entries)

@@ -1,4 +1,4 @@
-export const EXTENSIONS_CONTRACT_VERSION = 2 as const
+export const EXTENSIONS_CONTRACT_VERSION = 3 as const
 
 export type ExtensionSourceName =
   | 'marketplace'
@@ -28,7 +28,10 @@ export interface ExtensionCommentEvidence {
   lastCommentAt: string | null
   lastCommentAuthor: string | null
   lastCommentAuthorship: 'requester' | 'non_requester' | 'unknown'
+  /** First non-empty line only. Full comment bodies never cross the loopback contract. */
+  lastCommentFirstLine: string | null
   reason: string | null
+  unavailableReasons: Record<string, string>
 }
 
 export interface ExtensionRequestContext {
@@ -41,10 +44,14 @@ export interface ExtensionRequestContext {
   typedSpace: string | null
   macroCount: number | null
   macrosLimit: number | null
+  /** Verbatim non-empty JSM form values, before numeric conversion. */
+  macroCountRaw: string | null
+  macrosLimitRaw: string | null
   createdAt: string | null
   updatedAt: string | null
   matchedBy: 'ticket_key' | 'domain_space'
   comments: ExtensionCommentEvidence
+  unavailableReasons: Record<string, string>
 }
 
 export interface ExtensionActionAudit {
@@ -83,6 +90,7 @@ export interface ExtensionGrantRecord {
   actionAudit: ExtensionActionAudit[]
   history: ExtensionHistoryEntry[]
   unknowns: string[]
+  unavailableReasons: Record<string, string>
 }
 
 export interface ExtensionOriginBucket {
@@ -116,9 +124,12 @@ export interface OpenExtensionRequest {
   /** As the requester typed it into the JSM form, against the plan's own limit. */
   macroCount: number | null
   macrosLimit: number | null
+  macroCountRaw: string | null
+  macrosLimitRaw: string | null
   /** Current KV grants for the same cloud ID and space, so a repeat ask is visible. */
   priorGrants: PriorGrantSummary
   comments: ExtensionCommentEvidence
+  unavailableReasons: Record<string, string>
 }
 
 export interface OpenExtensionRequestStream {

@@ -18,6 +18,8 @@ function request(overrides: Partial<OpenExtensionRequest>): OpenExtensionRequest
     requester: 'someone@tenant-a.example',
     macroCount: 1836,
     macrosLimit: 100,
+    macroCountRaw: '1836',
+    macrosLimitRaw: '100',
     priorGrants: { count: 0, activeCount: 0, latestExpiresAt: null },
     comments: {
       state: 'known',
@@ -26,8 +28,11 @@ function request(overrides: Partial<OpenExtensionRequest>): OpenExtensionRequest
       lastCommentAt: '2026-08-29T01:00:00.000Z',
       lastCommentAuthor: 'Peng Xiao',
       lastCommentAuthorship: 'non_requester',
-      reason: null
+      lastCommentFirstLine: 'First line',
+      reason: null,
+      unavailableReasons: {}
     },
+    unavailableReasons: {},
     ...overrides
   }
 }

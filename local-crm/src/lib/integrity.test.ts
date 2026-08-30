@@ -123,7 +123,7 @@ describe('reviewed lifecycle integrity rules', () => {
           status: 'Waiting for support',
           lastReply: '29 Aug',
           replies: 1,
-          typedDomain: grant.domain,
+          typedDomain: grant.domain!,
           typedSpace: grant.space,
           portalUnsigned: false,
           note: 'matched by domain + space, target scope and causal time',
@@ -248,10 +248,14 @@ describe('reviewed lifecycle integrity rules', () => {
           status: 'Waiting for support',
           lastReply: '29 Aug',
           replies: 0,
-          typedDomain: '(unknown)',
-          typedSpace: '(unknown)',
+          typedDomain: null,
+          typedSpace: null,
           portalUnsigned: null,
-          note: ''
+          note: '',
+          unavailableReasons: {
+            typedDomain: 'JSM form Client domain was unavailable',
+            typedSpace: 'JSM form Space key was unavailable'
+          }
         }
       }
     }
@@ -266,7 +270,8 @@ describe('reviewed lifecycle integrity rules', () => {
     const grant = {
       ...data.grants[0],
       id: 'grant_unmapped_current',
-      domain: '(not in Marketplace · cloud example)',
+      domain: null,
+      domainUnavailableReason: 'Marketplace export has no site domain for this cloud ID',
       siteMapping: 'unmatched' as const,
       ticketKey: undefined,
       requestTicket: undefined,
@@ -275,7 +280,7 @@ describe('reviewed lifecycle integrity rules', () => {
       sourceObservedAt: '2026-08-30T10:00:00.000Z',
       marketplace: [],
       unknowns: [
-        'site domain is not available',
+        'Marketplace export has no site domain for this cloud ID',
         'no JSM request candidate matched in the fetched search window',
         'no ExtensionAction audit row exists'
       ]
@@ -302,7 +307,8 @@ describe('reviewed lifecycle integrity rules', () => {
     const grant = {
       ...data.grants[0],
       id: 'grant_hostname_missing',
-      domain: '(not in Marketplace · cloud example)',
+      domain: null,
+      domainUnavailableReason: 'Marketplace export has no site domain for this cloud ID',
       siteMapping: 'unmatched' as const,
       status: 'active' as const,
       active: true,
@@ -314,7 +320,7 @@ describe('reviewed lifecycle integrity rules', () => {
         evaluationStartedAt: null,
         evaluationEndsAt: null
       }],
-      unknowns: ['site domain is not available']
+      unknowns: ['Marketplace export has no site domain for this cloud ID']
     }
     const isolated = { ...data, grants: [grant] }
     const event = buildEvents(isolated).find(row => row.kind === 'granted')!

@@ -42,7 +42,9 @@ export default function TopBar() {
       'Editing extensions',
       store.extensionsLoad.state === 'live' || store.extensionsLoad.state === 'partial'
         ? `${store.data.grants.length} ${store.extensionsLoad.state === 'partial' ? 'partially ' : ''}source-backed grant records across ${extensionTenantCount} tenants · ${active} active on ${human(store.data.today)}`
-        : `${store.data.grants.length} sanitized fixture grants · live source ${store.extensionsLoad.state}`
+        : store.data.placeholder
+          ? `${store.data.grants.length} explicit synthetic fixture grants · not production freshness · live source ${store.extensionsLoad.state}`
+          : `${store.data.grants.length} local dataset grants · live source ${store.extensionsLoad.state}`
     ],
     automation: [
       'Automation',

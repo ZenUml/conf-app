@@ -105,7 +105,7 @@ export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`
 }
 
-/** A grant domain that resolved to nothing is parenthesised, never suffixed. */
-export function hostname(domain: string): string {
-  return domain.startsWith('(') ? domain : `${domain}.atlassian.net`
+/** Render a nullable Marketplace domain without replacing the underlying fact. */
+export function hostname(domain: string | null, unavailableReason = 'Marketplace site domain unavailable'): string {
+  return domain ? `${domain}.atlassian.net` : `Unavailable · ${unavailableReason}`
 }

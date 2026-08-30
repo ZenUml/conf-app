@@ -114,6 +114,110 @@ function input() {
 }
 
 describe('Extensions API transformer', () => {
+  it('preserves raw JSM form values and exposes only comment metadata plus its first line', () => {
+    const base = input()
+    const rawDescription = {
+      type: 'doc',
+      content: [{
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Client domain: Example.ATLASSIAN.NET' },
+          { type: 'hardBreak' },
+          { type: 'text', text: 'Space key: SPACE' },
+          { type: 'hardBreak' },
+          { type: 'text', text: 'Macro count: 00123' },
+          { type: 'hardBreak' },
+          { type: 'text', text: 'Limit: 0100' },
+          { type: 'hardBreak' },
+          { type: 'text', text: 'User account ID: target-account' }
+        ]
+      }]
+    }
+    const response = buildExtensionsResponse({
+      ...base,
+      jsmIssues: [{
+        key: 'ZEN-123',
+        fields: {
+          status: { name: 'Waiting for customer' },
+          reporter: { displayName: 'Requester', accountId: 'reporter-account' },
+          description: rawDescription,
+          created: '2026-08-20T00:00:00Z',
+          updated: '2026-08-21T00:00:00Z'
+        }
+      }],
+      jsmCommentsByTicket: new Map([['ZEN-123', [{
+        author: { displayName: 'Requester', accountId: 'reporter-account' },
+        created: '2026-08-21T00:00:00Z',
+        jsdPublic: true,
+        body: {
+          type: 'doc',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'First line only' }] },
+            { type: 'paragraph', content: [{ type: 'text', text: 'private second line' }] }
+          ]
+        }
+      }]]])
+    })
+
+    expect(response.grants[0].request).toMatchObject({
+      typedDomain: 'Example.ATLASSIAN.NET',
+      typedSpace: 'SPACE',
+      macroCountRaw: '00123',
+      macrosLimitRaw: '0100',
+      comments: { lastCommentFirstLine: 'First line only' }
+    })
+    expect(JSON.stringify(response)).not.toContain('private second line')
+  })
+
+  it('pairs unavailable JSM facts with null values and explicit reasons', () => {
+    const base = input()
+    const response = buildExtensionsResponse({
+      ...base,
+      jsmIssues: [{
+        key: 'ZEN-123',
+        fields: {
+          status: null,
+          reporter: null,
+          description: null,
+          created: null,
+          updated: null
+        }
+      }],
+      jsmCommentsByTicket: new Map([['ZEN-123', []]])
+    })
+
+    expect(response.grants[0].request).toMatchObject({
+      status: null,
+      requester: null,
+      requesterAccountId: null,
+      targetUserAccountId: null,
+      typedDomain: null,
+      typedSpace: null,
+      macroCount: null,
+      macrosLimit: null,
+      createdAt: null,
+      updatedAt: null,
+      unavailableReasons: {
+        status: 'JSM status was unavailable',
+        requester: 'JSM reporter identity was unavailable',
+        requesterAccountId: 'JSM reporter account id was unavailable',
+        targetUserAccountId: 'JSM form User account ID was unavailable',
+        typedDomain: 'JSM form Client domain was unavailable',
+        typedSpace: 'JSM form Space key was unavailable',
+        macroCount: 'JSM form Macro count was unavailable or non-numeric',
+        macrosLimit: 'JSM form Limit was unavailable or non-numeric',
+        createdAt: 'JSM created timestamp was unavailable or invalid',
+        updatedAt: 'JSM updated timestamp was unavailable or invalid'
+      },
+      comments: {
+        lastCommentFirstLine: null,
+        unavailableReasons: {
+          lastCommentFirstLine: 'No JSM comments were returned'
+        }
+      }
+    })
+  })
+
   it('classifies each fetched open JSM request only by an exact recorded KV ticket', () => {
     const base = input()
     const response = buildExtensionsResponse({

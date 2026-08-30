@@ -58,7 +58,9 @@ export default function ExtensionsScreen() {
               {extensionsLoad.state === 'live'
                 ? 'Live extension data'
                 : extensionsLoad.state === 'error'
-                  ? 'Sanitized extension fixture — live load failed'
+                  ? data.placeholder
+                    ? 'FIXTURE DATA — live extension load failed'
+                    : 'Local dataset — live extension load failed'
                   : extensionsLoad.state === 'partial'
                     ? 'Partial live extension data'
                     : 'Loading live extension data…'}
@@ -66,7 +68,9 @@ export default function ExtensionsScreen() {
             <div className="mt-1 text-micro text-fg2">
               {(extensionsLoad.state === 'live' || extensionsLoad.state === 'partial') && extensionsLoad.generatedAt
                 ? `Read ${new Date(extensionsLoad.generatedAt).toLocaleString()}; API responses are not cached by the browser.${extensionsLoad.incompleteGrantCount ? ` ${extensionsLoad.incompleteGrantCount} grant ${extensionsLoad.incompleteGrantCount === 1 ? 'has' : 'have'} missing timestamp evidence and remain visible as unknown.` : ''}`
-                : extensionsLoad.error ?? 'The fixture remains visible until the loopback API returns.'}
+                : extensionsLoad.error ?? (data.placeholder
+                  ? 'Explicit synthetic fixture remains visible; it is not production freshness.'
+                  : 'The local dataset remains visible; live extension freshness is unavailable.')}
             </div>
           </div>
           {extensionsLoad.sources ? (

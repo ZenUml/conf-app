@@ -37,19 +37,24 @@ export interface Registration {
 export interface Grant {
   /** Stable API id when the row came from the loopback backend. */
   id?: string
-  created: string
+  created: string | null
+  createdUnavailableReason?: string
   createdAt?: string
   updatedAt?: string
-  /** '(not in export)' when the cloud ID resolves to no site in the licence export. */
-  domain: string
+  /** Marketplace-resolved subdomain. Missing evidence stays null. */
+  domain: string | null
+  /** Why `domain` is null. */
+  domainUnavailableReason?: string
   /** Live Marketplace join result; absent on the sanitized fixture. */
   siteMapping?: 'matched' | 'unmatched' | 'unavailable'
   space: string
   /** Space-wide when true, one requester when absent. */
   wide?: boolean
   /** `activatedBy`, verbatim; never replaced with a correlated request key. */
-  origin: string
-  expires: string
+  origin: string | null
+  originUnavailableReason?: string
+  expires: string | null
+  expiresUnavailableReason?: string
   expiresAt?: string
   /** Derived at read time from `expiresAt`. There is no persisted expiry event. */
   active?: boolean
@@ -101,28 +106,30 @@ export interface Grant {
  * account-id shape does not prove how the request was authenticated.
  */
 export interface JsmTicket {
-  requester: string
+  requester: string | null
   /** Target account id, as JSM returns it. */
-  accountId: string
+  accountId: string | null
   /** Reporter identity used only to classify portal-auth state/comment authorship. */
   reporterAccountId?: string
-  status: string
+  status: string | null
   /** Date of the last public vendor reply. */
-  lastReply: string
-  replies: number
+  lastReply: string | null
+  replies: number | null
   /** Domain as the requester typed it — compared against the granted site. */
-  typedDomain: string
+  typedDomain: string | null
   /** Space as the requester typed it — compared against the granted space. */
-  typedSpace: string
+  typedSpace: string | null
   portalUnsigned: boolean | null
   note: string
   commentsKnown?: boolean
   publicComments?: number | null
   requesterComments?: number | null
   lastCommentAuthor?: string | null
+  lastCommentFirstLine?: string | null
   matchedBy?: 'ticket_key' | 'domain_space'
   macroCount?: number | null
   macrosLimit?: number | null
+  unavailableReasons?: Record<string, string>
 }
 
 export interface AutomationRule {

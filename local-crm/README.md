@@ -27,11 +27,15 @@ work from an isolated worktree without copying the ignored credential file.
 Only the four named server credential keys are admitted; they are never exposed
 as `VITE_*` client variables and are not loaded for tests, builds, or preview.
 
-If a required grant-KV read fails, the Extensions page leaves the sanitized
-fixture visible and labels it as a failed live load. Today does not substitute
-those fixture grants: its grant and expiry rows remain empty and explicitly
-unavailable until the authoritative KV read succeeds. Optional source failures
-stay explicit in the source badges and in each record's `unknowns` list.
+The app fails closed when `src/data/local/dataset.ts` is absent: it renders a
+data-unavailable boundary and does not mount the loaders. Synthetic fixture data
+is available only with `VITE_LOCAL_CRM_DATASET=fixture` in development or test;
+the UI then carries a persistent `FIXTURE DATA` banner and never presents it as
+production freshness. If a required grant-KV read fails after a dataset was
+selected, Today does not substitute fixture grants: its grant and expiry rows
+remain empty and explicitly unavailable. Optional source failures stay explicit
+in source badges, nullable facts, unavailable reasons, and each record's
+`unknowns` list.
 
 Today reuses the same Extensions snapshot client-side. It overlays only the
 API's `asOf`, current grants, correlated JSM context, and grant-origin buckets.

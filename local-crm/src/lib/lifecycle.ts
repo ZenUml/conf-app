@@ -61,12 +61,16 @@ export function grantStatusOf(grant: Grant): NonNullable<Grant['status']> {
 
 export function grantCreatedDay(grant: Grant): string | null {
   if (grant.createdAt) return grant.createdAt.slice(0, 10)
-  return grant.created === 'unknown' ? null : iso(grant.created)
+  return grant.created ? iso(grant.created) : null
 }
 
 export function grantExpiryDay(grant: Grant): string | null {
   if (grant.expiresAt) return grant.expiresAt.slice(0, 10)
-  return grant.expires === 'unknown' ? null : iso(grant.expires)
+  return grant.expires ? iso(grant.expires) : null
+}
+
+function grantFact(value: string | null, reason: string | undefined): string {
+  return value ?? `unavailable — ${reason ?? 'source fact unavailable'}`
 }
 
 function hasUnknown(grant: Grant, value: string): boolean {
@@ -77,9 +81,11 @@ function hasUnknown(grant: Grant, value: string): boolean {
 export function requesterOf(data: Dataset, grant: Grant): string {
   const ticket = jsmOf(data, grant)
   if (ticket) {
+    const requester = ticket.requester
+      ?? `unavailable — ${ticket.unavailableReasons?.requester ?? 'JSM reporter identity was unavailable'}`
     return grant.requestMatchedBy === 'domain_space'
-      ? `${ticket.requester} — reporter on a correlated request; not proven grant origin`
-      : ticket.requester
+      ? `${requester} — reporter on a correlated request; not proven grant origin`
+      : requester
   }
   if (grant.wide) return 'whole space — no single requester'
   if (hasUnknown(grant, 'JSM request matching is unavailable')) {
@@ -87,7 +93,7 @@ export function requesterOf(data: Dataset, grant: Grant): string {
       ? 'target account is present; JSM request matching is unavailable'
       : 'target account unavailable; JSM request matching is unavailable'
   }
-  if (!ticketOf(grant) && grant.domain.startsWith('(')) {
+  if (!ticketOf(grant) && !grant.domain) {
     return grant.userAccountId
       ? 'target account is present; request correlation requires a verified Marketplace site'
       : 'request correlation requires a verified Marketplace site; target account unavailable'
@@ -108,7 +114,7 @@ export function grantState(data: Dataset, grant: Grant): [string, string] {
       'A synthetic grant left behind by an upgrade-prompt end-to-end test. It lives in the same store as real ones and runs to 31 Dec 2027.'
     ]
   }
-  if (grant.domain.startsWith('(')) {
+  if (!grant.domain) {
     const mappingUnavailable = hasUnknown(grant, 'Marketplace site mapping is unavailable')
     return [
       mappingUnavailable ? 'site mapping unavailable' : 'needs-details',
@@ -154,7 +160,7 @@ export function grantState(data: Dataset, grant: Grant): [string, string] {
         : ' No exact-target ExtensionAction row matched.'
     return [
       'outside the request flow',
-      `Activated by ${grant.origin}. ${requestAvailability}${auditAvailability}`
+      `Activated by ${grantFact(grant.origin, grant.originUnavailableReason)}. ${requestAvailability}${auditAvailability}`
     ]
   }
   if (grant.actionAudit?.some(row => row.status === 'applied')) {
@@ -177,7 +183,7 @@ export function grantState(data: Dataset, grant: Grant): [string, string] {
   }
   return [
     'applied, unverified',
-    `${requestContext}The fixture records activatedBy as ${grant.origin}; no live source observation is attached.`
+    `${requestContext}The fixture records activatedBy as ${grantFact(grant.origin, grant.originUnavailableReason)}; no live source observation is attached.`
   ]
 }
 
@@ -234,11 +240,11 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
               ? `${ticket} is correlated by exact domain, space, target scope and causal time; it is not proven to be this grant's origin.`
               : needsDetails
                 ? state === 'site mapping unavailable'
-                  ? `No explicit ticket is recorded; Marketplace site mapping is unavailable, so domain correlation cannot run. activatedBy is ${grant.origin}.`
-                  : `No explicit ticket is recorded; domain correlation cannot run without a verified Marketplace site. activatedBy is ${grant.origin}.`
+                  ? `No explicit ticket is recorded; Marketplace site mapping is unavailable, so domain correlation cannot run. activatedBy is ${grantFact(grant.origin, grant.originUnavailableReason)}.`
+                  : `No explicit ticket is recorded; domain correlation cannot run without a verified Marketplace site. activatedBy is ${grantFact(grant.origin, grant.originUnavailableReason)}.`
               : jsmUnavailable
-                ? `JSM request matching is unavailable; activatedBy is ${grant.origin}.`
-                : `No JSM request candidate matched in the fetched search window. activatedBy is ${grant.origin}.`
+                ? `JSM request matching is unavailable; activatedBy is ${grantFact(grant.origin, grant.originUnavailableReason)}.`
+                : `No JSM request candidate matched in the fetched search window. activatedBy is ${grantFact(grant.origin, grant.originUnavailableReason)}.`
         },
         {
           name: 'needs-details',

@@ -52,11 +52,12 @@ export default function QueueRequestDrawer() {
     : comments.state === 'unknown'
       ? [{ k: 'comment evidence', v: comments.reason ?? 'unavailable', problem: true }]
       : [
-          { k: 'public comments', v: comments.publicCommentCount === null ? 'not recorded' : String(comments.publicCommentCount) },
-          { k: 'requester comments', v: comments.requesterCommentCount === null ? 'not recorded' : String(comments.requesterCommentCount) },
-          { k: 'last author', v: comments.lastCommentAuthor ?? 'not recorded' },
+          { k: 'public comments', v: comments.publicCommentCount === null ? `unavailable — ${comments.unavailableReasons.publicCommentCount ?? 'JSM comment count unavailable'}` : String(comments.publicCommentCount), problem: comments.publicCommentCount === null },
+          { k: 'requester comments', v: comments.requesterCommentCount === null ? `unavailable — ${comments.unavailableReasons.requesterCommentCount ?? 'requester authorship unavailable'}` : String(comments.requesterCommentCount), problem: comments.requesterCommentCount === null },
+          { k: 'last author', v: comments.lastCommentAuthor ?? `unavailable — ${comments.unavailableReasons.lastCommentAuthor ?? 'JSM comment author unavailable'}`, problem: comments.lastCommentAuthor === null },
           { k: 'last speaker', v: comments.lastCommentAuthorship.replace('_', ' ') },
-          { k: 'last comment', v: comments.lastCommentAt ?? 'not recorded' }
+          { k: 'last comment', v: comments.lastCommentAt ?? `unavailable — ${comments.unavailableReasons.lastCommentAt ?? 'JSM comment timestamp unavailable'}`, problem: comments.lastCommentAt === null },
+          { k: 'first line', v: comments.lastCommentFirstLine ?? `unavailable — ${comments.unavailableReasons.lastCommentFirstLine ?? 'JSM comment first line unavailable'}`, problem: comments.lastCommentFirstLine === null }
         ]
 
   return (
@@ -93,7 +94,7 @@ export default function QueueRequestDrawer() {
           <section className="mt-[22px]">
             <SectionLabel className="mb-[11px]">Ticket comment evidence</SectionLabel>
             <FactGrid rows={commentFacts} />
-            <div className="mt-3 text-micro leading-[1.5] text-fg3">Comment bodies stay in JSM until the request contract explicitly exposes them.</div>
+            <div className="mt-3 text-micro leading-[1.5] text-fg3">Only comment metadata and the first non-empty line cross the loopback contract; the remaining body stays in JSM.</div>
           </section>
         </div>
         <div className="shrink-0 border-t border-line bg-bg2 px-[22px] py-3 font-mono text-micro leading-[1.5] text-fg3">Today queue · {row.reason.replaceAll('_', ' ')}</div>

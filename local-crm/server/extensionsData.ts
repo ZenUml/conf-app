@@ -140,9 +140,12 @@ interface ParsedJsmIssue {
   requesterAccountId: string | null
   targetUserAccountId: string | null
   typedDomain: string | null
+  domainKey: string | null
   typedSpace: string | null
   macroCount: number | null
   macrosLimit: number | null
+  macroCountRaw: string | null
+  macrosLimitRaw: string | null
   createdAt: string | null
   updatedAt: string | null
 }
@@ -155,19 +158,46 @@ function parseJsmIssue(value: unknown): ParsedJsmIssue | null {
   const status = record(fields.status)
   const reporter = record(fields.reporter)
   const description = flattenAdf(fields.description)
+  const typedDomain = fieldFromDescription(description, 'Client domain')
+  const macroCountRaw = fieldFromDescription(description, 'Macro count')
+  const macrosLimitRaw = fieldFromDescription(description, 'Limit')
   return {
     ticketKey,
     status: text(status?.name),
     requester: text(reporter?.displayName) ?? text(reporter?.emailAddress),
     requesterAccountId: text(reporter?.accountId),
     targetUserAccountId: fieldFromDescription(description, 'User account ID'),
-    typedDomain: normalizeDomain(fieldFromDescription(description, 'Client domain')),
+    typedDomain,
+    domainKey: normalizeDomain(typedDomain),
     typedSpace: fieldFromDescription(description, 'Space key'),
-    macroCount: numberValue(fieldFromDescription(description, 'Macro count')),
-    macrosLimit: numberValue(fieldFromDescription(description, 'Limit')),
+    macroCount: numberValue(macroCountRaw),
+    macrosLimit: numberValue(macrosLimitRaw),
+    macroCountRaw,
+    macrosLimitRaw,
     createdAt: isoOrNull(fields.created),
     updatedAt: isoOrNull(fields.updated)
   }
+}
+
+function requestUnavailableReasons(issue: ParsedJsmIssue | null | undefined): Record<string, string> {
+  const reasons: Record<string, string> = {}
+  if (!issue?.status) reasons.status = 'JSM status was unavailable'
+  if (!issue?.requester) reasons.requester = 'JSM reporter identity was unavailable'
+  if (!issue?.requesterAccountId) reasons.requesterAccountId = 'JSM reporter account id was unavailable'
+  if (!issue?.targetUserAccountId) reasons.targetUserAccountId = 'JSM form User account ID was unavailable'
+  if (!issue?.typedDomain) reasons.typedDomain = 'JSM form Client domain was unavailable'
+  if (!issue?.typedSpace) reasons.typedSpace = 'JSM form Space key was unavailable'
+  if (issue?.macroCount === null || issue?.macroCount === undefined) {
+    reasons.macroCount = 'JSM form Macro count was unavailable or non-numeric'
+  }
+  if (issue?.macrosLimit === null || issue?.macrosLimit === undefined) {
+    reasons.macrosLimit = 'JSM form Limit was unavailable or non-numeric'
+  }
+  if (!issue?.macroCountRaw) reasons.macroCountRaw = 'JSM form Macro count was unavailable'
+  if (!issue?.macrosLimitRaw) reasons.macrosLimitRaw = 'JSM form Limit was unavailable'
+  if (!issue?.createdAt) reasons.createdAt = 'JSM created timestamp was unavailable or invalid'
+  if (!issue?.updatedAt) reasons.updatedAt = 'JSM updated timestamp was unavailable or invalid'
+  return reasons
 }
 
 function commentEvidence(
@@ -182,7 +212,16 @@ function commentEvidence(
       lastCommentAt: null,
       lastCommentAuthor: null,
       lastCommentAuthorship: 'unknown',
-      reason: 'JSM comments were unavailable'
+      lastCommentFirstLine: null,
+      reason: 'JSM comments were unavailable',
+      unavailableReasons: {
+        publicCommentCount: 'JSM comments were unavailable',
+        requesterCommentCount: 'JSM comments were unavailable',
+        lastCommentAt: 'JSM comments were unavailable',
+        lastCommentAuthor: 'JSM comments were unavailable',
+        lastCommentAuthorship: 'JSM comments were unavailable',
+        lastCommentFirstLine: 'JSM comments were unavailable'
+      }
     }
   }
   const parsed = comments
@@ -194,7 +233,8 @@ function commentEvidence(
         author: text(author?.displayName),
         authorAccountId: text(author?.accountId),
         at: isoOrNull(row.created),
-        public: row.jsdPublic === true
+        public: row.jsdPublic === true,
+        firstLine: flattenAdf(row.body).split('\n').map(line => line.trim()).find(Boolean) ?? null
       }
     })
     .filter((value): value is NonNullable<typeof value> => value !== null)
@@ -208,6 +248,23 @@ function commentEvidence(
     : last.authorAccountId === requesterAccountId
       ? 'requester'
       : 'non_requester'
+  const unavailableReasons: Record<string, string> = {}
+  if (!last) {
+    unavailableReasons.lastCommentAt = 'No JSM comments were returned'
+    unavailableReasons.lastCommentAuthor = 'No JSM comments were returned'
+    unavailableReasons.lastCommentAuthorship = 'No JSM comments were returned'
+    unavailableReasons.lastCommentFirstLine = 'No JSM comments were returned'
+  } else {
+    if (!last.at) unavailableReasons.lastCommentAt = 'Last JSM comment timestamp was unavailable or invalid'
+    if (!last.author) unavailableReasons.lastCommentAuthor = 'Last JSM comment author was unavailable'
+    if (lastAuthorship === 'unknown') {
+      unavailableReasons.lastCommentAuthorship = 'Reporter or comment author account id was unavailable'
+    }
+    if (!last.firstLine) unavailableReasons.lastCommentFirstLine = 'Last JSM comment had no non-empty first line'
+  }
+  if (!requesterAccountId) {
+    unavailableReasons.requesterCommentCount = 'JSM reporter account id was unavailable for authorship matching'
+  }
   return {
     state: 'known',
     publicCommentCount: publicComments.length,
@@ -215,7 +272,9 @@ function commentEvidence(
     lastCommentAt: last?.at ?? null,
     lastCommentAuthor: last?.author ?? null,
     lastCommentAuthorship: lastAuthorship,
-    reason: requesterAccountId ? null : 'Requester account id was unavailable for authorship matching'
+    lastCommentFirstLine: last?.firstLine ?? null,
+    reason: requesterAccountId ? null : 'Requester account id was unavailable for authorship matching',
+    unavailableReasons
   }
 }
 
@@ -379,8 +438,8 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
   const issuesByTicket = new Map(issues.map(issue => [issue.ticketKey, issue]))
   const issuesByDomainSpace = new Map<string, ParsedJsmIssue[]>()
   issues.forEach(issue => {
-    if (!issue.typedDomain || !issue.typedSpace) return
-    const key = `${issue.typedDomain}\u0000${issue.typedSpace}`
+    if (!issue.domainKey || !issue.typedSpace) return
+    const key = `${issue.domainKey}\u0000${issue.typedSpace}`
     const existing = issuesByDomainSpace.get(key) ?? []
     existing.push(issue)
     existing.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
@@ -441,13 +500,16 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
           typedSpace: matchedIssue.typedSpace,
           macroCount: matchedIssue.macroCount,
           macrosLimit: matchedIssue.macrosLimit,
+          macroCountRaw: matchedIssue.macroCountRaw,
+          macrosLimitRaw: matchedIssue.macrosLimitRaw,
           createdAt: matchedIssue.createdAt,
           updatedAt: matchedIssue.updatedAt,
           matchedBy,
           comments: commentEvidence(
             input.jsmCommentsByTicket.get(matchedIssue.ticketKey),
             matchedIssue.requesterAccountId
-          )
+          ),
+          unavailableReasons: requestUnavailableReasons(matchedIssue)
         } satisfies ExtensionRequestContext
       : null
     const status = deriveStatus(storedStatus, expiresAt, input.generatedAt)
@@ -460,6 +522,7 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
       expiresAt
     })
     const unknowns: string[] = []
+    const unavailableReasons: Record<string, string> = {}
     const valueCloudId = text(row.cloudId)
     const valueSpaceKey = text(row.spaceKey)
     const valueUserAccountId = text(row.userAccountId)
@@ -477,12 +540,22 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
       unknowns.push('KV value user scope differs from the authoritative key')
     }
     if (!site?.domain) {
-      unknowns.push(sourceErrors.marketplace
+      const reason = sourceErrors.marketplace
         ? 'Marketplace site mapping is unavailable'
-        : 'site domain is not available')
+        : 'Marketplace export has no site domain for this cloud ID'
+      unknowns.push(reason)
+      unavailableReasons.domain = reason
     }
-    if (!expiresAt) unknowns.push('grant expiry is missing or invalid')
-    if (!activatedBy) unknowns.push('grant origin is not recorded')
+    if (!createdAt) unavailableReasons.createdAt = 'KV grant createdAt is unavailable or invalid'
+    if (!updatedAt) unavailableReasons.updatedAt = 'KV grant updatedAt is unavailable or invalid'
+    if (!expiresAt) {
+      unknowns.push('grant expiry is missing or invalid')
+      unavailableReasons.expiresAt = 'KV grant expiresAt is unavailable or invalid'
+    }
+    if (!activatedBy) {
+      unknowns.push('grant origin is not recorded')
+      unavailableReasons.activatedBy = 'KV grant activatedBy is unavailable'
+    }
     if (request?.matchedBy === 'ticket_key') {
       const requestScopeMismatch = scope === 'user'
         ? Boolean(request.targetUserAccountId && request.targetUserAccountId !== userAccountId)
@@ -492,9 +565,11 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
       }
     }
     if (!request) {
-      unknowns.push(sourceErrors.jsm
+      const reason = sourceErrors.jsm
         ? 'JSM request matching is unavailable'
-        : 'no JSM request candidate matched in the fetched search window')
+        : 'no JSM request candidate matched in the fetched search window'
+      unknowns.push(reason)
+      unavailableReasons.request = reason
     }
     if (!actionAudit.length) {
       unknowns.push(sourceErrors.extension_action_d1
@@ -524,7 +599,8 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
       request,
       actionAudit,
       history: historyForGrant(createdAt, updatedAt, actionAudit),
-      unknowns
+      unknowns,
+      unavailableReasons
     } satisfies ExtensionGrantRecord]
   }).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
 
@@ -562,7 +638,7 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
             // carries what that decision needs: where the site is, who asked, how
             // far past the limit they are, and whether this space was granted
             // before. Every field here is already parsed above.
-            const cloudId = issue?.typedDomain ? (cloudIdByDomain.get(issue.typedDomain) ?? null) : null
+            const cloudId = issue?.domainKey ? (cloudIdByDomain.get(issue.domainKey) ?? null) : null
             return {
               ticketKey,
               status: issue?.status ?? null,
@@ -577,11 +653,14 @@ export function buildExtensionsResponse(input: ExtensionsDataInput): ExtensionsR
               requester: issue?.requester ?? null,
               macroCount: issue?.macroCount ?? null,
               macrosLimit: issue?.macrosLimit ?? null,
+              macroCountRaw: issue?.macroCountRaw ?? null,
+              macrosLimitRaw: issue?.macrosLimitRaw ?? null,
               priorGrants: priorGrantsFor(grants, cloudId, issue?.typedSpace ?? null),
               comments: commentEvidence(
                 input.jsmCommentsByTicket.get(ticketKey),
                 issue?.requesterAccountId ?? null
-              )
+              ),
+              unavailableReasons: requestUnavailableReasons(issue)
             }
           })
           .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.ticketKey.localeCompare(b.ticketKey)),

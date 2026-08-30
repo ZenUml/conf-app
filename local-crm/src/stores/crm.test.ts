@@ -23,7 +23,9 @@ const REQUEST_ROW: QueueRow = {
     lastCommentAt: '2026-08-30T10:00:00.000Z',
     lastCommentAuthor: 'Support',
     lastCommentAuthorship: 'non_requester',
-    reason: null
+    lastCommentFirstLine: 'First line',
+    reason: null,
+    unavailableReasons: {}
   },
   command: '/extend-space-license --cloud-id cloud-id --space ENGINEERING --days 7',
   eventId: null

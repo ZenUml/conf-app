@@ -13,7 +13,7 @@
       <span class="pl-3 pr-2 text-[10px] font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
       <div class="w-px h-3 bg-gray-200 flex-shrink-0"></div>
 
-      <button v-if="aiTitleEnabled || autoNameAnimationDone" type="button"
+      <button v-if="aiTitleAvailable || autoNameAnimationDone" type="button"
         class="ml-0.5 rounded p-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
         :class="[
           (isGeneratingTitle || showSpark) && !sparkFadingOut ? 'autoname-spark-in text-purple-500' : '',
@@ -56,7 +56,7 @@ export default defineComponent({
     // AI auto-title state (mirrors DiagramTitleInput.vue). The parent
     // (DrawIoExtension) owns the useAutoTitle composable and passes state down;
     // this stays a thin presentation component that emits user intents.
-    aiTitleEnabled: { type: Boolean, default: false },
+    aiTitleAvailable: { type: Boolean, default: true },
     isGeneratingTitle: { type: Boolean, default: false },
     isAnimating: { type: Boolean, default: false },
     displayedTitle: { type: String, default: "" },

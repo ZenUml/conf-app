@@ -15,16 +15,12 @@ const fakeStore = vi.hoisted(() => {
 
 vi.mock('@/model/store2', () => ({ default: fakeStore }))
 vi.mock('@/apis/aiGenerateTitle', () => ({ default: vi.fn() }))
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({
-  isAiTitleEnabled: vi.fn().mockResolvedValue(true),
-  resetAiTitleFlagForTests: vi.fn(),
-}))
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({ resetFeatureFlagsForTests: vi.fn() }))
 vi.mock('@/utils/toast', () => ({ toast: vi.fn() }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
 import OpenApiTitleInput from '@/components/react/OpenApiTitleInput'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag'
 import { useAutoTitle, TYPEWRITER_MS_PER_CHAR, SPARK_FADEOUT_MS } from '@/composables/useAutoTitle'
 import { buildOpenApiAiTitleContent } from '@/model/OpenApi/OpenApiEditorState'
 
@@ -39,7 +35,6 @@ describe('OpenApiTitleInput', () => {
     fakeStore.state.diagram.title = ''
     fakeStore.dispatch.mockClear()
     vi.mocked(aiGenerateTitle).mockReset()
-    vi.mocked(isAiTitleEnabled).mockResolvedValue(true)
     vi.useFakeTimers()
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -95,13 +90,6 @@ describe('OpenApiTitleInput', () => {
     })
     expect(onTitleChange).toHaveBeenCalledWith('Inventory API')
     expect(container.querySelector('button[title="Dismiss suggested title"]')).not.toBeNull()
-  })
-
-  it('hides the AI button when the feature flag is disabled', async () => {
-    vi.mocked(isAiTitleEnabled).mockResolvedValue(false)
-    await renderTitleInput(vi.fn(), 'Existing API')
-
-    expect(container.querySelector('button[title="Generate title with AI"]')).toBeNull()
   })
 
   it('dismisses a generated title back to empty', async () => {

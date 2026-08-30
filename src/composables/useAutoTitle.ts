@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import { isAiTitleEnabled, resetAiTitleFlagForTests } from '@/apis/aiTitleFeatureFlag'
+import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'
@@ -10,7 +10,10 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 export const TYPEWRITER_MS_PER_CHAR = 40
 export const SPARK_FADEOUT_MS = 400
 
-const aiTitleEnabled = ref(false)
+// AI title generation is available in every product. Keep this state for the
+// UI's loading and animation flow, but do not make a runtime feature-flag
+// request before exposing the control.
+const aiTitleEnabled = ref(true)
 const isGeneratingTitle = ref(false)
 const isAnimating = ref(false)
 const displayedTitle = ref('')
@@ -27,7 +30,6 @@ const aiTitleModifyTracked = ref(false)
 const lastGeneratedContentHash = ref<string | null>(null)
 
 let genToken = 0
-let flagLoaded = false
 
 const MERMAID_TYPE_MAP: Record<string, string> = {
   graph: 'flow chart',
@@ -104,16 +106,6 @@ function resetGenerating(): void {
 }
 
 export function useAutoTitle() {
-  async function initFlag(): Promise<void> {
-    if (flagLoaded) return
-    try {
-      aiTitleEnabled.value = await isAiTitleEnabled()
-      flagLoaded = true
-    } catch (e) {
-      console.error('Failed to load AI_TITLE flag', e)
-    }
-  }
-
   async function generate(
     trigger: 'init' | 'user',
     opts: { code: string; diagramType: DiagramType; currentTitle: string },
@@ -256,7 +248,6 @@ export function useAutoTitle() {
     showDismiss,
     autoNameAnimationDone,
     hasManuallyEditedTitle,
-    initFlag,
     generate,
     dismiss,
     markManualEdit,
@@ -278,7 +269,7 @@ export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }
 }
 
 ;(useAutoTitle as any).__resetForTests = () => {
-  aiTitleEnabled.value = false
+  aiTitleEnabled.value = true
   isGeneratingTitle.value = false
   isAnimating.value = false
   displayedTitle.value = ''
@@ -290,6 +281,5 @@ export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }
   aiTitleModifyTracked.value = false
   lastGeneratedContentHash.value = null
   genToken = 0
-  flagLoaded = false
-  resetAiTitleFlagForTests()
+  resetFeatureFlagsForTests()
 }

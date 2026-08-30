@@ -75,7 +75,7 @@ const WIDTH_PADDING_PX = 4
 const {
   aiTitleEnabled, isGeneratingTitle, isAnimating, displayedTitle,
   showSpark, sparkFadingOut, showDismiss, autoNameAnimationDone,
-  initFlag, generate, dismiss, markManualEdit, onTitleCleared, reset,
+  generate, dismiss, markManualEdit, onTitleCleared, reset,
 } = useAutoTitle()
 
 const titleError = ref(false)
@@ -185,8 +185,7 @@ onMounted(async () => {
   await nextTick()
   updateWidth()
   EventBus.$on('flash-title-error', onFlashTitleError)
-  await initFlag()
-  if (aiTitleEnabled.value) scheduleAutoGenerate()
+  scheduleAutoGenerate()
 })
 
 onBeforeUnmount(() => {

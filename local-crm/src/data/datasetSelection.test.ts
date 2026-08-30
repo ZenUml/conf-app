@@ -11,6 +11,13 @@ describe('local dataset selection', () => {
     })
   })
 
+  it('does not let a placeholder-shaped local override bypass fixture labelling', () => {
+    expect(resolveDataset({ override: placeholderDataset, fixtureRequested: false, mode: 'development' })).toMatchObject({
+      state: 'unavailable',
+      data: null
+    })
+  })
+
   it.each(['development', 'test'])('allows an explicitly selected fixture in %s mode', mode => {
     expect(resolveDataset({ override: null, fixtureRequested: true, mode })).toEqual({
       state: 'fixture',

@@ -9,7 +9,7 @@ import {
   type ReactNode
 } from 'react'
 import { datasetSelection, type AutomationRule, type Dataset } from '@/data'
-import { shouldLoadLiveSources } from '@/data/datasetSelection'
+import { shouldLoadLiveSources, type DatasetSelection } from '@/data/datasetSelection'
 import {
   INITIAL_EXTENSIONS_LOAD,
   loadExtensionsDataset,
@@ -208,14 +208,20 @@ export function isKeyForSelected(selected: string | null, key: string): boolean 
   return Boolean(selected) && key.startsWith(`${selected}:`)
 }
 
-export function CrmProvider({ children }: { children: ReactNode }) {
-  const initialDataset = datasetSelection.data
+export function CrmProvider({
+  children,
+  selection = datasetSelection
+}: {
+  children?: ReactNode
+  selection?: DatasetSelection
+}) {
+  const initialDataset = selection.data
   if (!initialDataset) {
-    throw new Error(datasetSelection.reason)
+    throw new Error(selection.reason)
   }
   const [state, dispatch] = useReducer(crmReducer, INITIAL_CRM_STATE)
   const [extensionsData, setExtensionsData] = useState(initialDataset)
-  const liveSourcesEnabled = shouldLoadLiveSources(datasetSelection)
+  const liveSourcesEnabled = shouldLoadLiveSources(selection)
   const [extensionsLoad, setExtensionsLoad] = useState<ExtensionsLoadState>(liveSourcesEnabled
     ? INITIAL_EXTENSIONS_LOAD
     : {
@@ -231,8 +237,10 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     ? INITIAL_LIFECYCLE_LOAD
     : { state: 'error', generatedAt: null, data: null, error: 'Live sources are disabled in explicit fixture mode.' })
   const todayData = useMemo(
-    () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad, lifecycleLoad),
-    [extensionsData, extensionsLoad, lifecycleLoad]
+    () => selection.state === 'fixture'
+      ? initialDataset
+      : buildTodayDataset(initialDataset, extensionsData, extensionsLoad, lifecycleLoad),
+    [extensionsData, extensionsLoad, lifecycleLoad, selection.state]
   )
   // Today intentionally reuses only the source-backed grant fields.
   // Its unrelated registration/contact/workflow fields stay sanitized.

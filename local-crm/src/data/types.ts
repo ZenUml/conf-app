@@ -129,6 +129,9 @@ export interface JsmTicket {
   matchedBy?: 'ticket_key' | 'domain_space'
   macroCount?: number | null
   macrosLimit?: number | null
+  /** Verbatim JSM form values, preserved before numeric conversion. */
+  macroCountRaw?: string | null
+  macrosLimitRaw?: string | null
   unavailableReasons?: Record<string, string>
 }
 

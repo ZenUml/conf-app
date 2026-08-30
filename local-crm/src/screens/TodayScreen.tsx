@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { human } from '@/lib/format'
 import { buildQueue, type QueueRow } from '@/lib/queue'
+import { todayGrantMode } from '@/data/todayApi'
 import { useCrmStore } from '@/stores/crm'
 
 /**
@@ -95,15 +96,27 @@ export default function TodayScreen() {
     }),
     [data.grants, data.today, extensionsLoad.openRequests]
   )
+  const grantMode = todayGrantMode(extensionsLoad)
 
   return (
     <div className="px-6 pb-7 pt-5">
       <div className="flex max-w-[920px] flex-col gap-2" data-testid="today-queue">
-        {rows.length === 0 ? (
+        {grantMode === 'loading' || grantMode === 'unavailable' ? (
+          <div
+            data-testid="today-availability"
+            className="rounded-md border border-line bg-bg1 px-3 py-2.5 text-body-sm text-fg2"
+          >
+            {grantMode === 'loading'
+              ? 'Extension queue loading · no request or grant rows are inferred yet.'
+              : `Extension queue unavailable · ${extensionsLoad.error ?? extensionsLoad.sources?.space_license_kv.detail ?? 'authoritative grant data could not be read'}`}
+          </div>
+        ) : rows.length === 0 ? (
           <div className="rounded-md border border-line bg-bg1 px-3 py-2.5 text-body-sm text-fg2">
             Nothing is waiting on you.
           </div>
-        ) : (
+        ) : null}
+
+        {(grantMode === 'live' || grantMode === 'partial' || data.placeholder) ? (
           rows.map(row => (
             <Row
               key={row.id}
@@ -111,7 +124,7 @@ export default function TodayScreen() {
               onOpen={row.eventId ? () => open(row.eventId as string) : () => openQueue(row)}
             />
           ))
-        )}
+        ) : null}
 
         {todos.map(todo => (
           <div

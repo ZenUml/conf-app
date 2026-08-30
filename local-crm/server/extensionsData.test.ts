@@ -485,4 +485,61 @@ describe('Extensions API transformer', () => {
       unknownStatusCount: 2
     })
   })
+
+  it('rejects impossible calendar days in source timestamps with explicit reasons', () => {
+    const base = input()
+    const response = buildExtensionsResponse({
+      ...base,
+      jsmIssues: [],
+      jsmCommentsByTicket: new Map(),
+      actionRows: [],
+      grantValues: [{
+        key: 'license:cloud-1:SPACE',
+        value: {
+          status: 'active',
+          createdAt: '2026-02-31T00:00:00Z',
+          updatedAt: '2026-04-31T00:00:00Z',
+          expiresAt: '2026-09-31T00:00:00Z'
+        }
+      }]
+    })
+
+    expect(response.grants[0]).toMatchObject({
+      createdAt: null,
+      updatedAt: null,
+      expiresAt: null,
+      status: 'unknown',
+      unavailableReasons: {
+        createdAt: 'KV grant createdAt is unavailable or invalid',
+        updatedAt: 'KV grant updatedAt is unavailable or invalid',
+        expiresAt: 'KV grant expiresAt is unavailable or invalid'
+      }
+    })
+  })
+
+  it('keeps prior-grant counts unavailable when the request cannot join to a cloud ID', () => {
+    const base = input()
+    const response = buildExtensionsResponse({
+      ...base,
+      marketplaceRows: [],
+      openJsmTicketKeys: ['ZEN-456'],
+      jsmIssues: [{
+        key: 'ZEN-456',
+        fields: {
+          status: { name: 'Waiting for support' },
+          reporter: { displayName: 'Requester', accountId: 'reporter-account' },
+          description: DESCRIPTION,
+          created: '2026-08-20T00:00:00Z',
+          updated: '2026-08-21T00:00:00Z'
+        }
+      }]
+    })
+
+    expect(response.openRequests.rows[0].priorGrants).toEqual({
+      count: null,
+      activeCount: null,
+      latestExpiresAt: null,
+      unavailableReason: 'Marketplace domain could not be resolved to a cloud ID'
+    })
+  })
 })

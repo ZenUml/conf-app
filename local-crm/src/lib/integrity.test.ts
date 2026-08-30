@@ -69,14 +69,8 @@ describe('reviewed lifecycle integrity rules', () => {
     const actions = buildActions(model, event!.id, null, {})
     expect(actions.next.stalled).toBe(true)
     expect(actions.next.showButton).toBe(false)
-    expect(actions.more.find(action => action.key === 'release')).toMatchObject({
-      held: true,
-      showButton: false
-    })
-    expect(actions.more.find(action => action.key === 'internal')).toMatchObject({
-      held: true,
-      showButton: false
-    })
+    expect(actions.more.find(action => action.key === 'release')).toBeUndefined()
+    expect(actions.more.find(action => action.key === 'internal')).toBeUndefined()
     expect(actions.more.find(action => action.key === 'profile')?.showButton).toBe(true)
   })
 
@@ -299,7 +293,7 @@ describe('reviewed lifecycle integrity rules', () => {
     expect(model.tracks[0].rows.find(row => row.k === 'conversation')?.v)
       .toContain('correlation cannot run without a verified Marketplace site')
     expect(actions.next.showButton).toBe(false)
-    expect(actions.more.find(action => action.key === 'feedback')?.showButton).toBe(false)
+    expect(actions.more.find(action => action.key === 'feedback')).toBeUndefined()
     expect(actions.more.find(action => action.key === 'revoke')).toBeUndefined()
   })
 
@@ -446,5 +440,23 @@ describe('reviewed lifecycle integrity rules', () => {
     expect(rows.find(event => event.kind === 'granted')).toBeUndefined()
     expect(rows.find(event => event.kind === 'expired')?.day).toBe('2026-09-22')
     expect(rows.some(event => event.day === data.today)).toBe(false)
+  })
+
+  it('does not emit impossible ISO calendar days from grant timestamps', () => {
+    const grant = {
+      ...data.grants[0],
+      id: 'grant_with_impossible_days',
+      created: null,
+      createdAt: '2026-02-31T00:00:00.000Z',
+      expires: null,
+      expiresAt: '2026-04-31T00:00:00.000Z',
+      sourceObservedAt: undefined,
+      status: 'active' as const,
+      active: true
+    }
+    const rows = buildEvents({ ...data, registrations: [], grants: [grant] })
+      .filter(event => event.grant === grant)
+
+    expect(rows).toEqual([])
   })
 })

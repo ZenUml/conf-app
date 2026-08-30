@@ -20,7 +20,7 @@ function request(overrides: Partial<OpenExtensionRequest>): OpenExtensionRequest
     macrosLimit: 100,
     macroCountRaw: '1836',
     macrosLimitRaw: '100',
-    priorGrants: { count: 0, activeCount: 0, latestExpiresAt: null },
+    priorGrants: { count: 0, activeCount: 0, latestExpiresAt: null, unavailableReason: null },
     comments: {
       state: 'known',
       publicCommentCount: 1,
@@ -181,17 +181,42 @@ describe('what a row carries', () => {
     expect(rows[0].command).toBeNull()
   })
 
-  it('states the macro count against the limit, and the prior grants on that space', () => {
+  it('preserves raw macro values against the limit, and states prior grants on that space', () => {
     const { rows } = buildQueue({
       grants: [],
       openRequests: stream([
-        request({ macroCount: 1836, macrosLimit: 100, priorGrants: { count: 4, activeCount: 1, latestExpiresAt: '2026-09-03T23:59:59.000Z' } })
+        request({
+          macroCount: 123,
+          macrosLimit: 100,
+          macroCountRaw: '00123',
+          macrosLimitRaw: '0100',
+          priorGrants: { count: 4, activeCount: 1, latestExpiresAt: '2026-09-03T23:59:59.000Z', unavailableReason: null }
+        })
       ]),
       today: TODAY
     })
-    expect(rows[0].evidence).toContain('1,836 macros · limit 100')
+    expect(rows[0].evidence).toContain('00123 macros · limit 0100')
     expect(rows[0].evidence).toContain('4 prior grants')
     expect(rows[0].evidence).toContain('1 active')
+  })
+
+  it('does not turn an unavailable prior-grant join into a zero count', () => {
+    const { rows } = buildQueue({
+      grants: [],
+      openRequests: stream([request({
+        cloudId: null,
+        priorGrants: {
+          count: null,
+          activeCount: null,
+          latestExpiresAt: null,
+          unavailableReason: 'Marketplace domain could not be resolved to a cloud ID'
+        }
+      })]),
+      today: TODAY
+    })
+
+    expect(rows[0].evidence).toContain('prior grants unavailable')
+    expect(rows[0].evidence).not.toContain('no prior grant')
   })
 })
 

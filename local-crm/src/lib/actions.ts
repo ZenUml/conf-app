@@ -41,7 +41,7 @@ export type DrawerActionModel = Pick<
   'actions' | 'blockers' | 'nextKey' | 'nextLabel' | 'nextWhy'
 >
 
-const UNCONFIRMED_SIMULATED_ACTIONS = new Set(['revoke', 'regrant'])
+const UNCONFIRMED_SIMULATED_ACTIONS = new Set<string>(WRITE_ACTIONS)
 
 export function isCurrentScopeCase(model: CaseModel): boolean {
   return model.caseType === 'Extension'

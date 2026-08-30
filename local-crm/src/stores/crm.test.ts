@@ -1,14 +1,26 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { INITIAL_EXTENSIONS_LOAD } from '@/data/extensionsApi'
+import { placeholderDataset } from '@/data/placeholder'
 import { automationStatus } from '@/components/TopBar'
 import { DeferredLifecycleTodos } from '@/screens/AutomationScreen'
 import { buildActions, isCurrentScopeCase, type DrawerActionModel } from '@/lib/actions'
 import type { CaseModel } from '@/lib/caseModel'
 import { CrmProvider, crmReducer, INITIAL_CRM_STATE } from './crm'
 import type { QueueRow } from '@/lib/queue'
+
+vi.mock('@/data', async () => {
+  const { placeholderDataset } = await import('@/data/placeholder')
+  return {
+    datasetSelection: {
+      state: 'fixture',
+      data: placeholderDataset,
+      reason: null
+    }
+  }
+})
 
 const REQUEST_ROW: QueueRow = {
   id: 'request:ZEN-1234',
@@ -95,11 +107,18 @@ describe('CRM session state', () => {
 describe('current UI scope', () => {
   it('renders Today as an untitled queue', () => {
     const html = renderToStaticMarkup(
-      createElement(CrmProvider, null, createElement(App))
+      createElement(CrmProvider, {
+        selection: { state: 'fixture', data: placeholderDataset, reason: null }
+      }, createElement(App))
     )
 
     expect(html).not.toMatch(/<h1[^>]*>Today<\/h1>/)
     expect(html).toContain('data-testid="today-queue"')
+    expect(html).toContain('data-testid="today-availability"')
+    expect(html).toContain('Extension queue unavailable')
+    expect(html).not.toContain('Nothing is waiting on you')
+    expect(html).toContain('data-testid="queue-row"')
+    expect(html.indexOf('03 Sep')).toBeLessThan(html.indexOf('01 Sep'))
   })
 
   it('shows Welcome and Expiry/Cancellation only as TODOs', () => {
@@ -112,10 +131,11 @@ describe('current UI scope', () => {
     expect(html).not.toContain('<table')
   })
 
-  it('does not expose unconfirmed revoke or regrant affordances', () => {
+  it('does not expose unconfirmed lifecycle write affordances', () => {
     const model = {
       actions: [
         { key: 'verify', label: 'Review current evidence', cta: 'Review' },
+        { key: 'feedback', label: 'Feedback extension is read-only here', blocked: 'not connected' },
         { key: 'revoke', label: 'Revoke is read-only here', blocked: 'not connected' },
         { key: 'regrant', label: 'Renew is read-only here', blocked: 'not connected' }
       ],

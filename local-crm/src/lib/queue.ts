@@ -1,6 +1,6 @@
 import type { Grant } from '@/data/types'
 import type { ExtensionCommentEvidence, OpenExtensionRequest, OpenExtensionRequestStream } from '@/data/extensionsContract'
-import { count, hostname, human } from './format'
+import { calendarDayOrNull, count, hostname, human, isoOrNull } from './format'
 
 /**
  * Today's work queue.
@@ -87,9 +87,7 @@ export interface QueueView {
 const JSM_BROWSE = 'https://zenuml.atlassian.net/browse/'
 
 function day(value: string | null | undefined): string | null {
-  if (!value) return null
-  const iso = String(value).slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null
+  return calendarDayOrNull(value)
 }
 
 function daysBetween(from: string, to: string): number {
@@ -104,11 +102,15 @@ function grantCommand(cloudId: string | null, spaceKey: string | null): string |
 
 function requestEvidence(row: OpenExtensionRequest): string {
   const parts: string[] = []
-  if (row.macroCount !== null) {
-    parts.push(`${count(row.macroCount)} macros${row.macrosLimit !== null ? ` · limit ${row.macrosLimit}` : ''}`)
+  const macroCount = row.macroCountRaw ?? (row.macroCount === null ? null : count(row.macroCount))
+  const macrosLimit = row.macrosLimitRaw ?? (row.macrosLimit === null ? null : String(row.macrosLimit))
+  if (macroCount !== null) {
+    parts.push(`${macroCount} macros${macrosLimit !== null ? ` · limit ${macrosLimit}` : ''}`)
   }
   const prior = row.priorGrants
-  if (prior.count > 0) {
+  if (prior.unavailableReason || prior.count === null || prior.activeCount === null) {
+    parts.push(`prior grants unavailable · ${prior.unavailableReason ?? 'source join unavailable'}`)
+  } else if (prior.count > 0) {
     const active = prior.activeCount > 0 ? `, ${prior.activeCount} active` : ''
     const latest = prior.latestExpiresAt ? `, latest to ${human(day(prior.latestExpiresAt) ?? '')}` : ''
     parts.push(`${prior.count} prior grant${prior.count === 1 ? '' : 's'} on this space${active}${latest}`)
@@ -176,8 +178,9 @@ function fromRequests(stream: OpenExtensionRequestStream | null, today: string):
 
 function fromGrants(grants: Grant[], today: string): QueueRow[] {
   return grants.flatMap(grant => {
-    const expires = day(grant.expiresAt)
-    if (!expires || grant.status !== 'active') return []
+    const expires = day(grant.expiresAt) ?? isoOrNull(grant.expires)
+    const status = grant.status ?? (grant.active ? 'active' : 'unknown')
+    if (!expires || status !== 'active') return []
     const remaining = daysBetween(today, expires)
     if (remaining < 0 || remaining > EXPIRING_WITHIN_DAYS) return []
     const space = grant.space ?? null

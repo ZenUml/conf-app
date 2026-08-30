@@ -59,6 +59,7 @@ describe('date parsing under hostile input', () => {
     expect(requestedLabel('2025-04-07T00:54:27.292Z')).toBe('07 Apr 25')
     expect(requestedLabel('2026-05-25T00:00:00.000Z')).toBe('25 May')
     expect(requestedLabel(null)).toBeNull()
+    expect(requestedLabel('2025-02-31T00:00:00.000Z')).toBeNull()
   })
 
   it('prints one month vocabulary everywhere', () => {

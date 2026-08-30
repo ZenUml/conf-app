@@ -11,8 +11,15 @@ export function resolveDataset(options: {
   fixtureRequested: boolean
   mode: string
 }): DatasetSelection {
-  if (options.override) {
+  if (options.override && !options.override.placeholder) {
     return { state: 'local', data: options.override, reason: null }
+  }
+  if (options.override?.placeholder && !options.fixtureRequested) {
+    return {
+      state: 'unavailable',
+      data: null,
+      reason: 'A placeholder-shaped local override cannot be treated as real data. Explicitly select the fixture in development or test.'
+    }
   }
   if (options.fixtureRequested) {
     if (options.mode === 'development' || options.mode === 'test') {

@@ -407,7 +407,17 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
             problem: jsm.requesterComments === null || jsm.requesterComments === undefined
           },
           { k: 'last comment author', v: jsm.lastCommentAuthor ?? 'unknown' },
-          { k: 'jsm status', v: jsm.status ?? `unavailable — ${jsm.unavailableReasons?.status ?? 'JSM status was unavailable'}`, problem: !jsm.status }
+          { k: 'jsm status', v: jsm.status ?? `unavailable — ${jsm.unavailableReasons?.status ?? 'JSM status was unavailable'}`, problem: !jsm.status },
+          {
+            k: 'request macro count',
+            v: jsm.macroCountRaw ?? `unavailable — ${jsm.unavailableReasons?.macroCountRaw ?? 'JSM form Macro count was unavailable'}`,
+            problem: jsm.macroCountRaw === null || jsm.macroCountRaw === undefined
+          },
+          {
+            k: 'request macro limit',
+            v: jsm.macrosLimitRaw ?? `unavailable — ${jsm.unavailableReasons?.macrosLimitRaw ?? 'JSM form Limit was unavailable'}`,
+            problem: jsm.macrosLimitRaw === null || jsm.macrosLimitRaw === undefined
+          }
         ]
       : [
           {

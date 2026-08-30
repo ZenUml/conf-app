@@ -1,5 +1,5 @@
 import type { AppKey, Dataset, Grant, Registration } from '@/data/types'
-import { human, hostname, iso, plural, relative } from './format'
+import { calendarDayOrNull, human, hostname, iso, plural, relative } from './format'
 import {
   type CaseKind,
   lifecycleOf,
@@ -99,7 +99,7 @@ export function buildEvents(data: Dataset): CaseEvent[] {
     const expiry = grant.expires ?? `unavailable (${grant.expiresUnavailableReason ?? 'KV grant expiresAt is unavailable'})`
     const createdDay = grantCreatedDay(grant)
     const expiryDay = grantExpiryDay(grant)
-    const eventDay = createdDay ?? grant.sourceObservedAt?.slice(0, 10)
+    const eventDay = createdDay ?? calendarDayOrNull(grant.sourceObservedAt)
     const timing = status === 'active'
       ? `Runs to ${expiry}.`
       : status === 'expired'
@@ -288,16 +288,16 @@ export function buildSites(data: Dataset): SiteRow[] {
     apps: Set<AppKey>
     grants: number
     active: number
-    day: string
+    day: string | null
   }
   const sites = new Map<string, Acc>()
-  const touch = (domain: string, day: string): Acc => {
+  const touch = (domain: string, day: string | null): Acc => {
     let entry = sites.get(domain)
     if (!entry) {
       entry = { domain, cloudId: null, apps: new Set(), grants: 0, active: 0, day }
       sites.set(domain, entry)
     }
-    if (day > entry.day) entry.day = day
+    if (day && (!entry.day || day > entry.day)) entry.day = day
     return entry
   }
 
@@ -308,7 +308,7 @@ export function buildSites(data: Dataset): SiteRow[] {
   })
   // An editing extension is a Lite-only mechanism, so a grant implies lite.
   data.grants.forEach(grant => {
-    const day = grantCreatedDay(grant) ?? grant.sourceObservedAt?.slice(0, 10) ?? data.today
+    const day = grantCreatedDay(grant) ?? calendarDayOrNull(grant.sourceObservedAt)
     const entry = touch(grant.domain ?? `Unavailable · ${grant.domainUnavailableReason ?? 'Marketplace site domain unavailable'}`, day)
     if (grant.cloudId) entry.cloudId ??= grant.cloudId
     entry.apps.add('lite')
@@ -317,7 +317,7 @@ export function buildSites(data: Dataset): SiteRow[] {
   })
 
   return [...sites.values()]
-    .sort((a, b) => b.day.localeCompare(a.day))
+    .sort((a, b) => (b.day ?? '').localeCompare(a.day ?? ''))
     .map(entry => ({
       domain: entry.domain.startsWith('Unavailable ·') ? entry.domain : hostname(entry.domain),
       cloudId: entry.cloudId ?? 'none on file',
@@ -326,7 +326,7 @@ export function buildSites(data: Dataset): SiteRow[] {
       extensions: entry.grants
         ? `${plural(entry.grants, 'grant')} · ${entry.active} active`
         : '—',
-      last: human(entry.day),
+      last: entry.day ? human(entry.day) : 'date unavailable',
       technicalContacts: []
     }))
 }

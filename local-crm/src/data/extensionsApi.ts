@@ -120,24 +120,23 @@ function toJsm(grants: ExtensionGrantRecord[]): Record<string, JsmTicket> {
   const entries = grants.flatMap(row => {
     const request = row.request
     if (!request) return []
-    const accountId = request.targetUserAccountId ?? row.userAccountId ?? null
+    const accountId = request.targetUserAccountId
     const reporterAccountId = request.requesterAccountId ?? undefined
     const lastCommentDate = request.comments.lastCommentAt
       ? displayDate(request.comments.lastCommentAt)
-      : request.updatedAt
-        ? displayDate(request.updatedAt)
-        : null
+      : null
     const unavailableReasons: Record<string, string> = {}
     if (!request.requester) unavailableReasons.requester = request.unavailableReasons.requester ?? 'JSM reporter identity was unavailable'
     if (!accountId) unavailableReasons.accountId = request.unavailableReasons.targetUserAccountId ?? 'JSM target account id was unavailable'
     if (!request.status) unavailableReasons.status = request.unavailableReasons.status ?? 'JSM status was unavailable'
     if (!lastCommentDate) {
       unavailableReasons.lastReply = request.comments.unavailableReasons.lastCommentAt
-        ?? request.unavailableReasons.updatedAt
-        ?? 'JSM comment and update timestamps were unavailable'
+        ?? 'JSM comment timestamp was unavailable'
     }
     if (!request.typedDomain) unavailableReasons.typedDomain = request.unavailableReasons.typedDomain ?? 'JSM form Client domain was unavailable'
     if (!request.typedSpace) unavailableReasons.typedSpace = request.unavailableReasons.typedSpace ?? 'JSM form Space key was unavailable'
+    if (!request.macroCountRaw) unavailableReasons.macroCountRaw = request.unavailableReasons.macroCountRaw ?? 'JSM form Macro count was unavailable'
+    if (!request.macrosLimitRaw) unavailableReasons.macrosLimitRaw = request.unavailableReasons.macrosLimitRaw ?? 'JSM form Limit was unavailable'
     return [[request.ticketKey, {
       requester: request.requester,
       accountId,
@@ -159,6 +158,8 @@ function toJsm(grants: ExtensionGrantRecord[]): Record<string, JsmTicket> {
       matchedBy: request.matchedBy,
       macroCount: request.macroCount,
       macrosLimit: request.macrosLimit,
+      macroCountRaw: request.macroCountRaw,
+      macrosLimitRaw: request.macrosLimitRaw,
       unavailableReasons
     } satisfies JsmTicket] as const]
   })

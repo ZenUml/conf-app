@@ -1,8 +1,9 @@
 # Local CRM
 
-Local CRM is a loopback-only operations console for reviewing Welcome,
-Extension, Retention, and ingest evidence in one place. It never performs a real
-write; action results live only in the current browser session.
+Local CRM is a loopback-only operations console. Extension is the current active
+scope; Welcome and Expiry/Cancellation remain explicit TODOs. It never performs
+a real write; any retained action result lives only in the current browser
+session.
 
 ## Run locally
 
@@ -12,6 +13,16 @@ pnpm --dir local-crm dev
 ```
 
 Open `http://127.0.0.1:7331`. The server is explicitly bound to loopback.
+
+For a synthetic, user-testable UI with no live-source reads, opt in explicitly:
+
+```bash
+VITE_LOCAL_CRM_DATASET=fixture pnpm --dir local-crm dev
+```
+
+The fixture entry point is development/test-only and keeps a persistent
+`FIXTURE DATA` banner visible. Running without a local dataset and without this
+opt-in shows the fail-closed data-unavailable screen.
 
 The Extensions slice needs the existing local operator credentials:
 
@@ -31,9 +42,11 @@ The app fails closed when `src/data/local/dataset.ts` is absent: it renders a
 data-unavailable boundary and does not mount the loaders. Synthetic fixture data
 is available only with `VITE_LOCAL_CRM_DATASET=fixture` in development or test;
 the UI then carries a persistent `FIXTURE DATA` banner and never presents it as
-production freshness. If a required grant-KV read fails after a dataset was
-selected, Today does not substitute fixture grants: its grant and expiry rows
-remain empty and explicitly unavailable. Optional source failures stay explicit
+production freshness. That explicit fixture selection keeps its synthetic Today
+rows visible for manual testing beneath an unavailable-source notice. If a
+required grant-KV read fails after a real local dataset was selected, Today does
+not substitute fixture grants: its grant and expiry rows remain empty and
+explicitly unavailable. Optional source failures stay explicit
 in source badges, nullable facts, unavailable reasons, and each record's
 `unknowns` list.
 
@@ -97,8 +110,8 @@ built from four existing stores, without a new database or migration:
 
 The API is installed as Vite middleware and is deliberately absent from
 `public/_routes.json`; it is not a deployable customer-facing Pages route. The
-first slice exposes no mutation endpoint. Extension and revoke controls remain
-visibly read-only in the drawer.
+first slice exposes no mutation endpoint. Unconfirmed revoke and regrant
+affordances are not rendered.
 
 ## Other real data
 
@@ -109,3 +122,34 @@ default-export a `Dataset` and must never be copied into a public-repo file.
 
 See `docs/policies/client-privacy.md` and the private lifecycle data handoff
 before producing an override.
+
+## Human requirement traceability (R0-R7)
+
+This is the minimum mapping for the human baseline used by the Local CRM
+remediation. It records evidence and gaps; it does not turn retained UI or an
+unimplemented business fact into a new requirement.
+
+| ID | Current trace |
+| --- | --- |
+| R0 — human requirements govern scope | This table is the traceability anchor. The retained Sites page, Extension evidence/drawer tabs, Automation ExtensionAction audit, navigation/search, and session-only readback are not promoted to required features by this mapping. |
+| R1 — lightweight evaluator-to-paid CRM across four apps | `src/data/types.ts` retains the Lite, Full, Diagramly, and AsyncAPI app keys, and `src/App.tsx` remains a loopback-only lightweight console. A source-backed paid/conversion state is not implemented or claimed. |
+| R2 — Welcome, Extension, Expiry/Cancellation lifecycle | `src/screens/TodayScreen.tsx` keeps the three lifecycle labels in one queue; only Extension has active records. |
+| R3 — Extension now; other lifecycles TODO | `src/screens/AutomationScreen.tsx` renders Welcome and Expiry/Cancellation only as TODOs. `src/lib/actions.ts` and `src/components/drawer/CaseDrawer.tsx` restrict the case drawer to Extension. Covered by `src/stores/crm.test.ts`. |
+| R4 — simple untitled Today queue, dated newest-first cards | `src/App.tsx` omits the Today top bar; `src/screens/TodayScreen.tsx` renders one `today-queue` and a date on every actionable row; `src/lib/queue.ts` sorts rows descending by stored date. Covered by `src/stores/crm.test.ts` and `src/lib/queue.test.ts`. |
+| R5 — real, traceable Extension evidence | `src/data/datasetSelection.ts` fails closed unless a local dataset exists or fixture mode is explicitly selected; `src/main.tsx` labels fixture mode persistently. `server/extensionsData.ts` and `src/data/extensionsContract.ts` preserve raw JSM values, use nullable facts plus unavailable reasons, join requests to KV evidence, and expose comment metadata plus only the first non-empty line. `src/lib/derive.ts` gives grants stable identities and does not substitute `today` for an invalid grant date. Covered by dataset, server, adapter, integrity, and adversarial tests. |
+| R6 — confirmed Extension business facts without invented writes | The Extension contract carries available requester, site, Space, macro count, timestamps, and prior-grant history. Missing research answers, administrator-contact refresh, distributor exclusion, and unresolved repeat-extension rules are not invented. The console has no mutation endpoint; unconfirmed revoke/regrant affordances are filtered. |
+| R7 — Welcome eventually, TODO now | `src/screens/AutomationScreen.tsx` exposes only a Welcome TODO and no delivery workflow, template dashboard, contact table, or send action. Covered by `src/stores/crm.test.ts`. |
+
+## Minimal manual check
+
+1. Start explicit fixture mode with the command above and open
+   `http://127.0.0.1:7331`.
+2. Confirm the persistent `FIXTURE DATA` banner is visible. On Today, confirm
+   there is no page title, the work is one queue, every actionable card shows a
+   date, and those dates run newest to oldest.
+3. Confirm Welcome and Expiry/Cancellation appear only as `(todo)` rows. Open an
+   Extension row and confirm it opens the matching Extension evidence rather
+   than a different same-day grant.
+4. Open Automation and confirm Welcome and Expiry/Cancellation are TODO-only;
+   confirm no revoke, regrant, or 60-day application affordance is visible.
+5. Stop the server. No deployment or production write is part of this check.

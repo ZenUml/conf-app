@@ -27,6 +27,24 @@ export function bareYear(): string {
 
 const DATE_PATTERN = /^(\d{1,2}) ([A-Z][a-z]{2})(?: (\d{2}))?$/
 
+function monthLength(year: number, month: number): number {
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  return [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ?? 0
+}
+
+/** Return the leading ISO calendar day only when that Gregorian date exists. */
+export function calendarDayOrNull(value: string | null | undefined): string | null {
+  if (!value) return null
+  const day = String(value).slice(0, 10)
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const date = Number(match[3])
+  if (month < 1 || month > 12 || date < 1 || date > monthLength(year, month)) return null
+  return day
+}
+
 /**
  * '27 Aug' -> '2026-08-27'. '26 Nov 25' -> '2025-11-26'.
  *
@@ -44,8 +62,7 @@ export function iso(value: string): string {
   const dayNumber = Number(day)
   const year = Number(shortYear ? `20${shortYear}` : bareDateYear)
   const monthNumber = Number(month)
-  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
-  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][monthNumber - 1]
+  const daysInMonth = monthLength(year, monthNumber)
   if (dayNumber < 1 || dayNumber > daysInMonth) {
     throw new RangeError(`iso: day out of range ${JSON.stringify(value)}`)
   }
@@ -78,11 +95,8 @@ export function human(value: string): string {
  * to 2026 rows — ZEN-1157, created 2025-04-07, read 'requested 07 Apr'.
  */
 export function requestedLabel(timestamp: string | null | undefined): string | null {
-  if (!timestamp) return null
-  const day = String(timestamp).slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
-  const month = day.slice(5, 7)
-  if (!Object.values(MONTHS).includes(month)) return null
+  const day = calendarDayOrNull(timestamp)
+  if (!day) return null
   return human(day)
 }
 

@@ -13,6 +13,7 @@ import {
   type ExtensionsResponse,
   type MarketplaceLicenseContext
 } from '../src/data/extensionsContract'
+import { calendarDayOrNull } from '../src/lib/format'
 
 type JsonRecord = Record<string, unknown>
 
@@ -55,7 +56,7 @@ function numberValue(value: unknown): number | null {
 
 function isoOrNull(value: unknown): string | null {
   const candidate = text(value)
-  if (!candidate || !Number.isFinite(Date.parse(candidate))) return null
+  if (!candidate || !calendarDayOrNull(candidate) || !Number.isFinite(Date.parse(candidate))) return null
   return new Date(candidate).toISOString()
 }
 
@@ -409,7 +410,16 @@ function priorGrantsFor(
   cloudId: string | null,
   spaceKey: string | null
 ): PriorGrantSummary {
-  if (!cloudId || !spaceKey) return { count: 0, activeCount: 0, latestExpiresAt: null }
+  if (!cloudId || !spaceKey) {
+    return {
+      count: null,
+      activeCount: null,
+      latestExpiresAt: null,
+      unavailableReason: !cloudId
+        ? 'Marketplace domain could not be resolved to a cloud ID'
+        : 'JSM form Space key was unavailable'
+    }
+  }
   const matching = grants.filter(grant => grant.cloudId === cloudId && grant.spaceKey === spaceKey)
   return {
     count: matching.length,
@@ -418,7 +428,8 @@ function priorGrantsFor(
       .map(grant => grant.expiresAt)
       .filter((value): value is string => Boolean(value))
       .sort()
-      .at(-1) ?? null
+      .at(-1) ?? null,
+    unavailableReason: null
   }
 }
 

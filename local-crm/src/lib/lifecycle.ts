@@ -1,5 +1,5 @@
 import type { Dataset, Grant, JsmTicket } from '@/data/types'
-import { count, human, iso } from './format'
+import { calendarDayOrNull, count, human, iso, isoOrNull } from './format'
 
 /**
  * `skip` is the load-bearing state: it means **never entered**, and it is not
@@ -60,13 +60,13 @@ export function grantStatusOf(grant: Grant): NonNullable<Grant['status']> {
 }
 
 export function grantCreatedDay(grant: Grant): string | null {
-  if (grant.createdAt) return grant.createdAt.slice(0, 10)
-  return grant.created ? iso(grant.created) : null
+  if (grant.createdAt) return calendarDayOrNull(grant.createdAt)
+  return isoOrNull(grant.created)
 }
 
 export function grantExpiryDay(grant: Grant): string | null {
-  if (grant.expiresAt) return grant.expiresAt.slice(0, 10)
-  return grant.expires ? iso(grant.expires) : null
+  if (grant.expiresAt) return calendarDayOrNull(grant.expiresAt)
+  return isoOrNull(grant.expires)
 }
 
 function grantFact(value: string | null, reason: string | undefined): string {

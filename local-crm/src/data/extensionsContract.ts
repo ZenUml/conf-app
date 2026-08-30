@@ -105,9 +105,10 @@ export interface ExtensionOriginBucket {
  */
 /** What one prior grant history says about the space a request names. */
 export interface PriorGrantSummary {
-  count: number
-  activeCount: number
+  count: number | null
+  activeCount: number | null
   latestExpiresAt: string | null
+  unavailableReason: string | null
 }
 
 export interface OpenExtensionRequest {

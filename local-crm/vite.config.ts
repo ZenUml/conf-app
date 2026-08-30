@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 import { localCrmExtensionsPlugin } from './server/extensionsPlugin'
 import { localCrmSitesPlugin } from './server/sitesPlugin'
+// Server-only CommonJS/ESM boundary; the plugin is loaded by Vite, never bundled for the client.
+// @ts-expect-error lifecyclePlugin is plain Node ESM to keep node:sqlite outside the client graph.
+import { localCrmLifecyclePlugin } from './server/lifecyclePlugin.mjs'
 import { installLocalCrmCredentials } from './server/localCredentials'
 
 export default defineConfig(({ command, mode, isPreview }) => {
@@ -11,7 +14,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
   }
 
   return {
-    plugins: [localCrmExtensionsPlugin(), localCrmSitesPlugin(), react()],
+    plugins: [localCrmExtensionsPlugin(), localCrmSitesPlugin(), localCrmLifecyclePlugin(), react()],
     root: '.',
     resolve: {
       alias: {

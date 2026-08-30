@@ -56,8 +56,10 @@ export default function TopBar() {
     ],
     automation: [
       'Automation',
-      store.extensionsLoad.sources?.extension_action_d1.state === 'ok'
-        ? `${store.navCounts.automation} observed ExtensionAction audit rows · read-only`
+      store.lifecycleLoad.state === 'live'
+        ? `${store.lifecycleLoad.data?.summary.contacts ?? 0} local bootstrap contacts · ${store.navCounts.automation} observed ExtensionAction audit rows · read-only`
+        : store.extensionsLoad.sources?.extension_action_d1.state === 'ok'
+          ? `${store.navCounts.automation} observed ExtensionAction audit rows · lifecycle contacts loading`
         : store.extensionsLoad.state === 'loading'
           ? 'loading ExtensionAction audit · no fixture automation rows substituted'
           : 'ExtensionAction audit unavailable · no fixture automation rows substituted'
@@ -71,7 +73,10 @@ export default function TopBar() {
   const sitesFreshness = store.sitesLoad.state === 'live' && store.sitesLoad.generatedAt
     ? `Marketplace ${new Date(store.sitesLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : `Marketplace ${store.sitesLoad.state}`
-  const freshness = store.screen === 'sites' ? sitesFreshness : extensionFreshness
+  const lifecycleFreshness = store.lifecycleLoad.state === 'live' && store.lifecycleLoad.generatedAt
+    ? `Local lifecycle ${new Date(store.lifecycleLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `Local lifecycle ${store.lifecycleLoad.state}`
+  const freshness = store.screen === 'sites' ? sitesFreshness : store.screen === 'automation' ? lifecycleFreshness : extensionFreshness
 
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-line bg-bg1 px-6">

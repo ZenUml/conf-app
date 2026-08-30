@@ -2,6 +2,7 @@ node_modules/
 dist/
 .vite/
 screenshots/
+.local/
 
 # Real extraction (tenant hostnames, cloud IDs, contact identities).
 # docs/policies/client-privacy.md keeps this out of the public repo.

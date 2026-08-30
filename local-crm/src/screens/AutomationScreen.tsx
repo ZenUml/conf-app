@@ -2,7 +2,7 @@ import { count } from '@/lib/format'
 import { useCrmStore } from '@/stores/crm'
 
 export default function AutomationScreen() {
-  const { data, extensionsLoad, query } = useCrmStore()
+  const { data, extensionsLoad, lifecycleLoad, query } = useCrmStore()
   const actions = data.grants.flatMap(grant => (grant.actionAudit ?? []).map(action => ({ grant, action })))
   const visible = actions.filter(({ grant, action }) => {
     const needle = query.trim().toLowerCase()
@@ -25,6 +25,40 @@ export default function AutomationScreen() {
             ? 'ExtensionAction D1 is loading. No fixture automation rows are substituted.'
             : `${d1?.detail ?? extensionsLoad.error ?? 'ExtensionAction D1 is unavailable'}. No fixture automation rows are substituted.`}
       </div>
+      <section className="mb-6 rounded-lg border border-line bg-bg1 p-4">
+        <div className="mb-1 flex flex-wrap items-baseline gap-2">
+          <h4 className="text-body font-semibold">Local lifecycle contacts and Welcome previews</h4>
+          <span className="text-micro text-fg2">loopback-only · bootstrap contacts are suppressed · no send endpoint</span>
+        </div>
+        {lifecycleLoad.state === 'live' && lifecycleLoad.data ? (
+          <>
+            <p className="mb-3 text-micro text-fg2">
+              {lifecycleLoad.data.summary.contacts} contacts across {lifecycleLoad.data.summary.tenants} tenants · {lifecycleLoad.data.summary.suppressed} suppressed · source: {lifecycleLoad.data.source.marketplaceRows} Marketplace rows → local SQLite
+            </p>
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
+              {lifecycleLoad.data.previews.map(preview => (
+                <details key={preview.app} className="rounded-md border border-line bg-bg2 px-3 py-2">
+                  <summary className="cursor-pointer text-body-sm font-medium">{preview.app} · {preview.subject}</summary>
+                  <iframe
+                    title={`${preview.app} welcome email preview`}
+                    sandbox=""
+                    srcDoc={preview.html}
+                    className="mt-3 h-[300px] w-full rounded border border-line bg-white"
+                  />
+                </details>
+              ))}
+            </div>
+            <div className="mt-4 overflow-x-auto rounded-md border border-line">
+              <table className="min-w-full text-left text-micro">
+                <thead className="bg-bg2 text-fg2"><tr><th className="px-3 py-2">contact</th><th className="px-3 py-2">app</th><th className="px-3 py-2">step</th><th className="px-3 py-2">site</th><th className="px-3 py-2">seen</th></tr></thead>
+                <tbody>{lifecycleLoad.data.contacts.slice(0, 25).map(contact => <tr key={contact.id} className="border-t border-line"><td className="px-3 py-2">{contact.email}</td><td className="px-3 py-2">{contact.app}</td><td className="px-3 py-2">{contact.step}</td><td className="px-3 py-2">{contact.domain ?? 'unknown'}</td><td className="px-3 py-2">{contact.lastSeenAt}</td></tr>)}</tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <p className="text-micro text-fg2">{lifecycleLoad.state === 'loading' ? 'Loading local lifecycle SQLite…' : `Local lifecycle source unavailable: ${lifecycleLoad.error}`}</p>
+        )}
+      </section>
       {visible.length ? (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] items-start gap-4">
           {visible.map(({ grant, action }) => {

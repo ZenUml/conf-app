@@ -21,6 +21,11 @@ import {
   sitesFromResponse,
   type SitesLoadState
 } from '@/data/sitesApi'
+import {
+  INITIAL_LIFECYCLE_LOAD,
+  loadLifecycleResponse,
+  type LifecycleLoadState
+} from '@/data/lifecycleApi'
 import { buildTodayDataset } from '@/data/todayApi'
 import {
   buildPendingDataset,
@@ -139,6 +144,7 @@ export interface CrmStoreValue extends CrmState {
   sessionLog: string[]
   extensionsLoad: ExtensionsLoadState
   sitesLoad: SitesLoadState
+  lifecycleLoad: LifecycleLoadState
   go: (screen: Screen) => void
   setFilter: (filter: FeedFilter) => void
   setTab: (tab: DrawerTab) => void
@@ -175,6 +181,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const [extensionsLoad, setExtensionsLoad] = useState(INITIAL_EXTENSIONS_LOAD)
   const [sitesResponse, setSitesResponse] = useState<Awaited<ReturnType<typeof loadSitesResponse>> | null>(null)
   const [sitesLoad, setSitesLoad] = useState(INITIAL_SITES_LOAD)
+  const [lifecycleLoad, setLifecycleLoad] = useState(INITIAL_LIFECYCLE_LOAD)
   const todayData = useMemo(
     () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad),
     [extensionsData, extensionsLoad]
@@ -220,6 +227,20 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     return () => {
       current = false
     }
+  }, [])
+
+  useEffect(() => {
+    let current = true
+    loadLifecycleResponse()
+      .then(data => {
+        if (!current) return
+        setLifecycleLoad({ state: 'live', generatedAt: data.generatedAt, data, error: null })
+      })
+      .catch(error => {
+        if (!current) return
+        setLifecycleLoad({ state: 'error', generatedAt: null, data: null, error: error instanceof Error ? error.message : String(error) })
+      })
+    return () => { current = false }
   }, [])
 
   useEffect(() => {
@@ -391,6 +412,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       sessionLog,
       extensionsLoad,
       sitesLoad,
+      lifecycleLoad,
       go,
       setFilter,
       setTab,
@@ -418,6 +440,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       sessionLog,
       extensionsLoad,
       sitesLoad,
+      lifecycleLoad,
       go,
       setFilter,
       setTab,

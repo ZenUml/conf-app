@@ -65,6 +65,33 @@ describe('a name used across the tenant', () => {
     expect(resolve.mock.calls[0][0].length).toBeLessThanOrEqual(PAGES_SHOWN * 4);
   });
 
+  it('asks Confluence for the live version of the nearest few only, never every candidate', async () => {
+    // `OrderController` sits in 966 diagrams on one site. Resolving all of them costs ten
+    // sequential 100-id reads (~6.4 s measured) against the viewer's 8 s budget — the same
+    // ceiling the page step already respects. Budget before the version read, not after.
+    const wide = Array.from({ length: 500 }, (_, i) =>
+      row({ contentId: `${9000 + i}`, pageId: `${9000 + i}`, actorId: 'OC', comparisonKey: 'order.controller' }),
+    );
+    const own = [row({ contentId: 'self', pageId: '1', actorId: 'OC', comparisonKey: 'order.controller' })];
+    const resolveContent = vi.fn(liveAsIndexed(own, wide));
+
+    const out = await relatedDiagrams(
+      dbWith(own, wide), 'cloud-1', 'self',
+      async (ids: string[]) => ids.map((id) => ({ id, title: `Page ${id}`, spaceKey: 'OP' })),
+      resolveContent,
+    );
+
+    expect(resolveContent).toHaveBeenCalledTimes(1);
+    const asked = resolveContent.mock.calls[0][0];
+    expect(asked[0]).toBe('self');
+    expect(asked.length).toBeLessThanOrEqual(PAGES_SHOWN * 4 + 1);
+    // the slice is the nearest, so the newest content still leads the list
+    expect(out.participants[0].related[0].contentId).toBe('9499');
+    expect(out.participants[0].related).toHaveLength(PAGES_SHOWN);
+    // the circle still counts the whole index, not the slice
+    expect(out.participants[0].relatedTotal).toBe(500);
+  });
+
   it('reports a total equal to the rows when nothing is truncated', async () => {
     const few = [
       row({ contentId: '2', pageId: '200' }),

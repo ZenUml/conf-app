@@ -154,8 +154,31 @@ export function pageTotalsByKey(candidates: OccurrenceRow[]): Map<string, number
 }
 
 /**
- * Only the nearest CANDIDATE_DEPTH pages per key reach Confluence: a name on 139 pages
- * would otherwise cost 34 CQL round trips and miss the viewer's 8s budget.
+ * Only the nearest CANDIDATE_DEPTH diagrams per key have their live version read: a name
+ * in 966 diagrams otherwise costs ten sequential 100-id reads (~6.4 s measured) and misses
+ * the viewer's 8 s budget. Every row of a kept diagram stays, so the label shown for it is
+ * the same one the unbudgeted list would have shown.
+ */
+function budgetedCandidates(candidates: OccurrenceRow[]): OccurrenceRow[] {
+  const kept: OccurrenceRow[] = [];
+  const takenByKey = new Map<string, Set<string>>();
+  let distinct = 0;
+  for (const candidate of candidates) {
+    let taken = takenByKey.get(candidate.comparisonKey);
+    if (!taken) takenByKey.set(candidate.comparisonKey, (taken = new Set()));
+    if (!taken.has(candidate.contentId)) {
+      if (taken.size >= CANDIDATE_DEPTH || distinct >= PAGE_BUDGET) continue;
+      taken.add(candidate.contentId);
+      distinct += 1;
+    }
+    kept.push(candidate);
+  }
+  return kept;
+}
+
+/**
+ * Only the nearest CANDIDATE_DEPTH pages per key reach the CQL permission filter: a name
+ * on 139 pages would otherwise cost 34 CQL round trips and miss the viewer's 8s budget.
  */
 function budgetedPageIds(candidates: OccurrenceRow[]): string[] {
   const ids: string[] = [];
@@ -241,13 +264,15 @@ export async function relatedDiagrams(
     ownPageId,
   );
 
-  // One batched read covers this diagram and every candidate: a row whose live version
-  // differs from the indexed one describes a diagram that has changed since, so it is
-  // dropped rather than shown. The response also carries where each diagram sits now,
-  // which is the page the reader should open.
+  // One batched read covers this diagram and the nearest candidates: a row whose live
+  // version differs from the indexed one describes a diagram that has changed since, so it
+  // is dropped rather than shown. The response also carries where each diagram sits now,
+  // which is the page the reader should open. Budgeted first — the full candidate set is
+  // only ever counted, never read back from Confluence.
+  const nearest = budgetedCandidates(candidates);
   let live: Map<string, LiveContent>;
   try {
-    live = await resolveContent([contentId, ...new Set(candidates.map((c) => c.contentId))]);
+    live = await resolveContent([contentId, ...new Set(nearest.map((c) => c.contentId))]);
   } catch {
     return { indexedAt, contentVersion, participants: [], error_kind: 'confluence_unavailable' };
   }
@@ -262,7 +287,7 @@ export async function relatedDiagrams(
     return { indexedAt, contentVersion, participants: [], error_kind: 'stale_index' };
   }
 
-  const current = candidates.filter((candidate) => {
+  const current = nearest.filter((candidate) => {
     const now = live.get(candidate.contentId);
     return now !== undefined && now.version === candidate.contentVersion;
   });

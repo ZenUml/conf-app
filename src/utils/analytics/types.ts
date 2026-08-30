@@ -35,6 +35,8 @@ import type {
   EditorInputMethod,
   ContentDeltaBucket,
   CopySource,
+  CreateNotFoundShape,
+  SaveFailureProbeStatus,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -692,6 +694,20 @@ export type AnalyticsProperties = {
   error_code?: string;
   error_name?: string;
   error_source?: string;
+  // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
+  // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
+  // `operations` list on the host page, so `can_create_cc_type=false` is
+  // Confluence's statement, not our inference. `page_reachable=false` means the
+  // probe itself 404'd (unpublished draft owned by someone else, or a page the
+  // caller cannot view) and every `can_*` field is then absent.
+  error_shape?: CreateNotFoundShape;
+  probe_status?: SaveFailureProbeStatus;
+  page_reachable?: boolean;
+  page_status?: string;
+  can_create_cc_type?: boolean;
+  can_create_attachment?: boolean;
+  can_create_page?: boolean;
+  can_update_page?: boolean;
   // Attachment upload failures (#392). `via_app_fallback` is true when the
   // user-side write 401/403'd and the app-authenticated fallback
   // (/forge-upload-attachment) was attempted before this failure — so the

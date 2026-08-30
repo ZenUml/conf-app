@@ -1354,6 +1354,85 @@ describe('ApWrapper2', () => {
     });
   });
 
+  // Create-time 404 diagnosis (2026-08-29 incident: 47 bare-404 create failures
+  // at one Lite tenant, cause only recoverable by hand). The thrown error must
+  // carry the envelope classification, and the wrapper must be able to ask
+  // Confluence — read-only — what the caller may create on the host page.
+  describe('create 404 diagnosis', () => {
+    const bareNotFound = { errors: [{ status: 404, code: 'NOT_FOUND', title: 'Not Found', detail: null }] };
+    const ourType = 'ac:com.zenuml.confluence-addon:zenuml-content-sequence';
+
+    it('stamps errorShape=bare_not_found on the error thrown for the bare 404 envelope', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(bareNotFound); // create POST
+      let thrown: any;
+      try {
+        await wrapper.createCustomContentV2(buildDiagram());
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.status).toBe(404);
+      expect(thrown.errorShape).toBe('bare_not_found');
+    });
+
+    it('stamps errorShape=container_not_found for the descriptive container envelope', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{
+        status: 404, code: 'NOT_FOUND', detail: null,
+        title: 'Unable to find container content. Container content type is page. Container content ID is [456].',
+      }] });
+      await expect(wrapper.createCustomContentV2(buildDiagram()))
+        .rejects.toMatchObject({ errorShape: 'container_not_found' });
+    });
+
+    it('leaves errorShape unset on a non-404 failure', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 400, code: 'BAD_REQUEST', title: 'Invalid content type' }] });
+      let thrown: any;
+      try { await wrapper.createCustomContentV2(buildDiagram()); } catch (e) { thrown = e; }
+      expect(thrown.errorShape).toBeUndefined();
+    });
+
+    it('probes the host page operations and reports what the caller may create', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        id: '456', status: 'current',
+        operations: [
+          { operation: 'read', targetType: 'page' },
+          { operation: 'create', targetType: 'page' },
+        ],
+      });
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/rest/api/content/456?expand=operations', 'GET', undefined);
+      expect(diagnosis).toEqual({
+        probe_status: 'ok',
+        page_reachable: true,
+        page_status: 'current',
+        can_create_cc_type: false,
+        can_create_attachment: false,
+        can_create_page: true,
+        can_update_page: false,
+      });
+    });
+
+    it('recognises create permission for the wrapper\'s own custom-content type', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        id: '456', status: 'current',
+        operations: [
+          { operation: 'create', targetType: 'attachment' },
+          { operation: 'create', targetType: ourType },
+        ],
+      });
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+      expect(diagnosis.can_create_cc_type).toBe(true);
+      expect(diagnosis.can_create_attachment).toBe(true);
+    });
+
+    it('never throws: a failed probe request reports probe_status=failed', async () => {
+      vi.mocked(forgeRequest).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      await expect(wrapper.diagnoseCreateNotFound()).resolves.toEqual({ probe_status: 'failed' });
+    });
+  });
+
   describe('isVersionConflict (via updateCustomContentV2 behavior)', () => {
     it('should detect version conflict from error message', async () => {
       const content = buildContent(3);

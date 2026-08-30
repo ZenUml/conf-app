@@ -195,6 +195,20 @@ export type SessionReplayEventSource =
 // event is the outcome evidence.
 export type SessionReplayStartCallOutcome = "returned" | "threw";
 
+/**
+ * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.
+ * `bare_not_found`      — `"title":"Not Found"`, detail null: the permission-
+ *                          masked refusal (verified 2026-08-30 on lite-stg).
+ * `container_not_found` — `"title":"Unable to find container content…"`: the
+ *                          page id does not resolve for this caller (bogus id,
+ *                          or another user's unpublished draft).
+ * `other`               — any other 404 NOT_FOUND title.
+ */
+export type CreateNotFoundShape = "bare_not_found" | "container_not_found" | "other";
+
+/** Outcome of the operations probe behind save_failed_diagnosed. */
+export type SaveFailureProbeStatus = "ok" | "page_unreachable" | "failed";
+
 export type AnalyticsEventName =
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
@@ -206,6 +220,19 @@ export type AnalyticsEventName =
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
+  // Fired once per failed CREATE whose Confluence answer was a 404 NOT_FOUND
+  // envelope, AFTER a read-only probe of the caller's own operations on the
+  // host page (`GET /rest/api/content/{pageId}?expand=operations`). The bare
+  // `"title":"Not Found"` shape is a permission-masked refusal: on 2026-08-30
+  // (lite-stg, four permission sets) a user holding "Add pages" but not "Add
+  // attachments" got exactly that shape on POST /api/v2/custom-content while
+  // PUT still succeeded, and the `operations` list carried
+  // `create/<our custom-content type>` only alongside `create/attachment`.
+  // The legacy `save_failed` event keeps the raw error; this event records
+  // WHY (`error_shape`, `can_create_cc_type`, `can_create_attachment`,
+  // `can_create_page`, `page_reachable`) so the cause is read off the event
+  // instead of inferred. One probe per failure; never fired on success.
+  | "save_failed_diagnosed"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a

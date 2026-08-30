@@ -17,7 +17,8 @@ const cache = new Map<string, boolean | Promise<boolean>>();
 
 function getCurrentPageId(): string | undefined {
   // Forge macro context carries the page id under extension.content.id.
-  // @ts-expect-error — Forge runtime augments forgeContext; not strictly typed
+  // forgeGlobal is typed `any` (see model/globals/forgeGlobal.ts), so this
+  // chain never actually type-errors — no @ts-expect-error needed here.
   return forgeGlobal.forgeContext?.extension?.content?.id;
 }
 

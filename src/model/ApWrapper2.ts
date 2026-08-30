@@ -24,6 +24,7 @@ import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { classifyCreateNotFound, parseContentOperations, SaveFailureDiagnosis } from '@/model/saveFailureDiagnosis';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 // AsyncAPI variant only registers `async-api-doc` in its manifest — the
@@ -349,6 +350,27 @@ export default class ApWrapper2 implements IApWrapper {
     return this.assertSavedCustomContent(response, 'create');
   }
 
+  /**
+   * Read-only probe behind `save_failed_diagnosed`: what may the CALLER create
+   * on the host page, per Confluence itself. One v1 GET with
+   * `expand=operations`; the list carries `create / <our custom-content type>`
+   * only when the space grants the caller "Add attachments" (verified 2026-08-30
+   * on lite-stg). Never throws — a failed probe is reported as
+   * `probe_status: 'failed'` so the save error path can never be made worse by
+   * its own diagnostics.
+   */
+  async diagnoseCreateNotFound(): Promise<SaveFailureDiagnosis> {
+    try {
+      const pageId = await this._getCurrentPageId();
+      if (!pageId) return { probe_status: 'failed' };
+      const body = await this.makeRequest(`/rest/api/content/${encodeURIComponent(pageId)}?expand=operations`);
+      return parseContentOperations(body, this.getCustomContentType());
+    } catch (e) {
+      console.warn('diagnoseCreateNotFound: probe failed', (e as Error)?.message ?? e);
+      return { probe_status: 'failed' };
+    }
+  }
+
   // conf-app#320: forgeRequest returns the parsed JSON body regardless of HTTP
   // status, so a failed create/update (400/403/429/5xx) surfaces as
   // `{ errors: [...] }` with no `id`. Returning that as success made
@@ -380,6 +402,13 @@ export default class ApWrapper2 implements IApWrapper {
       err.code = first.code;
     }
     err.responseErrors = errorsArr;
+    // Create-time 404 classification (see saveFailureDiagnosis.ts): the bare
+    // `"title":"Not Found"` envelope is Confluence's permission-masked refusal,
+    // the descriptive container title is an unresolvable page id. Editors read
+    // this to decide whether a probe + a permission-specific message is due.
+    if (op === 'create') {
+      err.errorShape = classifyCreateNotFound(err);
+    }
     throw err;
   }
 

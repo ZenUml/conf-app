@@ -141,7 +141,14 @@ const MODAL_ROUTING_TYPE: Record<string, string> = {
 }
 
 export function toModalDiagramType(diagramType: string): string {
-  return MODAL_ROUTING_TYPE[diagramType] || 'sequence'
+  // Through `lookup`, not a bare index, for the reason its docblock gives: real
+  // stored bodies spell these `openapi` / `asyncapi` while the enum members are
+  // `OpenAPI` / `AsyncAPI`, so an exact-match index MISSES on exactly the two
+  // types that route by modal.diagramType and nothing else. The miss was silent
+  // and total — it fell through to 'sequence', so opening an OpenAPI diagram
+  // from the byline list handed the sequence viewer a swagger document. The
+  // sibling tables in this file already fold; this one was left behind.
+  return lookup(MODAL_ROUTING_TYPE, diagramType) || 'sequence'
 }
 
 /**

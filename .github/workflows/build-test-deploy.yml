@@ -129,6 +129,15 @@ jobs:
     with:
       app: zenuml-lite@stg
       suite: insert
+      # Above the 8-minute default because shard 1 carries every `byline-*` spec
+      # (`--shard` splits contiguously by file name — see the note in
+      # e2e-test.yml). Measured on this job: 3m36s at 6 tests, 5m35s at 8 after
+      # byline-asyncapi landed there. At `retries: 2` a single retry of the
+      # byline create test costs ~2min on its own (it waits up to 90s for the
+      # post-create panel on top of page setup), which 8 minutes cannot absorb.
+      # 11 leaves room for one retry; a second growth spurt should move a spec
+      # off shard 1 instead of raising this again.
+      timeout-minutes: 11
       artifact-suffix: lite-stg
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
     secrets:

@@ -217,6 +217,39 @@ export async function createDiagramFromByline(
 }
 
 /**
+ * The byline's AsyncAPI create path.
+ *
+ * Split from createDiagramFromByline rather than branching inside it, because
+ * the editor the tile opens is a different program: AsyncAPI Studio in a NESTED
+ * iframe, not the diagram editor. Two concrete differences the shared helper
+ * cannot absorb —
+ *
+ *  - No title field. Studio derives the custom-content title from the spec's
+ *    own `info.title` (buildAsyncApiSaveDiagram parses it), so
+ *    `input[type="text"].first()` matches nothing here and Publish is enabled
+ *    from the start.
+ *  - Publish needs the nested Studio to have painted. saveSpec() reads the
+ *    document out of localStorage, which the Studio iframe only writes once it
+ *    has booted; clicking too early saves the template rather than what is on
+ *    screen. tests/asyncapi/macro-create-edit.spec.ts settles the same way, for
+ *    the same reason.
+ *
+ * Returns after Publish is clicked, so the caller can assert on the post-create
+ * panel exactly as it does for the other types.
+ */
+export async function createAsyncApiDiagramFromByline(
+  page: Page,
+  bylineFrame: Frame,
+): Promise<void> {
+  await bylineFrame.locator('[data-testid="byline-type-asyncapi"]').first().click();
+
+  const editor = await appFrameWithSelector(page, 'button:has-text("Publish")', bylineFrame);
+  await dismissStarterGalleryIfPresent(page, editor);
+  await page.waitForTimeout(3000);
+  await editor.locator('button:has-text("Publish")').click();
+}
+
+/**
  * Assert the Lite paywall modal is up inside `frame`.
  *
  * `continue-editing-btn` is the load-bearing element: the Lite paywall is a

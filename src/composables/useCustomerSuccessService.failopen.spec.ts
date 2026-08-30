@@ -55,7 +55,7 @@ async function freshService() {
 
 const overLimit = (extra: Record<string, unknown>) => ({
   space: 'OVERLIMIT', total: 150, sequence: 150, graph: 0, openapi: 0,
-  mermaid: 0, plantuml: 0, unknown: 0, isLite: true, ...extra,
+  mermaid: 0, plantuml: 0, asyncapi: 0, unknown: 0, isLite: true, ...extra,
 })
 
 describe('#302 fail-open: over-limit Lite space, macro-count read fails', () => {

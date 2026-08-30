@@ -1,11 +1,15 @@
 import { test as base, expect } from '@playwright/test';
 import { MacroPage } from '../pages/MacroPage.js';
 import { testConfig } from '../config/test-config.js';
-import type { MacroType } from '../config/test-config.js';
+import type { RenderMacroType } from '../config/apps.js';
 import { getPageId } from '../utils/page-registry.js';
 import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
 
-export type DiagramType = MacroType;
+/** The render suite runs against API-created fixture pages, so it can only
+ *  cover types that HAVE one — `getPageId()` is keyed on the same union. Aliased
+ *  to MacroType until 'asyncapi' joined that type, at which point this widened
+ *  past what getPageId() accepts. */
+export type DiagramType = RenderMacroType;
 
 export function createMacroTest(diagramType: DiagramType) {
   const test = base.extend<{ macroPage: MacroPage }>({

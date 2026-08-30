@@ -16,6 +16,7 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 
 import globals from '@/model/globals'
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId'
 import { getContext as initForgeContext, getView, openModal } from '@/model/globals/forgeGlobal'
 import AsyncApiViewer from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
 import macroMetrics from '@/services/MacroMetrics'
@@ -37,12 +38,16 @@ let viewerCustomContentId: string | undefined
 
 async function initializeMacro() {
   const context = await initForgeContext()
-  // Read customContentId from config (macro context) AND modal context —
-  // the dashboard's View flow opens this viewer via a modal with the
-  // contentId passed through extension.modal.customContentId.
-  const customContentId =
-    context.extension?.config?.customContentId ||
-    context.extension?.modal?.customContentId
+  // Read customContentId from config (macro context), modal context AND a
+  // pasted typed deeplink — the dashboard's View flow opens this viewer via a
+  // modal with the contentId passed through extension.modal.customContentId,
+  // and a macro created by pasting `/d/asyncapi/<cloudId>/<contentId>` (the
+  // link the Lite byline hands back after a create) has no config at all: the
+  // id lives only in the matched URL that Confluence persists in the page ADF.
+  // Reading config/modal directly here is exactly how the graph and openapi
+  // viewers rendered a permanently blank macro for a pasted link — see the
+  // docblock on resolveEffectiveCustomContentId.
+  const customContentId = resolveEffectiveCustomContentId(context)
   viewerCustomContentId = customContentId
 
   let spec: string | undefined
@@ -170,6 +175,16 @@ async function initializeMacro() {
       import('@/components/Viewer/AsyncApiViewer/AsyncApiMacroViewer.vue'),
     ])
     const doc: Diagram = existing ?? { ...NULL_DIAGRAM, diagramType: DiagramType.AsyncApi, code: spec ?? '' }
+    // Fullscreen viewer paywall (Lite): blocking modal over the read-only
+    // spec on a saturated space. Same gate the other dedicated viewers get
+    // via bootstrapForgeViewer; no-ops outside fullscreen and on non-Lite.
+    const { tryFullscreenViewerPaywall } = await import('@/utils/paywall/mountPaywallGate')
+    if (await tryFullscreenViewerPaywall({
+      doc,
+      content: AsyncApiMacroViewer,
+      contentProps: { doc, loadError, hideEdit: isEmbedMacro },
+      macroKind: 'asyncapi',
+    })) return
     // mountRoot stuffs doc into the vuex store, but our Vue wrapper reads
     // from a `doc` prop (matches OpenApiViewer's signature). Pass it via
     // the props arg too — same for loadError, propagated from the

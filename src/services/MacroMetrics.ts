@@ -14,6 +14,9 @@ export interface IMacroMetrics {
   openapi: number;
   mermaid: number;
   plantuml: number;
+  // Lite ships the AsyncAPI macro (ADR-0005 Option A). Its own bucket keeps
+  // these out of `unknown`, which is the corrupt-content signal.
+  asyncapi: number;
   unknown: number;
   isLite: boolean;
   lastUpdated?: string;
@@ -40,6 +43,20 @@ interface MacroMetricsQueryResult {
 // useCustomerSuccessService). On the latency-critical read/gate path we stop
 // counting once the total crosses it.
 const PAYWALL_COUNT_CEILING = 100;
+
+// Diagram types that own a metric bucket but deliberately have no
+// DiagramTypeConfig entry. AsyncAPI renders through the Studio iframe /
+// @asyncapi/react-component, not the viewerUrl + storeUpdateAction plumbing
+// DiagramTypeConfig describes, so giving it a full config would hand it
+// capabilities (agent-link writes, the diagram portal, the template gallery)
+// that have never been validated for it. It still needs to be counted.
+// Typed to `keyof IMacroMetrics`, not `string`: a mistyped field name would
+// otherwise compile, and `(stats[field] as number)++` on a key that isn't there
+// is `undefined++` → NaN — a silently wrong count, which is the exact defect
+// class this bucket exists to prevent.
+const EXTRA_METRIC_FIELDS: Partial<Record<DiagramType, keyof IMacroMetrics>> = {
+  [DiagramType.AsyncApi]: 'asyncapi',
+};
 
 export class MacroMetrics {
   constructor(
@@ -177,6 +194,7 @@ export class MacroMetrics {
       openapi: 0,
       mermaid: 0,
       plantuml: 0,
+      asyncapi: 0,
       unknown: 0
     };
   }
@@ -203,9 +221,9 @@ export class MacroMetrics {
   }
 
   private updateDiagramStats(stats: Partial<IMacroMetrics>, diagramType: DiagramType): void {
-    const config = getDiagramConfig(diagramType);
-    if (config) {
-      const field = config.metricField as keyof IMacroMetrics;
+    const field = (getDiagramConfig(diagramType)?.metricField as keyof IMacroMetrics | undefined)
+      ?? EXTRA_METRIC_FIELDS[diagramType];
+    if (field) {
       (stats[field] as number)++;
     } else {
       stats.unknown!++;

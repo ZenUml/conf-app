@@ -17,6 +17,7 @@ import ReactDOM from 'react-dom'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import AsyncApiReactView from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
 import { Diagram } from '@/model/Diagram/Diagram'
+import { trackRenderTime } from '@/utils/analytics/trackRenderTime'
 
 export default defineComponent({
   name: 'AsyncApiMacroViewer',
@@ -32,6 +33,9 @@ export default defineComponent({
     // fails (404, type-filtered, etc.) — surfaces a real error in the
     // viewer instead of the misleading "no saved spec yet" empty state.
     loadError: { type: String, default: undefined },
+  },
+  data() {
+    return { renderReported: false }
   },
   mounted() {
     this.render()
@@ -58,6 +62,16 @@ export default defineComponent({
         React.createElement(AsyncApiReactView, { spec, loadError: this.loadError }),
         root,
       )
+      this.reportRenderOnce()
+    },
+    reportRenderOnce() {
+      if (this.renderReported) return
+      if (!this.doc && !this.loadError) return
+      this.renderReported = true
+      // @asyncapi/react-component renders asynchronously internally — this
+      // measures time-to-content, not time-to-full-paint. Same approximation
+      // as OpenApiViewer's trackRenderTime call.
+      trackRenderTime('asyncapi', this.$store.getters.isDisplayMode)
     },
   },
 })

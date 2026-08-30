@@ -101,7 +101,7 @@ export default function SitesScreen() {
 
       <div className="mt-2 text-micro leading-6 text-fg3">
         Marketplace is authoritative for this inventory. Current editing grants are joined by cloud ID;
-        grant-only tenants with no Marketplace row stay visible in Pending instead of being invented as sites.
+        grant-only tenants with no Marketplace row are kept out of site inventory instead of being invented as sites.
       </div>
     </div>
   )

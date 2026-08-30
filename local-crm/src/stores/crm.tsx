@@ -28,11 +28,6 @@ import {
 } from '@/data/lifecycleApi'
 import { buildTodayDataset } from '@/data/todayApi'
 import {
-  buildPendingDataset,
-  buildPendingRows,
-  type PendingAssignmentRow
-} from '@/data/pendingApi'
-import {
   buildEvents,
   buildTenants,
   filterCounts,
@@ -52,7 +47,7 @@ import {
 } from '@/lib/derive'
 import { buildCase, type CaseModel } from '@/lib/caseModel'
 
-export type Screen = 'today' | 'sites' | 'extensions' | 'pending' | 'automation'
+export type Screen = 'today' | 'sites' | 'extensions' | 'automation'
 export type DrawerTab = 'evidence' | 'comms' | 'audit'
 
 export interface CrmState {
@@ -136,7 +131,6 @@ export interface CrmStoreValue extends CrmState {
   sites: SiteRow[]
   siteStats: SiteStat[]
   tenants: TenantRow[]
-  pendingRows: PendingAssignmentRow[]
   rules: AutomationRule[]
   navCounts: Record<Screen, number>
   selectedEvent: CaseEvent | null
@@ -186,19 +180,13 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad, lifecycleLoad),
     [extensionsData, extensionsLoad, lifecycleLoad]
   )
-  const pendingData = useMemo(
-    () => buildPendingDataset(initialDataset, extensionsData, extensionsLoad),
-    [extensionsData, extensionsLoad]
-  )
-  // Today and Pending intentionally reuse only the source-backed grant fields.
-  // Their unrelated registration/contact/workflow fields stay sanitized.
+  // Today intentionally reuses only the source-backed grant fields.
+  // Its unrelated registration/contact/workflow fields stay sanitized.
   const data = state.screen === 'extensions'
     ? extensionsData
     : state.screen === 'today'
       ? todayData
-      : state.screen === 'pending'
-        ? pendingData
-        : state.screen === 'automation'
+      : state.screen === 'automation'
           ? extensionsLoad.state === 'live' || extensionsLoad.state === 'partial'
             ? extensionsData
             : { ...initialDataset, grants: [], jsm: {}, jsmUnconfirmedAuthor: [], origins: [] }
@@ -266,7 +254,6 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     [sitesResponse, extensionsData]
   )
   const allTenants = useMemo(() => buildTenants(data), [data])
-  const allPendingRows = useMemo(() => buildPendingRows(pendingData), [pendingData])
   const counts = useMemo(() => filterCounts(past), [past])
   const siteStats = useMemo(
     () => sitesResponse ? siteStatsFromResponse(sitesResponse, allSites, extensionsData) : [],
@@ -281,9 +268,8 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     today: initialDataset.registrations.length,
     sites: allSites.length,
     extensions: extensionsData.grants.length,
-    pending: allPendingRows.length,
     automation: extensionsData.grants.reduce((total, grant) => total + (grant.actionAudit?.length ?? 0), 0)
-  }), [allPendingRows.length, allSites.length, extensionsData.grants])
+  }), [allSites.length, extensionsData.grants])
 
   const feed = useMemo(() => {
     const rows = past.filter(
@@ -324,26 +310,6 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         )
       ),
     [allTenants, needle]
-  )
-
-  const pendingRows = useMemo(
-    () =>
-      allPendingRows.filter(row =>
-        includes(
-          needle,
-          row.cloudPrefix,
-          row.space,
-          row.scope,
-          row.status,
-          row.reviewBand,
-          row.mappingEvidence,
-          row.requestEvidence,
-          row.actionEvidence,
-          row.origin,
-          row.unknowns.join(' ')
-        )
-      ),
-    [allPendingRows, needle]
   )
 
   const rules = useMemo(
@@ -404,7 +370,6 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       sites,
       siteStats,
       tenants,
-      pendingRows,
       rules,
       navCounts,
       selectedEvent,
@@ -432,7 +397,6 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       sites,
       siteStats,
       tenants,
-      pendingRows,
       rules,
       navCounts,
       selectedEvent,

@@ -42,17 +42,6 @@ history. Sites is sourced from the live Marketplace export. Automation shows
 only the observed `ExtensionAction` D1 audit: it does not infer a workflow
 configuration from code or from an empty audit result.
 
-Pending also reuses the Extensions snapshot client-side; there is no second API
-read. Queue membership is available only when both `SPACE_LICENSE_KV` and the
-Marketplace export were read successfully, and includes only current grants
-whose cloud ID cannot be joined to a site hostname. A Marketplace outage never
-turns every grant into a pending row, and a healthy empty result never falls
-back to fixtures. JSM and `ExtensionAction` failures retain the queue but label
-their review evidence unavailable. Rows open the existing grant drawer by the
-API's stable grant id. No assignment, Site Contact, case-note, or mutation store
-is connected, so the page makes no ownership claim and exposes no write action.
-Open JSM requests without a current KV grant are outside this slice.
-
 `GET /api/local-crm/sites` is a separate, read-only loopback route. It returns
 the full Marketplace inventory grouped by cloud ID, including app coverage and
 license-row counts. It deliberately does not include Marketplace contact

@@ -38,7 +38,9 @@ API's `asOf`, current grants, correlated JSM context, and grant-origin buckets.
 Registrations, contact ingest, Marketplace acquisition totals, and workflow
 panels remain the labelled sanitized baseline. Expiry rows are derived from the
 current KV `expiresAt`; the console does not present them as stored event
-history. Sites and Automation continue to use the sanitized dataset.
+history. Sites is sourced from the live Marketplace export. Automation shows
+only the observed `ExtensionAction` D1 audit: it does not infer a workflow
+configuration from code or from an empty audit result.
 
 Pending also reuses the Extensions snapshot client-side; there is no second API
 read. Queue membership is available only when both `SPACE_LICENSE_KV` and the
@@ -50,6 +52,15 @@ their review evidence unavailable. Rows open the existing grant drawer by the
 API's stable grant id. No assignment, Site Contact, case-note, or mutation store
 is connected, so the page makes no ownership claim and exposes no write action.
 Open JSM requests without a current KV grant are outside this slice.
+
+`GET /api/local-crm/sites` is a separate, read-only loopback route. It returns
+the full Marketplace inventory grouped by cloud ID, including app coverage and
+license-row counts. It deliberately does not include Marketplace contact
+blocks. There is no source-backed registration, recipient-contact, assignment,
+or workflow-configuration contract yet. The repository has a local
+welcome-email CLI and templates, but production lifecycle-contact migration
+0024 is not applied; Local CRM consequently has no recipient-level preview or
+send action.
 
 Verification commands:
 

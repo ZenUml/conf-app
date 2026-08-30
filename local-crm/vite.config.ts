@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 import { localCrmExtensionsPlugin } from './server/extensionsPlugin'
+import { localCrmSitesPlugin } from './server/sitesPlugin'
 import { installLocalCrmCredentials } from './server/localCredentials'
 
 export default defineConfig(({ command, mode, isPreview }) => {
@@ -10,7 +11,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
   }
 
   return {
-    plugins: [localCrmExtensionsPlugin(), react()],
+    plugins: [localCrmExtensionsPlugin(), localCrmSitesPlugin(), react()],
     root: '.',
     resolve: {
       alias: {

@@ -25,6 +25,7 @@ const CACHE_MS = 30_000
 type JsonRecord = Record<string, unknown>
 
 let cached: { expiresAt: number; value: Promise<ExtensionsResponse> } | null = null
+let marketplaceCached: { expiresAt: number; value: Promise<unknown[]> } | null = null
 
 function record(value: unknown): JsonRecord | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -146,7 +147,7 @@ async function fetchJson(url: string, init: RequestInit, label: string): Promise
   }
 }
 
-async function loadMarketplace(): Promise<unknown[]> {
+async function loadMarketplaceUncached(): Promise<unknown[]> {
   const user = process.env.FORGE_EMAIL
   const token = process.env.FORGE_API_TOKEN
   if (!user || !token) throw new Error('FORGE_EMAIL/FORGE_API_TOKEN are not set')
@@ -158,6 +159,19 @@ async function loadMarketplace(): Promise<unknown[]> {
   }, 'Marketplace')
   if (!Array.isArray(body)) throw new Error('Marketplace export was not an array')
   return body
+}
+
+/** Shared, server-only Marketplace read for all Local CRM projections. */
+export function loadMarketplaceRows(options: { fresh?: boolean } = {}): Promise<unknown[]> {
+  if (!options.fresh && marketplaceCached && marketplaceCached.expiresAt > Date.now()) {
+    return marketplaceCached.value
+  }
+  const value = loadMarketplaceUncached()
+  marketplaceCached = { expiresAt: Date.now() + CACHE_MS, value }
+  value.catch(() => {
+    if (marketplaceCached?.value === value) marketplaceCached = null
+  })
+  return value
 }
 
 function ticketsFromGrants(grants: RawGrantValue[]): string[] {
@@ -294,7 +308,7 @@ async function loadFresh(): Promise<ExtensionsResponse> {
   }
 
   const [marketplaceResult, jsmResult, actionResult] = await Promise.allSettled([
-    loadMarketplace(),
+    loadMarketplaceRows(),
     loadJsm(grantValues),
     loadActionRows()
   ])

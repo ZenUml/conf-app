@@ -14,6 +14,13 @@ import {
   loadExtensionsDataset,
   type ExtensionsLoadState
 } from '@/data/extensionsApi'
+import {
+  INITIAL_SITES_LOAD,
+  loadSitesResponse,
+  siteStatsFromResponse,
+  sitesFromResponse,
+  type SitesLoadState
+} from '@/data/sitesApi'
 import { buildTodayDataset } from '@/data/todayApi'
 import {
   buildPendingDataset,
@@ -22,8 +29,6 @@ import {
 } from '@/data/pendingApi'
 import {
   buildEvents,
-  buildSites,
-  buildSiteStats,
   buildTenants,
   filterCounts,
   groupByDay,
@@ -133,6 +138,7 @@ export interface CrmStoreValue extends CrmState {
   detail: CaseModel | null
   sessionLog: string[]
   extensionsLoad: ExtensionsLoadState
+  sitesLoad: SitesLoadState
   go: (screen: Screen) => void
   setFilter: (filter: FeedFilter) => void
   setTab: (tab: DrawerTab) => void
@@ -167,6 +173,8 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(crmReducer, INITIAL_CRM_STATE)
   const [extensionsData, setExtensionsData] = useState(initialDataset)
   const [extensionsLoad, setExtensionsLoad] = useState(INITIAL_EXTENSIONS_LOAD)
+  const [sitesResponse, setSitesResponse] = useState<Awaited<ReturnType<typeof loadSitesResponse>> | null>(null)
+  const [sitesLoad, setSitesLoad] = useState(INITIAL_SITES_LOAD)
   const todayData = useMemo(
     () => buildTodayDataset(initialDataset, extensionsData, extensionsLoad),
     [extensionsData, extensionsLoad]
@@ -183,7 +191,11 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       ? todayData
       : state.screen === 'pending'
         ? pendingData
-        : initialDataset
+        : state.screen === 'automation'
+          ? extensionsLoad.state === 'live' || extensionsLoad.state === 'partial'
+            ? extensionsData
+            : { ...initialDataset, grants: [], jsm: {}, jsmUnconfirmedAuthor: [], origins: [] }
+          : initialDataset
   const needle = state.query.trim().toLowerCase()
 
   useEffect(() => {
@@ -210,14 +222,35 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  useEffect(() => {
+    let current = true
+    loadSitesResponse()
+      .then(result => {
+        if (!current) return
+        setSitesResponse(result)
+        setSitesLoad({ state: 'live', generatedAt: result.generatedAt, summary: result.summary, error: null })
+      })
+      .catch(error => {
+        if (!current) return
+        setSitesLoad({ state: 'error', generatedAt: null, summary: null, error: error instanceof Error ? error.message : String(error) })
+      })
+    return () => { current = false }
+  }, [])
+
   const events = useMemo(() => buildEvents(data), [data])
   const past = useMemo(() => pastEvents(data, events), [data, events])
   const ahead = useMemo(() => scheduledEvents(data, events), [data, events])
-  const allSites = useMemo(() => buildSites(data), [data])
+  const allSites = useMemo(
+    () => sitesResponse ? sitesFromResponse(sitesResponse, extensionsData) : [],
+    [sitesResponse, extensionsData]
+  )
   const allTenants = useMemo(() => buildTenants(data), [data])
   const allPendingRows = useMemo(() => buildPendingRows(pendingData), [pendingData])
   const counts = useMemo(() => filterCounts(past), [past])
-  const siteStats = useMemo(() => buildSiteStats(data, allSites), [data, allSites])
+  const siteStats = useMemo(
+    () => sitesResponse ? siteStatsFromResponse(sitesResponse, allSites, extensionsData) : [],
+    [sitesResponse, allSites, extensionsData]
+  )
   const scheduled = useMemo<ScheduledView>(() => ({
     total: ahead.length,
     head: scheduledHead(data, ahead),
@@ -225,11 +258,11 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   }), [ahead, data])
   const navCounts = useMemo<Record<Screen, number>>(() => ({
     today: initialDataset.registrations.length,
-    sites: buildSites(initialDataset).length,
+    sites: allSites.length,
     extensions: extensionsData.grants.length,
     pending: allPendingRows.length,
-    automation: initialDataset.rules.length
-  }), [allPendingRows.length, extensionsData.grants.length])
+    automation: extensionsData.grants.reduce((total, grant) => total + (grant.actionAudit?.length ?? 0), 0)
+  }), [allPendingRows.length, allSites.length, extensionsData.grants])
 
   const feed = useMemo(() => {
     const rows = past.filter(
@@ -357,6 +390,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       detail,
       sessionLog,
       extensionsLoad,
+      sitesLoad,
       go,
       setFilter,
       setTab,
@@ -383,6 +417,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       detail,
       sessionLog,
       extensionsLoad,
+      sitesLoad,
       go,
       setFilter,
       setTab,

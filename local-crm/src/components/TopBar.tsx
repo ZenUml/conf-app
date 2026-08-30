@@ -32,9 +32,13 @@ export default function TopBar() {
     ],
     sites: [
       'Sites',
-      `${store.navCounts.sites} clients · ${store.data.registrations.length} new this month, ${new Set(
-        store.data.grants.map(grant => grant.cloudId ?? grant.domain)
-      ).size} holding an editing extension`
+      store.sitesLoad.state === 'live' && store.sitesLoad.summary
+        ? `${store.navCounts.sites} Marketplace sites · ${store.sitesLoad.summary.licenseCount} licence rows · ${new Set(
+          store.data.grants.map(grant => grant.cloudId ?? grant.domain)
+        ).size} holding an editing extension`
+        : store.sitesLoad.state === 'loading'
+          ? 'loading Marketplace inventory · no fixture sites substituted'
+          : 'Marketplace inventory unavailable · no fixture sites substituted'
     ],
     extensions: [
       'Editing extensions',
@@ -52,17 +56,22 @@ export default function TopBar() {
     ],
     automation: [
       'Automation',
-      `${store.data.rules.length} mechanisms · one live, two running by hand, five not wired up`
+      store.extensionsLoad.sources?.extension_action_d1.state === 'ok'
+        ? `${store.navCounts.automation} observed ExtensionAction audit rows · read-only`
+        : store.extensionsLoad.state === 'loading'
+          ? 'loading ExtensionAction audit · no fixture automation rows substituted'
+          : 'ExtensionAction audit unavailable · no fixture automation rows substituted'
     ]
   } as const
   const [title, subtitle] = screenCopy[store.screen]
   const extensionFreshness = (store.extensionsLoad.state === 'live' || store.extensionsLoad.state === 'partial') && store.extensionsLoad.generatedAt
     ? `Extensions API ${store.extensionsLoad.state === 'partial' ? 'partial · ' : ''}${new Date(store.extensionsLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : `Extensions ${store.extensionsLoad.state}`
-  const usesExtensionFreshness = store.screen === 'extensions' || store.screen === 'today' || store.screen === 'pending'
-  const freshness = usesExtensionFreshness
-    ? extensionFreshness
-    : store.data.marketplace.freshness
+  const usesExtensionFreshness = store.screen === 'extensions' || store.screen === 'today' || store.screen === 'pending' || store.screen === 'automation'
+  const sitesFreshness = store.sitesLoad.state === 'live' && store.sitesLoad.generatedAt
+    ? `Marketplace ${new Date(store.sitesLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `Marketplace ${store.sitesLoad.state}`
+  const freshness = store.screen === 'sites' ? sitesFreshness : extensionFreshness
 
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-line bg-bg1 px-6">

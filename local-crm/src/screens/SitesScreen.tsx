@@ -14,17 +14,26 @@ function statColor(tone: SiteStat['tone']): string {
 }
 
 export default function SitesScreen() {
-  const { sites, siteStats, query } = useCrmStore()
+  const { sites, siteStats, query, sitesLoad } = useCrmStore()
 
   return (
     <div className="px-6 pb-7 pt-5">
       <div className="mb-2.5 flex flex-wrap items-baseline gap-2.5">
         <h3 className="text-h3 font-semibold">Every site we hold context for</h3>
         <span className="text-body-sm text-fg2">
-          grouped by cloud ID where one is known — a domain is display information, never an identity key
+          source-backed from the Marketplace licence export — a domain is display information, never an identity key
         </span>
       </div>
 
+      {sitesLoad.state === 'live' && sitesLoad.summary ? (
+        <div className="mb-2 rounded-md border border-line bg-bg2 px-3.5 py-2 text-micro text-fg2">
+          Marketplace source · {sitesLoad.summary.licenseCount} licence rows · read {sitesLoad.generatedAt ? new Date(sitesLoad.generatedAt).toLocaleString() : 'now'}
+        </div>
+      ) : (
+        <div className="mb-2 rounded-md border border-dashed border-line bg-bg2 px-3.5 py-2 text-micro text-fg2">
+          {sitesLoad.state === 'error' ? `${sitesLoad.error ?? 'Marketplace source unavailable'}. No sanitized site rows are substituted.` : 'Marketplace source is loading. No sanitized site rows are substituted.'}
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap gap-px overflow-hidden rounded-md border border-line bg-line">
         {siteStats.map(stat => (
           <div key={stat.label} className="min-w-[120px] flex-1 bg-bg1 px-3.5 py-2.5">
@@ -41,7 +50,7 @@ export default function SitesScreen() {
 
       <div className="overflow-x-auto rounded-lg border border-line bg-bg1">
         <div className={`${GRID} border-b border-line bg-bg2 px-[18px] py-[9px]`}>
-          {['Client', 'Cloud ID', 'Apps', 'Extensions', 'Activity'].map(label => (
+          {['Client', 'Cloud ID', 'Apps', 'Extensions', 'Source'].map(label => (
             <div key={label} className="lc-label whitespace-nowrap">
               {label}
             </div>
@@ -50,7 +59,7 @@ export default function SitesScreen() {
         {sites.length ? (
           sites.map(site => (
             <div
-              key={site.domain}
+              key={site.cloudId}
               className={`${GRID} lc-t-bg items-center border-b border-bg3 bg-bg1 px-[18px] py-3.5 last:border-b-0 hover:bg-bg2`}
             >
               <div
@@ -85,16 +94,14 @@ export default function SitesScreen() {
           ))
         ) : (
           <div className="min-w-[696px] px-[18px] py-10 text-center text-body-sm text-fg2">
-            {query.trim() ? `No sites match “${query.trim()}”.` : 'No sites are on file.'}
+            {query.trim() ? `No sites match “${query.trim()}”.` : sitesLoad.state === 'loading' ? 'Loading Marketplace sites…' : 'No Marketplace sites are available.'}
           </div>
         )}
       </div>
 
       <div className="mt-2 text-micro leading-6 text-fg3">
-        Cloud IDs exist only for sites that appear in the Marketplace licence export. Extension grants
-        are keyed on a cloud ID inside KV but the listing does not return it, so grant-only sites show{' '}
-        <span className="text-bad">none on file</span>. Editing extensions are a Lite-only mechanism,
-        which is why every grant-only site reads as <span className="font-mono">lite</span>.
+        Marketplace is authoritative for this inventory. Current editing grants are joined by cloud ID;
+        grant-only tenants with no Marketplace row stay visible in Pending instead of being invented as sites.
       </div>
     </div>
   )

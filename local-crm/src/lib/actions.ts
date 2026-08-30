@@ -109,7 +109,9 @@ function view(
     blocked,
     held,
     muted: blocked || held,
-    showButton: !blocked && !held && !stamp && Boolean(action.cta),
+    // Hidden while the confirm strip is open: the strip carries the only control
+    // that stamps, so a second click on the CTA has nothing to land on.
+    showButton: !blocked && !held && !stamp && Boolean(action.cta) && confirming !== id,
     confirming: confirming === id,
     confirmText: action.confirmText ?? '',
     needsConfirm: Boolean(action.confirm),

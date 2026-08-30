@@ -111,7 +111,7 @@ export default function CaseDrawer() {
             {actions.next.confirming ? (
               <ConfirmStrip
                 text={actions.next.confirmText}
-                onConfirm={() => store.run(actions.next.id, false)}
+                onConfirm={() => store.confirmRun(actions.next.id)}
                 onCancel={store.cancel}
               />
             ) : null}
@@ -161,6 +161,7 @@ export default function CaseDrawer() {
               model={model}
               more={actions.more}
               onRun={store.run}
+              onConfirm={store.confirmRun}
               onCancel={store.cancel}
             />
           ) : store.tab === 'comms' ? (

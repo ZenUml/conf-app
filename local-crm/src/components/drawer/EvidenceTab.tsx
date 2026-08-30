@@ -10,10 +10,11 @@ interface EvidenceTabProps {
   model: CaseModel
   more: ActionView[]
   onRun: (id: string, needsConfirm: boolean) => void
+  onConfirm: (id: string) => void
   onCancel: () => void
 }
 
-export default function EvidenceTab({ model, more, onRun, onCancel }: EvidenceTabProps) {
+export default function EvidenceTab({ model, more, onRun, onConfirm, onCancel }: EvidenceTabProps) {
   return (
     <div>
       <div className="mb-[22px]">
@@ -67,6 +68,7 @@ export default function EvidenceTab({ model, more, onRun, onCancel }: EvidenceTa
                 key={action.key}
                 action={action}
                 onRun={onRun}
+                onConfirm={onConfirm}
                 onCancel={onCancel}
               />
             ))}

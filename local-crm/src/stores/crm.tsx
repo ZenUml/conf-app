@@ -46,6 +46,7 @@ import {
   type TenantRow
 } from '@/lib/derive'
 import { buildCase, type CaseModel } from '@/lib/caseModel'
+import { buildActions } from '@/lib/actions'
 
 export type Screen = 'today' | 'sites' | 'extensions' | 'automation'
 export type DrawerTab = 'evidence' | 'comms' | 'audit'
@@ -81,6 +82,7 @@ type CrmAction =
   | { type: 'tab'; tab: DrawerTab }
   | { type: 'query'; query: string }
   | { type: 'run'; key: string; needsConfirm: boolean; stamp: string }
+  | { type: 'confirm'; key: string; stamp: string }
   | { type: 'cancel' }
 
 export function crmReducer(state: CrmState, action: CrmAction): CrmState {
@@ -103,10 +105,21 @@ export function crmReducer(state: CrmState, action: CrmAction): CrmState {
       return { ...state, tab: action.tab }
     case 'query':
       return { ...state, query: action.query }
+    // A confirm-gated action is only ever armed here. It used to stamp as soon
+    // as a second `run` arrived on the armed key, so a double-click on the CTA
+    // confirmed itself: "Apply migration 0025" stamped from two clicks with the
+    // confirm strip untouched. Stamping now needs the strip's own action.
     case 'run':
-      if (action.needsConfirm && state.confirming !== action.key) {
+      if (action.needsConfirm) {
         return { ...state, confirming: action.key }
       }
+      return {
+        ...state,
+        confirming: null,
+        done: { ...state.done, [action.key]: action.stamp }
+      }
+    case 'confirm':
+      if (state.confirming !== action.key) return state
       return {
         ...state,
         confirming: null,
@@ -147,6 +160,7 @@ export interface CrmStoreValue extends CrmState {
   openExtension: (domain: string) => void
   close: () => void
   run: (key: string, needsConfirm: boolean) => void
+  confirmRun: (key: string) => void
   cancel: () => void
 }
 
@@ -157,16 +171,28 @@ function includes(needle: string, ...fields: Array<string | undefined>): boolean
   return fields.some(field => field?.toLowerCase().includes(needle))
 }
 
-function humanToday(today: string): string {
-  const [year, month, day] = today.split('-')
-  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  return `${day} ${names[Number(month) - 1]} ${year}`
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * When the operator ran the action, read from the clock alone.
+ *
+ * The date used to come from `data.today` — the dataset's as-of day — while the
+ * time came from the local clock. A dataset extracted on an earlier day filed
+ * every action under the extraction date with the current time beside it.
+ */
+export function stampNow(operator: string, now: Date = new Date()): string {
+  const day = String(now.getDate()).padStart(2, '0')
+  const month = MONTH_NAMES[now.getMonth()]
+  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  return `${day} ${month} ${now.getFullYear()} ${time} · ${operator}`
 }
 
-function stamp(today: string, operator: string): string {
-  const now = new Date()
-  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  return `${humanToday(today)} ${time} · ${operator}`
+/**
+ * An action key belongs to the case the drawer has open. Only the drawer renders
+ * action controls, so anything arriving for another case did not come from one.
+ */
+export function isKeyForSelected(selected: string | null, key: string): boolean {
+  return Boolean(selected) && key.startsWith(`${selected}:`)
 }
 
 export function CrmProvider({ children }: { children: ReactNode }) {
@@ -329,6 +355,18 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     () => (selectedEvent ? buildCase(data, selectedEvent) : null),
     [data, selectedEvent]
   )
+  /**
+   * Action ids the open case will actually run. A blocked action renders no
+   * control at all, so a dispatch carrying one did not come from the drawer;
+   * the guard keeps the rule in the store rather than in the rendering layer.
+   */
+  const runnableIds = useMemo(() => {
+    if (!selectedEvent || !detail) return new Set<string>()
+    const { next, more } = buildActions(detail, selectedEvent.id, state.confirming, state.done)
+    const usable = [next, ...more].filter(item => item.id && !item.blocked && !item.held)
+    return new Set(usable.map(item => item.id))
+  }, [detail, selectedEvent, state.confirming, state.done])
+
   const sessionLog = useMemo(() => {
     if (!selectedEvent) return []
     return Object.keys(state.done)
@@ -351,14 +389,23 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const close = useCallback(() => dispatch({ type: 'close' }), [])
   const cancel = useCallback(() => dispatch({ type: 'cancel' }), [])
   const run = useCallback(
-    (key: string, needsConfirm: boolean) =>
+    (key: string, needsConfirm: boolean) => {
+      if (!isKeyForSelected(state.selected, key) || !runnableIds.has(key)) return
       dispatch({
         type: 'run',
         key,
         needsConfirm,
-        stamp: stamp(data.today, data.operator)
-      }),
-    [data.operator, data.today]
+        stamp: stampNow(data.operator)
+      })
+    },
+    [data.operator, runnableIds, state.selected]
+  )
+  const confirmRun = useCallback(
+    (key: string) => {
+      if (!isKeyForSelected(state.selected, key) || !runnableIds.has(key)) return
+      dispatch({ type: 'confirm', key, stamp: stampNow(data.operator) })
+    },
+    [data.operator, runnableIds, state.selected]
   )
 
   const value = useMemo<CrmStoreValue>(
@@ -387,6 +434,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       openExtension,
       close,
       run,
+      confirmRun,
       cancel
     }),
     [
@@ -414,6 +462,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       openExtension,
       close,
       run,
+      confirmRun,
       cancel
     ]
   )

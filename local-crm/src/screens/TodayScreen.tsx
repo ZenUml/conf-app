@@ -2,7 +2,7 @@ import Chip from '@/components/Chip'
 import EventCard from '@/components/EventCard'
 import SectionLabel from '@/components/SectionLabel'
 import { todayGrantMode } from '@/data/todayApi'
-import { count } from '@/lib/format'
+import { count, requestedLabel } from '@/lib/format'
 import { PRODUCT } from '@/lib/palette'
 import { useCrmStore } from '@/stores/crm'
 import type { FeedFilter } from '@/lib/derive'
@@ -151,7 +151,7 @@ export default function TodayScreen() {
                 </span>
                 <span className="text-micro text-fg2">{row.status ?? 'status unavailable'}</span>
                 <span className="text-micro text-fg3">
-                  {row.createdAt ? `requested ${new Date(row.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' })}` : 'request date unavailable'}
+                  {requestedLabel(row.createdAt) ? `requested ${requestedLabel(row.createdAt)}` : 'request date unavailable'}
                 </span>
               </div>
             ))}

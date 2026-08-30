@@ -318,6 +318,27 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
     }
   }
 
+  // A grant or expiry case arriving without its grant used to fall through to
+  // the ingest run's stages, so the drawer showed read / classified / written
+  // for a customer's extension. The evidence is absent; the view states that.
+  if (kind === 'granted' || kind === 'expired') {
+    return {
+      stalled: true,
+      branches: '',
+      stages: [
+        {
+          name: 'evidence unavailable',
+          state: 'open',
+          note: 'This case carries no grant record, so no stage of the extension flow can be read.'
+        }
+      ]
+    }
+  }
+
+  if (kind !== 'ingest') {
+    throw new RangeError(`lifecycleOf: no lifecycle for case kind ${JSON.stringify(kind)}`)
+  }
+
   const { ingest } = data
   return {
     stalled: true,
@@ -337,10 +358,18 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
  * The rail label: the stage the case actually stands at, its position, and the
  * total. An `open` stage AFTER the current one takes over the label; an `open`
  * stage BEFORE it is appended as unresolved-earlier instead.
+ *
+ * With no `now` stage — a grant whose expiry has not arrived is exactly that
+ * shape — the label falls to the first stage still ahead of the case. It used
+ * to fall to index 0, which named a stage the case had already completed.
  */
 export function stageLabel(view: LifecycleView): string {
+  if (view.stages.length === 0) return 'no stages recorded'
   const nowIndex = view.stages.findIndex(stage => stage.state === 'now')
-  let index = nowIndex < 0 ? 0 : nowIndex
+  const aheadIndex = view.stages.findIndex(
+    stage => stage.state !== 'done' && stage.state !== 'skip'
+  )
+  let index = nowIndex >= 0 ? nowIndex : aheadIndex >= 0 ? aheadIndex : view.stages.length - 1
   view.stages.forEach((stage, i) => {
     if (stage.state === 'open' && i > index) index = i
   })

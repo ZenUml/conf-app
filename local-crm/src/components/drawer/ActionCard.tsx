@@ -4,11 +4,13 @@ import type { ActionView } from '@/lib/actions'
 interface ActionCardProps {
   action: ActionView
   onRun: (id: string, needsConfirm: boolean) => void
+  /** The confirm strip's own control. A repeated CTA click must never reach it. */
+  onConfirm: (id: string) => void
   onCancel: () => void
 }
 
 /** Danger tone is an outlined red button, never a filled one. */
-export default function ActionCard({ action, onRun, onCancel }: ActionCardProps) {
+export default function ActionCard({ action, onRun, onConfirm, onCancel }: ActionCardProps) {
   const button =
     action.tone === 'danger'
       ? 'bg-bg1 border border-bad text-bad'
@@ -50,7 +52,7 @@ export default function ActionCard({ action, onRun, onCancel }: ActionCardProps)
       {action.confirming ? (
         <ConfirmStrip
           text={action.confirmText}
-          onConfirm={() => onRun(action.id, false)}
+          onConfirm={() => onConfirm(action.id)}
           onCancel={onCancel}
         />
       ) : null}

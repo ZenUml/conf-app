@@ -11,11 +11,34 @@ Always create a feature branch for new work.
 
 Both exceptions require the change to be **confined** to those paths. The moment a commit also touches `src/`, `functions/`, `manifest.yml`, tests, or config, it is a normal code change → feature branch, even if most of the diff is a skill.
 
+## The primary checkout stays on `main`
+
+`/Users/pengxiao/workspaces/zenuml/conf-app` — the primary checkout — stays on `main`. Feature work
+goes in a worktree beside it (`../conf-app-<feature>`), never in the primary directory.
+
+**Why:** a branch can only be checked out in one worktree at a time. On 2026-08-31 the primary
+directory sat on a feature branch while a worktree created 2026-08-23 (235 commits behind) held
+`main`, so `git switch main` failed with `fatal: 'main' is already checked out at
+'…/conf-app-agent-link-auth-discussion'`. Pinning `main` to the primary checkout removes that class
+of failure, and puts the two direct-to-`main` exceptions above in the directory you are already in.
+
+**Setup cost per new worktree** (measured 2026-08-31 — nothing here is automated yet):
+
+1. `pnpm install` — the primary `node_modules` is 2.3 GB. The pnpm store is shared, so this is link
+   trees and disk, not re-downloads.
+2. `git submodule update --init` for the `private` handbook submodule.
+3. Copy the git-ignored config, which git does not carry into a worktree:
+   `.env`, `.env.forge`, `.env.forge.local`, `.env.mixpanel`, `.env.sentry-build-plugin`,
+   `tests/e2e-tests/.env`, `wrangler.toml`, `.claude/settings.local.json`.
+
+Worktrees accumulate under this scheme — 37 existed on 2026-08-31, including one untouched for 8
+days. Run the `worktree-cleanup` skill periodically; it removes the ones whose PR is merged.
+
 ## When you do NOT need a worktree (or a branch)
 
 A worktree is only ever needed to keep two *working trees* from colliding. Don't reach for one reflexively:
 
-- **`.md`-only changes and `.claude/skills/**`-only changes** go straight to `main` (per the exceptions above) — no feature branch. If your current tree is clean, just `git checkout main && git pull`, commit, push. Only spin up a worktree if the current tree holds **another session's** uncommitted changes (see below) that block a clean `git checkout main` — which is the usual case when you're mid-feature and improve a skill along the way.
+- **`.md`-only changes and `.claude/skills/**`-only changes** go straight to `main` (per the exceptions above) — no feature branch. If your current tree is clean, just `git checkout main && git pull`, commit, push. With the primary checkout pinned to `main` this is the common path. Spin up a worktree only if that tree holds **another session's** uncommitted changes (see below) that block a clean `git checkout main`.
 - **Git-ignored files only** (e.g. copied `.env`/auth-state, local `node_modules`, scratch screenshots): there is nothing to commit at all — no branch, no worktree, no PR.
 
 In short: create a worktree when you need an isolated *checkout* — to avoid disrupting another session's dirty tree, or to run two branches at once. Not for trivial docs or untracked local files.
@@ -24,20 +47,22 @@ In short: create a worktree when you need an isolated *checkout* — to avoid di
 
 Check the current branch state first:
 
-**If on `main`:**
+**If on `main`** (the normal state of the primary checkout) — create a worktree, leaving the primary
+directory on `main`:
 ```bash
-git checkout -b <feature-branch-name>
+git worktree add ../conf-app-<feature> -b <feature-branch-name> main
 ```
 
-**If on a different feature branch:**
+**If on a different feature branch** (a worktree, or a primary checkout that drifted off `main`):
 1. Check if the branch is clean: `git status`
-2. **If clean** — switch back to main, pull, then create the new branch:
+2. **If clean** — return this checkout to `main`, pull, then branch the new work into its own
+   worktree:
    ```bash
-   git checkout main && git pull && git checkout -b <feature-branch-name>
+   git checkout main && git pull && git worktree add ../conf-app-<feature> -b <feature-branch-name> main
    ```
 3. **If dirty (uncommitted changes)** — stop and present these options:
-   1. Commit the current changes first, then switch to the new branch
-   2. Use a git worktree so both branches can coexist: `git worktree add ../conf-app-<feature> -b <feature-branch-name>`
+   1. Commit the current changes first, then create the worktree for the new work
+   2. Leave this tree untouched and create the worktree straight from `main`: `git worktree add ../conf-app-<feature> -b <feature-branch-name> main`
 
 Always use the `/superpowers:using-git-worktrees` skill when choosing option 2.
 

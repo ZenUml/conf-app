@@ -78,12 +78,18 @@ Full catalog + properties → conf-app `docs/analytics/events-catalog.md` + `src
 
 ## Excluding internal / staging sites
 
-- **MCP / Run-Query:** computed boolean `is_internal_client_domain = false` — one filter, verified equivalent to the manual list as of 2026-06 (`danshuitaihejie` added to the manual list 2026-07-03; re-verify the computed prop covers it before relying on exact equivalence).
-- **JQL** (computed props unavailable there): exclude by `contains`/prefix with the canonical minimal set:
+- **MCP / Run-Query / saved reports:** use the computed event property `is_internal_client_domain`, string-encoded as `equals "false"` so saved-report URLs preserve the filter:
+  ```json
+  {"type":"string", "propertyName":"is_internal_client_domain", "propertyType":"string", "resource":"event", "operator":"equals", "value":"false"}
   ```
-  ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"]
+  This is the single source of truth for customer-wide Mixpanel reports. Do **not** build one `client_domain` filter per internal site. The superficially similar `is_internal_domain` is not the conf-app classifier: on 2026-08-22 it produced no internal (`true`) bucket, while `is_internal_client_domain` separated 4,055 internal `macro_viewed` events in the same seven-day window.
+- **JQL** (computed props unavailable there): before querying, load the customer-specific exclusions from [`private/operations/internal-analytics-domain-exclusions.md`](../../../private/operations/internal-analytics-domain-exclusions.md) and combine them with this public baseline. Keep tenant identifiers in that private reference, never in this skill. Exclude by `contains`/prefix with the baseline:
   ```
-  `"zenuml"` as a contains-match already catches `zenuml-connect` and `zenuml-stg`. `danshuitaihejie` is ruixiang's internal dev site — not a customer. `asyncapi-stg` is the AsyncAPI variant's E2E staging site (analogous to `full-stg`/`lite-stg`/`dia-stg`, one per variant) — missing from earlier versions of this list; confirmed 2026-07-16 it was leaking into a new-tenant JQL query (`asyncapi-stg` showed up as a "new customer" with 202 core events). This **supersedes the old `["zenuml","zenuml-stg","dia-stg"]`**, which under-excluded.
+  ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "lite-prod", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"]
+  ```
+  `"zenuml"` as a contains-match already catches `zenuml-connect` and `zenuml-stg`. `danshuitaihejie` is ruixiang's internal dev site — not a customer. `asyncapi-stg` is the AsyncAPI variant's E2E staging site (analogous to `full-stg`/`lite-stg`/`dia-stg`, one per variant) — missing from earlier versions of this list; confirmed 2026-07-16 it was leaking into a new-tenant JQL query (`asyncapi-stg` showed up as a "new customer" with 202 core events). This **supersedes the old `["zenuml","zenuml-stg","dia-stg"]`**, which under-excluded. `lite-prod` (Lite production-environment internal site) added 2026-08-24, in both this baseline and the `is_internal_client_domain` custom property (id `5870902`).
+
+  **The two lists are not identical — check both when adding a domain.** As of 2026-08-24 the custom property carries `async-prd` (absent from this JQL baseline) and the JQL baseline carries `danshuitaihejie` (absent from the custom property). Neither gap has been closed; a domain added to one does not propagate to the other.
 
 ## Forge vs Connect runtime
 
@@ -96,7 +102,7 @@ There is **no reliable runtime boolean** (`isForge` is dead). To split:
 | Mistake | Reality |
 |---|---|
 | Filter `isForge=true` / `isLite=true` | Returns ~zero — both dead. `product_type` for variant; date/`appId` for runtime. |
-| Old exclude list `["zenuml","zenuml-stg","dia-stg"]` | Under-excludes. Use the canonical set or `is_internal_client_domain=false`. |
+| Per-domain exclusions in MCP reports | They drift. Use the string-encoded `is_internal_client_domain = "false"` filter; only raw JQL needs the canonical/private domain list. |
 | `create_macro_end` for May-2026+ data | Renamed → 0. Use `macro_create_succeeded`. |
 | `macro_viewed` for pre-April data | Didn't exist yet. Use `view_macro`. April = both. |
 | Trust a 30/90d window | Tracking starts 2026-04-18. Check earliest date. |
@@ -104,6 +110,7 @@ There is **no reliable runtime boolean** (`isForge` is dead). To split:
 | `macro_type='unknown'` = failure for graph/openapi/embed | Only valid for sequence/mermaid/plantuml. |
 | `space_key` as the space dimension on frontend events | Undefined on `macro_viewed` (0 of 81,878 fleet-wide, 7d). It belongs to backend macro-count snapshot events. Use **`confluence_space`**. Check with `mp_schema.py verify <event> <prop>`. |
 | Validating a property against ONE tenant | A distinct count returns 1 both for an absent property (the value `undefined`) and for a real property at a one-space tenant. Always verify fleet-wide. |
+| `BooleanPropertyFilter` in MCP `Run-Query` when the output is a link or saved report | The executed query is correct, but the encoded state is malformed: the shared `report_url` re-runs with the filter flipped to `= true`, and a saved report (bookmark updated via query_id) renders the chip as `True` AND reverts every viewer edit — clicking 30D snaps back to the saved range because the UI cannot re-serialize the filter (hit 2026-07-23 and 2026-08-19, Coles board reports 91672617/91672628). Fix: string-encode boolean filters. For `tab_hidden`, use `{type:"string", propertyType:"string", operator:"equals", value:"false"}`; for customer-wide reports, use the `is_internal_client_domain` filter shown above. It returned the same 76,052-event seven-day population as the native boolean form on 2026-08-22. Results returned inline in the tool response are trustworthy either way. |
 | `macro_viewed` `surface='viewer'` = a real page view | On builds before 2026-07-19 (conf-app#368) the native macro-config surface was stamped `viewer` too, so historical viewer volumes include ~3% authoring renders — recognizable as no-`custom_content_id` events near `macro_create_started` by the same user, with inflated `duration_ms` (long-lived editor iframes, tab switches re-firing). Fixed in `ApWrapper2.isDisplayMode()`; segment by `app_version` across the fix. |
 
 ## JQL details

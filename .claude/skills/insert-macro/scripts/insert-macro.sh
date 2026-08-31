@@ -5,6 +5,7 @@ set -euo pipefail
 
 SESSION="conf-app"
 RESTORE="stg"
+PROFILE=""
 URL=""
 NEW_SPACE=""
 NEW_PARENT=""
@@ -23,6 +24,9 @@ Usage: insert-macro.sh [options]
 
   --session <name>      agent-browser session (default: conf-app)
   --restore <key>        agent-browser --restore key (default: stg)
+  --profile <name>       Chrome profile to reuse instead of --restore. REQUIRED for
+                          forge-tunnel testing (tunnel serves only the FORGE_EMAIL
+                          identity); e.g. --profile "Profile 8"
   --url <edit-url>       existing page in edit mode to insert into (required, or use --new)
   --new <site>:<space>:<parentPageId>
                           create a fresh page under this space/parent first, then insert
@@ -50,6 +54,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --session) SESSION="$2"; shift 2 ;;
     --restore) RESTORE="$2"; shift 2 ;;
+    --profile) PROFILE="$2"; shift 2 ;;
     --url) URL="$2"; shift 2 ;;
     --new) IFS=':' read -r SITE NEW_SPACE NEW_PARENT <<< "$2"; shift 2 ;;
     --macro) MACRO="$2"; shift 2 ;;
@@ -70,7 +75,15 @@ if [[ -z "$URL" && -z "$SITE" ]]; then
 fi
 if [[ -z "$LABEL" ]]; then LABEL="$MACRO"; fi
 
-A() { agent-browser --session "$SESSION" --restore="$RESTORE" "$@"; }
+# --profile wins over --restore. Required for forge-tunnel testing: the tunnel
+# serves frontend resources ONLY to the FORGE_EMAIL identity, and --restore=stg
+# is the robot test account, which silently gets the deployed bundle instead.
+# See .claude/skills/forge-tunnel/skill.md § Key constraints.
+if [[ -n "$PROFILE" ]]; then
+  A() { agent-browser --session "$SESSION" --profile "$PROFILE" "$@"; }
+else
+  A() { agent-browser --session "$SESSION" --restore="$RESTORE" "$@"; }
+fi
 
 # Build one batch step as a JSON array — jq's --args handles all escaping,
 # so callers never have to worry about quotes inside the eval JS blob.

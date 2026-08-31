@@ -4,6 +4,7 @@ import BylineDiagrams from '@/components/Byline/BylineDiagrams.vue';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { openModal } from '@/model/globals/forgeGlobal';
 import { DiagramType } from '@/model/Diagram/Diagram';
+import { readUnplacedMarker } from '@/utils/byline/unplacedMarker';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -34,6 +35,7 @@ const spaceKey = vi.hoisted(() => ({ value: 'SPACE' }));
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   NO_SPACE_CONTEXT: 'no_space_context',
   getSpaceKey: () => spaceKey.value,
+  getClientDomain: () => 'example-tenant',
 }));
 
 const routerNavigate = vi.hoisted(() => vi.fn(async () => {}));
@@ -74,6 +76,7 @@ describe('BylineDiagrams', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     spaceKey.value = 'SPACE';
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1' };
     apWrapper._getCurrentPageId.mockResolvedValue('page-1');
@@ -813,6 +816,8 @@ describe('BylineDiagrams', () => {
   });
 
   describe('diagrams that are not on the page', () => {
+    /** The banner reads by domain + page id; both sides derive it the same way. */
+    const IDENTITY = { clientDomain: 'example-tenant', pageId: 'page-1' };
     const TWO = [
       ok(child('1', 'Placed', DiagramType.Sequence), child('2', 'Stray', DiagramType.Sequence)),
     ];
@@ -889,6 +894,60 @@ describe('BylineDiagrams', () => {
         unplaced_count: 1,
         diagram_count: 2,
       });
+    });
+
+    it('leaves the verdict where the page banner can read it', async () => {
+      // The banner mounts on every page load and cannot afford to work this out
+      // itself (a listing per custom-content type plus a full-page ADF read), so
+      // the byline hands over what it has already paid for.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      await mountByline();
+
+      expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([
+        { id: '2', title: 'Stray', diagramType: DiagramType.Sequence },
+      ]);
+    });
+
+    it('writes an EMPTY marker once everything is placed, retiring the banner', async () => {
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1', '2']);
+      await mountByline();
+
+      expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([]);
+    });
+
+    it('writes no marker at all when the page could not be scanned', async () => {
+      // An unreadable ADF must never be written down as "everything is
+      // unplaced" — the banner would then name every diagram on the page.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(undefined);
+      await mountByline();
+
+      expect(readUnplacedMarker(IDENTITY)).toBeNull();
+    });
+
+    it('arms the banner for a diagram just created here', async () => {
+      // The create→paste handoff's one failure mode: saved, never pasted. At
+      // this instant it is unplaced by definition.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      apWrapper.referencedCustomContentIds.mockResolvedValue([]);
+      const wrapper = await mountByline();
+
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('9', 'Brand new', DiagramType.Mermaid)),
+      ]);
+      await wrapper.find('[data-testid="byline-type-flowchart"]').trigger('click');
+      await flushPromises();
+      await closeEditor();
+
+      expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([
+        { id: '9', title: 'Brand new', diagramType: DiagramType.Mermaid },
+      ]);
     });
 
     it('does not hand over a broken link when there is no cloudId', async () => {

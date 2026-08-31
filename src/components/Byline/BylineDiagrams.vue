@@ -350,6 +350,7 @@ import {
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
+import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -696,6 +697,7 @@ async function loadDiagrams() {
     }
     void loadThumbnails()
     reportPlacement()
+    syncUnplacedMarker()
   }
 }
 
@@ -793,6 +795,36 @@ function reportPlacement() {
     ...baseProps(),
     unplaced_count: diagrams.value.filter(d => !ids.has(d.id)).length,
   })
+}
+
+/**
+ * Leave the verdict where the page banner can find it.
+ *
+ * This panel is the only surface that knows a diagram is saved here but not on
+ * the page — and Confluence boots it only on click, so almost nobody is told.
+ * The banner mounts on every page load and cannot afford to work this out for
+ * itself (one custom-content listing per type, plus a full-page ADF read), so
+ * the byline hands over what it already paid for. See utils/byline/
+ * unplacedMarker.ts for the marker contract.
+ *
+ * Silent unless the scan actually landed: an unreadable page must never be
+ * written down as "everything is unplaced", which is precisely what an
+ * undefined `placedIds` would mean if it were treated as an empty set — the
+ * same trap `isUnplaced` guards against.
+ */
+function syncUnplacedMarker() {
+  const ids = placedIds.value
+  if (!ids) return
+  const identity = deriveUnplacedIdentity()
+  if (!identity) return
+  // An empty list is written, not skipped: it is what retires a banner for
+  // diagrams the user has since placed.
+  writeUnplacedMarker(
+    identity,
+    diagrams.value
+      .filter(d => !ids.has(d.id))
+      .map(d => ({ id: d.id, title: d.title, diagramType: d.diagramType })),
+  )
 }
 
 function onRetry() {
@@ -1002,6 +1034,12 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     createUnresolved.value = false
     pendingCreate = null
     diagrams.value = after
+    // A diagram that was just saved from here is unplaced BY DEFINITION — the
+    // paste has not happened yet — so this is the write that arms the banner for
+    // the exact failure the create→paste handoff has. Runs on the cancelled path
+    // too: the list was re-read either way, and a marker that ignored it would
+    // keep naming diagrams the user has since placed.
+    syncUnplacedMarker()
     if (!newId) {
       trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })
       return

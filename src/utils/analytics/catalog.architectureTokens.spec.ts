@@ -7,7 +7,7 @@ describe('architecture_tokens analytics contract', () => {
     const names: AnalyticsEventName[] = [
       'related_diagrams_lookup_succeeded',
       'related_diagrams_lookup_failed',
-      'related_diagrams_shown',
+      'related_token_indicators_shown',
       'related_diagram_popover_opened',
       'related_diagram_link_clicked',
     ];

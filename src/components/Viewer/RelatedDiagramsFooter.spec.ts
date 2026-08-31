@@ -206,9 +206,14 @@ describe('RelatedDiagramsFooter', () => {
       }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
-      'related_diagrams_shown',
+      'related_token_indicators_shown',
       expect.objectContaining({ participants_with_related: 1 }),
     )
+    expect(
+      trackAnalyticsEvent.mock.calls.filter(
+        ([eventName]) => eventName === 'related_token_indicators_shown',
+      ),
+    ).toHaveLength(1)
   })
 
   it('drops every response participant when the current SVG has no [name] nodes', async () => {

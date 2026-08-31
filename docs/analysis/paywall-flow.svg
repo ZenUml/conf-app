@@ -1,0 +1,230 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1950" viewBox="0 0 1240 1950" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
+<!--
+  Semantic palette (C1). Every colored element, arrow and edge label draws from this list;
+  an arrow takes the color of the node it leads INTO (C2).
+    step   border/arrow #44546f  background #ffffff  — runtime step — neutral ink
+    store  border/arrow #b38600  background #fff7d6  — storage read / write (KV, localStorage)
+    event  border/arrow #0c66e4  background #e9f2ff  — Mixpanel event
+    ok     border/arrow #1f845a  background #dcfff1  — user proceeds
+    stop   border/arrow #ae2a19  background #ffeceb  — user blocked / enforcement
+    text #172b4d / secondary #44546f — neutral ink for text that carries no state (C3)
+-->
+<defs>
+  <marker id="head-step" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#44546f"/></marker>
+  <marker id="head-store" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b38600"/></marker>
+  <marker id="head-event" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0c66e4"/></marker>
+  <marker id="head-ok" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f845a"/></marker>
+  <marker id="head-stop" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ae2a19"/></marker>
+</defs>
+<rect x="0" y="0" width="1240" height="1950" fill="#ffffff"/>
+<text x="20" y="34" font-size="20" font-weight="700" fill="#172b4d">ZenUML Lite paywall — runtime flow (production, default-on since 2026-08-09)</text>
+<text x="20" y="54" font-size="11" fill="#44546f">Sources: pageBanner.ts · warningBanner.ts · spaceAdminProbe.ts · mountPaywallGate.ts · continueAttempts.ts · useCustomerSuccessService.ts · MacroMetrics.ts · UpgradePrompt.vue · generated 2026-08-22</text>
+<rect x="20" y="66" width="14" height="14" rx="2" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="40" y="77" font-size="11" fill="#172b4d">runtime step</text>
+<rect x="152" y="66" width="14" height="14" rx="2" fill="#fff7d6" stroke="#b38600" stroke-width="1.5"/>
+<text x="172" y="77" font-size="11" fill="#172b4d">storage read / write</text>
+<rect x="340" y="66" width="14" height="14" rx="2" fill="#e9f2ff" stroke="#0c66e4" stroke-width="1.5"/>
+<text x="360" y="77" font-size="11" fill="#172b4d">Mixpanel event</text>
+<rect x="486" y="66" width="14" height="14" rx="2" fill="#dcfff1" stroke="#1f845a" stroke-width="1.5"/>
+<text x="506" y="77" font-size="11" fill="#172b4d">user proceeds</text>
+<rect x="625" y="66" width="14" height="14" rx="2" fill="#ffeceb" stroke="#ae2a19" stroke-width="1.5"/>
+<text x="645" y="77" font-size="11" fill="#172b4d">user blocked</text>
+<rect x="20" y="100" width="1200" height="786" rx="6" fill="#f7f8f9" stroke="#dfe1e6" stroke-width="1.5"/>
+<text x="40" y="123" font-size="14" font-weight="600" fill="#172b4d">1 · Page load on a Lite site — the page-banner iframe resolves the paywall state</text>
+<rect x="20" y="926" width="1200" height="730" rx="6" fill="#f7f8f9" stroke="#dfe1e6" stroke-width="1.5"/>
+<text x="40" y="949" font-size="14" font-weight="600" fill="#172b4d">2 · Editor mount — the only enforcement point (Publish and the persistence layer are never gated)</text>
+<rect x="20" y="1696" width="1200" height="194" rx="6" fill="#f7f8f9" stroke="#dfe1e6" stroke-width="1.5"/>
+<text x="40" y="1719" font-size="14" font-weight="600" fill="#172b4d">3 · Known failure shapes (measured) and the numbers to remember</text>
+<rect x="40" y="170.0" width="260" height="72" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="52" y="194.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Confluence page view</text>
+<text x="52" y="210.0" text-anchor="start" font-size="11" fill="#44546f">confluence:pageBanner iframe mounts</text>
+<text x="52" y="226.0" text-anchor="start" font-size="11" fill="#44546f">on every page of a Lite site</text>
+<rect x="340" y="170.0" width="260" height="72" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="352" y="194.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">maybeProbeSpaceAdmin()</text>
+<text x="352" y="210.0" text-anchor="start" font-size="11" fill="#44546f">once per 30 d per domain:space</text>
+<text x="352" y="226.0" text-anchor="start" font-size="11" fill="#44546f">writes probe marker isAdmin</text>
+<rect x="640" y="170.0" width="260" height="72" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="652" y="194.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">getMacroMetrics()</text>
+<text x="652" y="210.0" text-anchor="start" font-size="11" fill="#44546f">KV cache first, else enumerate</text>
+<text x="652" y="226.0" text-anchor="start" font-size="11" fill="#44546f">the space (collect) and write KV</text>
+<rect x="940" y="154.0" width="260" height="104" rx="6" fill="#fff7d6" stroke="#b38600" stroke-width="1.5"/>
+<text x="952" y="178.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Resolve paywall state (KV)</text>
+<text x="952" y="194.0" text-anchor="start" font-size="11" fill="#44546f">PAYWALL_EXEMPTIONS: tenant listed</text>
+<text x="952" y="210.0" text-anchor="start" font-size="11" fill="#44546f">→ paywall off for the whole site</text>
+<text x="952" y="226.0" text-anchor="start" font-size="11" fill="#44546f">license:&lt;cloudId&gt;:&lt;spaceKey&gt;</text>
+<text x="952" y="242.0" text-anchor="start" font-size="11" fill="#44546f">→ spacePaid (Bundle or extension)</text>
+<polygon points="1070.0,298.0 1190,350.0 1070.0,402.0 950,350.0" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="1070.0" y="346.0" text-anchor="middle" font-size="13" fill="#172b4d">macroCount</text>
+<text x="1070.0" y="362.0" text-anchor="middle" font-size="11" fill="#44546f">diagrams in this space</text>
+<rect x="340" y="442.0" width="260" height="56" rx="6" fill="#dcfff1" stroke="#1f845a" stroke-width="1.5"/>
+<text x="352" y="466.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">&lt; 85 → severity none</text>
+<text x="352" y="482.0" text-anchor="start" font-size="11" fill="#44546f">no banner, no gate</text>
+<rect x="640" y="442.0" width="260" height="56" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="652" y="466.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">85–99 → severity warn</text>
+<text x="652" y="482.0" text-anchor="start" font-size="11" fill="#44546f">banner only, editor still opens</text>
+<rect x="940" y="442.0" width="260" height="56" rx="6" fill="#ffeceb" stroke="#ae2a19" stroke-width="1.5"/>
+<text x="952" y="466.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">≥ 100 → severity block</text>
+<text x="952" y="482.0" text-anchor="start" font-size="11" fill="#44546f">banner + editor-mount gate</text>
+<rect x="40" y="546.0" width="260" height="104" rx="6" fill="#e9f2ff" stroke="#0c66e4" stroke-width="1.5"/>
+<text x="52" y="570.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Mixpanel</text>
+<text x="52" y="586.0" text-anchor="start" font-size="11" fill="#44546f">space_admin_active (10 % sampled)</text>
+<text x="52" y="602.0" text-anchor="start" font-size="11" fill="#44546f">paywall_gate_evaluated:</text>
+<text x="52" y="618.0" text-anchor="start" font-size="11" fill="#44546f">gate_fired · macro_count ·</text>
+<text x="52" y="634.0" text-anchor="start" font-size="11" fill="#44546f">macro_count_source kv | collect | zero</text>
+<rect x="340" y="538.0" width="260" height="120" rx="6" fill="#fff7d6" stroke="#b38600" stroke-width="1.5"/>
+<text x="352" y="562.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">localStorage · TargetingMarker</text>
+<text x="352" y="578.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve">{severity, macroCount, spacePaid,</text>
+<text x="352" y="594.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve"> cssEnabled (paywall on),</text>
+<text x="352" y="610.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve"> updatedAt}</text>
+<text x="352" y="626.0" text-anchor="start" font-size="11" fill="#44546f">per clientDomain:spaceKey; every</text>
+<text x="352" y="642.0" text-anchor="start" font-size="11" fill="#44546f">later gate reads it synchronously</text>
+<polygon points="770.0,546.0 890,598.0 770.0,650.0 650,598.0" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="770.0" y="594.0" text-anchor="middle" font-size="13" fill="#172b4d">decidePageBanner()</text>
+<text x="770.0" y="610.0" text-anchor="middle" font-size="11" fill="#44546f">paywall &gt; paywall-admin &gt; csat</text>
+<rect x="940" y="562.0" width="260" height="72" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="952" y="586.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">'paywall' banner</text>
+<text x="952" y="602.0" text-anchor="start" font-size="11" fill="#44546f">warn+ · unpaid · authored in the</text>
+<text x="952" y="618.0" text-anchor="start" font-size="11" fill="#44546f">last 30 d · not snoozed (7 d)</text>
+<rect x="640" y="698.0" width="260" height="72" rx="6" fill="#e9f2ff" stroke="#0c66e4" stroke-width="1.5"/>
+<text x="652" y="722.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Mixpanel</text>
+<text x="652" y="738.0" text-anchor="start" font-size="11" fill="#44546f">paywall_banner_shown</text>
+<text x="652" y="754.0" text-anchor="start" font-size="11" fill="#44546f">paywall_banner_dismissed</text>
+<rect x="940" y="698.0" width="260" height="72" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="952" y="722.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">'paywall-admin' banner</text>
+<text x="952" y="738.0" text-anchor="start" font-size="11" fill="#44546f">space admin of an over-limit</text>
+<text x="952" y="754.0" text-anchor="start" font-size="11" fill="#44546f">space · Forge flag (prod: off)</text>
+<rect x="940" y="810.0" width="260" height="56" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="952" y="834.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">'csat' / 'none'</text>
+<text x="952" y="850.0" text-anchor="start" font-size="11" fill="#44546f">'none' closes the iframe at once</text>
+<rect x="40" y="980.0" width="260" height="104" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="52" y="1004.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Gated entry points</text>
+<text x="52" y="1020.0" text-anchor="start" font-size="11" fill="#44546f">slash-menu insert → page_editor_create</text>
+<text x="52" y="1036.0" text-anchor="start" font-size="11" fill="#44546f">page editor / viewer Edit → page_editor</text>
+<text x="52" y="1052.0" text-anchor="start" font-size="11" fill="#44546f">fullscreen open → fullscreen_viewer</text>
+<text x="52" y="1068.0" text-anchor="start" font-size="11" fill="#44546f">byline create → byline_create</text>
+<rect x="340" y="988.0" width="260" height="88" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="352" y="1012.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">tryPageEditorPaywall() /</text>
+<text x="352" y="1028.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">tryFullscreenViewerPaywall()</text>
+<text x="352" y="1044.0" text-anchor="start" font-size="11" fill="#44546f">reads TargetingMarker and the</text>
+<text x="352" y="1060.0" text-anchor="start" font-size="11" fill="#44546f">space license synchronously</text>
+<polygon points="770.0,980.0 890,1032.0 770.0,1084.0 650,1032.0" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="770.0" y="1020.0" text-anchor="middle" font-size="13" fill="#172b4d">shouldBlockActions?</text>
+<text x="770.0" y="1036.0" text-anchor="middle" font-size="11" fill="#44546f">count ≥ 100 ∧ paywall on</text>
+<text x="770.0" y="1052.0" text-anchor="middle" font-size="11" fill="#44546f">∧ isLite ∧ ¬spacePaid</text>
+<rect x="940" y="996.0" width="260" height="72" rx="6" fill="#dcfff1" stroke="#1f845a" stroke-width="1.5"/>
+<text x="952" y="1020.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">No → editor mounts</text>
+<text x="952" y="1036.0" text-anchor="start" font-size="11" fill="#44546f">macro_create_started /</text>
+<text x="952" y="1052.0" text-anchor="start" font-size="11" fill="#44546f">macro_edit_started</text>
+<rect x="640" y="1124.0" width="260" height="88" rx="6" fill="#ffeceb" stroke="#ae2a19" stroke-width="1.5"/>
+<text x="652" y="1148.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Yes → UpgradePrompt modal</text>
+<text x="652" y="1164.0" text-anchor="start" font-size="11" fill="#44546f">upgrade_modal_shown; the editor</text>
+<text x="652" y="1180.0" text-anchor="start" font-size="11" fill="#44546f">underneath is unusable until</text>
+<text x="652" y="1196.0" text-anchor="start" font-size="11" fill="#44546f">the modal is dismissed</text>
+<rect x="940" y="1132.0" width="260" height="72" rx="6" fill="#e9f2ff" stroke="#0c66e4" stroke-width="1.5"/>
+<text x="952" y="1156.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Mixpanel</text>
+<text x="952" y="1172.0" text-anchor="start" font-size="11" fill="#44546f">paywall_triggered</text>
+<text x="952" y="1188.0" text-anchor="start" font-size="11" fill="#44546f">action_type = entry point</text>
+<rect x="340" y="1260.0" width="260" height="88" rx="6" fill="#fff7d6" stroke="#b38600" stroke-width="1.5"/>
+<text x="352" y="1284.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">localStorage · continue attempts</text>
+<text x="352" y="1300.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve">paywallContinueAttempts:</text>
+<text x="352" y="1316.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve"> &lt;domain&gt;:&lt;space&gt;:&lt;accountId&gt;</text>
+<text x="352" y="1332.0" text-anchor="start" font-size="11" fill="#44546f">15 per user and space</text>
+<polygon points="770.0,1252.0 890,1304.0 770.0,1356.0 650,1304.0" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="770.0" y="1300.0" text-anchor="middle" font-size="13" fill="#172b4d">continue attempts</text>
+<text x="770.0" y="1316.0" text-anchor="middle" font-size="11" fill="#44546f">N &gt; 0 ?</text>
+<rect x="940" y="1260.0" width="260" height="88" rx="6" fill="#dcfff1" stroke="#1f845a" stroke-width="1.5"/>
+<text x="952" y="1284.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">&quot;Continue editing (N)&quot;</text>
+<text x="952" y="1300.0" text-anchor="start" font-size="11" fill="#44546f">N ← N − 1, modal closes,</text>
+<text x="952" y="1316.0" text-anchor="start" font-size="11" fill="#44546f">editor usable, saves persist</text>
+<text x="952" y="1332.0" text-anchor="start" font-size="11" fill="#44546f">PAYWALL_CONTINUED_EDITING</text>
+<rect x="640" y="1396.0" width="260" height="72" rx="6" fill="#ffeceb" stroke="#ae2a19" stroke-width="1.5"/>
+<text x="652" y="1420.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">N = 0 → locked out</text>
+<text x="652" y="1436.0" text-anchor="start" font-size="11" fill="#44546f">button becomes &quot;Request extension</text>
+<text x="652" y="1452.0" text-anchor="start" font-size="11" fill="#44546f">to continue editing&quot; (disabled)</text>
+<rect x="340" y="1508.0" width="260" height="104" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="352" y="1532.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Rail 1 · Enterprise Bundle</text>
+<text x="352" y="1548.0" text-anchor="start" font-size="11" fill="#44546f">$299 / space / yr, Stripe card,</text>
+<text x="352" y="1564.0" text-anchor="start" font-size="11" fill="#44546f">no Confluence admin needed</text>
+<text x="352" y="1580.0" text-anchor="start" font-size="11" fill="#44546f">→ license:&lt;cloudId&gt;:&lt;spaceKey&gt;</text>
+<text x="352" y="1596.0" text-anchor="start" font-size="11" fill="#44546f">paywall_bundle_cta_clicked</text>
+<rect x="640" y="1508.0" width="260" height="104" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="652" y="1532.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Rail 2 · Full plan (Marketplace)</text>
+<text x="652" y="1548.0" text-anchor="start" font-size="11" fill="#44546f">covers every space; needs a</text>
+<text x="652" y="1564.0" text-anchor="start" font-size="11" fill="#44546f">Confluence site admin</text>
+<text x="652" y="1580.0" text-anchor="start" font-size="11" fill="#44546f">→ manual PAYWALL_EXEMPTIONS entry</text>
+<text x="652" y="1596.0" text-anchor="start" font-size="11" fill="#44546f">paywall_marketplace_cta_clicked</text>
+<rect x="940" y="1508.0" width="260" height="104" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="952" y="1532.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Rail 3 · Request extension (JSM)</text>
+<text x="952" y="1548.0" text-anchor="start" font-size="11" fill="#44546f">vendor grants a temporary space</text>
+<text x="952" y="1564.0" text-anchor="start" font-size="11" fill="#44546f">license (7 d, +60 d for feedback)</text>
+<text x="952" y="1580.0" text-anchor="start" font-size="11" fill="#44546f">→ same license KV record</text>
+<text x="952" y="1596.0" text-anchor="start" font-size="11" fill="#44546f">extension_request_clicked</text>
+<rect x="40" y="1758.0" width="260" height="104" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="52" y="1782.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Fail-open on the count read (#302)</text>
+<text x="52" y="1798.0" text-anchor="start" font-size="11" fill="#44546f">KV error / collect throw → count 0</text>
+<text x="52" y="1814.0" text-anchor="start" font-size="11" fill="#44546f">0 ≥ 100 is false → gate silent</text>
+<text x="52" y="1830.0" text-anchor="start" font-size="11" fill="#44546f">2026-07-12 audit: ≈ 0 events on</text>
+<text x="52" y="1846.0" text-anchor="start" font-size="11" fill="#44546f">revenue-relevant tenants</text>
+<rect x="340" y="1766.0" width="260" height="88" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="352" y="1790.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Client-side counter</text>
+<text x="352" y="1806.0" text-anchor="start" font-size="11" fill="#44546f">clearing site data / incognito</text>
+<text x="352" y="1822.0" text-anchor="start" font-size="11" fill="#44546f">resets N to 15</text>
+<text x="352" y="1838.0" text-anchor="start" font-size="11" fill="#44546f">seen on 2 of 42 locked-out users</text>
+<rect x="640" y="1758.0" width="260" height="104" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="652" y="1782.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Banner reach gaps</text>
+<text x="652" y="1798.0" text-anchor="start" font-size="11" fill="#44546f">'paywall' needs authorship in the</text>
+<text x="652" y="1814.0" text-anchor="start" font-size="11" fill="#44546f">last 30 d → most admins never see it</text>
+<text x="652" y="1830.0" text-anchor="start" font-size="11" fill="#44546f">'paywall-admin' flag off in prod</text>
+<text x="652" y="1846.0" text-anchor="start" font-size="11" fill="#44546f">space admin ≠ site admin (no SKU)</text>
+<rect x="940" y="1750.0" width="260" height="120" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
+<text x="952" y="1774.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Thresholds and scope</text>
+<text x="952" y="1790.0" text-anchor="start" font-size="11" fill="#44546f">warn 85 · block 100</text>
+<text x="952" y="1806.0" text-anchor="start" font-size="11" fill="#44546f">15 continue attempts · 7 d snooze</text>
+<text x="952" y="1822.0" text-anchor="start" font-size="11" fill="#44546f">30 d admin probe · Lite only</text>
+<text x="952" y="1838.0" text-anchor="start" font-size="11" fill="#44546f">spot check: modal at editor mount,</text>
+<text x="952" y="1854.0" text-anchor="start" font-size="11" fill="#44546f">never after Publish</text>
+<polyline points="300,206 340,206" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="600,206 640,206" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="900,206 940,206" fill="none" stroke="#b38600" stroke-width="1.0" marker-end="url(#head-store)"/>
+<polyline points="1070,258 1070,298" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="1070,402 1070,422 470,422 470,442" fill="none" stroke="#1f845a" stroke-width="1.0" marker-end="url(#head-ok)"/>
+<text x="476" y="436" text-anchor="start" font-size="11" fill="#1f845a">&lt; 85</text>
+<polyline points="1070,402 1070,422 770,422 770,442" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<text x="776" y="436" text-anchor="start" font-size="11" fill="#44546f">85–99</text>
+<polyline points="1070,402 1070,422 1070,442" fill="none" stroke="#ae2a19" stroke-width="1.0" marker-end="url(#head-stop)"/>
+<text x="1076" y="436" text-anchor="start" font-size="11" fill="#ae2a19">≥ 100</text>
+<polyline points="470,518 470,538" fill="none" stroke="#b38600" stroke-width="1.0" marker-end="url(#head-store)"/>
+<polyline points="470,498 470,518" fill="none" stroke="#b38600" stroke-width="1.0"/>
+<polyline points="770,498 770,518 470,518" fill="none" stroke="#b38600" stroke-width="1.0"/>
+<polyline points="1070,498 1070,518 470,518" fill="none" stroke="#b38600" stroke-width="1.0"/>
+<polyline points="340,598 300,598" fill="none" stroke="#0c66e4" stroke-width="1.0" marker-end="url(#head-event)"/>
+<polyline points="600,598 650,598" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="770,650 770,698" fill="none" stroke="#0c66e4" stroke-width="1.0" marker-end="url(#head-event)"/>
+<polyline points="890,598 940,598" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="890,598 910,598 910,734 940,734" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="890,598 910,598 910,838 940,838" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="300,1032 340,1032" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="600,1032 650,1032" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="890,1032 940,1032" fill="none" stroke="#1f845a" stroke-width="1.0" marker-end="url(#head-ok)"/>
+<text x="915" y="1027" text-anchor="middle" font-size="11" fill="#1f845a">no</text>
+<polyline points="770,1084 770,1124" fill="none" stroke="#ae2a19" stroke-width="1.0" marker-end="url(#head-stop)"/>
+<text x="776" y="1108" text-anchor="start" font-size="11" fill="#ae2a19">yes</text>
+<polyline points="900,1168 940,1168" fill="none" stroke="#0c66e4" stroke-width="1.0" marker-end="url(#head-event)"/>
+<polyline points="770,1212 770,1252" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="600,1304 650,1304" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="890,1304 940,1304" fill="none" stroke="#1f845a" stroke-width="1.0" marker-end="url(#head-ok)"/>
+<text x="915" y="1299" text-anchor="middle" font-size="11" fill="#1f845a">N &gt; 0</text>
+<polyline points="770,1356 770,1396" fill="none" stroke="#ae2a19" stroke-width="1.0" marker-end="url(#head-stop)"/>
+<text x="776" y="1380" text-anchor="start" font-size="11" fill="#ae2a19">N = 0</text>
+<polyline points="770,1468 770,1488 470,1488 470,1508" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="770,1468 770,1488 770,1508" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="770,1468 770,1488 1070,1488 1070,1508" fill="none" stroke="#44546f" stroke-width="1.0" marker-end="url(#head-step)"/>
+<polyline points="470,1612 470,1636 1210,1636" fill="none" stroke="#b38600" stroke-width="1.0"/>
+<polyline points="770,1612 770,1636 1210,1636" fill="none" stroke="#b38600" stroke-width="1.0"/>
+<polyline points="1070,1612 1070,1636 1210,1636" fill="none" stroke="#b38600" stroke-width="1.0"/>
+<polyline points="1210,1636 1210,206 1200,206" fill="none" stroke="#b38600" stroke-width="1.0" marker-end="url(#head-store)"/>
+<text x="40" y="1532" text-anchor="start" font-size="11" fill="#b38600">Amber loop: once a license or exemption</text>
+<text x="40" y="1548" text-anchor="start" font-size="11" fill="#b38600">is written, the next page load re-reads</text>
+<text x="40" y="1564" text-anchor="start" font-size="11" fill="#b38600">KV → spacePaid / paywall off → the gate</text>
+<text x="40" y="1580" text-anchor="start" font-size="11" fill="#b38600">does not fire (rails 1–3 share one trunk).</text>
+</svg>

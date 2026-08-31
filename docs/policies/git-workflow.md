@@ -22,10 +22,15 @@ directory sat on a feature branch while a worktree created 2026-08-23 (235 commi
 '…/conf-app-agent-link-auth-discussion'`. Pinning `main` to the primary checkout removes that class
 of failure, and puts the two direct-to-`main` exceptions above in the directory you are already in.
 
-**Setup cost per new worktree** (measured 2026-08-31 — nothing here is automated yet):
+**Setup cost per new worktree** (measured 2026-08-31, disk figures corrected 2026-09-01 — nothing here is automated yet):
 
-1. `pnpm install` — the primary `node_modules` is 2.3 GB. The pnpm store is shared, so this is link
-   trees and disk, not re-downloads.
+1. `pnpm install` — cheap on disk, and the cost is not what `du` reports. pnpm 10 imports packages
+   from the store with APFS `clonefile` (copy-on-write): every file gets its own inode with a link
+   count of 1, so `du` counts each worktree's copy in full while the physical blocks stay shared.
+   Measured 2026-09-01: a `node_modules` that `du` reports as 2.3 GB costs **~100 MB** of real
+   disk (216,395 files x 0.46 KB), and an offline `pnpm install` against a warm store moved the
+   free-space counter by 1,304 KB while `du` grew 82,460 KB. Read real usage from `df` before and
+   after, never from `du`.
 2. `git submodule update --init` for the `private` handbook submodule.
 3. Copy the git-ignored config, which git does not carry into a worktree:
    `.env`, `.env.forge`, `.env.forge.local`, `.env.mixpanel`, `.env.sentry-build-plugin`,

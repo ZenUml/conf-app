@@ -88,6 +88,7 @@ import { toMacroType, typeLabel } from '@/utils/byline/pageDiagrams'
 import { buildDiagramDeeplink } from '@/utils/embedDeeplink'
 import {
   deriveUnplacedIdentity,
+  readUnplacedBannerMarker,
   readUnplacedMarker,
   recordUnplacedBannerDismissed,
   recordUnplacedBannerResolved,
@@ -95,6 +96,7 @@ import {
   type UnplacedDiagramEntry,
   type UnplacedIdentity,
 } from '@/utils/byline/unplacedMarker'
+import { clearUnplacedProperty, readUnplacedProperty } from '@/utils/byline/unplacedProperty'
 
 /**
  * "Saved here, but on no page" — said on the surface that is actually read.
@@ -105,22 +107,30 @@ import {
  * costing them a Lite macro slot and rendering nowhere — is told exclusively to
  * people who go looking for it. This banner mounts with the page.
  *
- * It is deliberately the SECOND half of the check. The candidate gate
- * (isUnplacedBannerCandidate, run inside decidePageBanner) is synchronous
- * localStorage, so a page with no marker costs nothing at all. Only past that
- * gate does this component spend the one full-page ADF read that turns a
- * remembered verdict into a current one.
+ * It is deliberately the SECOND half of the check, and which store it reads is
+ * the host's decision (`source`), not this component's:
  *
- * That verification is not optional. The marker records what the byline saw,
- * and the user may have pasted the link a second later; a banner insisting a
- * placed diagram is missing would be worse than no banner. So there are exactly
- * three outcomes, and two of them close the iframe:
+ *   - `property` — the dedicated `zenuml-unplaced-banner` module, which
+ *     Confluence gated server-side on the content property. Reaching this
+ *     component at all means the page HAS a record, so there is no local gate
+ *     to run. This is the cross-user path: everyone who opens the page is told.
+ *   - `marker` — the shared page-banner host, off the per-browser localStorage
+ *     fallback written when the property write was denied. Creator-only reach.
+ *
+ * Either way the record is verified before anything is said. It states what the
+ * byline saw, and the user may have pasted the link a second later; a banner
+ * insisting a placed diagram is missing would be worse than no banner. So there
+ * are exactly three outcomes, and two of them close the iframe:
  *
  *   - the scan proves some entries are still unreferenced → show them
- *   - the scan finds them all placed → record it, so this marker version never
- *     costs another read, and close
+ *   - the scan finds them all placed → retire the record (DELETE the property /
+ *     stamp the marker resolved) so this never costs another read, and close
  *   - the scan fails → close. We never claim what we could not verify.
  */
+const props = withDefaults(defineProps<{ source?: 'property' | 'marker' }>(), {
+  source: 'marker',
+})
+
 const visible = ref(false)
 const expanded = ref(false)
 const rows = ref<UnplacedDiagramEntry[]>([])
@@ -134,6 +144,7 @@ let markerUpdatedAt = ''
 const baseProps = () => ({
   feature_area: 'byline' as const,
   surface: 'page_banner' as const,
+  unplaced_source: props.source,
 })
 
 async function closeBanner() {
@@ -145,19 +156,50 @@ async function closeBanner() {
   }
 }
 
+/**
+ * Read whichever store the host says admitted this load.
+ *
+ * The property read is one REST call, and it happens only on a page Confluence
+ * has already confirmed carries the property — the gate means we are never
+ * paying it speculatively.
+ */
+async function readRecord(): Promise<{ entries: UnplacedDiagramEntry[]; updatedAt: string } | null> {
+  if (props.source === 'property') {
+    if (!identity) return null
+    const read = await readUnplacedProperty(identity.pageId)
+    // The display condition said the property exists, so anything but a clean
+    // read here is a state we cannot describe — say nothing.
+    if (read.status !== 'ok' || read.value.entries.length === 0) return null
+    return read.value
+  }
+  const marker = identity ? readUnplacedMarker(identity) : null
+  if (!marker || marker.entries.length === 0) return null
+  return marker
+}
+
 onMounted(async () => {
   // The page banner mounts on every Confluence page. Every path out of here
   // that does not show something must end in view.close() — never a stranded
   // empty banner frame holding a reserved slot open.
   try {
     identity = deriveUnplacedIdentity()
-    const marker = identity ? readUnplacedMarker(identity) : null
-    if (!identity || !marker || marker.entries.length === 0) {
+    const marker = identity ? await readRecord() : null
+    if (!identity || !marker) {
       await closeBanner()
       return
     }
     markerUpdatedAt = marker.updatedAt
     const markerAgeMs = Date.now() - Date.parse(marker.updatedAt)
+
+    // Dismissal lives in localStorage for BOTH sources, and deliberately so:
+    // one person deciding they do not want to see this must not silence it for
+    // everyone else on a shared page. The shared host already checked it in its
+    // synchronous gate; the property path has no such gate, so it is checked
+    // here — before the ADF read, so a dismissed banner costs nothing more.
+    if (readUnplacedBannerMarker(identity).dismissedFor === marker.updatedAt) {
+      await closeBanner()
+      return
+    }
 
     // No initializeContext() here: the page-banner host (routes/pageBanner.ts)
     // awaits it before mounting, and it is not free.
@@ -179,10 +221,18 @@ onMounted(async () => {
     const placed = new Set(referenced)
     const stillUnplaced = marker.entries.filter(e => !placed.has(e.id))
     if (stillUnplaced.length === 0) {
-      // Stale marker: the user has placed them since. Record it against this
-      // marker version so the next load exits at the synchronous gate instead
-      // of buying the same ADF read again.
-      recordUnplacedBannerResolved(identity, marker.updatedAt)
+      // Stale record: the user has placed them since. Retire it so the next
+      // load does not buy the same ADF read again — for the property that means
+      // DELETING it, which takes the page off the display-condition gate
+      // entirely and stops the iframe booting at all. A viewer without
+      // permission to delete it simply fails here; the record stays and the
+      // next reader pays one more read, which is the cost of not letting a
+      // reader silence a page-level fact they cannot verify away.
+      if (props.source === 'property') {
+        await clearUnplacedProperty(identity.pageId)
+      } else {
+        recordUnplacedBannerResolved(identity, marker.updatedAt)
+      }
       trackAnalyticsEvent('unplaced_banner_evaluated', {
         ...baseProps(),
         result: 'all_placed',

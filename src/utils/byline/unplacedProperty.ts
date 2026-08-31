@@ -37,7 +37,22 @@ import type { UnplacedDiagramEntry } from './unplacedMarker'
  * measures how often that happens in the field.
  */
 
-export const UNPLACED_PROPERTY_KEY = 'zenuml-unplaced-diagrams'
+/**
+ * Variant-suffixed, like every other per-app key in this codebase.
+ *
+ * Content properties are site-global ACROSS APPS — the same fact that lets
+ * Lite's byline read the `zenuml-full-active` marker Full writes (see the
+ * displayConditions comment in manifest.yml). An unsuffixed key would therefore
+ * let Full's banner module boot on a property Lite wrote and announce a diagram
+ * it knows nothing about. Resolves to `zenuml-unplaced-diagrams-lite` on Lite
+ * and `zenuml-unplaced-diagrams` elsewhere, matching
+ * `zenuml-unplaced-diagrams${LITE_KEY_SUFFIX}` in the manifest — the two MUST
+ * move together or the display condition silently never fires.
+ */
+export const UNPLACED_PROPERTY_KEY =
+  import.meta.env.PRODUCT_TYPE === 'lite'
+    ? 'zenuml-unplaced-diagrams-lite'
+    : 'zenuml-unplaced-diagrams'
 
 /**
  * Defensive cap on how many diagrams travel in the property. Content property

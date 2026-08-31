@@ -31,7 +31,20 @@ import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/bylin
  * close immediately. The heavy banner components load lazily — only when a
  * banner will actually show — inside handlePageBannerRoute().
  */
-export type PageBannerChoice = 'paywall' | 'paywall-admin' | 'csat' | 'unplaced' | 'none';
+export type PageBannerChoice =
+  | 'paywall'
+  | 'paywall-admin'
+  | 'csat'
+  /** From the shared host, off the localStorage fallback marker. */
+  | 'unplaced'
+  /**
+   * From the dedicated `zenuml-unplaced-banner` module, which Confluence has
+   * already gated on the content property. Same component, different store —
+   * separate choices so the component knows which one to read, exactly as
+   * `paywall` / `paywall-admin` name which gate admitted them.
+   */
+  | 'unplaced-property'
+  | 'none';
 
 /**
  * `paywall` and `paywall-admin` mount the same component; they are separate
@@ -69,7 +82,7 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
  * admin banner is gated off.
  */
 export async function handlePageBannerRoute(
-  choice: 'paywall' | 'paywall-admin' | 'csat' | 'unplaced',
+  choice: 'paywall' | 'paywall-admin' | 'csat' | 'unplaced' | 'unplaced-property',
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
   let effective = choice;
@@ -99,15 +112,23 @@ export async function handlePageBannerRoute(
     return 'none';
   }
   await globals.apWrapper.initializeContext();
+  const isUnplaced = effective === 'unplaced' || effective === 'unplaced-property';
   const Component =
     effective === 'csat'
       ? (await import('@/components/CSAT/CsatBanner.vue')).default
-      : effective === 'unplaced'
+      : isUnplaced
         ? (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default
         : (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default;
   // The audience is passed in rather than re-derived so that a flagged-off admin
-  // who ALSO qualifies as a recent author still sees the old author copy.
-  const props = effective === 'paywall-admin' ? { isSpaceAdmin: true } : undefined;
+  // who ALSO qualifies as a recent author still sees the old author copy. The
+  // unplaced source is passed for the same reason: which store admitted this
+  // load is the host's knowledge, and re-deriving it in the component would
+  // cost a property read on the very path that has no property.
+  const props = effective === 'paywall-admin'
+    ? { isSpaceAdmin: true }
+    : isUnplaced
+      ? { source: effective === 'unplaced-property' ? 'property' : 'marker' }
+      : undefined;
   createApp(Component, props).mount(container);
   return effective;
 }

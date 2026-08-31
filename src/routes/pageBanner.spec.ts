@@ -206,10 +206,18 @@ describe('handlePageBannerRoute — Phase 5b flag gating', () => {
     expect(mountSpy).toHaveBeenCalledOnce()
   })
 
-  it('mounts the unplaced banner with no props and no flag lookup', async () => {
+  it('tells the unplaced banner which store admitted it', async () => {
+    // Re-deriving this inside the component would cost a property read on the
+    // one path that has no property.
     await expect(handlePageBannerRoute('unplaced')).resolves.toBe('unplaced')
     expect(flag).not.toHaveBeenCalled()
     expect(mountSpy).toHaveBeenCalledOnce()
-    expect(createdWith).toBeUndefined()
+    expect(createdWith).toEqual({ source: 'marker' })
+  })
+
+  it('mounts the same component for the gated module, reading the page property', async () => {
+    await expect(handlePageBannerRoute('unplaced-property')).resolves.toBe('unplaced-property')
+    expect(mountSpy).toHaveBeenCalledOnce()
+    expect(createdWith).toEqual({ source: 'property' })
   })
 })

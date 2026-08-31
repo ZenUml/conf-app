@@ -174,6 +174,17 @@ async function initializeCriticalPath() {
     // stays a true fast-exit.
     // (Routed by moduleKey, not extension.type, because the pageBanner extension
     // carries no macro config to discriminate on.)
+    // The unplaced-diagram banner. A SEPARATE pageBanner module from the host
+    // below because Confluence gates it server-side on a content property
+    // (`entityPropertyExists`, see manifest.yml): reaching this line at all
+    // means the page HAS unplaced diagrams recorded, so there is no cheap
+    // local gate to run and nothing to fast-exit. The component verifies the
+    // record against the live page and closes itself if it does not hold.
+    if ((context as any).moduleKey === 'zenuml-unplaced-banner') {
+      await handlePageBannerRoute('unplaced-property');
+      return { macroData: null };
+    }
+
     if ((context as any).moduleKey === 'zenuml-page-banner') {
       // Phase 5a measurement: detect whether the current user is a space admin
       // and, when so, fire `space_admin_active`. Runs on EVERY page-banner load
@@ -262,7 +273,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     if (
       (!isOpenedModal &&
         ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage', 'confluence:homepageFeed'].includes(context.extension?.type)) ||
-      (context as any).moduleKey === 'zenuml-page-banner'
+      (context as any).moduleKey === 'zenuml-page-banner' ||
+      (context as any).moduleKey === 'zenuml-unplaced-banner'
     ) {
       console.log('Skipping heavy components load for global context');
       return;

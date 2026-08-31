@@ -56,15 +56,25 @@ If we ever add `confluence:pageBanner` to lite/full/diagramly:
 One `confluence:pageBanner` module (`zenuml-page-banner`) hosts all of them, and
 `src/routes/pageBanner.ts` picks at most one per page load. In priority order:
 
-| Choice | Component | Gate |
-|---|---|---|
-| `paywall` / `paywall-admin` | `UpgradePrompt/PaywallWarningBanner.vue` | localStorage targeting marker written by the macro iframe |
-| `csat` | `CSAT/CsatBanner.vue` | a fresh CSAT trigger in localStorage |
-| `unplaced` | `Byline/UnplacedDiagramsBanner.vue` | localStorage marker written by the byline, then verified against the live page ADF |
+Two modules, not one:
 
-`unplaced` sits last because it is the only one that keeps: a diagram saved on a
-page and placed nowhere on it is still saved and still unplaced tomorrow, and its
-banner re-arms itself. A CSAT window closes; a paywall block is happening now.
+| Module | Choice | Component | Gate |
+|---|---|---|---|
+| `zenuml-page-banner` | `paywall` / `paywall-admin` | `UpgradePrompt/PaywallWarningBanner.vue` | localStorage targeting marker written by the macro iframe |
+| `zenuml-page-banner` | `csat` | `CSAT/CsatBanner.vue` | a fresh CSAT trigger in localStorage |
+| `zenuml-page-banner` | `unplaced` | `Byline/UnplacedDiagramsBanner.vue` | localStorage fallback marker (creator-only), used when the property write was denied |
+| `zenuml-unplaced-banner` | `unplaced-property` | `Byline/UnplacedDiagramsBanner.vue` | **`displayConditions` on a content property — evaluated by Confluence, server-side** |
+
+`zenuml-page-banner` is the shared host: paywall and CSAT targeting live in
+localStorage, which Confluence cannot see, so the iframe must boot to decide.
+Inside it, `unplaced` sits last because it is the only one of the three that
+keeps — a diagram saved on a page and placed nowhere on it is still unplaced
+tomorrow, and its banner re-arms itself. A CSAT window closes; a paywall block is
+happening now.
+
+`zenuml-unplaced-banner` is the one module in this app that escapes the whole
+cost model at the top of this document: its condition is page state, so
+Confluence never creates the iframe on a page with nothing to say.
 
 ### The unplaced-diagram notice
 
@@ -74,22 +84,38 @@ that is actually read. Confluence boots the byline iframe only on CLICK (5 opens
 against 39,197 macro views), so its own "· not on this page" label reaches almost
 nobody.
 
-Two rules keep it inside this document's checklist:
+Three rules keep it inside this document's checklist:
 
-- **Nothing on the hot path.** The candidate gate (`isUnplacedBannerCandidate`)
-  is synchronous localStorage. A page with no marker never imports the component
-  — it is its own lazy chunk — and never issues a request.
-- **Never claim what we cannot verify.** The marker records what the byline saw;
+- **Nothing on the hot path.** The primary gate is Confluence's own
+  `entityPropertyExists`, so an unaffected page does not boot an iframe at all.
+  The fallback gate (`isUnplacedBannerCandidate`) is synchronous localStorage,
+  and the component is its own lazy chunk either way.
+- **Never claim what we cannot verify.** The record states what the byline saw;
   the user may have pasted the link a second later. Past the gate the component
   re-reads the page ADF and shows only entries still unreferenced. A failed scan
-  shows nothing, and a scan that finds everything placed records that fact so the
-  same marker never buys a second read.
+  shows nothing; a scan that finds everything placed retires the record — the
+  property is DELETED, taking the page back off the gate.
+- **One page, one banner.** The byline stamps `viaProperty` on the fallback
+  marker so the shared host stands down whenever the gated module has it.
 
-Scope limit worth knowing before reading the numbers: localStorage is per
-browser, so the banner reaches the person who created the diagram, not everyone
-who visits the page. That is the person who can place it — and the alternative (a
-custom-content listing per diagram type plus an ADF read, on every page load of
-every page in the site) is exactly the cold-start cost this document forbids.
+### Where the record lives
+
+The store is a content property, `zenuml-unplaced-diagrams${LITE_KEY_SUFFIX}`,
+written by the byline as the user. Verified against lite-stg on 2026-08-31:
+POST `200`, GET `200` (`results: []` when absent), PUT with version n+1 `200`,
+PUT with a stale version `409`, DELETE `204` — and **the page's own version
+never moved**, so property writes leave no trace in page history.
+
+The key is variant-suffixed for the reason space properties are: they are
+site-global across apps, so an unsuffixed key would let Full's banner boot on a
+property Lite wrote.
+
+The one unproven assumption is permission: the write runs as the user, and
+creating custom content on a page does not prove permission to write that page's
+properties. A denial is handled, not assumed away — the byline falls back to the
+per-browser marker (creator-only reach) and `unplaced_property_write` reports how
+often that happens, with `unplaced_source` on the banner events reporting the
+same ratio from the other end.
 
 ## Related in this repo
 

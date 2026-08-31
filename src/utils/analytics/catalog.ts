@@ -574,6 +574,35 @@ export type AnalyticsEventName =
   // ('closed' | 'unsupported' | 'failed') is how we find out whether a byline
   // item can dismiss itself, rather than assuming it.
   | "byline_view_close_requested"
+  // ---- Unplaced-diagram page banner (byline surface, page_banner surface) ----
+  //
+  // The byline already labels a diagram "not on this page" (BylineDiagrams.vue,
+  // `isUnplaced`), but Confluence boots the byline iframe only on CLICK — 5
+  // opens against 39,197 macro views — so the label reaches almost nobody. The
+  // page banner mounts on every page load, which is where the fact has to be
+  // said. Fired from UnplacedDiagramsBanner.vue.
+  //
+  // The banner is candidate-gated SYNCHRONOUSLY off a localStorage marker the
+  // byline writes (utils/byline/unplacedMarker.ts), so the ~99.9% of page loads
+  // with no marker pay nothing. `unplaced_banner_evaluated` is the one event
+  // that fires on every load past that gate, and it is the denominator that
+  // makes the gate's cost measurable: `result` = 'unplaced' (the banner shows),
+  // 'all_placed' (the marker was stale — the user has since pasted the link, so
+  // we paid one ADF read and showed nothing) or 'scan_failed' (the page ADF
+  // could not be read; we show nothing rather than claim something we cannot
+  // prove). A rising 'all_placed' share is the signal that the marker's
+  // write/resolve cycle is leaking, not that users are ignoring the banner.
+  | "unplaced_banner_evaluated"
+  // The banner is committed to displaying. Split from _evaluated because only
+  // this one is an impression: it is the denominator for the copy and dismiss
+  // rates, and `unplaced_count` on it is the verified count (post-scan), not
+  // the marker's possibly-stale one.
+  | "unplaced_banner_shown"
+  // The user dismissed the banner. Dismissal is scoped to the marker version it
+  // was shown for, so a NEW unplaced diagram re-arms the banner rather than
+  // being silenced by an old dismissal — which means this event counts
+  // "not now, for these diagrams", never "never again".
+  | "unplaced_banner_dismissed"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-

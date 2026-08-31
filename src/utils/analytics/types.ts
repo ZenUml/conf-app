@@ -393,7 +393,16 @@ export type AnalyticsProperties = {
   // pasted. Read against `diagram_count` from the same event. Deliberately
   // absent rather than 0 when the ADF could not be read: "scanned, found none"
   // and "could not scan" must not collapse into the same number.
+  // Also carried by unplaced_banner_evaluated / _shown, where it is the
+  // VERIFIED count from that load's own ADF scan — not the marker's stored
+  // one, which may name diagrams the user has since pasted.
   unplaced_count?: number;
+  // unplaced_banner_evaluated. Date.now() − the marker's updatedAt: how long
+  // ago the byline last observed these diagrams unplaced. Read against
+  // `result`, it says how quickly a stale marker is discovered — a large age on
+  // an 'all_placed' result means we kept paying for the verification scan long
+  // after the user fixed the page.
+  unplaced_marker_age_ms?: number;
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).

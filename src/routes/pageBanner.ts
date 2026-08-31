@@ -3,6 +3,7 @@ import globals from '@/model/globals';
 import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner';
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { isCsatPendingFresh } from '@/utils/csat';
+import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/byline/unplacedMarker';
 
 /**
  * Single `confluence:pageBanner` host. Confluence creates exactly one banner
@@ -14,14 +15,23 @@ import { isCsatPendingFresh } from '@/utils/csat';
  *
  * Priority: the paywall warning (unpaid Lite space over the hard limit, seen by
  * a recent macro author or by a space admin of that space) outranks the CSAT
- * survey. `none` means close the iframe with no work.
+ * survey, which outranks the unplaced-diagram notice. `none` means close the
+ * iframe with no work.
+ *
+ * Why `unplaced` sits LAST despite being the most page-specific of the three:
+ * it is the only one that keeps. The paywall warning is about work the user is
+ * being blocked from doing right now, and a CSAT trigger is fresh for hours —
+ * miss its window and the answer is gone. A diagram saved on this page and
+ * placed nowhere is still saved on this page and placed nowhere tomorrow, and
+ * its banner re-arms itself on the next load. Deferring it costs nothing;
+ * deferring either of the others loses the moment.
  *
  * decidePageBanner() depends only on cheap localStorage predicates, so
  * forgeIndex can run it on the hot path (every page load) to decide whether to
  * close immediately. The heavy banner components load lazily — only when a
  * banner will actually show — inside handlePageBannerRoute().
  */
-export type PageBannerChoice = 'paywall' | 'paywall-admin' | 'csat' | 'none';
+export type PageBannerChoice = 'paywall' | 'paywall-admin' | 'csat' | 'unplaced' | 'none';
 
 /**
  * `paywall` and `paywall-admin` mount the same component; they are separate
@@ -42,6 +52,10 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
     return 'paywall-admin';
   }
   if (isCsatPendingFresh(now)) return 'csat';
+  // Candidate, not verdict: this reads only the marker the byline left behind
+  // (utils/byline/unplacedMarker.ts). The component pays for the page ADF read
+  // that confirms it, and closes without a word if it cannot.
+  if (isUnplacedBannerCandidate(deriveUnplacedIdentity(), now)) return 'unplaced';
   return 'none';
 }
 
@@ -55,7 +69,7 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
  * admin banner is gated off.
  */
 export async function handlePageBannerRoute(
-  choice: 'paywall' | 'paywall-admin' | 'csat',
+  choice: 'paywall' | 'paywall-admin' | 'csat' | 'unplaced',
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
   let effective = choice;
@@ -66,8 +80,16 @@ export async function handlePageBannerRoute(
   if (effective === 'paywall-admin') {
     const { isAdminBannerEnabled } = await import('@/utils/paywall/adminBannerFlag');
     if (!(await isAdminBannerEnabled())) {
-      if (!isCsatPendingFresh(now)) return 'none';
-      effective = 'csat';
+      // Fall back to whatever the rest of the priority list would have shown —
+      // the same list decidePageBanner walks, resumed from where the admin
+      // branch interrupted it.
+      const fallback: PageBannerChoice = isCsatPendingFresh(now)
+        ? 'csat'
+        : isUnplacedBannerCandidate(deriveUnplacedIdentity(), now)
+          ? 'unplaced'
+          : 'none';
+      if (fallback === 'none') return 'none';
+      effective = fallback;
     }
   }
 
@@ -80,7 +102,9 @@ export async function handlePageBannerRoute(
   const Component =
     effective === 'csat'
       ? (await import('@/components/CSAT/CsatBanner.vue')).default
-      : (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default;
+      : effective === 'unplaced'
+        ? (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default
+        : (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default;
   // The audience is passed in rather than re-derived so that a flagged-off admin
   // who ALSO qualifies as a recent author still sees the old author copy.
   const props = effective === 'paywall-admin' ? { isSpaceAdmin: true } : undefined;

@@ -51,6 +51,46 @@ If we ever add `confluence:pageBanner` to lite/full/diagramly:
 - [ ] **Mobile pass.** No platform guidance exists; visually check on a narrow viewport and on the Confluence mobile web view.
 - [ ] **Analytics for actual visibility, not just "mounted".** `paywall_triggered`-style events should fire when the banner is *visibly* shown to the user, not when the iframe boots — otherwise we'll over-count by the same margin as the flicker problem.
 
+## What occupies the slot today
+
+One `confluence:pageBanner` module (`zenuml-page-banner`) hosts all of them, and
+`src/routes/pageBanner.ts` picks at most one per page load. In priority order:
+
+| Choice | Component | Gate |
+|---|---|---|
+| `paywall` / `paywall-admin` | `UpgradePrompt/PaywallWarningBanner.vue` | localStorage targeting marker written by the macro iframe |
+| `csat` | `CSAT/CsatBanner.vue` | a fresh CSAT trigger in localStorage |
+| `unplaced` | `Byline/UnplacedDiagramsBanner.vue` | localStorage marker written by the byline, then verified against the live page ADF |
+
+`unplaced` sits last because it is the only one that keeps: a diagram saved on a
+page and placed nowhere on it is still saved and still unplaced tomorrow, and its
+banner re-arms itself. A CSAT window closes; a paywall block is happening now.
+
+### The unplaced-diagram notice
+
+Says the thing the byline already knows — a diagram was saved from the byline and
+never pasted, so it costs a Lite macro slot and renders nowhere — on the surface
+that is actually read. Confluence boots the byline iframe only on CLICK (5 opens
+against 39,197 macro views), so its own "· not on this page" label reaches almost
+nobody.
+
+Two rules keep it inside this document's checklist:
+
+- **Nothing on the hot path.** The candidate gate (`isUnplacedBannerCandidate`)
+  is synchronous localStorage. A page with no marker never imports the component
+  — it is its own lazy chunk — and never issues a request.
+- **Never claim what we cannot verify.** The marker records what the byline saw;
+  the user may have pasted the link a second later. Past the gate the component
+  re-reads the page ADF and shows only entries still unreferenced. A failed scan
+  shows nothing, and a scan that finds everything placed records that fact so the
+  same marker never buys a second read.
+
+Scope limit worth knowing before reading the numbers: localStorage is per
+browser, so the banner reaches the person who created the diagram, not everyone
+who visits the page. That is the person who can place it — and the alternative (a
+custom-content listing per diagram type plus an ADF read, on every page load of
+every page in the site) is exactly the cold-start cost this document forbids.
+
 ## Related in this repo
 
 - `manifest.yml` — where a `confluence:pageBanner` module would be declared per variant.

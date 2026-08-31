@@ -351,6 +351,7 @@ import {
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
 import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
+import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -697,7 +698,9 @@ async function loadDiagrams() {
     }
     void loadThumbnails()
     reportPlacement()
-    syncUnplacedMarker()
+    // Never awaited: this is a write for the NEXT page load, and the list must
+    // not wait on it to paint.
+    void syncUnplacedState()
   }
 }
 
@@ -804,27 +807,47 @@ function reportPlacement() {
  * the page — and Confluence boots it only on click, so almost nobody is told.
  * The banner mounts on every page load and cannot afford to work this out for
  * itself (one custom-content listing per type, plus a full-page ADF read), so
- * the byline hands over what it already paid for. See utils/byline/
- * unplacedMarker.ts for the marker contract.
+ * the byline hands over what it already paid for.
+ *
+ * Two stores, in priority order:
+ *
+ *  1. The CONTENT PROPERTY (unplacedProperty.ts) — page state, so the notice
+ *     reaches whoever opens the page, and Confluence gates the banner module on
+ *     its existence server-side. This is the one that matters.
+ *  2. The localStorage MARKER (unplacedMarker.ts) — the fallback for when the
+ *     property write is denied. The write runs as the user, and creating custom
+ *     content on a page does not prove permission to write its properties.
+ *
+ * The marker is written either way, carrying `viaProperty` so the shared
+ * page-banner host knows whether the gated module has already got this — two
+ * banners saying the same thing on one page is the failure mode that flag
+ * exists to prevent.
  *
  * Silent unless the scan actually landed: an unreadable page must never be
  * written down as "everything is unplaced", which is precisely what an
  * undefined `placedIds` would mean if it were treated as an empty set — the
  * same trap `isUnplaced` guards against.
  */
-function syncUnplacedMarker() {
+async function syncUnplacedState() {
   const ids = placedIds.value
   if (!ids) return
   const identity = deriveUnplacedIdentity()
   if (!identity) return
-  // An empty list is written, not skipped: it is what retires a banner for
-  // diagrams the user has since placed.
-  writeUnplacedMarker(
-    identity,
-    diagrams.value
-      .filter(d => !ids.has(d.id))
-      .map(d => ({ id: d.id, title: d.title, diagramType: d.diagramType })),
-  )
+  // An empty list is not skipped: it is what retires a banner for diagrams the
+  // user has since placed — a property DELETE, taking the page off the gate.
+  const entries = diagrams.value
+    .filter(d => !ids.has(d.id))
+    .map(d => ({ id: d.id, title: d.title, diagramType: d.diagramType }))
+  const result = await persistUnplacedProperty(identity.pageId, entries)
+  trackAnalyticsEvent('unplaced_property_write', {
+    ...baseProps(),
+    result,
+    unplaced_count: entries.length,
+  })
+  // 'unchanged' counts as carried: the property already says this, including
+  // the empty case where it is legitimately absent.
+  const viaProperty = result === 'written' || result === 'deleted' || result === 'unchanged'
+  writeUnplacedMarker(identity, entries, { viaProperty })
 }
 
 function onRetry() {
@@ -1039,7 +1062,7 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     // the exact failure the create→paste handoff has. Runs on the cancelled path
     // too: the list was re-read either way, and a marker that ignored it would
     // keep naming diagrams the user has since placed.
-    syncUnplacedMarker()
+    void syncUnplacedState()
     if (!newId) {
       trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })
       return

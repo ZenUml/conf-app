@@ -5,6 +5,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { openModal } from '@/model/globals/forgeGlobal';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { readUnplacedMarker } from '@/utils/byline/unplacedMarker';
+import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -17,6 +18,12 @@ const apWrapper = vi.hoisted(() => ({
   referencedCustomContentIds: vi.fn(async () => undefined as string[] | undefined),
 }));
 vi.mock('@/model/globals', () => ({ default: { apWrapper } }));
+
+// The cross-user store. Its own REST behaviour is covered in
+// unplacedProperty.spec.ts; here only the byline's use of it is in scope.
+vi.mock('@/utils/byline/unplacedProperty', () => ({
+  persistUnplacedProperty: vi.fn(async () => 'written'),
+}));
 
 const forgeGlobalMock = vi.hoisted(() => ({ forgeContext: { cloudId: 'cloud-1' } as any }));
 vi.mock('@/model/globals/forgeGlobal', () => ({
@@ -83,6 +90,7 @@ describe('BylineDiagrams', () => {
     apWrapper.listPageDiagramContents.mockResolvedValue([]);
     apWrapper.getAttachmentsV2.mockResolvedValue([]);
     apWrapper.referencedCustomContentIds.mockResolvedValue(undefined);
+    vi.mocked(persistUnplacedProperty).mockResolvedValue('written');
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
@@ -896,26 +904,58 @@ describe('BylineDiagrams', () => {
       });
     });
 
-    it('leaves the verdict where the page banner can read it', async () => {
-      // The banner mounts on every page load and cannot afford to work this out
-      // itself (a listing per custom-content type plus a full-page ADF read), so
-      // the byline hands over what it has already paid for.
+    it('records the verdict on the PAGE, so it reaches whoever opens it', async () => {
+      // The content property is the cross-user store, and Confluence gates the
+      // banner module on its existence — the browser-local marker can only ever
+      // reach the person who created the diagram.
       forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
       apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       await mountByline();
 
-      expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([
+      expect(persistUnplacedProperty).toHaveBeenCalledWith('page-1', [
         { id: '2', title: 'Stray', diagramType: DiagramType.Sequence },
       ]);
+      expect(events('unplaced_property_write')[0][1]).toMatchObject({
+        result: 'written',
+        unplaced_count: 1,
+      });
     });
 
-    it('writes an EMPTY marker once everything is placed, retiring the banner', async () => {
+    it('stands the shared banner host down once the property carries it', async () => {
+      // Otherwise the gated module AND the shared host both show the notice.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      await mountByline();
+
+      expect(readUnplacedMarker(IDENTITY)?.viaProperty).toBe(true);
+    });
+
+    it('falls back to the per-browser marker when the property write is denied', async () => {
+      // The write runs as the user; creating custom content on a page does not
+      // prove permission to write its properties. Creator-only reach beats none.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      vi.mocked(persistUnplacedProperty).mockResolvedValue('forbidden');
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      await mountByline();
+
+      const marker = readUnplacedMarker(IDENTITY);
+      expect(marker?.viaProperty).toBe(false);
+      expect(marker?.entries).toEqual([{ id: '2', title: 'Stray', diagramType: DiagramType.Sequence }]);
+      expect(events('unplaced_property_write')[0][1]).toMatchObject({ result: 'forbidden' });
+    });
+
+    it('clears the record once everything is placed, retiring the banner', async () => {
+      // An empty list reaches the property as a DELETE — taking the page off
+      // the display-condition gate entirely.
       forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
       apWrapper.referencedCustomContentIds.mockResolvedValue(['1', '2']);
       await mountByline();
 
+      expect(persistUnplacedProperty).toHaveBeenCalledWith('page-1', []);
       expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([]);
     });
 
@@ -928,6 +968,7 @@ describe('BylineDiagrams', () => {
       await mountByline();
 
       expect(readUnplacedMarker(IDENTITY)).toBeNull();
+      expect(persistUnplacedProperty).not.toHaveBeenCalled();
     });
 
     it('arms the banner for a diagram just created here', async () => {
@@ -945,7 +986,7 @@ describe('BylineDiagrams', () => {
       await flushPromises();
       await closeEditor();
 
-      expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([
+      expect(persistUnplacedProperty).toHaveBeenLastCalledWith('page-1', [
         { id: '9', title: 'Brand new', diagramType: DiagramType.Mermaid },
       ]);
     });

@@ -18,6 +18,10 @@ import {
 const IDENTITY = { clientDomain: 'example-tenant', pageId: '12345' }
 const ENTRY = { id: 'cc-1', title: 'Login flow', diagramType: 'sequence' }
 const NOW = Date.parse('2026-08-20T10:00:00.000Z')
+/** The property write was denied, so this marker is the only record there is. */
+const FALLBACK = { viaProperty: false }
+/** The property carried the verdict; the gated module shows it to everyone. */
+const CARRIED = { viaProperty: true }
 
 describe('unplacedMarker — the byline→banner handoff', () => {
   beforeEach(() => {
@@ -74,16 +78,17 @@ describe('unplacedMarker — the byline→banner handoff', () => {
 
   describe('writing', () => {
     it('round-trips what the byline observed', () => {
-      writeUnplacedMarker(IDENTITY, [ENTRY], NOW)
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
       expect(readUnplacedMarker(IDENTITY)).toEqual({
         entries: [ENTRY],
         updatedAt: '2026-08-20T10:00:00.000Z',
+        viaProperty: false,
       })
     })
 
     it('writes an EMPTY list rather than skipping — that is what retires a fixed banner', () => {
-      writeUnplacedMarker(IDENTITY, [ENTRY], NOW)
-      writeUnplacedMarker(IDENTITY, [], NOW + 1000)
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
+      writeUnplacedMarker(IDENTITY, [], FALLBACK, NOW + 1000)
       expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([])
       expect(isUnplacedBannerCandidate(IDENTITY, NOW + 1000)).toBe(false)
     })
@@ -92,7 +97,7 @@ describe('unplacedMarker — the byline→banner handoff', () => {
       const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new Error('QuotaExceeded')
       })
-      expect(() => writeUnplacedMarker(IDENTITY, [ENTRY], NOW)).not.toThrow()
+      expect(() => writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)).not.toThrow()
       setItem.mockRestore()
     })
   })
@@ -106,32 +111,50 @@ describe('unplacedMarker — the byline→banner handoff', () => {
       expect(isUnplacedBannerCandidate(null, NOW)).toBe(false)
     })
 
-    it('is true once the byline has reported an unplaced diagram', () => {
-      writeUnplacedMarker(IDENTITY, [ENTRY], NOW)
+    it('is true once the byline has reported an unplaced diagram it could not record on the page', () => {
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
+      expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(true)
+    })
+
+    it('stands down when the content property carried the verdict', () => {
+      // The gated `zenuml-unplaced-banner` module shows it — to everyone, not
+      // just this browser. Arming the shared host too would stack two banners
+      // saying the same thing on one page.
+      writeUnplacedMarker(IDENTITY, [ENTRY], CARRIED, NOW)
+      expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(false)
+    })
+
+    it('treats a marker written before viaProperty existed as the fallback', () => {
+      // Forward compatibility: markers already in users' browsers have no such
+      // field, and they are exactly the creator-only case.
+      window.localStorage.setItem(
+        unplacedMarkerKey(IDENTITY),
+        JSON.stringify({ entries: [ENTRY], updatedAt: new Date(NOW).toISOString() }),
+      )
       expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(true)
     })
 
     it('expires after the TTL rather than paying an ADF read forever', () => {
-      writeUnplacedMarker(IDENTITY, [ENTRY], NOW)
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
       expect(isUnplacedBannerCandidate(IDENTITY, NOW + UNPLACED_MARKER_TTL_MS - 1)).toBe(true)
       expect(isUnplacedBannerCandidate(IDENTITY, NOW + UNPLACED_MARKER_TTL_MS + 1)).toBe(false)
     })
 
     it('stays silent once dismissed for that marker version', () => {
-      writeUnplacedMarker(IDENTITY, [ENTRY], NOW)
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
       recordUnplacedBannerDismissed(IDENTITY, readUnplacedMarker(IDENTITY)!.updatedAt)
       expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(false)
     })
 
     it('re-arms when the byline reports again — a dismissal is "not now", not "never"', () => {
-      writeUnplacedMarker(IDENTITY, [ENTRY], NOW)
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
       recordUnplacedBannerDismissed(IDENTITY, readUnplacedMarker(IDENTITY)!.updatedAt)
-      writeUnplacedMarker(IDENTITY, [ENTRY, { id: 'cc-2', title: 'Retry', diagramType: 'mermaid' }], NOW + 5000)
+      writeUnplacedMarker(IDENTITY, [ENTRY, { id: 'cc-2', title: 'Retry', diagramType: 'mermaid' }], FALLBACK, NOW + 5000)
       expect(isUnplacedBannerCandidate(IDENTITY, NOW + 5000)).toBe(true)
     })
 
     it('stops verifying once the banner proved the diagrams are placed', () => {
-      writeUnplacedMarker(IDENTITY, [ENTRY], NOW)
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
       recordUnplacedBannerResolved(IDENTITY, readUnplacedMarker(IDENTITY)!.updatedAt)
       expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(false)
     })
@@ -147,7 +170,7 @@ describe('unplacedMarker — the byline→banner handoff', () => {
 
   describe('banner-side bookkeeping', () => {
     it('counts impressions without disturbing the dismissal', () => {
-      writeUnplacedMarker(IDENTITY, [ENTRY], NOW)
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
       recordUnplacedBannerShown(IDENTITY, NOW)
       recordUnplacedBannerShown(IDENTITY, NOW + 1000)
       const banner = readUnplacedBannerMarker(IDENTITY)

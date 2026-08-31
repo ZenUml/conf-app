@@ -36,13 +36,17 @@ import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
  * after the byline wrote the marker, and a banner that told them otherwise
  * would be worse than no banner.
  *
- * Scope: per BROWSER, keyed by page. Only the person who created the diagram
- * gets the banner, because only their browser holds the marker. That is a
- * deliberate limit, not an oversight — the creator is the one who can place it,
- * and the alternative (a site-wide scan on every page load) is exactly the
- * hot-path cost the page-banner design forbids. `docs/features/page-banner.md`:
- * "Decide visibility from cached/context-only data so the iframe doesn't depend
- * on a cold-start network call."
+ * Scope: per BROWSER, keyed by page — which is exactly why this is now the
+ * FALLBACK, not the primary store. The cross-user path is the content property
+ * (unplacedProperty.ts), which Confluence itself gates the banner module on. A
+ * marker written with `viaProperty: true` records that the property took the
+ * verdict and this copy is inert; only a marker written after a DENIED property
+ * write still arms the shared page-banner host, reaching the one browser that
+ * created the diagram.
+ *
+ * What stays here unconditionally is the DISMISSAL, and it belongs here on
+ * purpose: one person deciding they do not want to see the notice must not
+ * silence it for everyone else on a shared page.
  */
 
 /** One diagram the byline observed as saved-here-but-not-on-the-page. */
@@ -58,6 +62,17 @@ export interface UnplacedMarker {
   entries: UnplacedDiagramEntry[]
   /** ISO timestamp of the byline scan that produced `entries`. */
   updatedAt: string
+  /**
+   * The content property (unplacedProperty.ts) took this verdict, so the
+   * dedicated `zenuml-unplaced-banner` module — gated server-side on that
+   * property — will carry it. The shared page-banner host must then NOT also
+   * offer it, or the one page shows the same notice in two banners.
+   *
+   * False means the property write was denied or failed and this marker is the
+   * only record there is: the shared host is the fallback, and the notice
+   * reaches this browser alone.
+   */
+  viaProperty: boolean
 }
 
 export interface UnplacedBannerMarker {
@@ -150,7 +165,7 @@ export function parseUnplacedMarker(raw: string | null): UnplacedMarker | null {
         title: typeof e.title === 'string' ? e.title : '',
         diagramType: typeof e.diagramType === 'string' ? e.diagramType : '',
       }))
-    return { entries, updatedAt: p.updatedAt }
+    return { entries, updatedAt: p.updatedAt, viaProperty: p.viaProperty === true }
   } catch {
     return null
   }
@@ -200,11 +215,13 @@ export function readUnplacedBannerMarker(identity: UnplacedIdentity): UnplacedBa
 export function writeUnplacedMarker(
   identity: UnplacedIdentity,
   entries: UnplacedDiagramEntry[],
+  opts: { viaProperty: boolean },
   now: number = Date.now(),
 ): void {
   const marker: UnplacedMarker = {
     entries: entries.map(e => ({ id: String(e.id), title: e.title || '', diagramType: e.diagramType || '' })),
     updatedAt: new Date(now).toISOString(),
+    viaProperty: opts.viaProperty,
   }
   writeRaw(unplacedMarkerKey(identity), JSON.stringify(marker))
 }
@@ -256,6 +273,10 @@ export function isUnplacedBannerCandidate(
   if (!identity) return false
   const marker = readUnplacedMarker(identity)
   if (!marker || marker.entries.length === 0) return false
+  // The property took it, so the gated module shows it — to everyone, not just
+  // this browser. Offering it here too would stack two banners saying the same
+  // thing on the one page.
+  if (marker.viaProperty) return false
   const updatedAtMs = Date.parse(marker.updatedAt)
   if (!Number.isFinite(updatedAtMs)) return false
   if (now - updatedAtMs > UNPLACED_MARKER_TTL_MS) return false

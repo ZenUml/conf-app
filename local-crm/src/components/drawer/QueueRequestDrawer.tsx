@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import FactGrid from '../FactGrid'
 import SectionLabel from '../SectionLabel'
 import type { Fact } from '@/lib/caseModel'
@@ -19,20 +20,45 @@ function CloseButton({ onClick }: { onClick: () => void }) {
   )
 }
 
-function CopyCommand({ command }: { command: string | null }) {
+export function CopyCommand({ command }: { command: string | null }) {
+  const [copied, setCopied] = useState(false)
+
   if (!command) {
     return <div className="text-micro leading-[1.5] text-fg2">No command is ready: resolve both the site and the space first.</div>
   }
+
+  const copy = () => {
+    const pending = navigator.clipboard?.writeText(command)
+    if (!pending) {
+      setCopied(false)
+      return
+    }
+    void pending.then(
+      () => {
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 1200)
+      },
+      () => setCopied(false)
+    )
+  }
+
   return (
-    <button
-      type="button"
-      data-testid="queue-drawer-command"
-      className="mt-2 max-w-full cursor-pointer rounded border border-line bg-bg2 px-2 py-1 text-left font-mono text-micro text-fg2"
-      title="Copy this command"
-      onClick={() => void navigator.clipboard?.writeText(command)}
-    >
-      {command}
-    </button>
+    <div className="mt-2 flex max-w-full items-start gap-2">
+      <div
+        data-testid="queue-drawer-command"
+        className="min-w-0 flex-1 select-text rounded border border-line bg-bg1 px-2 py-1 font-mono text-micro leading-[1.5] text-fg2 [overflow-wrap:anywhere]"
+      >
+        <code>{command}</code>
+      </div>
+      <button
+        type="button"
+        aria-label="Copy handover command"
+        className="shrink-0 cursor-pointer rounded border border-line-strong bg-bg1 px-2.5 py-1 text-micro font-medium text-fg1 hover:bg-bg3"
+        onClick={copy}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
   )
 }
 

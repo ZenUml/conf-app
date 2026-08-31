@@ -603,6 +603,20 @@ export type AnalyticsEventName =
   // being silenced by an old dismissal — which means this event counts
   // "not now, for these diagrams", never "never again".
   | "unplaced_banner_dismissed"
+  // The byline recorded (or cleared) the page's unplaced set as a Confluence
+  // CONTENT PROPERTY — the shared, cross-user store the banner's
+  // `displayConditions` gate reads server-side.
+  //
+  // This event exists to measure the one assumption the property design rests
+  // on: that the byline user can actually write a page property. The write runs
+  // as the USER (requestConfluence), and a user who can create custom content
+  // on a page cannot be assumed to hold edit permission on the page itself.
+  // `result` = 'written' | 'deleted' | 'unchanged' | 'forbidden' | 'failed'.
+  // A material 'forbidden' share means the cross-user path is not reaching the
+  // people who need it and the localStorage fallback is carrying the feature —
+  // which is exactly what `unplaced_source` on the banner events reports from
+  // the other end.
+  | "unplaced_property_write"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-

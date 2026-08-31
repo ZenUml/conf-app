@@ -403,6 +403,15 @@ export type AnalyticsProperties = {
   // an 'all_placed' result means we kept paying for the verification scan long
   // after the user fixed the page.
   unplaced_marker_age_ms?: number;
+  // Which store armed the unplaced banner. 'property' is the Confluence content
+  // property — cross-user, and gated server-side by displayConditions, so the
+  // iframe only boots on pages that have it. 'marker' is the per-browser
+  // localStorage fallback, used when the property write was denied.
+  //
+  // Read as a ratio this is the health of the whole cross-user path: a rising
+  // 'marker' share means property writes are failing in the field and the
+  // banner has quietly degraded to creator-only reach.
+  unplaced_source?: 'property' | 'marker';
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).

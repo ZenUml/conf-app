@@ -86,10 +86,24 @@ const NO_EMBED: MacroType[] = ['sequence', 'graph', 'openapi', 'mermaid'];
 // `.includes(...)` skip guard, so adding a member enables only the specs that
 // name it.
 //
-// Applied to the STAGING and DEV Lite profiles only. `zenuml-lite@prod` stays on
-// ALL_MACROS until the release carrying the AsyncAPI macro ships — a prod run
-// would otherwise look for a macro that install does not have and fail for the
-// wrong reason. Move it over in the same change that releases Lite.
+// Applied to every Lite profile, prod included. Prod was held on ALL_MACROS
+// until the macro actually shipped — a prod run would otherwise have looked for
+// a macro that install did not have and failed for the wrong reason — and
+// v2026.08.301404-lite (2026-08-30) lifted that: the release's own
+// `manifest-lite-prod` artifact carries `zenuml-asyncapi-macro${LITE_KEY_SUFFIX}`.
+//
+// What moving prod over does and does not turn on, because the two asyncapi
+// specs gate differently:
+//   - tests/insert/typed-deeplink-autoconvert.spec.ts DOES start running its
+//     asyncapi case. That case has no guard but this axis, and release.yml runs
+//     `suite: insert` against zenuml-lite@prod as the post-release smoke. It is
+//     not redundant with staging: matcher routing lives in the DEPLOYED
+//     manifest, so only a prod run proves the 4-segment typed link is not
+//     swallowed by the embed macro's 3-segment /d/*/* there.
+//   - tests/insert/byline-asyncapi.spec.ts does NOT. It skips earlier on
+//     `fullCoinstalled`, and zenuml.atlassian.net — our only prod Lite site —
+//     carries Full, whose `zenuml-full-active` property hides the Lite byline
+//     by design. No macro axis can reach it; that needs a Lite-only tenant.
 const LITE_MACROS: MacroType[] = [...ALL_MACROS, 'asyncapi'];
 
 export const APP_PROFILES: Record<string, AppProfile> = {
@@ -195,7 +209,10 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     // Full + Diagramly are installed alongside Lite here; the Lite Diagrams
     // byline is suppressed by design (see fullCoinstalled on AppProfile).
     fullCoinstalled: true,
-    macros: ALL_MACROS,
+    macros: LITE_MACROS,
+    // NOT LITE_MACROS: the render suite builds its pages through the API and
+    // there is no API-created AsyncAPI fixture (Studio owns the document),
+    // which is why RenderMacroType excludes 'asyncapi' in the first place.
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',

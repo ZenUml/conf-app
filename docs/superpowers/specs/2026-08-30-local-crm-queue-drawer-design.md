@@ -17,6 +17,9 @@ already-filled handoff command, and route to the JSM ticket.
   macro count and limit, prior-grant summary, and the last-comment authorship.
 - The command is copy-only. It remains the existing `extend-space-license` handoff;
   the console creates no write.
+- The command renders as selectable monospace text with a separate, explicit
+  `Copy` button. Clicking the button writes only to the browser clipboard, changes
+  its label to `Copied` for about 1.2 seconds, and then restores `Copy`.
 
 ## Deliberate exclusions
 
@@ -41,6 +44,8 @@ unavailable rather than treated as negative evidence.
 ## Validation
 
 Unit tests cover opening and closing the queue selection and the drawer's rendered
-request evidence, command, comment metadata, and excluded controls. A loopback UI
+request evidence, command, explicit copy control, transient copied feedback,
+comment metadata, and excluded controls. Clipboard rejection restores the idle
+`Copy` label without hiding the command. A loopback UI
 spot check confirms a live request row opens the one-flow drawer and that its ticket
 link routes outward. No customer data or evidence screenshots are committed.

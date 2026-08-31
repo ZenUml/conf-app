@@ -25,6 +25,7 @@ The reply message it prints follows the canonical template in the handbook:
 import argparse
 import datetime as dt
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,11 @@ KV_LITE_BASE = "https://conf-lite.zenuml.com"
 STRIPE_BUNDLE_LINK = "https://buy.stripe.com/cNifZifkN7hzavK12H7IY05"
 MARKETPLACE_LINK = "https://marketplace.atlassian.com/apps/1218380/zenuml-diagrams-for-confluence"
 ENTERPRISE_BUNDLE_USD = 299  # per space / year, flat
+
+# Override when the repo's node_modules/wrangler is missing or broken (a dangling
+# symlink cost 8 diagnostic calls before the first grant, 2026-08-25):
+#   WRANGLER_CMD="npx --yes wrangler@4" python3 grant_extension.py ...
+WRANGLER_CMD = os.environ.get("WRANGLER_CMD", "npx wrangler").split()
 
 
 def normalize_domain(raw):
@@ -97,7 +103,7 @@ def verify_space(bare_domain, space):
 
 
 def wrangler_kv_get(key):
-    cmd = ["npx", "wrangler", "kv", "key", "get", key,
+    cmd = WRANGLER_CMD + ["kv", "key", "get", key,
            f"--namespace-id={SPACE_LICENSE_KV_NS}", "--remote"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
@@ -107,7 +113,7 @@ def wrangler_kv_get(key):
 
 
 def wrangler_kv_put(key, value_path):
-    cmd = ["npx", "wrangler", "kv", "key", "put", key, "--path", value_path,
+    cmd = WRANGLER_CMD + ["kv", "key", "put", key, "--path", value_path,
            f"--namespace-id={SPACE_LICENSE_KV_NS}", "--remote"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:

@@ -1028,6 +1028,17 @@ export default class ApWrapper2 implements IApWrapper {
       // landed inside the first 250 unsorted results. CQL is permission-
       // scoped server-side (a CC the user can't see won't appear) and
       // returns content metadata only — body must be fetched separately.
+      //
+      // CAVEAT — CQL is eventually-consistent (search-index backed, not live).
+      // A CC created seconds ago may not be indexed yet, so this returns
+      // nothing and the viewer briefly shows "Untitled diagram" until the
+      // index catches up (seconds-to-minutes), then recovers on reload.
+      // Confirmed on lite-stg 2026-05-29: a just-created source CC missed on
+      // first view, recovered after the index warmed. Real recovery targets
+      // (Connect-era source CCs, months/years old) are long-indexed, so this
+      // lag does not affect production customers — only freshly-created data.
+      // If that ever becomes a problem, the remedy is a live (non-index)
+      // lookup, but no V2 endpoint supports exact-title at scale today.
       const typeClause = types.map(t => `type = "${this.customContentType(t)}"`).join(' OR ');
       const cql = `(${typeClause}) AND title = "${uuid}"`;
       const search: any = await forgeRequest(`/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=250`);

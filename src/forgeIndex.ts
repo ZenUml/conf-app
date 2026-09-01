@@ -12,6 +12,7 @@ import { resolveAsyncApiEditorEntry } from "@/model/asyncapi/resolveEditorEntry"
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
+import { shouldWarmMacroCountCache } from "@/utils/paywall/shouldWarmMacroCountCache";
 import store from './model/store2'
 
 import Example from "./utils/sequence/Example";
@@ -223,8 +224,17 @@ async function initializeCriticalPath() {
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
 
-    // Refresh metrics cache on miss; full collect only on save (Persistence.ts)
-    macroMetrics.getMacroMetrics().catch(e => console.error('Error refreshing metrics cache:', e));
+    // Warm the paywall macro-count cache only on edit-capable surfaces — the
+    // surfaces where useCustomerSuccessService actually reads it. On a pure
+    // viewer render nothing reads it, and on a cold KV this fires a space-wide
+    // custom-content scan per macro mount (~2 requests/macro), which stacked
+    // into multi-second fetch_ms on macro-dense pages (e.g. a 16-macro page →
+    // ~32 scans — the P90 tail driver). The paywall's own read does a bounded
+    // collect on a cold KV, so nothing depends on this warm. Full collect still
+    // happens on save (Persistence.ts).
+    if (shouldWarmMacroCountCache(context)) {
+      macroMetrics.getMacroMetrics().catch(e => console.error('Error refreshing metrics cache:', e));
+    }
 
     // Return the macro data for use in the second phase
     return { macroData };

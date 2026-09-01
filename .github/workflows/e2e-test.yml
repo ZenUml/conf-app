@@ -96,8 +96,23 @@ jobs:
   auth:
     name: auth bootstrap
     runs-on: ubuntu-latest
-    # OTP login maxes at ~1m14s in practice; 2 min reaps a hung login fast.
-    timeout-minutes: 2
+    # build-test-deploy.yml calls this workflow TWICE in parallel for the same app
+    # (`E2E: Lite` and `E2E: Lite DrawIO Publish`, both zenuml-lite@stg). On a cache
+    # miss both bootstraps start in the same second and each runs its own OTP login
+    # against the same TOTP secret, so the loser is handed a code the winner already
+    # consumed. Observed 2026-09-01: both started 09:36:26Z, DrawIO's finished at
+    # 09:37:09Z, and the Lite one logged `OTP attempt 1 failed, retrying...` and was
+    # reaped — which skipped every E2E: Lite shard. Serialising per app fixes it at
+    # the root: the second bootstrap waits, then restores the daily cache the first
+    # one just wrote and skips login entirely. GitHub keeps one pending job per
+    # group, which is enough for two callers.
+    concurrency:
+      group: e2e-auth-${{ inputs.app }}
+      cancel-in-progress: false
+    # A clean OTP login took 42-55s in the four uncollided bootstraps measured on
+    # 2026-09-01. 2 minutes reaped a legitimate retry mid-flight; 4 covers the full
+    # 3-attempt cycle and still reaps a hung login well inside a shard's budget.
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Atlassian Developer Console"
+  short_description: "Operate unsupported Developer Console workflows safely"
+  default_prompt: "Use the dedicated agent-browser profile to inspect or operate Atlassian Developer Console as support@zenuml.com."

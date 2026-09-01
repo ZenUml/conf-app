@@ -21,6 +21,12 @@ short ids such as `DB`, `API`, `Svc` recur across unrelated diagrams.
   declarations only; message-derived lifelines are excluded.
 - `read-corpus.mjs` — pulls one space's current Mermaid and ZenUML sequence
   diagrams from an explicitly selected D1 mirror.
+- `read-corpus-confluence.mjs` — same corpus shape, read straight from Confluence
+  by space key. The D1 mirror is written only by `functions/forge-custom-content.ts`
+  on a Forge *save*, so content created through the Confluence REST API is absent
+  from `CustomContent` and `read-corpus.mjs` returns zero sources for it with no
+  error. Use this for REST-seeded spaces; merge its output with the D1 corpus
+  (`sources` concatenated, deduped on `sourceId`) before `extract-corpus.mjs`.
 - `extract-corpus.mjs` — corpus → occurrence artifact (extraction + normalization).
 - `pilot/` — scripts rescued from the 2026-08-27 local pilot: the normalizer
   (`participant-normalization.mjs`, `@sindresorhus/slugify`, `separator: '.'`,
@@ -33,6 +39,8 @@ short ids such as `DB`, `API`, `Svc` recur across unrelated diagrams.
 # 0. ARCHTOK_DIR = private/local-data/architecture-tokens/<pilot>  (git-ignored; holds cloud-id)
 # 1. corpus, tenant-wide
 node --experimental-strip-types tools/architecture-tokens/read-corpus.mjs --client-domain <domain> --database <staging-d1-name> --out $ARCHTOK_DIR/raw/corpus-$(date +%F).json
+# 1b. spaces the D1 mirror does not hold (REST-seeded); merge into the same corpus
+node --experimental-strip-types tools/architecture-tokens/read-corpus-confluence.mjs --site <host> --space-keys <K1,K2> --cloud-id <uuid> --type 'ac:<connect-key>:zenuml-content-sequence' --out $ARCHTOK_DIR/raw/corpus-confluence-$(date +%F).json
 # 2. occurrences
 node --experimental-strip-types tools/architecture-tokens/extract-corpus.mjs --corpus $ARCHTOK_DIR/raw/corpus-$(date +%F).json --out $ARCHTOK_DIR/participant-occurrences-$(date +%F).json
 # 3. upload (replaces the tenant's rows in D1)

@@ -857,7 +857,81 @@ export type AnalyticsEventName =
   | "homepage_feed_viewed"
   | "homepage_feed_action_clicked"
   | "homepage_feed_diagram_opened"
-  | "homepage_feed_example_expanded";
+  | "homepage_feed_example_expanded"
+  // Lifecycle email CRM (functions/migrations/0024_add_lifecycle_crm.sql —
+  // lifecycle_contact + lifecycle_touchpoint — and scripts/lifecycle/
+  // ingest-licenses.mjs). Registered ahead of the sequencer that sends these
+  // — project rule: events before features. All three fire from the backend
+  // ingest/sequencer job, never from the macro iframe: there is no frontend
+  // call site, so this union documents the shape rather than enforcing it
+  // there (same convention as macro_export_* / #435 above).
+  //   email_step_sent    — the backend Worker dispatched a lifecycle email
+  //                        step via the ESP (Email Service Provider).
+  //   email_step_engaged — the ESP webhook reported delivered/opened/clicked
+  //                        for a previously sent step.
+  //   email_unsubscribed — the ESP unsubscribe webhook fired for a contact.
+  | "email_step_sent"
+  | "email_step_engaged"
+  | "email_unsubscribed"
+  // Lifecycle CRM auto-welcome (scripts/lifecycle/{ingestCore,senderCore,
+  // adminCore}.mjs + migration 0025 — welcome_state / block_reason /
+  // retry_count / lifecycle_setting / lifecycle_run). All backend-emitted,
+  // same convention as the three events above: no frontend call site, this
+  // union documents the shape rather than enforcing it there. Welcome is a
+  // low-risk transactional/onboarding email: eligible contacts are
+  // AUTO-sent after deterministic checks (see block_reason in types.ts) —
+  // there is no per-email human approval step, so there is deliberately no
+  // "queued for approval" / "approved" / "rejected" event here. Failures and
+  // uncertain cases land in an exception queue (welcome_state='failed' /
+  // 'exhausted', or a non-bootstrap block_reason) that an operator clears
+  // via `lifecycle-admin.mjs retry`, never a per-send approval.
+  //   lifecycle_contact_imported — ingestCore inserted a brand-new
+  //                        lifecycle_contact row (not an update of an
+  //                        existing one). Fires once per new contact, from
+  //                        both the sync and async ingest cores.
+  //   welcome_auto_queued — a due contact passed every deterministic
+  //                        eligibility check (see block_reason) and was
+  //                        queued for the sender's next esp.send() call —
+  //                        the normal, unattended path most contacts take.
+  //   welcome_blocked    — a due contact FAILED a deterministic eligibility
+  //                        check; welcome_state becomes 'blocked' with the
+  //                        specific block_reason, and it does not stop other
+  //                        eligible contacts in the same run.
+  //   email_step_failed  — the ESP send failed; the sender backed off the
+  //                        contact's step_due_at (retry) and incremented
+  //                        retry_count, or set welcome_state='exhausted'
+  //                        once retry_count reached the configured max.
+  //   email_step_retried — an operator reset a failed/exhausted contact's
+  //                        retry_count via `lifecycle-admin.mjs retry`
+  //                        (retry_source='operator'), or the sender itself
+  //                        re-queues a 'failed' contact on its next due pass
+  //                        (retry_source='auto').
+  //   lifecycle_automation_toggled — an operator flipped the global kill
+  //                        switch (automation_scope='global') or paused/
+  //                        resumed one app's sends (automation_scope='app',
+  //                        product_type set) via `lifecycle-admin.mjs
+  //                        automation on|off` / `pause|resume <app>`.
+  //   contact_duplicate_detected — ingestCore's pre-insert duplicate lookup
+  //                        found that a newly-inserted contact joins an
+  //                        existing duplicate group (same email across apps,
+  //                        or same tenant with >1 email). Non-blocking: a
+  //                        duplicate is flagged for operator review, not
+  //                        auto-blocked — contact+app is the idempotency
+  //                        key, so a duplicate can still be sent to.
+  //   lifecycle_config_published — an operator published a new welcome
+  //                        template or eligibility-rule version via
+  //                        `lifecycle-admin.mjs publish-config`. This is the
+  //                        one release gate in the whole flow: template/rule
+  //                        CHANGES are gated, individual welcome sends never
+  //                        are.
+  | "lifecycle_contact_imported"
+  | "welcome_auto_queued"
+  | "welcome_blocked"
+  | "email_step_failed"
+  | "email_step_retried"
+  | "lifecycle_automation_toggled"
+  | "contact_duplicate_detected"
+  | "lifecycle_config_published";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

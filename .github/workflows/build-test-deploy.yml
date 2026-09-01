@@ -92,6 +92,9 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       - run: pnpm test:unit
+      # local-crm carries its own vitest config and `@` alias, so the root
+      # suite excludes it. Run it here, or its tests run nowhere.
+      - run: pnpm --dir local-crm exec vitest run
       # Verify the asyncapi variant builds even on feature-branch PRs. The
       # staging-asyncapi job below only runs on the default branch (like
       # full/diagramly), so this is the smoke test for PRs.

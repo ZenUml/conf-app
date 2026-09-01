@@ -29,44 +29,26 @@
           <span class="agent-link-panel__pulse-dot" aria-hidden="true"></span>
           <h3 class="agent-link-panel__heading">Waiting for your AI assistant</h3>
           <p data-testid="agent-link-waiting-status">Keep this window open. The connection will start from the prompt you copied.</p>
+          <p class="agent-link-panel__time-expectation" data-testid="agent-link-waiting-time">
+            This usually takes 1–2 minutes.
+          </p>
           <SupportedClientCarousel />
         </div>
       </template>
 
-      <!-- connected (active rail): status header · bound diagram · TTL meter ·
-           thinking banner (op in flight) · activity feed. Verbatim copy from
-           the design contract's string table. -->
-      <template v-else-if="state === 'connected'">
-        <div data-testid="agent-link-connected">
+      <!-- A paired session always keeps the same body. A transient transport
+           interruption changes only AgentStatusHeader's signal; the timeline,
+           TTL, and actions remain mounted and in the same order. -->
+      <template v-else-if="state === 'connected' || state === 'suspended'">
+        <div :data-testid="state === 'connected' ? 'agent-link-connected' : 'agent-link-automatic-recovery'">
           <AgentStatusHeader
             :state="state"
             :thinking="thinking === 'thinking'"
             :client-name="clientName"
-            :diagram-title="diagramTitle"
             :last-activity-at="lastActivityAt"
           />
 
-          <div class="agent-link-panel__bound">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
-            </svg>
-            <span><span class="agent-link-panel__bound-lbl">Linked to</span> <b>{{ diagramTitle || 'this diagram' }}</b></span>
-          </div>
-
           <SessionTtl :expires-at="expiresAt" :at-cap="atCap" />
-
-          <!-- Thinking banner (Track F): shown while an update_diagram op is in
-               flight; the elapsed hint appears after a few seconds so a long
-               wait doesn't read as a hang. ArrowPath spin only, no skeletons. -->
-          <div v-if="thinking === 'thinking'" class="agent-link-banner agent-link-banner--work" data-testid="agent-link-thinking-banner">
-            <svg class="agent-link-banner__spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            <div class="agent-link-banner__body">
-              <div class="agent-link-banner__title">Agent is editing…</div>
-              <div class="agent-link-banner__sub">Applying changes to the diagram<span v-if="elapsedHint" class="agent-link-banner__elapsed"> {{ elapsedHint }}</span></div>
-            </div>
-          </div>
 
           <h4 class="agent-link-panel__feed-head">Activity</h4>
           <ul class="agent-link-panel__feed" data-testid="agent-link-activity-feed">
@@ -86,20 +68,6 @@
             </li>
           </ul>
 
-        </div>
-      </template>
-
-      <!-- Transient recovery stays non-blocking: the existing status header
-           carries one amber connection indicator while the diagram remains
-           usable. Details and actions appear only if recovery exhausts. -->
-      <template v-else-if="state === 'suspended'">
-        <div class="agent-link-panel__connection-status" data-testid="agent-link-automatic-recovery">
-          <AgentStatusHeader
-            :state="state"
-            :client-name="clientName"
-            :diagram-title="diagramTitle"
-            :last-activity-at="lastActivityAt"
-          />
         </div>
       </template>
 
@@ -180,9 +148,9 @@
         class="agent-link-panel__disclosure"
         data-testid="agent-link-help-disclosure"
       >
-        <summary>Need help?</summary>
+        <summary>{{ helpDisclosureLabel }}</summary>
         <div class="agent-link-panel__setup">
-          <p>This is optional. Copy the help message, then paste it into the AI assistant you are using.</p>
+          <p>{{ helpDisclosureDescription }}</p>
           <button
             type="button"
             class="agent-link-panel__btn agent-link-panel__btn--secondary"
@@ -193,10 +161,9 @@
       </details>
     </div>
 
-    <!-- Pinned footer actions for the active + suspended rail. Closed renders
-         its own Reconnect CTA inside SessionNotice. -->
+    <!-- A user can explicitly end a live or automatically recovering link. -->
     <RailActions
-      v-if="state === 'connected'"
+      v-if="state === 'connected' || state === 'suspended'"
       @disconnect="emit('disconnect')"
       @revoke="emit('revoke')"
     />
@@ -228,10 +195,10 @@ const props = withDefaults(
     activityFeed: AgentLinkActivityEntry[]
     // Track H additions — all optional so existing mounts (state/token/feed
     // only) render unchanged:
-    //  - thinking: op-in-flight axis (Track F) → blue "Agent is editing…" banner
-    //  - diagramTitle: names the bound diagram in the header/bound line
-    //  - clientName: connected agent identity (falls back to "Connected agent")
-    //  - expiresAt: absolute ms token expiry → TTL meter + resume countdown
+    //  - thinking: op-in-flight axis → current timeline row
+    //  - diagramTitle: lifecycle-notice context (the connected rail omits it)
+    //  - clientName: normalized connected client identity
+    //  - expiresAt: absolute ms token expiry → TTL meter
     //  - lastActivityAt: newest agent signal → header/badge activity pulse
     thinking?: AgentLinkThinkingState
     diagramTitle?: string
@@ -294,9 +261,21 @@ const protocolHelpButtonLabel = computed(() =>
 )
 
 const showHelpDisclosure = computed(() => {
-  if ((props.state === 'waiting' || props.state === 'timeout') && !pairingPromptCopied.value) return true
+  if (props.state === 'waiting' || props.state === 'timeout') return true
   return props.state === 'recovery_exhausted' || props.state === 'expired' || props.state === 'failed'
 })
+
+const helpDisclosureLabel = computed(() =>
+  (props.state === 'waiting' || props.state === 'timeout') && pairingPromptCopied.value
+    ? 'First time? Need help?'
+    : 'Need help?'
+)
+
+const helpDisclosureDescription = computed(() =>
+  props.state === 'waiting' || props.state === 'timeout'
+    ? 'First time? Copy this setup message into your AI assistant. If Agent Link is already set up, you can ignore it.'
+    : 'Copy this help message, then paste it into the AI assistant you are using.'
+)
 
 async function onCopyPrompt() {
   try {
@@ -358,15 +337,12 @@ function formatTime(at: number): string {
 }
 
 // --- Activity feed row typing -------------------------------------------------
-// The composable stores plain summary strings; classify each into an icon tone
-// so the feed reads like the design (ok / error / paused / resumed / in-flight)
-// without changing the stored shape. Newest-last (chronological) — the store
-// appends in order, so we render as-is (no reverse).
+// The composable stores a bounded session record. The rail is deliberately a
+// user-facing timeline rather than a transport log: omit pause/resume signals,
+// show the current/newest work first, and keep only a small recent set.
 const ICONS = {
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>',
   error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>',
-  pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9v6m-4.5 0V9M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>',
-  resume: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"/></svg>',
   spin: '<svg class="agent-link-panel__feed-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>',
   // Track U discovery rows (design bundle preview/agent-link-fullscreen.html
   // feed-ic--muted): search = magnifying glass, read = eye, list = bullet list.
@@ -379,15 +355,13 @@ interface FeedRow {
   summary: string
   at: number
   kind: 'normal' | 'inflight'
-  tone: 'ok' | 'err' | 'warn' | 'work' | 'muted'
+  tone: 'ok' | 'err' | 'work' | 'muted'
   icon: string
 }
 
 function classifyRow(entry: AgentLinkActivityEntry, isCurrentWork: boolean): FeedRow {
   const s = entry.summary
   if (s.startsWith('⚠')) return { ...entry, kind: 'normal', tone: 'err', icon: ICONS.error }
-  if (s === 'Connection paused') return { ...entry, kind: 'normal', tone: 'warn', icon: ICONS.pause }
-  if (s.startsWith('Connection restored')) return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.resume }
   // A working icon represents the current task only. The feed deliberately
   // retains prior "updating" rows as history, so inferring animation from the
   // row text alone leaves a spinner running after the task has settled.
@@ -402,55 +376,24 @@ function classifyRow(entry: AgentLinkActivityEntry, isCurrentWork: boolean): Fee
   return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.check }
 }
 
+const TRANSPORT_ONLY_SUMMARIES = new Set(['Connection paused', 'Connection restored'])
+const TIMELINE_MAX_ITEMS = 5
+
 const feedRows = computed<FeedRow[]>(() =>
-  props.activityFeed.map((entry, index) =>
-    classifyRow(entry, props.thinking === 'thinking' && index === props.activityFeed.length - 1)
-  )
-)
-
-// --- Thinking elapsed hint ("· 6s" after a few seconds) ----------------------
-const ELAPSED_HINT_AFTER_SECONDS = 3
-const thinkingElapsed = ref(0)
-let thinkingTimer: ReturnType<typeof setInterval> | null = null
-let thinkingStartedAt = 0
-
-function stopThinkingTimer() {
-  if (thinkingTimer !== null) {
-    clearInterval(thinkingTimer)
-    thinkingTimer = null
-  }
-}
-
-watch(
-  () => props.thinking,
-  (t) => {
-    if (t === 'thinking') {
-      thinkingStartedAt = Date.now()
-      thinkingElapsed.value = 0
-      stopThinkingTimer()
-      thinkingTimer = setInterval(() => {
-        thinkingElapsed.value = Math.floor((Date.now() - thinkingStartedAt) / 1000)
-      }, 1000)
-    } else {
-      stopThinkingTimer()
-      thinkingElapsed.value = 0
-    }
-  },
-  { immediate: true }
+  props.activityFeed
+    .filter((entry) => !TRANSPORT_ONLY_SUMMARIES.has(entry.summary))
+    .slice(-TIMELINE_MAX_ITEMS)
+    .reverse()
+    .map((entry, index) => classifyRow(entry, props.thinking === 'thinking' && index === 0))
 )
 
 onBeforeUnmount(() => {
-  stopThinkingTimer()
   if (copyRevertTimer) clearTimeout(copyRevertTimer)
   if (typeof window !== 'undefined') {
     window.removeEventListener('storage', refreshLastAgentMemory)
     window.removeEventListener(AGENT_LINK_CLIENT_MEMORY_EVENT, refreshLastAgentMemory)
   }
 })
-
-const elapsedHint = computed(() =>
-  thinkingElapsed.value >= ELAPSED_HINT_AFTER_SECONDS ? `· ${thinkingElapsed.value}s` : ''
-)
 
 </script>
 
@@ -485,11 +428,6 @@ const elapsedHint = computed(() =>
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-/* connected: subtle green live accent — asserted verbatim by ConnectPanel.spec */
-.agent-link-panel--connected {
-  border-color: var(--agent-link-green);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -550,6 +488,10 @@ const elapsedHint = computed(() =>
   font-size: 12px;
   line-height: 1.45;
   color: var(--agent-link-muted);
+}
+
+.agent-link-panel__time-expectation {
+  color: var(--agent-link-faint) !important;
 }
 
 .agent-link-panel__prompt,
@@ -619,14 +561,6 @@ const elapsedHint = computed(() =>
   background: var(--agent-link-blue);
 }
 
-.agent-link-panel__live-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--agent-link-green);
-}
-
 .agent-link-panel__status--pulse .agent-link-panel__pulse-dot {
   animation: agent-link-pulse 1.4s ease-in-out infinite;
 }
@@ -637,8 +571,7 @@ const elapsedHint = computed(() =>
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-link-panel__status--pulse .agent-link-panel__pulse-dot,
-  .agent-link-banner__spin {
+  .agent-link-panel__status--pulse .agent-link-panel__pulse-dot {
     animation: none !important;
   }
   .agent-link-panel__feed-ic :deep(.agent-link-panel__feed-spin) {
@@ -671,10 +604,6 @@ const elapsedHint = computed(() =>
   line-height: 1.45;
 }
 
-.agent-link-panel__connection-status :deep(.agent-status-header) {
-  margin-bottom: 0;
-}
-
 .agent-link-panel__divider {
   font-size: 11px;
   color: var(--agent-link-muted);
@@ -686,70 +615,6 @@ const elapsedHint = computed(() =>
   color: var(--agent-link-blue);
 }
 
-/* bound-diagram line */
-.agent-link-panel__bound {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 11px;
-  background: var(--agent-link-surface-muted);
-  border: 1px solid var(--agent-link-border);
-  border-radius: 6px;
-  font-size: 12px;
-}
-.agent-link-panel__bound svg {
-  width: 15px;
-  height: 15px;
-  color: var(--agent-link-muted);
-  flex: 0 0 auto;
-}
-.agent-link-panel__bound-lbl {
-  color: var(--agent-link-muted);
-}
-.agent-link-panel__bound b {
-  font-weight: 600;
-}
-
-/* thinking banner */
-.agent-link-banner {
-  display: flex;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 6px;
-}
-.agent-link-banner__spin {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
-  margin-top: 1px;
-  animation: agent-link-banner-spin 1s linear infinite;
-}
-.agent-link-banner__body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.agent-link-banner__title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-.agent-link-banner__sub {
-  margin: 3px 0 0;
-  font-size: 12px;
-  line-height: 1.4;
-}
-.agent-link-banner__elapsed {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
-.agent-link-banner--work {
-  background: #eff4ff;
-  color: #1d4ed8;
-}
-.agent-link-banner--work .agent-link-banner__sub {
-  color: #3b62c0;
-}
 @keyframes agent-link-banner-spin {
   to { transform: rotate(360deg); }
 }
@@ -772,12 +637,22 @@ const elapsedHint = computed(() =>
   gap: 2px;
 }
 .agent-link-panel__feed-row {
+  position: relative;
   display: flex;
   gap: 9px;
   align-items: baseline;
   padding: 7px 8px;
   border-radius: 6px;
   transition: background-color 200ms ease;
+}
+.agent-link-panel__feed-row:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 26px;
+  bottom: -4px;
+  width: 1px;
+  background: var(--agent-link-border);
 }
 .agent-link-panel__feed-row--inflight {
   background: #eff4ff;
@@ -795,7 +670,6 @@ const elapsedHint = computed(() =>
 }
 .agent-link-panel__feed-ic--ok { color: var(--agent-link-green); }
 .agent-link-panel__feed-ic--err { color: #ca3521; }
-.agent-link-panel__feed-ic--warn { color: #8a6d00; }
 .agent-link-panel__feed-ic--work { color: var(--agent-link-blue); }
 .agent-link-panel__feed-ic--muted { color: var(--agent-link-muted); }
 /* feed icons are injected via v-html, so the spin class needs :deep to cross

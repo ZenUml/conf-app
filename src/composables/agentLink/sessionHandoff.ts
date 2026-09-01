@@ -54,6 +54,10 @@
 // stays idle — i.e. today's bug, not a new failure mode.
 
 import type { AgentLinkBoundContext } from './relayUrl'
+import {
+  normalizeAgentLinkClientLabel,
+  type AgentLinkClientLabel,
+} from './clientMemory'
 
 // 'suspended' (Track G): the relay socket dropped unexpectedly — see
 // useAgentLinkSession.ts's handleRelayStateEvent 'close' branch. Mint failure
@@ -129,6 +133,9 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // the owning composable. Mirrored so a display-only Fullscreen instance can
   // derive the activity pulse/resting copy without owning the relay socket.
   lastActivityAt?: number
+  // Safe display-only identity selected from the fixed recognized label set
+  // after MCP initialize. Never contains raw clientInfo, version, or IDs.
+  clientLabel?: AgentLinkClientLabel
   // Recent activity-feed rows (connect/edit/suspend/resume/search/list/read),
   // bounded to the last HANDOFF_FEED_MAX_ENTRIES — mirrors
   // useAgentLinkSession.ts's own (unbounded, owner-only) `activityFeed` ref.
@@ -234,6 +241,9 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
     expiresAt: typeof parsed.expiresAt === 'number' ? parsed.expiresAt : undefined,
     // Optional; absent before PR2's activity display layer existed.
     lastActivityAt: typeof parsed.lastActivityAt === 'number' ? parsed.lastActivityAt : undefined,
+    ...(typeof parsed.clientLabel === 'string'
+      ? { clientLabel: normalizeAgentLinkClientLabel(parsed.clientLabel) }
+      : {}),
     // Optional; absent on a pre-bug-2 record. Re-bounded defensively in case
     // a record was ever written by a future/older build with a looser cap.
     feed: Array.isArray(parsed.feed) ? parsed.feed.slice(-HANDOFF_FEED_MAX_ENTRIES) : undefined,

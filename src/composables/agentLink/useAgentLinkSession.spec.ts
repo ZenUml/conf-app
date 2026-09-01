@@ -1685,6 +1685,15 @@ describe('useAgentLinkSession', () => {
       expect(session.activityFeed.value).toEqual(feed)
     })
 
+    it('hydrates the safe live client label for the fullscreen header', () => {
+      const session = useAgentLinkSession(makeBridgeOps(), { macroType: 'sequence' })
+      expect(session.clientLabel.value).toBeNull()
+
+      session.hydrateFrom(makeHandoff({ state: 'connected', clientLabel: 'Cursor' }))
+
+      expect(session.clientLabel.value).toBe('Cursor')
+    })
+
     it('replaces the local feed with a later handoff record\'s feed, including a reset back to empty', () => {
       const bridgeOps = makeBridgeOps()
       const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
@@ -2358,6 +2367,8 @@ describe('useAgentLinkSession', () => {
         label: 'Claude Code',
         connectedAt: h.now(),
       })
+      expect(h.api.clientLabel.value).toBe('Claude Code')
+      expect(readSession('status-client-memory')).toMatchObject({ clientLabel: 'Claude Code' })
       expect(Object.keys(JSON.parse(localStorage.getItem(AGENT_LINK_CLIENT_MEMORY_KEY)!)).sort()).toEqual([
         'connectedAt',
         'label',
@@ -2371,6 +2382,8 @@ describe('useAgentLinkSession', () => {
         activity: { type: 'client_identified', detail: 'raw-untrusted-client' },
       })
       expect(readAgentLinkClientMemory(h.now())?.label).toBe('an AI agent')
+      expect(h.api.clientLabel.value).toBe('an AI agent')
+      expect(readSession('status-client-unknown')).toMatchObject({ clientLabel: 'an AI agent' })
       expect(localStorage.getItem(AGENT_LINK_CLIENT_MEMORY_KEY)).not.toContain('raw-untrusted-client')
     })
 

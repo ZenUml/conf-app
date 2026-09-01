@@ -93,6 +93,7 @@
     "@heroicons/vue": "^2.2.0",
     "@lezer/highlight": "^1.2.1",
     "@lezer/lr": "^1.4.2",
+    "@lobehub/icons-static-svg": "1.94.0",
     "@rollup/plugin-alias": "^5.1.0",
     "@rollup/pluginutils": "^5.1.0",
     "@sentry/cloudflare": "^9.5.0",

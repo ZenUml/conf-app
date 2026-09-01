@@ -50,7 +50,11 @@ import {
   type AgentLinkHandoffSession,
   type AgentLinkHandoffThinking,
 } from './sessionHandoff'
-import { rememberAgentLinkClient } from './clientMemory'
+import {
+  normalizeAgentLinkClientLabel,
+  rememberAgentLinkClient,
+  type AgentLinkClientLabel,
+} from './clientMemory'
 
 export interface AgentLinkActivityEntry {
   summary: string
@@ -174,6 +178,8 @@ export interface AgentLinkSessionApi {
   // components derive the activity pulse/resting copy from this and
   // ACTIVITY_LINGER_MS; it does not drive the session FSM.
   lastActivityAt: Ref<number | null>
+  // Normalized display-only identity for the current live MCP client.
+  clientLabel: Ref<AgentLinkClientLabel | null>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
   // orthogonal to `state` (a paired session is `connected` the whole time an
@@ -253,6 +259,7 @@ export function useAgentLinkSession(
   // across the iframe via the handoff record.
   const atCap = ref(false)
   const lastActivityAt = ref<number | null>(null)
+  const clientLabel = ref<AgentLinkClientLabel | null>(null)
   const thinkingState = ref<AgentLinkThinkingState>('idle') as Ref<AgentLinkThinkingState>
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
     AgentLinkActivityEntry[]
@@ -277,9 +284,10 @@ export function useAgentLinkSession(
   // omitted while unknown, matching the existing dsl/thinking
   // present-only-when-known convention.
   function handoffFeedFields(): Pick<AgentLinkHandoffSession, 'feed'> &
-    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'lastActivityAt' | 'hitCap'>> {
+    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'lastActivityAt' | 'hitCap' | 'clientLabel'>> {
     return {
       feed: activityFeed.value,
+      ...(clientLabel.value ? { clientLabel: clientLabel.value } : {}),
       ...(expiresAt.value != null ? { expiresAt: expiresAt.value } : {}),
       ...(lastActivityAt.value != null ? { lastActivityAt: lastActivityAt.value } : {}),
       // Amendment F: only carried once actually capped — a fresh session
@@ -453,7 +461,9 @@ export function useAgentLinkSession(
         // mcp.ts already reduced initialize.clientInfo to a safe display
         // label. Normalize again at the storage edge and retain no raw MCP
         // identity, version, token, endpoint or internal session identifier.
-        rememberAgentLinkClient(event.activity.detail, now())
+        const normalized = normalizeAgentLinkClientLabel(event.activity.detail)
+        clientLabel.value = normalized
+        rememberAgentLinkClient(normalized, now())
       }
       if (
         event.activity?.type === 'protocol_incompatible' &&
@@ -1061,6 +1071,7 @@ export function useAgentLinkSession(
     editsCount = 0
     lastAppliedDsl = ''
     activityFeed.value = []
+    clientLabel.value = null
     expiresAt.value = null
     lastActivityAt.value = null
     // Amendment D/F: a fresh connect clears any prior already-linked countdown
@@ -1190,6 +1201,7 @@ export function useAgentLinkSession(
     editsCount = 0
     lastAppliedDsl = typeof persisted.dsl === 'string' ? persisted.dsl : ''
     activityFeed.value = []
+    clientLabel.value = persisted.clientLabel ?? null
     // Same per-session reset as startConnect: a reattach on a fresh mount starts
     // the status-bus cap flag / extended-event throttle clean (spec §4.4).
     lastHitCap = false
@@ -1262,6 +1274,7 @@ export function useAgentLinkSession(
     suspendedAt = null
     expiresAt.value = null
     lastActivityAt.value = null
+    clientLabel.value = null
     // Amendment D/F: a teardown clears any already-linked countdown and cap flag.
     alreadyLinkedUntil.value = null
     atCap.value = false
@@ -1398,6 +1411,9 @@ export function useAgentLinkSession(
     if (typeof session.lastActivityAt === 'number') {
       lastActivityAt.value = session.lastActivityAt
     }
+    if (session.clientLabel) {
+      clientLabel.value = normalizeAgentLinkClientLabel(session.clientLabel)
+    }
 
     // --- Amendment D: honest already-linked countdown mirror -------------
     // The relay owner (inline) learns the lock release time from the mint
@@ -1506,6 +1522,7 @@ export function useAgentLinkSession(
     alreadyLinkedUntil,
     atCap,
     lastActivityAt,
+    clientLabel,
     thinkingState,
     activityFeed,
     startConnect,

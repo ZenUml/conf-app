@@ -87,6 +87,16 @@ describe('sessionHandoff', () => {
     expect(readSession('page-1')).toEqual(session)
   })
 
+  it('round-trips only the normalized display-level live client label', () => {
+    persistSession(makeSession({ state: 'connected', clientLabel: 'Claude Code' }))
+    expect(readSession('page-1')?.clientLabel).toBe('Claude Code')
+
+    const raw = JSON.parse(localStorage.getItem('agentLinkSession:page-1')!)
+    raw.clientLabel = 'raw clientInfo with version and secret metadata'
+    localStorage.setItem('agentLinkSession:page-1', JSON.stringify(raw))
+    expect(readSession('page-1')?.clientLabel).toBe('an AI agent')
+  })
+
   it('normalizes an unrecognized thinking value to undefined (idle)', () => {
     persistSession(makeSession({ state: 'connected' }))
     // hand-write a bogus thinking value

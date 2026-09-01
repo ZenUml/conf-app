@@ -1596,6 +1596,21 @@ describe('GenericViewer (chrome-less)', () => {
       expect(notice.text()).toContain('about 5 more min')
     })
 
+    it('wires the normalized current client label into the Fullscreen rail header', async () => {
+      setFullscreen(true)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const vm = wrapper.vm as any
+      vm.agentLinkSession.state.value = 'connected'
+      vm.agentLinkSession.clientLabel.value = 'Claude Code'
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Claude Code')
+      expect(wrapper.find('[data-testid="agent-link-client-brand-icon"]').exists()).toBe(true)
+    })
+
     // Track F — perceived-latency thinking overlay on the diagram render surface.
     it('does NOT mount the thinking overlay seam at all when the flag resolves false (flag-off DOM unchanged)', async () => {
       const wrapper = mountViewer()

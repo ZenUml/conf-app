@@ -341,6 +341,7 @@
             :token="agentLinkToken"
             :activity-feed="agentLinkActivityFeed"
             :thinking="agentLinkThinking"
+            :client-name="agentLinkClientName"
             :diagram-title="title"
             :expires-at="agentLinkExpiresAt"
             :last-activity-at="agentLinkLastActivityAt"
@@ -629,6 +630,9 @@ export default {
     },
     agentLinkLastActivityAt() {
       return this.agentLinkSession?.lastActivityAt.value ?? null;
+    },
+    agentLinkClientName() {
+      return this.agentLinkSession?.clientLabel.value ?? 'an AI agent';
     },
     // Amendment D: the composable's honest already-linked lock countdown
     // (set from a mint 409's lockExpiresAt) — forwarded to the Fullscreen

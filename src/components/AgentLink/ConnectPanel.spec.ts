@@ -79,8 +79,8 @@ describe('ConnectPanel', () => {
 
     const entries = wrapper.findAll('[data-testid="agent-link-activity-entry"]')
     expect(entries).toHaveLength(2)
-    expect(entries[0].text()).toContain('added a step')
-    expect(entries[1].text()).toContain('renamed participant')
+    expect(entries[0].text()).toContain('renamed participant')
+    expect(entries[1].text()).toContain('added a step')
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('tok-123')
   })
@@ -96,10 +96,10 @@ describe('ConnectPanel', () => {
     })
 
     const entries = wrapper.findAll('[data-testid="agent-link-activity-entry"]')
-    expect(entries[0].classes()).not.toContain('agent-link-panel__feed-row--inflight')
-    expect(entries[0].find('.agent-link-panel__feed-spin').exists()).toBe(false)
-    expect(entries[1].classes()).toContain('agent-link-panel__feed-row--inflight')
-    expect(entries[1].find('.agent-link-panel__feed-spin').exists()).toBe(true)
+    expect(entries[0].classes()).toContain('agent-link-panel__feed-row--inflight')
+    expect(entries[0].find('.agent-link-panel__feed-spin').exists()).toBe(true)
+    expect(entries[1].classes()).not.toContain('agent-link-panel__feed-row--inflight')
+    expect(entries[1].find('.agent-link-panel__feed-spin').exists()).toBe(false)
   })
 
   it('connected: keeps settled updating rows static in the activity history', () => {
@@ -113,9 +113,9 @@ describe('ConnectPanel', () => {
     })
 
     const entries = wrapper.findAll('[data-testid="agent-link-activity-entry"]')
-    expect(entries[0].classes()).not.toContain('agent-link-panel__feed-row--inflight')
-    expect(entries[0].find('.agent-link-panel__feed-spin').exists()).toBe(false)
-    expect(entries[0].find('.agent-link-panel__feed-ic--ok').exists()).toBe(true)
+    expect(entries[1].classes()).not.toContain('agent-link-panel__feed-row--inflight')
+    expect(entries[1].find('.agent-link-panel__feed-spin').exists()).toBe(false)
+    expect(entries[1].find('.agent-link-panel__feed-ic--ok').exists()).toBe(true)
   })
 
   it('connected: classifies Track U discovery feed rows (read/search/list) as muted, distinct icons', () => {
@@ -131,9 +131,9 @@ describe('ConnectPanel', () => {
     entries.forEach((entry) => {
       expect(entry.find('.agent-link-panel__feed-ic--muted').exists()).toBe(true)
     })
-    expect(entries[0].text()).toContain('Read')
+    expect(entries[0].text()).toContain('Listed diagrams')
     expect(entries[1].text()).toContain('Searched')
-    expect(entries[2].text()).toContain('Listed diagrams')
+    expect(entries[2].text()).toContain('Read')
     // Each discovery kind renders its own icon glyph, not the generic checkmark.
     const icons = entries.map((entry) => entry.find('.agent-link-panel__feed-ic').html())
     expect(new Set(icons).size).toBe(3)
@@ -158,15 +158,15 @@ describe('ConnectPanel', () => {
     expect(entry.find('.agent-link-panel__feed-ic--ok').exists()).toBe(false)
   })
 
-  it('connected: renders the connected panel class and green connected treatment', () => {
+  it('connected: uses the compact header signal without a full-rail green border', () => {
     const wrapper = mountPanel({ state: 'connected', token: 'tok-123' })
 
     expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain(
       'agent-link-panel--connected'
     )
     expect(wrapper.find('[data-testid="agent-link-connected"]').exists()).toBe(true)
-    expect(connectPanelSource).toContain('.agent-link-panel--connected')
-    expect(connectPanelSource).toContain('border-color: var(--agent-link-green)')
+    expect(wrapper.find('[data-testid="agent-link-live-badge"]').text()).toBe('Connected')
+    expect(connectPanelSource).not.toContain('.agent-link-panel--connected {')
   })
 
   it('timeout keeps the same pairing handoff instead of showing an installation wall', () => {
@@ -206,8 +206,14 @@ describe('ConnectPanel', () => {
     )
     expect(wrapper.find('[data-testid="agent-link-waiting"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-client-carousel"]').exists()).toBe(true)
-    expect(wrapper.findAll('button')).toHaveLength(0)
-    expect(wrapper.find('[data-testid="agent-link-help-disclosure"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-waiting-time"]').text()).toBe(
+      'This usually takes 1–2 minutes.'
+    )
+    const help = wrapper.find('[data-testid="agent-link-help-disclosure"]')
+    expect(help.exists()).toBe(true)
+    expect(help.attributes('open')).toBeUndefined()
+    expect(help.find('summary').text()).toBe('First time? Need help?')
+    expect(help.find('[data-testid="agent-link-setup-help-btn"]').isVisible()).toBe(false)
   })
 
   it('shows remembered client only as a quiet cue in the ordinary pairing state', () => {
@@ -236,14 +242,26 @@ describe('ConnectPanel', () => {
     expect(expectedPrompt).toContain('Agent Link MCP')
   })
 
-  it('keeps optional help behind progressive disclosure and explains the paste destination', () => {
+  it('keeps recovery help behind progressive disclosure and explains the paste destination', () => {
     const wrapper = mountPanel({ state: 'recovery_exhausted', token: 'tok-123' })
     const help = wrapper.find('[data-testid="agent-link-help-disclosure"]')
     expect(help.attributes('open')).toBeUndefined()
     expect(help.find('summary').text()).toBe('Need help?')
-    expect(help.text()).toContain('This is optional')
+    expect(help.text()).toContain('Copy this help message')
     expect(help.text()).toContain('paste it into the AI assistant you are using')
     expect(help.find('[data-testid="agent-link-setup-help-btn"]').text()).toBe('Copy help message')
+  })
+
+  it('frames waiting help as first-time setup instead of an optional detour', async () => {
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
+    await wrapper.find('[data-testid="agent-link-copy-prompt-btn"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const help = wrapper.find('[data-testid="agent-link-help-disclosure"]')
+    expect(help.find('summary').text()).toBe('First time? Need help?')
+    expect(help.text()).toContain('First time? Copy this setup message into your AI assistant.')
+    expect(help.text()).toContain('If Agent Link is already set up, you can ignore it.')
+    expect(help.text()).not.toContain('This is optional')
   })
 
   it('Disconnect emits the disconnect event', async () => {
@@ -262,17 +280,66 @@ describe('ConnectPanel', () => {
     expect(wrapper.emitted('revoke')).toHaveLength(1)
   })
 
-  it('suspended: reduces automatic recovery to the existing compact connection header', () => {
-    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123', lastActivityAt: 1000 })
+  it('suspended: preserves the activity body and changes only the compact header signal', () => {
+    const activityFeed = [
+      { summary: 'Read “Checkout flow”', at: 1000 },
+      { summary: 'Connection paused', at: 2000 },
+    ]
+    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123', lastActivityAt: 1000, activityFeed })
 
     expect(wrapper.find('[data-testid="agent-link-automatic-recovery"]').exists()).toBe(true)
     expect(wrapper.findComponent(AgentStatusHeader).exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-live-badge-suspended"]').text()).toContain('Connecting')
     expect(wrapper.find('[data-testid="agent-link-live-badge-suspended"]').attributes('role')).toBe('status')
-    expect(wrapper.find('p').exists()).toBe(false)
-    expect(wrapper.text()).not.toMatch(/countdown|resume|reconnect/i)
-    expect(wrapper.findAll('button')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="agent-link-activity-feed"]').text()).toContain('Read “Checkout flow”')
+    expect(wrapper.find('[data-testid="agent-link-activity-feed"]').text()).not.toContain('Connection paused')
+    expect(wrapper.text()).not.toMatch(/resume|reconnect/i)
+    expect(wrapper.findAll('button')).toHaveLength(2)
     expect(wrapper.find('[data-testid="agent-link-help-disclosure"]').exists()).toBe(false)
+  })
+
+  it('automatic recovery leaves the connected body content in the same order', () => {
+    const activityFeed = [
+      { summary: 'Read “Checkout flow”', at: 1000 },
+      { summary: 'Agent is updating the diagram…', at: 2000 },
+    ]
+    const shared = {
+      token: 'tok-123',
+      activityFeed,
+      thinking: 'thinking' as const,
+      expiresAt: Date.now() + 8 * 60 * 1000,
+    }
+    const connected = mount(ConnectPanel, { props: { ...shared, state: 'connected' } })
+    const suspended = mount(ConnectPanel, {
+      props: {
+        ...shared,
+        state: 'suspended',
+        activityFeed: [...activityFeed, { summary: 'Connection paused', at: 3000 }],
+      },
+    })
+
+    expect(suspended.find('[data-testid="agent-link-activity-feed"]').text()).toBe(
+      connected.find('[data-testid="agent-link-activity-feed"]').text()
+    )
+    expect(suspended.find('[data-testid="agent-link-ttl"]').text()).toBe(
+      connected.find('[data-testid="agent-link-ttl"]').text()
+    )
+    expect(suspended.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
+    expect(connected.find('[data-testid="agent-link-live-badge"]').text()).toBe('Connected')
+    expect(suspended.find('[data-testid="agent-link-live-badge-suspended"]').text()).toBe('Connecting')
+  })
+
+  it('connected: caps the user-facing timeline at five newest rows', () => {
+    const activityFeed = Array.from({ length: 7 }, (_, index) => ({
+      summary: `activity ${index + 1}`,
+      at: index + 1,
+    }))
+    const wrapper = mountPanel({ state: 'connected', activityFeed })
+    const entries = wrapper.findAll('[data-testid="agent-link-activity-entry"]')
+    expect(entries).toHaveLength(5)
+    expect(entries[0].text()).toContain('activity 7')
+    expect(entries[4].text()).toContain('activity 3')
+    expect(wrapper.text()).not.toContain('activity 1')
   })
 
   it('recovery exhausted: returns to the ordinary connect task without transport jargon', () => {
@@ -374,29 +441,27 @@ describe('ConnectPanel — Track H rail composition', () => {
     })
   }
 
-  it('active: composes the status header, bound-diagram line, TTL meter and rail actions', () => {
+  it('active: composes the identity header, TTL, timeline and rail actions without a linked-diagram row', () => {
     const wrapper = mountRail({
       state: 'connected',
       diagramTitle: 'Checkout flow',
       expiresAt: Date.now() + (8 * 60 + 42) * 1000,
     })
 
-    // status header (wraps LiveBadge) with the generic client fallback
+    // status header (wraps LiveBadge) with the neutral client fallback
     const header = wrapper.find('[data-testid="agent-link-status-header"]')
     expect(header.exists()).toBe(true)
-    expect(header.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Connected')
-    expect(header.find('[data-testid="agent-link-live-badge"]').exists()).toBe(true)
+    expect(header.find('[data-testid="agent-link-status-header-name"]').text()).toBe('AI assistant')
+    expect(header.find('[data-testid="agent-link-live-badge"]').text()).toBe('Connected')
     expect(wrapper.find('[data-testid="agent-link-client-carousel"]').exists()).toBe(false)
-    // bound-diagram line names the diagram, verbatim "Linked to"
-    expect(wrapper.text()).toContain('Linked to')
-    expect(wrapper.text()).toContain('Checkout flow')
+    expect(wrapper.text()).not.toContain('Linked to')
     // TTL meter
     expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-ttl-value"]').text()).toBe('8:42')
     // rail actions (footer) — Disconnect + Revoke & re-link
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-revoke-btn"]').exists()).toBe(true)
-    // no thinking banner while idle
+    // no separate thinking banner while idle (or active)
     expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').exists()).toBe(false)
   })
 
@@ -415,31 +480,35 @@ describe('ConnectPanel — Track H rail composition', () => {
     expect(suspended.findComponent(AgentStatusHeader).props('lastActivityAt')).toBe(lastActivityAt)
   })
 
-  it('thinking (op in flight): shows the blue "Agent is editing…" banner and the Working badge', () => {
-    const wrapper = mountRail({ state: 'connected', thinking: 'thinking', diagramTitle: 'Checkout flow' })
+  it('thinking: makes current work the first timeline item without adding a banner or changing status', () => {
+    const wrapper = mountRail({
+      state: 'connected',
+      thinking: 'thinking',
+      activityFeed: [
+        { summary: 'Read “Checkout flow”', at: 1000 },
+        { summary: 'Agent is updating the diagram…', at: 2000 },
+      ],
+    })
 
-    const banner = wrapper.find('[data-testid="agent-link-thinking-banner"]')
-    expect(banner.exists()).toBe(true)
-    expect(banner.classes()).toContain('agent-link-banner--work')
-    expect(banner.text()).toContain('Agent is editing…')
-    expect(banner.text()).toContain('Applying changes to the diagram')
-    // LiveBadge flips to the blue "Working" variant
-    expect(wrapper.find('[data-testid="agent-link-live-badge-working"]').exists()).toBe(true)
+    const entries = wrapper.findAll('[data-testid="agent-link-activity-entry"]')
+    expect(entries[0].text()).toContain('Agent is updating the diagram…')
+    expect(entries[0].classes()).toContain('agent-link-panel__feed-row--inflight')
+    expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-live-badge"]').text()).toBe('Connected')
   })
 
-  it('thinking: appends the elapsed-seconds hint after a few seconds', async () => {
-    const wrapper = mountRail({ state: 'connected', thinking: 'thinking' })
-    // No elapsed marker ("· Ns") on first paint.
-    expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').text()).not.toContain('·')
-    await vi.advanceTimersByTimeAsync(6000)
-    expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').text()).toContain('· 6s')
-  })
-
-  it('suspended: shows only the compact amber connection header', () => {
+  it('suspended: keeps the same timeline, TTL and actions while only the status signal changes', () => {
+    const activityFeed = [
+      { summary: 'Read “Checkout flow”', at: 1000 },
+      { summary: 'Diagram updated', at: 2000 },
+      { summary: 'Connection paused', at: 3000 },
+    ]
     const wrapper = mountRail({
       state: 'suspended',
       diagramTitle: 'Checkout flow',
       clientName: 'Claude Code',
+      expiresAt: Date.now() + 8 * 60 * 1000,
+      activityFeed,
     })
 
     expect(wrapper.find('[data-testid="agent-link-status-header"]').exists()).toBe(true)
@@ -447,8 +516,11 @@ describe('ConnectPanel — Track H rail composition', () => {
     expect(wrapper.find('[data-testid="agent-link-live-badge-suspended"]').text()).toContain('Connecting')
     expect(wrapper.find('[data-testid="agent-link-client-brand-icon"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').exists()).toBe(false)
-    expect(wrapper.find('p').exists()).toBe(false)
-    expect(wrapper.findAll('button')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-testid="agent-link-activity-entry"]')).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('Connection paused')
+    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-revoke-btn"]').exists()).toBe(true)
   })
 
   it('closed (terminal): presents a neutral disconnected state and one Connect action', async () => {

@@ -22,7 +22,7 @@ describe('AgentStatusHeader', () => {
     })
 
     expect(ACTIVITY_LINGER_MS).toBe(5000)
-    expect(sublineText(wrapper)).toBe('Connected · agent active')
+    expect(sublineText(wrapper)).toBe('Active now')
   })
 
   it('adds a whole-seconds ago suffix after activity leaves the active window', async () => {
@@ -32,7 +32,7 @@ describe('AgentStatusHeader', () => {
 
     await vi.advanceTimersByTimeAsync(8000)
 
-    expect(sublineText(wrapper)).toBe('Connected · agent active · 8s ago')
+    expect(sublineText(wrapper)).toBe('Active 8s ago')
   })
 
   it('switches the inactive suffix to whole minutes past 60 seconds', async () => {
@@ -42,7 +42,7 @@ describe('AgentStatusHeader', () => {
 
     await vi.advanceTimersByTimeAsync(90_000)
 
-    expect(sublineText(wrapper)).toBe('Connected · agent active · 1m ago')
+    expect(sublineText(wrapper)).toBe('Active 1m ago')
   })
 
   it('lets thinking take precedence over the activity subline', () => {
@@ -50,8 +50,8 @@ describe('AgentStatusHeader', () => {
       props: { state: 'connected', thinking: true, lastActivityAt: Date.now() },
     })
 
-    expect(sublineText(wrapper)).toBe('Connected · reads & edits')
-    expect(wrapper.find('[data-testid="agent-link-live-badge-working"]').exists()).toBe(true)
+    expect(sublineText(wrapper)).toBe('Editing now')
+    expect(wrapper.find('[data-testid="agent-link-live-badge"]').text()).toBe('Connected')
   })
 
   it('keeps the connected capability fallback when lastActivityAt is absent', () => {
@@ -59,7 +59,7 @@ describe('AgentStatusHeader', () => {
       props: { state: 'connected' },
     })
 
-    expect(sublineText(wrapper)).toBe('Connected · reads & edits')
+    expect(sublineText(wrapper)).toBe('Reads & edits')
   })
 
   it.each(['Claude Code', 'Cursor'] as const)(
@@ -78,13 +78,14 @@ describe('AgentStatusHeader', () => {
       const wrapper = mount(AgentStatusHeader, { props: { state: 'connected', clientName } })
       expect(wrapper.find('[data-testid="agent-link-client-generic-icon"]').exists()).toBe(true)
       expect(wrapper.find('[data-testid="agent-link-client-brand-icon"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Connected')
+      expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('AI assistant')
     }
   )
 
-  it('keeps the recognized Codex label with a neutral glyph when no licensed Codex mark is shipped', () => {
+  it('uses the installed licensed Codex mark for the recognized Codex label', () => {
     const wrapper = mount(AgentStatusHeader, { props: { state: 'connected', clientName: 'Codex' } })
     expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Codex')
-    expect(wrapper.find('[data-testid="agent-link-client-generic-icon"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-client-brand-icon"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-client-brand-icon"]').element.tagName).toBe('IMG')
   })
 })

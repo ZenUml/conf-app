@@ -26,12 +26,15 @@ jobs:
 
   prod-full:
     # `needs` keeps the three variants serial — one robot account, three production
-    # sites, and concurrent logins collide. `always()` stops it also gating on Lite's
-    # RESULT: on 2026-09-01 a Lite navigation wedge left Full and Diagramly unrun on
-    # both the scheduled run and its rerun, so a single Lite flake removed production
-    # evidence for the other two variants for the whole day.
+    # sites, and concurrent logins collide. `!cancelled()` stops it also gating on
+    # Lite's RESULT: on 2026-09-01 a Lite navigation wedge left Full and Diagramly
+    # unrun on both the scheduled run and its rerun, so a single Lite flake removed
+    # production evidence for the other two variants for the whole day. A job reaped
+    # by timeout-minutes is a job outcome, so this still runs; a human cancelling the
+    # workflow stops it, which `always()` would not. GitHub names `!cancelled()` the
+    # recommended alternative to `always()`.
     needs: prod-lite
-    if: always()
+    if: ${{ !cancelled() }}
     name: Full Smoke Test (Prod)
     uses: ./.github/workflows/e2e-test.yml
     with:
@@ -46,7 +49,7 @@ jobs:
 
   prod-diagramly:
     needs: prod-full
-    if: always()
+    if: ${{ !cancelled() }}
     name: Diagramly Smoke Test (Prod)
     uses: ./.github/workflows/e2e-test.yml
     with:

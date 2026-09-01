@@ -96,19 +96,36 @@ jobs:
   auth:
     name: auth bootstrap
     runs-on: ubuntu-latest
-    # build-test-deploy.yml calls this workflow TWICE in parallel for the same app
-    # (`E2E: Lite` and `E2E: Lite DrawIO Publish`, both zenuml-lite@stg). On a cache
-    # miss both bootstraps start in the same second and each runs its own OTP login
-    # against the same TOTP secret, so the loser is handed a code the winner already
-    # consumed. Observed 2026-09-01: both started 09:36:26Z, DrawIO's finished at
-    # 09:37:09Z, and the Lite one logged `OTP attempt 1 failed, retrying...` and was
-    # reaped — which skipped every E2E: Lite shard. Serialising per app fixes it at
-    # the root: the second bootstrap waits, then restores the daily cache the first
-    # one just wrote and skips login entirely. GitHub keeps one pending job per
-    # group, which is enough for two callers.
+    # EVERY caller of this workflow logs in as the same robot account and reads the
+    # same `vars.ATLASSIAN_OTP`, so any two bootstraps that overlap can be handed the
+    # same TOTP code and the loser fails. That is not limited to one app: the five
+    # staging callers in build-test-deploy.yml (Lite, Lite DrawIO Publish, Full,
+    # Diagramly, AsyncAPI) and the three production callers in smoke-test.yml all
+    # pass the same OTP variable. Observed 2026-09-01: two zenuml-lite@stg bootstraps
+    # started in the same second, DrawIO's finished at 09:37:09Z, and the other logged
+    # `OTP attempt 1 failed, retrying...` and was reaped, which skipped every
+    # E2E: Lite shard.
+    #
+    # The group key is therefore a repo-wide constant, not per app — concurrency
+    # groups are scoped to the repository, so one constant serialises every bootstrap
+    # in every workflow and on every branch.
+    #
+    # `queue: max` is required, not decoration. The default is `queue: single`, where
+    # "at most one job or workflow run can be pending in the concurrency group" and a
+    # newly queued job CANCELS the one already pending. With five callers on one
+    # constant group that would cancel three of them. `max` allows up to 100 pending
+    # and releases them first-in-first-out. It cannot be combined with
+    # `cancel-in-progress: true`, which this job does not use.
+    #
+    # Wall-clock cost is small because the callers are already close to serial.
+    # Measured on main run 33510893735 (2026-09-01), the five bootstraps ran
+    # 13:04:31-13:08:37, a 4m06s span for 3m14s of work, with a single 10-second
+    # overlap between AsyncAPI and Lite DrawIO Publish. After the first login of the
+    # day every later bootstrap restores the daily cache and skips login entirely.
     concurrency:
-      group: e2e-auth-${{ inputs.app }}
+      group: e2e-auth
       cancel-in-progress: false
+      queue: max
     # A clean OTP login took 42-55s in the four uncollided bootstraps measured on
     # 2026-09-01. 2 minutes reaped a legitimate retry mid-flight; 4 covers the full
     # 3-attempt cycle and still reaps a hung login well inside a shard's budget.

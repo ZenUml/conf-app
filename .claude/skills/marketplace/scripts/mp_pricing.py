@@ -32,6 +32,7 @@ import os
 import re
 import sqlite3
 import sys
+import urllib.request
 
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "marketplace.db")
 
@@ -51,6 +52,71 @@ FLAT_SMALL_TIER_ANNUAL = 40.0
 # Per space per year, flat, billed by us through Stripe (not the Marketplace),
 # so no Atlassian take rate applies to it at all.
 ENTERPRISE_BUNDLE_ANNUAL = 299.0
+
+
+# Live published price list. The BANDS above are per-user-per-MONTH and annual is NOT
+# 10x them: Atlassian bills annual at the FLAT price of the band containing the user
+# count (801-1000, 2751-3000, ...). The two agree only AT a band boundary. Measured
+# 2026-09-01 at 902 users: 10x gave $1,652.20, the published annual is $1,760.00 — 6.1%
+# low. Same endpoint and same algorithm as
+# .claude/skills/extend-space-license/scripts/grant_extension.py; keep them in step.
+MARKETPLACE_PRICING_URL = (
+    "https://marketplace.atlassian.com/rest/2/addons/"
+    + FULL_ADDON + "/pricing/cloud/live"
+)
+
+_PRICING_CACHE = {}
+
+
+def _pricing_payload():
+    """One fetch per process. Raises if unreachable — a wrong price in a customer quote is
+    worse than no quote, so there is no local fallback (same contract as grant_extension.py)."""
+    if "data" not in _PRICING_CACHE:
+        req = urllib.request.Request(MARKETPLACE_PRICING_URL,
+                                     headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            _PRICING_CACHE["data"] = json.loads(r.read().decode("utf-8"))
+    return _PRICING_CACHE["data"]
+
+
+def live_list_price(users):
+    """(monthly, annual) published list price for `users`, read from the Marketplace."""
+    data = _pricing_payload()
+
+    # unitCount == -1 is the "Unlimited users" sentinel, not a band. It sorts first and
+    # would shift every band boundary by one user (902 users quoted 165.66, not 165.22).
+    per_unit = sorted(
+        (i for i in data.get("perUnitItems", [])
+         if i.get("licenseType") == "COMMERCIAL" and i.get("unitCount", 0) > 0),
+        key=lambda i: i["unitCount"],
+    )
+    annual_items = sorted(
+        (i for i in data.get("items", [])
+         if i.get("licenseType") == "COMMERCIAL" and i.get("monthsValid") == 12
+         and i.get("unitCount", 0) > 0),
+        key=lambda i: i["unitCount"],
+    )
+    if not per_unit or not annual_items:
+        raise RuntimeError("Marketplace pricing payload missing perUnitItems/items")
+
+    monthly, prev_top = 0.0, 0
+    for item in per_unit:
+        top = item["unitCount"]
+        monthly += max(0, min(users, top) - prev_top) * item["amount"]
+        prev_top = top
+        if users <= top:
+            break
+    else:
+        monthly += max(0, users - prev_top) * per_unit[-1]["amount"]
+
+    band = next((i for i in annual_items if i["unitCount"] >= users), annual_items[-1])
+    annual = band["amount"]
+
+    # Below the first per-unit band the app is flat-rated; the annual band price is
+    # authoritative and the monthly one is derived from it.
+    if users <= FLAT_SMALL_TIER_USERS:
+        monthly = annual / 12.0
+    return monthly, annual
 
 
 def monthly_list_price(users):
@@ -159,8 +225,8 @@ def current_take_rate(days=30):
 
 def cmd_quote(args):
     users = args.users
-    monthly = monthly_list_price(users)
-    annual = monthly * 10
+    band_monthly = monthly_list_price(users)
+    monthly, annual = live_list_price(users)
     share, latest, n_mode, n_total = current_take_rate()
 
     print("user tier      : {}".format(users))
@@ -172,7 +238,19 @@ def cmd_quote(args):
     print("  monthly list price{:>22}${:>8.2f}".format("", monthly))
     print()
     print("monthly billing: ${:,.2f}/month  (${:,.2f}/year)".format(monthly, monthly * 12))
-    print("annual billing : ${:,.2f}/year   (= 10 x monthly, two months free)".format(annual))
+    print("annual billing : ${:,.2f}/year   (published flat price of the band containing"
+          .format(annual))
+    print("                 {} users, NOT 10 x monthly — those agree only at a band"
+          .format(users))
+    print("                 boundary)")
+    # Below FLAT_SMALL_TIER_USERS the local constant is annual/10 while the Marketplace
+    # bills annual/12, so the two differ by construction there — comparing would fire a
+    # false staleness warning on every small-tier quote.
+    if users > FLAT_SMALL_TIER_USERS and abs(band_monthly - monthly) >= 0.01:
+        print()
+        print("NOTE: the local BANDS table gives ${:,.2f}/month, the Marketplace ${:,.2f}."
+              .format(band_monthly, monthly))
+        print("      Atlassian changed the price list — re-run `validate` and update BANDS.")
 
     print()
     if share is None:
@@ -206,7 +284,7 @@ def _bundle_breakeven():
     """User tier at which annual Full list price passes the single-space Bundle."""
     n = 1
     while n < 20000:
-        if monthly_list_price(n) * 10 >= ENTERPRISE_BUNDLE_ANNUAL:
+        if live_list_price(n)[1] >= ENTERPRISE_BUNDLE_ANNUAL:
             return n
         n += 1
     return float("nan")

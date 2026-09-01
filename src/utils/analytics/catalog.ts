@@ -233,6 +233,11 @@ export type AnalyticsEventName =
   // `can_create_page`, `page_reachable`) so the cause is read off the event
   // instead of inferred. One probe per failure; never fired on success.
   | "save_failed_diagnosed"
+  // Fires when the shared DSL editor's selected type tab changes. `from` and
+  // `to` capture the observed UI action; `macro_type` repeats the destination
+  // for existing type breakdowns. This is an action signal, not proof of a
+  // successful render or publish.
+  | "macro_type_changed"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
@@ -625,7 +630,7 @@ export type AnalyticsEventName =
   // text, page id, or tenant vocabulary on any of these.
   | "related_diagrams_lookup_succeeded"
   | "related_diagrams_lookup_failed"
-  | "related_diagrams_shown"
+  | "related_token_indicators_shown"
   | "related_diagram_popover_opened"
   | "related_diagram_link_clicked"
   // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG

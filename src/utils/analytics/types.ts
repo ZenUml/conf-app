@@ -61,6 +61,15 @@ export type AnalyticsProperties = {
   macro_uuid?: string;
   // Lifecycle
   operation_mode?: OperationMode;
+  // Shared DSL editor type-tab changes (#562). `from_macro_type` and
+  // `to_macro_type` describe the observed UI transition; `macro_type` on the
+  // same event is the destination for compatibility with existing breakdowns.
+  // `type_requested` records whether the initial type came from an explicit
+  // entry-point request (for example, a byline picker) rather than preference
+  // restoration. `is_new_macro` reuses the existing create-vs-edit axis.
+  from_macro_type?: MacroTypeValue;
+  to_macro_type?: MacroTypeValue;
+  type_requested?: boolean;
   // Session Replay policy. `macro_create_started` / `macro_edit_started` set
   // source=authoring and percent=100 after the SDK start call returns. The call
   // outcome is intentionally distinct from actual capture: only a later

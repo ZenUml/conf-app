@@ -15,6 +15,7 @@ jobs:
     name: Close fork PRs
     if: github.event.pull_request.head.repo.fork
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
       - name: Comment and close
         env:

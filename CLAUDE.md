@@ -46,10 +46,6 @@ A spot check assertion that requires UI verification must be confirmed by actual
 
 Do not assert facts about external systems, APIs, processes, or behavior unless you can point to proof — code you read, a doc you fetched, a command you ran. If you don't have evidence, say "I don't know" or "I'd need to verify this." Guessing and presenting it as fact is strictly prohibited.
 
-### Always label PR references
-
-In every user-facing message, never write a PR number by itself. Pair it with a short adjacent name, label, or purpose: write `PR #528 — authoring session replay telemetry` or `#528 (authoring-session-replay)`, not only `PR #528` or `#528`. When asking to merge, approve, release, or land it, the label must describe the user-visible behavior change rather than diff size or file count.
-
 ### Plan Mixpanel events before implementing any feature
 
 Before writing code for any new feature, define the analytics events first. For each event specify: name, trigger (what user action or system transition fires it), and the key properties (e.g. `feature_area`, `surface`, `macro_type`, outcome fields). Add them to `src/utils/analytics/catalog.ts` and `src/utils/analytics/types.ts` as the first commit of the feature branch.
@@ -74,7 +70,7 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
 
-Don't create a worktree reflexively: `.md`-only edits go straight to `main` (worktree only if another session's changes block a clean `git checkout main`), and changes to git-ignored files only need no branch/worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full branching protocol (start-of-issue steps, worktree usage).
+**The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — per-worktree setup cost, start-of-issue steps, cleanup.
 
 ### Never disrupt another session's working tree
 

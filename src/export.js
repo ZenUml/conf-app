@@ -398,7 +398,7 @@ export const handler = async (payload) => {
         ...joinKeyProps(ctx),
         failure_reason: 'missing_custom_content_id',
       });
-      return createErrorDocument("Diagram content not available for export");
+      return createErrorDocument("Diagram content not available for export. The diagram may need to be re-inserted on the page.");
     }
 
     let response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
@@ -441,7 +441,10 @@ export const handler = async (payload) => {
         http_status: response.status,
         ...fallbackProps(fallbackInfo),
       });
-      return createErrorDocument(`Failed to fetch attachments: ${response.status}`);
+      const userMessage = (response.status === 401 || response.status === 403)
+        ? "Couldn't access the diagram image (permission denied). Sign in to Confluence with an account that has access to this page, then try again."
+        : `Couldn't fetch the diagram image (HTTP ${response.status}). Please try the export again, or contact support if this keeps happening.`;
+      return createErrorDocument(userMessage);
     }
 
     const attachmentsData = await response.json();
@@ -458,7 +461,22 @@ export const handler = async (payload) => {
         failure_reason: 'attachment_not_found',
         ...fallbackProps(fallbackInfo),
       });
-      return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");
+      // 94% of macro_export_failed events hit this branch (3-day Mixpanel slice
+       // post-v2026.05.240313 release). The diagram image is saved as a page
+       // attachment by the macro viewer running in the *viewing user's*
+       // browser, with that user's Confluence credentials — so pages only ever
+       // viewed by users without attachment-write permission accumulate
+       // diagrams that render fine on screen but can never be exported.
+       // The prior message ("Please open the Confluence page…to generate it,
+       // then export again") was misleading: the page HAS typically been
+       // opened, but the upload silently failed. Tell the user what would
+       // actually help — a page editor needs to open the page so the
+       // diagram image can be saved with sufficient permissions.
+      return createErrorDocument(
+        "Diagram image not available for export. " +
+        "To save it for export, a user with edit access to this page needs " +
+        "to open it in Confluence — then try the export again."
+      );
     }
 
     const attachment = attachmentsData.results[0];

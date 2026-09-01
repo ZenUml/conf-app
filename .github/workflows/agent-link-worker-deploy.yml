@@ -14,6 +14,12 @@ on:
     # while agent-link is unchanged, but a tag cut before an agent-link change
     # silently rolls staging back, which is exactly the deploy-order failure the
     # contract below describes. Mirrors build-test-deploy.yml's tags-ignore.
+    # `branches` is required alongside `tags-ignore`: a push trigger carrying only
+    # tag filters stops firing for branch pushes altogether (observed 2026-09-01 —
+    # the commit adding tags-ignore edits this very file, which is in `paths`
+    # below, and produced no run until `branches` was added back).
+    branches:
+      - '**'
     tags-ignore:
       - '**'
     paths:

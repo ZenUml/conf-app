@@ -144,6 +144,20 @@ export default {
         return this.$store.state.diagram.diagramType;
       },
       set(value) {
+        const fromMacroType = this.diagramType;
+        if (value !== fromMacroType) {
+          const isNewMacro = !this.$store.state.diagram.id;
+          trackAnalyticsEvent('macro_type_changed', {
+            feature_area: 'macro',
+            surface: 'editor',
+            macro_type: value,
+            from_macro_type: fromMacroType,
+            to_macro_type: value,
+            operation_mode: isNewMacro ? 'create' : 'edit',
+            type_requested: !!this.$store.state.diagram.typeRequested,
+            is_new_macro: isNewMacro,
+          });
+        }
         this.updateDiagramType(value);
         // Save user's tab preference to localStorage
         localStorage.setItem('zenuml-preferred-diagram-type', value);

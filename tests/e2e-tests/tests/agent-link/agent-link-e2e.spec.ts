@@ -50,7 +50,9 @@ function mcpPayload(res: { result: any }): any {
       /* fall through */
     }
   }
-  return {};
+  // agentLinkMcp already unwraps structuredContent/content into `.result`;
+  // fall back to the payload itself for that (current) shape.
+  return res.result ?? {};
 }
 
 /**
@@ -128,7 +130,7 @@ test.describe('Live Agent Link — end to end', () => {
       // ---- agent side: read_page (also fires agent_connected) ----
       const rp = await agentLinkMcp(token!, 'read_page');
       expect(rp.status, 'read_page HTTP').toBe(200);
-      expect(String(rp.result?.structuredContent?.title ?? ''), 'read_page returns a real page title').not.toHaveLength(0);
+      expect(String(mcpPayload(rp).title ?? ''), 'read_page returns a real page title').not.toHaveLength(0);
 
       // ---- macro reflects the pairing: waiting -> connected (green border) ----
       await expect

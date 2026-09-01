@@ -217,6 +217,11 @@
     "node": "22.22.3"
   },
   "pnpm": {
+    "overrides": {
+      "local-crm>react": "19.2.8",
+      "local-crm>react-dom": "19.2.8",
+      "react-dom@19.2.8>react": "19.2.8"
+    },
     "ignoredBuiltDependencies": [],
     "onlyBuiltDependencies": [
       "@forge/cli",

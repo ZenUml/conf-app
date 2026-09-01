@@ -3,75 +3,45 @@ import { mount } from '@vue/test-utils'
 import LiveBadge from './LiveBadge.vue'
 
 describe('LiveBadge', () => {
-  it('renders when connected', () => {
+  it('renders the quiet connected signal', () => {
     const wrapper = mount(LiveBadge, { props: { state: 'connected' } })
+    const badge = wrapper.find('[data-testid="agent-link-live-badge"]')
 
-    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('live')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('Connected')
+    expect(wrapper.find('.agent-link-live-badge__dot').exists()).toBe(true)
+    expect(badge.attributes('aria-label')).toBe('AI assistant connected')
   })
 
-  it.each(['idle', 'waiting', 'timeout'] as const)(
-    'is hidden when state is %s',
-    (state) => {
-      const wrapper = mount(LiveBadge, { props: { state } })
+  it.each(['idle', 'waiting', 'timeout'] as const)('is hidden when state is %s', (state) => {
+    const wrapper = mount(LiveBadge, { props: { state } })
+    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-live-badge-suspended"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-live-badge-closed"]').exists()).toBe(false)
+  })
 
-      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="agent-link-live-badge-suspended"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="agent-link-live-badge-closed"]').exists()).toBe(false)
-    }
-  )
-
-  // Track G: extends LiveBadge with 'suspended'/'closed' variants — additive,
-  // so the original 'connected' rendering (asserted above) and the
-  // idle/waiting/timeout hidden states are untouched (collapsed-macro usage
-  // keeps working exactly as before).
-  it('renders the amber "Paused" variant when suspended (still resumable)', () => {
+  it('renders a minimal accessible amber Connecting status during automatic recovery', () => {
     const wrapper = mount(LiveBadge, { props: { state: 'suspended' } })
-
-    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     const badge = wrapper.find('[data-testid="agent-link-live-badge-suspended"]')
-    expect(badge.exists()).toBe(true)
-    expect(badge.text()).toContain('Paused')
+
+    expect(badge.text()).toBe('Connecting')
+    expect(badge.attributes('role')).toBe('status')
+    expect(badge.attributes('aria-live')).toBe('polite')
+    expect(badge.attributes('aria-label')).toBe('Connecting AI assistant')
   })
 
-  it('renders the gray "Disconnected" variant when closed (terminal)', () => {
-    const wrapper = mount(LiveBadge, { props: { state: 'closed' } })
+  it('renders terminal states without a connected signal', () => {
+    const closed = mount(LiveBadge, { props: { state: 'closed' } })
+    const expired = mount(LiveBadge, { props: { state: 'expired' } })
 
-    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
-    const badge = wrapper.find('[data-testid="agent-link-live-badge-closed"]')
-    expect(badge.exists()).toBe(true)
-    expect(badge.text()).toContain('Disconnected')
+    expect(closed.find('[data-testid="agent-link-live-badge-closed"]').text()).toBe('Disconnected')
+    expect(expired.find('[data-testid="agent-link-live-badge-expired"]').text()).toBe('Expired')
+    expect(expired.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
   })
 
-  // #314: the client-side TTL watchdog moves a stale session to 'expired' —
-  // the collapsed-macro badge must not keep showing "● live" once that
-  // happens.
-  it('renders the muted "Expired" variant when expired, and never the "● live" indicator', () => {
-    const wrapper = mount(LiveBadge, { props: { state: 'expired' } })
-
-    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
-    const badge = wrapper.find('[data-testid="agent-link-live-badge-expired"]')
-    expect(badge.exists()).toBe(true)
-    expect(badge.text()).toContain('Expired')
-  })
-
-  // Track H: additive "Working" variant for an op in flight on a live session
-  // (the rail status header passes `thinking`). The collapsed-macro usage never
-  // passes it, so the green "live" rendering above is untouched.
-  it('renders the blue "Working" variant when connected AND thinking', () => {
-    const wrapper = mount(LiveBadge, { props: { state: 'connected', thinking: true } })
-
-    const working = wrapper.find('[data-testid="agent-link-live-badge-working"]')
-    expect(working.exists()).toBe(true)
-    expect(working.text()).toContain('Working')
-    // The green "live" badge must yield to "Working" while an op is in flight.
-    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
-  })
-
-  it('keeps the green "live" badge when connected without thinking (default)', () => {
-    const wrapper = mount(LiveBadge, { props: { state: 'connected', thinking: false } })
-
-    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-live-badge-working"]').exists()).toBe(false)
+  it('declares a reduced-motion fallback for the automatic-recovery wave', async () => {
+    const source = (await import('./LiveBadge.vue?raw')).default
+    expect(source).toContain('@media (prefers-reduced-motion: reduce)')
+    expect(source).toContain('agent-link-connecting-wave')
   })
 })

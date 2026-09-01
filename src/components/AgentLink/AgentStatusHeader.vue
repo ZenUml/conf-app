@@ -1,11 +1,23 @@
 <template>
-  <!-- Rail status header (design contract §Region→component: AgentStatusHeader):
-       agent avatar (Sparkles) + client name + subline + LiveBadge. The avatar
-       tints with the session state (blue active/thinking, amber suspended,
-       gray closed) to echo the badge without repeating its text. -->
+  <!-- The connected client is the durable anchor. Automatic recovery changes
+       only the small status signal; the client identity and rail body stay put. -->
   <div class="agent-status-header" data-testid="agent-link-status-header">
-    <span class="agent-status-header__avatar" :class="avatarClass" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <span
+      class="agent-status-header__avatar agent-status-header__avatar--blue"
+      :style="brandColorStyle"
+      aria-hidden="true"
+      :data-client-brand="brandIcon?.label ?? 'generic'"
+    >
+      <svg v-if="brandIcon?.icon" viewBox="0 0 24 24" fill="currentColor" data-testid="agent-link-client-brand-icon">
+        <path :d="brandIcon.icon.path" />
+      </svg>
+      <img
+        v-else-if="brandIcon?.assetUrl"
+        :src="brandIcon.assetUrl"
+        alt=""
+        data-testid="agent-link-client-brand-icon"
+      />
+      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" data-testid="agent-link-client-generic-icon">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
       </svg>
     </span>
@@ -13,30 +25,36 @@
       <div class="agent-status-header__name" data-testid="agent-link-status-header-name">{{ displayName }}</div>
       <div class="agent-status-header__sub">{{ subline }}</div>
     </div>
-    <LiveBadge :state="state" :thinking="thinking" :last-activity-at="lastActivityAt" />
+    <LiveBadge :state="state" :last-activity-at="lastActivityAt" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import LiveBadge from './LiveBadge.vue'
+import { getLiveClientBrand, normalizeLiveAgentClientLabel } from './agentClientBrands'
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 import { ACTIVITY_LINGER_MS } from '@/composables/agentLink/useAgentLinkSession'
 
 const props = withDefaults(
   defineProps<{
     state: AgentLinkClientState
-    // orthogonal "op in flight" axis (Track F) — drives the blue "Working" badge
+    // Orthogonal op-in-flight axis; reflected in the header subline while the
+    // actual work remains the first timeline row.
     thinking?: boolean
-    // Connected agent client name; falls back to the generic label.
+    // Raw self-reported client name. It is normalized to the fixed safe label
+    // set before display; unknown values use the neutral label and glyph.
     clientName?: string
-    diagramTitle?: string
     lastActivityAt?: number | null
   }>(),
-  { thinking: false, clientName: '', diagramTitle: '', lastActivityAt: null }
+  { thinking: false, clientName: '', lastActivityAt: null }
 )
 
-const displayName = computed(() => props.clientName?.trim() || 'Connected agent')
+const displayName = computed(() => normalizeLiveAgentClientLabel(props.clientName))
+const brandIcon = computed(() => getLiveClientBrand(displayName.value))
+const brandColorStyle = computed(() =>
+  brandIcon.value?.icon ? { color: `#${brandIcon.value.icon.hex}` } : undefined
+)
 
 const nowMs = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
@@ -72,15 +90,10 @@ const agentActive = computed(() => {
 })
 
 const subline = computed(() => {
-  // Active idle → capability subline; every other state → what it's bound to.
-  if (props.state === 'connected') {
-    if (props.thinking) return 'Connected · reads & edits'
-    if (props.lastActivityAt === null || props.lastActivityAt === undefined) return 'Connected · reads & edits'
-    if (agentActive.value) return 'Connected · agent active'
-    return `Connected · agent active · ${formatActivityAge(nowMs.value - props.lastActivityAt)} ago`
-  }
-  const title = props.diagramTitle?.trim()
-  return title ? `Linked to ${title}` : 'Linked to this diagram'
+  if (props.thinking) return 'Editing now'
+  if (props.lastActivityAt === null || props.lastActivityAt === undefined) return 'Reads & edits'
+  if (agentActive.value) return 'Active now'
+  return `Active ${formatActivityAge(nowMs.value - props.lastActivityAt)} ago`
 })
 
 function formatActivityAge(ageMs: number): string {
@@ -89,16 +102,6 @@ function formatActivityAge(ageMs: number): string {
   return `${seconds}s`
 }
 
-const avatarClass = computed(() => {
-  switch (props.state) {
-    case 'suspended':
-      return 'agent-status-header__avatar--amber'
-    case 'closed':
-      return 'agent-status-header__avatar--gray'
-    default:
-      return 'agent-status-header__avatar--blue'
-  }
-})
 </script>
 
 <style scoped>
@@ -118,21 +121,14 @@ const avatarClass = computed(() => {
   align-items: center;
   justify-content: center;
 }
-.agent-status-header__avatar svg {
+.agent-status-header__avatar svg,
+.agent-status-header__avatar img {
   width: 20px;
   height: 20px;
 }
 .agent-status-header__avatar--blue {
   background: #eff4ff;
   color: #2563eb;
-}
-.agent-status-header__avatar--amber {
-  background: #fbf3d6;
-  color: #8a6d00;
-}
-.agent-status-header__avatar--gray {
-  background: #f1f2f4;
-  color: #6b778c;
 }
 .agent-status-header__meta {
   flex: 1 1 auto;

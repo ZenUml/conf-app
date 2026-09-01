@@ -8,6 +8,20 @@ name: Deploy Agent Link Worker (Staging)
 # app deploy, and vice versa.
 on:
   push:
+    # Release tags (v2026.08.31xxxx-lite, ...) point at the released commit, so a
+    # tag push redeployed this Worker to STAGING from whatever tree that tag
+    # carries — 18 of the 20 runs before 2026-09-01 were tag-triggered. Harmless
+    # while agent-link is unchanged, but a tag cut before an agent-link change
+    # silently rolls staging back, which is exactly the deploy-order failure the
+    # contract below describes. Mirrors build-test-deploy.yml's tags-ignore.
+    # `branches` is required alongside `tags-ignore`: a push trigger carrying only
+    # tag filters stops firing for branch pushes altogether (observed 2026-09-01 —
+    # the commit adding tags-ignore edits this very file, which is in `paths`
+    # below, and produced no run until `branches` was added back).
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
     paths:
       - 'workers/agent-link/**'
       # The DO class lives in functions/agent-link/ (re-exported by the Worker's

@@ -428,10 +428,6 @@ export default defineConfig(({ command }) => ({
     host: '0.0.0.0',
     port: 8080,
     proxy: {
-      '/authenticate': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
       '/api/metrics/evaluation': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
@@ -444,19 +440,11 @@ export default defineConfig(({ command }) => ({
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
-      '/attachment': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
       '/track': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true,
       },
       '/diagramly': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
-      '/diagram-likes': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },

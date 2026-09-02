@@ -55,15 +55,12 @@ export const CANONICAL_EVENT_NAME_LIST = [
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];
 
-export type TrackCanonicalRequest = {
-  transport_version: 2;
-  event: AnalyticsEventName;
-  properties: Record<string, string | number | boolean | null | undefined>;
-  addon_key: string;
-  version: string;
-};
-
-export type TrackLegacyRequest = {
+// The transport_version: 2 "canonical" shape (TrackCanonicalRequest) and its
+// isCanonicalRequest() discriminator were deleted 2026-09-02: nothing ever
+// sent transport_version: 2 to /track (the frontend's canonical emit path is
+// trackAnalyticsEvent -> Mixpanel directly, not this legacy endpoint). This
+// is now just the one shape /track has ever actually received.
+export type TrackRequest = {
   transport_version?: 1;
   action: string;
   event_category?: string;
@@ -74,9 +71,3 @@ export type TrackLegacyRequest = {
   version: string;
   [key: string]: string | number | boolean | null | undefined;
 };
-
-export type TrackRequest = TrackCanonicalRequest | TrackLegacyRequest;
-
-export function isCanonicalRequest(body: TrackRequest): body is TrackCanonicalRequest {
-  return (body as TrackCanonicalRequest).transport_version === 2;
-}

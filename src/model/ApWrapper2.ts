@@ -173,15 +173,11 @@ export default class ApWrapper2 {
     return forgeGlobal.forgeContext?.extension?.config as IMacroData | undefined;
   }
 
-  getContentProperty(_key: any): Promise<IContentProperty | undefined> {
-    return Promise.resolve(undefined);
-  }
-
   // ZEN-1170 Defect 1: discriminated content-property read used by the Forge
-  // viewer/editor legacy-fallback paths. The legacy `getContentProperty` above
-  // collapses every failure to `undefined`, which is safe for viewer-only
-  // callers but unsafe for editors (a transient 403 would look identical to
-  // "no legacy property" and the user could save over the legacy data).
+  // viewer/editor legacy-fallback paths. It reports WHY a read failed rather
+  // than collapsing every failure to `undefined`: for an editor a transient
+  // 403 must not look identical to "no legacy property", or the user could
+  // save over the legacy data.
   async getContentPropertyV2(key: string): Promise<ContentPropertyV2Result> {
     // Resolve pageId with the same fallback chain as initializeContext, since
     // not every Forge entry point calls initializeContext() before reaching

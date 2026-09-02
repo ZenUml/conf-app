@@ -1145,6 +1145,8 @@ export default {
         toast({ message: 'Version history unavailable', duration: 2000 });
         return;
       }
+      // READ BY tests/e2e-tests/tests/fullscreen/viewer-actions.spec.ts:55,87,119
+      console.log(`Getting versions for content ID: ${this.diagram.id}`);
       globals.apWrapper.getAndPrintContentVersions(this.diagram.id)
         .catch(error => console.error('Error retrieving content versions:', error));
       toast({ message: 'Version history printed to developer console (F12)', duration: 2200 });

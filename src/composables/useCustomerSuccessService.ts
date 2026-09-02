@@ -51,6 +51,8 @@ export function useCustomerSuccessService() {
 
   const shouldBlockActions = computed(() => {
     if (spacePaidStatus.value) {
+      // READ BY docs/reference/paid-space-detection.md:31,103
+      console.log('✅ Space is paid - bypassing all restrictions')
       return false
     }
 
@@ -225,6 +227,8 @@ export function useCustomerSuccessService() {
       await loadSpaceKey()
       const spaceKey = currentSpaceKey.value
 
+      // READ BY docs/reference/paid-space-detection.md:29
+      console.log('🔍 Checking space paid status...')
       const response = await callRemote(`/api/space-status?spaceKey=${encodeURIComponent(spaceKey)}`, 'GET')
 
       if (response && typeof response.isPaid === 'boolean') {

@@ -3,7 +3,6 @@ import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isCo
 import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
 import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
 import { decompress } from "@/utils/compress";
-import ApWrapper2 from "@/model/ApWrapper2";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { toast } from '@/utils/toast';

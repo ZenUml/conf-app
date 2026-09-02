@@ -24,9 +24,6 @@ export type FeatureArea =
   // sequence participants. Read-only in Phase 1; index built offline.
   | "architecture_tokens";
 
-/** Current user's relationship to the diagram being measured. */
-export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
-
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 
@@ -172,8 +169,6 @@ export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
 //                 malformed KV, or the lookup was never made) — an unavailable
 //                 decision, not evidence the tenant is safe to restrict.
 export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
-
-export type FeedbackValue = "good" | "partial" | "bad";
 
 // Onboarding funnel: how a starter surface (template gallery / starter-shown
 // event) came to be visible. 'auto_first_open' = the editor opened it itself
@@ -823,16 +818,6 @@ export type AnalyticsEventName =
 // and paste it into any page, #360's missing producer); 'draft_page' = the
 // stall-breaker secondary that creates a page carrying the diagram.
 export type ActivationPath = "copy_link" | "draft_page";
-
-// Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
-// own render settled, or the page-banner iframe on its no-banner fast-path.
-// See utils/prefetch/rendererPrefetch.ts.
-export type PrefetchHost = "macro" | "banner";
-
-// Terminal outcome of a prefetch attempt: every asset settled ok, some assets
-// failed/timed out, nothing was warmed at all, or the deadline fired before
-// any per-asset result arrived (timed_out).
-export type PrefetchOutcome = "completed" | "partial" | "failed" | "timed_out";
 
 // Why an agent_link session ended (agent_link_disconnected). 'user' = explicit
 // Disconnect click; 'timeout' = token/session TTL; 'idle' = no activity for the

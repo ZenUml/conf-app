@@ -7,7 +7,6 @@ import type {
   Surface,
   EntryPoint,
   OperationMode,
-  FeedbackValue,
   RenderMode,
   RenderGateMode,
   RenderGateOutcome,
@@ -16,8 +15,6 @@ import type {
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
-  PrefetchHost,
-  PrefetchOutcome,
   DashboardFormatFilter,
   AgentLinkDisconnectReason,
   AgentLinkExpiryCause,
@@ -26,7 +23,6 @@ import type {
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
   ActivationPath,
-  ViewerRelation,
   GalleryOpenTrigger,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
@@ -112,7 +108,6 @@ export type AnalyticsProperties = {
     | 'history_load'
     | 'version_restore';
   // Upgrade
-  product_option?: string;
   ui_component?: string;
   // Paywall gate evaluation (paywall_gate_evaluated). `gate_fired` = did the
   // Lite paywall block this mount; `macro_count` = the count the decision used;
@@ -138,8 +133,6 @@ export type AnalyticsProperties = {
   space_paid?: boolean;
   space_paid_scope?: 'user_license' | 'space_license' | 'paid_rail';
   is_lite?: boolean;
-  cta_position?: "primary" | "secondary";
-  feature_name?: string;
   source?: string;
   // Embed AutoConvert lifecycle. Absent when the Forge context has no cloudId
   // or the link cannot be parsed; false is reserved for the rejected
@@ -190,15 +183,8 @@ export type AnalyticsProperties = {
   // titles, or raw errors. `convert_job_id` is our own D1 row id, not an
   // Atlassian identifier. `convert_skip_reason` is a closed vocabulary so the
   // phase-2 decision ("is embed demand real?") is a groupBy, not a text mine.
-  convert_job_id?: string;
   convert_dry_run?: boolean;
   convert_request_source?: string;
-  convert_pages_total?: number;
-  convert_pages_succeeded?: number;
-  convert_pages_failed?: number;
-  convert_macros_converted?: number;
-  convert_macros_skipped?: number;
-  convert_skip_reason?: "embed_macro" | "unknown_macro_key" | "body_missing";
   convert_failure_stage?:
     | "claim"
     | "page_read"
@@ -228,7 +214,6 @@ export type AnalyticsProperties = {
   cancel_reason?: "panel_closed" | "component_unmounted";
   close_reason?: "user_closed";
   // Feedback
-  feedback_value?: FeedbackValue;
   feedback_score?: number;
   feedback_text?: string;
   // Content
@@ -259,7 +244,6 @@ export type AnalyticsProperties = {
   snapshot_skip_reason?: 'no_write_permission' | 'page_not_published';
   // Diagram attribution and impact (Phase 1). These values intentionally
   // exclude viewer keys, attribution names, and other users' account IDs.
-  viewer_relation?: ViewerRelation;
   has_last_updated_by?: boolean;
   has_audience_count?: boolean;
   // Whether the diagram met the viewport rule when the 3s dwell timer fired.
@@ -270,8 +254,6 @@ export type AnalyticsProperties = {
   // node was unavailable and the gate fell back to the 29px attribution strip,
   // which is the pre-2026-09-02 behaviour rather than the intended one.
   gate_target?: 'diagram' | 'footer';
-  visibility_duration_ms?: number;
-  audience_count?: number;
   space_admin_count?: number;
   // Architecture Tokens Phase 1. Counts only.
   lookup_outcome?: ArchitectureTokenLookupOutcome; // required on new lookup-success events
@@ -371,13 +353,6 @@ export type AnalyticsProperties = {
   // detection degrading to false is otherwise indistinguishable from "nobody
   // opens the byline while editing".
   host_in_editor?: boolean;
-  // byline_visibility_evaluated. Whether this installation should render the
-  // byline entry, and what drove it. `full_present` is the both-apps-installed
-  // case the suppression exists for; `full_stale` means a Full install row
-  // exists but is older than the presence TTL — there is no uninstall event to
-  // key on, so staleness is the only available proxy and it must be readable
-  // apart from a confident absence.
-  byline_visibility_decision?: "visible" | "suppressed";
   // `enrolled` means the installation renders the byline. Since the
   // 2026-08-22 general rollout that is every installation with a resolvable
   // cloudId, so `not_enrolled` is no longer emitted — it is retained here
@@ -392,18 +367,6 @@ export type AnalyticsProperties = {
     | "enrolled"
     | "not_enrolled"
     | "no_signal";
-  // Days since the newest Full ForgeInstallation row for this cloudId. Absent
-  // when no such row exists at all, which is NOT the same as a large number.
-  full_last_seen_days?: number;
-  // Which call site ran the evaluation. The scheduled pass is the only one
-  // proven to reach existing installs — avi:forge:upgraded:app has never
-  // produced a ForgeInstallation row — so a funnel dominated by 'install_trigger'
-  // would mean the scheduled sweep has stopped running.
-  byline_visibility_source?: "install_trigger" | "scheduled";
-  // byline_visibility_write. 'unchanged' is a success, not a no-op worth
-  // hiding: it is what proves the writer is idempotent and is the expected
-  // steady state once a tenant has settled.
-  byline_visibility_result?: "written" | "cleared" | "unchanged" | "failed";
   // Byline thumbnails: how many of `diagram_count` resolved to a backup-PNG
   // attachment. Coverage is the whole question for this feature — diagrams
   // saved before the attachment backup existed, failed captures, and viewers
@@ -613,12 +576,6 @@ export type AnalyticsProperties = {
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See
   // utils/prefetch/rendererPrefetch.ts.
-  prefetch_host?: PrefetchHost;
-  prefetch_renderers?: string; // comma list, e.g. "graph,mermaid,sequence,openapi"
-  prefetch_outcome?: PrefetchOutcome;
-  prefetch_assets_count?: number;
-  prefetch_failed_count?: number;
-  prefetch_duration_ms?: number;
   effective_type?: string; // navigator.connection.effectiveType at attempt time
   save_data?: boolean;
   // Volume sampling: present (and < 1) only when this event was emitted under a
@@ -715,7 +672,6 @@ export type AnalyticsProperties = {
   // Error
   error_code?: string;
   error_name?: string;
-  error_source?: string;
   // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
   // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
   // `operations` list on the host page, so `can_create_cc_type=false` is

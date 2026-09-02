@@ -33,7 +33,6 @@
     "wrangler:publish:stg:lite": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-lite --branch=production",
     "wrangler:link": "ln -sf wrangler-dev.toml wrangler.toml",
     "lint": "eslint src/",
-    "lint:vue": "eslint src/ --ext .vue",
     "git:branch:clean:gone": "git fetch -p && git branch -vv | awk '/: gone]/{print $1}' | xargs git branch -d",
     "git:branch:clean:merged": "git branch --merged|egrep -v \"(\\*|master|main|dev|skip_branch_name)\" | xargs git branch -d",
     "db:migrate:local": "wrangler d1 migrations apply conf-zenuml-dev --local",

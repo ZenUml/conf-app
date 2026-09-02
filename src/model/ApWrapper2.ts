@@ -173,10 +173,6 @@ export default class ApWrapper2 {
     return forgeGlobal.forgeContext?.extension?.config as IMacroData | undefined;
   }
 
-  async getMacroBody(): Promise<string | undefined> {
-    return undefined;
-  }
-
   getContentProperty(_key: any): Promise<IContentProperty | undefined> {
     return Promise.resolve(undefined);
   }

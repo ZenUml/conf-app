@@ -40,6 +40,7 @@ vi.mock('@forge/bridge', () => ({
 
 import {
   isAiChatEnabled,
+  isAiChatRepairEnabled,
   isAiRepairEnabled,
   isAgentLinkEnabled,
   isArchitectureTokensEnabled,
@@ -149,6 +150,52 @@ describe('isAiChatEnabled', () => {
 
     expect(consoleError).toHaveBeenCalledWith(
       'Failed to load AI Chat feature flag:',
+      featureFlagsState.checkError,
+    )
+    consoleError.mockRestore()
+  })
+})
+
+describe('isAiChatRepairEnabled', () => {
+  beforeEach(() => {
+    resetFeatureFlagsForTests()
+    forgeState.isForge = true
+    forgeState.context = {
+      cloudId: 'cloud-1',
+      accountId: 'account-1',
+      environmentType: 'STAGING',
+    }
+    featureFlagsState.instances = []
+    featureFlagsState.nextValue = true
+    featureFlagsState.initializeError = undefined
+    featureFlagsState.checkError = undefined
+    localStorage.clear()
+  })
+
+  it('checks the Forge ai-chat-repair-enabled flag with a false default', async () => {
+    await expect(isAiChatRepairEnabled()).resolves.toBe(true)
+
+    const instance = featureFlagsState.instances[0]
+    expect(instance.checkFlag).toHaveBeenCalledWith('ai-chat-repair-enabled', false)
+  })
+
+  it('is opt-in in standalone local dev', async () => {
+    forgeState.isForge = false
+    await expect(isAiChatRepairEnabled()).resolves.toBe(false)
+
+    localStorage.setItem('mockAiChatRepairEnabled', 'true')
+    await expect(isAiChatRepairEnabled()).resolves.toBe(true)
+    expect(featureFlagsState.instances).toHaveLength(0)
+  })
+
+  it('returns disabled when the Forge flag lookup fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    featureFlagsState.checkError = new Error('flag service unavailable')
+
+    await expect(isAiChatRepairEnabled()).resolves.toBe(false)
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'Failed to load AI Chat repair feature flag:',
       featureFlagsState.checkError,
     )
     consoleError.mockRestore()

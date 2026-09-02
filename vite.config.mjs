@@ -413,6 +413,11 @@ export default defineConfig(({ command }) => ({
       // checks. They are run with tests/e2e-tests' Playwright config, never
       // as root Vitest unit suites.
       '**/private/customer-investigation/**/*.spec.ts',
+      // local-crm is a separate workspace package with its own Vite config,
+      // where `@` resolves to local-crm/src. The root config points `@` at
+      // ./src, so collecting its suites here fails at import resolution.
+      // Run them with `pnpm --dir local-crm test`.
+      '**/local-crm/**',
       // Skip the asyncapi-studio submodule's own tests — they import
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.

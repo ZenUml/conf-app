@@ -37,6 +37,7 @@ import type {
   CopySource,
   CreateNotFoundShape,
   SaveFailureProbeStatus,
+  ArchitectureTokenLookupOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -81,6 +82,9 @@ export type AnalyticsProperties = {
   // (dashboard_format_filtered). "all" = both AsyncAPI and OpenAPI shown.
   format_filter?: DashboardFormatFilter;
   result?: string;
+  // AI entry-point impressions (ai_chat_button_shown /
+  // ai_repair_button_shown) carry macro_type so their exposed users/volume
+  // can be compared directly with the corresponding opened/requested event.
   // AI Chat failure events use only closed-vocabulary categories here. Never
   // attach the raw backend error, prompt, diagram code, or job id.
   failure_reason?: string;
@@ -258,10 +262,19 @@ export type AnalyticsProperties = {
   viewer_relation?: ViewerRelation;
   has_last_updated_by?: boolean;
   has_audience_count?: boolean;
+  // Whether the diagram met the viewport rule when the 3s dwell timer fired.
+  // `false` identifies the registrations produced by the ready-watcher path,
+  // which armed the timer without any viewport check before 2026-09-02.
+  was_intersecting?: boolean;
+  // Which element the audience dwell gate watched. `footer` means the diagram
+  // node was unavailable and the gate fell back to the 29px attribution strip,
+  // which is the pre-2026-09-02 behaviour rather than the intended one.
+  gate_target?: 'diagram' | 'footer';
   visibility_duration_ms?: number;
   audience_count?: number;
   space_admin_count?: number;
   // Architecture Tokens Phase 1. Counts only.
+  lookup_outcome?: ArchitectureTokenLookupOutcome; // required on new lookup-success events
   participant_count?: number;          // participants declared in this diagram
   participants_with_related?: number;  // of which have >=1 accessible related page
   participants_anchored?: number;      // of those, how many got a circle placed on a lifeline

@@ -26,6 +26,31 @@ function fakeDb(input: { historical?: boolean; count?: number; existing?: { last
   } as unknown as D1Database;
 }
 
+// Same shape as fakeDb (eligible-viewer, no existing row -> INSERT path), but
+// captures the bind() args of every INSERT so what the repository actually
+// receives can be asserted at that boundary.
+function fakeDbCapturingInserts(input: { count?: number } = {}) {
+  const inserts: unknown[][] = [];
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind: (...binds: unknown[]) => ({
+          first: async () => {
+            if (sql.includes('CustomContentVersion')) return null;
+            if (sql.includes('COUNT(*)')) return { audienceCount: input.count ?? 7 };
+            return null;
+          },
+          run: async () => {
+            if (sql.includes('INSERT')) inserts.push(binds);
+            return { meta: { changes: 1 } };
+          },
+        }),
+      };
+    },
+  } as unknown as D1Database;
+  return { db, inserts };
+}
+
 const data = {
   forgeContext: {
     cloudId: 'cloud-a',
@@ -105,4 +130,37 @@ describe('diagram impact service', () => {
       env: { DB: fakeDb() }, data, forgeOAuthUser: 'token', customContentId: ' ',
     })).rejects.toMatchObject<Partial<DiagramImpactRequestError>>({ status: 400, code: 'invalid_content_id' });
   });
-});
+
+  // A derived write must not turn a page view into a 500. The failure goes to
+  // Sentry and the response still carries the count that could be read.
+  it('answers with write_failed and the readable count when the audience row cannot be written', async () => {
+    const db = {
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => {
+            if (sql.includes('CustomContentVersion')) return null;
+            if (sql.includes('COUNT(*)')) return { audienceCount: 7 };
+            return null;
+          },
+          run: async () => {
+            if (sql.includes('INSERT')) throw new Error('D1_ERROR: database is locked');
+            return { meta: { changes: 0 } };
+          },
+          all: async () => ({ results: [] }),
+        }),
+      }),
+    } as unknown as D1Database;
+
+    vi.stubGlobal('fetch', vi.fn(async () => response(content)));
+
+    const result = await registerDiagramImpactView({
+      env: { DB: db },
+      data,
+      forgeOAuthUser: 'opaque-user-token',
+      customContentId: 'content-a',
+    });
+
+    expect(result.result).toBe('write_failed');
+    expect(result.audienceCount).toBe(7);
+  });
+})

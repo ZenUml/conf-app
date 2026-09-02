@@ -1,6 +1,6 @@
 # Paywall — Status & Roadmap (ZenUML Lite)
 
-**Last updated:** 2026-06-07 · **Variant scope:** Lite only (Full/Diagramly bypass via `isLite() === false`) · **Day-to-day monitoring:** `.claude/skills/paywall/SKILL.md`
+**Last updated:** 2026-09-02 · **Variant scope:** Lite only (Full/Diagramly bypass via `isLite() === false`) · **Day-to-day monitoring:** `.claude/skills/paywall/SKILL.md`
 
 This is the single source of truth for the Lite paywall. It replaces the former separate strategy / export-research / extension-flow / page-banner docs (folded in here 2026-06-03; full history in git).
 
@@ -14,13 +14,13 @@ Lite monetization runs on **two complementary upgrade funnels**, picked by *who*
 
 ## ✅ Shipped (brief)
 
-The **friction funnel is fully shipped and instrumented**: per-space 100-macro soft-block on edit + create (modal over a mounted editor, dismissable), an 85-macro inline warning, a viewer "Upgrade" badge, persistence-layer save block, an **advocacy-only** modal (`Copy upgrade request` → `advocacy_message_copied`), a 15-attempt continue gate, a **Forge page-banner** warning that reaches editors *while browsing* (85–99 band, 7-day snooze, defers CSAT), space-license + Stripe-webhook bypass, and CSS-flag enrollment.
+The **friction funnel is fully shipped and instrumented**: per-space 100-macro soft-block on edit + create (modal over a mounted editor, dismissable), an 85-macro inline warning, a viewer "Upgrade" badge, persistence-layer save block, an **advocacy-only** modal (`Copy upgrade request` → `advocacy_message_copied`), a 3-attempt continue gate (15 before 2026-08-16), a **Forge page-banner** warning that reaches editors *while browsing* (85–99 band, 7-day snooze, defers CSAT), space-license + Stripe-webhook bypass, and CSS-flag enrollment.
 
 | Shipped surface | Event | Ref |
 |---|---|---|
 | Edit / create soft-block modal | `paywall_blocked_edit` / `paywall_blocked_create` + `paywall_triggered` | PR #89 (create path) |
 | Advocacy CTA (marketplace/sales CTAs removed — were 0% click) | `advocacy_message_copied` | — |
-| 15 continue-attempts gate (localStorage, per `clientDomain:spaceKey:userAccountId`) | `paywall_continue_used`, `paywall_attempts_exhausted` | `src/utils/paywall/continueAttempts.ts` |
+| 3 continue-attempts gate (localStorage, per `clientDomain:spaceKey:userAccountId`) | `paywall_continue_used`, `paywall_attempts_exhausted` | `src/utils/paywall/continueAttempts.ts` |
 | Page-banner warning (85–99 band, 7-day snooze, CSAT defer) | `paywall_banner_shown` / `_dismissed`, `surface: page_banner` | PRs #201–#210 |
 | Space-admin activity probe (Phase 5a; Lite, 30d throttle) | `space_admin_active` (`is_space_admin: true`, `surface: page_banner`) | `src/utils/paywall/spaceAdminProbe.ts` |
 | Export Phase-1 telemetry | `macro_export_requested` / `_succeeded` / `_failed` | `src/export.js` |
@@ -44,12 +44,12 @@ The **friction funnel is fully shipped and instrumented**: per-space 100-macro s
 
 | Item | Value / Location |
 |---|---|
-| `DEFAULT_CONTINUE_ATTEMPTS` | `15` — `src/utils/paywall/continueAttempts.ts` |
+| `DEFAULT_CONTINUE_ATTEMPTS` | `3` — `src/utils/paywall/continueAttempts.ts`. Lowered from 15 on 2026-08-16 (PR #479, the free continue-editing default cut from 15 to 3). A stored balance is never rewritten, so a user who first hit the gate before that date can still hold up to 15. |
 | localStorage key format | `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (each part URL-encoded) |
 | State fields | `remainingAttempts`, `firstTriggeredAt`, `lastUsedAt`, `exhaustedAt` |
 | Events | `paywall_continue_used` (each click), `paywall_attempts_exhausted` (N hits 0) |
 
-**Known client-side weak spot:** the counter is `localStorage`-keyed per `clientDomain:spaceKey:userAccountId`, so clearing storage or using an incognito window resets N to 15. This is a deliberate soft-paywall tradeoff — not a bug to patch without a product decision.
+**Known client-side weak spot:** the counter is `localStorage`-keyed per `clientDomain:spaceKey:userAccountId`, so clearing storage or using an incognito window resets N to the default (3 since 2026-08-16). This is a deliberate soft-paywall tradeoff — not a bug to patch without a product decision.
 
 **Testing on staging:** on `lite-stg`, the large over-threshold space is **`SD`** (~1230 macros). When the paywall modal appears, click **"Continue editing"** to proceed — do NOT hunt for `localStorage` overrides (`mockSpacePaid` etc.) to suppress it.
 

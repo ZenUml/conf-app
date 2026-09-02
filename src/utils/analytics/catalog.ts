@@ -27,6 +27,9 @@ export type FeatureArea =
 /** Current user's relationship to the diagram being measured. */
 export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
 
+/** Whether an Architecture Tokens lookup found index rows for the current diagram. */
+export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
+
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
@@ -311,6 +314,11 @@ export type AnalyticsEventName =
   | "ai_title_accepted"
   | "ai_title_modified"
   | "ai_editor_opened"
+  // AI entry-point impressions. Fire on each hidden -> visible transition of
+  // the editor button (not on component re-renders), with macro_type so the
+  // denominator can be compared directly with the existing click/request
+  // events below.
+  | "ai_chat_button_shown"
   | "ai_chat_opened"
   | "ai_chat_closed"
   | "ai_chat_suggestion_selected"
@@ -339,6 +347,7 @@ export type AnalyticsEventName =
   // backend_llm_duration_ms sums only its LLM calls across repair attempts.
   // failed additionally carries failure_phase; never attach diagram code,
   // error source text, or a job id to these events.
+  | "ai_repair_button_shown"
   | "ai_repair_requested"
   | "ai_repair_succeeded"
   | "ai_repair_failed"

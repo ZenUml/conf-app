@@ -205,6 +205,7 @@ and `macro_type: "mermaid"`.
 
 | Property | Notes |
 |---|---|
+| `lookup_outcome` | `indexed` when the current diagram has index rows; `index_miss` when the endpoint returns its intentional empty fail-open response. Historical events before deployment have this property unset. |
 | `participant_count` | Participants declared in the rendered diagram |
 | `participants_with_related` | Participants with at least one accessible related page |
 | `related_pages_total` | Total accessible related pages across participants |

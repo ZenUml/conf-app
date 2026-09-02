@@ -25,6 +25,9 @@ overrides:
   react-redux: ^8.1.3
   react-dd-menu: ^2.0.2
   react-file-download: ^0.3.5
+  local-crm>react: 19.2.8
+  local-crm>react-dom: 19.2.8
+  react-dom@19.2.8>react: 19.2.8
 
 importers:
 
@@ -53,7 +56,7 @@ importers:
         version: 1.32.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/renderer':
         specifier: ^118.6.14
-        version: 118.7.1(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/node@25.0.3)(@types/react@17.0.2)(eslint@9.4.0)(immer@9.0.21)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)(url-search-params@0.10.2)
+        version: 118.7.1(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/node@25.0.3)(@types/react@17.0.2)(eslint@9.4.0)(immer@9.0.21)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)(url-search-params@0.10.2)
       '@atlaskit/spinner':
         specifier: ^19.0.7
         version: 19.0.8(@types/react@17.0.2)(react@17.0.2)
@@ -120,6 +123,9 @@ importers:
       '@sentry/node':
         specifier: ^9.5.0
         version: 9.47.1
+      '@sindresorhus/slugify':
+        specifier: 3.0.0
+        version: 3.0.0
       '@vitejs/plugin-react':
         specifier: ^5.2.0
         version: 5.2.0(vite@7.3.0(@types/node@25.0.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))
@@ -256,9 +262,6 @@ importers:
       '@playwright/test':
         specifier: ^1.59.1
         version: 1.59.1
-      '@sindresorhus/slugify':
-        specifier: 3.0.0
-        version: 3.0.0
       '@storybook/addon-a11y':
         specifier: ^10.4.1
         version: 10.4.1(storybook@10.4.1(@testing-library/dom@10.4.0)(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))
@@ -359,12 +362,15 @@ importers:
         specifier: ^5.8.5
         version: 5.8.5
     devDependencies:
+      '@tailwindcss/postcss':
+        specifier: ^4.3.0
+        version: 4.3.3
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.7
       '@vitejs/plugin-vue':
         specifier: ^6.0.6
-        version: 6.0.6(vite@8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))(vue@3.5.34(typescript@5.9.3))
+        version: 6.0.6(vite@8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))(vue@3.5.34(typescript@5.9.3))
       autoprefixer:
         specifier: ^10.5.0
         version: 10.5.0(postcss@8.4.31)
@@ -388,13 +394,56 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^8.0.10
-        version: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4)
+        version: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4)
       vitest:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.7)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.44.1)
       vue:
         specifier: ^3.5.34
         version: 3.5.34(typescript@5.9.3)
+
+  local-crm:
+    dependencies:
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+    devDependencies:
+      '@tailwindcss/postcss':
+        specifier: ^4.3.0
+        version: 4.3.3
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.7
+      '@types/react':
+        specifier: '=19.2.18'
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: '=19.2.5'
+        version: 19.2.5(@types/react@19.2.18)
+      '@vitejs/plugin-react':
+        specifier: ^5.2.0
+        version: 5.2.0(vite@8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))
+      autoprefixer:
+        specifier: ^10.5.0
+        version: 10.5.0(postcss@8.4.31)
+      postcss:
+        specifier: ^8.4.31
+        version: 8.4.31
+      tailwindcss:
+        specifier: ^4.2.4
+        version: 4.3.3
+      typescript:
+        specifier: ^5.2.2
+        version: 5.9.3
+      vite:
+        specifier: ^8.0.10
+        version: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4)
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.19.7)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.44.1)
 
   workers/agent-link:
     devDependencies:
@@ -5175,6 +5224,98 @@ packages:
     resolution: {integrity: sha512-+PmQX0PiAYPMeVYe237LJAYvOMYW1j2rH5YROyS3b4CTVJum34HfRvKvAzozHAQG0TnHNdUfY9nCeUyRAs//cw==}
     engines: {node: '>=14.16'}
 
+  '@tailwindcss/node@4.3.3':
+    resolution: {integrity: sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg==}
+
+  '@tailwindcss/oxide-android-arm64@4.3.3':
+    resolution: {integrity: sha512-Y85A2gmPSkl5Ve5qR86GL4HT509cFqQh1aes9p3sSkyTPwt0Pppf3GkwGe4JPACcRYjgJIEhQgM6dBClnr0NYw==}
+    engines: {node: '>= 20'}
+    cpu: [arm64]
+    os: [android]
+
+  '@tailwindcss/oxide-darwin-arm64@4.3.3':
+    resolution: {integrity: sha512-BiaWatpBcERQFDlOjRDpIVXuFK5PJez5SA4JMg6VYZdBYU+qKfV/vqjcIs+IYmtitf1xYQZTwXvU/8y4lfZUGw==}
+    engines: {node: '>= 20'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@tailwindcss/oxide-darwin-x64@4.3.3':
+    resolution: {integrity: sha512-fAeUqfV5ndhxRwai8cXGzdLvul9utWOmeTkv69unv4ZXixjn61Z+p9lCWdwOwA3TYboG3BwdVuN/RDjhBRl0mw==}
+    engines: {node: '>= 20'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@tailwindcss/oxide-freebsd-x64@4.3.3':
+    resolution: {integrity: sha512-iyf5bV6+wnAlflVeEy7R25dupxTNECZN5QMI0qNT6eT+EgaGdZcKhGkr5SdoaWiLJ3spLqIY9VCeSGrwmtg4kw==}
+    engines: {node: '>= 20'}
+    cpu: [x64]
+    os: [freebsd]
+
+  '@tailwindcss/oxide-linux-arm-gnueabihf@4.3.3':
+    resolution: {integrity: sha512-aAYUprJAJQWWbRrPvtjdroZ56Md+JM8pMiopS6xGEwDfLhqj+2ver2p4nU4Mb3CRqcMmNBjo8KkUgcxhkzVQGQ==}
+    engines: {node: '>= 20'}
+    cpu: [arm]
+    os: [linux]
+
+  '@tailwindcss/oxide-linux-arm64-gnu@4.3.3':
+    resolution: {integrity: sha512-nDxldcEENOxZRzC2uu9jrutZdAAQtb+8WWDCSnWL1zvBk1+FN+x6MtDViPB5AJMfttVCUhehGWus3XBPgatM/w==}
+    engines: {node: '>= 20'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tailwindcss/oxide-linux-arm64-musl@4.3.3':
+    resolution: {integrity: sha512-Md44bD6veX/PC5iyF8cDVnw4HBIANZepRZZ7a8DQOvkfo5WUBwcp6iAuCUz23u+4SUkhJlD3eL7hNdW8ezd/kA==}
+    engines: {node: '>= 20'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@tailwindcss/oxide-linux-x64-gnu@4.3.3':
+    resolution: {integrity: sha512-tx7us1muwOKAKWao2v/GaafFeQboE6aj88vC6ziN2NCGcRm8gWUhwjzg+YdVB1e4boAtdtma4L43onunI6NS4w==}
+    engines: {node: '>= 20'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tailwindcss/oxide-linux-x64-musl@4.3.3':
+    resolution: {integrity: sha512-SJxX60smvHgasZoBy11dX6YRjXJFovwWBoedhbQPOBzgFWBHGB+TVPWB9BxzR7TTxU8FQZAI2AyiNCMzFm8Img==}
+    engines: {node: '>= 20'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@tailwindcss/oxide-wasm32-wasi@4.3.3':
+    resolution: {integrity: sha512-jx1+rPhY/5Ympkktd656HBWEBLxP7dH06losBLjjf5vgCODXvi9KhtftWcMIwTFIDqBr7cRnQkdLnAG+IOlGvQ==}
+    engines: {node: '>=14.0.0'}
+    cpu: [wasm32]
+    bundledDependencies:
+      - '@napi-rs/wasm-runtime'
+      - '@emnapi/core'
+      - '@emnapi/runtime'
+      - '@tybys/wasm-util'
+      - '@emnapi/wasi-threads'
+      - tslib
+
+  '@tailwindcss/oxide-win32-arm64-msvc@4.3.3':
+    resolution: {integrity: sha512-3rc292Ca2ceK6Ulcc/bAVnTs/3nDtoPhyEKlgPv+yQJQi/JS/AMJlqzxvlDacL1nekbrcf6bTqp/jV4qgnPxNQ==}
+    engines: {node: '>= 20'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@tailwindcss/oxide-win32-x64-msvc@4.3.3':
+    resolution: {integrity: sha512-yJ0pwIVc/nYeGoV02WtsN8KYyLQv7kyI2wDnkezyJlGGjkd4QLwDGAwl47YpPJeuI0M0ObaXGSPjvWDPeTPggw==}
+    engines: {node: '>= 20'}
+    cpu: [x64]
+    os: [win32]
+
+  '@tailwindcss/oxide@4.3.3':
+    resolution: {integrity: sha512-krXjAikiaFSPaK/FkAQT5UTx3VormQaiZ5hBFlJZ9UFQGB/rwg1MZIhHAG9smMQRTdyJxP6Qt5MwMtdyU5FWrA==}
+    engines: {node: '>= 20'}
+
+  '@tailwindcss/postcss@4.3.3':
+    resolution: {integrity: sha512-JTSZZGQi1AyKirbLN3azmjVzef92tcX7h+iSqPdaeStyFpGpDlKvvpxeOE8njhbUanbRwr3z8DyzhICWnMtQeg==}
+
   '@tanstack/react-virtual@3.0.0-beta.60':
     resolution: {integrity: sha512-F0wL9+byp7lf/tH6U5LW0ZjBqs+hrMXJrj5xcIGcklI0pggvjzMNW9DdIBcyltPNr6hmHQ0wt8FDGe1n1ZAThA==}
     peerDependencies:
@@ -5532,11 +5673,19 @@ packages:
     peerDependencies:
       '@types/react': ^18.0.0
 
+  '@types/react-dom@19.2.5':
+    resolution: {integrity: sha512-fMPwH9v7r/pp43yUd2/Mbiex5KouJwwR3dzHkhLREUC6764VyDsqxhAxv6OFEYR1RhjOyD1naqba8ECDBe7ZQg==}
+    peerDependencies:
+      '@types/react': ^19.2.0
+
   '@types/react@17.0.2':
     resolution: {integrity: sha512-Xt40xQsrkdvjn1EyWe1Bc0dJLcil/9x2vAuW7ya+PuQip4UYUaXyhzWmAbwRsdMgwOFHpfp7/FFZebDU6Y8VHA==}
 
   '@types/react@18.3.28':
     resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
+
+  '@types/react@19.2.18':
+    resolution: {integrity: sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==}
 
   '@types/retry@0.12.2':
     resolution: {integrity: sha512-XISRgDJ2Tc5q4TRqvgJtzsRkFYNJzZrhTdtMoGVBttwzzQJkPnS3WWTFc7kuDRoPtPakl+T+OfdEUjYJj7Jbow==}
@@ -7561,6 +7710,10 @@ packages:
     resolution: {integrity: sha512-LgQMM4WXU3QI+SYgEc2liRgznaD5ojbmY3sb8LxyguVkIg5FxdpTkvk72te2R38/TGKxH634oLxXRGY6d7AP+Q==}
     engines: {node: '>=10.13.0'}
 
+  enhanced-resolve@5.24.5:
+    resolution: {integrity: sha512-L1l8TNvomm6UVW5B253AGxQagSQr+vGwhMlrrfRS2qmhx46AMpMVJKQYLvWYbysTMY8VoicOvzHzoHMbyzB+4A==}
+    engines: {node: '>=10.13.0'}
+
   entities@2.2.0:
     resolution: {integrity: sha512-p92if5Nz619I0w+akJrLZH0MX0Pb5DX39XOwQTtXSdQQOaYH03S1uIQp4mhOZtAXrxq4ViO67YTiLBo2638o9A==}
 
@@ -8856,6 +9009,10 @@ packages:
     resolution: {integrity: sha512-/imKNG4EbWNrVjoNC/1H5/9GFy+tqjGBHCaSsN+P2RnPqjsLmv6UD3Ej+Kj8nBWaRAwyk7kK5ZUc+OEatnTR3A==}
     hasBin: true
 
+  jiti@2.7.0:
+    resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
+    hasBin: true
+
   jose@6.1.3:
     resolution: {integrity: sha512-0TpaTfihd4QMNwrz/ob2Bp7X04yuxJkjRGi4aKmOqwhov54i6u79oCv7T+C7lo70MKH6BesI3vscD1yb/yzKXQ==}
 
@@ -9659,8 +9816,8 @@ packages:
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
 
-  nanoid@3.3.11:
-    resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
+  nanoid@3.3.18:
+    resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -10242,12 +10399,8 @@ packages:
     resolution: {integrity: sha512-OCVPnIObs4N29kxTjzLfUryOkvZEq+pf8jTF0lg8E7uETuWHA+v7j3c/xJmiqpX450191LlmZfUKkXxkTry7nA==}
     engines: {node: ^10 || ^12 || >=14}
 
-  postcss@8.5.14:
-    resolution: {integrity: sha512-SoSL4+OSEtR99LHFZQiJLkT59C5B1amGO1NzTwj7TT1qCUgUO6hxOvzkOYxD+vMrXBM3XJIKzokoERdqQq/Zmg==}
-    engines: {node: ^10 || ^12 || >=14}
-
-  postcss@8.5.6:
-    resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
+  postcss@8.5.26:
+    resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
     engines: {node: ^10 || ^12 || >=14}
 
   postgres-array@2.0.0:
@@ -10538,6 +10691,11 @@ packages:
     peerDependencies:
       react: 17.0.2
 
+  react-dom@19.2.8:
+    resolution: {integrity: sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==}
+    peerDependencies:
+      react: 19.2.8
+
   react-dropzone@12.1.0:
     resolution: {integrity: sha512-iBYHA1rbopIvtzokEX4QubO6qk5IF/x3BtKGu74rF2JkQDXnwC4uO/lHKpaw4PJIV6iIAYOlwLv2FpiGyqHNog==}
     engines: {node: '>= 10.13'}
@@ -10748,6 +10906,10 @@ packages:
 
   react@17.0.2:
     resolution: {integrity: sha512-gnhPt75i/dq/z3/6q/0asP78D0u592D5L1pd7M8P+dck6Fu/jJeL6iVVK23fptSUZj8Vjf++7wXA8UNclGQcbA==}
+    engines: {node: '>=0.10.0'}
+
+  react@19.2.8:
+    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
     engines: {node: '>=0.10.0'}
 
   read-cache@1.0.0:
@@ -11060,6 +11222,9 @@ packages:
 
   scheduler@0.23.2:
     resolution: {integrity: sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==}
+
+  scheduler@0.27.0:
+    resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
 
   schema-dts@0.5.3:
     resolution: {integrity: sha512-bApUMlBihsV/vv1AY5heynluE6Ztre1A25AoQy6Vd5Kf3IKPbV+ebQdv8sBO+lmNkQjZk5VK7HEaF1SGGtTZJg==}
@@ -11516,8 +11681,15 @@ packages:
   tailwindcss@4.3.0:
     resolution: {integrity: sha512-y6nxMGB1nMW9R6k96e5gdIFzcfL/gTJRNaqGes1YvkLnPVXzWgbqFF2yLC0T8G774n24cx3Pe8XrKoniCOAH+Q==}
 
+  tailwindcss@4.3.3:
+    resolution: {integrity: sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ==}
+
   tapable@2.3.0:
     resolution: {integrity: sha512-g9ljZiwki/LfxmQADO3dEY1CbpmXT5Hm2fJ+QaGKwSXUylMybePR7/67YW7jOrrvjEgL1Fmz5kzyAjWVWLlucg==}
+    engines: {node: '>=6'}
+
+  tapable@2.3.3:
+    resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
 
   tar-fs@2.1.4:
@@ -13369,7 +13541,7 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
-  '@atlaskit/editor-common@106.10.0(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/node@25.0.3)(@types/react@17.0.2)(eslint@9.4.0)(immer@9.0.21)(node-fetch@2.7.0(encoding@0.1.13))(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)(url-search-params@0.10.2)':
+  '@atlaskit/editor-common@106.10.0(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/node@25.0.3)(@types/react@17.0.2)(eslint@9.4.0)(immer@9.0.21)(node-fetch@2.7.0(encoding@0.1.13))(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)(url-search-params@0.10.2)':
     dependencies:
       '@atlaskit/activity-provider': 2.5.2(@types/node@25.0.3)(react@17.0.2)
       '@atlaskit/adf-schema': 47.7.1(react@17.0.2)
@@ -13393,7 +13565,7 @@ snapshots:
       '@atlaskit/icon': 27.12.0(@babel/core@7.28.5)(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/icon-object': 7.4.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/link': 3.3.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/link-datasource': 4.30.18(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/link-datasource': 4.30.18(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/link-picker': 3.16.9(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(typescript@5.9.3)
       '@atlaskit/media-card': 79.12.0(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@emotion/react@11.14.0(@types/react@17.0.2)(react@17.0.2))(@types/react@17.0.2)(immer@9.0.21)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)
       '@atlaskit/media-client': 33.5.0(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -13411,11 +13583,11 @@ snapshots:
       '@atlaskit/platform-feature-flags-react': 0.2.4(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/popper': 7.1.7(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/primitives': 14.15.5(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/profilecard': 23.21.21(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/profilecard': 23.21.21(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/react-ufo': 3.14.15(react@17.0.2)
       '@atlaskit/section-message': 8.11.3(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/smart-card': 38.21.0(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@babel/core@7.28.5)(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(typescript@5.9.3)
-      '@atlaskit/smart-user-picker': 8.6.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/smart-user-picker': 8.6.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/spinner': 18.0.6(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/task-decision': 19.2.17(@types/node@25.0.3)(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3)(url-search-params@0.10.2)
       '@atlaskit/textfield': 8.2.1(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -14011,7 +14183,7 @@ snapshots:
       assert: 2.1.0
       util: 0.12.5
 
-  '@atlaskit/jql-editor-autocomplete-rest@3.0.2(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)':
+  '@atlaskit/jql-editor-autocomplete-rest@3.0.2(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)':
     dependencies:
       '@atlaskit/jql-editor-common': 3.0.2(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/platform-feature-flags': 1.1.2(react@17.0.2)
@@ -14020,7 +14192,7 @@ snapshots:
       react: 17.0.2
       react-dom: 17.0.2(react@17.0.2)
       react-magnetic-di: 3.2.4(eslint@9.4.0)(prop-types@15.8.1)(react@17.0.2)
-      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)
+      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)
       rxjs: 5.5.12
     transitivePeerDependencies:
       - eslint
@@ -14037,7 +14209,7 @@ snapshots:
       react-dom: 17.0.2(react@17.0.2)
       rxjs: 5.5.12
 
-  '@atlaskit/jql-editor@5.11.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)':
+  '@atlaskit/jql-editor@5.11.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)':
     dependencies:
       '@atlaskit/afm-i18n-platform-jql-jql-editor': 2.10.0
       '@atlaskit/analytics-gas-types': 5.1.8(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -14073,7 +14245,7 @@ snapshots:
       react-intl-next: react-intl@5.25.1(react@17.0.2)(typescript@5.9.3)
       react-loosely-lazy: 1.2.1(@react-loosely-lazy/manifest@1.2.0)(react@17.0.2)
       react-magnetic-di: 3.2.4(eslint@9.4.0)(prop-types@15.8.1)(react@17.0.2)
-      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)
+      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)
       rxjs: 5.5.12
       util: 0.12.5
       uuid: 3.4.0
@@ -14200,7 +14372,7 @@ snapshots:
       - supports-color
       - typescript
 
-  '@atlaskit/link-datasource@4.30.18(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)':
+  '@atlaskit/link-datasource@4.30.18(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)':
     dependencies:
       '@atlaskit/adf-schema': 51.5.4(react@17.0.2)
       '@atlaskit/afm-i18n-platform-linking-platform-link-datasource': 2.7.0
@@ -14225,8 +14397,8 @@ snapshots:
       '@atlaskit/inline-edit': 15.5.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/intl-messages-provider': 2.0.1(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)
       '@atlaskit/jql-ast': 3.3.3
-      '@atlaskit/jql-editor': 5.11.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
-      '@atlaskit/jql-editor-autocomplete-rest': 3.0.2(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)
+      '@atlaskit/jql-editor': 5.11.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
+      '@atlaskit/jql-editor-autocomplete-rest': 3.0.2(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)
       '@atlaskit/layering': 3.6.0(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/link': 3.3.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/link-client-extension': 6.0.0(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3)
@@ -14247,7 +14419,7 @@ snapshots:
       '@atlaskit/react-select': 3.12.2(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/select': 21.6.3(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/smart-card': 43.19.0(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(typescript@5.9.3)
-      '@atlaskit/smart-user-picker': 8.6.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/smart-user-picker': 8.6.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/spinner': 19.0.8(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/tag': 14.2.4(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/textfield': 8.2.1(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -14266,7 +14438,7 @@ snapshots:
       react: 17.0.2
       react-dom: 17.0.2(react@17.0.2)
       react-intl-next: react-intl@5.25.1(react@17.0.2)(typescript@5.9.3)
-      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)
+      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)
       tiny-invariant: 1.3.3
       use-debounce: 3.4.3(react@17.0.2)
       uuid: 3.4.0
@@ -15052,7 +15224,7 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.28.4
 
-  '@atlaskit/people-teams-ui-public@3.7.2(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)':
+  '@atlaskit/people-teams-ui-public@3.7.2(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)':
     dependencies:
       '@atlaskit/analytics-namespaced-context': 7.2.0(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/icon': 29.3.2(@types/react@17.0.2)(react@17.0.2)
@@ -15065,7 +15237,7 @@ snapshots:
       '@compiled/react': 0.18.6(react@17.0.2)
       react: 17.0.2
       react-intl-next: react-intl@5.25.1(react@17.0.2)(typescript@5.9.3)
-      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)
+      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)
     transitivePeerDependencies:
       - '@types/react'
       - eslint
@@ -15367,7 +15539,7 @@ snapshots:
       - '@types/react'
       - supports-color
 
-  '@atlaskit/profilecard@23.21.21(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)':
+  '@atlaskit/profilecard@23.21.21(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)':
     dependencies:
       '@atlaskit/analytics-next': 11.1.3(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/atlassian-context': 0.4.0(react@17.0.2)
@@ -15386,7 +15558,7 @@ snapshots:
       '@atlaskit/lozenge': 13.3.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/menu': 8.4.13(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/modal-dialog': 14.9.4(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/people-teams-ui-public': 3.7.2(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/people-teams-ui-public': 3.7.2(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/platform-feature-flags': 1.1.2(react@17.0.2)
       '@atlaskit/popup': 4.12.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/primitives': 14.15.5(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -15395,7 +15567,7 @@ snapshots:
       '@atlaskit/spinner': 19.0.8(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/teams-app-config': 1.12.10(react@17.0.2)
       '@atlaskit/teams-avatar': 2.4.7(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/teams-public': 0.50.3(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/react@17.0.2)(date-fns@2.30.0)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/teams-public': 0.50.3(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/react@17.0.2)(date-fns@2.30.0)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/theme': 19.0.2(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/tokens': 5.6.3(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/tooltip': 20.11.1(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -15491,7 +15663,7 @@ snapshots:
       scheduler: 0.23.2
       uuid: 3.4.0
 
-  '@atlaskit/renderer@118.7.1(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/node@25.0.3)(@types/react@17.0.2)(eslint@9.4.0)(immer@9.0.21)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)(url-search-params@0.10.2)':
+  '@atlaskit/renderer@118.7.1(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/node@25.0.3)(@types/react@17.0.2)(eslint@9.4.0)(immer@9.0.21)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)(url-search-params@0.10.2)':
     dependencies:
       '@atlaskit/adf-schema': 47.7.1(react@17.0.2)
       '@atlaskit/adf-utils': 19.26.4(react@17.0.2)
@@ -15500,7 +15672,7 @@ snapshots:
       '@atlaskit/analytics-next': 11.1.3(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/button': 23.9.3(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/code': 17.4.1(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/editor-common': 106.10.0(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/node@25.0.3)(@types/react@17.0.2)(eslint@9.4.0)(immer@9.0.21)(node-fetch@2.7.0(encoding@0.1.13))(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)(url-search-params@0.10.2)
+      '@atlaskit/editor-common': 106.10.0(@atlaskit/link-provider@4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3))(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/node@25.0.3)(@types/react@17.0.2)(eslint@9.4.0)(immer@9.0.21)(node-fetch@2.7.0(encoding@0.1.13))(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)(url-search-params@0.10.2)
       '@atlaskit/editor-json-transformer': 8.31.4(react@17.0.2)
       '@atlaskit/editor-palette': 2.1.20(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/editor-prosemirror': 7.0.0
@@ -15510,7 +15682,7 @@ snapshots:
       '@atlaskit/feature-gate-js-client': 5.5.7(react@17.0.2)
       '@atlaskit/icon': 27.12.0(@babel/core@7.28.5)(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/link': 3.3.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/link-datasource': 4.30.18(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/link-datasource': 4.30.18(@types/react@17.0.2)(eslint@9.4.0)(node-fetch@2.7.0(encoding@0.1.13))(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/link-provider': 4.1.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(typescript@5.9.3)
       '@atlaskit/media-card': 79.12.0(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@emotion/react@11.14.0(@types/react@17.0.2)(react@17.0.2))(@types/react@17.0.2)(immer@9.0.21)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)
       '@atlaskit/media-client': 33.5.0(@atlaskit/media-core@36.1.0(react@17.0.2))(@atlaskit/media-state@1.8.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -15816,13 +15988,13 @@ snapshots:
       - supports-color
       - typescript
 
-  '@atlaskit/smart-user-picker@8.6.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)':
+  '@atlaskit/smart-user-picker@8.6.0(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)':
     dependencies:
       '@atlaskit/afm-i18n-platform-smart-experiences-smart-user-picker': 2.7.0
       '@atlaskit/analytics-next': 11.1.3(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/platform-feature-flags': 1.1.2(react@17.0.2)
       '@atlaskit/ufo': 0.4.1(react@17.0.2)
-      '@atlaskit/user-picker': 11.18.3(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/user-picker': 11.18.3(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@babel/runtime': 7.28.4
       lodash: 4.18.1
       memoize-one: 6.0.0
@@ -15972,7 +16144,7 @@ snapshots:
     transitivePeerDependencies:
       - react-dom
 
-  '@atlaskit/teams-app-internal-product-permissions@1.2.9(@types/react@17.0.2)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)':
+  '@atlaskit/teams-app-internal-product-permissions@1.2.9(@types/react@17.0.2)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)':
     dependencies:
       '@atlaskit/css': 0.17.1(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/primitives': 16.4.4(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -15980,7 +16152,7 @@ snapshots:
       '@babel/runtime': 7.29.2
       '@compiled/react': 0.18.6(react@17.0.2)
       react: 17.0.2
-      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)
+      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)
     transitivePeerDependencies:
       - '@types/react'
       - prop-types
@@ -16021,7 +16193,7 @@ snapshots:
     transitivePeerDependencies:
       - date-fns
 
-  '@atlaskit/teams-public@0.50.3(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/react@17.0.2)(date-fns@2.30.0)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)':
+  '@atlaskit/teams-public@0.50.3(@babel/core@7.28.5)(@react-loosely-lazy/manifest@1.2.0)(@types/react@17.0.2)(date-fns@2.30.0)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)':
     dependencies:
       '@atlaskit/analytics-next': 11.1.3(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/avatar': 25.6.3(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -16037,10 +16209,10 @@ snapshots:
       '@atlaskit/link': 3.3.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/logo': 19.9.7(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/modal-dialog': 14.9.4(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/people-teams-ui-public': 3.7.2(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/people-teams-ui-public': 3.7.2(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/platform-feature-flags': 1.1.2(react@17.0.2)
       '@atlaskit/primitives': 14.15.5(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/teams-app-internal-product-permissions': 1.2.9(@types/react@17.0.2)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)
+      '@atlaskit/teams-app-internal-product-permissions': 1.2.9(@types/react@17.0.2)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)
       '@atlaskit/teams-client': 4.30.0(date-fns@2.30.0)(react@17.0.2)
       '@atlaskit/theme': 19.0.2(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/tokens': 5.6.3(@types/react@17.0.2)(react@17.0.2)
@@ -16054,7 +16226,7 @@ snapshots:
       react-intl-next: react-intl@5.25.1(react@17.0.2)(typescript@5.9.3)
       react-loosely-lazy: 1.2.1(@react-loosely-lazy/manifest@1.2.0)(react@17.0.2)
       react-router-dom: 6.30.2(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)
+      react-sweet-state: 2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)
       string-hash: 1.1.3
     transitivePeerDependencies:
       - '@babel/core'
@@ -16316,7 +16488,7 @@ snapshots:
       react: 17.0.2
       uuid: 3.4.0
 
-  '@atlaskit/user-picker@11.18.3(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)':
+  '@atlaskit/user-picker@11.18.3(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react-intl@5.25.1(react@17.0.2)(typescript@5.9.3))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)':
     dependencies:
       '@atlaskit/afm-i18n-platform-elements-user-picker': 2.7.0
       '@atlaskit/analytics-next': 11.1.3(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -16324,7 +16496,7 @@ snapshots:
       '@atlaskit/icon': 29.3.2(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/logo': 19.9.7(@types/react@17.0.2)(react@17.0.2)
       '@atlaskit/lozenge': 13.3.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@atlaskit/people-teams-ui-public': 3.7.2(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2)(typescript@5.9.3)
+      '@atlaskit/people-teams-ui-public': 3.7.2(@types/react@17.0.2)(eslint@9.4.0)(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0)(typescript@5.9.3)
       '@atlaskit/platform-feature-flags': 1.1.2(react@17.0.2)
       '@atlaskit/popper': 7.1.7(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@atlaskit/primitives': 17.0.0(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -19044,7 +19216,7 @@ snapshots:
 
   '@mixpanel/rrweb-snapshot@2.0.0-alpha.18.2':
     dependencies:
-      postcss: 8.5.6
+      postcss: 8.5.26
 
   '@mixpanel/rrweb-types@2.0.0-alpha.18.2': {}
 
@@ -21011,6 +21183,75 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
+  '@tailwindcss/node@4.3.3':
+    dependencies:
+      '@jridgewell/remapping': 2.3.5
+      enhanced-resolve: 5.24.5
+      jiti: 2.7.0
+      lightningcss: 1.32.0
+      magic-string: 0.30.21
+      source-map-js: 1.2.1
+      tailwindcss: 4.3.3
+
+  '@tailwindcss/oxide-android-arm64@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-darwin-arm64@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-darwin-x64@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-freebsd-x64@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-linux-arm-gnueabihf@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-linux-arm64-gnu@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-linux-arm64-musl@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-linux-x64-gnu@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-linux-x64-musl@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-wasm32-wasi@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-win32-arm64-msvc@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide-win32-x64-msvc@4.3.3':
+    optional: true
+
+  '@tailwindcss/oxide@4.3.3':
+    optionalDependencies:
+      '@tailwindcss/oxide-android-arm64': 4.3.3
+      '@tailwindcss/oxide-darwin-arm64': 4.3.3
+      '@tailwindcss/oxide-darwin-x64': 4.3.3
+      '@tailwindcss/oxide-freebsd-x64': 4.3.3
+      '@tailwindcss/oxide-linux-arm-gnueabihf': 4.3.3
+      '@tailwindcss/oxide-linux-arm64-gnu': 4.3.3
+      '@tailwindcss/oxide-linux-arm64-musl': 4.3.3
+      '@tailwindcss/oxide-linux-x64-gnu': 4.3.3
+      '@tailwindcss/oxide-linux-x64-musl': 4.3.3
+      '@tailwindcss/oxide-wasm32-wasi': 4.3.3
+      '@tailwindcss/oxide-win32-arm64-msvc': 4.3.3
+      '@tailwindcss/oxide-win32-x64-msvc': 4.3.3
+
+  '@tailwindcss/postcss@4.3.3':
+    dependencies:
+      '@alloc/quick-lru': 5.2.0
+      '@tailwindcss/node': 4.3.3
+      '@tailwindcss/oxide': 4.3.3
+      postcss: 8.5.26
+      tailwindcss: 4.3.3
+
   '@tanstack/react-virtual@3.0.0-beta.60(react@17.0.2)':
     dependencies:
       '@tanstack/virtual-core': 3.0.0-beta.60
@@ -21443,11 +21684,15 @@ snapshots:
 
   '@types/react-dom@17.0.2':
     dependencies:
-      '@types/react': 17.0.2
+      '@types/react': 18.3.28
 
   '@types/react-dom@18.3.7(@types/react@17.0.2)':
     dependencies:
       '@types/react': 17.0.2
+
+  '@types/react-dom@19.2.5(@types/react@19.2.18)':
+    dependencies:
+      '@types/react': 19.2.18
 
   '@types/react@17.0.2':
     dependencies:
@@ -21457,6 +21702,10 @@ snapshots:
   '@types/react@18.3.28':
     dependencies:
       '@types/prop-types': 15.7.15
+      csstype: 3.2.3
+
+  '@types/react@19.2.18':
+    dependencies:
       csstype: 3.2.3
 
   '@types/retry@0.12.2': {}
@@ -21713,16 +21962,28 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@vitejs/plugin-react@5.2.0(vite@8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))':
+    dependencies:
+      '@babel/core': 7.29.0
+      '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
+      '@babel/plugin-transform-react-jsx-source': 7.27.1(@babel/core@7.29.0)
+      '@rolldown/pluginutils': 1.0.0-rc.3
+      '@types/babel__core': 7.20.5
+      react-refresh: 0.18.0
+      vite: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4)
+    transitivePeerDependencies:
+      - supports-color
+
   '@vitejs/plugin-vue@6.0.3(vite@7.3.0(@types/node@25.0.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))(vue@3.5.26(typescript@5.9.3))':
     dependencies:
       '@rolldown/pluginutils': 1.0.0-beta.53
       vite: 7.3.0(@types/node@25.0.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4)
       vue: 3.5.26(typescript@5.9.3)
 
-  '@vitejs/plugin-vue@6.0.6(vite@8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))(vue@3.5.34(typescript@5.9.3))':
+  '@vitejs/plugin-vue@6.0.6(vite@8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))(vue@3.5.34(typescript@5.9.3))':
     dependencies:
       '@rolldown/pluginutils': 1.0.0-rc.13
-      vite: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4)
+      vite: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4)
       vue: 3.5.34(typescript@5.9.3)
 
   '@vitest/coverage-v8@2.1.9(vitest@2.1.9(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.44.1))':
@@ -21873,7 +22134,7 @@ snapshots:
       '@vue/shared': 3.5.26
       estree-walker: 2.0.2
       magic-string: 0.30.21
-      postcss: 8.5.6
+      postcss: 8.5.26
       source-map-js: 1.2.1
 
   '@vue/compiler-sfc@3.5.34':
@@ -21885,7 +22146,7 @@ snapshots:
       '@vue/shared': 3.5.34
       estree-walker: 2.0.2
       magic-string: 0.30.21
-      postcss: 8.5.14
+      postcss: 8.5.26
       source-map-js: 1.2.1
 
   '@vue/compiler-ssr@3.5.26':
@@ -23806,6 +24067,11 @@ snapshots:
       graceful-fs: 4.2.11
       tapable: 2.3.0
 
+  enhanced-resolve@5.24.5:
+    dependencies:
+      graceful-fs: 4.2.11
+      tapable: 2.3.3
+
   entities@2.2.0: {}
 
   entities@3.0.1: {}
@@ -25398,6 +25664,8 @@ snapshots:
 
   jiti@1.21.7: {}
 
+  jiti@2.7.0: {}
+
   jose@6.1.3: {}
 
   jotai@2.16.1(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(react@17.0.2):
@@ -26417,7 +26685,7 @@ snapshots:
       object-assign: 4.1.1
       thenify-all: 1.6.0
 
-  nanoid@3.3.11: {}
+  nanoid@3.3.18: {}
 
   napi-build-utils@2.0.0: {}
 
@@ -27026,30 +27294,30 @@ snapshots:
 
   possible-typed-array-names@1.1.0: {}
 
-  postcss-import@15.1.0(postcss@8.5.6):
+  postcss-import@15.1.0(postcss@8.5.26):
     dependencies:
-      postcss: 8.5.6
+      postcss: 8.5.26
       postcss-value-parser: 4.2.0
       read-cache: 1.0.0
       resolve: 1.22.11
 
-  postcss-js@4.1.0(postcss@8.5.6):
+  postcss-js@4.1.0(postcss@8.5.26):
     dependencies:
       camelcase-css: 2.0.1
-      postcss: 8.5.6
+      postcss: 8.5.26
 
-  postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.6)(tsx@4.21.0)(yaml@2.8.4):
+  postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.26)(tsx@4.21.0)(yaml@2.8.4):
     dependencies:
       lilconfig: 3.1.3
     optionalDependencies:
       jiti: 1.21.7
-      postcss: 8.5.6
+      postcss: 8.5.26
       tsx: 4.21.0
       yaml: 2.8.4
 
-  postcss-nested@6.2.0(postcss@8.5.6):
+  postcss-nested@6.2.0(postcss@8.5.26):
     dependencies:
-      postcss: 8.5.6
+      postcss: 8.5.26
       postcss-selector-parser: 6.1.2
 
   postcss-selector-parser@6.1.2:
@@ -27061,25 +27329,19 @@ snapshots:
 
   postcss@8.4.31:
     dependencies:
-      nanoid: 3.3.11
+      nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
   postcss@8.4.49:
     dependencies:
-      nanoid: 3.3.11
+      nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  postcss@8.5.14:
+  postcss@8.5.26:
     dependencies:
-      nanoid: 3.3.11
-      picocolors: 1.1.1
-      source-map-js: 1.2.1
-
-  postcss@8.5.6:
-    dependencies:
-      nanoid: 3.3.11
+      nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
@@ -27445,6 +27707,11 @@ snapshots:
       react: 17.0.2
       scheduler: 0.20.2
 
+  react-dom@19.2.8(react@19.2.8):
+    dependencies:
+      react: 19.2.8
+      scheduler: 0.27.0
+
   react-dropzone@12.1.0(react@17.0.2):
     dependencies:
       attr-accept: 2.2.5
@@ -27612,11 +27879,11 @@ snapshots:
     dependencies:
       prop-types: 15.8.1
 
-  react-sweet-state@2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.23.2):
+  react-sweet-state@2.7.2(prop-types@15.8.1)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(scheduler@0.27.0):
     dependencies:
       prop-types: 15.8.1
       react: 17.0.2
-      scheduler: 0.23.2
+      scheduler: 0.27.0
       use-sync-external-store: 1.6.0(react@17.0.2)
     optionalDependencies:
       react-dom: 17.0.2(react@17.0.2)
@@ -27663,6 +27930,8 @@ snapshots:
     dependencies:
       loose-envify: 1.4.0
       object-assign: 4.1.1
+
+  react@19.2.8: {}
 
   read-cache@1.0.0:
     dependencies:
@@ -28070,6 +28339,8 @@ snapshots:
   scheduler@0.23.2:
     dependencies:
       loose-envify: 1.4.0
+
+  scheduler@0.27.0: {}
 
   schema-dts@0.5.3(typescript@5.9.3):
     dependencies:
@@ -28748,11 +29019,11 @@ snapshots:
       normalize-path: 3.0.0
       object-hash: 3.0.0
       picocolors: 1.1.1
-      postcss: 8.5.6
-      postcss-import: 15.1.0(postcss@8.5.6)
-      postcss-js: 4.1.0(postcss@8.5.6)
-      postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.6)(tsx@4.21.0)(yaml@2.8.4)
-      postcss-nested: 6.2.0(postcss@8.5.6)
+      postcss: 8.5.26
+      postcss-import: 15.1.0(postcss@8.5.26)
+      postcss-js: 4.1.0(postcss@8.5.26)
+      postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.26)(tsx@4.21.0)(yaml@2.8.4)
+      postcss-nested: 6.2.0(postcss@8.5.26)
       postcss-selector-parser: 6.1.2
       resolve: 1.22.11
       sucrase: 3.35.1
@@ -28762,7 +29033,11 @@ snapshots:
 
   tailwindcss@4.3.0: {}
 
+  tailwindcss@4.3.3: {}
+
   tapable@2.3.0: {}
+
+  tapable@2.3.3: {}
 
   tar-fs@2.1.4:
     dependencies:
@@ -29360,7 +29635,7 @@ snapshots:
   vite@5.4.21(@types/node@22.19.7)(lightningcss@1.32.0)(terser@5.44.1):
     dependencies:
       esbuild: 0.21.5
-      postcss: 8.5.6
+      postcss: 8.5.26
       rollup: 4.55.1
     optionalDependencies:
       '@types/node': 22.19.7
@@ -29371,7 +29646,7 @@ snapshots:
   vite@5.4.21(@types/node@25.0.3)(lightningcss@1.32.0)(terser@5.44.1):
     dependencies:
       esbuild: 0.21.5
-      postcss: 8.5.6
+      postcss: 8.5.26
       rollup: 4.55.1
     optionalDependencies:
       '@types/node': 25.0.3
@@ -29384,7 +29659,7 @@ snapshots:
       esbuild: 0.27.2
       fdir: 6.5.0(picomatch@4.0.3)
       picomatch: 4.0.3
-      postcss: 8.5.6
+      postcss: 8.5.26
       rollup: 4.55.1
       tinyglobby: 0.2.15
     optionalDependencies:
@@ -29396,18 +29671,18 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.8.4
 
-  vite@8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4):
+  vite@8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
-      postcss: 8.5.14
+      postcss: 8.5.26
       rolldown: 1.0.0
       tinyglobby: 0.2.16
     optionalDependencies:
       '@types/node': 22.19.7
       esbuild: 0.27.2
       fsevents: 2.3.3
-      jiti: 1.21.7
+      jiti: 2.7.0
       terser: 5.44.1
       tsx: 4.21.0
       yaml: 2.8.4

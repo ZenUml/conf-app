@@ -159,7 +159,13 @@
       },
       applyAIChatCode(code: string) {
         const action = getStoreUpdateAction(this.diagramType)
-        if (action) this.$store.dispatch(action, code)
+        if (!action) return
+
+        // The error belongs to the code being replaced. Clear it synchronously
+        // so AI Chat cannot offer a repair for a stale validation result while
+        // Editor.vue validates the new code in the background.
+        this.$store.dispatch('updateError', null)
+        this.$store.dispatch(action, code)
       },
       bindDiagramlyDiagram(diagramId: string) {
         this.$store.dispatch('updateMetadata', {

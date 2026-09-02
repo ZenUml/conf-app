@@ -302,6 +302,18 @@ export default {
     },
   },
   watch: {
+    aiChatAvailable: {
+      immediate: true,
+      handler(visible, wasVisible) {
+        if (visible && !wasVisible) {
+          trackAnalyticsEvent('ai_chat_button_shown', {
+            feature_area: 'ai',
+            surface: 'editor',
+            macro_type: this.diagramType,
+          });
+        }
+      },
+    },
     // The gallery overlay covers the TabSwitcher while open, so a mouse
     // click can't reach it — but there's no focus trap, so keyboard/AT
     // navigation could still tab to a hidden tab button and switch

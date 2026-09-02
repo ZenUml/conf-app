@@ -1,4 +1,4 @@
-import { utcDayStart } from './domain';
+import { utcDayStart, type DwellGateVersion } from './domain';
 
 export interface DiagramAudienceScope {
   cloudId: string;
@@ -30,7 +30,7 @@ export async function isHistoricalContributor(
 
 export async function registerAudienceView(
   db: D1Database,
-  input: DiagramAudienceScope & { accountId: string; now: Date },
+  input: DiagramAudienceScope & { accountId: string; now: Date; gateVersion: DwellGateVersion },
 ): Promise<'new_unique' | 'repeat'> {
   const existing = await db.prepare(
     `SELECT lastViewedAt
@@ -42,10 +42,14 @@ export async function registerAudienceView(
   const dayStart = utcDayStart(input.now);
 
   if (!existing) {
+    // gateVersion records the rule in force when the row was created, and is
+    // never rewritten afterwards: a later view under a newer rule must not
+    // relabel a row the old rule produced, or the two populations stop being
+    // separable.
     const result = await db.prepare(
       `INSERT OR IGNORE INTO DiagramAudience (
-         cloudId, forgeAppId, customContentId, accountId, firstViewedAt, lastViewedAt, viewDays
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)`,
+         cloudId, forgeAppId, customContentId, accountId, firstViewedAt, lastViewedAt, viewDays, gateVersion
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7)`,
     ).bind(
       input.cloudId,
       input.forgeAppId,
@@ -53,6 +57,7 @@ export async function registerAudienceView(
       input.accountId,
       nowIso,
       nowIso,
+      input.gateVersion,
     ).run();
     return result.meta.changes === 1 ? 'new_unique' : 'repeat';
   }

@@ -12,12 +12,30 @@ import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import { forgeRequest } from '@/utils/requestUtil';
 import { getDiagramImpact, registerDiagramImpactView, type DiagramImpactSummary } from '@/services/DiagramImpact';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { DWELL_GATE_THRESHOLDS, qualifiesForDwell } from '@/components/Viewer/diagramDwellGate';
 
-const props = defineProps<{ attribution: DiagramAttribution | null; macroType: string; ready: boolean }>();
+const props = defineProps<{
+  attribution: DiagramAttribution | null;
+  macroType: string;
+  ready: boolean;
+  // The diagram itself. The gate observed the 29px footer until 2026-09-02,
+  // so a tall diagram read in full registered nothing: measured over 19 days
+  // and four tenants, 4,429 of 41,844 rendered footers (10.6%) ever reached
+  // the 3s dwell, and the rate split 4.2% (sequence) to 26.0% (graph) by how
+  // tall the macro tends to be. Optional so a caller without a diagram node
+  // keeps the old target rather than losing the gate entirely.
+  diagramHost?: () => HTMLElement | null;
+}>();
 const root = ref<HTMLElement>();
 const names = ref<Record<string, string>>({});
 const summary = ref<DiagramImpactSummary>();
 let observer: IntersectionObserver | undefined;
+// Which element the gate ended up watching. `getCaptureNode()` returns null
+// while the load-failed panel is mounted, and the `?? root.value` fallback
+// would then silently restore the 29px footer target this release replaces.
+// The value rides the registration events so that reversion is visible in
+// production instead of being indistinguishable from the fix working.
+let gateTarget: 'diagram' | 'footer' = 'footer';
 let timer: ReturnType<typeof setTimeout> | undefined;
 let registered = false;
 let intersecting = false;
@@ -43,6 +61,10 @@ async function loadSummary() {
 async function qualify() {
   if (registered || !props.attribution || document.visibilityState !== 'visible') return;
   registered = true;
+  // Which path armed the timer. `false` means the ready-watcher fired it with
+  // no viewport check, the over-count this release removes; the property makes
+  // the size of that population readable before and after.
+  const wasIntersecting = intersecting;
   try {
     const registeredSummary = await registerDiagramImpactView(props.attribution.customContentId);
     summary.value = {
@@ -50,9 +72,9 @@ async function qualify() {
       ...registeredSummary,
       viewerRelation: summary.value?.viewerRelation ?? 'viewer',
     };
-    trackAnalyticsEvent('diagram_audience_registration_succeeded', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any });
+    trackAnalyticsEvent('diagram_audience_registration_succeeded', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget });
   } catch {
-    trackAnalyticsEvent('diagram_audience_registration_failed', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any });
+    trackAnalyticsEvent('diagram_audience_registration_failed', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget });
   }
 }
 function clearTimer() { if (timer) clearTimeout(timer); timer = undefined; }
@@ -60,6 +82,29 @@ function refreshTimer(visible: boolean) {
   clearTimer();
   if (visible && props.ready && document.visibilityState === 'visible') timer = setTimeout(qualify, 3000);
 }
+/**
+ * Idempotent on the target: re-running while already watching the diagram is a
+ * no-op, so the `ready` watcher can call it to pick up a capture node that was
+ * not yet in `$refs` at mount without churning the observer every time.
+ */
+function attachObserver() {
+  if (typeof IntersectionObserver === 'undefined') return;
+  const diagram = props.diagramHost?.() ?? null;
+  const next: 'diagram' | 'footer' = diagram ? 'diagram' : 'footer';
+  const target = diagram ?? root.value;
+  if (!target) return;
+  if (observer && next === gateTarget) return;
+  observer?.disconnect();
+  gateTarget = next;
+  observer = new IntersectionObserver(entries => {
+    const entry = entries[entries.length - 1];
+    if (!entry) return;
+    intersecting = qualifiesForDwell(entry);
+    refreshTimer(intersecting);
+  }, { threshold: DWELL_GATE_THRESHOLDS });
+  observer.observe(target);
+}
+
 function onVisibility() {
   if (document.visibilityState !== 'visible') clearTimer();
   else refreshTimer(intersecting);
@@ -70,16 +115,19 @@ onMounted(async () => {
   if (createdBy.value || lastUpdatedBy.value || summary.value) {
     trackAnalyticsEvent('diagram_attribution_shown', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, has_last_updated_by: Boolean(lastUpdatedBy.value), has_audience_count: Boolean(summary.value) });
   }
-  if (root.value && typeof IntersectionObserver !== 'undefined') {
-    observer = new IntersectionObserver(entries => {
-      intersecting = Boolean(entries[0]?.isIntersecting);
-      refreshTimer(intersecting);
-    }, { threshold: 0.5 });
-    observer.observe(root.value);
-  }
+  attachObserver();
   document.addEventListener('visibilitychange', onVisibility);
 });
-watch(() => props.ready, () => refreshTimer(Boolean(root.value)));
+// Was `refreshTimer(Boolean(root.value))`, which is true whenever the footer
+// element exists. The 3s timer therefore armed with no viewport check at all,
+// and qualify() only tests document.visibilityState, so a diagram that never
+// entered the viewport could register.
+watch(() => props.ready, () => {
+  // The capture node can reach $refs after this component mounts, so re-resolve
+  // the target here before re-arming.
+  attachObserver();
+  refreshTimer(intersecting);
+});
 onBeforeUnmount(() => { clearTimer(); observer?.disconnect(); document.removeEventListener('visibilitychange', onVisibility); });
 </script>
 

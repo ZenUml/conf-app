@@ -40,6 +40,7 @@ export const onRequest = async ({
       data,
       forgeOAuthUser: request.headers.get('x-forge-oauth-user'),
       customContentId: body.customContentId,
+      gateVersion: body.gateVersion,
     }));
   } catch (error) {
     return failure(error);

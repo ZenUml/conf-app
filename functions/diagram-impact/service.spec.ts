@@ -26,6 +26,31 @@ function fakeDb(input: { historical?: boolean; count?: number; existing?: { last
   } as unknown as D1Database;
 }
 
+// Same shape as fakeDb (eligible-viewer, no existing row -> INSERT path), but
+// captures the bind() args of every INSERT so the gateVersion normalization
+// can be asserted at the boundary the repository actually receives it at.
+function fakeDbCapturingInserts(input: { count?: number } = {}) {
+  const inserts: unknown[][] = [];
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind: (...binds: unknown[]) => ({
+          first: async () => {
+            if (sql.includes('CustomContentVersion')) return null;
+            if (sql.includes('COUNT(*)')) return { audienceCount: input.count ?? 7 };
+            return null;
+          },
+          run: async () => {
+            if (sql.includes('INSERT')) inserts.push(binds);
+            return { meta: { changes: 1 } };
+          },
+        }),
+      };
+    },
+  } as unknown as D1Database;
+  return { db, inserts };
+}
+
 const data = {
   forgeContext: {
     cloudId: 'cloud-a',
@@ -90,6 +115,39 @@ describe('diagram impact service', () => {
     await expect(registerDiagramImpactView({
       env: { DB: fakeDb() }, data, forgeOAuthUser: 'token', customContentId: 'content-a', now: new Date(),
     })).resolves.toEqual({ result: 'new_unique', audienceCount: 7 });
+  });
+
+  it('normalizes an absent gateVersion to 1 before it reaches the repository INSERT', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(content)));
+    const { db, inserts } = fakeDbCapturingInserts();
+
+    await registerDiagramImpactView({
+      env: { DB: db },
+      data,
+      forgeOAuthUser: 'token',
+      customContentId: 'content-a',
+      now: new Date('2026-08-12T12:00:00.000Z'),
+    });
+
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].at(-1)).toBe(1);
+  });
+
+  it('passes an explicit gateVersion of 2 through to the repository INSERT unchanged', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(content)));
+    const { db, inserts } = fakeDbCapturingInserts();
+
+    await registerDiagramImpactView({
+      env: { DB: db },
+      data,
+      forgeOAuthUser: 'token',
+      customContentId: 'content-a',
+      gateVersion: 2,
+      now: new Date('2026-08-12T12:00:00.000Z'),
+    });
+
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].at(-1)).toBe(2);
   });
 
   it('rejects missing or malformed identity and content inputs', async () => {

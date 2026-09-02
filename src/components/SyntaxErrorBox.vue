@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from "vue";
+import { computed, ref, onMounted, watch } from "vue";
 import { useStore } from "vuex";
 import AIRepair from "@/components/AIRepair.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
@@ -72,6 +72,7 @@ import {
   isAiChatRepairEnabled as checkAiChatRepairEnabled,
   isAiRepairEnabled as checkAiRepairEnabled,
 } from '@/apis/aiTitleFeatureFlag';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 const props = defineProps({
   aiRepairModel: String,
   aiRepairDisableReasoning: {
@@ -107,6 +108,7 @@ const useAiChatRepair = computed(() => (
 const shouldShowAiRepair = computed(() => (
   (aiRepairFeatureEnabled.value || useAiChatRepair.value) && isSupportedDiagramType.value
 ));
+const aiRepairVisible = computed(() => !!error.value && shouldShowAiRepair.value);
 const useLegacyAiRepair = computed(() => (
   shouldShowAiRepair.value && !useAiChatRepair.value
 ));
@@ -122,6 +124,15 @@ const handleApplyRepair = (repairedCode) => {
   store.dispatch(getStoreUpdateAction(store.state.diagram.diagramType), repairedCode);
   showAIRepairDialog.value = false;
 };
+watch(aiRepairVisible, (visible, wasVisible) => {
+  if (visible && !wasVisible) {
+    trackAnalyticsEvent('ai_repair_button_shown', {
+      feature_area: 'ai',
+      surface: 'editor',
+      macro_type: diagramType.value,
+    });
+  }
+}, { immediate: true });
 // Load the independent entry-point flags when component mounts. Chat repair
 // only needs evaluating when Chat itself is available.
 onMounted(async () => {

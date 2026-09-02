@@ -11,8 +11,12 @@ const featureFlags = vi.hoisted(() => ({
 }))
 
 vi.mock('@/apis/aiTitleFeatureFlag', () => featureFlags)
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: vi.fn(),
+}))
 
 import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 const AIRepairStub = defineComponent({
   name: 'AIRepairStub',
@@ -48,6 +52,7 @@ describe('SyntaxErrorBox AI Repair routing', () => {
     featureFlags.isAiRepairEnabled.mockReset().mockResolvedValue(true)
     featureFlags.isAiChatEnabled.mockReset().mockResolvedValue(false)
     featureFlags.isAiChatRepairEnabled.mockReset().mockResolvedValue(false)
+    vi.mocked(trackAnalyticsEvent).mockClear()
   })
 
   it('hides the repair action when neither repair route is enabled', async () => {
@@ -57,6 +62,7 @@ describe('SyntaxErrorBox AI Repair routing', () => {
 
     expect(wrapper.find('[data-testid="ai-repair-button"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="legacy-ai-repair"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_repair_button_shown', expect.anything())
   })
 
   it('uses the legacy AIRepair dialog when Chat is disabled', async () => {
@@ -64,6 +70,14 @@ describe('SyntaxErrorBox AI Repair routing', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="legacy-ai-repair"]').text()).toBe('false')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_button_shown', {
+      feature_area: 'ai',
+      surface: 'editor',
+      macro_type: DiagramType.Sequence,
+    })
+    await wrapper.vm.$forceUpdate()
+    await wrapper.vm.$nextTick()
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'ai_repair_button_shown')).toHaveLength(1)
     await wrapper.get('[data-testid="ai-repair-button"]').trigger('click')
 
     expect(wrapper.get('[data-testid="legacy-ai-repair"]').text()).toBe('true')
@@ -138,5 +152,6 @@ describe('SyntaxErrorBox AI Repair routing', () => {
 
     expect(wrapper.find('[data-testid="ai-repair-button"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="legacy-ai-repair"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_repair_button_shown', expect.anything())
   })
 })

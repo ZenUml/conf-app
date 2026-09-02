@@ -1,5 +1,5 @@
-import {mount, flushPromises} from '@vue/test-utils'
-import {vi} from 'vitest'
+import {mount, flushPromises, enableAutoUnmount} from '@vue/test-utils'
+import {afterEach, vi} from 'vitest'
 import Header from '@/components/Header/Header.vue'
 import {DiagramType} from "@/model/Diagram/Diagram";
 import {getTemplatesForType} from "@/model/Diagram/EditorTemplates";
@@ -16,8 +16,11 @@ vi.mock('@/apis/aiTitleFeatureFlag', async (importOriginal) => {
 import {trackAnalyticsEvent} from '@/utils/analytics/trackAnalyticsEvent'
 import {isAiChatEnabled} from '@/apis/aiTitleFeatureFlag'
 
+enableAutoUnmount(afterEach)
+
 beforeEach(() => {
   vi.mocked(isAiChatEnabled).mockResolvedValue(true)
+  vi.mocked(trackAnalyticsEvent).mockClear()
 })
 
 describe('Header', () => {
@@ -62,9 +65,32 @@ describe('Header', () => {
 
     const toggle = wrapper.get('[data-testid="ai-chat-toggle"]')
     expect(toggle.classes()).toContain('bg-violet-100')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_chat_button_shown', {
+      feature_area: 'ai',
+      surface: 'editor',
+      macro_type: DiagramType.Sequence,
+    })
     await toggle.trigger('click')
 
     expect(wrapper.emitted('toggle-ai-chat')).toHaveLength(1)
+  })
+
+  it('tracks each AI Chat button visibility transition without counting re-renders', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await flushPromises()
+
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'ai_chat_button_shown')).toHaveLength(1)
+    await wrapper.vm.$forceUpdate()
+    await wrapper.vm.$nextTick()
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'ai_chat_button_shown')).toHaveLength(1)
+
+    store.commit('updateDiagramType', DiagramType.Graph)
+    await wrapper.vm.$nextTick()
+    store.commit('updateDiagramType', DiagramType.Mermaid)
+    await wrapper.vm.$nextTick()
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'ai_chat_button_shown')).toHaveLength(2)
   })
 
   it('hides AI Chat when its feature flag is disabled', async () => {
@@ -75,6 +101,7 @@ describe('Header', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_chat_button_shown', expect.anything())
   })
 
   it('hides AI Chat for Graph diagrams', async () => {
@@ -84,6 +111,7 @@ describe('Header', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_chat_button_shown', expect.anything())
   })
 
   describe('the remembered diagram type', () => {

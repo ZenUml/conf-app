@@ -81,6 +81,9 @@ export type AnalyticsProperties = {
   // (dashboard_format_filtered). "all" = both AsyncAPI and OpenAPI shown.
   format_filter?: DashboardFormatFilter;
   result?: string;
+  // AI entry-point impressions (ai_chat_button_shown /
+  // ai_repair_button_shown) carry macro_type so their exposed users/volume
+  // can be compared directly with the corresponding opened/requested event.
   // AI Chat failure events use only closed-vocabulary categories here. Never
   // attach the raw backend error, prompt, diagram code, or job id.
   failure_reason?: string;

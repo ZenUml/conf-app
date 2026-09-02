@@ -13,6 +13,7 @@ import { forgeRequest } from '@/utils/requestUtil';
 import { getDiagramImpact, registerDiagramImpactView, type DiagramImpactSummary } from '@/services/DiagramImpact';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { DWELL_GATE_THRESHOLDS, qualifiesForDwell } from '@/components/Viewer/diagramDwellGate';
+import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
 
 const props = defineProps<{
   attribution: DiagramAttribution | null;
@@ -72,9 +73,9 @@ async function qualify() {
       ...registeredSummary,
       viewerRelation: summary.value?.viewerRelation ?? 'viewer',
     };
-    trackAnalyticsEvent('diagram_audience_registration_succeeded', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget });
+    trackAnalyticsEvent('diagram_audience_registration_succeeded', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...getGateTelemetry() });
   } catch {
-    trackAnalyticsEvent('diagram_audience_registration_failed', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget });
+    trackAnalyticsEvent('diagram_audience_registration_failed', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...getGateTelemetry() });
   }
 }
 function clearTimer() { if (timer) clearTimeout(timer); timer = undefined; }
@@ -113,7 +114,14 @@ function onVisibility() {
 onMounted(async () => {
   await Promise.all([resolveNames(), loadSummary()]);
   if (createdBy.value || lastUpdatedBy.value || summary.value) {
-    trackAnalyticsEvent('diagram_attribution_shown', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, has_last_updated_by: Boolean(lastUpdatedBy.value), has_audience_count: Boolean(summary.value) });
+    // The denominator of the audience funnel. Without the render gate on it, a
+    // shown count cannot be read as a chance to register: measured
+    // 2026-08-15..09-02 on the two customer tenants, 54.8% of `macro_viewed`
+    // carried `render_gate: 'background'` with `visible_at_boot: false`, and
+    // only 18.4% involved the macro entering the viewport at all. The 10.6%
+    // registration rate (4,429 of 41,844) cannot be interpreted until the
+    // off-screen share of that 41,844 is known. `{}` on an ungated render.
+    trackAnalyticsEvent('diagram_attribution_shown', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, has_last_updated_by: Boolean(lastUpdatedBy.value), has_audience_count: Boolean(summary.value), ...getGateTelemetry() });
   }
   attachObserver();
   document.addEventListener('visibilitychange', onVisibility);

@@ -395,17 +395,6 @@ export type AnalyticsEventName =
   // "wants to understand the pricing story", not "ready to pay".
   | "paywall_learn_more_clicked"
   | "space_admin_active"
-  // M1 first-seen ping (onboarding spec Phase 1). Fired from the page-banner
-  // host — the only surface that mounts on EVERY Confluence page in every
-  // variant — at most once per browser per tenant per 30 days, AFTER the
-  // authenticated backend POST succeeded. Two jobs: (a) the POST's invocation
-  // token carries context.siteUrl, so the backend resolves the tenant domain
-  // for installs where nobody ever opened a macro (85.7% of post-June
-  // Diagramly installs are domain-less); (b) counted per account_id it is the
-  // first census of Confluence-ACTIVE users per tenant — the P3 denominator.
-  // Census semantics: "active browsers with a resolved account", not "users"
-  // (localStorage throttle; cleared storage / second browsers inflate).
-  | "app_first_seen"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
@@ -662,8 +651,6 @@ export type AnalyticsEventName =
   | "draft_restored"
   | "draft_discarded"
   | "draft_banner_dismissed"
-  | "renderer_prefetch_started"
-  | "renderer_prefetch_completed"
   // In-viewer Edit gate for same-page shared-id macros (view-fork silent
   // orphan: view-editing a macro whose customContentId is shared by N>1
   // macros on the page forks a new CC on save, but the in-viewer modal cannot

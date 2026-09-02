@@ -266,12 +266,11 @@ export type AnalyticsProperties = {
   same_space?: boolean;                // clicked page in the same space as the viewer's page
   same_page?: boolean;                 // the opened participant also appears in another diagram on this page
   error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
-  // M1 `app_first_seen` census props. Explicit, not ambient: the P3 denominator
-  // is COUNT(DISTINCT account_id) per cloud_id, so both ride on the event
-  // itself rather than relying on Mixpanel identity resolution (which is
-  // placeholder-prone on first iframe events — see the ai_aide lesson).
+  // Join key on every `attachment_upload_*` event (model/Attachment.ts
+  // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
+  // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,
+  // page_id).
   cloud_id?: string;
-  account_id?: string;
   // True when the current user is resolved to be a space admin of the current
   // space. Set on `space_admin_active` (Phase 5a admin-activity probe) and, from
   // Phase 5b, on every page-banner event so the funnel can be split by audience.
@@ -572,12 +571,6 @@ export type AnalyticsProperties = {
   // fetch_ms starts at gate release, so render_deferred_ms still bounds the
   // total gate-induced delay inside duration_ms.
   gate_mode?: RenderGateMode;
-  // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
-  // only on an actual attempt (throttled to ≤1 per deploy per browser), never
-  // on the skip path — volume stays far below page-view scale. See
-  // utils/prefetch/rendererPrefetch.ts.
-  effective_type?: string; // navigator.connection.effectiveType at attempt time
-  save_data?: boolean;
   // Volume sampling: present (and < 1) only when this event was emitted under a
   // keep-probability < 1 (see utils/analytics/eventSampling.ts). Downstream
   // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0

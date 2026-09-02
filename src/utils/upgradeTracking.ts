@@ -22,10 +22,7 @@ export enum UpgradeEventName {
 }
 
 export enum UIComponent {
-  HEADER_BADGE = 'header_badge',
-  TOOLTIP = 'tooltip',
   VIEWER_NOTICE = 'viewer_notice',
-  BANNER = 'banner',
   MODAL = 'modal',
 }
 

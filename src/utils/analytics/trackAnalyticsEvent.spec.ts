@@ -13,6 +13,7 @@ import {
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { normalizeProductType } from "./productType";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
+import { EVENT_SAMPLE_RATES } from "./eventSampling";
 
 vi.mock("mixpanel-browser", () => ({
   default: {
@@ -191,13 +192,23 @@ describe("trackAnalyticsEvent", () => {
 
   describe("event sampling", () => {
     it("drops a rate-0 event without initializing mixpanel", async () => {
-      await _awaitableTrackAnalyticsEvent("renderer_prefetch_started", {
-        feature_area: "system",
-        surface: "viewer",
-      });
-      expect(mixpanel.track).not.toHaveBeenCalled();
-      // Dropped before _initMixpanel, so no Forge-bridge round trip is paid.
-      expect(mixpanel.init).not.toHaveBeenCalled();
+      // No production event is currently rate-0 (the last two — renderer
+      // prefetch's telemetry — were deleted 2026-09-02 along with their emit
+      // call sites), but the mechanism must still work for whichever event
+      // needs it next. Override a real AnalyticsEventName's rate rather than
+      // depending on today's config.
+      EVENT_SAMPLE_RATES.macro_viewed = 0;
+      try {
+        await _awaitableTrackAnalyticsEvent("macro_viewed", {
+          feature_area: "system",
+          surface: "viewer",
+        });
+        expect(mixpanel.track).not.toHaveBeenCalled();
+        // Dropped before _initMixpanel, so no Forge-bridge round trip is paid.
+        expect(mixpanel.init).not.toHaveBeenCalled();
+      } finally {
+        delete EVENT_SAMPLE_RATES.macro_viewed;
+      }
     });
 
     it("stamps sample_rate on a down-sampled event when kept", async () => {

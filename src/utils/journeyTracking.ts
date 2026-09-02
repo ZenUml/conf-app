@@ -59,13 +59,6 @@ export function getEditJourneyStartTime(): number | null {
 }
 
 /**
- * 获取编辑时长（毫秒）
- */
-export function getEditJourneyDuration(): number | null {
-  return editJourneyStartTime ? Date.now() - editJourneyStartTime : null;
-}
-
-/**
  * 结束编辑会话
  * @param reason - 结束原因：saved（保存）, cancelled（取消）, window_close（窗口关闭）
  */
@@ -126,20 +119,5 @@ export function getOrCreateSession(): string {
   }));
   
   return sessionId;
-}
-
-/**
- * 获取 session 年龄（从创建到现在的毫秒数）
- */
-export function getSessionAge(): number | null {
-  const stored = sessionStorage.getItem(SESSION_KEY);
-  if (!stored) return null;
-  
-  try {
-    const data = JSON.parse(stored);
-    return Date.now() - data.timestamp;
-  } catch {
-    return null;
-  }
 }
 

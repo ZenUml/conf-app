@@ -73,7 +73,6 @@ interface ForgeUserBehaviorOptions {
 }
 
 const EVENT_ACTIONS: Record<ForgeUserBehaviorEventBody["eventType"], string> = {
-  "avi:confluence:viewed:page": "page_viewed",
   "avi:confluence:updated:page": "page_updated",
 };
 

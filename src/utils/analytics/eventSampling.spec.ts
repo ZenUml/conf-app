@@ -14,9 +14,20 @@ describe("eventSampling", () => {
       expect(sampleRateFor("something_brand_new")).toBe(1);
     });
 
-    it("drops the validated prefetch telemetry (rate 0)", () => {
-      expect(sampleRateFor("renderer_prefetch_started")).toBe(0);
-      expect(sampleRateFor("renderer_prefetch_completed")).toBe(0);
+    it("returns 0 for an event explicitly configured to never emit", () => {
+      // No production event is currently rate-0 (the last two — renderer
+      // prefetch's telemetry — were deleted 2026-09-02 along with their
+      // emit call sites), but the mechanism itself (rate 0 = never emit,
+      // documented above EVENT_SAMPLE_RATES) must still work for whichever
+      // event needs it next. A synthetic key exercises the branch without
+      // depending on today's config.
+      const key = "__test_zero_rate_event__";
+      EVENT_SAMPLE_RATES[key] = 0;
+      try {
+        expect(sampleRateFor(key)).toBe(0);
+      } finally {
+        delete EVENT_SAMPLE_RATES[key];
+      }
     });
 
     it("samples the high-volume diagnostics to 10%", () => {
@@ -51,8 +62,14 @@ describe("eventSampling", () => {
     });
 
     it("never keeps rate-0 events", () => {
-      const d = decideSample("renderer_prefetch_started", () => 0);
-      expect(d).toEqual({ keep: false, rate: 0 });
+      const key = "__test_zero_rate_event__";
+      EVENT_SAMPLE_RATES[key] = 0;
+      try {
+        const d = decideSample(key, () => 0);
+        expect(d).toEqual({ keep: false, rate: 0 });
+      } finally {
+        delete EVENT_SAMPLE_RATES[key];
+      }
     });
 
     it("keeps a fractional event only when rng falls under the rate", () => {

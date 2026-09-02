@@ -55,8 +55,6 @@ export const CANONICAL_EVENT_NAME_LIST = [
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];
 
-export const CANONICAL_EVENT_NAMES: ReadonlySet<string> = new Set(CANONICAL_EVENT_NAME_LIST);
-
 export type TrackCanonicalRequest = {
   transport_version: 2;
   event: AnalyticsEventName;

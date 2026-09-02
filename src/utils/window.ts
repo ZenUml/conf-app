@@ -90,14 +90,6 @@ export function trackEvent(
   void _awaitableTrackEvent(label, action, category, resetEventDetails);
 }
 
-const MIGRATED_ACTIONS = new Set([
-  'view_macro',
-  'create_macro_begin',
-  'edit_macro_begin',
-  'create_macro_end',
-  'edit_macro_end',
-]);
-
 // awaitable function for testing
 export async function _awaitableTrackEvent(
   label: string,
@@ -105,9 +97,6 @@ export async function _awaitableTrackEvent(
   category: EventCategory | string,
   resetEventDetails: Record<string, any> = {}
 ) {
-  if (MIGRATED_ACTIONS.has(action)) {
-    console.warn(`[analytics] Legacy action "${action}" was migrated to trackAnalyticsEvent — use that instead.`);
-  }
   // Volume sampling: drop / down-sample high-volume diagnostics before any init
   // or network cost. Keyed on `action` (the Mixpanel event name for this path).
   // Error events are never down-sampled: decideSample keys only on the action

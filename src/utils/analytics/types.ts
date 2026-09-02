@@ -16,6 +16,8 @@ import type {
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
+  PaywallSurveyQuestion,
+  PaywallSurveyGrant,
   PrefetchHost,
   PrefetchOutcome,
   DashboardFormatFilter,
@@ -318,7 +320,10 @@ export type AnalyticsProperties = {
   extension_action?: 'initial' | 'feedback';
   extension_action_outcome?: 'applied' | 'already_applied';
   extension_scope?: 'user';
-  extension_days?: 7 | 60;
+  // 15 is the in-modal pricing survey's automatic reward, and it also replaces
+  // 7 as the feedback grant's window; 7 and 60 stay in the union so historical
+  // events and any in-flight JSM grant still type-check.
+  extension_days?: 7 | 15 | 60;
   extension_failure_stage?:
     | 'request_validation'
     | 'tenant_resolution'
@@ -328,6 +333,19 @@ export type AnalyticsProperties = {
     | 'license_write'
     | 'license_verify'
     | 'unexpected';
+  // In-modal pricing survey (paywall_survey_*). `survey_question` names the
+  // question an `answered` event refers to; the four Van Westendorp prices
+  // report USD per year on `survey_answer_number`, every other question its
+  // enum value on `survey_answer`. `survey_answer` carries ENUM VALUES ONLY —
+  // the free-text comment is stored on the D1 row and must never be attached
+  // to an event, so a `comment` answer rides with neither value property.
+  // `survey_grant` + `survey_reward_days` close the loop on submit: whether
+  // the automatic space license was actually written, and for how long.
+  survey_question?: PaywallSurveyQuestion;
+  survey_answer?: string;
+  survey_answer_number?: number;
+  survey_grant?: PaywallSurveyGrant;
+  survey_reward_days?: number;
   // Attribution token embedded in the Stripe Payment Link URL
   // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment

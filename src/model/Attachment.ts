@@ -569,21 +569,6 @@ export function attachmentNameByIdentifier(id: string): string {
   return `zenuml-${id}.png`;
 }
 
-/**
- * Get the download link for an attachment by page ID and macro UUID.
- */
-export async function getAttachmentDownloadLink(
-  pageId: string,
-  macroUuid: string
-): Promise<string | false> {
-  const attachmentName = attachmentNameByIdentifier(macroUuid);
-  const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
-  if (attachments.length > 1) {
-    console.warn(`Multiple attachments found with uuid "${macroUuid}" on page ${pageId}:`, attachments);
-  }
-  return attachments.length > 0 && `${attachments[0]._links.base}${attachments[0]._links.download}`;
-}
-
 // ============================================================================
 // Attachment CRUD Operations
 // ============================================================================

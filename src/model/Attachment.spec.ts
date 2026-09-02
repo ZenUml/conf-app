@@ -66,7 +66,6 @@ vi.mock('@forge/bridge', () => ({
   requestConfluence: (...args: any[]) => mockRequestConfluence(...args)
 }));
 
-import { getAttachmentDownloadLink } from './Attachment';
 import createAttachmentIfContentChanged from './Attachment';
 
 import { captureBlob } from '@/model/captureBlob';
@@ -100,55 +99,6 @@ describe('Attachment', () => {
   afterEach(() => {
     (forgeGlobal as any).forgeContext = undefined;
     delete (window as any).createAttachmentInProgress;
-  });
-
-  describe('getAttachmentDownloadLink', () => {
-    it('should return download link when attachment exists', async () => {
-      const mockAttachment = {
-        _links: {
-          base: 'https://example.com',
-          download: '/download/attachment.png'
-        }
-      };
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([mockAttachment]);
-
-      const link = await getAttachmentDownloadLink('page-123', 'test-uuid');
-      expect(link).toBe('https://example.com/download/attachment.png');
-      expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledWith('page-123', { filename: 'zenuml-test-uuid.png' });
-    });
-
-    it('should return undefined when no attachment found', async () => {
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
-
-      const link = await getAttachmentDownloadLink('page-123', 'test-uuid');
-      // Returns 0 (falsy) when attachments.length is 0
-      expect(link).toBeFalsy();
-    });
-
-    it('should handle multiple attachments and return first one', async () => {
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const mockAttachment1 = {
-        _links: {
-          base: 'https://example.com',
-          download: '/download/attachment1.png'
-        }
-      };
-      const mockAttachment2 = {
-        _links: {
-          base: 'https://example.com',
-          download: '/download/attachment2.png'
-        }
-      };
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([mockAttachment1, mockAttachment2]);
-
-      const link = await getAttachmentDownloadLink('page-123', 'test-uuid');
-      expect(link).toBe('https://example.com/download/attachment1.png');
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Multiple attachments found'),
-        [mockAttachment1, mockAttachment2]
-      );
-      consoleWarnSpy.mockRestore();
-    });
   });
 
   describe('createAttachmentIfContentChanged', () => {

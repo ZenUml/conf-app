@@ -45,7 +45,9 @@ meta:
 # These map directly to the `page_mode` property on edit_macro_end /
 # create_macro_end events.
 #
-# Source detection: src/utils/editModeDetection.ts (detectEditMode)
+# Source detection: src/utils/editModeDetection.ts (detectEditMode) — deleted
+# 2026-09-02 as dead code (zero importers); no replacement source computes
+# page_mode today, so this mapping is descriptive only.
 concepts:
   page_view_mode:
     page_mode_value: view

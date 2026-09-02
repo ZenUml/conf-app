@@ -150,13 +150,17 @@ function getStandaloneContext(): any {
   };
 }
 
+function applyVariantFlags() {
+  global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
+  global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
+  global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
+}
+
 function applyStandaloneContext() {
   global.isForge = false;
   global.view = STANDALONE_VIEW_STUB;
   global.forgeContext = getStandaloneContext();
-  global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
-  global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
-  global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
+  applyVariantFlags();
   global.zenumlRemoteBaseUrl = resolveZenumlRemoteBaseUrl('DEVELOPMENT', global);
 }
 
@@ -177,9 +181,7 @@ export async function getView() {
     global.isForge = true;
     global.view = view;
     global.forgeContext = ctx;
-    global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
-    global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
-    global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
+    applyVariantFlags();
     global.zenumlRemoteBaseUrl = resolveZenumlRemoteBaseUrl(ctx.environmentType, global);
     // KEEP — a documented investigation technique (docs/superpowers/plans/
     // 2026-07-18-job-b-spike-findings.md) captures this exact console line via

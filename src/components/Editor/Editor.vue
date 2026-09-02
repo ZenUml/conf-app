@@ -16,9 +16,9 @@ import {EditorState, Compartment} from '@codemirror/state';
 import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions, plantUmlExtensions} from "./extensions";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {useStore} from "vuex";
-import { validateMermaidSyntaxForStore } from "@/utils/mermaid/validate";
-import { validateSequenceSyntaxForStore } from "@/utils/sequence/validate";
-import { validatePlantUmlSyntaxForStore } from "@/utils/plantuml/validate";
+import { validateMermaidSyntax } from "@/utils/mermaid/validate";
+import { validateSequenceSyntax } from "@/utils/sequence/validate";
+import { validatePlantUmlSyntax } from "@/utils/plantuml/validate";
 import { debounce } from 'lodash';
 import {
   recordEditorTransaction,
@@ -47,23 +47,32 @@ const onEditorCodeChange = (newCode) => {
   store.dispatch(getStoreUpdateAction(diagramType.value), newCode);
 }
 
-// Create a unified debounced validation function
-const debouncedValidate = debounce(async (newCode) => {
+// Async parsers can finish out of order. Only the validation started for the
+// latest code revision may publish an error to the shared store.
+let validationRevision = 0;
+const debouncedValidate = debounce(async (newCode, revision) => {
+  let result;
   if (!newCode) {
-    store.dispatch('updateError', null);
-    return;
-  }
-  if(diagramType.value===DiagramType.Mermaid){
-    await validateMermaidSyntaxForStore(newCode, store, 'updateError');
+    result = { error: null };
+  } else if(diagramType.value===DiagramType.Mermaid){
+    result = await validateMermaidSyntax(newCode);
   } else if(diagramType.value===DiagramType.PlantUml){
-    await validatePlantUmlSyntaxForStore(newCode, store, 'updateError');
+    result = await validatePlantUmlSyntax(newCode);
   } else {
-    await validateSequenceSyntaxForStore(newCode, store, 'updateError');
+    result = await validateSequenceSyntax(newCode);
+  }
+
+  if (revision === validationRevision) {
+    store.dispatch('updateError', result.error);
   }
 }, 1000);
 // Watch for code changes and update error state
 watch(code, (newCode) => {
-  debouncedValidate(newCode);
+  validationRevision += 1;
+  // Any existing error describes the previous source. Clear it immediately;
+  // the latest validation will restore an error if the new source is invalid.
+  store.dispatch('updateError', null);
+  debouncedValidate(newCode, validationRevision);
 }, { immediate: true });
 
 const diagramSpecificExtensions = computed(() => {
@@ -130,6 +139,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   // Cancel the debounced validation function to avoid memory leaks
+  validationRevision += 1;
   debouncedValidate.cancel();
   cmView.value.destroy();
   resetEditorMutationSession();

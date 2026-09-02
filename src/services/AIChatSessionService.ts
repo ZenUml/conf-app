@@ -80,7 +80,10 @@ export type RunAIChatSessionOptions = {
   onDiagramBound?: (diagramId: string) => void | Promise<void>
 }
 
-const DEFAULT_TIMEOUT_MS = 60_000
+// Diagramly's provider layer allows a single model request to run for up to
+// 120 seconds. Keep polling beyond that boundary so the worker has time to
+// persist the completed version and expose it through job status.
+export const AI_CHAT_SESSION_TIMEOUT_MS = 135_000
 const DEFAULT_POLL_INTERVAL_MS = 2_000
 
 function createAbortError(): Error {
@@ -157,7 +160,7 @@ function stageFromStatus(
 export async function runAIChatSession(
   options: RunAIChatSessionOptions,
 ): Promise<AIChatSessionResult> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = options.timeoutMs ?? AI_CHAT_SESSION_TIMEOUT_MS
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
   assertNotAborted(options.signal)
 

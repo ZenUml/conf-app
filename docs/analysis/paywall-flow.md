@@ -28,7 +28,7 @@ flowchart TB
     SB -->|no| MOUNT[editor mounts — macro_create_started / macro_edit_started]
     SB -->|yes| PT[/"paywall_triggered {action_type}"/]
     PT --> MODAL[UpgradePrompt modal — upgrade_modal_shown]
-    MODAL --> CNT{"continue attempts N > 0?<br/>15 per user:space, localStorage"}
+    MODAL --> CNT{"continue attempts N > 0?<br/>3 per user:space, localStorage"}
     CNT -->|"N > 0"| CONT["Continue editing (N) → N−1<br/>editor usable, saves persist"]
     CNT -->|"N = 0"| LOCK[locked out — Request extension only]
     LOCK --> R1["Rail 1 · Enterprise Bundle $299/space/yr (Stripe) → license KV"]
@@ -39,11 +39,11 @@ flowchart TB
 
   subgraph L3["3 · Known failure shapes"]
     F1["Fail-open: count read fails → 0 → gate silent (#302; ≈0 on revenue tenants, 2026-07-12)"]
-    F2["Client-side counter: clearing site data resets N to 15 (2 of 42 locked-out users)"]
+    F2["Client-side counter: clearing site data resets N to 3 (2 of 42 locked-out users)"]
     F3["Banner reach: 'paywall' needs recent authorship; 'paywall-admin' flag off in prod"]
   end
 
   TM -.-> TRY
 ```
 
-Thresholds: warn 85 (`WARNING_THRESHOLD`, `useCustomerSuccessService.ts:11`), block 100 (`PAYWALL_BANNER_MIN_MACRO_COUNT`), 15 continue attempts (`DEFAULT_CONTINUE_ATTEMPTS`), 7-day banner snooze (`WARNING_BANNER_SUPPRESSION_MS`), 30-day admin probe. Lite only — Full, Diagramly and AsyncAPI run none of these gates. Spot-check rule: expect the modal at editor mount, never after Publish.
+Thresholds: warn 85 (`WARNING_THRESHOLD`, `useCustomerSuccessService.ts:11`), block 100 (`PAYWALL_BANNER_MIN_MACRO_COUNT`), 3 continue attempts (`DEFAULT_CONTINUE_ATTEMPTS`; 15 before 2026-08-16, and a stored balance is never rewritten), 7-day banner snooze (`WARNING_BANNER_SUPPRESSION_MS`), 30-day admin probe. Lite only — Full, Diagramly and AsyncAPI run none of these gates. Spot-check rule: expect the modal at editor mount, never after Publish.

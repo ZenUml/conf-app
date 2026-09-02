@@ -1,4 +1,5 @@
 import type { ForgeRequestData } from '../utils/authenticate';
+import { captureError } from '../utils/sentry';
 import {
   classifyViewerRelation,
   normalizeGateVersion,
@@ -168,11 +169,22 @@ export async function registerDiagramImpactView(input: {
     };
   }
 
-  const result = await registerAudienceView(resolved.db, {
-    ...resolved.scope,
-    accountId: resolved.accountId,
-    now: input.now ?? new Date(),
-    gateVersion: normalizeGateVersion(input.gateVersion),
-  });
+  // The write is the derived half of this request. A schema drift, a D1
+  // outage, or a constraint change must not turn a page view into a 500 — the
+  // reader has done nothing wrong and the client can do nothing about it. The
+  // count read below is the half the response body is actually for, so that
+  // one is left to fail loudly if it fails at all.
+  let result: RegistrationResult;
+  try {
+    result = await registerAudienceView(resolved.db, {
+      ...resolved.scope,
+      accountId: resolved.accountId,
+      now: input.now ?? new Date(),
+      gateVersion: normalizeGateVersion(input.gateVersion),
+    });
+  } catch (error) {
+    captureError(error);
+    result = 'write_failed';
+  }
   return { result, audienceCount: await countAudience(resolved.db, resolved.scope) };
 }

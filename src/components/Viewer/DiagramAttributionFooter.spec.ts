@@ -15,7 +15,7 @@ vi.mock('@/services/DiagramImpact', () => ({
     audienceCount: impact.audienceCount,
     viewerRelation: 'viewer',
   })),
-  registerDiagramImpactView: vi.fn(),
+  registerDiagramImpactView: vi.fn(async () => ({ audienceCount: 1, result: 'new_unique' })),
 }))
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -113,6 +113,7 @@ describe('DiagramAttributionFooter viewport dwell gate', () => {
     FakeIntersectionObserver.instances = []
     vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
     vi.mocked(registerDiagramImpactView).mockReset()
+    vi.mocked(registerDiagramImpactView).mockResolvedValue({ audienceCount: 1, result: 'new_unique' })
     vi.mocked(trackAnalyticsEvent).mockReset()
   })
 
@@ -288,5 +289,29 @@ describe('DiagramAttributionFooter viewport dwell gate', () => {
     expect(getGateTelemetry).toHaveBeenCalled()
     expect(call![1]).not.toHaveProperty('render_gate')
     expect(call![1]).not.toHaveProperty('visible_at_boot')
+  })
+
+  // The backend answers 200 for a failed derived write, so the outcome rides
+  // the body. Reporting it as a success would overstate registrations by
+  // exactly the population that failed to register.
+  it('reports a write_failed outcome as a failure even though the request returned 200', async () => {
+    vi.mocked(registerDiagramImpactView).mockResolvedValue({ audienceCount: 3, result: 'write_failed' })
+    const diagram = document.createElement('div')
+    mountFooter({ ready: true, diagramHost: () => diagram })
+    await flushPromises()
+
+    const observer = FakeIntersectionObserver.instances[0]
+    vi.useFakeTimers()
+    observer.callback([dwellEntry({ isIntersecting: true, intersectionHeight: 300, boundingHeight: 300 })])
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'diagram_audience_registration_failed',
+      expect.objectContaining({ was_intersecting: true }),
+    )
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'diagram_audience_registration_succeeded',
+      expect.anything(),
+    )
   })
 })

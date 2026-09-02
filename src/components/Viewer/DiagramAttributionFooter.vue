@@ -70,9 +70,15 @@ async function qualify() {
     const registeredSummary = await registerDiagramImpactView(props.attribution.customContentId);
     summary.value = {
       ...summary.value,
-      ...registeredSummary,
+      audienceCount: registeredSummary.audienceCount,
       viewerRelation: summary.value?.viewerRelation ?? 'viewer',
     };
+    if (registeredSummary.result === 'write_failed') {
+      // 200, but no row was written. Counting it as a success would overstate
+      // registrations by exactly the population that failed to register.
+      trackAnalyticsEvent('diagram_audience_registration_failed', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...getGateTelemetry() });
+      return;
+    }
     trackAnalyticsEvent('diagram_audience_registration_succeeded', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...getGateTelemetry() });
   } catch {
     trackAnalyticsEvent('diagram_audience_registration_failed', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...getGateTelemetry() });

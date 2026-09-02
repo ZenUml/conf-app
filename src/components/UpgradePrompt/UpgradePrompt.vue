@@ -17,6 +17,63 @@
           </p>
         </div>
 
+        <!-- Survey step: replaces the whole modal body. The header above and
+             the footer below stay put so the close affordance never moves. -->
+        <template v-if="step === 'survey'">
+          <div class="px-4 pt-2">
+            <button
+              type="button"
+              data-testid="survey-back-btn"
+              class="text-[11px] text-gray-500 hover:text-gray-700 hover:underline"
+              @click="step = 'main'"
+            >&larr; Back</button>
+          </div>
+          <PaywallSurvey
+            :space-key="messageContext.spaceKey"
+            :macro-count="props.macrosCreated"
+            :action-type="props.actionType"
+            @submitted="onSurveySubmitted"
+            @skipped="onSurveySkipped"
+          />
+        </template>
+
+        <!-- Unlocked / already-granted outcomes of the survey. -->
+        <div v-else-if="step === 'unlocked'" class="px-4 py-4" data-testid="survey-unlocked">
+          <p class="text-sm font-medium text-gray-900">Editing is unlocked</p>
+          <p class="mt-1 text-xs text-gray-700 leading-5">{{ unlockedCopy }}</p>
+          <div class="mt-3 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              data-testid="survey-continue-btn"
+              class="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-1"
+              @click="onUnlockedContinue"
+            >Continue editing</button>
+            <button
+              type="button"
+              data-testid="survey-support-btn"
+              class="text-[11px] text-blue-600 hover:text-blue-800 hover:underline"
+              @click="runExtensionRequestFlow"
+            >Need longer, or for the whole team? Request via support</button>
+          </div>
+        </div>
+
+        <div
+          v-else-if="step === 'already_granted'"
+          class="px-4 py-4"
+          data-testid="survey-already-granted"
+        >
+          <p class="text-xs text-gray-700 leading-5">
+            You have already used the survey extension for this space. Request more time from support.
+          </p>
+          <button
+            type="button"
+            data-testid="survey-support-btn"
+            class="mt-3 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+            @click="runExtensionRequestFlow"
+          >Request via support</button>
+        </div>
+
+        <template v-else>
         <!-- Hero: illustration + title + body -->
         <PaywallHero />
 
@@ -101,9 +158,12 @@
             >{{ extensionRequestStatus }}</p>
           </div>
         </div>
+        </template>
 
-        <!-- Footer - Continue editing + Learn more -->
-        <div class="px-4 py-2 bg-gray-50 flex justify-between items-center gap-3">
+        <!-- Footer - Continue editing + Learn more. Main step only: on the
+             unlocked step a second "continue without upgrading" would spend a
+             continue attempt the user has just stopped needing. -->
+        <div v-if="step === 'main'" class="px-4 py-2 bg-gray-50 flex justify-between items-center gap-3">
           <div class="min-w-0">
             <button
               v-if="canContinueEditing"
@@ -143,6 +203,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import PaywallHero from './PaywallHero.vue'
+import PaywallSurvey from './PaywallSurvey.vue'
 import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
@@ -161,6 +222,8 @@ import {
   buildExtensionRequestUrl,
 } from './buildExtensionRequest'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
+import type { PaywallSurveyGrant } from '@/utils/analytics/catalog'
+import { SURVEY_REWARD_DAYS } from './paywallSurvey'
 import { openUrl } from '@/model/globals/forgeGlobal'
 
 const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
@@ -182,7 +245,26 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'continueEditing'): void
+  /** The survey granted this user a space license, so editing may resume
+   *  WITHOUT spending a continue attempt. Distinct from continueEditing for
+   *  exactly that reason. */
+  (e: 'unlocked'): void
 }>()
+
+/**
+ * Which body the modal is showing.
+ *
+ * 'main'            the purchase rails + advocacy draft + support request
+ * 'survey'          the pricing survey, shown instead of opening support
+ * 'unlocked'        the survey earned a space license for this user
+ * 'already_granted' this user already spent their one survey extension
+ */
+type PromptStep = 'main' | 'survey' | 'unlocked' | 'already_granted'
+const step = ref<PromptStep>('main')
+/** Response id of the survey the user just saw, threaded into the support
+ *  request so a reply can be matched to the answers already stored. */
+const surveyResponseId = ref<string | undefined>(undefined)
+const grantExpiresAt = ref<string | undefined>(undefined)
 
 function onContinueEditing() {
   const attemptsBefore = props.remainingContinueAttempts
@@ -315,12 +397,18 @@ async function onLearnMore() {
   await openUrl('https://zenuml.com/upgrade/')
 }
 
-async function onRequestExtension() {
+/**
+ * The support-request rail, unchanged from before the survey existed except
+ * that it now carries the survey response id when there is one. Reached three
+ * ways: skipping the survey, and both survey outcomes that still want a human.
+ */
+async function runExtensionRequestFlow() {
   const requestContext = buildExtensionRequestContext({
     spaceKey: messageContext.value.spaceKey,
     macroCount: props.macrosCreated,
     macrosLimit: props.macrosLimit,
     macroKind: props.macroKind,
+    surveyResponseId: surveyResponseId.value,
   })
   const requestUrl = buildExtensionRequestUrl(requestContext)
   const requestMessage = buildExtensionRequestMessage(requestContext)
@@ -335,6 +423,62 @@ async function onRequestExtension() {
 
   await openUrl(requestUrl)
 }
+
+/**
+ * "Request extension" no longer opens support directly. The survey is the
+ * price of the extension, and it is asked BEFORE the hand-off because a user
+ * who has already been sent to the service desk never comes back to answer it.
+ */
+function onRequestExtension() {
+  step.value = 'survey'
+}
+
+function onSurveySkipped(responseId: string) {
+  surveyResponseId.value = responseId
+  step.value = 'main'
+  void runExtensionRequestFlow()
+}
+
+function onSurveySubmitted(result: {
+  grant: PaywallSurveyGrant
+  expiresAt?: string
+  responseId: string
+}) {
+  surveyResponseId.value = result.responseId
+  grantExpiresAt.value = result.expiresAt
+  if (result.grant === 'granted' || result.grant === 'existing') {
+    // Reflect the grant locally: the license already exists server-side, so
+    // the modal must not make the user wait for another space-status read.
+    customerSuccess?.markSpacePaid('user_license')
+    step.value = 'unlocked'
+    return
+  }
+  if (result.grant === 'already_granted') {
+    step.value = 'already_granted'
+    return
+  }
+  // 'none' means the row was stored but no license was issued (an incomplete
+  // submit the backend rejected). Fall back to the support rail rather than
+  // claiming an unlock that did not happen.
+  step.value = 'main'
+}
+
+function onUnlockedContinue() {
+  emit('unlocked')
+}
+
+/** Local date, not the raw ISO string: the reader needs the day their editing
+ *  stops, in their own calendar. */
+const unlockedExpiryText = computed(() => {
+  if (!grantExpiresAt.value) return `${SURVEY_REWARD_DAYS} more days`
+  const parsed = new Date(grantExpiresAt.value)
+  if (Number.isNaN(parsed.getTime())) return `${SURVEY_REWARD_DAYS} more days`
+  return parsed.toLocaleDateString()
+})
+
+const unlockedCopy = computed(() =>
+  `Editing is unlocked in ${messageContext.value.spaceKey} for you through ${unlockedExpiryText.value}. If an editor is already open, refresh the page.`
+)
 
 const modalContainer = ref<HTMLElement | null>(null)
 watch(() => props.visible, async (v) => {

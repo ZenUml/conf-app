@@ -20,6 +20,29 @@ const ctx: ExtensionRequestContext = {
   appVersion: '1.2.3',
 }
 
+describe('buildExtensionRequestMessage — survey id', () => {
+  it('omits the Survey ID line when the user never saw the survey', () => {
+    expect(buildExtensionRequestMessage(ctx)).not.toContain('Survey ID')
+  })
+
+  it('places the Survey ID directly after Macro type so support can join the answers', () => {
+    const lines = buildExtensionRequestMessage({
+      ...ctx,
+      surveyResponseId: '8f1c2b7e-0a55-4d31-9c2a-6b1f0d4e7a92',
+    }).split('\n')
+    const macroTypeIndex = lines.indexOf('Macro type: sequence')
+    expect(macroTypeIndex).toBeGreaterThan(-1)
+    expect(lines[macroTypeIndex + 1]).toBe('Survey ID: 8f1c2b7e-0a55-4d31-9c2a-6b1f0d4e7a92')
+  })
+
+  it('carries the Survey ID into the prefilled description', () => {
+    const url = new URL(
+      buildExtensionRequestUrl({ ...ctx, surveyResponseId: 'response-1' })
+    )
+    expect(url.searchParams.get('description')).toContain('Survey ID: response-1')
+  })
+})
+
 describe('buildExtensionRequestUrl', () => {
   it('deep-links to the upgrade/extension request form, not the portal home', () => {
     const url = new URL(buildExtensionRequestUrl(ctx))

@@ -6,8 +6,19 @@ import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextP
 import globals from '@/model/globals'
 import { callRemote } from '@/utils/requestUtil'
 import { writeTargetingMarker, toMarkerSeverity } from '@/utils/paywall/warningBanner'
+import forgeGlobal from '@/model/globals/forgeGlobal'
 
 export const MACROS_LIMIT = 100
+
+/**
+ * How long after a survey grant the /api/space-status read stays cache-busted.
+ * The response carries `Cache-Control: max-age=300`, so without this the next
+ * page load inside five minutes reads the pre-grant "not paid" answer out of
+ * the browser cache and re-shows the paywall to a user who just earned an
+ * extension. Ten minutes gives the 5-minute window a margin.
+ */
+export const PAYWALL_GRANT_MARKER_TTL_MS = 10 * 60 * 1000
+
 const WARNING_THRESHOLD = 85
 const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
 const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
@@ -36,6 +47,18 @@ const spacePaidStatus = ref<boolean>(false)
 // isn't paid. Rides on paywall_gate_evaluated.
 const spacePaidSource = ref<'user_license' | 'space_license' | 'paid_rail' | undefined>(undefined)
 const currentSpaceKey = ref<string>('')
+
+/** Parts are URL-encoded exactly like continueAttempts.ts, so a space key with
+ *  a ':' or a '~' cannot collide with a neighbouring key segment. */
+function paywallGrantMarkerKey(): string {
+  const part = (value: string) => encodeURIComponent(value || 'unknown')
+  return [
+    'paywallGrantAt',
+    part(getClientDomain()),
+    part(currentSpaceKey.value || getSpaceKey()),
+    part(forgeGlobal.forgeContext?.accountId || ''),
+  ].join(':')
+}
 
 let macroMetricsLoaded = false;
 let cssFlagLoaded = false;
@@ -222,6 +245,31 @@ export function useCustomerSuccessService() {
     }
   }
 
+  /**
+   * '&_=<now>' when this browser recorded a survey grant for this space in the
+   * last PAYWALL_GRANT_MARKER_TTL_MS, '' otherwise. Without it the cached
+   * (max-age=300) pre-grant response wins for five minutes and the user who
+   * just answered the survey is shown the paywall again on the next load.
+   * An expired marker is deleted on the way past, so the bust is one-shot per
+   * grant rather than permanent.
+   */
+  function recentGrantCacheBuster(): string {
+    try {
+      const key = paywallGrantMarkerKey()
+      const grantedAt = localStorage.getItem(key)
+      if (!grantedAt) return ''
+      const age = Date.now() - new Date(grantedAt).getTime()
+      if (Number.isFinite(age) && age >= 0 && age < PAYWALL_GRANT_MARKER_TTL_MS) {
+        return `&_=${Date.now()}`
+      }
+      localStorage.removeItem(key)
+      return ''
+    } catch (e) {
+      console.warn('[paywall] could not read the survey grant marker', e)
+      return ''
+    }
+  }
+
   async function loadSpacePaidStatus(): Promise<void> {
     if (spacePaidStatusLoaded) {
       console.log('💳 Space paid status already loaded, skipping')
@@ -247,7 +295,11 @@ export function useCustomerSuccessService() {
       const spaceKey = currentSpaceKey.value
 
       console.log('🔍 Checking space paid status...')
-      const response = await callRemote(`/api/space-status?spaceKey=${encodeURIComponent(spaceKey)}`, 'GET')
+      const cacheBuster = recentGrantCacheBuster()
+      const response = await callRemote(
+        `/api/space-status?spaceKey=${encodeURIComponent(spaceKey)}${cacheBuster}`,
+        'GET'
+      )
 
       if (response && typeof response.isPaid === 'boolean') {
         spacePaidStatus.value = response.isPaid
@@ -288,6 +340,27 @@ export function useCustomerSuccessService() {
     }
   }
 
+  /**
+   * Record that this user just earned editing access in this space, without a
+   * round trip: the grant already happened server-side, so the modal can show
+   * the unlocked state immediately. Also writes the short-lived localStorage
+   * marker that makes the NEXT page load bypass the cached space-status
+   * response (see recentGrantCacheBuster).
+   */
+  function markSpacePaid(source: 'user_license' | 'space_license') {
+    spacePaidStatus.value = true
+    spacePaidSource.value = source
+    // The status is now known for this session; a later loadSpacePaidStatus()
+    // must not overwrite the grant with a stale read.
+    spacePaidStatusLoaded = true
+    persistTargetingMarker()
+    try {
+      localStorage.setItem(paywallGrantMarkerKey(), new Date().toISOString())
+    } catch (e) {
+      console.warn('[paywall] could not persist the survey grant marker', e)
+    }
+  }
+
   const initialize = async () => {
     await Promise.all([
       loadMacroMetrics(),
@@ -315,6 +388,7 @@ export function useCustomerSuccessService() {
     // paywallPolicySource.
     cssEnabled: customerSuccessServiceEnabled,
     paywallPolicySource: policySource,
+    markSpacePaid,
     initialize,
   }
 }
@@ -331,6 +405,11 @@ export function useCustomerSuccessService() {
   cssFlagLoaded = false
   spacePaidStatusLoaded = false
   spaceKeyLoaded = false
+  try {
+    localStorage.removeItem(paywallGrantMarkerKey())
+  } catch {
+    // localStorage is unavailable in some test environments; nothing to clear.
+  }
 }
 
 export function getUpgradeContext() {

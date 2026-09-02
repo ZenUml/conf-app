@@ -356,6 +356,8 @@ async function load() {
   trackAnalyticsEvent('related_diagrams_lookup_succeeded', {
     ...baseProperties(),
     ...countProperties(),
+    lookup_outcome: response.lookup_outcome
+      ?? (response.indexedAt === null ? 'index_miss' : 'indexed'),
     duration_ms: Math.round(performance.now() - started),
   })
 

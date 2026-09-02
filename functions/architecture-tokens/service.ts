@@ -22,6 +22,7 @@ export interface RelatedParticipant {
 }
 
 export interface RelatedResponse {
+  lookup_outcome?: 'indexed' | 'index_miss';
   indexedAt: string | null;
   contentVersion: number | null;
   participants: RelatedParticipant[];
@@ -329,7 +330,12 @@ export async function relatedDiagrams(
 ): Promise<RelatedResponse> {
   const own = await occurrencesForContent(db, cloudId, contentId);
   if (own.length === 0) {
-    return { indexedAt: null, contentVersion: null, participants: [] };
+    return {
+      lookup_outcome: 'index_miss',
+      indexedAt: null,
+      contentVersion: null,
+      participants: [],
+    };
   }
 
   const indexedAt = own[0].indexedAt;
@@ -433,5 +439,5 @@ export async function relatedDiagrams(
     });
   }
 
-  return { indexedAt, contentVersion, participants };
+  return { lookup_outcome: 'indexed', indexedAt, contentVersion, participants };
 }

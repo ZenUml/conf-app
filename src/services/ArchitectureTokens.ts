@@ -18,6 +18,8 @@ export interface RelatedParticipant {
 }
 
 export interface RelatedResponse {
+  /** Optional only for compatibility with a backend deployed before outcome telemetry. */
+  lookup_outcome?: 'indexed' | 'index_miss'
   indexedAt: string | null
   contentVersion: number | null
   participants: RelatedParticipant[]

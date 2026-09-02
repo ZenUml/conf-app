@@ -203,6 +203,7 @@ describe('RelatedDiagramsFooter', () => {
         participants_with_related: 1,
         related_pages_total: 2,
         index_age_days: 3,
+        lookup_outcome: 'indexed',
       }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
@@ -243,6 +244,32 @@ describe('RelatedDiagramsFooter', () => {
     expect(wrapper.find('[data-testid="related-diagrams-footer"]').exists()).toBe(false)
     expect(h.querySelector('[data-testid="related-diagrams-pill"]')).toBeNull()
     expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('prefers the lookup outcome returned by the backend over the compatibility fallback', async () => {
+    related.value = { ...twoParticipants, lookup_outcome: 'index_miss' }
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.objectContaining({ lookup_outcome: 'index_miss' }),
+    )
+  })
+
+  it('derives index_miss for a successful response from an older backend', async () => {
+    related.value = {
+      indexedAt: null,
+      contentVersion: null,
+      participants: [],
+    }
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.objectContaining({ lookup_outcome: 'index_miss' }),
+    )
   })
 
   it('calls the service once only after both ready and enabled become true', async () => {
@@ -789,6 +816,10 @@ describe('RelatedDiagramsFooter', () => {
       'related_diagrams_lookup_failed',
       expect.objectContaining({ error_kind: 'timeout' }),
     )
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.anything(),
+    )
   })
 
   it('keeps a response-level failure silent and records its error kind', async () => {
@@ -805,6 +836,10 @@ describe('RelatedDiagramsFooter', () => {
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'related_diagrams_lookup_failed',
       expect.objectContaining({ error_kind: 'confluence_unavailable' }),
+    )
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.anything(),
     )
   })
 })

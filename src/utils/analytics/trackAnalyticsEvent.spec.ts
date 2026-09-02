@@ -670,21 +670,6 @@ describe("trackAnalyticsEvent", () => {
       );
     });
 
-    it("accepts agent_link_guardrail_rejected with reason/input_len/output_len", async () => {
-      await _awaitableTrackAnalyticsEvent("agent_link_guardrail_rejected", {
-        feature_area: "agent_link",
-        surface: "fullscreen",
-        macro_type: "sequence",
-        reason: "data_loss",
-        input_len: 480,
-        output_len: 40,
-      });
-      expect(mixpanel.track).toHaveBeenCalledWith(
-        "agent_link_guardrail_rejected",
-        expect.objectContaining({ reason: "data_loss", input_len: 480, output_len: 40 })
-      );
-    });
-
     it("accepts agent_link_session_suspended with reason", async () => {
       await _awaitableTrackAnalyticsEvent("agent_link_session_suspended", {
         feature_area: "agent_link",

@@ -152,11 +152,13 @@ async function deleteLegacyAppProperty(): Promise<void> {
 
 /**
  * Reasons are drawn from the `byline_visibility_reason` union already
- * registered in src/utils/analytics/types.ts, rather than invented here. Two
- * consequences worth stating: the values stay low-cardinality (a per-site
- * reason string would make the property useless to group by), and the moment
- * these decisions are wired to trackAnalyticsEvent they type-check without a
- * translation layer.
+ * registered in src/utils/analytics/types.ts, rather than invented here — the
+ * values stay low-cardinality (a per-site reason string would make the
+ * property useless to group by). There is no `byline_visibility_evaluated` /
+ * `byline_visibility_write` catalog entry to wire this into: those names were
+ * deleted 2026-09-02 as unwired instrumentation (zero trackAnalyticsEvent
+ * callers). This writer remains fail-closed and unobserved — see
+ * DECISIONS-FOR-USER.md.
  */
 export type VisibilityReason = 'enrolled' | 'not_enrolled' | 'no_signal';
 

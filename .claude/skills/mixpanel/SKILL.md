@@ -88,6 +88,45 @@ That inverted a per-tenant comparison as well, because a tenant on the older bui
 all of its renders under the old name. Any claim that one tenant "shows the feature more"
 than another has to control for which build each was running.
 
+## Event sampling — a raw count is NOT the volume
+
+**Since 2026-08-26 (`e572eb7b`, quota reduction) some events emit only a fraction of the
+time.** A sampled event is stamped with **`sample_rate`**, and the true volume is
+`count / sample_rate`. `src/utils/analytics/eventSampling.ts` is the single source of truth;
+`src/lib/exportSampling.js` holds the backend export rates. Read them, do not trust this copy.
+
+| Event | Rate | Multiply a raw count by |
+|---|---|---|
+| `diagram_attribution_shown` | 0.05 | 20 |
+| `macro_export_requested`, `macro_export_succeeded` | 0.05 | 20 |
+| `macro_export_failed` | 0.1 | 10 |
+| `click`, `convert_to_png`, `upload_attachment`, `attachment_upload_*`, `sync_custom_content`, `update_custom_content`, `report_macro_metrics`, `duplication_detect`, `close_guard_rejected`, `space_admin_active` | 0.1 | 10 |
+| `app_first_seen`, `renderer_prefetch_started`, `renderer_prefetch_completed` | **0** | never emitted — a zero count is not a zero event |
+
+Everything else is unsampled (rate 1). **`macro_viewed` and every
+`diagram_audience_registration_*` event are unsampled**, which is exactly why mixing them with a
+sampled event in one ratio breaks.
+
+**Extrapolate inside the query, never after it**, because a window that spans 2026-08-26 mixes
+unsampled and sampled events of the same name:
+
+```js
+.groupBy([...], mixpanel.reducer.numeric_summary(
+  function (e) { return 1 / (Number(e.properties.sample_rate) || 1); }))
+// read `.sum` as the true count; `.count` is the raw event count
+```
+
+**The trap this records (hit 2026-09-02).** `diagram_attribution_shown` on Lite fell from
+8,338/day to ~500/day on 2026-08-27 while the unsampled registration event rose. Read raw, that
+looks like a 16x regression with a clear break date, and it was reported as a defect with a
+proposed mechanism. It was the 20x sampling factor and nothing else. The same omission understated
+an audience funnel: raw 41,887 shown against 4,482 registered reads as 10.7%; extrapolated, 58,740
+against 4,482 is **7.6%**.
+
+Two rules follow. A sudden step change in one event's volume — check `eventSampling.ts` and the
+release that carried it **before** proposing any mechanism. And a ratio between two events is only
+valid when both carry the same rate; otherwise extrapolate both first.
+
 ## Hot events (the ones you actually query)
 
 | Event | Means | Key props / gotcha |
@@ -134,6 +173,7 @@ There is **no reliable runtime boolean** (`isForge` is dead). To split:
 | Join Mixpanel `client_domain` ↔ D1 `clientDomain` directly | Subdomain vs full hostname. Convert first. |
 | `macro_type='unknown'` = failure for graph/openapi/embed | Only valid for sequence/mermaid/plantuml. |
 | `space_key` as the space dimension on frontend events | Undefined on `macro_viewed` (0 of 81,878 fleet-wide, 7d). It belongs to backend macro-count snapshot events. Use **`confluence_space`**. Check with `mp_schema.py verify <event> <prop>`. |
+| Comparing a raw count across 2026-08-26, or ratioing a sampled event against an unsampled one | `diagram_attribution_shown` is 5%, `macro_export_*` 5–10%, `click` and friends 10%; `macro_viewed` and the audience registration events are 1. Extrapolate `count / sample_rate` inside the query. See "Event sampling" above. |
 | Validating a property against ONE tenant | A distinct count returns 1 both for an absent property (the value `undefined`) and for a real property at a one-space tenant. Always verify fleet-wide. |
 | `BooleanPropertyFilter` in MCP `Run-Query` when the output is a link or saved report | The executed query is correct, but the encoded state is malformed: the shared `report_url` re-runs with the filter flipped to `= true`, and a saved report (bookmark updated via query_id) renders the chip as `True` AND reverts every viewer edit — clicking 30D snaps back to the saved range because the UI cannot re-serialize the filter (hit 2026-07-23 and 2026-08-19, Coles board reports 91672617/91672628). Fix: string-encode boolean filters. For `tab_hidden`, use `{type:"string", propertyType:"string", operator:"equals", value:"false"}`; for customer-wide reports, use the `is_internal_client_domain` filter shown above. It returned the same 76,052-event seven-day population as the native boolean form on 2026-08-22. Results returned inline in the tool response are trustworthy either way. |
 | `macro_viewed` `surface='viewer'` = a real page view | On builds before 2026-07-19 (conf-app#368) the native macro-config surface was stamped `viewer` too, so historical viewer volumes include ~3% authoring renders — recognizable as no-`custom_content_id` events near `macro_create_started` by the same user, with inflated `duration_ms` (long-lived editor iframes, tab switches re-firing). Fixed in `ApWrapper2.isDisplayMode()`; segment by `app_version` across the fix. |

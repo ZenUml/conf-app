@@ -1,13 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { related, getRelatedDiagrams, trackAnalyticsEvent, openUrl } = vi.hoisted(() => {
+const { related, getRelatedDiagrams, trackAnalyticsEvent, openUrl, getGateTelemetry } = vi.hoisted(() => {
   const response = { value: null as any }
   return {
     related: response,
     getRelatedDiagrams: vi.fn(async () => response.value),
     trackAnalyticsEvent: vi.fn(),
     openUrl: vi.fn(),
+    // module-level state set by the viewport render gate; {} when the gate never ran
+    getGateTelemetry: vi.fn((): Record<string, unknown> => ({})),
   }
 })
 
@@ -20,6 +22,7 @@ vi.mock('@/services/ArchitectureTokens', () => ({
   },
 }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent }))
+vi.mock('@/utils/renderGate/maybeGateViewerRender', () => ({ getGateTelemetry }))
 vi.mock('@/model/globals/forgeGlobal', () => ({
   openUrl,
   default: {
@@ -154,9 +157,13 @@ const links = () =>
   popover()!.querySelectorAll<HTMLElement>('[data-testid="related-diagram-link"]')
 const enterDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerenter'))
 const leaveDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerleave'))
+const propertiesOf = (eventName: string) =>
+  trackAnalyticsEvent.mock.calls.find(([name]) => name === eventName)?.[1]
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Default: the gate never ran, matching what a fresh module gives every other spec.
+  getGateTelemetry.mockReturnValue({})
   // The backend always sends relatedTotal; fixtures that do not care about truncation
   // get "the list is the whole set" so each one states only what it is testing.
   getRelatedDiagrams.mockImplementation(async () => {
@@ -841,5 +848,78 @@ describe('RelatedDiagramsFooter', () => {
       'related_diagrams_lookup_succeeded',
       expect.anything(),
     )
+  })
+
+  it('carries the render-gate telemetry on related_token_indicators_shown when the gate ran', async () => {
+    getGateTelemetry.mockReturnValue({
+      render_gate: 'background',
+      visible_at_boot: false,
+      render_deferred_ms: 4200,
+    })
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_token_indicators_shown',
+      expect.objectContaining({
+        render_gate: 'background',
+        visible_at_boot: false,
+        render_deferred_ms: 4200,
+      }),
+    )
+  })
+
+  it('carries the same render-gate telemetry on related_diagram_popover_opened', async () => {
+    getGateTelemetry.mockReturnValue({
+      render_gate: 'background',
+      visible_at_boot: false,
+      render_deferred_ms: 4200,
+    })
+    related.value = twoParticipants
+    const { h } = mountFooter()
+    await flushPromises()
+
+    pill(h, 'PA')!.click()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagram_popover_opened',
+      expect.objectContaining({
+        render_gate: 'background',
+        visible_at_boot: false,
+        render_deferred_ms: 4200,
+      }),
+    )
+  })
+
+  it('carries the same render-gate telemetry on related_diagrams_lookup_succeeded, the denominator for the shown/opened numerators', async () => {
+    getGateTelemetry.mockReturnValue({
+      render_gate: 'immediate',
+      visible_at_boot: true,
+    })
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.objectContaining({ render_gate: 'immediate', visible_at_boot: true }),
+    )
+  })
+
+  it('omits render_gate and visible_at_boot entirely when the gate never ran', async () => {
+    getGateTelemetry.mockReturnValue({})
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    // proves baseProperties() actually reads the gate module rather than the
+    // assertion below passing only because nothing was ever spread in
+    expect(getGateTelemetry).toHaveBeenCalled()
+    const props = propertiesOf('related_token_indicators_shown')
+    expect(props).not.toHaveProperty('render_gate')
+    expect(props).not.toHaveProperty('visible_at_boot')
+    expect(props).not.toHaveProperty('render_deferred_ms')
   })
 })

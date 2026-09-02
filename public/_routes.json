@@ -27,7 +27,6 @@
     "/forge-user-behavior",
     "/forge-upload-attachment",
     "/forge-page-capture",
-    "/aggregate-events",
     "/metrics-cache/query",
     "/metrics-cache/update",
     "/metrics-cache/snapshot/*",

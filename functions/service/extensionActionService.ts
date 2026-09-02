@@ -147,7 +147,7 @@ function validateCommand(command: ExtensionCommand): void {
   }
 }
 
-function expiryFrom(now: Date, days: 7 | 60): string {
+function expiryFrom(now: Date, days: 7 | 15): string {
   const expiry = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + days));
   return `${expiry.toISOString().slice(0, 10)}T23:59:59Z`;
 }
@@ -171,15 +171,15 @@ function initialReply(record: ExtensionActionRecord): string {
     '',
     `This extension covers your account only — teammates in ${record.spaceKey} may still see the limit.`,
     '',
-    'We are deciding what to build next, and candid input from a team using ZenUML this heavily is valuable to us. If you reply with answers to these four questions, we will extend your access to 60 days instead of 7:',
+    'We are deciding what to build next, and candid input from a team using ZenUML this heavily is valuable to us. If you reply with answers to these four questions, we will extend your access to 15 days instead of 7:',
     '',
-    `1. What are you using ZenUML for in ${record.spaceKey} — what kind of documents, and where does it sit in your workflow?`,
+    `1. Which describes you: you administer ${record.spaceKey}, you create or edit diagrams there, you administer Confluence apps for your whole site, or something else?`,
     '',
-    "2. What made you pick it over Confluence's built-in diagramming tools?",
+    `2. If unlocking ${record.spaceKey} for a year were priced in USD per year, at what price would it be too cheap to trust, a bargain, getting expensive, and too expensive to consider (four numbers)?`,
     '',
-    "3. What's the most annoying thing about it today, or the thing you keep wishing it did?",
+    '3. Which way of paying fits your team best and which fits worst: per space per year, per Confluence user per month, per active diagram author, or per number of diagrams?',
     '',
-    "4. If you wanted to lift the limit properly, what's the hard part internally — budget, admin approval, procurement, or simply nobody owning it?",
+    "4. If your team wanted to lift the limit permanently, what's the hard part internally: budget, admin approval, procurement, nobody owns it, or something else?",
     '',
     'Blunt answers are the useful ones — we will not take it badly.',
     '',
@@ -189,7 +189,7 @@ function initialReply(record: ExtensionActionRecord): string {
     '',
     'Org-wide (Full plan) — removes the limit across all spaces and users. A Confluence app admin can upgrade here: https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram',
     '',
-    'Either way, the 60 days is yours for the feedback — no strings attached to buying anything.',
+    'Either way, the 15 days is yours for the feedback — no strings attached to buying anything.',
     '',
     'Best Regards,',
     '',
@@ -252,7 +252,7 @@ export async function executeExtensionAction(
       ...initial,
       action: 'feedback',
       status: 'pending',
-      expiresAt: expiryFrom(now, 60),
+      expiresAt: expiryFrom(now, 15),
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -303,7 +303,7 @@ export async function executeExtensionAction(
     expiresAt: record.expiresAt,
     activatedBy: record.action === 'initial'
       ? `support:auto:temp-7d-extension:${record.ticketKey}`
-      : `support:auto:feedback-60d-extension:${record.ticketKey}`,
+      : `support:auto:feedback-15d-extension:${record.ticketKey}`,
   });
   await runtime.actions.markApplied(record.ticketKey, record.action, runtime.now().toISOString());
   return resultFor({ ...record, status: 'applied' }, 'applied');

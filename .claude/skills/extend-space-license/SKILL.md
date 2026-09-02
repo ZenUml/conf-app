@@ -9,7 +9,7 @@ description: >
   space key + macro count. It resolves the cloudId, verifies the exact space key,
   writes the SPACE_LICENSE_KV record, verifies it, computes the Full-plan upgrade
   price, and drafts the reply from the canonical template. Default handling is
-  7 days now + 60 if they answer four questions (--feedback-offer), run without
+  7 days now + 15 if they answer four questions (--feedback-offer), run without
   asking the owner first — repeat askers included. Triggers on
   "extend", "extension request", "temporary editing extension", "grant a space
   license", "re-open editing", "paywall lockout", "lift the limit for <space>",
@@ -67,9 +67,9 @@ three different humans (`vinit.dir.it6@` → `v.luongtx2@` → `nangdv1990@gmail
 and each one reads as a first request unless you check. Distinct-requester count is
 also what decides scope (see above) — so you need it before you choose a key shape.
 
-## The default is 7 + 60 — run it, do not ask (owner ruling 2026-08-16)
+## The default is 7 + 15 — run it, do not ask (owner ruling 2026-08-16)
 
-**Every extension request is handled as a 7-day user-scoped grant plus the 60-day
+**Every extension request is handled as a 7-day user-scoped grant plus the 15-day
 feedback offer, without asking the owner first.** Do not present "grant / escalate /
 refuse" as a choice, and do not ask which window to use. Run the grant, post the
 reply, log it, report what was done.
@@ -96,51 +96,114 @@ python3 .claude/skills/extend-space-license/scripts/grant_extension.py \
 ```
 
 That writes the **normal 7-day** record and adds a block to the reply promising
-**60 days** (`--feedback-offer N` for a different number; it must exceed `--days`)
-if they answer four questions:
+**15 days** (`--feedback-offer N` for a different number; it must exceed `--days`),
+matching the automatic grant the in-app pricing survey pays out on submit (see
+below), so nobody is rewarded more for skipping the in-app form, if they answer
+four questions:
 
-1. What are you using ZenUML for in `<SPACE>` — what documents, where in the workflow? *(JTBD)*
-2. What made you pick it over Confluence's built-in diagramming tools? *(competitive)*
-3. Most annoying thing today, or the thing you keep wishing it did? *(roadmap)*
-4. **If you wanted to lift the limit properly, what's the hard part internally — budget, admin approval, procurement, or simply nobody owning it?** *(the commercial one)*
+1. **Role.** Which describes you: admin the space, create/edit diagrams there,
+   admin Confluence apps for the whole site, or other. *(who we're talking to)*
+2. **Price.** If unlocking `<SPACE>` for a year were priced in USD/year, what's too
+   cheap to trust, a bargain, getting expensive, and too expensive to consider (four
+   numbers, a Van Westendorp price-sensitivity battery). *(willingness to pay)*
+3. **Billing model.** Which fits your team best and which fits worst: per space per
+   year, per Confluence user per month, per active diagram author, per number of
+   diagrams. *(packaging)*
+4. **If your team wanted to lift the limit permanently, what's the hard part
+   internally: budget, admin approval, procurement, nobody owns it, or other?**
+   *(the commercial one)*
 
 Q4 is the point of the exercise. After several free comps with no conversion we
 still don't know *which* wall we're hitting, and that answer changes the next move
 entirely (a procurement blocker wants the $299 self-serve Bundle; a "nobody owns it"
-blocker wants a champion, not a price).
+blocker wants a champion, not a price). Q1 to Q3 are new (2026-09-03): they feed the
+same pricing decision the in-app survey is built to answer, so a customer who prefers
+email over the in-app form still contributes the same data.
 
 Rules that keep this honest:
 - **The offer is time, never scope.** Extend the *duration* for the requester; don't
-  quietly widen a user grant to the whole space as a sweetener — that erases the
+  quietly widen a user grant to the whole space as a sweetener, since that erases the
   distributed-pressure signal (§ Default scope).
-- **Decouple it from buying.** The drafted reply ends with *"the 60 days is yours for
+- **Decouple it from buying.** The drafted reply ends with *"the 15 days is yours for
   the feedback — no strings attached to buying anything."* Keep that line; without it
   the trade reads as coercion.
 - **Say how many comps there have been.** Naming the dates ("30 June, 15 July, and
   today") is what makes the commercial ask credible. Attribute the count to the
-  **space/team**, not to the individual, when the requesters differ — telling a
+  **space/team**, not to the individual, when the requesters differ: telling a
   first-time asker "this is your third" is simply false.
-- **Follow through when feedback lands:** re-run with `--days 60` on the same
+- **Follow through when feedback lands:** re-run with `--days 15` on the same
   accountId (the upsert preserves `createdAt`), log the answers in the sent-log
   entry, and reply confirming the new date.
-- **The default grant is deliberately short (7 days) so the trade is worth taking.**
-  A 7 → 60 day jump is a ~8.5× reward for four answers; at the old 14-day default the
-  offer was only ~4× and a repeat asker could reasonably ignore it and just ask again.
-  Short default + big offer is the whole mechanism — don't "be generous" up front and
-  flatten the incentive. Pass `--days 14` explicitly for a one-off first-time asker
-  where you're **not** soliciting feedback.
-- Changing the ratio is the founder's call, not the skill's.
+- **The default grant is deliberately short (7 days) so the trade is still worth
+  taking.** A 7 → 15 day jump is a ~2.1× reward for four answers, smaller than the
+  old 7 → 60 (~8.5×) on purpose: the offer is now pinned to the same 15 days the
+  in-app pricing survey grants automatically on submit, so nobody is rewarded more
+  for answering by email than for using the in-app form (owner ruling 2026-09-03).
+  Pass `--days 14` explicitly for a one-off first-time asker where you're **not**
+  soliciting feedback.
+- The 15-day number is shared with the in-app survey grant (`REWARD_DAYS` in
+  `functions/api/paywall-survey.ts`); changing one without the other reopens the
+  reward gap this parity was meant to close. Coordinate both if it ever changes.
+
+## In-app pricing survey (15-day grant)
+
+Since 2026-09-03 the same four-question trade above also runs **in-app, with no
+email round-trip.** The paywall modal offers a pricing survey next to "Request
+extension"; a customer who answers it there gets 15 days automatically, the instant
+they submit. No ticket, no waiting on a human reply. This is why the email offer
+above was cut from 60 to 15: the two paths pay the same reward for the same four
+answers, so nobody has a reason to prefer one over the other.
+
+**What the customer sees.** In the paywall modal, next to "Request extension" and
+before the JSM deep link, a 4-question form: role, a 4-number price-sensitivity
+battery (too cheap / bargain / getting expensive / too expensive, USD/year to
+unlock the space), preferred vs. least-preferred billing model, and the internal
+blocker to a permanent upgrade. Same items as the email offer above, just collected
+as form fields instead of prose. Each answer saves to D1 as it's given (not only on
+final submit), so an abandoned survey is still visible to us, not lost.
+
+**Mechanism** (`functions/api/paywall-survey.ts`, migration
+`functions/migrations/0024_add_paywall_survey_response.sql`):
+- Grant key: `license:<cloudId>:<spaceKey>:<accountId>` in `SPACE_LICENSE_KV`. Same
+  user-scoped shape this skill writes, so `space-status.ts` enforcement and the KV
+  read-back check in [After granting](#after-granting) apply unchanged.
+- `activatedBy: survey:pricing-15d:<responseId>`. The `survey:` prefix is what the
+  backend checks to decide `already_granted`; it also tells you at a glance, reading
+  a KV record, that a grant came from the in-app form rather than from this skill's
+  `support:temp-<days>d-extension:…` / `support:auto:…` labels.
+- **One grant per user per space, ever.** Any existing record whose `activatedBy`
+  starts with `survey:` blocks a second survey grant on that (user, space) pair.
+  Unlike this skill's grants, resubmitting does not renew or restack it. A repeat
+  asker who already holds a survey grant needs this skill instead.
+- Answers land in D1 table `PaywallSurveyResponse`, columns `responseId, cloudId,
+  clientDomain, spaceKey, userAccountId, macroCount, appVersion, role,
+  priceTooCheap, priceBargain, priceExpensive, priceTooExpensive, unitMost,
+  unitLeast, blocker, comment, submitted, grantStatus, grantExpiresAt, createdAt,
+  updatedAt`. `submitted = 0` is an abandoned attempt, not a failure to clean up.
+- **A `Survey ID: <uuid>` line in a JSM ticket's description (after `Macro type:`)**
+  means the customer saw the in-app survey and did not submit it before falling
+  through to "Request extension" instead. The uuid is that attempt's `responseId`;
+  join it against `PaywallSurveyResponse` to see how far they got and whether their
+  answers are still usable even though no grant was paid out for them.
+
+**Read query for operators** (read-only, no separate go-ahead needed; it is not a
+KV write):
+
+```bash
+wrangler d1 execute conf-zenuml-prod --remote --command "SELECT createdAt, clientDomain, spaceKey, role, priceTooCheap, priceBargain, priceExpensive, priceTooExpensive, unitMost, unitLeast, blocker, submitted, grantStatus FROM PaywallSurveyResponse ORDER BY createdAt DESC LIMIT 50"
+```
 
 ## ⚠ This mutates production KV
 
-The grant writes to the prod `SPACE_LICENSE_KV` namespace. The **7 + 60 default is
-pre-authorised** (owner ruling 2026-08-16) — a user-scoped grant at `--days 7` with
-`--feedback-offer` runs live without a separate go-ahead. `--dry-run` first is still
-useful to read the record and the drafted reply back before writing.
+The grant writes to the prod `SPACE_LICENSE_KV` namespace. The **7 + 15 default is
+pre-authorised** (owner ruling 2026-08-16; offer amount aligned to 15 on 2026-09-03)
+— a user-scoped grant at `--days 7` with `--feedback-offer` runs live without a
+separate go-ahead. `--dry-run` first is still useful to read the record and the
+drafted reply back before writing.
 
 An explicit go-ahead is required only for the two exceptions named above: a
 space-level grant, or refusing the grant. Any window other than 7 days also needs
-one, since it changes the 7 → 60 ratio.
+one, since it changes the 7 → 15 ratio.
 
 ## Quick start
 
@@ -164,7 +227,7 @@ Flags: `--user <accountId>` (scopes the grant to one user — **default choice**
 omit to grant the whole space) · `--days N` (default **7**; flows into the reply text
 *and* the default `activatedBy`) · `--users N` (site tier → fills the Full-plan
 price in the reply) · `--feedback-offer [N]` (repeat askers — promise N days,
-default 60, for four answers; must exceed `--days`) · `--activated-by` (append the
+default 15, for four answers; must exceed `--days`) · `--activated-by` (append the
 ticket: `support:temp-7d-extension:ZEN-1191`) · `--no-reply` · `--dry-run`.
 
 ## What it does (and why each step matters)

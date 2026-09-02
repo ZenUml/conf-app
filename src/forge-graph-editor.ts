@@ -313,7 +313,6 @@ async function initializeMacro() {
   let legacyLoadBlocked = false;
   if (customContentId) {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
-    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
@@ -427,7 +426,6 @@ async function initializeMacro() {
 
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
-  console.log('loadDiagram - window.diagram', window.diagram);
 
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {

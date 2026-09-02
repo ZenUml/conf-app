@@ -1162,8 +1162,7 @@ EventBus.$on('edit', async(params: any) => {
   
   await openModal({
     resource: 'main',
-    onClose: (payload: any) => {
-      console.log('onClose called with', payload);
+    onClose: () => {
       endEditJourney('cancelled');
       location.reload();
     },
@@ -1203,7 +1202,6 @@ EventBus.$on('save', async () => {
   // so this is effectively the click instant. Stopped at the redirect below.
   markPublishClicked();
   notifyAiTitleSaved({ title: store.state.diagram.title, contentId: store.state.diagram.id })
-  console.log('save', store.state.diagram);
 
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   store.state.diagram.isNew = false;
@@ -1423,8 +1421,6 @@ EventBus.$on('save', async () => {
 });
 
 EventBus.$on('exit', async (showWarning: boolean) => {
-  console.log('exit', showWarning);
-  
   // Prepare event data
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence;
   const elapsedTimeMs = Date.now() - editorStartTime;
@@ -1485,8 +1481,7 @@ EventBus.$on('fullscreen', async () => {
 
   await openModal({
     resource: 'main',
-    onClose: (payload: any) => {
-      console.log('onClose called with', payload);
+    onClose: () => {
       location.reload();
     },
     size: 'fullscreen',

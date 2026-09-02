@@ -158,8 +158,6 @@ function applyStandaloneContext() {
   global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
   global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
   global.zenumlRemoteBaseUrl = resolveZenumlRemoteBaseUrl('DEVELOPMENT', global);
-  console.log('forgeGlobal - standalone (local dev), no Forge bridge');
-  console.debug('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
 }
 
 export async function getView() {
@@ -183,8 +181,10 @@ export async function getView() {
     global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
     global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
     global.zenumlRemoteBaseUrl = resolveZenumlRemoteBaseUrl(ctx.environmentType, global);
+    // KEEP — a documented investigation technique (docs/superpowers/plans/
+    // 2026-07-18-job-b-spike-findings.md) captures this exact console line via
+    // Playwright's page.on('console') to read the real Forge `ap.context`.
     console.log('forgeGlobal - context', global.forgeContext);
-    console.debug('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
   } catch (e) {
     if (isStandaloneEnvironment()) {
       applyStandaloneContext();

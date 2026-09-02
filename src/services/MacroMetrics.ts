@@ -104,19 +104,17 @@ export class MacroMetrics {
       const space = currentSpace.key;
       const domain = getClientDomain();
 
-      // Read from KV cache
+      // Read from KV cache. Metrics present, whether snapshot-managed or
+      // legacy-collected, is always a hit; only an EMPTY snapshot record is
+      // a miss that must not fall through to a fresh space enumeration.
       const cached = await this.readFromKV(domain, space);
-      if (cached?.mode === 'snapshot') {
-        if (!cached.metrics) {
-          console.warn('[metrics:kv:read] snapshot miss', { domain, space });
-          return undefined;
-        }
-        console.debug('[metrics:kv:read] hit', { domain, space });
-        return { ...cached.metrics, source: 'kv' };
-      }
       if (cached?.metrics) {
         console.debug('[metrics:kv:read] hit', { domain, space });
         return { ...cached.metrics, source: 'kv' };
+      }
+      if (cached?.mode === 'snapshot') {
+        console.warn('[metrics:kv:read] snapshot miss', { domain, space });
+        return undefined;
       }
 
       // KV miss, collect fresh metrics. This feeds the awaited paywall gate, so

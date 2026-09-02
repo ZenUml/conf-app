@@ -218,7 +218,6 @@ async function _getSpaceAdminTelemetry(
       return {};
     }
 
-    console.info("[macro_viewed] space admins", admins);
     return { space_admin_count: admins.length };
   } catch (e) {
     console.warn("[macro_viewed] failed to resolve space admins", e);

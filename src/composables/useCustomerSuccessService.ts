@@ -51,20 +51,11 @@ export function useCustomerSuccessService() {
 
   const shouldBlockActions = computed(() => {
     if (spacePaidStatus.value) {
-      console.log('✅ Space is paid - bypassing all restrictions')
       return false
     }
 
     const isLite = globals.apWrapper.isLite()
     const shouldBlock = macrosCreated.value >= MACROS_LIMIT && customerSuccessServiceEnabled.value && isLite
-    console.log('🚫 shouldBlockActions check:', {
-      macrosCreated: macrosCreated.value,
-      macrosLimit: MACROS_LIMIT,
-      featureFlagEnabled: customerSuccessServiceEnabled.value,
-      isLite,
-      spacePaid: spacePaidStatus.value,
-      shouldBlock
-    })
     return shouldBlock
   })
 
@@ -110,7 +101,6 @@ export function useCustomerSuccessService() {
         if (!isNaN(mockCount) && mockCount >= 0) {
           macrosCreated.value = mockCount
           macroCountSource.value = 'mock'
-          console.log('🧪 Using mock macro count:', macrosCreated.value)
           macroMetricsLoaded = true;
           return;
         }
@@ -143,7 +133,6 @@ export function useCustomerSuccessService() {
   // effective paywall stays disabled for the whole session.
   async function loadPaywallPolicy(): Promise<void> {
     if (cssFlagLoaded) {
-      console.log('🏁 Paywall policy already loaded, skipping')
       return;
     }
 
@@ -165,12 +154,10 @@ export function useCustomerSuccessService() {
         const mockEnabled = localStorage.mockCSSEnabled === 'true'
         policySource.value = mockEnabled ? 'default_on' : 'exemption'
         customerSuccessServiceEnabled.value = mockEnabled
-        console.log('🧪 Using mock CSS Feature Flag:', customerSuccessServiceEnabled.value)
         cssFlagLoaded = true;
         return;
       }
 
-      console.log('🔍 Loading PAYWALL_EXEMPT feature flag...')
       const flags: any = await getFeatureFlagsForCurrentDomain(['PAYWALL_EXEMPT'])
       if (typeof flags.PAYWALL_EXEMPT !== 'boolean') {
         // Absent property: missing/unreadable/malformed KV, or the lookup
@@ -186,11 +173,6 @@ export function useCustomerSuccessService() {
         policySource.value = 'default_on'
         customerSuccessServiceEnabled.value = true
       }
-      console.log('✅ Paywall policy loaded:', {
-        PAYWALL_EXEMPT: flags.PAYWALL_EXEMPT,
-        policySource: policySource.value,
-        enabled: customerSuccessServiceEnabled.value,
-      })
     } catch (error) {
       console.error("❌ Error loading paywall policy:", error);
       policySource.value = 'fail_open'
@@ -224,21 +206,18 @@ export function useCustomerSuccessService() {
 
   async function loadSpacePaidStatus(): Promise<void> {
     if (spacePaidStatusLoaded) {
-      console.log('💳 Space paid status already loaded, skipping')
       return;
     }
 
     if (!globals.apWrapper.isLite()) {
       spacePaidStatus.value = true;
       spacePaidStatusLoaded = true;
-      console.log('💳 Full app — skipping space-status check, no restrictions apply')
       return;
     }
 
     try {
       if (localStorage.mockSpacePaid !== undefined) {
         spacePaidStatus.value = localStorage.mockSpacePaid === 'true'
-        console.log('🧪 Using mock space paid status:', spacePaidStatus.value)
         spacePaidStatusLoaded = true;
         return;
       }
@@ -246,7 +225,6 @@ export function useCustomerSuccessService() {
       await loadSpaceKey()
       const spaceKey = currentSpaceKey.value
 
-      console.log('🔍 Checking space paid status...')
       const response = await callRemote(`/api/space-status?spaceKey=${encodeURIComponent(spaceKey)}`, 'GET')
 
       if (response && typeof response.isPaid === 'boolean') {

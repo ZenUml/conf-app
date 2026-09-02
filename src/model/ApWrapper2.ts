@@ -150,7 +150,6 @@ export default class ApWrapper2 implements IApWrapper {
       if (this.versionType === VersionType.Full) {
         this.license = forgeGlobal.forgeContext?.license;
       }
-      console.debug('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
 
       if (window) {
         //@ts-ignore
@@ -258,7 +257,6 @@ export default class ApWrapper2 implements IApWrapper {
     } else {
       key = `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}`;
     }
-    console.debug('getCustomContentTypePrefix', key);
     return `ac:${key}`;
   }
 
@@ -1077,8 +1075,6 @@ export default class ApWrapper2 implements IApWrapper {
     const customContent = await this.getCustomContentRawV2(id, 'include-versions=true');
     const descendingVersions = customContent?.versions?.results.sort((a, b) => b.number - a.number);
     const version = descendingVersions?.find(v => new Date(v.createdAt) < new Date(date)) || descendingVersions?.[descendingVersions.length - 1];
-    console.log(`Found version ${version?.number} created at ${version?.createdAt} before date ${date}`);
-
     const customContentVersion = await this.getCustomContentRawV2(id, `version=${version?.number}&body-format=raw`);
     let diagram = JSON.parse(customContentVersion?.body?.raw?.value || '{}');
     diagram.source = DataSource.CustomContent;
@@ -1124,7 +1120,6 @@ export default class ApWrapper2 implements IApWrapper {
     try {
       const response = await this.makeRequest(url);
       const customContent = response as ICustomContentResponseBodyV2;
-      console.debug(`Loaded custom content by id ${id}.`);
       return customContent;
     } catch (e) {
       trackEvent(JSON.stringify(e), 'load_custom_content', 'error');
@@ -1470,7 +1465,6 @@ export default class ApWrapper2 implements IApWrapper {
       };
 
       trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForgeByUrl', 'info');
-      console.log('searchPagedCustomContentForgeByUrl results:', searchResults);
       return searchResults;
     } catch (e) {
       console.error('searchPagedCustomContentForgeByUrl', e);

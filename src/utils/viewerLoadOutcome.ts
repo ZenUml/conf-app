@@ -43,7 +43,6 @@ export function publishLoadedDiagram(doc: Diagram | undefined, loadError?: Diagr
   // a terminal error rather than an endless "Loading embedded diagram…".
   store.state.diagramLoadComplete = true;
   window.diagram = diagram;
-  console.log('loadDiagram - window.diagram', window.diagram);
   return diagram;
 }
 

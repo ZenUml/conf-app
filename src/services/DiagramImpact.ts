@@ -9,13 +9,6 @@ export async function getDiagramImpact(customContentId: string): Promise<Diagram
   return callRemote(`/api/diagram-impact?customContentId=${encodeURIComponent(customContentId)}`, 'GET');
 }
 
-/**
- * `gateVersion` records which dwell rule produced the row, so counts written
- * before and after 2026-09-02 stay comparable. It comes from the build, not
- * from the user, and an older client still in a browser keeps sending 1.
- */
-export const DWELL_GATE_VERSION = 2;
-
 export type RegistrationResult = 'new_unique' | 'repeat' | 'excluded_contributor' | 'write_failed';
 
 export interface DiagramImpactRegistration {
@@ -28,8 +21,5 @@ export interface DiagramImpactRegistration {
 }
 
 export async function registerDiagramImpactView(customContentId: string): Promise<DiagramImpactRegistration> {
-  return callRemote('/api/diagram-impact/view', 'POST', {
-    customContentId,
-    gateVersion: DWELL_GATE_VERSION,
-  });
+  return callRemote('/api/diagram-impact/view', 'POST', { customContentId });
 }

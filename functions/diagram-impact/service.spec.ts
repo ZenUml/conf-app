@@ -27,8 +27,8 @@ function fakeDb(input: { historical?: boolean; count?: number; existing?: { last
 }
 
 // Same shape as fakeDb (eligible-viewer, no existing row -> INSERT path), but
-// captures the bind() args of every INSERT so the gateVersion normalization
-// can be asserted at the boundary the repository actually receives it at.
+// captures the bind() args of every INSERT so what the repository actually
+// receives can be asserted at that boundary.
 function fakeDbCapturingInserts(input: { count?: number } = {}) {
   const inserts: unknown[][] = [];
   const db = {
@@ -117,39 +117,6 @@ describe('diagram impact service', () => {
     })).resolves.toEqual({ result: 'new_unique', audienceCount: 7 });
   });
 
-  it('normalizes an absent gateVersion to 1 before it reaches the repository INSERT', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response(content)));
-    const { db, inserts } = fakeDbCapturingInserts();
-
-    await registerDiagramImpactView({
-      env: { DB: db },
-      data,
-      forgeOAuthUser: 'token',
-      customContentId: 'content-a',
-      now: new Date('2026-08-12T12:00:00.000Z'),
-    });
-
-    expect(inserts).toHaveLength(1);
-    expect(inserts[0].at(-1)).toBe(1);
-  });
-
-  it('passes an explicit gateVersion of 2 through to the repository INSERT unchanged', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response(content)));
-    const { db, inserts } = fakeDbCapturingInserts();
-
-    await registerDiagramImpactView({
-      env: { DB: db },
-      data,
-      forgeOAuthUser: 'token',
-      customContentId: 'content-a',
-      gateVersion: 2,
-      now: new Date('2026-08-12T12:00:00.000Z'),
-    });
-
-    expect(inserts).toHaveLength(1);
-    expect(inserts[0].at(-1)).toBe(2);
-  });
-
   it('rejects missing or malformed identity and content inputs', async () => {
     await expect(getDiagramImpactSummary({
       env: { DB: fakeDb() }, data: { forgeContext: { ...data.forgeContext, accountId: undefined } }, forgeOAuthUser: 'token', customContentId: 'content-a',
@@ -176,7 +143,7 @@ describe('diagram impact service', () => {
             return null;
           },
           run: async () => {
-            if (sql.includes('INSERT')) throw new Error('D1_ERROR: no such column: gateVersion');
+            if (sql.includes('INSERT')) throw new Error('D1_ERROR: database is locked');
             return { meta: { changes: 0 } };
           },
           all: async () => ({ results: [] }),

@@ -2,7 +2,6 @@ import type { ForgeRequestData } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import {
   classifyViewerRelation,
-  normalizeGateVersion,
   type RegistrationResult,
   type ViewerRelation,
 } from './domain';
@@ -157,7 +156,6 @@ export async function registerDiagramImpactView(input: {
   data: ForgeRequestData;
   forgeOAuthUser: string | null | undefined;
   customContentId: unknown;
-  gateVersion?: unknown;
   now?: Date;
 }): Promise<DiagramImpactRegistration> {
   const resolved = await resolveImpactRequest(input);
@@ -180,7 +178,6 @@ export async function registerDiagramImpactView(input: {
       ...resolved.scope,
       accountId: resolved.accountId,
       now: input.now ?? new Date(),
-      gateVersion: normalizeGateVersion(input.gateVersion),
     });
   } catch (error) {
     captureError(error);

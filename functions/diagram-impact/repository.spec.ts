@@ -74,20 +74,19 @@ describe('diagram audience repository', () => {
     });
   });
 
-  it('inserts the first qualifying view, binding gateVersion as the final column', async () => {
+  it('inserts the first qualifying view', async () => {
     const { db, calls } = fakeDb({ existing: null, insertChanges: 1 });
 
     await expect(registerAudienceView(db, {
       ...scope,
       accountId: 'person-a',
       now: new Date('2026-08-12T12:00:00.000Z'),
-      gateVersion: 2,
     })).resolves.toBe('new_unique');
 
     expect(calls.map((call) => call.operation)).toEqual(['first', 'run']);
     expect(calls[1]).toMatchObject({
-      sql: expect.stringContaining('accountId, firstViewedAt, lastViewedAt, viewDays, gateVersion'),
-      binds: ['cloud-a', 'app-a', 'content-a', 'person-a', '2026-08-12T12:00:00.000Z', '2026-08-12T12:00:00.000Z', 2],
+      sql: expect.stringContaining('accountId, firstViewedAt, lastViewedAt, viewDays'),
+      binds: ['cloud-a', 'app-a', 'content-a', 'person-a', '2026-08-12T12:00:00.000Z', '2026-08-12T12:00:00.000Z'],
     });
   });
 
@@ -98,7 +97,6 @@ describe('diagram audience repository', () => {
       ...scope,
       accountId: 'person-a',
       now: new Date('2026-08-12T12:00:00.000Z'),
-      gateVersion: 1,
     })).resolves.toBe('repeat');
   });
 
@@ -109,23 +107,18 @@ describe('diagram audience repository', () => {
       ...scope,
       accountId: 'person-a',
       now: new Date('2026-08-12T23:59:59.000Z'),
-      gateVersion: 1,
     })).resolves.toBe('repeat');
 
     expect(calls.map((call) => call.operation)).toEqual(['first']);
   });
 
-  it('updates a repeat on a later UTC day exactly once, and never rewrites the row\'s original gateVersion', async () => {
+  it('updates a repeat on a later UTC day exactly once', async () => {
     const { db, calls } = fakeDb({ existing: { lastViewedAt: '2026-08-12T23:59:59.000Z' }, updateChanges: 1 });
 
-    // gateVersion 2 here documents that even a request tagged with the newer
-    // rule must not relabel a row an earlier rule created — the row's
-    // gateVersion is stamped once, on INSERT, and never touched again.
     await expect(registerAudienceView(db, {
       ...scope,
       accountId: 'person-a',
       now: new Date('2026-08-13T00:00:00.000Z'),
-      gateVersion: 2,
     })).resolves.toBe('repeat');
 
     expect(calls.map((call) => call.operation)).toEqual(['first', 'run']);
@@ -136,7 +129,6 @@ describe('diagram audience repository', () => {
         'cloud-a', 'app-a', 'content-a', 'person-a', '2026-08-13T00:00:00.000Z',
       ],
     });
-    expect(calls[1].sql).not.toMatch(/gateVersion/);
     expect(calls[1].binds).not.toContain(2);
   });
 });

@@ -37,6 +37,7 @@ import type {
   CopySource,
   CreateNotFoundShape,
   SaveFailureProbeStatus,
+  ArchitectureTokenLookupOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -262,6 +263,7 @@ export type AnalyticsProperties = {
   audience_count?: number;
   space_admin_count?: number;
   // Architecture Tokens Phase 1. Counts only.
+  lookup_outcome?: ArchitectureTokenLookupOutcome; // required on new lookup-success events
   participant_count?: number;          // participants declared in this diagram
   participants_with_related?: number;  // of which have >=1 accessible related page
   related_pages_total?: number;        // sum of accessible related pages

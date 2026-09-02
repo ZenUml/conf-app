@@ -27,6 +27,9 @@ export type FeatureArea =
 /** Current user's relationship to the diagram being measured. */
 export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
 
+/** Whether an Architecture Tokens lookup found index rows for the current diagram. */
+export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
+
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"

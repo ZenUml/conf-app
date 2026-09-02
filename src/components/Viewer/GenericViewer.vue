@@ -277,6 +277,7 @@
                 :attribution="diagramAttribution"
                 :macro-type="diagramType"
                 :ready="viewerLoadState === 'ready'"
+                :diagram-host="getCaptureNode"
               />
             </div>
             <!-- Onboarding funnel "second diagram" prompt — build-time-gated,

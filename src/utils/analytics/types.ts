@@ -262,6 +262,14 @@ export type AnalyticsProperties = {
   viewer_relation?: ViewerRelation;
   has_last_updated_by?: boolean;
   has_audience_count?: boolean;
+  // Whether the diagram met the viewport rule when the 3s dwell timer fired.
+  // `false` identifies the registrations produced by the ready-watcher path,
+  // which armed the timer without any viewport check before 2026-09-02.
+  was_intersecting?: boolean;
+  // Which element the audience dwell gate watched. `footer` means the diagram
+  // node was unavailable and the gate fell back to the 29px attribution strip,
+  // which is the pre-2026-09-02 behaviour rather than the intended one.
+  gate_target?: 'diagram' | 'footer';
   visibility_duration_ms?: number;
   audience_count?: number;
   space_admin_count?: number;

@@ -20,11 +20,15 @@ from collections import defaultdict
 
 VENDOR = "1215266"
 BASE = "https://marketplace.atlassian.com"
-APPS = {
+APPS = {                                  # --app alias -> Marketplace addonKey
     "full": "com.zenuml.confluence-addon",
     "lite": "com.zenuml.confluence-addon-lite",
+    "diagramly": "gptdock-confluence",
+    "asyncapi": "my-api",                     # "AsyncAPI for Confluence" (its own Forge app identity)
 }
-ZENUML_KEYS = set(APPS.values())
+ADDON_KEYS = set(APPS.values())
+BOTH_KEYS = {APPS["full"], APPS["lite"]}     # `--app both` = the two ZenUML-branded apps only
+APP_MODES = ("both", "all")                   # vendor-wide fetch, filtered client-side
 
 
 # ----- credentials -------------------------------------------------------------
@@ -80,19 +84,40 @@ def export(kind, auth, **filters):
     return data
 
 
+def check_app(app):
+    """Validate a --app value and return it unchanged; ValueError for anything unrecognised.
+    Accepted: an alias in APPS, 'both' / 'all', a known addonKey, or an explicit com.* key.
+    Before 2026-09-02 an unknown value fell through addon_filter/keep_addon to the ALL-apps
+    result while the header still printed app=<value>: `revenue --app gptdock-confluence`
+    (and `--app my-api`, neither of which starts with com.) reported the vendor-wide
+    164 payers / $134k as Diagramly's. Reject up front instead."""
+    if app in APPS or app in APP_MODES or app in ADDON_KEYS or app.startswith("com."):
+        return app
+    accepted = ", ".join(list(APPS) + list(APP_MODES) + sorted(ADDON_KEYS))
+    raise ValueError(f"unknown --app {app!r}; accepted: {accepted}, or an explicit com.* addon key")
+
+
+def _app_arg(value):
+    """argparse `type=` wrapper so a bad --app dies as a usage error, before any fetch."""
+    try: return check_app(value)
+    except ValueError as e: raise argparse.ArgumentTypeError(str(e))
+
+
 def addon_filter(app):
     """Return the addon= filter value, or None to fetch the whole vendor (then filter client-side)."""
+    check_app(app)
     if app in APPS: return APPS[app]
-    if app.startswith("com."): return app           # explicit addon key
-    return None                                      # 'both' / 'all'
+    if app in APP_MODES: return None                 # 'both' / 'all'
+    return app                                       # explicit addon key
 
 
 def keep_addon(rec, app):
+    check_app(app)
     k = rec.get("addonKey", "")
     if app in APPS: return k == APPS[app]
-    if app.startswith("com."): return k == app
-    if app == "both": return k in ZENUML_KEYS
-    return True                                      # 'all'
+    if app == "both": return k in BOTH_KEYS
+    if app == "all": return True
+    return k == app                                  # explicit addon key
 
 
 # ----- transaction aggregation -------------------------------------------------
@@ -169,8 +194,7 @@ def company_of(rec):
 # stale billing as current. Payoff is batch / analytics / cross-source joins (cloudId is
 # the key to Mixpanel + D1), not single-lookup speed. Stores raw JSON so `export()` can
 # hand downstream commands the exact same dicts (raw-passthrough).
-APP_KEYS_ALL = ["com.zenuml.confluence-addon", "com.zenuml.confluence-addon-lite",
-                "gptdock-confluence", "my-api"]  # my-api = AsyncAPI for Confluence (a 3rd revenue app)
+APP_KEYS_ALL = list(APPS.values())                    # every app `sync` snapshots = every --app alias
 LOCAL = {"db": None}
 
 
@@ -695,7 +719,8 @@ def main():
     ap = argparse.ArgumentParser(description="ZenUML Marketplace vendor reporting audit.")
     ap.add_argument("--env", default=None, help="path to .env.forge.local (default: auto-discover)")
     ap.add_argument("--json", action="store_true", help="machine-readable JSON output")
-    ap.add_argument("--app", default="full", help="full | lite | both | all | <addonKey> (default: full)")
+    ap.add_argument("--app", default="full", type=_app_arg,
+                    help="full | lite | diagramly | asyncapi | both (full+lite) | all | <addonKey> (default: full)")
     ap.add_argument("--local", action="store_true", help="read from the local SQLite snapshot (run `sync` first)")
     ap.add_argument("--db", default=None, help="SQLite snapshot path (default: alongside the script)")
 
@@ -705,7 +730,7 @@ def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--env", default=argparse.SUPPRESS)
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
-    common.add_argument("--app", default=argparse.SUPPRESS)
+    common.add_argument("--app", default=argparse.SUPPRESS, type=_app_arg)
     common.add_argument("--local", action="store_true", default=argparse.SUPPRESS)
     common.add_argument("--db", default=argparse.SUPPRESS)
 

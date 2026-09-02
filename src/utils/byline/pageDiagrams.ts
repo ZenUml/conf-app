@@ -1,4 +1,5 @@
-import { DiagramType, getDiagramData } from '@/model/Diagram/Diagram'
+import { DiagramType } from '@/model/Diagram/Diagram'
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig'
 
 /**
  * Lite byline (docs/superpowers/specs/2026-07-25-lite-byline-activation-design.md).

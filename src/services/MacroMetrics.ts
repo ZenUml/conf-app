@@ -46,7 +46,7 @@ const PAYWALL_COUNT_CEILING = 100;
 
 // Diagram types that own a metric bucket but deliberately have no
 // DiagramTypeConfig entry. AsyncAPI renders through the Studio iframe /
-// @asyncapi/react-component, not the viewerUrl + storeUpdateAction plumbing
+// @asyncapi/react-component, not the storeUpdateAction plumbing
 // DiagramTypeConfig describes, so giving it a full config would hand it
 // capabilities (agent-link writes, the diagram portal, the template gallery)
 // that have never been validated for it. It still needs to be counted.

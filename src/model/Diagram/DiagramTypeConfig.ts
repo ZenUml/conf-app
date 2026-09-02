@@ -3,8 +3,6 @@ import { DiagramType } from './Diagram';
 export interface DiagramTypeConfig {
   dataField: string;
   storeUpdateAction: string;
-  wide: boolean;
-  viewerUrl: string;
   templateUrl: string;
   label: string;
   metricField: string;
@@ -15,8 +13,6 @@ const CONFIGS: Partial<Record<DiagramType, DiagramTypeConfig>> = {
   [DiagramType.Sequence]: {
     dataField: 'code',
     storeUpdateAction: 'updateCode2',
-    wide: false,
-    viewerUrl: '/sequence-viewer.html',
     templateUrl: 'https://zenuml.com/docs/category/examples/',
     label: 'Sequence',
     metricField: 'sequence',
@@ -25,8 +21,6 @@ const CONFIGS: Partial<Record<DiagramType, DiagramTypeConfig>> = {
   [DiagramType.Mermaid]: {
     dataField: 'mermaidCode',
     storeUpdateAction: 'updateMermaidCode',
-    wide: true,
-    viewerUrl: '/sequence-viewer.html',
     templateUrl: 'https://mermaid.js.org/ecosystem/tutorials.html',
     label: 'Mermaid',
     metricField: 'mermaid',
@@ -35,8 +29,6 @@ const CONFIGS: Partial<Record<DiagramType, DiagramTypeConfig>> = {
   [DiagramType.PlantUml]: {
     dataField: 'plantUmlCode',
     storeUpdateAction: 'updatePlantUmlCode',
-    wide: true,
-    viewerUrl: '/sequence-viewer.html',
     templateUrl: 'https://plantuml.com/guide',
     label: 'PlantUML',
     metricField: 'plantuml',
@@ -45,8 +37,6 @@ const CONFIGS: Partial<Record<DiagramType, DiagramTypeConfig>> = {
   [DiagramType.Graph]: {
     dataField: 'graphXml',
     storeUpdateAction: '', // Graph uses DrawIO editor, not the code editor dispatch path
-    wide: true,
-    viewerUrl: '/drawio/viewer.html',
     templateUrl: '',
     label: 'Graph',
     metricField: 'graph',
@@ -55,8 +45,6 @@ const CONFIGS: Partial<Record<DiagramType, DiagramTypeConfig>> = {
   [DiagramType.OpenApi]: {
     dataField: 'code',
     storeUpdateAction: 'updateCode2',
-    wide: true,
-    viewerUrl: '/swagger-ui.html',
     templateUrl: '',
     label: 'OpenAPI',
     metricField: 'openapi',
@@ -68,17 +56,43 @@ export function getDiagramConfig(type: DiagramType): DiagramTypeConfig | undefin
   return CONFIGS[type];
 }
 
-export function getViewerUrl(type: DiagramType): string {
-  const config = CONFIGS[type];
-  if (config) return config.viewerUrl;
-  console.warn(`Unknown diagramType: ${type}`);
-  return '/sequence-viewer.html';
-}
-
 export function getCodeFromDiagram(diagram: any, type: DiagramType): string {
   const config = CONFIGS[type];
   if (config) return diagram[config.dataField] || '';
   return '';
+}
+
+// Infers the type from the diagram itself, unlike getCodeFromDiagram (which
+// takes an explicit type). Not registry-driven end to end: OpenApi/AsyncApi
+// both read `code` (AsyncApi deliberately has no CONFIGS entry — see
+// MacroMetrics.ts), and Graph resolves to boardGraphXml vs graphXml based on
+// the diagram INSTANCE's graphEditorMode, which the per-type registry can't
+// express.
+export function getDiagramData(o: any): string {
+  let body;
+  switch (o.diagramType) {
+    case DiagramType.Sequence:
+    case DiagramType.OpenApi:
+    case DiagramType.AsyncApi:
+      body = o.code || '';
+      break;
+    case DiagramType.Mermaid:
+      body = o.mermaidCode || '';
+      break;
+    case DiagramType.PlantUml:
+      body = o.plantUmlCode || '';
+      break;
+    case DiagramType.Graph:
+      // A Board macro's body is boardGraphXml. Reading graphXml here made
+      // Board-only edits invisible to every drift/staleness comparison built
+      // on getDiagramData. Legacy Board records (no boardGraphXml field at
+      // all) still resolve to graphXml.
+      body = (o.graphEditorMode === 'board' && o.boardGraphXml !== undefined
+        ? o.boardGraphXml
+        : o.graphXml) || '';
+      break;
+  }
+  return body || '';
 }
 
 export function getStoreUpdateAction(type: DiagramType): string {

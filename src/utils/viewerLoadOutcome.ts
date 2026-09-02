@@ -1,6 +1,7 @@
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
-import { Diagram, DiagramType, NULL_DIAGRAM, getDiagramData } from '@/model/Diagram/Diagram';
+import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import store from '@/model/store2';
 import type { DiagramLoadError, ViewerLoadState } from '@/model/store2/types';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';

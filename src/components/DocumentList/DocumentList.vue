@@ -111,8 +111,8 @@
 
 <script>
 import PublishButton from "@/components/PublishButton.vue";
-import { DiagramType, getDiagramData } from "@/model/Diagram/Diagram";
-import { loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
+import { DiagramType } from "@/model/Diagram/Diagram";
+import { getDiagramData, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { AtlasPage } from "@/model/page/AtlasPage";
 import _ from 'lodash';

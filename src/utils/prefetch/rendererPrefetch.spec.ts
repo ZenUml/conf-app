@@ -84,7 +84,7 @@ describe('executePrefetch — outcome classification', () => {
     expect(outcome.requested).toBe(1)
   })
 
-  it('skips the mermaid import-warm on low-memory devices but still link-prefetches', async () => {
+  it('honours allowImportWarm: false — skips the mermaid import-warm, still link-prefetches', async () => {
     const opts = makeOpts()
     const outcome = await executePrefetch(['graph', 'mermaid'], { ...DEFAULT_GUARDS, allowImportWarm: false }, 30_000, opts, () => 1000)
     expect(opts.warmMermaid).not.toHaveBeenCalled()
@@ -129,6 +129,14 @@ describe('runRendererPrefetchIfDue — orchestration', () => {
     markPrefetchDone(getBuildKey(), opts.store)
     await runRendererPrefetchIfDue(opts)
     expect(opts.prefetch).not.toHaveBeenCalled()
+  })
+
+  it('derives allowImportWarm from nav.deviceMemory: low memory skips the mermaid warm', async () => {
+    const opts = makeOpts({ nav: { deviceMemory: 2 } as RunOptions['nav'] })
+    await runRendererPrefetchIfDue(opts)
+    expect(opts.warmMermaid).not.toHaveBeenCalled()
+    expect(opts.prefetch).toHaveBeenCalledOnce()
+    expect(isPrefetchDue(opts.store)).toBe(false)
   })
 
   it.each([

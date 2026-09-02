@@ -271,6 +271,12 @@ export type AnalyticsProperties = {
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,
   // page_id).
   cloud_id?: string;
+  // Restored 2026-09-03 after the `app_first_seen` Mixpanel emit was deleted:
+  // the property is NOT dead. src/export.js `joinKeyProps()` (:203) stamps
+  // `account_id` on every export event, and mixpanelService's /import call
+  // reads it back as the event's `distinct_id` (:239). The declaration keeps
+  // the typed frontend path able to carry the same key without a cast.
+  account_id?: string;
   // True when the current user is resolved to be a space admin of the current
   // space. Set on `space_admin_active` (Phase 5a admin-activity probe) and, from
   // Phase 5b, on every page-banner event so the funnel can be split by audience.
@@ -621,9 +627,10 @@ export type AnalyticsProperties = {
   ms_since_op_received?: number;
   total_ms?: number;
   render_outcome?: AgentLinkRenderOutcome;
-  // C (agent_link_guardrail_rejected): DSL string lengths in/out of the
-  // pre-persist guardrail (parse + data-loss round-trip check), so a rejected
-  // op's size can be correlated with the reject reason.
+  // C: DSL string lengths in/out of the pre-persist guardrail (parse +
+  // data-loss round-trip check), so a rejected op's size can be correlated with
+  // the reject reason. Their dedicated event (agent_link_guardrail_rejected)
+  // was deleted 2026-09-02 as never-emitted; these ride other agent_link events.
   input_len?: number;
   output_len?: number;
   // G (agent_link_session_resumed only): elapsed ms between the paired

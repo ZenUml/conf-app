@@ -821,13 +821,15 @@ export type AgentLinkExpiryCause = "idle" | "absolute_cap";
 // complete diagram painted (success); 'failed' = the op errored/persist
 // failed; 'timeout' = the render-safety backstop fired (no terminal signal
 // within RENDER_SAFETY_TIMEOUT_MS, e.g. a dropped WS) and the shimmer was
-// force-cleared. WHY a 'failed' op failed is carried by whichever of
-// agent_link_edit_failed / agent_link_guardrail_rejected fired for the same
-// op; this field only says how the render surface ended up.
+// force-cleared. WHY a 'failed' op failed is carried by agent_link_edit_failed
+// for the same op; this field only says how the render surface ended up.
+// (agent_link_guardrail_rejected was deleted 2026-09-02 — never emitted.)
 export type AgentLinkRenderOutcome = "rendered" | "failed" | "timeout";
 
-// Why Track C's update_diagram guardrail rejected an op BEFORE persisting
-// (agent_link_guardrail_rejected). 'parse_error' = the DSL didn't parse in the
+// Why Track C's update_diagram guardrail rejected an op BEFORE persisting.
+// Its dedicated event (agent_link_guardrail_rejected) was deleted 2026-09-02 as
+// never-emitted; the type survives because it still widens the shared `reason`
+// union in types.ts. 'parse_error' = the DSL didn't parse in the
 // real parser (ZenUML/Mermaid/best-effort PlantUML — see charter §4-C);
 // 'data_loss' = it parsed but the semantic round-trip diff showed the output
 // dropping content present in the input (participant/message count collapse);

@@ -51,14 +51,14 @@ Every Lite tenant sits in one of three states. Your job is to determine which st
 | State | Gate (`PAYWALL_EXEMPTIONS`) | What user sees |
 |-------|-----|----------------|
 | **Unrestricted (exempt)** | domain or `"*"` set to `true` | No paywall at all |
-| **Paywall on (default)** | absent or `false` | Warning at 85 macros (per space), blocked at 100 macros (per space). `UpgradePrompt` when an edit is blocked. The user gets **15 "continue editing" attempts per user+space** before the modal hard-blocks (continue button disappears, replaced by "Request extension to continue editing") — see **Continue-attempts gate** below. |
+| **Paywall on (default)** | absent or `false` | Warning at 85 macros (per space), blocked at 100 macros (per space). `UpgradePrompt` when an edit is blocked. The user gets **3 "continue editing" attempts per user+space** (15 before 2026-08-16) before the modal hard-blocks (continue button disappears, replaced by "Request extension to continue editing") — see **Continue-attempts gate** below. |
 | **Licensed** | any | Space paid via KV license — restrictions bypassed entirely |
 
 ## Continue-attempts gate (added 2026-06-02, `v2026.06.02-lite`)
 
 Once a space is over the limit, the `UpgradePrompt` no longer offers unlimited "Continue editing without upgrading". Each user gets **3 attempts per (clientDomain, spaceKey, userAccountId)**, tracked client-side (`DEFAULT_CONTINUE_ATTEMPTS`, lowered from 15 on 2026-08-16). The new value applies to new (user, space) pairs only — a stored balance is never rewritten, so users who started under the old default still hold up to 15.
 
-- **Mechanism:** `src/utils/paywall/continueAttempts.ts`. State lives in **localStorage** under key `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (parts URL-encoded), shape `{ remainingAttempts, firstTriggeredAt, lastUsedAt, exhaustedAt }`. Default `DEFAULT_CONTINUE_ATTEMPTS = 15`. Created at paywall mount (`getOrCreateContinueAttempts`), decremented per continue click (`useContinueAttempt`). **Lite-only** — gated on `isLite`, so full/diagramly never trigger it. localStorage lives in the **Forge iframe origin** (`*.cdn.prod.atlassian-dev.net`), not the top-level page.
+- **Mechanism:** `src/utils/paywall/continueAttempts.ts`. State lives in **localStorage** under key `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (parts URL-encoded), shape `{ remainingAttempts, firstTriggeredAt, lastUsedAt, exhaustedAt }`. Default `DEFAULT_CONTINUE_ATTEMPTS = 3` (15 before 2026-08-16). Created at paywall mount (`getOrCreateContinueAttempts`), decremented per continue click (`useContinueAttempt`). **Lite-only** — gated on `isLite`, so full/diagramly never trigger it. localStorage lives in the **Forge iframe origin** (`*.cdn.prod.atlassian-dev.net`), not the top-level page.
 - **UI:** continue button reads `Continue editing without upgrading (N)`; at `N=0` it's replaced by the `continue-attempts-exhausted` span ("Request extension to continue editing"). The advocacy/request-extension CTAs remain.
 - **New events** (register/query alongside the existing paywall events):
   - `paywall_continue_used` — every continue click while attempts are tracked. Props: `remaining_attempts_before`, `remaining_attempts_after`, `storage_source: 'local_storage'`, `action_type`, plus upgrade context. **This is the decrement event.**
@@ -633,7 +633,7 @@ Apply proposed improvements directly to the skill file without asking for confir
 ## How the Lite paywall actually enforces (don't misread this as a bug)
 
 It is a **metered soft-paywall, and the number in "Continue editing without upgrading (N)" IS the gate.**
-`DEFAULT_CONTINUE_ATTEMPTS = 15`; each click decrements N and lets the user reach the editor and
+`DEFAULT_CONTINUE_ATTEMPTS = 3` (15 before 2026-08-16; a stored balance is never rewritten); each click decrements N and lets the user reach the editor and
 **save normally — saves persisting during the grace window is BY DESIGN, not a leak.** When N hits 0,
 the Continue-editing button is replaced by non-clickable "Request extension to continue editing"
 (`UpgradePrompt.vue`, `canContinueEditing = remainingContinueAttempts > 0`), and the modal can no
@@ -644,7 +644,7 @@ via the counter, not at the persistence layer. (The "save is gated in the persis
 comments are misleading wording; ignore them.)
 
 The only real weakness: the counter is `localStorage`-keyed
-(`paywallContinueAttempts:domain:space:user`), so clearing storage/incognito resets it to 15 — a minor
+(`paywallContinueAttempts:domain:space:user`), so clearing storage/incognito resets it to 3 (the default) — a minor
 client-side soft spot, NOT a missing save-gate.
 
 ### Skipping the paywall on an over-limit Lite space

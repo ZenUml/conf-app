@@ -63,6 +63,31 @@ Both names coexist **only in April 2026**; fully switched by May. **Window ≤ A
 
 Other events were renamed in the same wave; **`src/utils/analytics/catalog.ts` is authoritative** for current names — read it, don't trust a stale copy here.
 
+## The 2026-09 architecture-tokens rename (evidence-verified)
+
+`related_diagrams_shown` was renamed to **`related_token_indicators_shown`** in commit
+`5e37f953` (2026-08-29), first shipped to Lite production in `v2026.09.012159-lite`
+(published 2026-09-02 00:32Z). The old name is **not in `catalog.ts` and is emitted by no
+code** — a search of the current tree returns nothing outside historical data.
+
+Measured crossover, both names, fleet-wide:
+
+| date | `related_diagrams_shown` | `related_token_indicators_shown` |
+|---|---|---|
+| 2026-08-31 | 47 | 0 |
+| 2026-09-01 | 37 | 30 |
+| 2026-09-02 | 6 | 236 |
+
+**Sum the two for any window touching 2026-09-01/02, and use only the new name after that.**
+The residual old-name events are browsers still running a pre-release build, not a second
+kind of event.
+
+The trap this records (hit 2026-09-02): the two were read as two *steps* of one funnel —
+"N indicator renders produced 6 panel expansions" — when they are one step under two names.
+That inverted a per-tenant comparison as well, because a tenant on the older build reports
+all of its renders under the old name. Any claim that one tenant "shows the feature more"
+than another has to control for which build each was running.
+
 ## Hot events (the ones you actually query)
 
 | Event | Means | Key props / gotcha |

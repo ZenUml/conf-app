@@ -105,6 +105,7 @@ import {
   type RelatedResponse,
 } from '@/services/ArchitectureTokens'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender'
 
 const props = defineProps<{
   customContentId: string
@@ -235,6 +236,21 @@ const baseProperties = () => ({
   feature_area: 'architecture_tokens' as const,
   surface: props.surface,
   macro_type: 'mermaid' as const,
+  // Whether the macro was on screen when the render happened. Without it a
+  // render count cannot be read as an opportunity to interact: measured over
+  // 2026-08-15..09-02 on the two customer tenants, 54.8% of `macro_viewed`
+  // carried `render_gate: 'background'` with `visible_at_boot: false`, meaning
+  // the fallback timer released a macro nobody scrolled to. Only 18.4% of
+  // counted views involved the macro entering the viewport at all.
+  //
+  // `related_token_indicators_shown` carried none of this (176 events in that
+  // window, every one absent on render_gate and visible_at_boot), so the
+  // 0-clicks-out-of-529-renders reading had to borrow the macro_viewed
+  // distribution as a proxy. Emitting it here makes both the denominator and
+  // the popover/link numerators segmentable directly.
+  //
+  // `{}` when the gate never ran, so nothing is added on an ungated render.
+  ...getGateTelemetry(),
 })
 const countProperties = () => ({
   participant_count: participants.value.length,

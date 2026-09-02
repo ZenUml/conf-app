@@ -141,17 +141,13 @@ export async function diagnoseSaveFailure(
     if (timer) clearTimeout(timer);
   }
 
-  try {
-    trackAnalyticsEvent('save_failed_diagnosed', {
-      feature_area: 'macro',
-      surface: ctx.surface,
-      macro_type: ctx.macro_type,
-      error_shape: shape,
-      error_code: error?.code ?? undefined,
-      ...diagnosis,
-    });
-  } catch {
-    // Analytics must never turn a diagnosed failure into a second failure.
-  }
+  trackAnalyticsEvent('save_failed_diagnosed', {
+    feature_area: 'macro',
+    surface: ctx.surface,
+    macro_type: ctx.macro_type,
+    error_shape: shape,
+    error_code: error?.code ?? undefined,
+    ...diagnosis,
+  });
   return userMessageForSaveFailure(diagnosis);
 }

@@ -275,17 +275,15 @@ export function useCustomerSuccessService() {
   // the macro-side write and banner-side read produce byte-identical keys.
   function persistTargetingMarker() {
     if (!globals.apWrapper.isLite()) return;
-    try {
-      writeTargetingMarker({
-        severity: toMarkerSeverity(severity.value),
-        macroCount: macrosCreated.value,
-        spacePaid: spacePaidStatus.value,
-        customerSuccessServiceEnabled: customerSuccessServiceEnabled.value,
-        updatedAt: new Date().toISOString(),
-      });
-    } catch (e) {
-      console.warn('[paywall-banner] failed to persist targeting marker', e);
-    }
+    // writeTargetingMarker fails closed internally (catches, warns, returns) —
+    // no outer try/catch needed here.
+    writeTargetingMarker({
+      severity: toMarkerSeverity(severity.value),
+      macroCount: macrosCreated.value,
+      spacePaid: spacePaidStatus.value,
+      customerSuccessServiceEnabled: customerSuccessServiceEnabled.value,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   const initialize = async () => {

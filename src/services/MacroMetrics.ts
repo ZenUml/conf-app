@@ -146,44 +146,42 @@ export class MacroMetrics {
       data.results.forEach((content) => this.processContentResult(stats, content));
     };
 
-    try {
-      if (spaceId) {
-        // Count from the V2 space custom-content endpoint (system of record),
-        // paginated per content type. The v1 CQL content search is
-        // search-index-backed and under-returns for large / bulk-grown spaces,
-        // which silently under-counted the macro total used by the paywall.
-        //
-        // When `ceiling` is set (latency-critical read/gate path) stop as soon
-        // as the total crosses it — the paywall decision can't change above the
-        // limit, so a huge space must not stall the awaited editor/fullscreen
-        // mount enumerating thousands of items. The save path passes no ceiling
-        // and enumerates fully so the cached/analytics count stays accurate.
-        for (const type of this.apWrapper.getMacroContentTypes()) {
-          const url = `/api/v2/spaces/${spaceId}/custom-content?type=${encodeURIComponent(type)}&body-format=raw&limit=250`;
-          if (ceiling != null) {
-            await this.apWrapper.requestPaginatedDataUntil(url, consumer, () => stats.total >= ceiling);
-            if (stats.total >= ceiling) break;
-          } else {
-            await this.apWrapper.requestAllPaginatedData(url, consumer);
-          }
+    // Errors here propagate to the caller (reportMacroMetrics / getMacroMetrics),
+    // which already catches and fires the same trackError('report_macro_metrics')
+    // event — a local catch here would only duplicate that single error event.
+    if (spaceId) {
+      // Count from the V2 space custom-content endpoint (system of record),
+      // paginated per content type. The v1 CQL content search is
+      // search-index-backed and under-returns for large / bulk-grown spaces,
+      // which silently under-counted the macro total used by the paywall.
+      //
+      // When `ceiling` is set (latency-critical read/gate path) stop as soon
+      // as the total crosses it — the paywall decision can't change above the
+      // limit, so a huge space must not stall the awaited editor/fullscreen
+      // mount enumerating thousands of items. The save path passes no ceiling
+      // and enumerates fully so the cached/analytics count stays accurate.
+      for (const type of this.apWrapper.getMacroContentTypes()) {
+        const url = `/api/v2/spaces/${spaceId}/custom-content?type=${encodeURIComponent(type)}&body-format=raw&limit=250`;
+        if (ceiling != null) {
+          await this.apWrapper.requestPaginatedDataUntil(url, consumer, () => stats.total >= ceiling);
+          if (stats.total >= ceiling) break;
+        } else {
+          await this.apWrapper.requestAllPaginatedData(url, consumer);
         }
-      } else {
-        // Fallback when no numeric space id is available (e.g. non-Forge
-        // contexts where getCurrentSpace() yields only a key).
-        const searchUrl = this.buildSearchUrl(space);
-        await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
       }
-
-      console.debug('[metrics:collect] success', { space, total: stats.total });
-      return {
-        space,
-        ...stats,
-        isLite: this.apWrapper.isLite()
-      };
-    } catch (e) {
-      console.warn('[metrics:collect] failed', { space, error: (e as Error).message });
-      this.trackError(e);
+    } else {
+      // Fallback when no numeric space id is available (e.g. non-Forge
+      // contexts where getCurrentSpace() yields only a key).
+      const searchUrl = this.buildSearchUrl(space);
+      await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
     }
+
+    console.debug('[metrics:collect] success', { space, total: stats.total });
+    return {
+      space,
+      ...stats,
+      isLite: this.apWrapper.isLite()
+    };
   }
 
   private createInitialStats(): Omit<IMacroMetrics, 'space' | 'isLite' | 'lastUpdated'> {

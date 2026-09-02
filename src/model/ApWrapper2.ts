@@ -164,11 +164,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     } catch (e: any) {
       console.error(e);
-      try {
-        trackEvent('error', 'initializeContext', e.message);
-      } catch (e) {
-        console.error(e);
-      }
+      trackEvent('error', 'initializeContext', e.message);
     }
   }
 
@@ -891,21 +887,15 @@ export default class ApWrapper2 implements IApWrapper {
   async listPageDiagramContents(pageId: string): Promise<Array<any>> {
     const limit = 100;
     const types = customContentTypesForVariant().map(t => this.customContentType(t));
-    try {
-      return await Promise.all(
-        types.map(t =>
-          this.makeRequest(
-            `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
-          ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
-        ),
-      );
-    } catch (e: any) {
-      // Promise.all itself failing means every type failed; the modal shows its
-      // empty state, which is indistinguishable to the user from a page with no
-      // diagrams — acceptable for a read-only affordance.
-      console.error('[byline] listPageDiagramContents failed', e);
-      return [];
-    }
+    // Every mapped promise already has its own .catch (below), so Promise.all
+    // itself can never reject here — no outer try/catch needed.
+    return await Promise.all(
+      types.map(t =>
+        this.makeRequest(
+          `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
+        ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
+      ),
+    );
   }
 
   // ZEN-1170 Defect 2b. Read-OR-recover for the macro's referenced CC.

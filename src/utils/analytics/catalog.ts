@@ -24,9 +24,6 @@ export type FeatureArea =
   // sequence participants. Read-only in Phase 1; index built offline.
   | "architecture_tokens";
 
-/** Current user's relationship to the diagram being measured. */
-export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
-
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 
@@ -173,8 +170,6 @@ export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
 //                 decision, not evidence the tenant is safe to restrict.
 export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 
-export type FeedbackValue = "good" | "partial" | "bad";
-
 // Onboarding funnel: how a starter surface (template gallery / starter-shown
 // event) came to be visible. 'auto_first_open' = the editor opened it itself
 // on a brand-new blank macro; 'manual' = the user asked for it (Templates
@@ -313,7 +308,6 @@ export type AnalyticsEventName =
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
-  | "ai_editor_opened"
   // AI entry-point impressions. Fire on each hidden -> visible transition of
   // the editor button (not on component re-renders), with macro_type so the
   // denominator can be compared directly with the existing click/request
@@ -337,7 +331,6 @@ export type AnalyticsEventName =
   | "ai_chat_version_restored"
   | "ai_chat_change_undone"
   | "ai_chat_version_restore_failed"
-  | "ai_feedback_submitted"
   // AI Repair performance lifecycle. requested fires immediately before the
   // start request and carries poll_interval_ms + timeout_budget_ms plus the
   // requested ai_model / reasoning_disabled overrides when supplied. succeeded /
@@ -356,9 +349,15 @@ export type AnalyticsEventName =
   | "upgrade_modal_shown"
   | "paywall_triggered"
   | "paywall_blocked_create"
+  // Lite paywall on an EDIT (as opposed to paywall_blocked_create, the
+  // create-time block). Emitted by mountPaywallGate.ts. paywall_continued_editing
+  // is its counterpart: the user hit "Continue editing" instead of being
+  // blocked. Both were live and documented in UpgradeEventName /
+  // trackUpgradeEvent before being registered here.
+  | "paywall_blocked_edit"
   | "upgrade_modal_dismissed"
-  | "upgrade_feature_enabled"
   | "paywall_continue_used"
+  | "paywall_continued_editing"
   | "paywall_attempts_exhausted"
   // Fires once per Lite paywall gate evaluation (editor + fullscreen-viewer
   // mount), whether or not the gate fired. Direct instrumentation for the #302
@@ -396,17 +395,6 @@ export type AnalyticsEventName =
   // "wants to understand the pricing story", not "ready to pay".
   | "paywall_learn_more_clicked"
   | "space_admin_active"
-  // M1 first-seen ping (onboarding spec Phase 1). Fired from the page-banner
-  // host — the only surface that mounts on EVERY Confluence page in every
-  // variant — at most once per browser per tenant per 30 days, AFTER the
-  // authenticated backend POST succeeded. Two jobs: (a) the POST's invocation
-  // token carries context.siteUrl, so the backend resolves the tenant domain
-  // for installs where nobody ever opened a macro (85.7% of post-June
-  // Diagramly installs are domain-less); (b) counted per account_id it is the
-  // first census of Confluence-ACTIVE users per tenant — the P3 denominator.
-  // Census semantics: "active browsers with a resolved account", not "users"
-  // (localStorage throttle; cleared storage / second browsers inflate).
-  | "app_first_seen"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
@@ -419,19 +407,10 @@ export type AnalyticsEventName =
   | "extension_action_requested"
   | "extension_action_succeeded"
   | "extension_action_failed"
-  | "content_sync_requested"
-  | "content_sync_succeeded"
-  | "content_sync_failed"
-  | "custom_content_loaded"
-  | "confluence_page_viewed"
-  | "confluence_page_updated"
   | "csat_displayed"
   | "csat_submitted"
   | "csat_dismissed"
   | "feedback_link_clicked"
-  | "feature_flags_fetch_failed"
-  | "attachment_create_failed"
-  | "custom_content_update_failed"
   | "graph_editor_init_empty"
   // Graph (DrawIO) Diagram/Board chrome switch. Same mxfile, two DrawIO
   // chromes: `diagram` is the existing Atlas/standard embed; `board` is
@@ -550,29 +529,6 @@ export type AnalyticsEventName =
   // quota cost. Emitted once per open, after the list paints — the scan is a
   // full-page ADF GET and must never delay it.
   | "byline_unplaced_scanned"
-  // The scheduled writer decided whether this installation should see the
-  // byline. Split from byline_visibility_write deliberately: the decision and
-  // the write fail independently, and a merged event would make a failed write
-  // read as a deliberate suppression — the exact ambiguity that made
-  // Diagramly's ai_aide_route_accessed unusable as a numerator.
-  // `decision` = 'visible' | 'suppressed'; `reason` names what drove it.
-  | "byline_visibility_evaluated"
-  // The result of maintaining byline visibility state: the enrolment SPACE
-  // property (`zenuml-byline` + variant suffix — what the display condition
-  // reads) on every space, with last-settled-state memory in Forge app
-  // storage. `result` = 'written' | 'cleared' | 'unchanged' | 'failed';
-  // `space_count` = spaces swept. This one is load-bearing for support, not
-  // just analysis: the display condition is fail-CLOSED, so a tenant whose
-  // writes silently failed has no byline at all and is otherwise
-  // indistinguishable from one deliberately left off the rollout.
-  | "byline_visibility_write"
-  // The Full app marking its presence on a space (`zenuml-full-active` space
-  // property, created by Full's daily sweep). The Lite byline's display
-  // condition hides itself wherever this marker exists, so a missed write here
-  // shows the Lite byline on a site that paid for Full — annoying, not
-  // dangerous — while the marker lingering after a Full uninstall hides the
-  // Lite byline forever on that space. `result` + `space_count` as above.
-  | "full_presence_write"
   // The byline editor produced a saved diagram, and (when a cloudId is
   // available) a deeplink to place it. This is the conversion the picker exists
   // for: unlike byline_create_clicked it cannot fire on intent alone — a custom
@@ -632,7 +588,6 @@ export type AnalyticsEventName =
   // Diagram attribution and audience impact (Phase 1): the read-only footer
   // and its three-second continuous-visibility registration flow.
   | "diagram_attribution_shown"
-  | "diagram_audience_view_qualified"
   | "diagram_audience_registration_succeeded"
   | "diagram_audience_registration_failed"
   // Architecture Tokens Phase 1 (viewer footer + lifeline popover). No label
@@ -684,11 +639,7 @@ export type AnalyticsEventName =
   // job with totals. `macro_skipped` is per-macro (embed macros and unknown
   // keys are skipped by design in v1, and the skip is the signal that tells
   // us when phase-2 embed support becomes worth building).
-  | "macro_convert_job_enqueued"
   | "macro_convert_job_claimed"
-  | "macro_convert_page_succeeded"
-  | "macro_convert_page_failed"
-  | "macro_convert_macro_skipped"
   | "macro_convert_job_completed"
   | "close_guard_rejected"
   // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
@@ -700,8 +651,6 @@ export type AnalyticsEventName =
   | "draft_restored"
   | "draft_discarded"
   | "draft_banner_dismissed"
-  | "renderer_prefetch_started"
-  | "renderer_prefetch_completed"
   // In-viewer Edit gate for same-page shared-id macros (view-fork silent
   // orphan: view-editing a macro whose customContentId is shared by N>1
   // macros on the page forks a new CC on save, but the in-viewer modal cannot
@@ -747,11 +696,6 @@ export type AnalyticsEventName =
   // which is view-layer render time only — see `render_ms` below).
   | "agent_link_first_feedback"
   | "agent_link_render_completed"
-  // C — update_diagram guardrail (parse-before-submit / data-loss check)
-  // rejected an op BEFORE it reached bridge.writeDiagram(), i.e. nothing was
-  // persisted. Distinct from agent_link_edit_failed, which fires for a
-  // guardrail-passed op whose PERSIST then failed (bridge/version conflict).
-  | "agent_link_guardrail_rejected"
   // G — session lifecycle beyond the terminal agent_link_disconnected:
   // suspended = the link survives an implicit drop (Fullscreen closed via X,
   // or an unexpected ws close) instead of tearing down, staying resumable by
@@ -785,17 +729,6 @@ export type AnalyticsEventName =
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
   | "agent_link_list_performed"
-  // AI-prepared byline activation nudge
-  // (docs/superpowers/specs/2026-07-26-byline-activation-nudge-design.md).
-  // Visibility is a server-side `entityPropertyExists` gate on
-  // `zenuml-prepared-diagram`: the property means a curated diagram is ready.
-  // Listing diagrams already on the page belongs to the separate Diagrams byline.
-  // NOTE: activation_nudge_shown is NOT emitted — the byline chip is
-  // server-rendered Confluence chrome, not our Custom UI, so we get no
-  // client hook when it renders. `activation_nudge_clicked` IS the funnel
-  // entry; do not build a shown-based CTR against activation_nudge_shown.
-  // (Reserved in case a future Custom UI surface can fire it.)
-  | "activation_nudge_shown"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -873,16 +806,6 @@ export type AnalyticsEventName =
 // stall-breaker secondary that creates a page carrying the diagram.
 export type ActivationPath = "copy_link" | "draft_page";
 
-// Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
-// own render settled, or the page-banner iframe on its no-banner fast-path.
-// See utils/prefetch/rendererPrefetch.ts.
-export type PrefetchHost = "macro" | "banner";
-
-// Terminal outcome of a prefetch attempt: every asset settled ok, some assets
-// failed/timed out, nothing was warmed at all, or the deadline fired before
-// any per-asset result arrived (timed_out).
-export type PrefetchOutcome = "completed" | "partial" | "failed" | "timed_out";
-
 // Why an agent_link session ended (agent_link_disconnected). 'user' = explicit
 // Disconnect click; 'timeout' = token/session TTL; 'idle' = no activity for the
 // idle window; 'tab_close' = macro connection dropped (tab close/navigation).
@@ -898,13 +821,15 @@ export type AgentLinkExpiryCause = "idle" | "absolute_cap";
 // complete diagram painted (success); 'failed' = the op errored/persist
 // failed; 'timeout' = the render-safety backstop fired (no terminal signal
 // within RENDER_SAFETY_TIMEOUT_MS, e.g. a dropped WS) and the shimmer was
-// force-cleared. WHY a 'failed' op failed is carried by whichever of
-// agent_link_edit_failed / agent_link_guardrail_rejected fired for the same
-// op; this field only says how the render surface ended up.
+// force-cleared. WHY a 'failed' op failed is carried by agent_link_edit_failed
+// for the same op; this field only says how the render surface ended up.
+// (agent_link_guardrail_rejected was deleted 2026-09-02 — never emitted.)
 export type AgentLinkRenderOutcome = "rendered" | "failed" | "timeout";
 
-// Why Track C's update_diagram guardrail rejected an op BEFORE persisting
-// (agent_link_guardrail_rejected). 'parse_error' = the DSL didn't parse in the
+// Why Track C's update_diagram guardrail rejected an op BEFORE persisting.
+// Its dedicated event (agent_link_guardrail_rejected) was deleted 2026-09-02 as
+// never-emitted; the type survives because it still widens the shared `reason`
+// union in types.ts. 'parse_error' = the DSL didn't parse in the
 // real parser (ZenUML/Mermaid/best-effort PlantUML — see charter §4-C);
 // 'data_loss' = it parsed but the semantic round-trip diff showed the output
 // dropping content present in the input (participant/message count collapse);

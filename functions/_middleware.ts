@@ -1,7 +1,20 @@
-import {ServerErrorResponse} from "./ServerErrorResponse";
 import authenticate from "./utils/authenticate";
 import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
+
+// JSON + explicit Content-Type so this remote-facing 500 is parseable by the
+// Forge bridge instead of being rejected as `text/plain` (see OkResponse.ts).
+// Inlined from functions/ServerErrorResponse.ts 2026-09-02 — this was its
+// only caller.
+function serverErrorResponse(): Response {
+  return new Response(JSON.stringify({ error: 'Something went wrong' }), {
+    status: 500,
+    statusText: 'Internal Server Error',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
 
 interface Env {
   SENTRY_DSN?: string;
@@ -88,7 +101,7 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     console.error('Authentication middleware error:', e);
 
     // Don't try to use Sentry directly here - the Sentry middleware will capture this error
-    return ServerErrorResponse();
+    return serverErrorResponse();
   }
 };
 

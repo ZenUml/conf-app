@@ -16,25 +16,6 @@
 // deploy across every call site of that event — no per-site edits.
 
 export const EVENT_SAMPLE_RATES: Record<string, number> = {
-  // --- Dropped (rate 0) -----------------------------------------------------
-  // Quota reduction 2026-08-26: the account is over its monthly Mixpanel
-  // allowance. This event is a SECOND COPY of data we already keep in full.
-  // `maybeSendFirstSeenPing` POSTs every ping to /forge-user-behavior, which
-  // writes AnalyticsEventFact in D1 and archives the raw event to R2, and that
-  // handler deliberately does not forward to Mixpanel. Measured over
-  // 2026-08-19..25: D1 held 73,592 rows across 781 domains and 31,595 accounts
-  // while Mixpanel recorded 62,392 — the durable copy is the more complete one.
-  // Dropping the Mixpanel emission loses no census data; query D1 instead.
-  app_first_seen: 0,
-
-  // EAG-64 renderer prefetch. The rollout is validated (100% on Diagramly +
-  // Lite); warm-vs-cold render is already measured via macro_viewed.cache_state
-  // (trackRenderTime.ts), so the dedicated attempt/outcome telemetry no longer
-  // earns its volume (~1 per deploy per browser × the whole install base). The
-  // prefetch BEHAVIOUR is untouched — only its analytics are suppressed.
-  renderer_prefetch_started: 0,
-  renderer_prefetch_completed: 0,
-
   // --- Sampled to 10% -------------------------------------------------------
   // High-volume success / info diagnostics. 10% plus `sample_rate` extrapolation
   // is ample for rate/health trends; we do not need every occurrence.

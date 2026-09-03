@@ -1,6 +1,6 @@
 import { mixpanelTrack } from "./service/mixpanelService";
 import { archiveAnalyticsEvent, insertAnalyticsEventFact, normalizeFrontendAnalyticsEvent } from "./utils/analytics";
-import { isCanonicalRequest, TrackRequest } from "./service/analyticsTypes";
+import { TrackRequest } from "./service/analyticsTypes";
 
 const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'confluence-plugin.pages.dev', 'peng-new-8080.diagramly.ai'];
 
@@ -24,24 +24,8 @@ export const onRequest = async (event: any) => {
   console.log('Received request from referer', referer);
   const body = await event.request.json() as TrackRequest;
 
-  if (isCanonicalRequest(body)) {
-    if (!body.event || !body.addon_key) {
-      return new Response('Missing event or addon_key', { status: 400 });
-    }
-    const payload = {
-      event: body.event,
-      addon_key: body.addon_key,
-      version: body.version,
-      ...body.properties,
-    };
-    event.waitUntil(mixpanelTrack(payload, event.env.MIXPANEL_TOKEN));
-    return new Response(null, { status: 204 });
-  }
-
-  // Legacy path (transport_version: 1 or absent)
-  const legacyBody = body as any;
-  if (!legacyBody.client_domain || !legacyBody.addon_key || !legacyBody.user_account_id) {
-    const error = `Missing ${!legacyBody.client_domain ? 'client_domain' : (!legacyBody.addon_key ? 'addon_key' : 'user_account_id')}`;
+  if (!body.client_domain || !body.addon_key || !body.user_account_id) {
+    const error = `Missing ${!body.client_domain ? 'client_domain' : (!body.addon_key ? 'addon_key' : 'user_account_id')}`;
     console.log(error);
     return new Response(error, { status: 400 });
   }

@@ -16,8 +16,7 @@
     "noEmit": false,
     "baseUrl": ".",
     "types": [
-      "webpack-env",
-      "jest",
+      "vitest/globals",
       "@cloudflare/workers-types"
     ],
     "paths": {

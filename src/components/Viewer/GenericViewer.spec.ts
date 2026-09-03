@@ -1,5 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
@@ -2018,4 +2020,16 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+})
+
+describe('GenericViewer embed detection', () => {
+  const source = readFileSync(resolve(__dirname, './GenericViewer.vue'), 'utf-8')
+
+  it('uses a Forge moduleKey-based embed detection (inline or via isEmbedMode helper)', () => {
+    // The viewer uses inline regex on forgeContext.moduleKey instead of importing
+    // the isEmbedMode helper — both are equivalent; accept either pattern.
+    const usesHelper = /isEmbedMode/.test(source)
+    const usesInline = /moduleKey/.test(source) && /embed-macro/.test(source)
+    expect(usesHelper || usesInline).toBe(true)
+  })
 })

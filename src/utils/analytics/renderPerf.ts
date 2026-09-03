@@ -36,8 +36,8 @@ function loadStart(): number | undefined {
 
 /**
  * Record `bootstrap_ms = now − __macroLoadStart`, once. Call at the first line
- * of app code (forgeIndex `initializeCriticalPath`). Captures the head scripts
- * (dom-to-image, md5, DrawIO) + entry bundle eval that run before any app logic.
+ * of app code (forgeIndex `initializeCriticalPath`). Captures the remaining
+ * blocking head scripts + entry bundle eval that run before any app logic.
  * No-ops if `__macroLoadStart` isn't set (test/headless mounts).
  */
 export function markAppEntry(): void {

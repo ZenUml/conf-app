@@ -157,7 +157,6 @@ function prepareRawSource(raw: string): PreparedSource | Exclude<JisonOccurrence
   if (/<[A-Za-z]\w*(?:\s[^>]*)?>/.test(raw)) {
     return { kind: 'unsupported_preprocessing', reason: 'html_attribute_normalization' };
   }
-  if (/#\w+;/.test(raw)) return { kind: 'unsupported_preprocessing', reason: 'entity_encoding' };
 
   let parserText = '';
   const rawOrigin: (number | null)[] = [];

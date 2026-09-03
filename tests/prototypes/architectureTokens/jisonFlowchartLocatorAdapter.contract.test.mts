@@ -22,7 +22,7 @@ const fixtures = [
   { name: 'ordinary comment', source: '%% removed comment\nflowchart TD\nA --> B', publicValid: true, outcome: 'comment_ok' },
   { name: 'directive', source: '%%{init: {"theme":"base"}}%%\nflowchart TD\nA --> B', publicValid: true, outcome: 'directive_or_comment' },
   { name: 'HTML attribute normalization', source: 'flowchart TD\nA["<span title=\"x\">Label</span>"] --> B', publicValid: true, outcome: 'html_attribute_normalization' },
-  { name: 'entity encoding', source: 'flowchart TD\nA[#amp;] --> B', publicValid: true, outcome: 'entity_encoding' },
+  { name: 'entity encoding', source: 'flowchart TD\nA[#amp;] --> B', publicValid: true, outcome: 'entity_ok' },
   { name: 'close-brace whitespace rewrite', source: 'flowchart TD\r\nB{Check}    \r\nA --> B', publicValid: true, outcome: 'close_brace_ok' },
   { name: 'illegal Flowchart', source: 'flowchart TD\nA -->', publicValid: false, outcome: 'jison_parse_failure' },
 ] as const;
@@ -51,13 +51,13 @@ for (const fixture of fixtures) {
     assert.equal(await publicMermaidParses(fixture.source), fixture.publicValid);
   const result = extractFlowchartNodeOccurrenceEvidence(fixture.source, mermaid112JisonParserFactory());
 
-    if (fixture.outcome === 'ok' || fixture.outcome === 'comment_ok' || fixture.outcome === 'close_brace_ok') {
+    if (fixture.outcome === 'ok' || fixture.outcome === 'comment_ok' || fixture.outcome === 'close_brace_ok' || fixture.outcome === 'entity_ok') {
       assert.equal(result.kind, 'ok');
       if (result.kind !== 'ok') return;
-      if (fixture.outcome === 'comment_ok' || fixture.outcome === 'close_brace_ok') {
+      if (fixture.outcome === 'comment_ok' || fixture.outcome === 'close_brace_ok' || fixture.outcome === 'entity_ok') {
         assert.deepEqual(
           result.occurrences.map(({ nativeId }) => nativeId),
-          fixture.outcome === 'comment_ok' ? ['A', 'B'] : ['B', 'A', 'B'],
+          fixture.outcome === 'close_brace_ok' ? ['B', 'A', 'B'] : ['A', 'B'],
         );
         for (const occurrence of result.occurrences) {
           assert.equal(sliceUtf8ByteSpan(fixture.source, occurrence.span), occurrence.fragment);

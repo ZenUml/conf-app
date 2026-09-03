@@ -5,8 +5,13 @@
            enough to recede as context, not distract from the modal. -->
       <div class="fixed inset-0 bg-black bg-opacity-75" @click="tracking.handleClose"></div>
 
-      <!-- Modal content - Optimized for 700×600px iframe -->
-      <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[660px] overflow-y-auto">
+      <!-- Modal content - Optimized for 700×600px iframe. max-h caps at
+           660px but never exceeds the viewport: a Forge editor iframe can be
+           shorter than that (633px observed on staging), and the outer
+           wrapper's p-4 (1rem per side) has to come out of the budget too,
+           otherwise the modal clips top and bottom with no way to scroll to
+           the footer. -->
+      <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[min(660px,calc(100vh_-_2rem))] overflow-y-auto">
         <!-- Header - Factual -->
         <div class="px-4 py-2 border-b border-gray-200">
           <h2 class="text-sm font-semibold text-gray-900">

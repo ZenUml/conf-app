@@ -243,6 +243,65 @@ describe('PaywallSurvey', () => {
     expect(calls[0][1]).not.toHaveProperty('survey_answer')
   })
 
+  it('tracks every price typed within one debounce window, not just the last field edited', async () => {
+    // Regression test: schedulePartialSave() used to take a per-call `onFlush`
+    // closure, so editing a second field before the first field's debounce
+    // fired replaced (and lost) the first field's closure. Typing all four
+    // price points in quick succession used to emit only the last one.
+    vi.useFakeTimers()
+    const wrapper = mountSurvey()
+    await wrapper.find('[data-testid="survey-price-too-cheap"]').setValue('50')
+    await wrapper.find('[data-testid="survey-price-bargain"]').setValue('150')
+    await wrapper.find('[data-testid="survey-price-expensive"]').setValue('400')
+    await wrapper.find('[data-testid="survey-price-too-expensive"]').setValue('800')
+
+    expect(trackedCalls('paywall_survey_answered')).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(PARTIAL_SAVE_DEBOUNCE_MS)
+
+    const calls = trackedCalls('paywall_survey_answered')
+    expect(calls).toHaveLength(4)
+    const byQuestion = Object.fromEntries(
+      calls.map((c) => [(c[1] as { survey_question: string }).survey_question, c[1]])
+    )
+    expect(Object.keys(byQuestion).sort()).toEqual(
+      ['price_bargain', 'price_expensive', 'price_too_cheap', 'price_too_expensive'].sort()
+    )
+    expect(byQuestion.price_too_cheap).toMatchObject({ survey_answer_number: 50 })
+    expect(byQuestion.price_bargain).toMatchObject({ survey_answer_number: 150 })
+    expect(byQuestion.price_expensive).toMatchObject({ survey_answer_number: 400 })
+    expect(byQuestion.price_too_expensive).toMatchObject({ survey_answer_number: 800 })
+  })
+
+  it('flushes a price answered event before submitting, even when submit follows a keystroke immediately', async () => {
+    vi.mocked(callRemote).mockResolvedValue({
+      ok: true,
+      responseId: 'r1',
+      submitted: true,
+      grant: 'granted',
+    })
+    const wrapper = mountSurvey()
+    await fillComplete(wrapper)
+    // Real timers, no advance: the 400ms debounce for the last-typed price
+    // (priceTooExpensive) has not fired yet when Submit is clicked.
+    await wrapper.find('[data-testid="survey-submit-btn"]').trigger('click')
+    await new Promise((r) => setTimeout(r, 0))
+
+    const allCalls = vi.mocked(trackUpgradeEvent).mock.calls
+    const answeredIndex = allCalls.findIndex(
+      (c) =>
+        c[0] === 'paywall_survey_answered' &&
+        (c[1] as { survey_question: string }).survey_question === 'price_too_expensive'
+    )
+    const submittedIndex = allCalls.findIndex((c) => c[0] === 'paywall_survey_submitted')
+
+    expect(answeredIndex).toBeGreaterThanOrEqual(0)
+    expect(allCalls[answeredIndex][1]).toMatchObject({
+      survey_question: 'price_too_expensive',
+      survey_answer_number: 1500,
+    })
+    expect(submittedIndex).toBeGreaterThan(answeredIndex)
+  })
+
   it('clamps an over-cap price in the field itself rather than earning a 400', async () => {
     vi.useFakeTimers()
     const wrapper = mountSurvey()

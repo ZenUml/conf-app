@@ -254,6 +254,21 @@ function trackAnswered(question: PaywallSurveyQuestion, value?: string | number)
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
+/** Questions whose paywall_survey_answered event is still owed to the next
+ *  flush. Price and comment questions defer their event to the same debounce
+ *  as the partial save (see onPriceInput/onCommentInput) instead of tracking
+ *  on every keystroke. That used to be done with a closure passed to
+ *  schedulePartialSave() as `onFlush` - but a second field edited inside the
+ *  same debounce window called schedulePartialSave() again, which cancelled
+ *  the pending timer *and* discarded the first field's closure with it, so
+ *  only the last-edited field's event ever fired. Keying by question instead
+ *  lets edits to different fields coexist in the same window: each `.set()`
+ *  just updates that question's entry, and the flush below walks the whole
+ *  map. For price questions the value is the latest accepted number; the
+ *  comment question is always recorded as undefined since its event never
+ *  carries the text. */
+const pendingAnswered = new Map<PaywallSurveyQuestion, number | undefined>()
+
 function cancelPendingSave() {
   if (saveTimer !== null) {
     clearTimeout(saveTimer)
@@ -272,15 +287,26 @@ function payload(submitted: boolean) {
   })
 }
 
+/** Emits the paywall_survey_answered event for every question recorded in
+ *  pendingAnswered since the last flush, then clears the map. Called from the
+ *  debounced timer and, so a fast submit/skip mid-debounce cannot drop the
+ *  last price or comment event, from onSubmit/onSkip directly. */
+function flushPendingAnswered() {
+  for (const [question, value] of pendingAnswered) {
+    trackAnswered(question, value)
+  }
+  pendingAnswered.clear()
+}
+
 /** Best effort only: a dropped partial save costs one incomplete row, so a
- *  failure must never surface as an error the user has to act on.
- *  `onFlush` runs just before the write, for the answered events that are
- *  themselves debounced (see onPriceInput). */
-function schedulePartialSave(onFlush?: () => void) {
+ *  failure must never surface as an error the user has to act on. Flushes
+ *  pendingAnswered just before the write, so every question touched during
+ *  the debounce window gets its answered event exactly once. */
+function schedulePartialSave() {
   cancelPendingSave()
   saveTimer = setTimeout(() => {
     saveTimer = null
-    onFlush?.()
+    flushPendingAnswered()
     void callRemote(SURVEY_ENDPOINT, 'POST', payload(false)).catch((e) => {
       console.warn('[paywall-survey] partial save failed', e)
     })
@@ -332,21 +358,31 @@ function onPriceInput(field: SurveyPriceField, event: Event) {
   // does not change between renders leaves the typed text on screen.
   if (accepted !== undefined && String(accepted) !== raw) input.value = String(accepted)
   answers[field.key] = accepted
-  const value = answers[field.key]
-  schedulePartialSave(() => {
-    if (value !== undefined) trackAnswered(field.question, value)
-  })
+  // A cleared/invalid field never earns an answered event (matching the old
+  // `if (value !== undefined)` guard), and drops any earlier pending entry so
+  // a later flush cannot resurrect a value the user has since erased.
+  if (accepted !== undefined) {
+    pendingAnswered.set(field.question, accepted)
+  } else {
+    pendingAnswered.delete(field.question)
+  }
+  schedulePartialSave()
 }
 
 /** The comment's TEXT is never tracked; only the fact that one was written. */
 function onCommentInput(event: Event) {
   answers.comment = (event.target as HTMLInputElement).value
-  schedulePartialSave(() => trackAnswered(SURVEY_QUESTION_COMMENT))
+  pendingAnswered.set(SURVEY_QUESTION_COMMENT, undefined)
+  schedulePartialSave()
 }
 
 async function onSubmit() {
   if (!canSubmit.value) return
   cancelPendingSave()
+  // The debounce timer that would have flushed the last field's answered
+  // event was just cancelled, not fired - flush it here so a submit that
+  // follows a keystroke within PARTIAL_SAVE_DEBOUNCE_MS does not lose it.
+  flushPendingAnswered()
   submitting.value = true
   errorMessage.value = ''
   try {
@@ -375,6 +411,7 @@ async function onSubmit() {
 
 function onSkip() {
   cancelPendingSave()
+  flushPendingAnswered()
   trackUpgradeEvent(UpgradeEventName.PAYWALL_SURVEY_SKIPPED, surveyContext())
   emit('skipped', responseId.value)
 }

@@ -36,11 +36,23 @@ function validateAdminAuth(request: Request, env: Env): boolean {
   return parts[1] === env.ADMIN_API_SECRET;
 }
 
-function kvKey(cloudId: string, spaceKey: string, userAccountId?: string): string {
+/**
+ * The one place a license KV key is spelled. Exported because other endpoints
+ * now write grants of their own (the paywall pricing survey's automatic 15-day
+ * reward), and a second hand-rolled template is how a grant ends up unreadable
+ * by space-status.
+ *
+ * With a userAccountId the grant covers ONLY that user on that space; without
+ * one it covers everybody on the space.
+ */
+export function spaceLicenseKey(cloudId: string, spaceKey: string, userAccountId?: string): string {
   return userAccountId
     ? `license:${cloudId}:${spaceKey}:${userAccountId}`
     : `license:${cloudId}:${spaceKey}`;
 }
+
+// Local alias — the handlers below read better with the short name.
+const kvKey = spaceLicenseKey;
 
 async function getIndex(kv: KVNamespace): Promise<LicenseIndexEntry[]> {
   const raw = await kv.get('license-index');
@@ -66,6 +78,67 @@ async function updateIndex(
     index.push({ cloudId, spaceKey, ...(userAccountId && { userAccountId }) });
     await kv.put('license-index', JSON.stringify(index));
   }
+}
+
+export interface UpsertSpaceLicenseInput {
+  cloudId: string;
+  spaceKey: string;
+  userAccountId?: string;
+  expiresAt: string;
+  activatedBy: string;
+  paymentReference?: string;
+}
+
+/**
+ * Write (or refresh) one space license and keep the index in step.
+ *
+ * Upsert, not replace: an existing record keeps its createdAt and is set back
+ * to 'active' with the new expiry and activator. `created` reports which of the
+ * two happened, which is what POST /api/space-license turns into 201 vs 200.
+ *
+ * Callers own the policy — this helper never decides whether a grant is
+ * deserved, only how it is stored. Validation of the inputs (a non-empty
+ * userAccountId, a parseable expiresAt) belongs to the caller too.
+ */
+export async function upsertSpaceLicense(
+  kv: KVNamespace,
+  input: UpsertSpaceLicenseInput
+): Promise<{ record: SpaceLicenseRecord; created: boolean }> {
+  const { cloudId, spaceKey, userAccountId, expiresAt, activatedBy, paymentReference } = input;
+  const key = spaceLicenseKey(cloudId, spaceKey, userAccountId);
+  const now = new Date().toISOString();
+
+  const existing = await kv.get(key);
+  let record: SpaceLicenseRecord;
+
+  if (existing) {
+    const parsed = JSON.parse(existing) as SpaceLicenseRecord;
+    record = {
+      ...parsed,
+      status: 'active',
+      activatedBy,
+      expiresAt,
+      updatedAt: now,
+      ...(paymentReference !== undefined && { paymentReference }),
+    };
+  } else {
+    record = {
+      cloudId,
+      spaceKey,
+      status: 'active',
+      activatedBy,
+      expiresAt,
+      createdAt: now,
+      updatedAt: now,
+      ...(paymentReference !== undefined && { paymentReference }),
+      ...(userAccountId !== undefined && { userAccountId }),
+    };
+  }
+
+  await kv.put(key, JSON.stringify(record));
+  await updateIndex(kv, cloudId, spaceKey, userAccountId);
+
+  return { record, created: !existing };
 }
 
 async function handlePost(
@@ -105,42 +178,16 @@ async function handlePost(
     });
   }
 
-  const key = kvKey(cloudId, spaceKey, userAccountId);
-  const now = new Date().toISOString();
+  const { record, created } = await upsertSpaceLicense(kv, {
+    cloudId,
+    spaceKey,
+    userAccountId,
+    expiresAt,
+    activatedBy,
+    paymentReference,
+  });
 
-  // Check for existing record (upsert)
-  const existing = await kv.get(key);
-  let record: SpaceLicenseRecord;
-
-  if (existing) {
-    const parsed = JSON.parse(existing) as SpaceLicenseRecord;
-    record = {
-      ...parsed,
-      status: 'active',
-      activatedBy,
-      expiresAt,
-      updatedAt: now,
-      ...(paymentReference !== undefined && { paymentReference }),
-    };
-  } else {
-    record = {
-      cloudId,
-      spaceKey,
-      status: 'active',
-      activatedBy,
-      expiresAt,
-      createdAt: now,
-      updatedAt: now,
-      ...(paymentReference !== undefined && { paymentReference }),
-      ...(userAccountId !== undefined && { userAccountId }),
-    };
-  }
-
-  await kv.put(key, JSON.stringify(record));
-  await updateIndex(kv, cloudId, spaceKey, userAccountId);
-
-  const statusCode = existing ? 200 : 201;
-  return jsonResponse(statusCode, record);
+  return jsonResponse(created ? 201 : 200, record);
 }
 
 async function handleGet(

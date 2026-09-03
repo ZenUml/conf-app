@@ -20,6 +20,14 @@ export enum UpgradeEventName {
   PAYWALL_BUNDLE_CTA_CLICKED = 'paywall_bundle_cta_clicked',
   PAYWALL_MARKETPLACE_CTA_CLICKED = 'paywall_marketplace_cta_clicked',
   PAYWALL_LEARN_MORE_CLICKED = 'paywall_learn_more_clicked',
+  /** Pricing survey rendered in place of the modal body after "Request extension". */
+  PAYWALL_SURVEY_SHOWN = 'paywall_survey_shown',
+  /** One survey question answered or changed; carries survey_question + the answer. */
+  PAYWALL_SURVEY_ANSWERED = 'paywall_survey_answered',
+  /** Survey submitted; carries survey_grant, which says whether the 15 days were granted. */
+  PAYWALL_SURVEY_SUBMITTED = 'paywall_survey_submitted',
+  /** User declined the survey and fell through to the support request flow. */
+  PAYWALL_SURVEY_SKIPPED = 'paywall_survey_skipped',
 }
 
 export enum UIComponent {

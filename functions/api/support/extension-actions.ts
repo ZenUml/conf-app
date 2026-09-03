@@ -82,7 +82,7 @@ function emitEvent(
       source: 'jsm_manual_action',
       extension_action: action,
       extension_scope: 'user',
-      extension_days: action === 'initial' ? 7 : 60,
+      extension_days: action === 'initial' ? 7 : 15,
       ...properties,
     },
   }], env.MIXPANEL_TOKEN).catch((error) => {

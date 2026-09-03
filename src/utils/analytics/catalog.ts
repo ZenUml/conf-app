@@ -173,6 +173,35 @@ export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
 //                 decision, not evidence the tenant is safe to restrict.
 export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 
+// Which question of the in-modal pricing survey a `paywall_survey_answered`
+// event refers to. The four `price_*` names are the Van Westendorp battery
+// (too cheap / bargain / expensive / too expensive) and are the only questions
+// whose answer is numeric — they ride on `survey_answer_number` (USD per year),
+// every other question on `survey_answer`. `comment` is free text: it is
+// recorded as ANSWERED here so an abandoned survey is still visible, but its
+// text never leaves the D1 row — never attach it to an analytics property.
+export type PaywallSurveyQuestion =
+  | "role"
+  | "price_too_cheap"
+  | "price_bargain"
+  | "price_expensive"
+  | "price_too_expensive"
+  | "unit_most"
+  | "unit_least"
+  | "blocker"
+  | "comment";
+
+// What the survey's automatic 15-day space license did on submit:
+//   granted         — a new user-scoped grant was written for this space.
+//   existing        — an active non-survey grant already ran longer, so the
+//                     survey never shortened it; the user keeps the longer one.
+//   already_granted — this user already took a survey grant on this space; the
+//                     reward is once per user per space, ever.
+//   error           — the submit was stored but the license write did not
+//                     complete. Distinguishes "did not qualify" from "we owe
+//                     them the reward", which the counts alone cannot.
+export type PaywallSurveyGrant = "granted" | "existing" | "already_granted" | "error";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 // Onboarding funnel: how a starter surface (template gallery / starter-shown
@@ -395,6 +424,24 @@ export type AnalyticsEventName =
   // absent interest. Low-intent signal vs the two purchase rails: it measures
   // "wants to understand the pricing story", not "ready to pay".
   | "paywall_learn_more_clicked"
+  // In-modal pricing survey, shown on the "Request extension" path BEFORE the
+  // JSM deep link. Completing it grants a 15-day user-scoped space license
+  // automatically, so this funnel measures both the research answer (what a
+  // blocked team would pay, and for which unit) and whether the self-serve
+  // reward removes work from the support queue.
+  //
+  // shown fires once per survey step render; answered fires per question
+  // answered or changed — enum answers on `survey_answer`, the four Van
+  // Westendorp prices on `survey_answer_number` (USD per year), and NEVER the
+  // free-text comment's content, only that `comment` was answered. submitted
+  // carries `survey_grant` + `survey_reward_days` so a granted reward is
+  // separable from an already-granted or failed one. skipped fires when the
+  // user declines the survey and proceeds to the JSM deep link — the control
+  // arm for the extension-request funnel.
+  | "paywall_survey_shown"
+  | "paywall_survey_answered"
+  | "paywall_survey_submitted"
+  | "paywall_survey_skipped"
   | "space_admin_active"
   // M1 first-seen ping (onboarding spec Phase 1). Fired from the page-banner
   // host — the only surface that mounts on EVERY Confluence page in every

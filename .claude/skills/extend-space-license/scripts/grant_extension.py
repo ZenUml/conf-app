@@ -332,15 +332,17 @@ def print_reply(space, expires_at, users, user_scoped=False, days=7, feedback_da
         feedback_block = f"""
 That brings me to a request, and an offer. We're deciding what to build next, and candid input from a team using ZenUML this heavily is worth more to us than the license fee. If you reply with answers to these four questions, I'll extend your access to {feedback_days} days instead of {days}:
 
-1. What are you using ZenUML for in {space} — what kind of documents, and where does it sit in your workflow?
+1. Which describes you: you administer {space}, you create or edit diagrams there, you administer Confluence apps for your whole site, or something else?
 
-2. What made you pick it over Confluence's built-in diagramming tools?
+2. If unlocking {space} for a year were priced in USD per year, at what price would it be too cheap to trust, a bargain, getting expensive, and too expensive to consider (four numbers)?
 
-3. What's the most annoying thing about it today, or the thing you keep wishing it did?
+3. Which way of paying fits your team best and which fits worst: per space per year, per Confluence user per month, per active diagram author, or per number of diagrams?
 
-4. If you wanted to lift the limit properly, what's the hard part internally — budget, admin approval, procurement, or simply nobody owning it?
+4. If your team wanted to lift the limit permanently, what's the hard part internally: budget, admin approval, procurement, nobody owns it, or something else?
 
 Blunt answers are the useful ones — we won't take it badly.
+
+You can also answer right in the app instead of replying here. Next time the paywall message appears, "Request extension" walks you through the same four questions and unlocks the {feedback_days} days immediately on submit.
 """
         # Decouples the free time from a purchase so the trade can't read as coercion.
         closing = (f"Either way, the {feedback_days} days is yours for the feedback — "
@@ -393,10 +395,10 @@ def main():
                     help="Provenance string on the record (default support:temp-<days>d-extension). "
                          "Append the ticket, e.g. support:temp-7d-extension:ZEN-1191, so a grant is "
                          "traceable to its request even if the sent log misses it.")
-    ap.add_argument("--feedback-offer", dest="feedback_days", type=int, nargs="?", const=60, default=None,
+    ap.add_argument("--feedback-offer", dest="feedback_days", type=int, nargs="?", const=15, default=None,
                     metavar="N",
                     help="Add the feedback-for-time offer to the reply: grant --days now, promise N days "
-                         "(default 60) in exchange for answers to 4 product questions. Use on a REPEAT "
+                         "(default 15) in exchange for answers to 4 product questions. Use on a REPEAT "
                          "asker instead of silently renewing. Does not change what is written to KV — "
                          "when the feedback arrives, re-run with --days N to extend.")
     ap.add_argument("--dry-run", action="store_true", help="Preview only — no KV writes")

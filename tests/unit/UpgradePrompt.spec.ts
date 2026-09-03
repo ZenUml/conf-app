@@ -13,15 +13,24 @@ vi.mock('@/utils/upgradeTracking', () => ({
     ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
     ADVOCACY_DRAFT_PREVIEW_CLICKED: 'advocacy_draft_preview_clicked',
     EXTENSION_REQUEST_CLICKED: 'extension_request_clicked',
+    PAYWALL_SURVEY_SHOWN: 'paywall_survey_shown',
+    PAYWALL_SURVEY_ANSWERED: 'paywall_survey_answered',
+    PAYWALL_SURVEY_SUBMITTED: 'paywall_survey_submitted',
+    PAYWALL_SURVEY_SKIPPED: 'paywall_survey_skipped',
   },
   UIComponent: {
     MODAL: 'modal',
   },
 }))
 
+const { markSpacePaid } = vi.hoisted(() => ({ markSpacePaid: vi.fn() }))
+
+vi.mock('@/utils/requestUtil', () => ({ callRemote: vi.fn() }))
+
 vi.mock('@/composables/useCustomerSuccessService', () => ({
   useCustomerSuccessService: () => ({
     spaceKey: ref('engineering-architecture'),
+    markSpacePaid,
   }),
   getUpgradeContext: () => ({
     macro_count: 100,
@@ -47,6 +56,26 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import { trackUpgradeEvent } from '@/utils/upgradeTracking'
 import { openUrl } from '@/model/globals/forgeGlobal'
+import { callRemote } from '@/utils/requestUtil'
+
+/** Fill the pricing survey to the point where Submit is enabled. */
+async function completeSurvey() {
+  const set = (testId: string, value?: string) => {
+    const el = document.querySelector(`[data-testid="${testId}"]`) as HTMLInputElement
+    if (value !== undefined) el.value = value
+    else el.checked = true
+    el.dispatchEvent(new Event(value !== undefined ? 'input' : 'change'))
+  }
+  set('survey-role-editor')
+  set('survey-price-too-cheap', '50')
+  set('survey-price-bargain', '200')
+  set('survey-price-expensive', '600')
+  set('survey-price-too-expensive', '1500')
+  set('survey-unit-most-per_space_year')
+  set('survey-unit-least-per_diagram')
+  set('survey-blocker-budget')
+  await new Promise((r) => setTimeout(r, 0))
+}
 
 const baseProps = {
   visible: true,
@@ -362,7 +391,48 @@ describe('UpgradePrompt', () => {
     wrapper.unmount()
   })
 
-  it('opens support request link, copies extension details, and tracks the request click', async () => {
+  it('shows the pricing survey instead of opening support, and asks before handing off', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const button = document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement
+    button.click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(document.querySelector('[data-testid="paywall-survey"]')).toBeTruthy()
+    // The survey is the price of the extension, so it must be asked BEFORE
+    // the hand-off: a user already on the service desk never comes back for it.
+    expect(openUrl).not.toHaveBeenCalled()
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_survey_shown',
+      expect.objectContaining({ ui_component: 'modal', survey_reward_days: 15 })
+    )
+    // The modal body is replaced, not stacked on top of the purchase rails.
+    expect(document.querySelector('[data-testid="unlock-space-btn"]')).toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it('returns to the main body from the survey Back link', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    ;(document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+    ;(document.querySelector('[data-testid="survey-back-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(document.querySelector('[data-testid="paywall-survey"]')).toBeNull()
+    expect(document.querySelector('[data-testid="unlock-space-btn"]')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('skipping the survey runs the old support flow, carrying the survey id', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -374,9 +444,15 @@ describe('UpgradePrompt', () => {
       attachTo: document.body,
     })
 
-    const button = document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement
-    button.click()
+    ;(document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement).click()
     await new Promise((r) => setTimeout(r, 0))
+    ;(document.querySelector('[data-testid="survey-skip-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_survey_skipped',
+      expect.objectContaining({ ui_component: 'modal' })
+    )
 
     expect(writeText).toHaveBeenCalledTimes(1)
     const copiedMessage = writeText.mock.calls[0][0]
@@ -386,6 +462,7 @@ describe('UpgradePrompt', () => {
     expect(copiedMessage).toContain('Limit: 100')
     expect(copiedMessage).toContain('User account ID: account-123')
     expect(copiedMessage).toContain('Page ID: page-456')
+    expect(copiedMessage).toContain('Survey ID: ')
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith(
       'extension_request_clicked',
@@ -404,10 +481,83 @@ describe('UpgradePrompt', () => {
       'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9'
     )
     expect(openedUrl.searchParams.get('description')).toBe(copiedMessage)
+    expect(openedUrl.searchParams.get('description')).toContain('Survey ID: ')
     expect(openedUrl.searchParams.get('customfield_10070')).toBe('10037')
 
+    // Back on the main body, with the same status line as before the survey.
+    expect(document.querySelector('[data-testid="paywall-survey"]')).toBeNull()
     const status = document.querySelector('[data-testid="request-extension-status"]') as HTMLElement
     expect(status.textContent).toContain('pre-filled')
+
+    wrapper.unmount()
+  })
+
+  it('a granted survey marks the space paid and unlocks without spending an attempt', async () => {
+    vi.mocked(callRemote).mockResolvedValue({
+      ok: true,
+      responseId: 'r-1',
+      submitted: true,
+      grant: 'granted',
+      expiresAt: '2026-09-18T00:00:00.000Z',
+    })
+
+    const wrapper = mount(UpgradePrompt, {
+      props: { ...baseProps, remainingContinueAttempts: 3 },
+      attachTo: document.body,
+    })
+
+    ;(document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+    await completeSurvey()
+    ;(document.querySelector('[data-testid="survey-submit-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(markSpacePaid).toHaveBeenCalledWith('user_license')
+    const unlocked = document.querySelector('[data-testid="survey-unlocked"]') as HTMLElement
+    expect(unlocked).toBeTruthy()
+    expect(unlocked.textContent).toContain('engineering-architecture')
+    expect(unlocked.textContent).toContain('refresh the page')
+    expect(unlocked.textContent).toContain(new Date('2026-09-18T00:00:00.000Z').toLocaleDateString())
+    // The footer's attempt-spending control is gone on this step.
+    expect(document.querySelector('[data-testid="continue-editing-btn"]')).toBeNull()
+
+    ;(document.querySelector('[data-testid="survey-continue-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(wrapper.emitted('unlocked')).toHaveLength(1)
+    expect(wrapper.emitted('continueEditing')).toBeFalsy()
+
+    wrapper.unmount()
+  })
+
+  it('a repeat survey submit says the extension was already used and points at support', async () => {
+    vi.mocked(callRemote).mockResolvedValue({
+      ok: true,
+      responseId: 'r-2',
+      submitted: true,
+      grant: 'already_granted',
+    })
+
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    ;(document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+    await completeSurvey()
+    ;(document.querySelector('[data-testid="survey-submit-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(markSpacePaid).not.toHaveBeenCalled()
+    const panel = document.querySelector('[data-testid="survey-already-granted"]') as HTMLElement
+    expect(panel.textContent).toContain('already used the survey extension for this space')
+
+    ;(panel.querySelector('[data-testid="survey-support-btn"]') as HTMLButtonElement).click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    const openedUrl = new URL(vi.mocked(openUrl).mock.calls[0][0] as string)
+    expect(openedUrl.searchParams.get('description')).toContain('Survey ID: ')
 
     wrapper.unmount()
   })

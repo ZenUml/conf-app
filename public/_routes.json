@@ -19,6 +19,7 @@
     "/api/diagram-impact/*",
     "/api/architecture-tokens/*",
     "/api/space-status",
+    "/api/paywall-survey",
     "/api/space-license",
     "/api/support/extension-actions",
     "/api/user-cohorts",

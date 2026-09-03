@@ -29,4 +29,20 @@ describe('trackUpgradeEvent', () => {
       expect.objectContaining({ feature_area: 'upgrade' })
     );
   });
+
+  it('sends the four pricing-survey events under their catalog names', () => {
+    const expected: Array<[UpgradeEventName, string]> = [
+      [UpgradeEventName.PAYWALL_SURVEY_SHOWN, 'paywall_survey_shown'],
+      [UpgradeEventName.PAYWALL_SURVEY_ANSWERED, 'paywall_survey_answered'],
+      [UpgradeEventName.PAYWALL_SURVEY_SUBMITTED, 'paywall_survey_submitted'],
+      [UpgradeEventName.PAYWALL_SURVEY_SKIPPED, 'paywall_survey_skipped'],
+    ];
+    for (const [event, name] of expected) {
+      trackUpgradeEvent(event, {});
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        name,
+        expect.objectContaining({ feature_area: 'upgrade' })
+      );
+    }
+  });
 });

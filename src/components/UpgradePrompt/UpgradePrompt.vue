@@ -1,6 +1,11 @@
 <template>
   <Teleport to="body">
-    <div ref="modalContainer" v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4" tabindex="-1" @keydown.esc="tracking.handleClose">
+    <!-- z-[1100], not z-50: the editor host's syntax-error toast
+         (#syntax-error-box in Workspace.vue) is sticky at z-[1000], and at
+         iframe heights around 560px it painted over this modal's bottom 85px,
+         which is exactly where the footer buttons and the survey's submit
+         row sit. The modal must be the topmost layer in the iframe. -->
+    <div ref="modalContainer" v-if="visible" class="fixed inset-0 z-[1100] flex items-center justify-center p-4" tabindex="-1" @keydown.esc="tracking.handleClose">
       <!-- Backdrop. 75% opacity (was 50%) so the editor underneath is dimmed
            enough to recede as context, not distract from the modal. -->
       <div class="fixed inset-0 bg-black bg-opacity-75" @click="tracking.handleClose"></div>

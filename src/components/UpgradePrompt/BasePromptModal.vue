@@ -3,7 +3,7 @@
     <div
       ref="modalContainer"
       v-if="visible"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      class="fixed inset-0 z-[1100] flex items-center justify-center p-4"
       tabindex="-1"
       @keydown.esc="$emit('close')"
     >

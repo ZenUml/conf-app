@@ -6,9 +6,13 @@ import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextP
 import globals from '@/model/globals'
 import { callRemote } from '@/utils/requestUtil'
 import { writeTargetingMarker, toMarkerSeverity } from '@/utils/paywall/warningBanner'
+import {
+  evaluatePaywallDecision,
+  MACROS_LIMIT,
+  resolvePaywallPolicy,
+} from '@/utils/paywall/decision'
 
-export const MACROS_LIMIT = 100
-const WARNING_THRESHOLD = 85
+export { MACROS_LIMIT } from '@/utils/paywall/decision'
 const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
 const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
 
@@ -44,35 +48,38 @@ let spaceKeyLoaded = false;
 
 export function useCustomerSuccessService() {
   const actionRequired = computed(() => {
-    if (!globals.apWrapper.isLite()) return false
-    if (spacePaidStatus.value) return false
-    return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
+    return evaluatePaywallDecision({
+      macroCount: macrosCreated.value,
+      isLite: globals.apWrapper.isLite(),
+      isPaid: spacePaidStatus.value,
+      paywallEnabled: customerSuccessServiceEnabled.value,
+    }).actionRequired
   })
 
   const shouldBlockActions = computed(() => {
-    if (spacePaidStatus.value) {
-      console.log('✅ Space is paid - bypassing all restrictions')
-      return false
-    }
-
-    const isLite = globals.apWrapper.isLite()
-    const shouldBlock = macrosCreated.value >= MACROS_LIMIT && customerSuccessServiceEnabled.value && isLite
+    const decision = evaluatePaywallDecision({
+      macroCount: macrosCreated.value,
+      isLite: globals.apWrapper.isLite(),
+      isPaid: spacePaidStatus.value,
+      paywallEnabled: customerSuccessServiceEnabled.value,
+    })
     console.log('🚫 shouldBlockActions check:', {
       macrosCreated: macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
       featureFlagEnabled: customerSuccessServiceEnabled.value,
-      isLite,
+      isLite: globals.apWrapper.isLite(),
       spacePaid: spacePaidStatus.value,
-      shouldBlock
+      shouldBlock: decision.shouldBlockActions,
     })
-    return shouldBlock
+    return decision.shouldBlockActions
   })
 
-  const severity = computed(() => {
-    if (macrosCreated.value >= MACROS_LIMIT) return 'critical'
-    if (macrosCreated.value >= WARNING_THRESHOLD) return 'warning'
-    return 'normal'
-  })
+  const severity = computed(() => evaluatePaywallDecision({
+    macroCount: macrosCreated.value,
+    isLite: globals.apWrapper.isLite(),
+    isPaid: spacePaidStatus.value,
+    paywallEnabled: customerSuccessServiceEnabled.value,
+  }).severity)
 
   const upgradeUrl = computed(() => {
     const domain = getClientDomain()
@@ -150,8 +157,9 @@ export function useCustomerSuccessService() {
     if (!globals.apWrapper.isLite()) {
       // Leave the effective paywall disabled and do not request the new
       // feature at all — Full/Diagramly/AsyncAPI have no paywall.
-      policySource.value = 'fail_open'
-      customerSuccessServiceEnabled.value = false
+      const decision = resolvePaywallPolicy({ isLite: false, paywallExempt: undefined })
+      policySource.value = decision.source
+      customerSuccessServiceEnabled.value = decision.enabled
       cssFlagLoaded = true;
       return;
     }
@@ -163,8 +171,9 @@ export function useCustomerSuccessService() {
         // behaves like an explicit exemption. Does not traverse the real
         // PAYWALL_EXEMPT lookup.
         const mockEnabled = localStorage.mockCSSEnabled === 'true'
-        policySource.value = mockEnabled ? 'default_on' : 'exemption'
-        customerSuccessServiceEnabled.value = mockEnabled
+        const decision = resolvePaywallPolicy({ isLite: true, paywallExempt: !mockEnabled })
+        policySource.value = decision.source
+        customerSuccessServiceEnabled.value = decision.enabled
         console.log('🧪 Using mock CSS Feature Flag:', customerSuccessServiceEnabled.value)
         cssFlagLoaded = true;
         return;
@@ -172,20 +181,18 @@ export function useCustomerSuccessService() {
 
       console.log('🔍 Loading PAYWALL_EXEMPT feature flag...')
       const flags: any = await getFeatureFlagsForCurrentDomain(['PAYWALL_EXEMPT'])
-      if (typeof flags.PAYWALL_EXEMPT !== 'boolean') {
-        // Absent property: missing/unreadable/malformed KV, or the lookup
-        // itself failed inside getFeatureFlagsForCurrentDomain (which turns
-        // any transport error into `{}`). Fail open — never treat "unknown"
-        // as "safe to restrict".
-        policySource.value = 'fail_open'
-        customerSuccessServiceEnabled.value = false
-      } else if (flags.PAYWALL_EXEMPT) {
-        policySource.value = 'exemption'
-        customerSuccessServiceEnabled.value = false
-      } else {
-        policySource.value = 'default_on'
-        customerSuccessServiceEnabled.value = true
-      }
+      // Absent property: missing/unreadable/malformed KV, or the lookup
+      // itself failed inside getFeatureFlagsForCurrentDomain (which turns
+      // any transport error into `{}`). Fail open — never treat "unknown"
+      // as "safe to restrict".
+      const decision = resolvePaywallPolicy({
+        isLite: true,
+        paywallExempt: typeof flags.PAYWALL_EXEMPT === 'boolean'
+          ? flags.PAYWALL_EXEMPT
+          : undefined,
+      })
+      policySource.value = decision.source
+      customerSuccessServiceEnabled.value = decision.enabled
       console.log('✅ Paywall policy loaded:', {
         PAYWALL_EXEMPT: flags.PAYWALL_EXEMPT,
         policySource: policySource.value,
@@ -193,8 +200,9 @@ export function useCustomerSuccessService() {
       })
     } catch (error) {
       console.error("❌ Error loading paywall policy:", error);
-      policySource.value = 'fail_open'
-      customerSuccessServiceEnabled.value = false
+      const decision = resolvePaywallPolicy({ isLite: true, paywallExempt: undefined })
+      policySource.value = decision.source
+      customerSuccessServiceEnabled.value = decision.enabled
     } finally {
       // Mark loaded even on failure: an unavailable decision is resolved for
       // this iframe's lifecycle, not retried into a surprise mid-session

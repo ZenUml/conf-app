@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Paywall decision rules</title>
+  </head>
+  <body>
+    <h1>Lite Paywall decision rules</h1>
+    <p>
+      A Lite space warns at 85 diagrams and blocks creation or editing at 100.
+      Paid spaces, explicit exemptions, unknown policy values, and non-Lite
+      products remain unblocked.
+    </p>
+
+    <table data-concordion-execute="evaluateRow(#ROW)">
+      <tr>
+        <th>Scenario</th>
+        <th>Lite</th>
+        <th>Paid</th>
+        <th>Macros</th>
+        <th>PAYWALL_EXEMPT</th>
+        <th data-concordion-assert-equals="policySource()">Policy source</th>
+        <th data-concordion-assert-equals="actionRequired()">Warn</th>
+        <th data-concordion-assert-equals="shouldBlockActions()">Block</th>
+        <th data-concordion-assert-equals="severity()">Severity</th>
+      </tr>
+      <tr><td>Below warning threshold</td><td>true</td><td>false</td><td>84</td><td>false</td><td>default_on</td><td>false</td><td>false</td><td>normal</td></tr>
+      <tr><td>Warning threshold</td><td>true</td><td>false</td><td>85</td><td>false</td><td>default_on</td><td>true</td><td>false</td><td>warning</td></tr>
+      <tr><td>Blocking threshold</td><td>true</td><td>false</td><td>100</td><td>false</td><td>default_on</td><td>true</td><td>true</td><td>critical</td></tr>
+      <tr><td>Paid space override</td><td>true</td><td>true</td><td>150</td><td>false</td><td>default_on</td><td>false</td><td>false</td><td>critical</td></tr>
+      <tr><td>Explicit exemption</td><td>true</td><td>false</td><td>150</td><td>true</td><td>exemption</td><td>false</td><td>false</td><td>critical</td></tr>
+      <tr><td>Unknown policy fails open</td><td>true</td><td>false</td><td>150</td><td>unknown</td><td>fail_open</td><td>false</td><td>false</td><td>critical</td></tr>
+      <tr><td>Full product remains open</td><td>false</td><td>false</td><td>150</td><td>false</td><td>fail_open</td><td>false</td><td>false</td><td>critical</td></tr>
+    </table>
+  </body>
+</html>

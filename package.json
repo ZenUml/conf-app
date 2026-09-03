@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test:unit": "vitest --run",
+    "test:concordion:paywall": "node --experimental-default-type=module --experimental-strip-types tests/concordion/run-paywall-decision.mts",
     "test:export-modal": "playwright test -c tests/export-modal/playwright.config.ts",
     "test:e2e": "cd tests/e2e-tests && pnpm test",
     "test:e2e:lite:stg": "cd tests/e2e-tests && pnpm test:lite:stg",

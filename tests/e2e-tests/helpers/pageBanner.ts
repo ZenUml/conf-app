@@ -79,7 +79,7 @@ export async function pageBannerFrame(page: Page): Promise<FrameLocator> {
  * localStorage — critical on multi-app prod where an unscoped match could write to
  * a co-installed variant's origin, leaving this variant's banner un-triggered.
  */
-async function appFrame(page: Page): Promise<Frame | undefined> {
+export async function appFrame(page: Page): Promise<Frame | undefined> {
   const host = await appHost(page);
   const frames = page.frames();
   if (host) {

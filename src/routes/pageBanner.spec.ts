@@ -1,23 +1,30 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { decidePageBanner, handlePageBannerRoute } from './pageBanner'
-import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner'
+import { shouldShowPaywallBanner, deriveWarningBannerIdentity, readTargetingMarker } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh } from '@/utils/csat'
+import { isInTemplateOfferBand, isTemplateOfferSuppressed } from '@/utils/template/templateOfferMarker'
 
 const IDENTITY = { clientDomain: 'example-tenant', spaceKey: 'ENG' }
 
 vi.mock('@/utils/paywall/warningBanner', () => ({
   shouldShowPaywallBanner: vi.fn(),
   deriveWarningBannerIdentity: vi.fn(),
+  readTargetingMarker: vi.fn(),
 }))
 vi.mock('@/utils/paywall/spaceAdminProbe', () => ({ isCurrentUserSpaceAdmin: vi.fn() }))
 vi.mock('@/utils/csat', () => ({ isCsatPendingFresh: vi.fn() }))
+vi.mock('@/utils/template/templateOfferMarker', () => ({
+  isInTemplateOfferBand: vi.fn(),
+  isTemplateOfferSuppressed: vi.fn(),
+}))
 vi.mock('@/utils/paywall/adminBannerFlag', () => ({ isAdminBannerEnabled: vi.fn() }))
 vi.mock('@/model/globals', () => ({
   default: { apWrapper: { initializeContext: vi.fn().mockResolvedValue(undefined) } },
 }))
 vi.mock('@/components/UpgradePrompt/PaywallWarningBanner.vue', () => ({ default: { name: 'PaywallBanner' } }))
 vi.mock('@/components/CSAT/CsatBanner.vue', () => ({ default: { name: 'CsatBanner' } }))
+vi.mock('@/components/UpgradePrompt/TemplateOfferBanner.vue', () => ({ default: { name: 'TemplateOfferBanner' } }))
 
 // Capture the root props handed to createApp — that is how the audience reaches
 // the component, and a silent drop would be invisible in a render assertion.
@@ -35,7 +42,13 @@ const paywall = vi.mocked(shouldShowPaywallBanner)
 const csat = vi.mocked(isCsatPendingFresh)
 const identity = vi.mocked(deriveWarningBannerIdentity)
 const isAdmin = vi.mocked(isCurrentUserSpaceAdmin)
+const readTargeting = vi.mocked(readTargetingMarker)
+const inTemplateBand = vi.mocked(isInTemplateOfferBand)
+const templateSuppressed = vi.mocked(isTemplateOfferSuppressed)
 const flag = vi.mocked((await import('@/utils/paywall/adminBannerFlag')).isAdminBannerEnabled)
+const initializeContext = vi.mocked((await import('@/model/globals')).default.apWrapper.initializeContext)
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe('decidePageBanner — central priority for page-banner slots', () => {
   beforeEach(() => {
@@ -110,6 +123,58 @@ describe('decidePageBanner — central priority for page-banner slots', () => {
     isAdmin.mockReturnValue(true)
     expect(decidePageBanner()).toBe('none')
   })
+
+  describe('template offer', () => {
+    beforeEach(() => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
+      paywall.mockReturnValue(false)
+      csat.mockReturnValue(false)
+      isAdmin.mockReturnValue(true)
+      readTargeting.mockReturnValue({ macroCount: 60 } as any)
+      inTemplateBand.mockReturnValue(true)
+      templateSuppressed.mockReturnValue(false)
+    })
+
+    it('offers a template to a Lite admin in the seed band', () => {
+      expect(decidePageBanner(1234)).toBe('template-offer')
+      expect(inTemplateBand).toHaveBeenCalledWith(60)
+    })
+
+    it('never outranks an author paywall banner', () => {
+      paywall.mockReturnValue(true)
+      expect(decidePageBanner(1234)).toBe('paywall')
+    })
+
+    it('never outranks an admin paywall banner', () => {
+      paywall.mockImplementation((_now, _identity, asAdmin) => asAdmin === true)
+      expect(decidePageBanner(1234)).toBe('paywall-admin')
+    })
+
+    it('requires the space-admin verdict', () => {
+      isAdmin.mockReturnValue(false)
+      expect(decidePageBanner(1234)).toBe('none')
+    })
+
+    it('requires an in-band macro count', () => {
+      inTemplateBand.mockReturnValue(false)
+      expect(decidePageBanner(1234)).toBe('none')
+    })
+
+    it('respects created or dismissed suppression', () => {
+      templateSuppressed.mockReturnValue(true)
+      expect(decidePageBanner(1234)).toBe('none')
+    })
+
+    it('outranks CSAT', () => {
+      csat.mockReturnValue(true)
+      expect(decidePageBanner(1234)).toBe('template-offer')
+    })
+
+    it('is Lite-only', () => {
+      vi.stubEnv('PRODUCT_TYPE', 'full')
+      expect(decidePageBanner(1234)).toBe('none')
+    })
+  })
 })
 
 // The Phase 5b flag is the kill switch for an audience of ~5,021 people across
@@ -153,5 +218,25 @@ describe('handlePageBannerRoute — Phase 5b flag gating', () => {
   it('never consults the flag for CSAT', async () => {
     await expect(handlePageBannerRoute('csat')).resolves.toBe('csat')
     expect(flag).not.toHaveBeenCalled()
+  })
+
+  it('mounts the template offer with the targeted macro count', async () => {
+    identity.mockReturnValue(IDENTITY)
+    readTargeting.mockReturnValue({ macroCount: 60 } as any)
+
+    await expect(handlePageBannerRoute('template-offer')).resolves.toBe('template-offer')
+    expect(createdWith).toEqual({ macroCount: 60 })
+    expect(flag).not.toHaveBeenCalled()
+  })
+
+  it('keeps the qualifying macro count when another iframe updates the marker during mount', async () => {
+    identity.mockReturnValue(IDENTITY)
+    readTargeting.mockReturnValue({ macroCount: 60 } as any)
+    initializeContext.mockImplementationOnce(async () => {
+      readTargeting.mockReturnValue({ macroCount: 8014 } as any)
+    })
+
+    await expect(handlePageBannerRoute('template-offer')).resolves.toBe('template-offer')
+    expect(createdWith).toEqual({ macroCount: 60 })
   })
 })

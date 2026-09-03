@@ -421,6 +421,22 @@ Same properties as `paywall_banner_shown`. The snooze window that starts on dism
 
 ---
 
+### `template_offer_shown` / `template_offer_clicked` / `template_created` / `template_create_failed` / `template_offer_dismissed`
+
+**Trigger:** The Lite page banner offers an eligible space admin a one-click diagram page template. `shown` fires when the offer is committed to display; `clicked` when creation starts; exactly one of `created` or `create_failed` records the REST outcome; `dismissed` records the explicit "Not now" action.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"upgrade"` |
+| `surface` | `"page_banner"` |
+| `ui_component` | `"template_offer"` |
+| `macro_count` | Current space macro count used for eligibility |
+| `space_key` | Current space |
+| `template_id` | Returned Confluence content-template id; `template_created` only |
+| `failure_reason` | Bounded error reason; `template_create_failed` only |
+
+---
+
 ### `space_admin_active`
 
 **Trigger:** The page-banner space-admin probe (`maybeProbeSpaceAdmin` in `spaceAdminProbe.ts`) determines the current user is a space admin. Fires at most once every 30 days per `domain:space`, only on Lite, only from the `confluence:pageBanner` module.

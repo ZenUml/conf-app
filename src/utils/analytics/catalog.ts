@@ -369,6 +369,14 @@ export type AnalyticsEventName =
   | "paywall_gate_evaluated"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
+  // Lite space-admin page-template offer. Funnel: shown → clicked → created or
+  // create_failed; dismissed is the explicit "not now" path. `macro_count`
+  // rides every event and `template_id` is attached after creation.
+  | "template_offer_shown"
+  | "template_offer_clicked"
+  | "template_created"
+  | "template_create_failed"
+  | "template_offer_dismissed"
   // Phase 5b: the space-admin-only purchase CTA on the page banner. A space
   // admin can buy an Enterprise Bundle ($299/space/yr, Stripe) WITHOUT a
   // Confluence site admin — the Marketplace upgrade path needs a site admin,

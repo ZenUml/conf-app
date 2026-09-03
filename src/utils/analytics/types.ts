@@ -647,14 +647,16 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
-  // Starter-template gallery (#334). `template_id` identifies which curated
-  // template was applied (editor_template_applied only) — flat across the
+  // Starter-template gallery (#334) and the Lite space-template offer.
+  // For editor_template_applied, `template_id` identifies which curated
+  // template was applied — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is
   // a stable Mixpanel dimension regardless of macro_type. `is_new_macro` is
   // the same create-vs-edit discriminator Header.vue already uses for its
   // macro_create_started/macro_edit_started split (`!diagram.id`) — reused
   // here so the gallery's funnel joins against that axis rather than
-  // inventing a second one.
+  // inventing a second one. For template_created, it is the Confluence
+  // content-template id returned by the create request.
   template_id?: string;
   is_new_macro?: boolean;
   // Onboarding funnel. `trigger` (editor_starter_shown) and

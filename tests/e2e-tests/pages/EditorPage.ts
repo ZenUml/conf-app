@@ -5,8 +5,23 @@ import { dismissStarterGalleryIfPresent } from '../helpers/starterGallery.js';
 import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
 import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
 
+export interface EditorPageTarget {
+  domain: string;
+  spaceKey: string;
+  parentPageId: string;
+  parentPageName: string;
+}
+
 export class ConfluenceEditorPage {
-  constructor(private page: Page) {}
+  constructor(
+    private page: Page,
+    private target: EditorPageTarget = {
+      domain: testConfig.domain,
+      spaceKey: testConfig.spaceKey,
+      parentPageId: testConfig.parentPageId || '',
+      parentPageName: testConfig.parentPageName,
+    },
+  ) {}
 
   // Atlassian changed the placeholder from "Give this page a title" to
   // "Start with a title and emoji". Use the stable data-test-id instead.
@@ -40,15 +55,15 @@ export class ConfluenceEditorPage {
   // ── Navigation ──
 
   async navigateToParentPage(): Promise<void> {
-    if (!testConfig.parentPageId) {
-      throw new Error(`No parent page ID configured for domain: ${testConfig.domain}. Set APP env var or PARENT_PAGE_ID.`);
+    if (!this.target.parentPageId) {
+      throw new Error(`No parent page ID configured for domain: ${this.target.domain}. Set APP env var or PARENT_PAGE_ID.`);
     }
     // Arm before navigating — this is the single choke point every editor
     // flow passes through before createChildPage()/clickInsertElements()/etc,
     // and the handler stays armed for the page's whole lifetime (including
     // later direct page.goto() calls that reuse the same page).
     await registerAnnouncementModalHandler(this.page);
-    const url = `https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${testConfig.parentPageId}/${encodeURIComponent(testConfig.parentPageName)}`;
+    const url = `https://${this.target.domain}/wiki/spaces/${this.target.spaceKey}/pages/${this.target.parentPageId}/${encodeURIComponent(this.target.parentPageName)}`;
     await this.page.goto(url);
     // Fail fast if the reused session bounced us to the Atlassian login screen,
     // rather than waiting out FRAME_LOAD (×retries) on a #title-text that can
@@ -63,7 +78,7 @@ export class ConfluenceEditorPage {
    * MUST NOT navigate to /pages/create directly — that opens the legacy v1 editor.
    */
   async createChildPage(): Promise<void> {
-    const createUrl = `https://${testConfig.domain}/wiki/create-content/page?spaceKey=${testConfig.spaceKey}&parentPageId=${testConfig.parentPageId}`;
+    const createUrl = `https://${this.target.domain}/wiki/create-content/page?spaceKey=${this.target.spaceKey}&parentPageId=${this.target.parentPageId}`;
     // In CI, Confluence staging sometimes stalls loading the editor (title input
     // never appears). When it works it loads in ~12-15s, so we use a short detect
     // timeout and multiple quick attempts rather than one long wait. If all fail,

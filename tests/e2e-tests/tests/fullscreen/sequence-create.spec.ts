@@ -76,7 +76,22 @@ test.describe('Sequence — Create flow', () => {
     await expect(frame.locator('.cm-content, .CodeMirror').first()).toContainText(/@startuml|@enduml/);
   });
 
-  // sequence-create:5 — Title field empty → Publish disabled.
+  // LEFT FAILING (2026-09-03): "empty title disables Publish" is no longer
+  // generally true. useAutoTitle.ts's `aiTitleEnabled` ref defaults `true`
+  // unconditionally (no feature-flag gate) and DiagramTitleInput.vue wires it
+  // up via scheduleAutoGenerate() on a 1.5s debounce (AUTO_DEBOUNCE_MS) — so
+  // once the editor mounts with the seeded sample sequence code already in
+  // the buffer (sequence-create:2's "Sequence tab selected by default with
+  // sample code"), the title auto-fills within ~1.5s and Publish (gated only
+  // on `!this.$store.state.diagram.title` in Header.vue's isPublishDisabled)
+  // goes enabled on its own, with no user input. Racing the assertion before
+  // that debounce fires would be testing an artificial timing window, not
+  // real product behavior — the actual current contract is "an empty EDITOR
+  // disables Publish only until auto-title fills it in", which is a
+  // different assertion than this test's title, so it's left failing rather
+  // than quietly redefined. Same root cause as graph-create.spec.ts's
+  // graph-create:3 (DrawIO's ensureTitle() auto-titling); see this branch's
+  // final report.
   test('sequence-create:5 — empty title disables Publish', async ({ page }) => {
     await insertMacro(page, 'sequence');
     await expectPublishButtonState(page, 'disabled');

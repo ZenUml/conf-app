@@ -37,9 +37,13 @@ test.describe('Viewer toolbar actions', () => {
     test('viewer-actions:1 — Sequence Export opens an export UI', async ({ page }) => {
       await insertAndPublishMacro(page, 'sequence', { title: `seq-ex-${Date.now()}` });
       const result = await openExport(page, 'sequence');
-      expect(['export-modal', 'drawio-sidebar']).toContain(result.kind);
+      expect(result.kind).toBe('export-modal');
     });
 
+    // Copy Code was replaced by the "Source" panel (view-source-btn ->
+    // ViewSourcePanel's own Copy button) in the V8 viewer redesign
+    // (6a68de0d, 2026-05-04). clickCopyCodeAndRead() drives that current
+    // flow for the sequence kind — see its doc comment.
     test('viewer-actions:2 — Sequence Copy Code puts source on clipboard', async ({ page }) => {
       await insertAndPublishMacro(page, 'sequence', { title: `seq-cp-${Date.now()}` });
       const text = await clickCopyCodeAndRead(page, 'sequence');
@@ -66,12 +70,24 @@ test.describe('Viewer toolbar actions', () => {
       await expectFullscreenLayout(page, 'fullscreen-viewer');
     });
 
-    test('viewer-actions:5 — Graph Export opens DrawIO export sidebar', async ({ page }) => {
+    // The V8 viewer redesign (6a68de0d, 2026-05-04) unified Export across all
+    // three macro types onto the shared ExportModal (Export PNG pill) — Graph
+    // no longer opens a separate DrawIO export sidebar. See openExport()'s
+    // doc comment.
+    test('viewer-actions:5 — Graph Export opens the shared Export PNG modal', async ({ page }) => {
       await insertAndPublishMacro(page, 'graph', { title: `gr-ex-${Date.now()}` });
       const result = await openExport(page, 'graph');
-      expect(['drawio-sidebar', 'export-modal']).toContain(result.kind);
+      expect(result.kind).toBe('export-modal');
     });
 
+    // LEFT FAILING (2026-09-03): "Copy Code" for Graph was removed by the V8
+    // viewer redesign and NOT replaced. showViewSource() in GenericViewer.vue
+    // gates the Source/Copy-for-AI affordances to text-DSL diagram types only
+    // (Sequence/Mermaid/PlantUML); ForgeGraphViewer.vue adds no source-copy
+    // button of its own. There is currently no way to retrieve a graph
+    // macro's DrawIO XML from the read-only viewer toolbar at all — this is a
+    // real product gap, not a stale selector. Left failing rather than forced
+    // green; see the branch's final report for the owner decision needed.
     test('viewer-actions:6 — Graph Copy Code copies DrawIO XML', async ({ page }) => {
       await insertAndPublishMacro(page, 'graph', { title: `gr-cp-${Date.now()}` });
       const text = await clickCopyCodeAndRead(page, 'graph');
@@ -101,9 +117,14 @@ test.describe('Viewer toolbar actions', () => {
     test('viewer-actions:9 — OpenAPI Export opens an export UI', async ({ page }) => {
       await insertAndPublishMacro(page, 'openapi', { title: `oa-ex-${Date.now()}` });
       const result = await openExport(page, 'openapi');
-      expect(['export-modal', 'drawio-sidebar']).toContain(result.kind);
+      expect(result.kind).toBe('export-modal');
     });
 
+    // LEFT FAILING (2026-09-03): same product gap as viewer-actions:6 — Copy
+    // Code for OpenAPI was removed by the V8 viewer redesign and not
+    // replaced. showViewSource() gates Source/Copy-for-AI to text-DSL types
+    // only; OpenApiViewer.vue adds no copy affordance of its own. See that
+    // test's comment and the branch's final report.
     test('viewer-actions:10 — OpenAPI Copy Code copies YAML/JSON spec', async ({ page }) => {
       await insertAndPublishMacro(page, 'openapi', { title: `oa-cp-${Date.now()}` });
       const text = await clickCopyCodeAndRead(page, 'openapi');

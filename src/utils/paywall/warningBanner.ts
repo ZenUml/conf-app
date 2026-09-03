@@ -282,17 +282,16 @@ export function shouldShowPaywallBanner(
   identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
   isSpaceAdmin = false
 ): boolean {
-  try {
-    return isWarningBannerVisible(
-      readTargetingMarker(identity),
-      readDismissalMarker(identity),
-      readMacroActivityMarker(identity),
-      now,
-      isSpaceAdmin
-    )
-  } catch {
-    return false
-  }
+  // readTargetingMarker / readDismissalMarker / readMacroActivityMarker each
+  // fail closed (catch internally, return null) and isWarningBannerVisible is
+  // pure — nothing here can throw, so no outer try/catch is needed.
+  return isWarningBannerVisible(
+    readTargetingMarker(identity),
+    readDismissalMarker(identity),
+    readMacroActivityMarker(identity),
+    now,
+    isSpaceAdmin
+  )
 }
 
 /** Record an impression: bump showCount, stamp lastShownAt, preserve dismissedAt. */

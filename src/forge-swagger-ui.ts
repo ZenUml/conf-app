@@ -90,8 +90,7 @@ EventBus.$on('edit', async () => {
 
   await openModal({
     resource: 'main',
-    onClose: (payload: any) => {
-      console.log('onClose called with', payload);
+    onClose: () => {
       location.reload();
     },
     size: 'fullscreen',

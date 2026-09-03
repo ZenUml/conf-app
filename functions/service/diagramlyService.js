@@ -166,49 +166,43 @@ export async function callDiagramly(context, uri, payload) {
   const baseUrl = context.env.DIAGRAMLY_BACKEND_API_BASE_URL;
   const url = `${baseUrl}${uri}`;
 
-  try {
-    const userId = context.accountId;
-    const cloudId = context.cloudId;
-    if (typeof cloudId !== 'string' || !cloudId.trim()) {
-      throw new Error('Missing cloudId in Diagramly request context');
-    }
-
-    const diagramlyApiKey = context.env.DIAGRAMLY_API_KEY;
-    if(!diagramlyApiKey) {
-      throw new Error('Diagramly API key is not configured');
-    }
-
-    const diagramResponse = await fetch(url, {
-      method: payload ? 'POST' : 'GET',
-      headers: {
-        'Content-Type': payload ? 'application/json' : undefined,
-        'x-api-key': diagramlyApiKey,
-        'x-external-id': userId,
-        'x-team-id': cloudId
-      },
-      body: payload ? JSON.stringify(payload) : undefined
-    });
-
-    if (!diagramResponse.ok) {
-      const errorBody = await diagramResponse.text();
-      console.error('[callDiagramly] API error:', diagramResponse.status, '-', errorBody);
-      throw new Error(`Diagramly API request failed with status ${diagramResponse.status}, body: ${errorBody}`);
-    }
-
-    const responseText = await diagramResponse.text();
-
-    let diagramResult;
-    try {
-      diagramResult = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('[callDiagramly] Failed to parse JSON:', parseError);
-      throw new Error(`Failed to parse Diagramly API response as JSON: ${responseText.substring(0, 200)}`);
-    }
-
-    return diagramResult;
-
-  } catch (error) {
-    console.error('[callDiagramly] Error:', error.message);
-    throw error;
+  const userId = context.accountId;
+  const cloudId = context.cloudId;
+  if (typeof cloudId !== 'string' || !cloudId.trim()) {
+    throw new Error('Missing cloudId in Diagramly request context');
   }
+
+  const diagramlyApiKey = context.env.DIAGRAMLY_API_KEY;
+  if(!diagramlyApiKey) {
+    throw new Error('Diagramly API key is not configured');
+  }
+
+  const diagramResponse = await fetch(url, {
+    method: payload ? 'POST' : 'GET',
+    headers: {
+      'Content-Type': payload ? 'application/json' : undefined,
+      'x-api-key': diagramlyApiKey,
+      'x-external-id': userId,
+      'x-team-id': cloudId
+    },
+    body: payload ? JSON.stringify(payload) : undefined
+  });
+
+  if (!diagramResponse.ok) {
+    const errorBody = await diagramResponse.text();
+    console.error('[callDiagramly] API error:', diagramResponse.status, '-', errorBody);
+    throw new Error(`Diagramly API request failed with status ${diagramResponse.status}, body: ${errorBody}`);
+  }
+
+  const responseText = await diagramResponse.text();
+
+  let diagramResult;
+  try {
+    diagramResult = JSON.parse(responseText);
+  } catch (parseError) {
+    console.error('[callDiagramly] Failed to parse JSON:', parseError);
+    throw new Error(`Failed to parse Diagramly API response as JSON: ${responseText.substring(0, 200)}`);
+  }
+
+  return diagramResult;
 }

@@ -180,6 +180,7 @@ export async function registerDiagramImpactView(input: {
       now: input.now ?? new Date(),
     });
   } catch (error) {
+    console.error('registerAudienceView failed:', error);
     captureError(error);
     result = 'write_failed';
   }

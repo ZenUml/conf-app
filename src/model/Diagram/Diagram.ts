@@ -18,33 +18,6 @@ export enum DiagramType {
   Unknown = 'unknown'
 }
 
-export function getDiagramData(o: any): string{
-  let body;
-  switch (o.diagramType) {
-    case DiagramType.Sequence:
-    case DiagramType.OpenApi:
-    case DiagramType.AsyncApi:
-      body = o.code || '';
-      break;
-    case DiagramType.Mermaid:
-      body = o.mermaidCode || '';
-      break;
-    case DiagramType.PlantUml:
-      body = o.plantUmlCode || '';
-      break;
-    case DiagramType.Graph:
-      // A Board macro's body is boardGraphXml. Reading graphXml here made
-      // Board-only edits invisible to every drift/staleness comparison built
-      // on getDiagramData. Legacy Board records (no boardGraphXml field at
-      // all) still resolve to graphXml.
-      body = (o.graphEditorMode === 'board' && o.boardGraphXml !== undefined
-        ? o.boardGraphXml
-        : o.graphXml) || '';
-      break;
-  }
-  return body || '';
-}
-
 export class Diagram {
   // id is used only for debugging and for display only. It is NOT saved in custom content or content property.
   id?: string; // custom content id or content property id or uuid
@@ -133,10 +106,6 @@ export class Diagram {
     errorCode?: string;
     errorClass?: 'thrown' | 'structured' | 'malformed';
   } = undefined;
-
-  public getCoreData?(): string {
-    return getDiagramData(this);
-  }
 }
 
 const NULL_DIAGRAM = {
@@ -149,7 +118,6 @@ const NULL_DIAGRAM = {
   plantUmlCode: '',
   graphXml: '',
   source: DataSource.Unknown,
-  payload: undefined,
 } as Diagram;
 
 export {NULL_DIAGRAM};

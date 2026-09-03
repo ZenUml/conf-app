@@ -141,12 +141,7 @@ async function initializeMacro() {
                 spec: newSpec,
                 pinToId: customContentId,
               })
-              try {
-                await saveToPlatform(diagram)
-              } catch (err) {
-                console.error('Save failed:', err)
-                throw err
-              }
+              await saveToPlatform(diagram)
               await closeModal()
             },
             onCancel: closeModal,

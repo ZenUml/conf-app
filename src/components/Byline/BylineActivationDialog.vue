@@ -206,7 +206,7 @@ export default {
         });
       } catch (e) {
         console.error('byline: editDiagram failed', e);
-        await this.mintDeeplink().catch(() => {});
+        await this.mintDeeplink();
         this.phase = 'completion';
       } finally {
         this.busy = false;
@@ -214,7 +214,7 @@ export default {
     },
 
     async afterEdit() {
-      await this.mintDeeplink().catch(() => {});
+      await this.mintDeeplink();
       trackAnalyticsEvent('activation_completed', baseProps({
         macro_type: store.state.diagram.diagramType,
         activation_path: 'copy_link',

@@ -118,7 +118,6 @@ async function saveOpenApiAndExit() {
   // click in react/Header.tsx). Stopped at the redirect below.
   markPublishClicked();
   const code = window.specContent;
-  console.log('saveOpenApiAndExit - window.diagram', store.state.diagram);
   // Dashboard Edit: force an in-place update. CustomContentStorageProvider.save
   // only updates when (id && !isCopy); the dashboard space page false-positives
   // isCopy=true, which would otherwise fork a new doc ("editing made a new
@@ -132,7 +131,6 @@ async function saveOpenApiAndExit() {
       ? capturedOrigin.originalCustomContentId
       : undefined,
   });
-  console.log('saveOpenApiAndExit - diagram', JSON.stringify(diagram, null, 2));
   // @ts-ignore
   window.diagram = Object.assign(window.diagram || {}, diagram);
 
@@ -188,8 +186,6 @@ async function saveOpenApiAndExit() {
     // Do NOT end journey, do NOT close — keep editor open so the user can retry.
     return;
   }
-  console.log('saveOpenApiAndExit - id', id);
-
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
@@ -448,11 +444,9 @@ async function initializeMacro() {
       });
     }
 
-    console.log('-------------- loaded spec:', doc?.code);
     // eslint-disable-next-line
     // @ts-ignore
     window.updateSpec(store.state.diagram.code || OpenApiExample);
-    console.log('-------------- updateSpec with:', doc?.code);
 
     // Initialize spec listeners for validation and store sync
     window.specListeners = window.specListeners || [];

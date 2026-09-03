@@ -176,12 +176,10 @@ function iframeToPng(iframe: HTMLIFrameElement): Promise<Blob> {
       if (sourceWindow?.location?.href !== window.location.href &&
           (data as ExportResultMessageData)?.action === 'export.result') {
         resolve((data as ExportResultMessageData).data);
-        console.debug('received PNG export result from iframe');
       }
     });
 
     iframe.contentWindow?.postMessage({ action: 'export' }, '*');
-    console.debug('fired PNG export to iframe');
   });
 }
 
@@ -510,7 +508,6 @@ async function postAttachmentAsUser(
   blob: Blob,
 ): Promise<ApiResponse> {
   const file = new File([blob], attachmentName, { type: 'image/png' });
-  console.debug('Uploading attachment to', uri);
   return await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
 }
 

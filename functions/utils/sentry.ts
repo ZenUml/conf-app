@@ -8,23 +8,7 @@ export const { captureException, captureMessage, setTag, setTags, setUser } = Se
  * @param err The error to capture
  */
 export function captureError(err: unknown): void {
-  console.error(err);
   captureException(err);
-}
-
-/**
- * Capture an installed message with Sentry
- * @param appKey The app key
- * @param clientKey The client key
- * @param baseUrl The base URL
- */
-export function captureInstalledMessage(appKey: string, clientKey: string, baseUrl: string): void {
-  setTags({
-    'app-key': appKey,
-    'client-key': clientKey,
-    'base-url': baseUrl
-  });
-  captureMessage("{action: 'installed'}", "info");
 }
 
 /**

@@ -647,18 +647,14 @@ async function openPage(doc: AsyncApiDoc) {
   // unreliable (sandboxed) — route through Forge's router (openUrl → router.open)
   // so the hosting Confluence page actually opens in a new tab.
   if (!doc.pageUrl) return
-  try {
-    trackAnalyticsEvent('asyncapi_dashboard_page_opened', {
-      feature_area: 'confluence',
-      surface: 'dashboard',
-      macro_type: 'asyncapi',
-      entry_point: 'dashboard',
-      page_id: doc.pageId,
-      custom_content_id: doc.contentId,
-    })
-  } catch {
-    // tracking must never block navigation
-  }
+  trackAnalyticsEvent('asyncapi_dashboard_page_opened', {
+    feature_area: 'confluence',
+    surface: 'dashboard',
+    macro_type: 'asyncapi',
+    entry_point: 'dashboard',
+    page_id: doc.pageId,
+    custom_content_id: doc.contentId,
+  })
   try {
     await openUrl(doc.pageUrl)
   } catch (err) {

@@ -259,6 +259,7 @@ export type AnalyticsProperties = {
   lookup_outcome?: ArchitectureTokenLookupOutcome; // required on new lookup-success events
   participant_count?: number;          // participants declared in this diagram
   participants_with_related?: number;  // of which have >=1 accessible related page
+  participants_anchored?: number;      // of those, how many got a circle placed on a lifeline
   related_pages_total?: number;        // sum of accessible related pages
   index_age_days?: number;             // now - indexedAt, whole days
   related_count?: number;              // for one participant (popover / click)

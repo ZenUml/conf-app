@@ -20,7 +20,8 @@ describe('architecture_tokens analytics contract', () => {
     const props: AnalyticsProperties = {
       feature_area: area, surface: 'viewer', macro_type: 'mermaid',
       lookup_outcome: outcome,
-      participant_count: 7, participants_with_related: 5, related_pages_total: 12,
+      participant_count: 7, participants_with_related: 5, participants_anchored: 5,
+      related_pages_total: 12,
       index_age_days: 3, related_count: 3,
       label_variant_count: 2, same_space: false, same_page: true, error_kind: 'timeout',
     };

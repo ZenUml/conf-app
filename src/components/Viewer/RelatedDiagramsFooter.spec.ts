@@ -224,6 +224,43 @@ describe('RelatedDiagramsFooter', () => {
     ).toHaveLength(1)
   })
 
+  // The footer text and the circles come from two different reads of the SVG:
+  // `renderedActorIds()` accepts any element carrying `name`, `actorBox()` additionally
+  // requires `.actor-top`. When only the first matches, the footer promises N participants
+  // and the diagram draws zero circles — the 2026-08-28 shape of this defect. Nothing
+  // recorded that gap, so a live page could not be told apart from a page with no matches.
+  it('reports how many participants were anchored, so a promised-but-undrawn circle is visible in telemetry', async () => {
+    related.value = twoParticipants
+    const unanchorableHost = document.createElement('div')
+    unanchorableHost.style.position = 'relative'
+    // `name` present (so the participant survives the rendered-id filter) but no `.actor-top`.
+    unanchorableHost.innerHTML = '<svg><text name="PA">Partner App</text></svg>'
+    Object.defineProperty(unanchorableHost, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 20, right: 620, top: 10, bottom: 410, width: 600, height: 400 }),
+    })
+    document.body.appendChild(unanchorableHost)
+    mountFooter({}, unanchorableHost)
+    await flushPromises()
+
+    expect(unanchorableHost.querySelector('[data-testid="related-diagrams-pill"]')).toBeNull()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_token_indicators_shown',
+      expect.objectContaining({ participants_with_related: 1, participants_anchored: 0 }),
+    )
+  })
+
+  it('reports every participant as anchored when the SVG carries the matching actor boxes', async () => {
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_token_indicators_shown',
+      expect.objectContaining({ participants_with_related: 1, participants_anchored: 1 }),
+    )
+  })
+
   it('drops every response participant when the current SVG has no [name] nodes', async () => {
     related.value = twoParticipants
     const emptyHost = document.createElement('div')

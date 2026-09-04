@@ -142,19 +142,25 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
     onTitleChange('');
   };
 
+  const handleClear = () => {
+    autoTitle.onTitleCleared();
+    scheduleAutoGenerate();
+    onTitleChange('');
+  };
+
   const displayTitle = state.isAnimating ? state.displayedTitle : title;
 
   return (
     <div className="flex flex-col flex-1 min-w-0 max-w-2xl mr-2">
-      <div className="group/openapi-title flex items-center w-full px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus-within:border-[#388bff] hover:border-[#388bff] transition-[border-color]">
+      <div className="group/openapi-title flex h-6 items-center w-full px-1.5 border border-transparent rounded transition-colors focus-within:bg-white focus-within:border-[#388bff] hover:bg-black/[0.05]">
         {(state.aiTitleEnabled || state.autoNameAnimationDone) && (
           <button
             type="button"
-            className={`openapi-autoname-spark rounded p-0.5 mr-1 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200 ${
+            className={`openapi-autoname-spark h-[18px] w-[18px] rounded p-0.5 mr-[5px] flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-[width,margin,color,opacity] duration-200 ${
               (state.isGeneratingTitle || state.showSpark) && !state.sparkFadingOut
                 ? 'openapi-autoname-spark-in text-purple-500'
                 : ''
-            } ${state.sparkFadingOut ? 'openapi-autoname-spark-out' : ''}`}
+            } ${state.sparkFadingOut ? 'openapi-autoname-spark-out' : ''} ${(!displayTitle || state.isGeneratingTitle || state.showSpark) ? 'opacity-100' : 'w-0 mr-0 overflow-hidden opacity-0 group-hover/openapi-title:w-[18px] group-hover/openapi-title:mr-[5px] group-hover/openapi-title:opacity-100 group-focus-within/openapi-title:w-[18px] group-focus-within/openapi-title:mr-[5px] group-focus-within/openapi-title:opacity-100'}`}
             title="Generate title with AI"
             disabled={state.isGeneratingTitle || state.isAnimating}
             onClick={handleManualGenerate}
@@ -166,9 +172,9 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
         )}
 
         <input
-          className={`flex-1 min-w-0 bg-transparent outline-none leading-7 ${state.isAnimating ? 'openapi-autoname-typing' : ''}`}
+          className={`flex-1 min-w-0 bg-transparent outline-none text-[14px] font-semibold text-[#111827] placeholder:italic placeholder:text-gray-400 ${state.isAnimating ? 'openapi-autoname-typing' : ''}`}
           type="text"
-          placeholder="Title"
+          placeholder="Name your API…"
           value={displayTitle}
           onInput={handleInput}
           readOnly={state.isAnimating}
@@ -181,9 +187,14 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
             title="Dismiss suggested title"
             onClick={handleDismiss}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
               <path d="M6 18 18 6M6 6l12 12" />
             </svg>
+          </button>
+        )}
+        {!state.showDismiss && displayTitle && (
+          <button type="button" className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded text-gray-400 opacity-0 transition-opacity group-hover/openapi-title:opacity-100 group-focus-within/openapi-title:opacity-100 hover:bg-gray-100 hover:text-gray-600" title="Clear title" onClick={handleClear}>
+            <svg width="14" height="14" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M6 16 16 6M6 6l10 10" /></svg>
           </button>
         )}
       </div>

@@ -1,13 +1,13 @@
 <template>
-  <div class="group/title inline-flex items-center h-7 min-w-0 px-2 gap-1.5 rounded-md transition-colors duration-200"
-    :class="titleError ? 'bg-red-50 border border-red-400' : isFocused ? 'bg-white border border-[#0094D9]' : 'border border-transparent hover:bg-gray-200'">
+  <div class="group/title inline-flex items-center h-6 min-w-0 px-1.5 gap-0 rounded transition-colors duration-200"
+    :class="titleError ? 'bg-[#FEF2F2] border border-[#F87171]' : isFocused ? 'bg-white border border-[#0094D9]' : 'border border-transparent hover:bg-black/[0.05]'">
 
     <button v-if="aiTitleEnabled || autoNameAnimationDone" type="button"
-      class="rounded p-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+      class="mr-[5px] h-[18px] w-[18px] rounded p-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-[width,margin,color,opacity] duration-200"
       :class="[
         (isGeneratingTitle || showSpark) && !sparkFadingOut ? 'autoname-spark-in text-purple-500' : '',
         sparkFadingOut ? 'autoname-spark-out' : '',
-        sparkAlwaysVisible ? 'opacity-100' : 'opacity-0 group-hover/title:opacity-100 group-focus-within/title:opacity-100',
+        sparkAlwaysVisible ? 'opacity-100' : 'w-0 mr-0 overflow-hidden opacity-0 group-hover/title:w-[18px] group-hover/title:mr-[5px] group-hover/title:opacity-100 group-focus-within/title:w-[18px] group-focus-within/title:mr-[5px] group-focus-within/title:opacity-100',
       ]"
       title="Generate title with AI" :disabled="isGeneratingTitle || isAnimating" @click="onManualGenerate">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -18,7 +18,7 @@
     <input
       ref="inputEl"
       type="text"
-      placeholder="Untitled diagram"
+      placeholder="Name your diagram…"
       :value="displayValue"
       @input="onInput"
       @focus="onFocus"
@@ -26,7 +26,7 @@
       @keydown.enter.prevent="onEnter"
       :readonly="isAnimating"
       :style="{ width: inputWidthPx + 'px' }"
-      class="bg-transparent outline-none text-[15px] font-semibold min-w-0"
+      class="bg-transparent outline-none text-[14px] font-semibold min-w-0"
       :class="[
         isFocused ? 'overflow-x-auto' : 'truncate',
         titleError ? 'text-red-600 placeholder-red-400 placeholder:italic' : 'text-gray-900 placeholder:italic placeholder:text-gray-400',
@@ -50,7 +50,7 @@
          width so the field grows with the title instead of sitting in a fixed
          box. Font must match the input exactly or the measurement is wrong. -->
     <span ref="measureEl" aria-hidden="true"
-      class="invisible absolute -z-10 whitespace-pre text-[15px] font-semibold">{{ measureText }}</span>
+      class="invisible absolute -z-10 whitespace-pre text-[14px] font-semibold">{{ measureText }}</span>
   </div>
 </template>
 
@@ -64,11 +64,11 @@ import { useAutoTitle } from '@/composables/useAutoTitle'
 import IconDismiss from '@/components/icons/IconDismiss.vue'
 
 const AUTO_DEBOUNCE_MS = 1500
-const PLACEHOLDER_TEXT = 'Untitled diagram'
+const PLACEHOLDER_TEXT = 'Name your diagram…'
 // Rest state is bare text with no box, so the field must grow with its
 // content instead of sitting in a fixed-width input — capped so a long
 // title still leaves room for the tabs and Publish.
-const MIN_WIDTH_PX = 140
+const MIN_WIDTH_PX = 72
 const MAX_WIDTH_PX = 320
 const WIDTH_PADDING_PX = 4
 

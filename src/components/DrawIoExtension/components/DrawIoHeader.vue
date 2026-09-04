@@ -8,16 +8,15 @@
     :style="editorMode === 'board' ? { right: '164px' } : undefined"
     :data-editor-mode="editorMode"
   >
-    <div class="flex items-center w-72 max-w-md border rounded-md transition-colors duration-200 h-7 bg-white"
-      :class="error ? 'border-red-400 bg-red-50' : 'border-gray-300 hover:border-gray-400 focus-within:border-blue-500'">
-      <span class="pl-3 pr-2 text-[10px] font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
-      <div class="w-px h-3 bg-gray-200 flex-shrink-0"></div>
+    <div class="group/drawio-title flex items-center w-72 max-w-md border border-transparent rounded transition-colors duration-200 h-6 px-1.5"
+      :class="error ? 'border-[#F87171] bg-[#FEF2F2]' : 'hover:bg-black/[0.05] focus-within:bg-white focus-within:border-[#F08705]'">
 
       <button v-if="aiTitleAvailable || autoNameAnimationDone" type="button"
-        class="ml-0.5 rounded p-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+        class="mr-[5px] h-[18px] w-[18px] rounded p-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-[width,margin,color,opacity] duration-200"
         :class="[
           (isGeneratingTitle || showSpark) && !sparkFadingOut ? 'autoname-spark-in text-purple-500' : '',
           sparkFadingOut ? 'autoname-spark-out' : '',
+          (!displayValue || isGeneratingTitle || showSpark) ? 'opacity-100' : 'w-0 mr-0 overflow-hidden opacity-0 group-hover/drawio-title:w-[18px] group-hover/drawio-title:mr-[5px] group-hover/drawio-title:opacity-100 group-focus-within/drawio-title:w-[18px] group-focus-within/drawio-title:mr-[5px] group-focus-within/drawio-title:opacity-100',
         ]"
         title="Generate title with AI" :disabled="isGeneratingTitle || isAnimating" @click="$emit('manualGenerate')">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -33,11 +32,14 @@
         @keydown.enter="$emit('titleConfirm')"
         :readonly="isAnimating"
         ref="inputRef"
-        class="flex-1 px-2 py-0 bg-transparent outline-none text-xs min-w-0"
-        :class="[error ? 'text-red-700 placeholder-red-300' : '', isAnimating ? 'autoname-typing' : '']" />
+        class="flex-1 px-0 py-0 bg-transparent outline-none text-[14px] font-semibold min-w-0"
+        :class="[error ? 'text-[#DC2626] placeholder-red-300' : 'text-[#111827] placeholder:italic placeholder:text-gray-400', isAnimating ? 'autoname-typing' : '']" />
 
       <button v-if="showDismiss" type="button" class="autoname-dismiss flex items-center justify-center flex-shrink-0 mr-1"
         title="Dismiss suggested title" @click="$emit('dismiss')">
+      <IconDismiss />
+      </button>
+      <button v-else-if="displayValue" type="button" class="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded text-gray-400 opacity-0 transition-opacity group-hover/drawio-title:opacity-100 group-focus-within/drawio-title:opacity-100 hover:bg-gray-100 hover:text-gray-600" title="Clear title" @click="$emit('titleChange', '')">
         <IconDismiss />
       </button>
     </div>

@@ -58,7 +58,7 @@ describe('DiagramTitleInput', () => {
     await flushPromises()
     EventBus.$emit('flash-title-error')
     await wrapper.vm.$nextTick()
-    expect(wrapper.find('.border-red-400').exists()).toBe(true)
+    expect(wrapper.classes()).toContain('border-[#F87171]')
   })
 
   it('shows trailing spaces while focused even though the store trims on commit', async () => {

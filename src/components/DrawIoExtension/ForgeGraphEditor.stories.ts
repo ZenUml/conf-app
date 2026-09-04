@@ -134,3 +134,24 @@ export const WithContent: Story = {
       '<ForgeGraphEditor :graph-xml="graphXml" :save-graph-and-exit="saveGraphAndExit" :doc="doc" />',
   }),
 }
+
+/**
+ * Real Sketch/Board iframe with the title mounted beside draw.io's Publish
+ * control. This uses the production ForgeGraphEditor integration; it is not
+ * a chrome mock.
+ */
+export const BoardWithContent: Story = {
+  render: () => ({
+    components: { ForgeGraphEditor },
+    setup() {
+      configureStory({ graphXml: LABELLED_GRAPH, title: 'Workshop map' })
+      return {
+        graphXml: LABELLED_GRAPH,
+        boardGraphXml: LABELLED_GRAPH,
+        saveGraphAndExit: mockSaveGraphAndExit,
+        doc: {},
+      }
+    },
+    template: '<ForgeGraphEditor :graph-xml="graphXml" :board-graph-xml="boardGraphXml" graph-editor-mode="board" :save-graph-and-exit="saveGraphAndExit" :doc="doc" />',
+  }),
+}

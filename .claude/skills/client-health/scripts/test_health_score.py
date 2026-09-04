@@ -42,6 +42,46 @@ class BuildFleetFromLicenses(unittest.TestCase):
         fleet = health_score.build_fleet_from_licenses(lic)
         self.assertEqual(fleet, {})
 
+    def test_prefers_active_license_over_inactive_duplicate(self):
+        # inactive row (stale/cancelled) listed first, active row second —
+        # the active row's tier must win regardless of encounter order.
+        lic = [
+            {"cloudSiteHostname": "acme.atlassian.net", "tier": "10 Users",
+             "status": "inactive", "maintenanceEndDate": "2026-01-01",
+             "contactDetails": {"company": "Acme Old"}},
+            {"cloudSiteHostname": "acme.atlassian.net", "tier": "250 Users",
+             "status": "active", "maintenanceEndDate": "2026-06-01",
+             "contactDetails": {"company": "Acme"}},
+        ]
+        fleet = health_score.build_fleet_from_licenses(lic)
+        self.assertEqual(fleet["acme"]["seat_tier"], 250)
+
+    def test_prefers_active_license_over_inactive_duplicate_reversed_order(self):
+        # same two records, active row listed FIRST this time — proves the
+        # preference isn't just "keep the first row I saw".
+        lic = [
+            {"cloudSiteHostname": "acme.atlassian.net", "tier": "250 Users",
+             "status": "active", "maintenanceEndDate": "2026-06-01",
+             "contactDetails": {"company": "Acme"}},
+            {"cloudSiteHostname": "acme.atlassian.net", "tier": "10 Users",
+             "status": "inactive", "maintenanceEndDate": "2026-01-01",
+             "contactDetails": {"company": "Acme Old"}},
+        ]
+        fleet = health_score.build_fleet_from_licenses(lic)
+        self.assertEqual(fleet["acme"]["seat_tier"], 250)
+
+    def test_prefers_more_recent_maintenance_end_date_among_same_status(self):
+        lic = [
+            {"cloudSiteHostname": "acme.atlassian.net", "tier": "50 Users",
+             "status": "active", "maintenanceEndDate": "2025-01-01",
+             "contactDetails": {"company": "Acme"}},
+            {"cloudSiteHostname": "acme.atlassian.net", "tier": "250 Users",
+             "status": "active", "maintenanceEndDate": "2026-06-01",
+             "contactDetails": {"company": "Acme"}},
+        ]
+        fleet = health_score.build_fleet_from_licenses(lic)
+        self.assertEqual(fleet["acme"]["seat_tier"], 250)
+
 
 class ArrMonthly(unittest.TestCase):
     def test_delegates_to_mp_pricing_band_table(self):
@@ -60,6 +100,12 @@ class BuildAndParseVolumeQuery(unittest.TestCase):
         script = health_score.build_volume_query()
         self.assertIn("product_type", script)
         self.assertIn("zenuml", script)   # internal-domain exclude list present
+        # lite-prod is the internal Lite *production* site — the exact
+        # variant this script scores — so its absence is the most
+        # consequential gap in a stale exclude list (I3).
+        self.assertIn("lite-prod", script)
+        self.assertIn("asyncapi-stg", script)
+        self.assertIn("danshuitaihejie", script)
 
     def test_parse_sums_usage_volume_and_paywall_friction(self):
         today = datetime.date(2026, 9, 4)
@@ -170,6 +216,55 @@ class ScoreFleet(unittest.TestCase):
         self.assertGreater(scored["broad"]["opportunity_score"], scored["thin"]["opportunity_score"])
         self.assertGreater(scored["thin"]["risk_score"], scored["broad"]["risk_score"])
 
+    def test_exact_scores_on_broad_thin_small_fixture(self):
+        # Hand-computed expected values (spec's "full score computation on
+        # a fixture fleet with hand-computed expected ranks" test case).
+        # Independently verified by running score_fleet on this exact
+        # fixture before writing the assertions — see PR discussion.
+        raw = {
+            "broad": {"seat_tier": 800, "arr_monthly": 150.0, "adoption_breadth": 0.015,
+                       "usage_volume": 3000, "growth_trend": 0.1, "paywall_friction": 0,
+                       "days_since_last_event": 0, "unique_creators": 12},
+            "thin": {"seat_tier": 800, "arr_monthly": 150.0, "adoption_breadth": 0.005,
+                      "usage_volume": 3000, "growth_trend": -0.3, "paywall_friction": 0,
+                      "days_since_last_event": 5, "unique_creators": 4},
+            "small": {"seat_tier": 20, "arr_monthly": 8.8, "adoption_breadth": 0.01,
+                       "usage_volume": 50, "growth_trend": 0.0, "paywall_friction": 0,
+                       "days_since_last_event": 20, "unique_creators": 1},
+        }
+        scored = health_score.score_fleet(raw)
+        self.assertEqual(scored["broad"]["opportunity_score"], 70.0)
+        self.assertEqual(scored["broad"]["risk_score"], 16.7)
+        self.assertEqual(scored["thin"]["opportunity_score"], 43.3)
+        self.assertEqual(scored["thin"]["risk_score"], 72.2)
+        self.assertEqual(scored["small"]["opportunity_score"], 36.7)
+        self.assertEqual(scored["small"]["risk_score"], 61.1)
+
+    def test_size_value_averages_two_disagreeing_sub_percentiles(self):
+        # Spec's "size_value combination of two sub-percentiles" case.
+        # seat_tier and arr_monthly are set INDEPENDENTLY (not derived from
+        # each other via arr_monthly() / mp_pricing, which is monotonic in
+        # seats and would keep the two percentiles in lockstep) so their
+        # percentile ranks actively disagree per tenant: A ranks top on
+        # seat_tier (100 vs 10) but bottom on arr_monthly (10 vs 100), and
+        # vice versa for B. Every other signal is identical between A and
+        # B. If size_value used only one sub-percentile, A and B would
+        # score at opposite extremes; averaging the two disagreeing ranks
+        # instead makes size_value — and therefore opportunity_score —
+        # identical for both, which is what this test pins.
+        raw = {
+            "A": {"seat_tier": 100, "arr_monthly": 10.0, "adoption_breadth": 0.1,
+                   "usage_volume": 500, "growth_trend": 0.2, "paywall_friction": 1,
+                   "days_since_last_event": 2, "unique_creators": 5},
+            "B": {"seat_tier": 10, "arr_monthly": 100.0, "adoption_breadth": 0.1,
+                   "usage_volume": 500, "growth_trend": 0.2, "paywall_friction": 1,
+                   "days_since_last_event": 2, "unique_creators": 5},
+        }
+        scored = health_score.score_fleet(raw)
+        self.assertEqual(scored["A"]["opportunity_score"], 50.0)
+        self.assertEqual(scored["B"]["opportunity_score"], 50.0)
+        self.assertEqual(scored["A"]["opportunity_score"], scored["B"]["opportunity_score"])
+
     def test_scores_are_bounded_0_to_100(self):
         raw = {
             "a": {"seat_tier": 10, "arr_monthly": 4.4, "adoption_breadth": 0.1,
@@ -210,6 +305,7 @@ class MainCli(unittest.TestCase):
     def _run_main(self, argv):
         import contextlib, io
         buf = io.StringIO()
+        err = io.StringIO()
         old_argv = sys.argv
         sys.argv = ["health_score.py"] + argv
         health_score.fetch_lite_licenses = lambda auth: []
@@ -218,10 +314,11 @@ class MainCli(unittest.TestCase):
         mp_report.load_creds = lambda env_path: ("fake@example.com", "fake-token")
         mp_query.load_api_secret = lambda: "fake-secret"
         try:
-            with contextlib.redirect_stdout(buf):
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
                 health_score.main()
         finally:
             sys.argv = old_argv
+            self.last_stderr = err.getvalue()   # set even if main() raised (e.g. SystemExit)
         return buf.getvalue()
 
     def test_prints_both_tenants_sorted_by_opportunity_by_default(self):
@@ -239,6 +336,63 @@ class MainCli(unittest.TestCase):
         rows = json.loads(out)
         domains = {r["domain"] for r in rows}
         self.assertEqual(domains, {"broad", "thin"})
+
+    def test_days_below_60_errors_cleanly_instead_of_corrupting_growth_trend(self):
+        # I2: parse_volume_rows' fixed 30-vs-30-day split can never
+        # populate the "prior" window below a 60-day fetch, which silently
+        # inflated growth_trend before this fix. main() now rejects it via
+        # argparse (SystemExit(2), usage/error text on stderr) rather than
+        # scoring tenants with a corrupted signal.
+        with self.assertRaises(SystemExit) as cm:
+            self._run_main(["--days", "30"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--days must be >= 60", self.last_stderr)
+
+
+class MainCliDomainMismatchWarning(unittest.TestCase):
+    """I5: a domain with real Mixpanel activity but no matching Marketplace
+    Lite license must be skipped with a stderr warning, not silently
+    dropped — per the design doc's Edge cases section."""
+
+    def setUp(self):
+        self.fleet = {
+            "broad": {"cloud_id": "c1", "seat_tier": 800, "company": "Broad Co"},
+        }
+        today = datetime.date.today()
+        self.volume = {
+            "broad": {"usage_volume": 100, "paywall_friction": 0,
+                       "recent_views": 60, "prior_views": 40, "last_event_date": today},
+            # has real usage but no license in `fleet` above -> should warn
+            "orphan": {"usage_volume": 50, "paywall_friction": 0,
+                        "recent_views": 30, "prior_views": 20, "last_event_date": today},
+            # the shared Mixpanel "domain not captured" sentinel -> must NOT warn
+            "unknown_atlassian_domain": {"usage_volume": 999, "paywall_friction": 0,
+                                           "recent_views": 500, "prior_views": 400,
+                                           "last_event_date": today},
+        }
+        self.creators = {"broad": 12, "orphan": 3}
+
+    def _run_main(self, argv):
+        import contextlib, io
+        buf, err = io.StringIO(), io.StringIO()
+        old_argv = sys.argv
+        sys.argv = ["health_score.py"] + argv
+        health_score.fetch_lite_licenses = lambda auth: []
+        health_score.build_fleet_from_licenses = lambda lic: self.fleet
+        health_score.fetch_mixpanel_signals = lambda api_secret, days=90: (self.volume, self.creators)
+        mp_report.load_creds = lambda env_path: ("fake@example.com", "fake-token")
+        mp_query.load_api_secret = lambda: "fake-secret"
+        try:
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+                health_score.main()
+        finally:
+            sys.argv = old_argv
+        return buf.getvalue(), err.getvalue()
+
+    def test_warns_for_mismatched_domain_but_not_for_unknown_atlassian_domain(self):
+        _, err = self._run_main(["--top", "10"])
+        self.assertIn("orphan", err)
+        self.assertNotIn("unknown_atlassian_domain", err)
 
 
 if __name__ == "__main__":

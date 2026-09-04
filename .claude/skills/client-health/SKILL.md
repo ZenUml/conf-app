@@ -35,7 +35,9 @@ S=.claude/skills/client-health/scripts/health_score.py
 
 python3 $S                              # top 20 by Opportunity, 90-day window
 python3 $S --sort risk --top 10         # top 10 by Risk instead
-python3 $S --days 30                    # narrower window
+python3 $S --days 60                    # minimum window (growth_trend needs a
+                                         # full 30-vs-30-day split; --days < 60
+                                         # is rejected)
 python3 $S --json                       # machine-readable output
 ```
 
@@ -62,6 +64,12 @@ still score very differently — that was the finding that motivated this
 skill (see the design doc's "Purpose" section): usage volume alone
 doesn't distinguish broad real adoption from a handful of people
 generating heavy repeat views.
+
+This system is Lite-only and does not cross-reference Full entitlement:
+a tenant that already has Full (paying) can still show up highly ranked
+on Opportunity if they also have a leftover Lite install with real
+usage. Sanity-check a top-ranked domain against the `tenant` skill
+before treating it as a genuine upsell candidate.
 
 ## Related
 

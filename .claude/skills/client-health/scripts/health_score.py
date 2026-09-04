@@ -45,8 +45,19 @@ def build_fleet_from_licenses(lic):
     """domain -> {cloud_id, seat_tier, company}. Skips records with no
     hostname or an unparseable tier (`mp_report._tier_users` returns None
     for those, e.g. non-numeric tiers) rather than crashing on one bad
-    record."""
-    fleet = {}
+    record.
+
+    A domain can appear more than once in the Marketplace export (a
+    cancelled + a renewed license, a duplicate row from the export
+    itself — mirrors the dup-guard `mp_report.cmd_radar` applies to the
+    same export via its `seen` set). `seat_tier` here is the denominator
+    of `adoption_breadth`, which feeds BOTH Opportunity and Risk, so
+    silently keeping "whichever row comes last" could let a stale or
+    wrong-status duplicate corrupt both scores. Preference order via
+    `_prefer_license`: active beats inactive; among same status, the
+    more recent `maintenanceEndDate` wins; a full tie keeps whichever
+    record was encountered first (acceptable last-resort tiebreak)."""
+    chosen = {}   # domain -> (raw license record, parsed seat_tier)
     for r in lic:
         host = r.get("cloudSiteHostname") or ""
         domain = host.split(".")[0]
@@ -55,12 +66,37 @@ def build_fleet_from_licenses(lic):
         tier = mp_report._tier_users(r.get("tier"))
         if tier is None:
             continue
-        fleet[domain] = {
+        prev = chosen.get(domain)
+        if prev is None or _prefer_license(r, prev[0]):
+            chosen[domain] = (r, tier)
+    return {
+        domain: {
             "cloud_id": r.get("cloudId"),
             "seat_tier": tier,
             "company": mp_report.company_of(r),
         }
-    return fleet
+        for domain, (r, tier) in chosen.items()
+    }
+
+
+def _prefer_license(candidate, incumbent):
+    """True if `candidate` should replace `incumbent` for the same domain
+    in build_fleet_from_licenses. See that function's docstring for the
+    preference order. Returns False on a full tie (keep whichever was
+    encountered first)."""
+    cand_active = candidate.get("status") == "active"
+    inc_active = incumbent.get("status") == "active"
+    if cand_active != inc_active:
+        return cand_active
+    cand_end = mp_report.pdate(candidate.get("maintenanceEndDate"))
+    inc_end = mp_report.pdate(incumbent.get("maintenanceEndDate"))
+    if cand_end != inc_end:
+        if cand_end is None:
+            return False
+        if inc_end is None:
+            return True
+        return cand_end > inc_end
+    return False
 
 
 def arr_monthly(seat_tier):
@@ -72,17 +108,26 @@ def arr_monthly(seat_tier):
 
 
 # ----- Mixpanel: usage volume, growth trend, recency, paywall friction ----
+# Keep in sync with .claude/skills/mixpanel/SKILL.md's "Excluding internal /
+# staging sites" JQL baseline. That doc itself warns the JQL baseline and
+# the `is_internal_client_domain` custom property are NOT identical (each
+# currently carries one domain absent from the other) — a known drift risk
+# that copying the list here does not close.
 INTERNAL_DOMAINS = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev",
-                     "dia-stg", "diagramly"]
+                     "lite-prod", "dia-stg", "asyncapi-stg", "diagramly",
+                     "danshuitaihejie"]
 VOLUME_EVENTS = ["macro_viewed", "macro_create_succeeded", "macro_save_succeeded",
                   "paywall_triggered", "paywall_blocked_create", "paywall_blocked_edit"]
 
 
-def _domain_filter_js(internal_domains):
+def _domain_filter_js():
     """The JS filter body shared by both JQL scripts below: product_type
     must be 'lite', client_domain must be set and not start with any
     internal-domain prefix (mirrors the mixpanel skill's minimal exclude
-    list — see reference_mixpanel_internal_filter)."""
+    list — see reference_mixpanel_internal_filter). Takes no argument:
+    it reads the free JS variable `internal`, which each caller's
+    generated script declares in scope via `json.dumps(INTERNAL_DOMAINS)`
+    before this body runs — so the two stay coupled by construction."""
     return f"""
     var p = e.properties;
     if (p.product_type !== 'lite') return false;
@@ -106,7 +151,7 @@ function main() {{
     from_date: '{from_date.isoformat()}', to_date: '{today.isoformat()}',
     event_selectors: events.map(function(n){{ return {{event: n}}; }})
   }})
-  .filter(function(e){{{_domain_filter_js(INTERNAL_DOMAINS)}}})
+  .filter(function(e){{{_domain_filter_js()}}})
   .groupBy([
     function(e){{ return e.properties.client_domain; }},
     function(e){{ return new Date(e.time).toISOString().slice(0,10); }},
@@ -155,7 +200,7 @@ function main() {{
     from_date: '{from_date.isoformat()}', to_date: '{today.isoformat()}',
     event_selectors: [{{event: 'macro_create_succeeded'}}]
   }})
-  .filter(function(e){{{_domain_filter_js(INTERNAL_DOMAINS)}}})
+  .filter(function(e){{{_domain_filter_js()}}})
   .groupBy([
     function(e){{ return e.properties.client_domain; }},
     function(e){{ return e.properties.user_account_id; }}
@@ -255,6 +300,16 @@ def main():
     ap.add_argument("--json", action="store_true", help="machine-readable JSON output")
     args = ap.parse_args()
 
+    if args.days < 60:
+        # parse_volume_rows uses a fixed last-30-vs-prior-30-day split to
+        # compute growth_trend, which needs a full 60 days of fetched
+        # history to ever populate the "prior" window. Below 60, prior_views
+        # is always 0 and growth_trend silently blows up to a meaningless
+        # value instead of erroring — reject it here instead.
+        ap.error("--days must be >= 60 (growth_trend needs a 30-vs-30-day "
+                  "comparison window; below 60 the 'prior' window can never "
+                  "be populated)")
+
     env_path = args.env or mp_report.find_env()
     email, tok = mp_report.load_creds(env_path)
     auth = mp_report._auth_header(email, tok)
@@ -263,6 +318,26 @@ def main():
     lic = fetch_lite_licenses(auth)
     fleet = build_fleet_from_licenses(lic)
     volume_by_domain, creators_by_domain = fetch_mixpanel_signals(api_secret, days=args.days)
+
+    # Spec edge case: a domain with real Mixpanel activity but no matching
+    # Marketplace Lite license is silently dropped by compute_raw_signals
+    # (it only iterates `fleet`). Warn instead of scoring it with zero
+    # signal and zero visibility. "unknown_atlassian_domain" is excluded —
+    # it's the shared Mixpanel constant getClientDomain() returns when the
+    # real domain wasn't captured, not a real tenant, and fires on every
+    # single run otherwise.
+    mismatched = sorted(
+        d for d, v in volume_by_domain.items()
+        if v.get("usage_volume", 0) > 0
+        and d not in fleet
+        and d != "unknown_atlassian_domain"
+    )
+    if mismatched:
+        shown = mismatched[:10]
+        more = f" (+{len(mismatched) - 10} more)" if len(mismatched) > 10 else ""
+        print(f"WARNING: {len(mismatched)} domain(s) have Mixpanel activity "
+              f"but no matching Lite license: {shown}{more}", file=sys.stderr)
+
     raw = compute_raw_signals(fleet, volume_by_domain, creators_by_domain)
 
     if not raw:

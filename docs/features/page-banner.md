@@ -86,10 +86,17 @@ nobody.
 
 Three rules keep it inside this document's checklist:
 
-- **Nothing on the hot path.** The primary gate is Confluence's own
-  `entityPropertyExists`, so an unaffected page does not boot an iframe at all.
-  The fallback gate (`isUnplacedBannerCandidate`) is synchronous localStorage,
-  and the component is its own lazy chunk either way.
+- **Nothing on the hot path — for pages with nothing to say.** The primary gate
+  is Confluence's own `entityPropertyExists`, so an unaffected page does not boot
+  an iframe at all; the fallback gate (`isUnplacedBannerCandidate`) is
+  synchronous localStorage, and the component is its own lazy chunk either way.
+  Be precise about what that does *not* cover: on a page the gate admits, the
+  component awaits a property read **and** an ADF read before it can show or
+  close, so the two outcomes that end in `view.close()` hold the reserved slot
+  for two round-trips — the flicker item 1 of this document calls "unusable".
+  That cost is bounded (only pages that carry the property, and a dismissal goes
+  quiet for a day without any read at all) but it is real, and it is the first
+  thing to attack if the banner ever feels heavy.
 - **Never claim what we cannot verify.** The record states what the byline saw;
   the user may have pasted the link a second later. Past the gate the component
   re-reads the page ADF and shows only entries still unreferenced. A failed scan
@@ -110,12 +117,27 @@ The key is variant-suffixed for the reason space properties are: they are
 site-global across apps, so an unsuffixed key would let Full's banner boot on a
 property Lite wrote.
 
-The one unproven assumption is permission: the write runs as the user, and
-creating custom content on a page does not prove permission to write that page's
-properties. A denial is handled, not assumed away — the byline falls back to the
-per-browser marker (creator-only reach) and `unplaced_property_write` reports how
-often that happens, with `unplaced_source` on the banner events reporting the
-same ratio from the other end.
+Permission was the design's one unproven assumption, and it is now checked: on
+2026-09-04 a non-admin account (`update:page`, `admin? false`) both created the
+property from the byline and deleted it from the banner on whimet4. What remains
+untested is a READ-ONLY viewer, who should be refused — a denial is handled, not
+assumed away: the byline falls back to the per-browser marker (creator-only
+reach) and `unplaced_property_write` reports how often that happens, with
+`unplaced_source` on the banner events reporting the same ratio from the other
+end.
+
+### Checklist items still open
+
+Recorded rather than quietly skipped, because the checklist above is the bar:
+
+- **Stacking.** The paywall/CSAT host and this module are separate iframes, so a
+  page carrying the property AND an eligible paywall warning shows both. Not
+  verified against a third-party banner app.
+- **Mobile.** Not visually checked on a narrow viewport or the Confluence mobile
+  web view.
+- **In-page navigation.** Tab-bar / `pushState` URL changes reload banner
+  iframes; not measured for this module.
+- **Read-only viewers.** See above.
 
 ## Related in this repo
 

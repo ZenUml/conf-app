@@ -388,9 +388,12 @@ export type AnalyticsProperties = {
   // VERIFIED count from that load's own ADF scan — not the marker's stored
   // one, which may name diagrams the user has since pasted.
   unplaced_count?: number;
-  // unplaced_banner_evaluated. Date.now() − the marker's updatedAt: how long
-  // ago the byline last observed these diagrams unplaced. Read against
-  // `result`, it says how quickly a stale marker is discovered — a large age on
+  // unplaced_banner_evaluated. Date.now() − the updatedAt of whichever RECORD
+  // admitted the load — the content property on the gated path, the localStorage
+  // marker on the fallback (`unplaced_source` says which). Named for the marker
+  // because that store came first; it measures the same thing either way: how
+  // long ago the byline last observed these diagrams unplaced. Read against
+  // `result`, it says how quickly a stale record is discovered — a large age on
   // an 'all_placed' result means we kept paying for the verification scan long
   // after the user fixed the page.
   unplaced_marker_age_ms?: number;

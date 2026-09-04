@@ -582,6 +582,9 @@ export type AnalyticsEventName =
   // as the USER (requestConfluence), and a user who can create custom content
   // on a page cannot be assumed to hold edit permission on the page itself.
   // `result` = 'written' | 'deleted' | 'unchanged' | 'forbidden' | 'failed'.
+  // Also emitted by the BANNER when it retires a record it proved stale, so a
+  // reader who lacks delete permission is visible instead of leaving every
+  // later reader to pay the same ADF read forever.
   // A material 'forbidden' share means the cross-user path is not reaching the
   // people who need it and the localStorage fallback is carrying the feature —
   // which is exactly what `unplaced_source` on the banner events reports from

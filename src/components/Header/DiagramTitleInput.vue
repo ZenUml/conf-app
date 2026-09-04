@@ -127,6 +127,9 @@ function onBlur() {
 
 function onEnter() {
   inputEl.value?.blur()
+  // Wait until blur has committed the title before moving focus. Otherwise the
+  // title field can reclaim focus during the reactive update that blur starts.
+  nextTick(() => EventBus.$emit('focus-editor-first-line-end'))
 }
 
 function onInput(e: Event) {

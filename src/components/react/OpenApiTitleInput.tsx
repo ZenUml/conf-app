@@ -1,4 +1,4 @@
-import React, { FormEventHandler, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { FormEventHandler, KeyboardEventHandler, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { watch } from 'vue';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import store from '@/model/store2';
@@ -23,6 +23,25 @@ interface AutoTitleSnapshot {
   sparkFadingOut: boolean;
   showDismiss: boolean;
   autoNameAnimationDone: boolean;
+}
+
+interface AceEditor {
+  focus: () => void;
+  getSession: () => { getLine: (row: number) => string };
+  moveCursorTo: (row: number, column: number) => void;
+}
+
+type AceEditorElement = HTMLElement & { env?: { editor?: AceEditor } };
+
+function focusOpenApiEditorFirstLineEnd() {
+  // Swagger Editor keeps its real Ace instance on the rendered editor element.
+  // Using that API (rather than dispatching an artificial key press) preserves
+  // Ace's selection and scroll semantics.
+  const element = document.querySelector<HTMLElement>('#swagger-editor .ace_editor') as AceEditorElement | null;
+  const editor = element?.env?.editor;
+  if (!editor) return;
+  editor.focus();
+  editor.moveCursorTo(0, editor.getSession().getLine(0).length);
 }
 
 function snapshot(autoTitle: ReturnType<typeof useAutoTitle>): AutoTitleSnapshot {
@@ -131,6 +150,14 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
     onTitleChange(value);
   };
 
+  const handleEnter: KeyboardEventHandler<HTMLInputElement> = (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    event.currentTarget.blur();
+    // Let React finish the title-field blur before Ace takes focus.
+    window.requestAnimationFrame(focusOpenApiEditorFirstLineEnd);
+  };
+
   const handleManualGenerate = () => {
     void autoTitle.generate('user', {
       code: buildOpenApiAiTitleContent(specRef.current),
@@ -193,6 +220,7 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
           placeholder="Name your API…"
           value={displayTitle}
           onInput={handleInput}
+          onKeyDown={handleEnter}
           readOnly={state.isAnimating}
         />
 

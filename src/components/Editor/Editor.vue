@@ -20,6 +20,7 @@ import { validateMermaidSyntax } from "@/utils/mermaid/validate";
 import { validateSequenceSyntax } from "@/utils/sequence/validate";
 import { validatePlantUmlSyntax } from "@/utils/plantuml/validate";
 import { debounce } from 'lodash';
+import EventBus from '@/EventBus';
 import {
   recordEditorTransaction,
   resetEditorMutationSession,
@@ -46,6 +47,18 @@ const code = computed(() => getCodeFromDiagram(store.state.diagram, diagramType.
 const onEditorCodeChange = (newCode) => {
   store.dispatch(getStoreUpdateAction(diagramType.value), newCode);
 }
+
+// Title is part of the toolbar; after committing it with Enter, return the
+// keyboard to the actual writing surface at the predictable first-line end.
+// This is deliberately a selection update rather than a synthetic End key, so
+// it behaves identically on every keyboard layout.
+const focusFirstLineEnd = () => {
+  const view = cmView.value;
+  if (!view) return;
+  const firstLine = view.state.doc.line(1);
+  view.focus();
+  view.dispatch({ selection: { anchor: firstLine.to }, scrollIntoView: true });
+};
 
 // Async parsers can finish out of order. Only the validation started for the
 // latest code revision may publish an error to the shared store.
@@ -135,12 +148,14 @@ onMounted(() => {
     }),
     parent: rootElement.value,
   })
+  EventBus.$on('focus-editor-first-line-end', focusFirstLineEnd);
 })
 
 onBeforeUnmount(() => {
   // Cancel the debounced validation function to avoid memory leaks
   validationRevision += 1;
   debouncedValidate.cancel();
+  EventBus.$off('focus-editor-first-line-end', focusFirstLineEnd);
   cmView.value.destroy();
   resetEditorMutationSession();
   // Clear error state when component is unmounted

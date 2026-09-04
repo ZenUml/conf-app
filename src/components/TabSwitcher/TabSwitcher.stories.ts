@@ -5,14 +5,14 @@ import TabSwitcher from './TabSwitcher.vue'
 type Story = StoryObj<typeof TabSwitcher>
 
 const meta: Meta<typeof TabSwitcher> = {
-  title: 'Navigation/TabSwitcher',
+  title: 'Layout/Notch',
   component: TabSwitcher,
   parameters: {
     layout: 'padded',
     docs: {
       description: {
         component:
-          'A pill-style tab switcher used to switch between diagram types (Sequence, Mermaid, PlantUML). Each tab has a coloured indicator dot and text label. The active tab is highlighted with a type-specific colour. Persists the user\'s selection to localStorage under `zenuml-preferred-diagram-type`.',
+          'The raised editor-notch used for document-level type selection. It preserves label width across selections and draws its browser-tab shoulders in real pixels.',
       },
     },
   },

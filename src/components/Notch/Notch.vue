@@ -54,7 +54,19 @@ export default {
     },
   },
   mounted() {
-    const measure = () => { this.measuredWidth = this.$refs.plane?.scrollWidth || 0 }
+    const measure = () => {
+      const plane = this.$refs.plane
+      if (!plane) return
+      // CSS Grid's max-content tracks can paint outside the plane without
+      // increasing scrollWidth. Measure the rendered tab tracks instead, then
+      // reserve both shoulder insets so the first and last labels remain on
+      // the notch's flat underside rather than bleeding into its curves.
+      const tabWidth = [...plane.querySelectorAll('[role="tab"]')]
+        .reduce((total, tab) => total + tab.getBoundingClientRect().width, 0)
+      const style = getComputedStyle(plane)
+      const shoulders = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      this.measuredWidth = Math.ceil(tabWidth + shoulders)
+    }
     measure()
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(measure)

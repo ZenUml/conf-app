@@ -244,5 +244,61 @@ def score_fleet(raw):
     return scored
 
 
+# ----- CLI -------------------------------------------------------------
+def main():
+    ap = argparse.ArgumentParser(
+        description="Opportunity + Risk health scores for active ZenUML Lite tenants.")
+    ap.add_argument("--env", default=None, help="path to .env.forge.local (default: auto-discover)")
+    ap.add_argument("--sort", choices=["opportunity", "risk"], default="opportunity")
+    ap.add_argument("--top", type=int, default=20)
+    ap.add_argument("--days", type=int, default=90)
+    ap.add_argument("--json", action="store_true", help="machine-readable JSON output")
+    args = ap.parse_args()
+
+    env_path = args.env or mp_report.find_env()
+    email, tok = mp_report.load_creds(env_path)
+    auth = mp_report._auth_header(email, tok)
+    api_secret = mp_query.load_api_secret()
+
+    lic = fetch_lite_licenses(auth)
+    fleet = build_fleet_from_licenses(lic)
+    volume_by_domain, creators_by_domain = fetch_mixpanel_signals(api_secret, days=args.days)
+    raw = compute_raw_signals(fleet, volume_by_domain, creators_by_domain)
+
+    if not raw:
+        sys.exit("No active tenants found in the window — nothing to score.")
+    if len(raw) < 10:
+        print(f"WARNING: only {len(raw)} active tenants — percentile ranks "
+              "are not very meaningful at this fleet size.", file=sys.stderr)
+
+    scored = score_fleet(raw)
+    rows = [{
+        "domain": d,
+        "seat_tier": s["seat_tier"],
+        "opportunity_score": s["opportunity_score"],
+        "risk_score": s["risk_score"],
+        "adoption_breadth%": round(s["adoption_breadth"] * 100, 1),
+        "usage_volume": s["usage_volume"],
+        "growth_trend%": round(s["growth_trend"] * 100, 1),
+        "days_since_last_event": s["days_since_last_event"],
+        "paywall_friction": s["paywall_friction"],
+    } for d, s in scored.items()]
+
+    sort_key = "opportunity_score" if args.sort == "opportunity" else "risk_score"
+    rows.sort(key=lambda r: -r[sort_key])
+    rows = rows[:args.top]
+
+    cols = ["domain", "seat_tier", "opportunity_score", "risk_score",
+            "adoption_breadth%", "usage_volume", "growth_trend%",
+            "days_since_last_event", "paywall_friction"]
+
+    if args.json:
+        print(json.dumps(rows, indent=2))
+    else:
+        print(f"=== client health, top {len(rows)} by {args.sort} "
+              f"({len(raw)} active tenants scored) ===\n")
+        mp_report._print_table(rows, cols)
+
+
 if __name__ == "__main__":
-    pass  # CLI entrypoint added in Task 5
+    main()

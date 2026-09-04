@@ -6,10 +6,12 @@ Run from the repo root:
 or:
     python3 -m unittest discover -s .claude/skills/client-health/scripts
 """
-import datetime, os, sys, unittest
+import datetime, json, os, sys, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import health_score  # noqa: E402
+import mp_report      # noqa: E402
+import mp_query       # noqa: E402
 
 
 def license_rec(host, tier_users, company=None):
@@ -183,6 +185,60 @@ class ScoreFleet(unittest.TestCase):
             self.assertLessEqual(s["opportunity_score"], 100)
             self.assertGreaterEqual(s["risk_score"], 0)
             self.assertLessEqual(s["risk_score"], 100)
+
+
+class MainCli(unittest.TestCase):
+    """Monkeypatches the two network-touching fetchers so main() runs with
+    zero credentials and zero network calls — same pattern
+    test_mp_report.py uses for its --app resolution tests."""
+
+    def setUp(self):
+        self.fleet = {
+            "broad": {"cloud_id": "c1", "seat_tier": 800, "company": "Broad Co"},
+            "thin": {"cloud_id": "c2", "seat_tier": 800, "company": "Thin Co"},
+        }
+        self.volume = {
+            "broad": {"usage_volume": 3000, "paywall_friction": 0,
+                       "recent_views": 1600, "prior_views": 1400,
+                       "last_event_date": datetime.date.today()},
+            "thin": {"usage_volume": 3000, "paywall_friction": 0,
+                      "recent_views": 1000, "prior_views": 2000,
+                      "last_event_date": datetime.date.today()},
+        }
+        self.creators = {"broad": 12, "thin": 4}
+
+    def _run_main(self, argv):
+        import contextlib, io
+        buf = io.StringIO()
+        old_argv = sys.argv
+        sys.argv = ["health_score.py"] + argv
+        health_score.fetch_lite_licenses = lambda auth: []
+        health_score.build_fleet_from_licenses = lambda lic: self.fleet
+        health_score.fetch_mixpanel_signals = lambda api_secret, days=90: (self.volume, self.creators)
+        mp_report.load_creds = lambda env_path: ("fake@example.com", "fake-token")
+        mp_query.load_api_secret = lambda: "fake-secret"
+        try:
+            with contextlib.redirect_stdout(buf):
+                health_score.main()
+        finally:
+            sys.argv = old_argv
+        return buf.getvalue()
+
+    def test_prints_both_tenants_sorted_by_opportunity_by_default(self):
+        out = self._run_main(["--top", "10"])
+        self.assertIn("broad", out)
+        self.assertIn("thin", out)
+        self.assertLess(out.index("broad"), out.index("thin"))  # broad ranks first
+
+    def test_sort_by_risk_flag_reorders(self):
+        out = self._run_main(["--sort", "risk", "--top", "10"])
+        self.assertLess(out.index("thin"), out.index("broad"))  # thin is riskier
+
+    def test_json_flag_produces_parseable_json(self):
+        out = self._run_main(["--json", "--top", "10"])
+        rows = json.loads(out)
+        domains = {r["domain"] for r in rows}
+        self.assertEqual(domains, {"broad", "thin"})
 
 
 if __name__ == "__main__":

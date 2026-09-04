@@ -39,10 +39,11 @@ describe('Header', () => {
     const sequenceButton = tabButtons[0];
     const mermaidButton = tabButtons[1];
 
-    // Sequence tab starts selected with its accent underline.
-    expect(sequenceButton.classes()).toContain('after:bg-[#0094D9]')
-    expect(sequenceButton.classes()).toContain('text-[#054E76]')
-    expect(mermaidButton.classes()).not.toContain('after:bg-[#FF3670]')
+    // The selected type uses bold metrics; its dot and label carry the accent
+    // without a competing active underline.
+    expect(sequenceButton.classes()).toContain('font-semibold')
+    expect(sequenceButton.classes()).not.toContain('after:bg-[#0094D9]')
+    expect(mermaidButton.classes()).toContain('font-medium')
 
     // click to switch to mermaid
     expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
@@ -50,8 +51,8 @@ describe('Header', () => {
     await headerWrapper.vm.$nextTick()
 
     expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
-    expect(mermaidButton.classes()).toContain('after:bg-[#FF3670]')
-    expect(mermaidButton.classes()).toContain('text-[#8E0F33]')
+    expect(mermaidButton.classes()).toContain('font-semibold')
+    expect(mermaidButton.classes()).not.toContain('after:bg-[#FF3670]')
   })
 
   it('shows the independently flagged AI Chat action and emits toggle', async () => {

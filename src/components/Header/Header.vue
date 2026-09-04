@@ -1,18 +1,19 @@
 <template>
-  <header class="toolbar header bg-[#F1F3F4] px-6 flex items-center gap-3 relative z-10 h-10">
-    <div class="flex items-center gap-3 flex-1 min-w-0">
-      <DiagramTitleInput />
-    </div>
-    <div class="notch">
-      <Notch
-        v-model="diagramType"
-        :items="diagramOptions"
-      />
-    </div>
-    <div class="flex items-center gap-3 shrink-0 ml-auto">
+  <header class="toolbar header bg-[#F1F3F4] px-3 flex items-center gap-3 relative z-10 h-8">
+    <div class="flex flex-1 items-center gap-2 min-w-0">
+      <button class="flex h-6 items-center gap-1 px-2 text-xs font-medium text-gray-500 rounded hover:text-gray-700 hover:bg-gray-200 transition-colors duration-200"
+        @click="openTemplateGallery()">
+        <LightBulbIcon class="w-4 h-4" />
+        <span>Templates</span>
+      </button>
+      <button class="flex h-6 items-center gap-1 px-2 text-xs font-medium text-gray-500 rounded hover:text-gray-700 hover:bg-gray-200 transition-colors duration-200"
+        @click="helpClick">
+        <QuestionMarkCircleIcon class="w-4 h-4" />
+        <span class="sr-only lg:not-sr-only">Help</span>
+      </button>
       <button
         v-if="aiChatAvailable"
-        class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-sm font-medium rounded-md transition-colors duration-200"
+        class="flex h-6 items-center gap-1 px-2 text-xs font-medium rounded transition-colors duration-200"
         :class="
           aiChatOpen
             ? 'bg-violet-100 text-violet-800'
@@ -24,17 +25,13 @@
         <SparklesIcon class="w-4 h-4" />
         <span>AI Chat</span>
       </button>
-      <button class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
-        @click="openTemplateGallery()">
-        <LightBulbIcon class="w-4 h-4" />
-        <span>Templates</span>
-      </button>
-      <button class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
-        @click="helpClick">
-        <QuestionMarkCircleIcon class="w-4 h-4" />
-        <span>Help</span>
-      </button>
-      <div class="h-5 w-px bg-gray-300"></div>
+    </div>
+    <TabSwitcher
+      v-model="diagramType"
+      :options="diagramOptions"
+    />
+    <div class="flex flex-1 items-center justify-end gap-2 min-w-0">
+      <DiagramTitleInput />
       <div class="relative group/save">
         <publish-button
           :saveAndExit="saveAndExit"
@@ -60,7 +57,7 @@
 <script>
 import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
-import Notch from "@/components/Notch/Notch.vue";
+import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
@@ -111,7 +108,7 @@ export default {
   emits: ["toggle-ai-chat"],
   components: {
     PublishButton,
-    Notch,
+    TabSwitcher,
     DiagramTitleInput,
     TemplateGallery,
     LightBulbIcon: { render: LightBulbIcon },

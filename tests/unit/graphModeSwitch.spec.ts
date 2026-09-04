@@ -47,7 +47,7 @@ describe('injectGraphModeSwitch', () => {
     expect(root.getAttribute('role')).toBe('group')
 
     const buttons = [...root.querySelectorAll('button')]
-    expect(buttons.map((b) => b.textContent)).toEqual(['Diagram', 'Board'])
+    expect(buttons.map((b) => b.textContent)).toEqual(['Graph', 'Board'])
     expect(buttons[0].getAttribute('aria-pressed')).toBe('true')
     expect(buttons[1].getAttribute('aria-pressed')).toBe('false')
     expect(root.querySelector('input')).toBeNull()

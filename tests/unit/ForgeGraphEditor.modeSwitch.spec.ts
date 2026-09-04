@@ -441,7 +441,7 @@ describe('ForgeGraphEditor Diagram/Board mode switch', () => {
     wrapper.vm.mountModeSwitch(doc)
     expect(fname.style.display).toBe('none')
     expect(doc.querySelector('.graph-mode-switch')).toBeTruthy()
-    expect(doc.querySelector('.graph-mode-switch')?.textContent).toContain('Diagram')
+    expect(doc.querySelector('.graph-mode-switch')?.textContent).toContain('Graph')
     expect(doc.querySelector('.graph-mode-switch')?.textContent).toContain('Board')
     wrapper.unmount()
   })

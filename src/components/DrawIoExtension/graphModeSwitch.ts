@@ -239,7 +239,9 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
 
   const diagramBtn = doc.createElement('button')
   diagramBtn.type = 'button'
-  diagramBtn.textContent = 'Diagram'
+  // “Graph” distinguishes this DrawIO surface from ZenUML/Mermaid/PlantUML
+  // diagram macros while preserving the persisted `diagram` mode value.
+  diagramBtn.textContent = 'Graph'
   diagramBtn.setAttribute('aria-pressed', options.mode === 'diagram' ? 'true' : 'false')
   diagramBtn.style.height = `${height}px`
   diagramBtn.style.fontSize = `${13 * Math.min(1, heightScale)}px`

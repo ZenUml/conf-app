@@ -9,6 +9,7 @@
     :data-editor-mode="editorMode"
   >
     <div class="group/drawio-title flex items-center w-72 max-w-md border border-transparent rounded transition-colors duration-200 h-6 px-1.5"
+      :style="{ height: editorMode === 'board' ? '28px' : '24px' }"
       :class="error ? 'border-[#F87171] bg-[#FEF2F2]' : 'hover:bg-black/[0.05] focus-within:bg-white focus-within:border-[#F08705]'">
 
       <button v-if="aiTitleAvailable || autoNameAnimationDone" type="button"

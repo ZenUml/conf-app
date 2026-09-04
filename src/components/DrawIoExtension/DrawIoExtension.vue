@@ -1,5 +1,6 @@
 <template>
   <DrawIoHeader
+    v-if="showHeader"
     ref="headerRef"
     :title="currentTitle"
     :error="titleError"
@@ -47,6 +48,8 @@ export default defineComponent({
       type: String,
       default: "diagram"
     }
+    ,
+    showHeader: { type: Boolean, default: true }
   },
   setup(props) {
     const titleError = ref(false);

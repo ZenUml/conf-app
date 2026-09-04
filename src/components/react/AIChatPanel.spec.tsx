@@ -222,6 +222,59 @@ describe("React AIChatPanel core flow", () => {
     ) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("shows an ordinary reply and does not apply code for a no-change result", async () => {
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: "diagram-1",
+      diagramCreated: false,
+      updatedCode: "openapi: 3.0.0",
+      noChange: true,
+      jobId: "job-1",
+      pollCount: 3,
+      repairAttempts: 3,
+      backendDurationMs: 2400,
+      backendLlmDurationMs: 2100,
+    });
+    const onApplyCode = vi.fn();
+    const onApply = vi.fn();
+    renderPanel({
+      currentCode: "openapi: 3.0.0",
+      diagramlyDiagramId: "diagram-1",
+      onApplyCode,
+      onApply,
+    });
+
+    submit("Optimize it");
+    await flushAsyncWork();
+
+    expect(container.textContent).toContain(
+      "No changes were needed for the current diagram.",
+    );
+    expect(container.textContent).not.toContain("could not apply the change");
+    const noChangeMessage = container.querySelectorAll(
+      '[data-testid="react-ai-chat-message"]',
+    ).item(1);
+    expect(noChangeMessage.classList.contains("is-assistant")).toBe(true);
+    expect(noChangeMessage.classList.contains("is-error")).toBe(false);
+    expect(container.querySelector('[data-testid="react-ai-change-preview"]')).toBeNull();
+    expect(onApplyCode).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_no_change",
+      expect.objectContaining({
+        change_kind: "request",
+        generation_source: "chat_panel",
+        poll_count: 3,
+        repair_attempts: 3,
+        backend_duration_ms: 2400,
+        backend_llm_duration_ms: 2100,
+      }),
+    );
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      "ai_chat_prompt_failed",
+      expect.anything(),
+    );
+  });
+
   it("uses the same session with syntax context for an automatic repair request", async () => {
     vi.mocked(runAIChatSession).mockResolvedValueOnce({
       diagramId: "diagram-1",
@@ -617,6 +670,9 @@ describe("React AIChatPanel core flow", () => {
     expect(container.textContent).toContain(
       "AI Chat could not apply the change: Diagramly unavailable",
     );
+    expect(container.querySelectorAll(
+      '[data-testid="react-ai-chat-message"]',
+    ).item(1).classList.contains("is-error")).toBe(true);
     const input = setInput("Retry");
     expect(input.disabled).toBe(false);
     expect((container.querySelector(

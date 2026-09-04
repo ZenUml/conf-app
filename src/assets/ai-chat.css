@@ -422,12 +422,18 @@
 }
 
 .ai-chat-turn.is-assistant > p {
-  border: 1px solid #fecaca;
+  border: 1px solid var(--ai-chat-border);
   border-radius: 8px;
   padding: 10px 12px;
+  color: var(--ai-chat-fg);
+  background: var(--ai-chat-subtle);
+  font-size: 12px;
+}
+
+.ai-chat-turn.is-assistant.is-error > p {
+  border-color: #fecaca;
   color: var(--ai-chat-danger);
   background: var(--ai-chat-danger-soft);
-  font-size: 12px;
 }
 
 .ai-chat-progress {

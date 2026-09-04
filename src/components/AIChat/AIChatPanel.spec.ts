@@ -68,6 +68,44 @@ describe('AIChatPanel core flow', () => {
     wrapper.unmount()
   })
 
+  it('scrolls the conversation to the latest turn after sending', async () => {
+    let finish!: () => void
+    vi.mocked(runAIChatSession).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finish = () => resolve({
+          diagramId: 'diagram-1',
+          diagramCreated: false,
+          updatedCode: 'A->B: original',
+          noChange: true,
+          jobId: 'job-1',
+          pollCount: 1,
+        })
+      }),
+    )
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        currentCode: 'A->B: original',
+        initialMessages: [{
+          id: 'assistant-long',
+          role: 'assistant',
+          text: 'A long response\n'.repeat(100),
+        }],
+      },
+    })
+    const content = wrapper.get('.ai-chat-content').element as HTMLElement
+    Object.defineProperty(content, 'scrollHeight', { configurable: true, value: 1200 })
+    content.scrollTop = 200
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Add one more participant')
+    await wrapper.get('form').trigger('submit')
+
+    expect(content.scrollTop).toBe(1200)
+
+    finish()
+    await flushPromises()
+  })
+
   it('runs the versioned session, binds the diagram, applies code, and exposes line diff', async () => {
     vi.mocked(runAIChatSession).mockImplementationOnce(async (options) => {
       options.onStage?.('processing', {

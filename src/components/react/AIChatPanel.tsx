@@ -160,6 +160,7 @@ export default function AIChatPanel({
   const [restoringVersionId, setRestoringVersionId] = useState("");
   const [restoringAction, setRestoringAction] = useState<"undo" | "rollback" | null>(null);
   const [syntaxResolved, setSyntaxResolved] = useState(false);
+  const contentRef = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeControllerRef = useRef<AbortController | null>(null);
   const activeStageRef = useRef<AIChatSessionStage | null>(null);
@@ -875,6 +876,14 @@ export default function AIChatPanel({
   }, [syntaxError]);
 
   useEffect(() => {
+    const latestMessage = messages[messages.length - 1];
+    const content = contentRef.current;
+    if (!open || latestMessage?.role !== "user" || !content) return;
+
+    content.scrollTop = content.scrollHeight;
+  }, [messages, open]);
+
+  useEffect(() => {
     if (!open || !visibleSyntaxError || !syntaxError) {
       lastTrackedSyntaxIssueRef.current = "";
       return;
@@ -995,7 +1004,7 @@ export default function AIChatPanel({
         )}
       </header>
 
-      <main className="ai-chat-content">
+      <main ref={contentRef} className="ai-chat-content">
         {messages.length === 0 && !isThinking ? (
           <section className="ai-chat-empty" data-testid="react-ai-chat-empty-state">
             <div className="ai-chat-empty-intro">

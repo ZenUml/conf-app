@@ -67,7 +67,7 @@
       </div>
     </header>
 
-    <main class="ai-chat-content">
+    <main ref="content" class="ai-chat-content">
       <section
         v-if="messages.length === 0 && !isThinking"
         class="ai-chat-empty"
@@ -447,6 +447,7 @@ const stages: Array<{ key: AIChatSessionStage; label: string }> = [
 ]
 
 const prompt = ref('')
+const content = ref<HTMLElement | null>(null)
 const input = ref<HTMLTextAreaElement | null>(null)
 const messages = ref<AIChatMessage[]>(props.initialMessages.map(cloneMessage))
 const isThinking = ref(false)
@@ -826,6 +827,10 @@ async function submitPrompt(
   messages.value.push({ id: nextMessageId('user'), role: 'user', text })
   prompt.value = ''
   pendingInputSource = 'typed'
+  void nextTick(() => {
+    if (!content.value) return
+    content.value.scrollTop = content.value.scrollHeight
+  })
   trackAnalyticsEvent('ai_chat_prompt_submitted', {
     ...analyticsBase(),
     generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',

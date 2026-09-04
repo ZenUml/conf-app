@@ -14,7 +14,7 @@
       <button
         v-for="(item, index) in items"
         :key="item.value"
-        class="group/notch relative flex h-full min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-3 text-xs leading-none whitespace-nowrap transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
+        class="group/notch relative flex h-full min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-3 text-[13px] leading-none whitespace-nowrap transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
         :class="buttonClass(item)"
         :style="buttonStyle(item)"
         type="button"
@@ -27,7 +27,7 @@
         <span class="h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-200" :style="dotStyle(item)" aria-hidden="true" />
         <span class="grid overflow-hidden">
           <span class="col-start-1 row-start-1">{{ item.label }}</span>
-          <span class="col-start-1 row-start-1 invisible font-medium" aria-hidden="true">{{ item.label }}</span>
+          <span class="col-start-1 row-start-1 invisible font-semibold" aria-hidden="true">{{ item.label }}</span>
         </span>
       </button>
     </div>
@@ -83,7 +83,7 @@ export default {
     buttonClass(item) {
       const active = this.modelValue === item.value
       return active
-        ? 'font-medium'
+        ? 'font-semibold'
         : 'font-medium text-gray-500'
     },
     buttonStyle(item) {

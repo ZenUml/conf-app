@@ -151,7 +151,9 @@ onBeforeUnmount(() => {
 <style>
 .cm-editor {
   font-family: Menlo, 'Fira Code', Monaco, source-code-pro, "Ubuntu Mono", "DejaVu sans mono", Consolas, monospace;
-  font-size: 15px;
+  /* The DSL editor is a work surface, not a headline. It must not outscale
+     the toolbar menu that controls it. */
+  font-size: 12px;
   height: 100% !important;
   width: 100%;
 }

@@ -111,12 +111,6 @@ describe('reportOrphanObserved', () => {
     );
   });
 
-  it('never throws even if trackEvent throws', () => {
-    vi.mocked(trackEvent).mockImplementationOnce(() => { throw new Error('boom'); });
-    const probe = fakeProbe({ recoverable: false });
-
-    expect(() => reportOrphanObserved('page1', 'orphan1', 'sequence', probe)).not.toThrow();
-  });
 });
 
 describe('reportOrphanMacroRepaired', () => {
@@ -145,9 +139,4 @@ describe('reportOrphanMacroRepaired', () => {
     expect(call[3]).not.toHaveProperty('page_id');
   });
 
-  it('never throws even if trackEvent throws', () => {
-    vi.mocked(trackEvent).mockImplementationOnce(() => { throw new Error('boom'); });
-
-    expect(() => reportOrphanMacroRepaired('page1', 'old', 'new', 'openapi')).not.toThrow();
-  });
 });

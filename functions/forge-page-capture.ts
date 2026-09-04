@@ -84,7 +84,6 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
 
     const subdomain = row?.clientDomain ? row.clientDomain.split(".")[0] : null;
     if (!subdomain || !allowedDomains.includes(subdomain)) {
-      console.log(`forge-page-capture: subdomain=${subdomain ?? "unknown"} not in allowlist, skipping`);
       return new Response(JSON.stringify({ stored: false, reason: "domain_not_allowed" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -93,12 +92,10 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const key = buildPageSnapshotKey(cloudId, contentId, versionNumber);
-  console.log(`forge-page-capture: key=${key}`);
 
   // Deduplication: skip write if this version is already stored
   const existing = await bucket.head(key);
   if (existing) {
-    console.log(`forge-page-capture: dedup hit for key=${key}`);
     return new Response(JSON.stringify({ stored: false, reason: "already_exists", key }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -119,7 +116,6 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
     },
   );
 
-  console.log(`forge-page-capture: stored key=${key}`);
   return new Response(JSON.stringify({ stored: true, key }), {
     status: 200,
     headers: { "Content-Type": "application/json" },

@@ -10,7 +10,6 @@ export class MacroIdProvider implements IdProvider {
 
   async getId(): Promise<string | undefined> {
     const macroData = await this.apWrapper.getMacroData();
-    console.debug(`MacroIdProvider - loaded macroData:`, macroData);
     return macroData?.customContentId;
   }
 

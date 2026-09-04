@@ -37,6 +37,7 @@ jobs:
   # keeping the variant -> project/environment mapping in a single place.
   resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     outputs:
       variant: ${{ steps.map.outputs.variant }}
       license: ${{ steps.map.outputs.license }}
@@ -68,6 +69,7 @@ jobs:
   deploy:
     needs: resolve
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: ${{ needs.resolve.outputs.environment }}
     env:

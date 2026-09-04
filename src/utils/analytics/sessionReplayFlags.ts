@@ -97,7 +97,6 @@ export async function getSessionReplayConfig(deps?: {
       // has NO `installContext` field — the install ARI is constructed from
       // cloudId and passed as an ATTRIBUTE, with accountId as the bucketing
       // identifier (verified live on lite-dev, 2026-06-10).
-      console.debug('[session-replay] off: no cloudId in context', Object.keys(context ?? {}));
       return OFF;
     }
 
@@ -113,13 +112,11 @@ export async function getSessionReplayConfig(deps?: {
     // Targeted inspection wins over the general rate, so a full capture keeps
     // running even while `session-replay` is dialed down.
     if (client.checkFlag(FULL_FLAG, false)) {
-      console.debug('[session-replay] targeted full capture');
       return { percent: 100, source: 'targeted' };
     }
     if (client.checkFlag(SAMPLED_FLAG, false)) {
       // In the rollout cohort: record this user's sessions at 100%. The cohort
       // SIZE (the rollout %) is the live rate, set in the console.
-      console.debug('[session-replay] in general rollout cohort');
       return { percent: 100, source: 'sampled' };
     }
     return OFF;

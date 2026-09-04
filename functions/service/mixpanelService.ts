@@ -3,8 +3,13 @@ import type { AnalyticsEventName } from "./analyticsTypes";
 
 
 export interface MixpanelTrackPayload {
-  event?: string;           // canonical event name (transport_version: 2)
-  action?: string;          // legacy event name (transport_version: 1)
+  // NOT the /track endpoint's old transport_version: 2 "canonical" shape
+  // (deleted 2026-09-02 — nothing ever sent it). `event` is live: backend
+  // callers that already know their own event name pass it directly here
+  // (e.g. forge-upload-attachment.ts's async PNG-backup outcome) rather than
+  // routing through /track's `action`-keyed legacy body.
+  event?: string;
+  action?: string;          // legacy event name — from functions/track.ts's TrackRequest body
   user_account_id?: string;
   atlassian_user_id?: string;
   [key: string]: string | number | boolean | undefined | null;

@@ -33,7 +33,6 @@
     "wrangler:publish:stg:lite": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-lite --branch=production",
     "wrangler:link": "ln -sf wrangler-dev.toml wrangler.toml",
     "lint": "eslint src/",
-    "lint:vue": "eslint src/ --ext .vue",
     "git:branch:clean:gone": "git fetch -p && git branch -vv | awk '/: gone]/{print $1}' | xargs git branch -d",
     "git:branch:clean:merged": "git branch --merged|egrep -v \"(\\*|master|main|dev|skip_branch_name)\" | xargs git branch -d",
     "db:migrate:local": "wrangler d1 migrations apply conf-zenuml-dev --local",
@@ -74,11 +73,8 @@
     "@atlaskit/inline-dialog": "^13.4.8",
     "@atlaskit/menu": "^1.5.6",
     "@atlaskit/popup": "^1.5.5",
-    "@atlaskit/renderer": "^118.6.14",
     "@atlaskit/spinner": "^19.0.7",
     "@atlaskit/textarea": "^4.5.6",
-    "@babel/core": "^7.20.12",
-    "@babel/preset-env": "^7.13.5",
     "@cloudflare/workers-types": "^4.20240512.0",
     "@codemirror/autocomplete": "^6.17.0",
     "@codemirror/commands": "^6.5.0",
@@ -93,11 +89,8 @@
     "@heroicons/vue": "^2.2.0",
     "@lezer/highlight": "^1.2.1",
     "@lezer/lr": "^1.4.2",
-    "@rollup/plugin-alias": "^5.1.0",
-    "@rollup/pluginutils": "^5.1.0",
     "@sentry/cloudflare": "^9.5.0",
-    "@sentry/node": "^9.5.0",
-    "@vitejs/plugin-react": "^5.2.0",
+    "@sindresorhus/slugify": "3.0.0",
     "@vitejs/plugin-vue": "^6.0.2",
     "@vue/compiler-sfc": "^3.1.0",
     "@zenuml/codemirror-extensions": "^0.3.1",
@@ -107,7 +100,6 @@
     "codemirror-lang-mermaid": "^0.5.0",
     "diff": "^8.0.3",
     "file-saver": "^2.0.5",
-    "flag": "^5.0.1",
     "html-to-image": "^1.9.0",
     "jose": "^6.1.0",
     "js-yaml": "^4.1.0",
@@ -115,7 +107,6 @@
     "lodash": "^4.18.1",
     "lzutf8": "^0.5.6",
     "md5": "^2.3.0",
-    "memfs": "^4.57.2",
     "mermaid": "^11.6.0",
     "mixpanel-browser": "^2.72.0",
     "pako": "^2.1.0",
@@ -139,16 +130,13 @@
     "vuex": "^4.1.0"
   },
   "devDependencies": {
-    "@babel/plugin-proposal-optional-chaining": "^7.21.0",
     "@eslint/js": "^9.4.0",
     "@forge/cli": "^12.20.1",
     "@inquirer/prompts": "^8.3.2",
     "@playwright/test": "^1.59.1",
-    "@sindresorhus/slugify": "3.0.0",
     "@storybook/addon-a11y": "^10.4.1",
     "@storybook/addon-docs": "^10.4.1",
     "@storybook/vue3-vite": "^10.4.1",
-    "@types/jest": "^24.0.19",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.14.202",
     "@types/mermaid": "^8.2.1",
@@ -156,11 +144,9 @@
     "@types/pako": "2.0.4",
     "@types/react": "=17.0.2",
     "@types/react-dom": "=17.0.2",
-    "@types/webpack-env": "^1.18.8",
     "@typescript-eslint/eslint-plugin": "^8.28.0",
     "@typescript-eslint/parser": "^8.28.0",
     "@vitest/coverage-v8": "^2.1.9",
-    "@vue/eslint-config-typescript": "^11.0.0",
     "@vue/test-utils": "2.2.10",
     "concurrently": "^8.2.2",
     "eslint": "^9.4.0",
@@ -184,7 +170,6 @@
     "react-transition-group": "1.2.1",
     "react": "17.0.2",
     "react-dom": "17.0.2",
-    "@babel/plugin-proposal-class-properties": "^7.18.6",
     "core-js": "^3.36.0",
     "sourcemap-codec": "^1.4.8",
     "glob": "^10.3.10",
@@ -206,10 +191,6 @@
   "browserslist": [
     "last 2 years"
   ],
-  "externals": {
-    "react": "React",
-    "react-dom": "ReactDOM"
-  },
   "engines": {
     "node": ">=22"
   },
@@ -217,6 +198,11 @@
     "node": "22.22.3"
   },
   "pnpm": {
+    "overrides": {
+      "local-crm>react": "19.2.8",
+      "local-crm>react-dom": "19.2.8",
+      "react-dom@19.2.8>react": "19.2.8"
+    },
     "ignoredBuiltDependencies": [],
     "onlyBuiltDependencies": [
       "@forge/cli",

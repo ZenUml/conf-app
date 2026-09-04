@@ -32,8 +32,6 @@ export class CustomContentStorageProvider implements StorageProvider {
   }
 
   async save(diagram: Diagram): Promise<ICustomContentResponseBodyV2 | any> {
-    console.debug('CustomContentStorageProvider save', diagram);
-    
     if (diagram?.source === 'custom-content' && diagram?.id && !diagram?.isCopy) {
       return await this.apWrapper.saveCustomContentV2(diagram.id, diagram);
     }

@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DiagramAttributionFooter from './DiagramAttributionFooter.vue'
+import { registerDiagramImpactView } from '@/services/DiagramImpact'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 const impact = { audienceCount: 0 }
 
@@ -13,12 +15,54 @@ vi.mock('@/services/DiagramImpact', () => ({
     audienceCount: impact.audienceCount,
     viewerRelation: 'viewer',
   })),
-  registerDiagramImpactView: vi.fn(),
+  registerDiagramImpactView: vi.fn(async () => ({ audienceCount: 1, result: 'new_unique' })),
 }))
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
 }))
+
+const { getGateTelemetry } = vi.hoisted(() => ({
+  getGateTelemetry: vi.fn((): Record<string, unknown> => ({})),
+}))
+vi.mock('@/utils/renderGate/maybeGateViewerRender', () => ({ getGateTelemetry }))
+
+// Stub IntersectionObserver: jsdom has none, and the component skips the
+// observer entirely when `typeof IntersectionObserver === 'undefined'` (see
+// the view-count tests below, which rely on exactly that skip). The dwell
+// tests need a real callback to drive, so they install this stub themselves.
+class FakeIntersectionObserver {
+  static instances: FakeIntersectionObserver[] = []
+  callback: (entries: Array<Pick<IntersectionObserverEntry, 'isIntersecting' | 'intersectionRect' | 'boundingClientRect'>>) => void
+  observedElement: Element | null = null
+  constructor(callback: FakeIntersectionObserver['callback']) {
+    this.callback = callback
+    FakeIntersectionObserver.instances.push(this)
+  }
+  observe(element: Element) { this.observedElement = element }
+  unobserve() {}
+  disconnect() {}
+}
+
+function dwellEntry(overrides: Partial<{ isIntersecting: boolean; intersectionHeight: number; boundingHeight: number }> = {}) {
+  const { isIntersecting = true, intersectionHeight = 300, boundingHeight = 300 } = overrides
+  return {
+    isIntersecting,
+    intersectionRect: { height: intersectionHeight } as DOMRectReadOnly,
+    boundingClientRect: { height: boundingHeight } as DOMRectReadOnly,
+  }
+}
+
+function mountFooter(props: Partial<{ ready: boolean; diagramHost: () => HTMLElement | null }> = {}) {
+  return mount(DiagramAttributionFooter, {
+    props: {
+      attribution: { customContentId: 'content-1', createdByAccountId: 'account-1' },
+      macroType: 'sequence',
+      ready: false,
+      ...props,
+    },
+  })
+}
 
 async function renderFooter() {
   const wrapper = mount(DiagramAttributionFooter, {
@@ -34,6 +78,7 @@ async function renderFooter() {
 
 describe('DiagramAttributionFooter view count', () => {
   beforeEach(() => {
+    getGateTelemetry.mockReturnValue({})
     impact.audienceCount = 0
   })
 
@@ -57,5 +102,216 @@ describe('DiagramAttributionFooter view count', () => {
     const wrapper = await renderFooter()
 
     expect(wrapper.text().replace(/\s+/g, ' ').trim()).toBe('Created by Peng · 5 views')
+  })
+})
+
+describe('DiagramAttributionFooter viewport dwell gate', () => {
+  beforeEach(() => {
+    // Reset here too: a mockReturnValue set by one test would otherwise carry
+    // into the next and make an assertion pass for the wrong reason.
+    getGateTelemetry.mockReturnValue({})
+    FakeIntersectionObserver.instances = []
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
+    vi.mocked(registerDiagramImpactView).mockReset()
+    vi.mocked(registerDiagramImpactView).mockResolvedValue({ audienceCount: 1, result: 'new_unique' })
+    vi.mocked(trackAnalyticsEvent).mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('observes the diagramHost element when the prop is given', async () => {
+    const diagramEl = document.createElement('div')
+    mountFooter({ diagramHost: () => diagramEl })
+    await flushPromises()
+
+    expect(FakeIntersectionObserver.instances).toHaveLength(1)
+    expect(FakeIntersectionObserver.instances[0].observedElement).toBe(diagramEl)
+  })
+
+  it('falls back to observing the footer element when diagramHost is absent', async () => {
+    const wrapper = mountFooter()
+    await flushPromises()
+
+    expect(FakeIntersectionObserver.instances).toHaveLength(1)
+    expect(FakeIntersectionObserver.instances[0].observedElement).toBe(
+      wrapper.find('[data-testid="diagram-attribution"]').element,
+    )
+  })
+
+  it('does not register when ready flips true while the diagram is not intersecting (over-count regression)', async () => {
+    // Against the old `refreshTimer(Boolean(root.value))` code this test FAILS:
+    // root.value always exists once mounted, so the ready-watcher would arm the
+    // 3s timer with no viewport check and registration would fire regardless
+    // of `intersecting`.
+    const wrapper = mountFooter({ ready: false })
+    await flushPromises()
+
+    const observer = FakeIntersectionObserver.instances[0]
+    observer.callback([dwellEntry({ isIntersecting: false, intersectionHeight: 0, boundingHeight: 300 })])
+
+    vi.useFakeTimers()
+    await wrapper.setProps({ ready: true })
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(registerDiagramImpactView).not.toHaveBeenCalled()
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('diagram_audience_registration_succeeded', expect.anything())
+  })
+
+  it('registers after a 3s dwell once intersecting and ready, tagging was_intersecting true', async () => {
+    vi.mocked(registerDiagramImpactView).mockResolvedValue({ audienceCount: 3, viewerRelation: 'viewer' } as any)
+    mountFooter({ ready: true })
+    await flushPromises()
+
+    const observer = FakeIntersectionObserver.instances[0]
+    vi.useFakeTimers()
+    observer.callback([dwellEntry({ isIntersecting: true, intersectionHeight: 300, boundingHeight: 300 })])
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(registerDiagramImpactView).toHaveBeenCalledWith('content-1')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'diagram_audience_registration_succeeded',
+      expect.objectContaining({ was_intersecting: true }),
+    )
+  })
+
+  it('clears the pending dwell timer when scrolling out of view before 3s elapses', async () => {
+    mountFooter({ ready: true })
+    await flushPromises()
+
+    const observer = FakeIntersectionObserver.instances[0]
+    vi.useFakeTimers()
+    observer.callback([dwellEntry({ isIntersecting: true, intersectionHeight: 300, boundingHeight: 300 })])
+    await vi.advanceTimersByTimeAsync(1500)
+    observer.callback([dwellEntry({ isIntersecting: false, intersectionHeight: 0, boundingHeight: 300 })])
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(registerDiagramImpactView).not.toHaveBeenCalled()
+  })
+
+  // `getCaptureNode()` returns `this.$refs.captureNode ?? null` and is null
+  // while the load-failed panel is mounted, so the `?? root.value` fallback can
+  // silently restore the 29px footer target the diagram target replaces. These
+  // two cover the recovery and the reporting of that state.
+  it('re-attaches to the diagram when the capture node appears only after ready flips', async () => {
+    const diagram = document.createElement('div')
+    let node: HTMLElement | null = null
+    const wrapper = mountFooter({ ready: false, diagramHost: () => node })
+    await flushPromises()
+
+    expect(FakeIntersectionObserver.instances).toHaveLength(1)
+    expect(FakeIntersectionObserver.instances[0].observedElement).not.toBe(diagram)
+
+    node = diagram
+    await wrapper.setProps({ ready: true })
+    await flushPromises()
+
+    expect(FakeIntersectionObserver.instances).toHaveLength(2)
+    expect(FakeIntersectionObserver.instances[1].observedElement).toBe(diagram)
+  })
+
+  it('reports gate_target footer when the diagram node never becomes available', async () => {
+    const wrapper = mountFooter({ ready: false, diagramHost: () => null })
+    await flushPromises()
+    await wrapper.setProps({ ready: true })
+    await flushPromises()
+
+    const observer = FakeIntersectionObserver.instances[FakeIntersectionObserver.instances.length - 1]
+    vi.useFakeTimers()
+    observer.callback([dwellEntry({ isIntersecting: true, intersectionHeight: 20, boundingHeight: 29 })])
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'diagram_audience_registration_succeeded',
+      expect.objectContaining({ gate_target: 'footer' }),
+    )
+  })
+
+  it('reports gate_target diagram when the diagram node is available at mount', async () => {
+    const diagram = document.createElement('div')
+    mountFooter({ ready: true, diagramHost: () => diagram })
+    await flushPromises()
+
+    const observer = FakeIntersectionObserver.instances[0]
+    expect(observer.observedElement).toBe(diagram)
+    vi.useFakeTimers()
+    observer.callback([dwellEntry({ isIntersecting: true, intersectionHeight: 300, boundingHeight: 3000 })])
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'diagram_audience_registration_succeeded',
+      expect.objectContaining({ gate_target: 'diagram' }),
+    )
+  })
+
+  // The audience funnel reads 4,429 registrations against 41,844
+  // `diagram_attribution_shown`. That 10.6% is uninterpretable while the shown
+  // count mixes macros the reader saw with macros the render gate released
+  // off screen, so both ends of the funnel carry the gate.
+  it('stamps the render gate on diagram_attribution_shown, the funnel denominator', async () => {
+    getGateTelemetry.mockReturnValue({ render_gate: 'background', visible_at_boot: false })
+    mountFooter({ ready: true })
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'diagram_attribution_shown',
+      expect.objectContaining({ render_gate: 'background', visible_at_boot: false }),
+    )
+  })
+
+  it('stamps the same render gate on the registration event, the numerator', async () => {
+    getGateTelemetry.mockReturnValue({ render_gate: 'immediate', visible_at_boot: true })
+    const diagram = document.createElement('div')
+    mountFooter({ ready: true, diagramHost: () => diagram })
+    await flushPromises()
+
+    const observer = FakeIntersectionObserver.instances[0]
+    vi.useFakeTimers()
+    observer.callback([dwellEntry({ isIntersecting: true, intersectionHeight: 300, boundingHeight: 300 })])
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'diagram_audience_registration_succeeded',
+      expect.objectContaining({ render_gate: 'immediate', visible_at_boot: true }),
+    )
+  })
+
+  it('adds no gate keys when the gate never ran', async () => {
+    getGateTelemetry.mockReturnValue({})
+    mountFooter({ ready: true })
+    await flushPromises()
+
+    const call = vi.mocked(trackAnalyticsEvent).mock.calls
+      .find(([name]) => name === 'diagram_attribution_shown')
+    expect(call).toBeDefined()
+    expect(getGateTelemetry).toHaveBeenCalled()
+    expect(call![1]).not.toHaveProperty('render_gate')
+    expect(call![1]).not.toHaveProperty('visible_at_boot')
+  })
+
+  // The backend answers 200 for a failed derived write, so the outcome rides
+  // the body. Reporting it as a success would overstate registrations by
+  // exactly the population that failed to register.
+  it('reports a write_failed outcome as a failure even though the request returned 200', async () => {
+    vi.mocked(registerDiagramImpactView).mockResolvedValue({ audienceCount: 3, result: 'write_failed' })
+    const diagram = document.createElement('div')
+    mountFooter({ ready: true, diagramHost: () => diagram })
+    await flushPromises()
+
+    const observer = FakeIntersectionObserver.instances[0]
+    vi.useFakeTimers()
+    observer.callback([dwellEntry({ isIntersecting: true, intersectionHeight: 300, boundingHeight: 300 })])
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'diagram_audience_registration_failed',
+      expect.objectContaining({ was_intersecting: true }),
+    )
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'diagram_audience_registration_succeeded',
+      expect.anything(),
+    )
   })
 })

@@ -90,14 +90,6 @@ export function trackEvent(
   void _awaitableTrackEvent(label, action, category, resetEventDetails);
 }
 
-const MIGRATED_ACTIONS = new Set([
-  'view_macro',
-  'create_macro_begin',
-  'edit_macro_begin',
-  'create_macro_end',
-  'edit_macro_end',
-]);
-
 // awaitable function for testing
 export async function _awaitableTrackEvent(
   label: string,
@@ -105,9 +97,6 @@ export async function _awaitableTrackEvent(
   category: EventCategory | string,
   resetEventDetails: Record<string, any> = {}
 ) {
-  if (MIGRATED_ACTIONS.has(action)) {
-    console.warn(`[analytics] Legacy action "${action}" was migrated to trackAnalyticsEvent — use that instead.`);
-  }
   // Volume sampling: drop / down-sample high-volume diagnostics before any init
   // or network cost. Keyed on `action` (the Mixpanel event name for this path).
   // Error events are never down-sampled: decideSample keys only on the action
@@ -193,84 +182,6 @@ export function addonKeyForProductType(productType: string | undefined): string 
 
 export function addonKey() {
   return addonKeyForProductType(import.meta.env.PRODUCT_TYPE);
-}
-
-function version() {
-  return getUrlParam("version") || "unknown_version";
-}
-
-async function callTrack(action: string, eventDetails: any) {
-  try {
-    await fetch(`${window.location.origin}/track`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        Object.assign(
-          {
-            addon_key: addonKey(),
-            version: version(),
-            action,
-          },
-          eventDetails
-        )
-      ),
-    });
-  } catch (e) {
-    console.log("Error in calling /track", e);
-  }
-}
-
-/**
- * Synchronous event tracking for page unload scenarios
- * Uses navigator.sendBeacon to ensure events are sent even when page is closing
- * 
- * @param label - Event label
- * @param action - Event action
- * @param category - Event category
- * @param details - Additional event details
- */
-export function trackEventSync(
-  label: string,
-  action: string,
-  category: EventCategory | string,
-  details: Record<string, any> = {}
-) {
-  try {
-    const eventDetails = {
-      event_category: category || "unknown",
-      event_label: label || "",
-      user_account_id: getCurrentUserAccountId(),
-      client_domain: getClientDomain() || "unknown_atlassian_domain",
-      confluence_space: getSpaceKey() || "unknown_space",
-      product_type: _getProductType(),
-      app_version: import.meta.env.VITE_APP_VERSION,
-      app_commit: import.meta.env.VITE_APP_COMMIT,
-      ...details,
-    };
-    
-    const data = JSON.stringify({
-      addon_key: addonKey(),
-      version: version(),
-      action,
-      ...eventDetails
-    });
-    
-    // Use sendBeacon for reliable delivery during page unload
-    if (navigator.sendBeacon) {
-      const blob = new Blob([data], { type: 'application/json' });
-      const success = navigator.sendBeacon(`${window.location.origin}/track`, blob);
-      console.log(`[Analytics] Event sent via sendBeacon (${success}):`, action);
-    } else {
-      // Fallback: synchronous XHR (not recommended but better than nothing)
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${window.location.origin}/track`, false); // synchronous
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.send(data);
-      console.log('[Analytics] Event sent via sync XHR:', action);
-    }
-  } catch (e) {
-    console.error('[Analytics] Failed to send sync event:', e);
-  }
 }
 
 /**

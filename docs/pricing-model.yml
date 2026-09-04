@@ -9,11 +9,16 @@
 # no in-app restrictions or upgrade flow. There is nothing pricing-related to
 # document for them on our side.
 #
-# Last verified: 2026-04-25 against master @ commit (post 91930141).
+# Last verified: 2026-09-02 against main @ bd82e002 — the restrictions block
+# (scope, bypass_conditions, thresholds), space_license_check and constants,
+# read from src/composables/useCustomerSuccessService.ts,
+# src/utils/paywall/continueAttempts.ts, functions/api/space-status.ts and
+# functions/feature-flags.ts. concepts, block_surface and tracking_events were
+# last verified 2026-04-25; channels.marketplace was re-verified 2026-08-27.
 # Verification commands at the bottom of the file.
 
 meta:
-  doc_version: 2
+  doc_version: 3
   product: ZenUML for Confluence — Lite (Forge)
   forge_app_id: 8ad26115-211f-4216-971b-0540f606303d
   marketplace_status: free
@@ -27,6 +32,8 @@ meta:
     - src/components/UpgradePrompt/upgradePrompt.ts
     - functions/api/space-status.ts
     - functions/api/space-license.ts
+    - functions/feature-flags.ts
+    - src/utils/paywall/continueAttempts.ts
     - src/components/Viewer/GenericViewer.vue
     - src/utils/upgradeTracking.ts
 
@@ -38,7 +45,9 @@ meta:
 # These map directly to the `page_mode` property on edit_macro_end /
 # create_macro_end events.
 #
-# Source detection: src/utils/editModeDetection.ts (detectEditMode)
+# Source detection: src/utils/editModeDetection.ts (detectEditMode) — deleted
+# 2026-09-02 as dead code (zero importers); no replacement source computes
+# page_mode today, so this mapping is descriptive only.
 concepts:
   page_view_mode:
     page_mode_value: view
@@ -117,12 +126,34 @@ channels:
         users_min: 1001
         users_max: 10000
         per_user_per_month_usd: 0.05
+    # ⚠ Two DIFFERENT published prices. Quoting the wrong one misquotes the customer.
+    # Verified 2026-08-27 against the public calculator
+    # (marketplace.atlassian.com/apps/1218380/...?tab=pricing&hosting=cloud) at
+    # 250 / 500 / 902 / 2954 users — all four match exactly.
     cost_formula: |
-      Cumulative tier pricing: cost(N) =
-        if N <= 10:    40
-        else: sum over each tier of (users_in_tier * rate * 10)
-      e.g. 250 users = (100 * 0.44 + 150 * 0.33) * 10 = 935/yr
-    upgrade_url: https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram
+      MONTHLY billing — cumulative per-user rates on the EXACT headcount:
+        if N <= 10:  40/12
+        else:        sum over each tier of (users_in_tier * per_user_per_month_usd)
+      e.g. 250 users = 100*0.44 + 150*0.33 = 93.50/month
+           902 users = 100*0.44 + 150*0.33 + 652*0.11 = 165.22/month
+
+      ANNUAL billing — a FLAT price for the user BAND containing N, NOT a formula.
+      Bands are published per addon; read them, never compute them:
+        GET /rest/2/addons/com.zenuml.confluence-addon/pricing/cloud/live
+            items[]        monthsValid=12 -> annual band prices (unitCount = band top)
+            perUnitItems[] monthsValid=1  -> per-user-per-month rates
+            (skip unitCount == -1, the "Unlimited users" sentinel)
+      e.g. 902 users -> band 801-1000 -> 1,760/yr (NOT 165.22*10 = 1,652)
+
+      The old `* 10` model is WRONG between band boundaries. It agreed with the
+      annual price only AT a boundary (N=1000 -> 1,760 both ways). At 902 users it
+      returned 1,652, which is neither published price. Removed 2026-08-27; the
+      authoritative source is the pricing API above, read live.
+    months_in_year_billed_note: |
+      months_in_year_billed: 10 describes the DISCOUNT SHAPE (annual is cheaper than
+      12x monthly), not a way to compute the annual price. At 902 users annual saves
+      223 against 12 monthly payments, which is not exactly 2 months.
+    upgrade_url: https://marketplace.atlassian.com/apps/1218380/zenuml-diagrams-for-confluence
     upgrade_url_param: ?domain={clientDomain}
     licensing_grants: unlimited macros across all spaces, org-wide
     charges: ALL Confluence users on the tenant
@@ -149,10 +180,61 @@ channels:
 # Lite restrictions: thresholds and what they trigger
 # -------------------------------------------------------------------
 restrictions:
-  scope: Lite only; gated by CUSTOMER_SUCCESS_SERVICE feature flag
+  scope: |
+    Lite only. On by default for every Lite tenant since PR #449 (feat/paywall-default-on:
+    commit a9827be5 2026-08-07, merged 2026-08-10). CUSTOMER_SUCCESS_SERVICE (CSS) is no
+    longer the runtime gate; it only selects tenants for the daily macro-count snapshot.
+    The runtime gate is bypass_conditions[tenant_exemption] below.
+  # Any one of these disables the paywall for the current macro-iframe session.
+  # The frontend resolves tenant_exemption (loadPaywallPolicy) and the
+  # /api/space-status call (loadSpacePaidStatus) in parallel; inside
+  # /api/space-status the order is user_license, space_license, paid_rail.
   bypass_conditions:
-    - space has active license in SPACE_LICENSE_KV (KV-based, see space_license_check)
-    - localStorage.mockSpacePaid === 'true' (test override)
+    - name: tenant_exemption
+      layer: paywall policy — src/composables/useCustomerSuccessService.ts loadPaywallPolicy
+      mechanism: |
+        The frontend calls GET {backend}/feature-flags?client={clientDomain}&features=PAYWALL_EXEMPT.
+        functions/feature-flags.ts reads the PAYWALL_EXEMPTIONS map from the KV_FEATURE_FLAGS
+        namespace and answers PAYWALL_EXEMPT = true when the exact clientDomain key is true
+        OR the "*" key is true (fleet-wide kill switch). A false value equals absent.
+      effect: paywall off for the whole tenant (cssEnabled = false, paywallPolicySource = exemption)
+      fail_open: |
+        A missing or malformed map, or a rejected /feature-flags call, leaves PAYWALL_EXEMPT
+        absent; paywallPolicySource becomes fail_open and the paywall stays off for that
+        iframe session. Unknown is never treated as safe-to-restrict. Non-Lite variants never
+        make the lookup and stay fail_open.
+      admin_tool: python3 .claude/skills/paywall/scripts/paywall_exemptions.py get|put '<json>'
+    - name: user_license
+      layer: GET /api/space-status — functions/api/space-status.ts (checked first)
+      mechanism: |
+        KV record license:{cloudId}:{spaceKey}:{accountId} with status == active and
+        expiresAt > now. accountId is the Forge token principal, never a query param.
+      effect: isPaid = true, source = user_license (per-requester extension, e.g. the JSM extension flow)
+    - name: space_license
+      layer: GET /api/space-status — functions/api/space-status.ts
+      mechanism: |
+        KV record license:{cloudId}:{spaceKey} with status == active and expiresAt > now
+        (Enterprise Bundle purchase or a whole-space extension).
+      effect: isPaid = true, source = space_license
+    - name: paid_rail
+      layer: GET /api/space-status — functions/api/space-status.ts checkPaidRail (after both KV misses)
+      mechanism: |
+        D1 ForgeInstallation holds a row for this cloudId with appId in {Full, Diagramly}
+        and createdAt within the last 45 days (PAID_RAIL_TRIAL_WINDOW_MS: the 30-day Forge
+        trial plus a 15-day buffer). Owner directive 2026-08-07, commit cd47ff30. A D1
+        error or a missing DB binding falls through to isPaid = false.
+      effect: isPaid = true, source = paid_rail — Lite is not paywalled on a tenant that is mid-trial on Full or Diagramly
+      caveat: |
+        ForgeInstallation.createdAt is rewritten on every upsert, including a MAJOR app
+        upgrade, so a tenant with a recent major upgrade also reads as recent. This
+        over-suppresses; it never under-suppresses. Long-term paid Full/Diagramly tenants
+        need an explicit PAYWALL_EXEMPTIONS entry; this window is deliberately time-boxed.
+    - name: test_overrides
+      layer: localStorage in the Forge iframe origin (dev/test only)
+      mechanism: |
+        mockSpacePaid === 'true' skips the space-status call; mockCSSEnabled === 'false'
+        behaves like an exemption; mockMacroCount overrides the macro count.
+      effect: session-local bypass; never reaches KV or D1
   thresholds:
     warning_threshold:
       macros: 85
@@ -192,6 +274,7 @@ space_license_check:
   auth: Forge invocation token (RS256), validated against ALLOWED_FORGE_APP_IDS
   storage: Cloudflare Workers KV (SPACE_LICENSE_KV binding)
   kv_key_format: "license:{cloudId}:{spaceKey}"
+  kv_user_key_format: "license:{cloudId}:{spaceKey}:{accountId}"   # per-requester extension; checked before the space-level key
   kv_index_key: license-index
   record_shape:
     cloudId: string
@@ -203,7 +286,9 @@ space_license_check:
     createdAt: ISO8601 string
     updatedAt: ISO8601 string
   is_paid_predicate: status == "active" AND expiresAt > now
-  cache_control_short: max-age=300
+  response_shape: "{ isPaid: boolean, source?: user_license | space_license | paid_rail }"
+  fallback_when_no_active_license: paid_rail D1 check (restrictions.bypass_conditions[paid_rail]); then isPaid = false
+  cache_control_short: private, max-age=300   # private because the answer varies by accountId (user_license)
   admin_endpoint: /api/space-license   # POST/GET/DELETE, ADMIN_API_SECRET bearer
   admin_test_skill: test-space-license
 
@@ -276,7 +361,11 @@ constants:
   MARKETPLACE_FLAT_RATE_USD: 40
   MARKETPLACE_FLAT_RATE_USERS_MAX: 10
   MONTHS_IN_YEAR_BILLED: 10
-  CSS_FEATURE_FLAG_NAME: CUSTOMER_SUCCESS_SERVICE
+  CSS_FEATURE_FLAG_NAME: CUSTOMER_SUCCESS_SERVICE   # snapshot-enrollment list only since 2026-08-07; not the runtime gate
+  PAYWALL_EXEMPTIONS_KV_KEY: PAYWALL_EXEMPTIONS      # KV_FEATURE_FLAGS namespace; the runtime gate (restrictions.bypass_conditions[tenant_exemption])
+  PAYWALL_EXEMPT_FLAG_NAME: PAYWALL_EXEMPT           # the flag the frontend requests from /feature-flags
+  PAID_RAIL_TRIAL_WINDOW_DAYS: 45                    # functions/api/space-status.ts PAID_RAIL_TRIAL_WINDOW_MS
+  DEFAULT_CONTINUE_ATTEMPTS: 3                       # src/utils/paywall/continueAttempts.ts; 15 until 2026-08-16 (PR #479). A stored localStorage balance is never rewritten, so a user who first hit the gate before that date can still hold up to 15.
   KV_NAMESPACE_BINDING: SPACE_LICENSE_KV
 
 # -------------------------------------------------------------------
@@ -344,3 +433,9 @@ verification:
     grep -nE 'shouldBlockActions|ACTION_BLOCKED' src/components/Viewer/GenericViewer.vue
   license_endpoint: |
     cat functions/api/space-status.ts | grep -nE 'license|isPaid|SPACE_LICENSE_KV'
+  paywall_policy: |
+    grep -nE 'PAYWALL_EXEMPT' src/composables/useCustomerSuccessService.ts functions/feature-flags.ts
+  paid_rail: |
+    grep -nE 'PAID_RAIL_TRIAL_WINDOW_MS|paid_rail' functions/api/space-status.ts
+  continue_attempts: |
+    grep -nE 'DEFAULT_CONTINUE_ATTEMPTS' src/utils/paywall/continueAttempts.ts

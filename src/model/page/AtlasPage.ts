@@ -67,13 +67,7 @@ export class AtlasPage {
       return doc.getMacros();
     } catch (e: any) {
       trackEvent(e.message, 'query_macro_atlas_doc_format', 'warning');
-      console.trace('Failed to query all macros on the page. Assume there is no macros on this page.')
-      console.error('This message will be very helpful for the vendor to improve their product.');
-      console.error('Please consider sharing it with the vendor so that they can fix the issue.');
-      console.error('Please remove all sensitive data before sharing.');
-      console.error('==========');
-      console.error(responseBody);
-      console.error('==========');
+      console.warn('Failed to query all macros on the page. Assuming no macros on this page.', { error: e?.message, responseBody });
       return null;
     }
   }

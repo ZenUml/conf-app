@@ -1,17 +1,14 @@
 import {trackEvent, addonKey} from '@/utils/window';
 import time from '@/utils/timer';
 import * as renderPerf from '@/utils/analytics/renderPerf';
-import {IApWrapper, VersionType} from "@/model/IApWrapper";
 import {IMacroData} from "@/model/IMacroData";
 import {IContentProperty} from "@/model/IContentProperty";
-import {ICustomContent, ICustomContentV2, SearchResults, User} from "@/model/ICustomContent";
+import {ICustomContent, ICustomContentV2, SearchResults} from "@/model/ICustomContent";
 import {IUser} from "@/model/IUser";
 import {ILicense} from "@/model/ILicense";
 import {DataSource, Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import {getCodeFromDiagram} from "@/model/Diagram/DiagramTypeConfig";
 import {
-  AccountUser,
-  ICustomContentResponseBody,
   ICustomContentResponseBodyV2
 } from "@/model/ICustomContentResponseBody";
 import {AtlasPage} from "@/model/page/AtlasPage";
@@ -25,6 +22,11 @@ import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { classifyCreateNotFound, parseContentOperations, SaveFailureDiagnosis } from '@/model/saveFailureDiagnosis';
+
+export enum VersionType {
+  Lite = 'lite',
+  Full = 'full'
+}
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 // AsyncAPI variant only registers `async-api-doc` in its manifest — the
@@ -121,7 +123,7 @@ export interface LoadCustomContentOpts {
   copyCheckMode?: 'full' | 'cross-page-only';
 }
 
-export default class ApWrapper2 implements IApWrapper {
+export default class ApWrapper2 {
   versionType: VersionType;
   _page: AtlasPage;
   currentUser: IUser | undefined;
@@ -150,7 +152,6 @@ export default class ApWrapper2 implements IApWrapper {
       if (this.versionType === VersionType.Full) {
         this.license = forgeGlobal.forgeContext?.license;
       }
-      console.debug('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
 
       if (window) {
         //@ts-ignore
@@ -164,11 +165,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     } catch (e: any) {
       console.error(e);
-      try {
-        trackEvent('error', 'initializeContext', e.message);
-      } catch (e) {
-        console.error(e);
-      }
+      trackEvent('error', 'initializeContext', e.message);
     }
   }
 
@@ -176,19 +173,11 @@ export default class ApWrapper2 implements IApWrapper {
     return forgeGlobal.forgeContext?.extension?.config as IMacroData | undefined;
   }
 
-  async getMacroBody(): Promise<string | undefined> {
-    return undefined;
-  }
-
-  getContentProperty(_key: any): Promise<IContentProperty | undefined> {
-    return Promise.resolve(undefined);
-  }
-
   // ZEN-1170 Defect 1: discriminated content-property read used by the Forge
-  // viewer/editor legacy-fallback paths. The legacy `getContentProperty` above
-  // collapses every failure to `undefined`, which is safe for viewer-only
-  // callers but unsafe for editors (a transient 403 would look identical to
-  // "no legacy property" and the user could save over the legacy data).
+  // viewer/editor legacy-fallback paths. It reports WHY a read failed rather
+  // than collapsing every failure to `undefined`: for an editor a transient
+  // 403 must not look identical to "no legacy property", or the user could
+  // save over the legacy data.
   async getContentPropertyV2(key: string): Promise<ContentPropertyV2Result> {
     // Resolve pageId with the same fallback chain as initializeContext, since
     // not every Forge entry point calls initializeContext() before reaching
@@ -262,7 +251,6 @@ export default class ApWrapper2 implements IApWrapper {
     } else {
       key = `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}`;
     }
-    console.debug('getCustomContentTypePrefix', key);
     return `ac:${key}`;
   }
 
@@ -281,30 +269,6 @@ export default class ApWrapper2 implements IApWrapper {
       return [this.customContentType('gpt-custom-content-key')];
     }
     return CUSTOM_CONTENT_TYPES.map((type) => this.customContentType(type));
-  }
-
-  async createCustomContent(content: Diagram) {
-    const type = this.getCustomContentType();
-    const bodyData: any = {
-      "type": type,
-      "title": content.title || `Untitled ${new Date().toISOString()}`,
-      "space": {
-        "key": (await this.getCurrentSpace()).key
-      },
-      "body": {
-        "raw": {
-          "value": JSON.stringify(content),
-          "representation": "raw"
-        }
-      }
-    };
-    const container = {id: await this._page.getPageId(), type: await this._page.getContentType()};
-    if (container.id) {
-      bodyData.container = container;
-    }
-
-    const response = await this.makeRequest('/rest/api/content', 'POST', bodyData);
-    return response as ICustomContentResponseBody;
   }
 
   async createCustomContentV2(content: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -412,34 +376,6 @@ export default class ApWrapper2 implements IApWrapper {
     throw err;
   }
 
-  async updateCustomContent(contentObj: ICustomContent, newBody: Diagram) {
-    let newVersionNumber = 1;
-
-    if (contentObj.version?.number) {
-      newVersionNumber += contentObj.version?.number
-    }
-    const bodyData = {
-      "type": contentObj.type,
-      "title": newBody.title || contentObj.title,
-      "space": {
-        "key": contentObj.space.key
-      },
-      "container": contentObj.container,
-      "body": {
-        "raw": {
-          "value": JSON.stringify(newBody),
-          "representation": "raw"
-        }
-      },
-      "version": {
-        "number": newVersionNumber
-      }
-    };
-
-    const response = await this.makeRequest(`/rest/api/content/${contentObj.id}`, 'PUT', bodyData);
-    return response as ICustomContentResponseBody;
-  }
-
   private isVersionConflict(error: any): boolean {
     const msg = String(error?.message || error?.responseText || JSON.stringify(error));
     return msg.includes('Version must be incremented');
@@ -544,43 +480,6 @@ export default class ApWrapper2 implements IApWrapper {
       trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
       throw error;
     }
-  }
-
-  async getCustomContentById(id: string): Promise<ICustomContent | undefined> {
-    const customContent = await this.getCustomContentRaw(id);
-    if (!customContent) {
-      throw Error(`Failed to load custom content by id ${id}`);
-    }
-    let diagram = JSON.parse(customContent.body.raw.value);
-    diagram.source = DataSource.CustomContent;
-    const count = (await this._page.countMacros((m) => {
-      //TODO: filter by macro type
-      // Connect-era macros carry {value}; Forge guest params carry a bare
-      // string, which this path has never matched — the typeof narrow keeps
-      // that exact behavior while satisfying the union type.
-      return typeof m?.customContentId === 'object' && m.customContentId?.value === id;
-    }));
-    console.debug(`Found ${count} macros on page`);
-
-    const pageId = await this._page.getPageId();
-    let isCrossPageCopy = pageId && customContent?.container?.id && String(pageId) !== String(customContent.container.id);
-    if (isCrossPageCopy || count > 1) {
-      diagram.isCopy = true;
-      diagram.copyReason = isCrossPageCopy ? 'cross-page' : 'same-page-duplicate';
-      console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.container?.id}, Current page: ${pageId}`);
-      if (isCrossPageCopy) {
-        trackEvent('cross_page', 'duplication_detect', 'warning');
-      }
-      if (count > 1) {
-        trackEvent('same_page', 'duplication_detect', 'warning');
-      }
-    } else {
-      diagram.isCopy = false;
-      diagram.copyReason = undefined;
-    }
-    diagram.id = id;
-    let assign = <unknown>Object.assign({}, customContent, {value: diagram});
-    return <ICustomContent>assign;
   }
 
   async getCustomContentByIdV2(id: string, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
@@ -891,21 +790,15 @@ export default class ApWrapper2 implements IApWrapper {
   async listPageDiagramContents(pageId: string): Promise<Array<any>> {
     const limit = 100;
     const types = customContentTypesForVariant().map(t => this.customContentType(t));
-    try {
-      return await Promise.all(
-        types.map(t =>
-          this.makeRequest(
-            `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
-          ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
-        ),
-      );
-    } catch (e: any) {
-      // Promise.all itself failing means every type failed; the modal shows its
-      // empty state, which is indistinguishable to the user from a page with no
-      // diagrams — acceptable for a read-only affordance.
-      console.error('[byline] listPageDiagramContents failed', e);
-      return [];
-    }
+    // Every mapped promise already has its own .catch (below), so Promise.all
+    // itself can never reject here — no outer try/catch needed.
+    return await Promise.all(
+      types.map(t =>
+        this.makeRequest(
+          `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
+        ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
+      ),
+    );
   }
 
   // ZEN-1170 Defect 2b. Read-OR-recover for the macro's referenced CC.
@@ -1087,8 +980,6 @@ export default class ApWrapper2 implements IApWrapper {
     const customContent = await this.getCustomContentRawV2(id, 'include-versions=true');
     const descendingVersions = customContent?.versions?.results.sort((a, b) => b.number - a.number);
     const version = descendingVersions?.find(v => new Date(v.createdAt) < new Date(date)) || descendingVersions?.[descendingVersions.length - 1];
-    console.log(`Found version ${version?.number} created at ${version?.createdAt} before date ${date}`);
-
     const customContentVersion = await this.getCustomContentRawV2(id, `version=${version?.number}&body-format=raw`);
     let diagram = JSON.parse(customContentVersion?.body?.raw?.value || '{}');
     diagram.source = DataSource.CustomContent;
@@ -1115,26 +1006,11 @@ export default class ApWrapper2 implements IApWrapper {
     return await this.getCustomContentByIdV2(customContentId);
   }
 
-  private async getCustomContentRaw(id: string): Promise<ICustomContentResponseBody | undefined> {
-    const url = `/rest/api/content/${id}?expand=body.raw,version.number,container,space`;
-    try {
-      const response = await this.makeRequest(url);
-      const customContent = response as ICustomContentResponseBody;
-      console.debug(`Loaded custom content by id ${id}.`);
-      return customContent;
-    } catch (e) {
-      trackEvent(JSON.stringify(e), 'load_custom_content', 'error');
-      // TODO: return a NullCustomContentObject
-      return undefined;
-    }
-  }
-
   private async getCustomContentRawV2(id: string, query: string = 'body-format=raw'): Promise<ICustomContentResponseBodyV2 | undefined> {
     const url = `/api/v2/custom-content/${id}?${query}`;
     try {
       const response = await this.makeRequest(url);
       const customContent = response as ICustomContentResponseBodyV2;
-      console.debug(`Loaded custom content by id ${id}.`);
       return customContent;
     } catch (e) {
       trackEvent(JSON.stringify(e), 'load_custom_content', 'error');
@@ -1147,25 +1023,6 @@ export default class ApWrapper2 implements IApWrapper {
     const typeClause = (t: string) => `type="${this.customContentType(t)}"`;
     const typesClause = (a: Array<string>) => a.map(typeClause).join(' or ');
     return typesClause(customContentTypesForVariant());
-  }
-
-  async buildSearchCustomConentUrl(keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = [], limit?: number): Promise<string> {
-    const typesClauseFilter = this.buildTypesClauseFilter();
-    const spaceKeyFilter = (await this.getCurrentSpace()).key;
-    let keywordFilter = '', onlyMineFilter = '', docTypeFilter = '', limitFilter = '' , idFilter = '';
-    if (keyword != '') {
-      const formatKeyword = keyword.replace(/[-:]/g, " ");
-      keywordFilter = ` and (title ~ "${formatKeyword}*" or title ~ "*${formatKeyword}*" or title ~ "${formatKeyword}")`;
-    }
-    if (ids.length > 0) {
-      const idList = ids.join(', ');
-      idFilter = ` and id in (${idList})`;
-  }
-    if (onlyMine) onlyMineFilter = ` and contributor = "${this.currentUser?.atlassianAccountId}"`;
-    if (docType != '') docTypeFilter = ``;
-    if (limit != undefined) limitFilter = `&limit=${limit}`;
-    const searchUrl = `/rest/api/content/search?cql=space="${spaceKeyFilter}" and (${typesClauseFilter}) ${keywordFilter} ${onlyMineFilter} ${docTypeFilter} ${idFilter} order by lastmodified desc${limitFilter}&expand=body.raw,version.number,container,space,body.storage,history.contributors.publishers.users`;
-    return searchUrl;
   }
 
   async searchCustomContent(_maxItems: number = SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
@@ -1480,7 +1337,6 @@ export default class ApWrapper2 implements IApWrapper {
       };
 
       trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForgeByUrl', 'info');
-      console.log('searchPagedCustomContentForgeByUrl results:', searchResults);
       return searchResults;
     } catch (e) {
       console.error('searchPagedCustomContentForgeByUrl', e);
@@ -1494,161 +1350,6 @@ export default class ApWrapper2 implements IApWrapper {
 
   async searchPagedCustomContentByUrl(searchUrl: string): Promise<SearchResults> {
     return await this.searchPagedCustomContentForgeByUrl(searchUrl);
-  }
-
-  searchOnce = async (url: string): Promise<SearchResults> => {
-    console.debug(`Searching content with ${url}`);
-    const data = await this.request(url);
-    console.debug(`${data?.size} results returned, has next? ${data?._links?.next != null}`);
-    data.results = data?.results.map(this.parseCustomContent).filter((c: ICustomContent) => c.value && c.value.diagramType);
-    console.debug({action: 'searchOnce', data: data});
-    return data;
-  };
-
-  buildUrl = (sourceUrl: string, newPath: string): string => {
-    if (newPath && newPath.startsWith("/")) {
-      newPath = newPath.substring(1);
-    }
-    return `${this.extractDomainFromURL(sourceUrl)}/${newPath}`;
-  }
-
-  extractDomainFromURL = (url: string): string => {
-    try {
-      const parsedUrl = new URL(url);
-      return parsedUrl.origin;
-    } catch (error) {
-      console.error("Invalid URL:", error);
-      return '';
-    }
-  }
-
-  parseCustomContent = (customContent: ICustomContentResponseBody): ICustomContent => {
-    const result = <unknown>Object.assign({}, customContent, {
-      value: this.parseCustomContentDiagram(customContent),
-      container: Object.assign({}, customContent.container, this.parseCustomContentContainer(customContent)),
-      author: this.parseUser(customContent?.history?.createdBy),
-      contributors: this.parseCustomContentContributors(customContent)
-    });
-    console.debug(`converted result: `, result);
-    return result as ICustomContent;
-  };
-
-  parseUser = (accountUser: AccountUser | undefined): User | undefined => {
-    if (accountUser == undefined) return undefined
-    let accountId = accountUser.accountId || '';
-    let selfLink = accountUser._links?.self || '';
-    let user: User = {
-      id: accountId,
-      name: accountUser.displayName || '',
-      avatar: this.buildUrl(selfLink, accountUser.profilePicture?.path || ''),
-      link: this.buildUrl(selfLink, 'wiki/display/~' + accountId),
-    };
-    return user;
-  }
-
-  parseCustomContentContributors = (customContent: ICustomContentResponseBody): Array<User> => {
-    let contributors: Array<User> = [];
-    const accountUsers = customContent?.history?.contributors?.publishers?.users || new Array<AccountUser>;
-    for (let i = 0; i < accountUsers.length; i++) {
-      let user = this.parseUser(accountUsers[i]);
-      if (user == undefined) continue;
-      contributors.push(user);
-    }
-    return contributors;
-  };
-
-  parseCustomContentContainer = (customContent: ICustomContentResponseBody): any => {
-    let container: { link: string | undefined } = {link: undefined};
-    try {
-      let webui = customContent?.container?._links?.webui || '';
-      let selfUrl = customContent?.container?._links?.self || '';
-      container.link = this.buildUrl(selfUrl, 'wiki' + webui);
-    } catch (e) {
-      console.error('parseCustomContentContainer error: ', e);
-      trackEvent(JSON.stringify(e), 'parseCustomContentContainer', 'error');
-    }
-    return container;
-  };
-
-  parseCustomContentDiagram = (customContent: ICustomContentResponseBody): any => {
-    let diagram: any;
-    const rawValue = customContent?.body?.raw?.value;
-    if (rawValue) {
-      try {
-        diagram = JSON.parse(rawValue);
-        if (diagram.diagramType == undefined) return null;
-        diagram.source = DataSource.CustomContent;
-      } catch (e) {
-        console.error(`parseCustomContentDiagram error: `, e, `raw value: ${rawValue}`);
-        trackEvent(JSON.stringify(e), 'parseCustomContentDiagram', 'error');
-      }
-    }
-    return diagram;
-  };
-
-  async getCustomContentByType(type: string): Promise<Array<ICustomContent>> {
-    try {
-      const space = await this.getCurrentSpace();
-      const spaceId = space.id;
-      const url = `/api/v2/spaces/${spaceId}/custom-content?type=${this.customContentType(type)}&body-format=raw`;
-      const response: { results: Array<any> } = await this.request(url);
-
-      const parseCustomContentBodyV2 = (customContent: ICustomContentResponseBodyV2): ICustomContent => {
-        let diagram: any;
-        const rawValue = customContent?.body?.raw?.value;
-        if (rawValue) {
-          try {
-            diagram = JSON.parse(rawValue);
-            diagram.source = DataSource.CustomContent;
-          } catch (e) {
-            console.error(`parseCustomContentBodyV2 error: `, e, `raw value: ${rawValue}`);
-            trackEvent(JSON.stringify(e), 'parseCustomContentBodyV2', 'error');
-          }
-        }
-        const result = <unknown>Object.assign({}, customContent, {value: diagram}, {container: {id: customContent.pageId}});
-        console.debug(`converted result: `, result);
-        return result as ICustomContent;
-      };
-
-      return response.results.map(parseCustomContentBodyV2).filter(c => c.value?.diagramType);
-    } catch (e) {
-      console.error('getCustomContentByType:', e);
-      trackEvent(JSON.stringify(e), 'getCustomContentByType', 'error');
-      return [];
-    }
-  }
-
-  async getCustomContentByTypes(types: Array<string>): Promise<Array<ICustomContent>> {
-    const [r1, r2] = await Promise.all(types.map(t => this.getCustomContentByType(t)));
-    return r1?.concat(r2);
-  }
-
-  async saveCustomContent(customContentId: string, value: Diagram) {
-    let result;
-    // TODO: Do we really need to check whether it exists?
-    const existing = await this.getCustomContentById(customContentId);
-    const pageId = await this._page.getPageId();
-    const count = (await this._page.countMacros((m) => {
-      // Connect-era {value} form only — bare-string (Forge) params never
-      // matched here; the typeof narrow preserves that.
-      return typeof m?.customContentId === 'object' && m.customContentId?.value === customContentId;
-    }));
-
-    // pageId is absent when editing in custom content list page;
-    // Make sure we don't update custom content on a different page
-    // and there is only one macro linked to the custom content on the current page.
-    if (existing && (!pageId || (String(pageId) === String(existing?.container?.id) && count === 1))) {
-      result = await this.updateCustomContent(existing, value);
-    } else {
-      if (count > 1) {
-        console.warn(`Detected copied macro on the same page ${pageId}.`);
-      }
-      if (String(pageId) !== String(existing?.container?.id)) {
-        console.warn(`Detected copied macro on page ${pageId} (current) and ${existing?.container?.id}.`);
-      }
-      result = await this.createCustomContent(value);
-    }
-    return result
   }
 
   async saveCustomContentV2(customContentId: string, value: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -1769,14 +1470,6 @@ export default class ApWrapper2 implements IApWrapper {
     return !ext?.macro?.isConfiguring && !ext?.macro?.isInserting;
   }
 
-  async getCustomContent(): Promise<ICustomContent | undefined> {
-    const macroData = await this.getMacroData();
-    if (macroData && macroData.customContentId) {
-      return this.getCustomContentById(macroData.customContentId);
-    }
-    return undefined;
-  }
-
   async getAttachmentsV2(pageId?: string, queryParameters?: any): Promise<Array<Attachment>> {
     pageId = pageId || await this._getCurrentPageId();
     queryParameters = queryParameters || {};
@@ -1789,21 +1482,6 @@ export default class ApWrapper2 implements IApWrapper {
         base,
         download: a.downloadLink
       }
-    })) || [];
-  }
-
-  async getAttachments(pageId?: string, queryParameters?: any): Promise<Array<Attachment>> {
-    pageId = pageId || await this._getCurrentPageId();
-    queryParameters = queryParameters || {};
-    const param = Object.keys(queryParameters).reduce((acc, i) => `${acc}${acc ? '&' : ''}${i}=${queryParameters[i]}`, '');
-    const url = `/rest/api/content/${pageId}/child/attachment${param ? `?expand=version&${param}` : ''}`;
-    const response = await this.makeRequest(url);
-    console.debug(`found attachments in page ${pageId} with params ${queryParameters}:`, response);
-    const baseLinks = {base: response._links.base, context: response._links.context};
-    //set 'comment' as top level field to be consistent with V2 API response
-    return response?.results.map((a: any) => Object.assign(a, {
-      comment: a.metadata?.comment,
-      _links: Object.assign(a._links, baseLinks)
     })) || [];
   }
 
@@ -1837,21 +1515,8 @@ export default class ApWrapper2 implements IApWrapper {
     return this.baseUrl || (this.baseUrl = baseOf(await this._getCurrentPageUrl()));
   }
 
-  async _getLicense(): Promise<ILicense | undefined> {
-    return forgeGlobal.forgeContext?.license;
-  }
-
-  async hasFullAddon(): Promise<boolean> {
-    return false;
-  }
-
   async _getLocationTarget(): Promise<LocationTarget> {
     return this.locationTarget || (this.locationTarget = await this._page.getLocationTarget());
-  }
-
-  async isInContentEditOrContentCreate(): Promise<boolean> {
-    const target = await this._getLocationTarget();
-    return target === LocationTarget.ContentEdit || target === LocationTarget.ContentCreate;
   }
 
   async canUserEdit(): Promise<boolean> {
@@ -1886,22 +1551,6 @@ export default class ApWrapper2 implements IApWrapper {
   async requestPaginatedDataUntil(initialUrl: string, consumer: (data: any) => void, shouldStop: () => boolean): Promise<void> {
     return loadPaginatedDataUntil(this.request.bind(this), initialUrl, consumer, shouldStop);
   };
-
-  async getAppProperty(_propertyKey: string = ''): Promise<any> {
-    //TODO: Migrate the usage of AppProperty to Forge storage API
-    return;
-  }
-
-  async setAppProperty(_propertyKey: string = '', _value: any = undefined): Promise<any> {
-    //TODO: Migrate the usage of AppProperty to Forge storage API
-    return;
-  }
-
-  async getToken(): Promise<string> {
-    //TODO: Remove - this was a Connect-only method. Callers should use @forge/bridge instead.
-    console.warn('getToken() is deprecated - Connect tokens are no longer available');
-    return '';
-  }
 
   // _links (base/webui) is part of the standard v2 "get page by id" envelope
   // regardless of body-format — confirmed live against lite-dev on 2026-07-30

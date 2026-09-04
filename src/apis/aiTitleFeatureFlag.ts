@@ -2,6 +2,7 @@ import { FeatureFlags, type FeatureFlagUser, type ForgeFeatureFlagConfig } from 
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
 const AI_CHAT_FLAG_ID = 'ai-chat-enabled'
+const AI_CHAT_REPAIR_FLAG_ID = 'ai-chat-repair-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
@@ -20,6 +21,14 @@ function standaloneAiRepairEnabled(): boolean {
 function standaloneAiChatEnabled(): boolean {
   try {
     return localStorage.getItem('mockAiChatEnabled') !== 'false'
+  } catch {
+    return false
+  }
+}
+
+function standaloneAiChatRepairEnabled(): boolean {
+  try {
+    return localStorage.getItem('mockAiChatRepairEnabled') === 'true'
   } catch {
     return false
   }
@@ -95,6 +104,22 @@ export async function isAiChatEnabled(): Promise<boolean> {
     return await client.checkFlag(AI_CHAT_FLAG_ID, false)
   } catch (error) {
     console.error('Failed to load AI Chat feature flag:', error)
+    return false
+  }
+}
+
+/**
+ * Controls whether the syntax-error AI Repair entry point delegates to AI
+ * Chat. This does not gate the AI Chat button or syntax repair inside Chat.
+ */
+export async function isAiChatRepairEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneAiChatRepairEnabled()
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(AI_CHAT_REPAIR_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load AI Chat repair feature flag:', error)
     return false
   }
 }

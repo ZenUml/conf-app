@@ -4,7 +4,8 @@ import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
+import { Diagram } from "@/model/Diagram/Diagram";
+import { getDiagramData } from "@/model/Diagram/DiagramTypeConfig";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';

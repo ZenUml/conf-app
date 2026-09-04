@@ -65,7 +65,6 @@ export default {
     try {
       // Load ZenUml dynamically
       const ZenUml = await loadZenUml();
-      console.log("ZenUML Core version: ", ZenUml.version);
       zenuml = new ZenUml(this.$refs["zenuml"]);
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());

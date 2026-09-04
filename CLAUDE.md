@@ -70,7 +70,7 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
 
-Don't create a worktree reflexively: `.md`-only edits go straight to `main` (worktree only if another session's changes block a clean `git checkout main`), and changes to git-ignored files only need no branch/worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full branching protocol (start-of-issue steps, worktree usage).
+**The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — per-worktree setup cost, start-of-issue steps, cleanup.
 
 ### Never disrupt another session's working tree
 
@@ -86,17 +86,9 @@ The original directory stays untouched. When in doubt, ask before any destructiv
 
 ## Architecture
 
-### Frontend
-
-- **Entry Point**: Single Forge Custom UI entry (`index.html` + `src/forgeIndex.ts`)
-- **Forge Entry Points**: `src/forge-*.ts` files for different diagram types
-- **Forge Integration**: `@forge/bridge` for Confluence API access (`requestConfluence`, `invokeRemote`, `view`, `router`)
-
 ### Backend (Cloudflare Workers)
 
-- **Functions**: Located in `functions/` directory. **CRITICAL:** `public/_routes.json` is an explicit allowlist — any new function path must be added to its `include` array, otherwise Cloudflare Pages serves the path as a static SPA HTML fallback instead of routing it to the function. Symptom: `GET /your/path` returns 200 with `content-type: text/html` instead of running your code.
-- **Database**: D1 database with migrations in `functions/migrations/`
-- **Auth**: Forge invocation token (RS256) validated via `functions/utils/authenticate.ts`
+Backend code is in `functions/`. See [functions/CLAUDE.md](functions/CLAUDE.md) — it holds the `public/_routes.json` allowlist gotcha, which makes a new function path return static HTML instead of running.
 
 ### Content management
 
@@ -148,10 +140,7 @@ Never echo a secret's value; prove access with a status code instead.
 
 **Staging deployment rule:** staging is deployed only by the GitHub Actions CI/CD pipeline triggered by pushing the candidate branch. Do **not** run `pnpm forge:deploy:*:staging` from a local shell; use the pipeline run as the deployment authority and verify its completion before staging checks. Local Forge use is limited to development tunnels and read-only diagnostics.
 
-```bash
-# Forge tunnel for local development
-pnpm forge:tunnel
-```
+See the `forge:deploy:*` scripts in `package.json`, one per variant and environment. For local tunnelling use the **forge-tunnel** skill.
 
 #### Forge CLI auth
 

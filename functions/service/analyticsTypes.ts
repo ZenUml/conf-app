@@ -23,29 +23,18 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "ai_generation_requested",
   "ai_generation_succeeded",
   "ai_generation_failed",
-  "ai_editor_opened",
-  "ai_feedback_submitted",
   "upgrade_modal_shown",
   "upgrade_action_blocked",
   "upgrade_modal_dismissed",
   "upgrade_prompt_hovered",
-  "content_sync_requested",
-  "content_sync_succeeded",
-  "content_sync_failed",
-  "custom_content_loaded",
-  "confluence_page_viewed",
-  "confluence_page_updated",
   "csat_submitted",
   "feedback_link_clicked",
-  "feature_flags_fetch_failed",
-  "attachment_create_failed",
   // Terminal outcome of the async (save-time) PNG backup write, emitted by
   // functions/forge-upload-attachment.ts from inside waitUntil. See the
   // matching block in src/utils/analytics/catalog.ts (#392).
   "attachment_upload_async_succeeded",
   "attachment_upload_async_failed",
   "attachment_upload_async_skipped",
-  "custom_content_update_failed",
   "macro_count_snapshot_completed",
   "macro_count_space_changed",
   "macro_count_snapshot_failed",
@@ -66,17 +55,12 @@ export const CANONICAL_EVENT_NAME_LIST = [
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];
 
-export const CANONICAL_EVENT_NAMES: ReadonlySet<string> = new Set(CANONICAL_EVENT_NAME_LIST);
-
-export type TrackCanonicalRequest = {
-  transport_version: 2;
-  event: AnalyticsEventName;
-  properties: Record<string, string | number | boolean | null | undefined>;
-  addon_key: string;
-  version: string;
-};
-
-export type TrackLegacyRequest = {
+// The transport_version: 2 "canonical" shape (TrackCanonicalRequest) and its
+// isCanonicalRequest() discriminator were deleted 2026-09-02: nothing ever
+// sent transport_version: 2 to /track (the frontend's canonical emit path is
+// trackAnalyticsEvent -> Mixpanel directly, not this legacy endpoint). This
+// is now just the one shape /track has ever actually received.
+export type TrackRequest = {
   transport_version?: 1;
   action: string;
   event_category?: string;
@@ -87,9 +71,3 @@ export type TrackLegacyRequest = {
   version: string;
   [key: string]: string | number | boolean | null | undefined;
 };
-
-export type TrackRequest = TrackCanonicalRequest | TrackLegacyRequest;
-
-export function isCanonicalRequest(body: TrackRequest): body is TrackCanonicalRequest {
-  return (body as TrackCanonicalRequest).transport_version === 2;
-}

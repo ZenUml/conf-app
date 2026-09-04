@@ -3,8 +3,6 @@ import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isCo
 import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
 import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
 import { decompress } from "@/utils/compress";
-import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
-import ApWrapper2 from "@/model/ApWrapper2";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { toast } from '@/utils/toast';
@@ -17,7 +15,6 @@ import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue"
 installRestoreDraftBanner();
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
-import { showCloseWithoutSavingDialog } from './utils/modalService';
 import EventBus from "./EventBus";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
@@ -38,9 +35,6 @@ import {
   setGraphEditorMode,
 } from "@/utils/graph/graphEditorMode";
 import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
-
-// Track editor session start time
-const editorStartTime = Date.now();
 
 // Captured at editor open from extension.config.uuid. On Connect-era macros
 // this is a pre-existing identifier we forward back through view.submit so the
@@ -215,57 +209,6 @@ async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolea
   return true;
 }
 
-async function exit() {
-  const codeChanged = window.diagram?.graphXml !== window.graphXml;
-  
-  // Prepare event data
-  const isNewGraph = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Graph;
-  const elapsedTimeMs = Date.now() - editorStartTime;
-  
-  const eventProps = {
-    had_changes: codeChanged,
-    source: 'graph_editor',
-    elapsed_time_ms: elapsedTimeMs,
-    code_length: store.state.diagram.graphXml?.length || 0,
-    journey_id: getEditJourneyId(),
-    session_id: getOrCreateSession(),
-  };
-  
-  if (codeChanged) {
-    // Show custom modal dialog for Forge
-    const result = await showCloseWithoutSavingDialog();
-    
-    if (result === 'discard') {
-      // User confirmed exit - track exit event
-      const exitEventAction = isNewGraph ? 'create_macro_exit' : 'edit_macro_exit';
-      trackEvent('', exitEventAction, DiagramType.Graph, eventProps);
-      
-      // End journey on exit
-      if (getEditJourneyId()) {
-        endEditJourney('cancelled');
-      }
-      
-      await (await getView()).close();
-    } else {
-      // User cancelled exit (chose to keep editing) - track cancelled event
-      const cancelledEventAction = isNewGraph ? 'create_macro_exit_cancelled' : 'edit_macro_exit_cancelled';
-      trackEvent('', cancelledEventAction, DiagramType.Graph, eventProps);
-      // Do NOT end journey - user continues editing
-    }
-  } else {
-    // No changes - immediate exit
-    const exitEventAction = isNewGraph ? 'create_macro_exit' : 'edit_macro_exit';
-    trackEvent('', exitEventAction, DiagramType.Graph, eventProps);
-    
-    // End journey on exit
-    if (getEditJourneyId()) {
-      endEditJourney('window_close');
-    }
-    
-    await (await getView()).close();
-  }
-}
-
 async function initializeMacro() {
   const context = await initForgeContext();
 
@@ -313,7 +256,6 @@ async function initializeMacro() {
   let legacyLoadBlocked = false;
   if (customContentId) {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
-    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
@@ -427,7 +369,6 @@ async function initializeMacro() {
 
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
-  console.log('loadDiagram - window.diagram', window.diagram);
 
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {

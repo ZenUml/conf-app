@@ -10,6 +10,7 @@ vi.mock('@/services/GenerateService', () => mocks)
 
 import { DiagramType } from '@/model/Diagram/Diagram'
 import {
+  AI_CHAT_SESSION_TIMEOUT_MS,
   getAIChatFailureTelemetry,
   runAIChatSession,
 } from './AIChatSessionService'
@@ -187,6 +188,10 @@ describe('runAIChatSession', () => {
       pollCount: 1,
     })
     expect(mocks.getDiagramlyJobStatus).toHaveBeenCalledOnce()
+  })
+
+  it('keeps polling beyond the provider\'s two-minute request budget', () => {
+    expect(AI_CHAT_SESSION_TIMEOUT_MS).toBeGreaterThan(120_000)
   })
 
   it('classifies diagram preparation request and response failures', async () => {

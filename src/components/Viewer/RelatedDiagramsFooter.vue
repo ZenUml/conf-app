@@ -105,6 +105,7 @@ import {
   type RelatedResponse,
 } from '@/services/ArchitectureTokens'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender'
 
 const props = defineProps<{
   customContentId: string
@@ -235,6 +236,21 @@ const baseProperties = () => ({
   feature_area: 'architecture_tokens' as const,
   surface: props.surface,
   macro_type: 'mermaid' as const,
+  // Whether the macro was on screen when the render happened. Without it a
+  // render count cannot be read as an opportunity to interact: measured over
+  // 2026-08-15..09-02 on the two customer tenants, 54.8% of `macro_viewed`
+  // carried `render_gate: 'background'` with `visible_at_boot: false`, meaning
+  // the fallback timer released a macro nobody scrolled to. Only 18.4% of
+  // counted views involved the macro entering the viewport at all.
+  //
+  // `related_token_indicators_shown` carried none of this (176 events in that
+  // window, every one absent on render_gate and visible_at_boot), so the
+  // 0-clicks-out-of-529-renders reading had to borrow the macro_viewed
+  // distribution as a proxy. Emitting it here makes both the denominator and
+  // the popover/link numerators segmentable directly.
+  //
+  // `{}` when the gate never ran, so nothing is added on an ungated render.
+  ...getGateTelemetry(),
 })
 const countProperties = () => ({
   participant_count: participants.value.length,
@@ -356,15 +372,22 @@ async function load() {
   trackAnalyticsEvent('related_diagrams_lookup_succeeded', {
     ...baseProperties(),
     ...countProperties(),
+    lookup_outcome: response.lookup_outcome
+      ?? (response.indexedAt === null ? 'index_miss' : 'indexed'),
     duration_ms: Math.round(performance.now() - started),
   })
 
   if (!withRelated.value.length) return
-  trackAnalyticsEvent('related_diagrams_shown', {
+  // Lay the circles out first, then report how many actually got an anchor. The footer text
+  // and the circles read the SVG differently — `renderedActorIds()` takes any `name`, while
+  // `actorBox()` also needs `.actor-top` — so the footer can promise N participants while the
+  // diagram draws none. Without this count that gap is invisible: the event fired either way.
+  layoutPills()
+  trackAnalyticsEvent('related_token_indicators_shown', {
     ...baseProperties(),
     ...countProperties(),
+    participants_anchored: pills.value.length,
   })
-  layoutPills()
   window.addEventListener('resize', onWindowResize)
   window.addEventListener('scroll', positionPopover, true)
   document.addEventListener('keydown', onKeyDown)

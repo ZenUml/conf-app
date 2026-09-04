@@ -98,9 +98,16 @@ python3 $S whois example-tenant-a                                  # domain -> c
 # (tenant slugs above are placeholders — pass a real slug; real names: see private/ client profiles)
 ```
 
-Add `--json` to any command for machine-readable output. `--app` accepts `full`, `lite`, `both`
-(both ZenUML apps), `all` (entire vendor incl. non-ZenUML apps), or an explicit `com.*` addon key.
-Default is `full`.
+Add `--json` to any command for machine-readable output. `--app` accepts an alias — `full`,
+`lite`, `diagramly`, `asyncapi` — or `both` (Full + Lite only), `all` (entire vendor incl.
+non-ZenUML apps), a known addon key from the table below, or an explicit `com.*` addon key.
+Default is `full`. Any other value is a usage error (exit 2, accepted values listed) — before
+2026-09-02 an unrecognised value such as `my-api` silently returned the ALL-apps result under an
+`app=my-api` header.
+
+Unit check (no network, no credentials): `python3 .claude/skills/marketplace/scripts/test_mp_report.py`
+(`python3 -m unittest <path>` cannot import a path that starts with `.claude/`; use
+`python3 -m unittest discover -s .claude/skills/marketplace/scripts` instead.)
 
 ## Subcommands
 
@@ -181,10 +188,14 @@ the Marketplace credentials as sensitive and don't echo the token.
 
 ## Addon keys
 
-| app | addonKey | notes |
-|---|---|---|
-| ZenUML **Full** | `com.zenuml.confluence-addon` | the paid app; where real Full revenue lives |
-| ZenUML **Lite** | `com.zenuml.confluence-addon-lite` | free listing; paid Lite access is the Stripe/KV space-license layer, **not** here |
+| app | `--app` alias | addonKey | notes |
+|---|---|---|---|
+| ZenUML **Full** | `full` | `com.zenuml.confluence-addon` | the paid app; where real Full revenue lives |
+| ZenUML **Lite** | `lite` | `com.zenuml.confluence-addon-lite` | free listing; paid Lite access is the Stripe/KV space-license layer, **not** here |
+| **Diagramly** | `diagramly` | `gptdock-confluence` | Diagramly-branded variant; second revenue app |
+| **AsyncAPI for Confluence** | `asyncapi` | `my-api` | third revenue app; its own Forge app identity |
+
+`sync` snapshots all four; `--app both` covers only Full + Lite.
 
 Lite is a free Marketplace listing, so `revenue`/`overdue` on `--app lite` will be near-empty by
 design — paid Lite access is enforced in the separate Stripe/KV space-license layer (see the

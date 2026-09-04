@@ -1,13 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { related, getRelatedDiagrams, trackAnalyticsEvent, openUrl } = vi.hoisted(() => {
+const { related, getRelatedDiagrams, trackAnalyticsEvent, openUrl, getGateTelemetry } = vi.hoisted(() => {
   const response = { value: null as any }
   return {
     related: response,
     getRelatedDiagrams: vi.fn(async () => response.value),
     trackAnalyticsEvent: vi.fn(),
     openUrl: vi.fn(),
+    // module-level state set by the viewport render gate; {} when the gate never ran
+    getGateTelemetry: vi.fn((): Record<string, unknown> => ({})),
   }
 })
 
@@ -20,6 +22,7 @@ vi.mock('@/services/ArchitectureTokens', () => ({
   },
 }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent }))
+vi.mock('@/utils/renderGate/maybeGateViewerRender', () => ({ getGateTelemetry }))
 vi.mock('@/model/globals/forgeGlobal', () => ({
   openUrl,
   default: {
@@ -154,9 +157,13 @@ const links = () =>
   popover()!.querySelectorAll<HTMLElement>('[data-testid="related-diagram-link"]')
 const enterDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerenter'))
 const leaveDiagram = (h: HTMLElement) => h.dispatchEvent(new Event('pointerleave'))
+const propertiesOf = (eventName: string) =>
+  trackAnalyticsEvent.mock.calls.find(([name]) => name === eventName)?.[1]
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Default: the gate never ran, matching what a fresh module gives every other spec.
+  getGateTelemetry.mockReturnValue({})
   // The backend always sends relatedTotal; fixtures that do not care about truncation
   // get "the list is the whole set" so each one states only what it is testing.
   getRelatedDiagrams.mockImplementation(async () => {
@@ -203,11 +210,54 @@ describe('RelatedDiagramsFooter', () => {
         participants_with_related: 1,
         related_pages_total: 2,
         index_age_days: 3,
+        lookup_outcome: 'indexed',
       }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
-      'related_diagrams_shown',
+      'related_token_indicators_shown',
       expect.objectContaining({ participants_with_related: 1 }),
+    )
+    expect(
+      trackAnalyticsEvent.mock.calls.filter(
+        ([eventName]) => eventName === 'related_token_indicators_shown',
+      ),
+    ).toHaveLength(1)
+  })
+
+  // The footer text and the circles come from two different reads of the SVG:
+  // `renderedActorIds()` accepts any element carrying `name`, `actorBox()` additionally
+  // requires `.actor-top`. When only the first matches, the footer promises N participants
+  // and the diagram draws zero circles — the 2026-08-28 shape of this defect. Nothing
+  // recorded that gap, so a live page could not be told apart from a page with no matches.
+  it('reports how many participants were anchored, so a promised-but-undrawn circle is visible in telemetry', async () => {
+    related.value = twoParticipants
+    const unanchorableHost = document.createElement('div')
+    unanchorableHost.style.position = 'relative'
+    // `name` present (so the participant survives the rendered-id filter) but no `.actor-top`.
+    unanchorableHost.innerHTML = '<svg><text name="PA">Partner App</text></svg>'
+    Object.defineProperty(unanchorableHost, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 20, right: 620, top: 10, bottom: 410, width: 600, height: 400 }),
+    })
+    document.body.appendChild(unanchorableHost)
+    mountFooter({}, unanchorableHost)
+    await flushPromises()
+
+    expect(unanchorableHost.querySelector('[data-testid="related-diagrams-pill"]')).toBeNull()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_token_indicators_shown',
+      expect.objectContaining({ participants_with_related: 1, participants_anchored: 0 }),
+    )
+  })
+
+  it('reports every participant as anchored when the SVG carries the matching actor boxes', async () => {
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_token_indicators_shown',
+      expect.objectContaining({ participants_with_related: 1, participants_anchored: 1 }),
     )
   })
 
@@ -238,6 +288,32 @@ describe('RelatedDiagramsFooter', () => {
     expect(wrapper.find('[data-testid="related-diagrams-footer"]').exists()).toBe(false)
     expect(h.querySelector('[data-testid="related-diagrams-pill"]')).toBeNull()
     expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('prefers the lookup outcome returned by the backend over the compatibility fallback', async () => {
+    related.value = { ...twoParticipants, lookup_outcome: 'index_miss' }
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.objectContaining({ lookup_outcome: 'index_miss' }),
+    )
+  })
+
+  it('derives index_miss for a successful response from an older backend', async () => {
+    related.value = {
+      indexedAt: null,
+      contentVersion: null,
+      participants: [],
+    }
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.objectContaining({ lookup_outcome: 'index_miss' }),
+    )
   })
 
   it('calls the service once only after both ready and enabled become true', async () => {
@@ -784,6 +860,10 @@ describe('RelatedDiagramsFooter', () => {
       'related_diagrams_lookup_failed',
       expect.objectContaining({ error_kind: 'timeout' }),
     )
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.anything(),
+    )
   })
 
   it('keeps a response-level failure silent and records its error kind', async () => {
@@ -801,5 +881,82 @@ describe('RelatedDiagramsFooter', () => {
       'related_diagrams_lookup_failed',
       expect.objectContaining({ error_kind: 'confluence_unavailable' }),
     )
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.anything(),
+    )
+  })
+
+  it('carries the render-gate telemetry on related_token_indicators_shown when the gate ran', async () => {
+    getGateTelemetry.mockReturnValue({
+      render_gate: 'background',
+      visible_at_boot: false,
+      render_deferred_ms: 4200,
+    })
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_token_indicators_shown',
+      expect.objectContaining({
+        render_gate: 'background',
+        visible_at_boot: false,
+        render_deferred_ms: 4200,
+      }),
+    )
+  })
+
+  it('carries the same render-gate telemetry on related_diagram_popover_opened', async () => {
+    getGateTelemetry.mockReturnValue({
+      render_gate: 'background',
+      visible_at_boot: false,
+      render_deferred_ms: 4200,
+    })
+    related.value = twoParticipants
+    const { h } = mountFooter()
+    await flushPromises()
+
+    pill(h, 'PA')!.click()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagram_popover_opened',
+      expect.objectContaining({
+        render_gate: 'background',
+        visible_at_boot: false,
+        render_deferred_ms: 4200,
+      }),
+    )
+  })
+
+  it('carries the same render-gate telemetry on related_diagrams_lookup_succeeded, the denominator for the shown/opened numerators', async () => {
+    getGateTelemetry.mockReturnValue({
+      render_gate: 'immediate',
+      visible_at_boot: true,
+    })
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.objectContaining({ render_gate: 'immediate', visible_at_boot: true }),
+    )
+  })
+
+  it('omits render_gate and visible_at_boot entirely when the gate never ran', async () => {
+    getGateTelemetry.mockReturnValue({})
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    // proves baseProperties() actually reads the gate module rather than the
+    // assertion below passing only because nothing was ever spread in
+    expect(getGateTelemetry).toHaveBeenCalled()
+    const props = propertiesOf('related_token_indicators_shown')
+    expect(props).not.toHaveProperty('render_gate')
+    expect(props).not.toHaveProperty('visible_at_boot')
+    expect(props).not.toHaveProperty('render_deferred_ms')
   })
 })

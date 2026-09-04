@@ -187,12 +187,14 @@ describe("Workspace AI Chat integration", () => {
   });
 
   it("applies AI code through the diagram-type action and merges Diagramly metadata", async () => {
+    store.commit("updateError", "Syntax error from the previous code");
     (wrapper.vm as any).toggleAIChat();
     await wrapper.vm.$nextTick();
     await wrapper.get('[data-testid="apply-code"]').trigger("click");
     await wrapper.get('[data-testid="bind-diagram"]').trigger("click");
 
     expect(store.state.diagram.mermaidCode).toBe("updated by AI");
+    expect(store.state.error).toBeNull();
     expect(store.state.diagram.metadata).toEqual({
       keep: "existing",
       aiChat: {

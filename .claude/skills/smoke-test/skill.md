@@ -113,7 +113,12 @@ A click "[data-ab-pick]"
 
 On no match the return value enumerates every option, which is the diagnostic you need anyway.
 
-## Lite paywall on over-limit test spaces (e.g. `lite-stg` / `SD`)
+## Lite paywall on over-limit test spaces (e.g. `lite-stg` / `SD`, and `zenuml` / `ZEN`)
+
+**Production `zenuml` / `ZEN` is over the limit too** (measured 2026-09-02 during the
+`v2026.09.021021-lite` PVT: banner read "2142 of 100"). Every Lite run on production hits both
+the over-limit banner and the macro-editor paywall modal, so handle them exactly as below —
+this is not specific to staging.
 
 `lite-stg`'s `SD` space is deliberately kept over the Lite 100-macro limit (thousands of macros) as
 shared paywall test data (see the **paywall** skill). Every macro-editor mount there shows the

@@ -271,18 +271,12 @@ const Component = ({
   }, []);
 
   return (
-    <header className="toolbar header border-b border-gray-800 p-2 flex items-center justify-between w-full">
-      <OpenApiTitleInput
-        title={title}
-        spec={spec}
-        parseError={parseError}
-        onTitleChange={changeTitle}
-      />
-      <div className="flex items-center">
+    <header className="toolbar header flex h-8 w-full items-center justify-between gap-3 bg-[#F1F3F4] px-3">
+      <div className="flex flex-1 items-center gap-2">
         {aiChatVisible && (
           <button
             type="button"
-            className={`mx-1 flex items-center gap-1.5 rounded px-2 py-1 text-sm font-semibold transition-colors ${
+            className={`flex h-6 items-center gap-1 rounded px-2 text-xs font-medium transition-colors ${
               aiChatOpen
                 ? "bg-violet-100 text-violet-800"
                 : "bg-gray-100 text-gray-600 hover:bg-violet-50 hover:text-violet-700"
@@ -308,7 +302,7 @@ const Component = ({
         )}
         <button
           type="button"
-          className="help mx-1 ml-2 flex items-center bg-gray-100 px-2 py-1 text-gray-600 text-sm font-semibold rounded hover:bg-gray-200 cursor-pointer"
+          className="help flex h-6 items-center gap-1 rounded px-2 text-xs font-medium text-gray-500 hover:bg-gray-200 hover:text-gray-700 cursor-pointer transition-colors duration-200"
           onClick={helpClick}
         >
           <span>
@@ -329,7 +323,15 @@ const Component = ({
           </span>
           <span>Help</span>
         </button>
-        <div className="inline-block ml-2">
+      </div>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+        <OpenApiTitleInput
+          title={title}
+          spec={spec}
+          parseError={parseError}
+          onTitleChange={changeTitle}
+        />
+        <div className="inline-block shrink-0">
           <PublishButton saveAndExit={handleSaveAndExit} disabled={!title} loading={isSaving} />
         </div>
       </div>

@@ -196,7 +196,10 @@ describe('RelatedDiagramsFooter', () => {
     expect(wrapper.text()).not.toMatch(/as of \d{1,2} \w{3}/)
     expect(
       wrapper.find('[data-testid="related-diagrams-footer"]').attributes('title'),
-    ).toMatch(/^Updated \d{1,2} \w{3}$/)
+      // \w{3,4}: `toLocaleDateString('en-AU', { month: 'short' })` renders
+      // September as "Sept" — four letters. A three-letter-only pattern made
+      // this test, and every branch's CI, red for the whole of September.
+    ).toMatch(/^Updated \d{1,2} \w{3,4}$/)
     expect(pill(h, 'PA')?.textContent?.trim()).toBe('2')
     expect(pill(h, 'U')).toBeNull()
     expect(pill(h, 'RENAMED')).toBeNull()

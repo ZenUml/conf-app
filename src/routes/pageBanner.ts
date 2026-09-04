@@ -93,16 +93,13 @@ export async function handlePageBannerRoute(
   if (effective === 'paywall-admin') {
     const { isAdminBannerEnabled } = await import('@/utils/paywall/adminBannerFlag');
     if (!(await isAdminBannerEnabled())) {
-      // Fall back to whatever the rest of the priority list would have shown —
-      // the same list decidePageBanner walks, resumed from where the admin
-      // branch interrupted it.
-      const fallback: PageBannerChoice = isCsatPendingFresh(now)
-        ? 'csat'
-        : isUnplacedBannerCandidate(deriveUnplacedIdentity(), now)
-          ? 'unplaced'
-          : 'none';
-      if (fallback === 'none') return 'none';
-      effective = fallback;
+      // Deliberately NOT resumed down the rest of the priority list. This
+      // branch predates the unplaced notice and belongs to the paywall banner's
+      // kill switch; widening it would change what a flagged-off admin sees for
+      // reasons that have nothing to do with the flag. The unplaced notice
+      // reaches this page through its own gated module anyway.
+      if (!isCsatPendingFresh(now)) return 'none';
+      effective = 'csat';
     }
   }
 
@@ -112,23 +109,31 @@ export async function handlePageBannerRoute(
     return 'none';
   }
   await globals.apWrapper.initializeContext();
-  const isUnplaced = effective === 'unplaced' || effective === 'unplaced-property';
-  const Component =
-    effective === 'csat'
-      ? (await import('@/components/CSAT/CsatBanner.vue')).default
-      : isUnplaced
-        ? (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default
-        : (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default;
-  // The audience is passed in rather than re-derived so that a flagged-off admin
-  // who ALSO qualifies as a recent author still sees the old author copy. The
-  // unplaced source is passed for the same reason: which store admitted this
-  // load is the host's knowledge, and re-deriving it in the component would
-  // cost a property read on the very path that has no property.
-  const props = effective === 'paywall-admin'
-    ? { isSpaceAdmin: true }
-    : isUnplaced
-      ? { source: effective === 'unplaced-property' ? 'property' : 'marker' }
-      : undefined;
-  createApp(Component, props).mount(container);
+
+  // One table, read once. Each choice names its component and the props that
+  // choice implies — both are decided HERE rather than re-derived downstream:
+  // the audience so a flagged-off admin who also qualifies as a recent author
+  // still sees the old author copy, and the unplaced source because working it
+  // out in the component would cost a property read on the very path that has
+  // no property.
+  const MOUNTS: Record<Exclude<PageBannerChoice, 'none'>, () => Promise<{ component: unknown; props?: object }>> = {
+    paywall: async () => ({ component: (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default }),
+    'paywall-admin': async () => ({
+      component: (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default,
+      props: { isSpaceAdmin: true },
+    }),
+    csat: async () => ({ component: (await import('@/components/CSAT/CsatBanner.vue')).default }),
+    unplaced: async () => ({
+      component: (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default,
+      props: { source: 'marker' },
+    }),
+    'unplaced-property': async () => ({
+      component: (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default,
+      props: { source: 'property' },
+    }),
+  };
+
+  const { component, props } = await MOUNTS[effective]();
+  createApp(component as any, props).mount(container);
   return effective;
 }

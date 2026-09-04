@@ -195,15 +195,16 @@ describe('handlePageBannerRoute — Phase 5b flag gating', () => {
     expect(flag).not.toHaveBeenCalled()
   })
 
-  it('falls back to the unplaced notice when the flag is off and no CSAT is pending', async () => {
-    // The fallback resumes the same priority list decidePageBanner walks, from
-    // where the admin branch interrupted it — dropping to 'none' here would
-    // lose a banner the flag has nothing to do with.
+  it('does NOT resume down the list when the flag is off — the flag is the paywall banner\'s', async () => {
+    // This branch predates the unplaced notice and belongs to the paywall
+    // banner's kill switch. Widening it would change what a flagged-off admin
+    // sees for reasons that have nothing to do with the flag, and the unplaced
+    // notice reaches the page through its own gated module anyway.
     flag.mockResolvedValue(false)
     csat.mockReturnValue(false)
     unplaced.mockReturnValue(true)
-    await expect(handlePageBannerRoute('paywall-admin')).resolves.toBe('unplaced')
-    expect(mountSpy).toHaveBeenCalledOnce()
+    await expect(handlePageBannerRoute('paywall-admin')).resolves.toBe('none')
+    expect(mountSpy).not.toHaveBeenCalled()
   })
 
   it('tells the unplaced banner which store admitted it', async () => {

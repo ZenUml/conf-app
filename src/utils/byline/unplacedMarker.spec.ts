@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import {
   deriveUnplacedIdentity,
+  hasExhaustedShows,
+  isDismissalQuiet,
+  DISMISSAL_QUIET_MS,
+  MAX_BANNER_SHOWS,
   isUnplacedBannerCandidate,
   parseUnplacedMarker,
   readUnplacedBannerMarker,
@@ -17,6 +21,7 @@ import {
 
 const IDENTITY = { clientDomain: 'example-tenant', pageId: '12345' }
 const ENTRY = { id: 'cc-1', title: 'Login flow', diagramType: 'sequence' }
+const SECOND = { id: 'cc-2', title: 'Retry', diagramType: 'mermaid' }
 const NOW = Date.parse('2026-08-20T10:00:00.000Z')
 /** The property write was denied, so this marker is the only record there is. */
 const FALLBACK = { viaProperty: false }
@@ -149,7 +154,7 @@ describe('unplacedMarker — the byline→banner handoff', () => {
     it('re-arms when the byline reports again — a dismissal is "not now", not "never"', () => {
       writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
       recordUnplacedBannerDismissed(IDENTITY, readUnplacedMarker(IDENTITY)!.updatedAt)
-      writeUnplacedMarker(IDENTITY, [ENTRY, { id: 'cc-2', title: 'Retry', diagramType: 'mermaid' }], FALLBACK, NOW + 5000)
+      writeUnplacedMarker(IDENTITY, [ENTRY, SECOND], FALLBACK, NOW + 5000)
       expect(isUnplacedBannerCandidate(IDENTITY, NOW + 5000)).toBe(true)
     })
 
@@ -168,11 +173,56 @@ describe('unplacedMarker — the byline→banner handoff', () => {
     })
   })
 
+  describe('bounds on how often one browser is asked', () => {
+    it('stops after the cap for the SAME record', () => {
+      // Placing the diagram or dismissing the notice ends it properly; the cap
+      // only stops a viewer who does neither meeting it on every single load.
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
+      const version = readUnplacedMarker(IDENTITY)!.updatedAt
+      for (let i = 0; i < MAX_BANNER_SHOWS; i++) {
+        expect(hasExhaustedShows(IDENTITY, version)).toBe(false)
+        recordUnplacedBannerShown(IDENTITY, version, NOW + i)
+      }
+      expect(hasExhaustedShows(IDENTITY, version)).toBe(true)
+      expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(false)
+    })
+
+    it('starts a fresh tally when the record changes', () => {
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
+      const first = readUnplacedMarker(IDENTITY)!.updatedAt
+      for (let i = 0; i < MAX_BANNER_SHOWS; i++) recordUnplacedBannerShown(IDENTITY, first, NOW)
+      expect(hasExhaustedShows(IDENTITY, first)).toBe(true)
+
+      writeUnplacedMarker(IDENTITY, [ENTRY, SECOND], FALLBACK, NOW + 5000)
+      const second = readUnplacedMarker(IDENTITY)!.updatedAt
+      expect(hasExhaustedShows(IDENTITY, second)).toBe(false)
+      expect(isUnplacedBannerCandidate(IDENTITY, NOW + 5000)).toBe(true)
+    })
+
+    it('goes quiet for a day after a dismissal, without needing the record', () => {
+      // This is the only dismissal check the property path can make BEFORE
+      // paying for a REST call.
+      expect(isDismissalQuiet(IDENTITY, NOW)).toBe(false)
+      recordUnplacedBannerDismissed(IDENTITY, 'v1', NOW)
+      expect(isDismissalQuiet(IDENTITY, NOW + DISMISSAL_QUIET_MS - 1)).toBe(true)
+      expect(isDismissalQuiet(IDENTITY, NOW + DISMISSAL_QUIET_MS + 1)).toBe(false)
+    })
+
+    it('keeps the synchronous gate free of the quiet window', () => {
+      // That gate costs nothing, so it keeps the stricter promise: a dismissal
+      // is "not now", and a NEW diagram re-arms it the same minute.
+      writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
+      recordUnplacedBannerDismissed(IDENTITY, readUnplacedMarker(IDENTITY)!.updatedAt, NOW)
+      writeUnplacedMarker(IDENTITY, [ENTRY, SECOND], FALLBACK, NOW + 1000)
+      expect(isUnplacedBannerCandidate(IDENTITY, NOW + 1000)).toBe(true)
+    })
+  })
+
   describe('banner-side bookkeeping', () => {
     it('counts impressions without disturbing the dismissal', () => {
       writeUnplacedMarker(IDENTITY, [ENTRY], FALLBACK, NOW)
-      recordUnplacedBannerShown(IDENTITY, NOW)
-      recordUnplacedBannerShown(IDENTITY, NOW + 1000)
+      recordUnplacedBannerShown(IDENTITY, 'v1', NOW)
+      recordUnplacedBannerShown(IDENTITY, 'v1', NOW + 1000)
       const banner = readUnplacedBannerMarker(IDENTITY)
       expect(banner.showCount).toBe(2)
       expect(banner.lastShownAt).toBe('2026-08-20T10:00:01.000Z')
@@ -183,9 +233,11 @@ describe('unplacedMarker — the byline→banner handoff', () => {
       window.localStorage.setItem(unplacedBannerMarkerKey(IDENTITY), '{oops')
       expect(readUnplacedBannerMarker(IDENTITY)).toEqual({
         dismissedFor: null,
+        dismissedAt: null,
         resolvedFor: null,
         lastShownAt: null,
         showCount: 0,
+        shownFor: null,
       })
     })
   })

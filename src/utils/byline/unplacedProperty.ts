@@ -1,4 +1,4 @@
-import type { UnplacedDiagramEntry } from './unplacedMarker'
+import { sanitizeUnplacedEntries, type UnplacedDiagramEntry } from './unplacedMarker'
 
 /**
  * The page's unplaced-diagram set, stored as a Confluence CONTENT PROPERTY.
@@ -99,14 +99,7 @@ async function request(url: string, method: string, body?: unknown) {
 function parseValue(raw: unknown): UnplacedPropertyValue | null {
   const v = raw as Partial<UnplacedPropertyValue> | undefined
   if (!v || !Array.isArray(v.entries) || typeof v.updatedAt !== 'string') return null
-  const entries = v.entries
-    .filter((e): e is UnplacedDiagramEntry => !!e && typeof (e as any).id === 'string' && !!(e as any).id)
-    .map(e => ({
-      id: String(e.id),
-      title: typeof e.title === 'string' ? e.title : '',
-      diagramType: typeof e.diagramType === 'string' ? e.diagramType : '',
-    }))
-  return { entries, updatedAt: v.updatedAt }
+  return { entries: sanitizeUnplacedEntries(v.entries), updatedAt: v.updatedAt }
 }
 
 /**
@@ -173,11 +166,7 @@ export async function persistUnplacedProperty(
   // discard a set we cannot see.
   if (current.status === 'error') return 'failed'
 
-  const capped = entries.slice(0, MAX_PROPERTY_ENTRIES).map(e => ({
-    id: String(e.id),
-    title: e.title || '',
-    diagramType: e.diagramType || '',
-  }))
+  const capped = sanitizeUnplacedEntries(entries).slice(0, MAX_PROPERTY_ENTRIES)
 
   if (capped.length === 0) {
     if (current.status === 'absent') return 'unchanged'

@@ -77,7 +77,7 @@ export interface UnplacedMarker {
 
 export interface UnplacedBannerMarker {
   /**
-   * The `updatedAt` this user dismissed. Dismissal is scoped to the marker
+   * The `updatedAt` this user dismissed. Dismissal is scoped to the record
    * version rather than snoozed for a window: a NEW unplaced diagram rewrites
    * `updatedAt` and re-arms the banner, while the diagrams already dismissed
    * stay silent for as long as they remain unplaced. A time window would do
@@ -85,10 +85,22 @@ export interface UnplacedBannerMarker {
    * quiet about a new one today.
    */
   dismissedFor: string | null
+  /**
+   * WHEN that dismissal happened. `dismissedFor` can only be compared after the
+   * record has been read, and on the property path reading it costs a REST
+   * call — so a dismissing user would pay one on every load forever. This
+   * timestamp is comparable with no record at all, which buys a short quiet
+   * window (see DISMISSAL_QUIET_MS) that the re-arm still survives: past the
+   * window the record is re-read, and only a CHANGED version shows again.
+   */
+  dismissedAt: string | null
   /** The `updatedAt` whose entries a verification scan proved are all placed. */
   resolvedFor: string | null
   lastShownAt: string | null
+  /** Impressions for `shownFor`. Reset whenever the record version changes. */
   showCount: number
+  /** The record version `showCount` counts. */
+  shownFor: string | null
 }
 
 /**
@@ -99,9 +111,54 @@ export interface UnplacedBannerMarker {
  */
 export const UNPLACED_MARKER_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
+/**
+ * How long a dismissal silences the banner WITHOUT re-reading the record.
+ *
+ * Bounds the cost of a dismissal on the property path, where Confluence gates
+ * on page state and cannot know this user said no: without it, every load of a
+ * dismissed page still boots the iframe and buys a property GET. A day is short
+ * enough that a genuinely new unplaced diagram surfaces the next morning.
+ *
+ * Deliberately NOT applied to `isUnplacedBannerCandidate`: that gate is
+ * synchronous localStorage and costs nothing, so the fallback path keeps the
+ * stricter promise — a dismissal there is "not now", and a new diagram re-arms
+ * it the same minute.
+ */
+export const DISMISSAL_QUIET_MS = 24 * 60 * 60 * 1000
+
+/**
+ * How many times one browser is shown the same record before it stops asking.
+ *
+ * The banner is page state, so a viewer who neither places the diagram nor
+ * dismisses the notice would otherwise meet it on every load for as long as it
+ * stands. Placing or dismissing ends it properly; this only stops the nagging.
+ */
+export const MAX_BANNER_SHOWS = 5
+
 export interface UnplacedIdentity {
   clientDomain: string
   pageId: string
+}
+
+/**
+ * Coerce whatever a store handed back into entries the UI can render.
+ *
+ * Shared by both stores on purpose: the marker and the property carry the same
+ * shape, and four copies of this filter/map drifted apart the moment one of
+ * them learned about a new field.
+ *
+ * An entry with no id is DROPPED rather than defaulted — the id is what builds
+ * the paste link, so a row without one is a button that cannot work.
+ */
+export function sanitizeUnplacedEntries(raw: unknown): UnplacedDiagramEntry[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((e): e is UnplacedDiagramEntry => !!e && typeof (e as any).id === 'string' && !!(e as any).id)
+    .map(e => ({
+      id: String(e.id),
+      title: typeof e.title === 'string' ? e.title : '',
+      diagramType: typeof e.diagramType === 'string' ? e.diagramType : '',
+    }))
 }
 
 /** encodeURIComponent + 'unknown' fallback, so the byline write and the banner
@@ -158,14 +215,11 @@ export function parseUnplacedMarker(raw: string | null): UnplacedMarker | null {
     const p = JSON.parse(raw) as Partial<UnplacedMarker>
     if (typeof p.updatedAt !== 'string' || !p.updatedAt) return null
     if (!Array.isArray(p.entries)) return null
-    const entries = p.entries
-      .filter((e): e is UnplacedDiagramEntry => !!e && typeof (e as any).id === 'string' && !!(e as any).id)
-      .map(e => ({
-        id: String(e.id),
-        title: typeof e.title === 'string' ? e.title : '',
-        diagramType: typeof e.diagramType === 'string' ? e.diagramType : '',
-      }))
-    return { entries, updatedAt: p.updatedAt, viaProperty: p.viaProperty === true }
+    return {
+      entries: sanitizeUnplacedEntries(p.entries),
+      updatedAt: p.updatedAt,
+      viaProperty: p.viaProperty === true,
+    }
   } catch {
     return null
   }
@@ -174,18 +228,22 @@ export function parseUnplacedMarker(raw: string | null): UnplacedMarker | null {
 export function parseUnplacedBannerMarker(raw: string | null): UnplacedBannerMarker {
   const empty: UnplacedBannerMarker = {
     dismissedFor: null,
+    dismissedAt: null,
     resolvedFor: null,
     lastShownAt: null,
     showCount: 0,
+    shownFor: null,
   }
   if (!raw) return empty
   try {
     const p = JSON.parse(raw) as Partial<UnplacedBannerMarker>
     return {
       dismissedFor: typeof p.dismissedFor === 'string' ? p.dismissedFor : null,
+      dismissedAt: typeof p.dismissedAt === 'string' ? p.dismissedAt : null,
       resolvedFor: typeof p.resolvedFor === 'string' ? p.resolvedFor : null,
       lastShownAt: typeof p.lastShownAt === 'string' ? p.lastShownAt : null,
       showCount: typeof p.showCount === 'number' && Number.isFinite(p.showCount) ? Math.floor(p.showCount) : 0,
+      shownFor: typeof p.shownFor === 'string' ? p.shownFor : null,
     }
   } catch {
     return empty
@@ -219,7 +277,7 @@ export function writeUnplacedMarker(
   now: number = Date.now(),
 ): void {
   const marker: UnplacedMarker = {
-    entries: entries.map(e => ({ id: String(e.id), title: e.title || '', diagramType: e.diagramType || '' })),
+    entries: sanitizeUnplacedEntries(entries),
     updatedAt: new Date(now).toISOString(),
     viaProperty: opts.viaProperty,
   }
@@ -232,19 +290,51 @@ function writeBannerMarker(identity: UnplacedIdentity, next: UnplacedBannerMarke
 
 export function recordUnplacedBannerShown(
   identity: UnplacedIdentity,
+  recordUpdatedAt: string,
+  now: number = Date.now(),
+): void {
+  const current = readUnplacedBannerMarker(identity)
+  // A new record version starts its own tally: the cap is "stop nagging about
+  // THIS", never "stop telling this browser anything ever again".
+  const sameRecord = current.shownFor === recordUpdatedAt
+  writeBannerMarker(identity, {
+    ...current,
+    lastShownAt: new Date(now).toISOString(),
+    showCount: sameRecord ? current.showCount + 1 : 1,
+    shownFor: recordUpdatedAt,
+  })
+}
+
+/** Has this browser already been told about this record enough times? */
+export function hasExhaustedShows(identity: UnplacedIdentity, recordUpdatedAt: string): boolean {
+  const banner = readUnplacedBannerMarker(identity)
+  return banner.shownFor === recordUpdatedAt && banner.showCount >= MAX_BANNER_SHOWS
+}
+
+export function recordUnplacedBannerDismissed(
+  identity: UnplacedIdentity,
+  recordUpdatedAt: string,
   now: number = Date.now(),
 ): void {
   const current = readUnplacedBannerMarker(identity)
   writeBannerMarker(identity, {
     ...current,
-    lastShownAt: new Date(now).toISOString(),
-    showCount: current.showCount + 1,
+    dismissedFor: recordUpdatedAt,
+    dismissedAt: new Date(now).toISOString(),
   })
 }
 
-export function recordUnplacedBannerDismissed(identity: UnplacedIdentity, markerUpdatedAt: string): void {
-  const current = readUnplacedBannerMarker(identity)
-  writeBannerMarker(identity, { ...current, dismissedFor: markerUpdatedAt })
+/**
+ * Was this page dismissed recently enough to skip reading the record at all?
+ *
+ * Synchronous and record-free by design — it is the only dismissal check the
+ * property path can make BEFORE paying for a REST call.
+ */
+export function isDismissalQuiet(identity: UnplacedIdentity, now: number = Date.now()): boolean {
+  const dismissedAt = readUnplacedBannerMarker(identity).dismissedAt
+  if (!dismissedAt) return false
+  const at = Date.parse(dismissedAt)
+  return Number.isFinite(at) && now - at < DISMISSAL_QUIET_MS
 }
 
 /**
@@ -280,6 +370,10 @@ export function isUnplacedBannerCandidate(
   const updatedAtMs = Date.parse(marker.updatedAt)
   if (!Number.isFinite(updatedAtMs)) return false
   if (now - updatedAtMs > UNPLACED_MARKER_TTL_MS) return false
+  // NOT the quiet window: that exists to save a REST call on the property path,
+  // and this gate is free. Here a dismissal really is "not now" — a new diagram
+  // rewrites `updatedAt` and shows again immediately.
+  if (hasExhaustedShows(identity, marker.updatedAt)) return false
   const banner = readUnplacedBannerMarker(identity)
   if (banner.dismissedFor === marker.updatedAt) return false
   if (banner.resolvedFor === marker.updatedAt) return false

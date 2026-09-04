@@ -4,6 +4,7 @@ import UnplacedDiagramsBanner from '@/components/Byline/UnplacedDiagramsBanner.v
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import {
+  MAX_BANNER_SHOWS,
   readUnplacedBannerMarker,
   writeUnplacedMarker,
   isUnplacedBannerCandidate,
@@ -74,12 +75,16 @@ describe('UnplacedDiagramsBanner', () => {
   });
 
   describe('verification — the marker is a candidate, never a claim', () => {
-    it('says nothing at all when there is no marker', async () => {
+    it('says nothing when there is no record — but reports the load', async () => {
+      // The host mounted us, so this IS a load past the gate, and the catalog
+      // promises the evaluated event fires on every one of them.
       const wrapper = await mountBanner();
 
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
       expect(viewClose).toHaveBeenCalled();
-      expect(events('unplaced_banner_evaluated')).toHaveLength(0);
+      expect(events('unplaced_banner_evaluated')[0][1]).toMatchObject({
+        result: 'record_unreadable',
+      });
     });
 
     it('shows the diagram the live page still does not reference', async () => {
@@ -170,13 +175,25 @@ describe('UnplacedDiagramsBanner', () => {
       expect(events('unplaced_banner_shown')[0][1]).toMatchObject({ unplaced_source: 'property' });
     });
 
-    it('never reads the property on the fallback path', async () => {
-      // That path exists precisely because there is no property to read.
+    it('shows the fallback when no property covers the page', async () => {
       writeUnplacedMarker(IDENTITY, [STRAY], FALLBACK);
+      readUnplacedProperty.mockResolvedValue({ status: 'absent' });
       await mountBanner({ source: 'marker' });
 
-      expect(readUnplacedProperty).not.toHaveBeenCalled();
       expect(events('unplaced_banner_shown')[0][1]).toMatchObject({ unplaced_source: 'marker' });
+    });
+
+    it('stands the fallback down when a property exists after all', async () => {
+      // Two authors: A's write landed (so the gated module is already showing
+      // this page's notice) and B's was denied. `viaProperty` cannot catch it —
+      // it records only what THIS browser managed to write — so without this
+      // check B gets two banners saying the same thing.
+      writeUnplacedMarker(IDENTITY, [STRAY], FALLBACK);
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'marker' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(viewClose).toHaveBeenCalled();
     });
 
     it('DELETES the property once the diagrams are placed, taking the page off the gate', async () => {
@@ -205,7 +222,24 @@ describe('UnplacedDiagramsBanner', () => {
 
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
       expect(viewClose).toHaveBeenCalled();
-      expect(events('unplaced_banner_evaluated')).toHaveLength(0);
+      expect(events('unplaced_banner_evaluated')[0][1]).toMatchObject({
+        result: 'record_unreadable',
+        unplaced_source: 'property',
+      });
+    });
+
+    it('reports whether it could retire a record it proved stale', async () => {
+      // A reader without delete permission leaves the record standing and every
+      // later reader keeps paying the ADF read. Silent, that is invisible.
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['cc-2']);
+      clearUnplacedProperty.mockResolvedValue('forbidden');
+      await mountBanner({ source: 'property' });
+
+      expect(events('unplaced_property_write')[0][1]).toMatchObject({
+        result: 'forbidden',
+        unplaced_source: 'property',
+      });
     });
 
     it('honours a dismissal even with no synchronous gate ahead of it', async () => {
@@ -222,6 +256,56 @@ describe('UnplacedDiagramsBanner', () => {
       const second = await mountBanner({ source: 'property' });
 
       expect(second.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(apWrapper.referencedCustomContentIds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bounds on the cost of a page nobody fixes', () => {
+    it('stops paying for a record older than the TTL', async () => {
+      readUnplacedProperty.mockResolvedValue({
+        status: 'ok',
+        value: { entries: [STRAY], updatedAt: '2025-01-01T00:00:00.000Z' },
+        propertyId: '9001',
+        version: 1,
+      });
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(apWrapper.referencedCustomContentIds).not.toHaveBeenCalled();
+      expect(events('unplaced_banner_evaluated')[0][1]).toMatchObject({ result: 'expired' });
+    });
+
+    it('stops asking after the show cap for the same record', async () => {
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      for (let i = 0; i < MAX_BANNER_SHOWS; i++) {
+        vi.mocked(trackAnalyticsEvent).mockClear();
+        const w = await mountBanner({ source: 'property' });
+        expect(w.find('[data-testid="unplaced-banner"]').exists()).toBe(true);
+      }
+      vi.mocked(trackAnalyticsEvent).mockClear();
+      const capped = await mountBanner({ source: 'property' });
+
+      expect(capped.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(events('unplaced_banner_evaluated')[0][1]).toMatchObject({
+        result: 'shows_exhausted',
+      });
+    });
+
+    it('a dismissed page costs no request at all on the next load', async () => {
+      // Confluence gates on page state and cannot know this user said no, so
+      // without the quiet window a dismissing user buys a property GET on every
+      // load of the page, forever.
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const first = await mountBanner({ source: 'property' });
+      await first.find('[data-testid="unplaced-banner-dismiss"]').trigger('click');
+      await flushPromises();
+
+      readUnplacedProperty.mockClear();
+      apWrapper.referencedCustomContentIds.mockClear();
+      const second = await mountBanner({ source: 'property' });
+
+      expect(second.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(readUnplacedProperty).not.toHaveBeenCalled();
       expect(apWrapper.referencedCustomContentIds).not.toHaveBeenCalled();
     });
   });

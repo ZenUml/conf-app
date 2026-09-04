@@ -88,11 +88,14 @@ import { toMacroType, typeLabel } from '@/utils/byline/pageDiagrams'
 import { buildDiagramDeeplink } from '@/utils/embedDeeplink'
 import {
   deriveUnplacedIdentity,
+  hasExhaustedShows,
+  isDismissalQuiet,
   readUnplacedBannerMarker,
   readUnplacedMarker,
   recordUnplacedBannerDismissed,
   recordUnplacedBannerResolved,
   recordUnplacedBannerShown,
+  UNPLACED_MARKER_TTL_MS,
   type UnplacedDiagramEntry,
   type UnplacedIdentity,
 } from '@/utils/byline/unplacedMarker'
@@ -139,7 +142,8 @@ const COPY_FLASH_MS = 4000
 let copyFlashTimer: ReturnType<typeof setTimeout> | null = null
 
 let identity: UnplacedIdentity | null = null
-let markerUpdatedAt = ''
+/** The version of whichever record admitted this load — property or marker. */
+let recordUpdatedAt = ''
 
 const baseProps = () => ({
   feature_area: 'byline' as const,
@@ -164,16 +168,23 @@ async function closeBanner() {
  * paying it speculatively.
  */
 async function readRecord(): Promise<{ entries: UnplacedDiagramEntry[]; updatedAt: string } | null> {
+  if (!identity) return null
   if (props.source === 'property') {
-    if (!identity) return null
     const read = await readUnplacedProperty(identity.pageId)
     // The display condition said the property exists, so anything but a clean
     // read here is a state we cannot describe — say nothing.
     if (read.status !== 'ok' || read.value.entries.length === 0) return null
     return read.value
   }
-  const marker = identity ? readUnplacedMarker(identity) : null
+  const marker = readUnplacedMarker(identity)
   if (!marker || marker.entries.length === 0) return null
+  // The fallback exists for browsers whose property write was DENIED. If the
+  // property turns out to exist anyway — a second author's write landed — then
+  // the gated module is already showing this page's notice, and continuing here
+  // would stack two banners saying the same thing. `viaProperty` cannot catch
+  // that case: it records only what THIS browser managed to write.
+  const property = await readUnplacedProperty(identity.pageId)
+  if (property.status === 'ok') return null
   return marker
 }
 
@@ -183,20 +194,69 @@ onMounted(async () => {
   // empty banner frame holding a reserved slot open.
   try {
     identity = deriveUnplacedIdentity()
-    const marker = identity ? await readRecord() : null
-    if (!identity || !marker) {
+    if (!identity) {
       await closeBanner()
       return
     }
-    markerUpdatedAt = marker.updatedAt
-    const markerAgeMs = Date.now() - Date.parse(marker.updatedAt)
 
     // Dismissal lives in localStorage for BOTH sources, and deliberately so:
     // one person deciding they do not want to see this must not silence it for
-    // everyone else on a shared page. The shared host already checked it in its
-    // synchronous gate; the property path has no such gate, so it is checked
-    // here — before the ADF read, so a dismissed banner costs nothing more.
-    if (readUnplacedBannerMarker(identity).dismissedFor === marker.updatedAt) {
+    // everyone else on a shared page.
+    //
+    // Checked FIRST, and without the record, because on the property path
+    // Confluence gates on page state and cannot know this user said no — so a
+    // dismissing user would buy a REST call on every load of the page forever.
+    // The quiet window is short enough that a genuinely new diagram still
+    // surfaces the next day, where the version-scoped check below takes over.
+    if (isDismissalQuiet(identity)) {
+      await closeBanner()
+      return
+    }
+
+    const record = await readRecord()
+    if (!record) {
+      // Reaching here on the property path means the gate fired but the record
+      // did not read back — forbidden, malformed, or already emptied. It is a
+      // real load with a real cost, so it is reported rather than swallowed:
+      // the catalog promises this event fires on every load past the gate.
+      trackAnalyticsEvent('unplaced_banner_evaluated', {
+        ...baseProps(),
+        result: 'record_unreadable',
+      })
+      await closeBanner()
+      return
+    }
+    recordUpdatedAt = record.updatedAt
+    const recordAgeMs = Date.now() - Date.parse(record.updatedAt)
+
+    if (readUnplacedBannerMarker(identity).dismissedFor === record.updatedAt) {
+      await closeBanner()
+      return
+    }
+
+    // Stale beyond the TTL: nobody has re-confirmed this in a month. Stop
+    // buying an ADF read for it on every load — the same bound the marker gate
+    // applies, now applied to the property, which Confluence will otherwise
+    // keep booting forever.
+    if (Number.isFinite(recordAgeMs) && recordAgeMs > UNPLACED_MARKER_TTL_MS) {
+      trackAnalyticsEvent('unplaced_banner_evaluated', {
+        ...baseProps(),
+        result: 'expired',
+        unplaced_marker_age_ms: recordAgeMs,
+      })
+      await closeBanner()
+      return
+    }
+
+    // Shown enough times already for this exact record. Placing the diagram or
+    // dismissing the notice ends it properly; this only stops the nagging.
+    if (hasExhaustedShows(identity, record.updatedAt)) {
+      trackAnalyticsEvent('unplaced_banner_evaluated', {
+        ...baseProps(),
+        result: 'shows_exhausted',
+        unplaced_count: record.entries.length,
+        unplaced_marker_age_ms: recordAgeMs,
+      })
       await closeBanner()
       return
     }
@@ -212,14 +272,14 @@ onMounted(async () => {
       trackAnalyticsEvent('unplaced_banner_evaluated', {
         ...baseProps(),
         result: 'scan_failed',
-        unplaced_marker_age_ms: markerAgeMs,
+        unplaced_marker_age_ms: recordAgeMs,
       })
       await closeBanner()
       return
     }
 
     const placed = new Set(referenced)
-    const stillUnplaced = marker.entries.filter(e => !placed.has(e.id))
+    const stillUnplaced = record.entries.filter(e => !placed.has(e.id))
     if (stillUnplaced.length === 0) {
       // Stale record: the user has placed them since. Retire it so the next
       // load does not buy the same ADF read again — for the property that means
@@ -229,15 +289,23 @@ onMounted(async () => {
       // next reader pays one more read, which is the cost of not letting a
       // reader silence a page-level fact they cannot verify away.
       if (props.source === 'property') {
-        await clearUnplacedProperty(identity.pageId)
+        // Reported, not assumed: a reader without delete permission leaves the
+        // record standing, and every later reader keeps paying the ADF read.
+        // Silent, that looks identical to a clean retire.
+        const cleared = await clearUnplacedProperty(identity.pageId)
+        trackAnalyticsEvent('unplaced_property_write', {
+          ...baseProps(),
+          result: cleared,
+          unplaced_count: 0,
+        })
       } else {
-        recordUnplacedBannerResolved(identity, marker.updatedAt)
+        recordUnplacedBannerResolved(identity, record.updatedAt)
       }
       trackAnalyticsEvent('unplaced_banner_evaluated', {
         ...baseProps(),
         result: 'all_placed',
         unplaced_count: 0,
-        unplaced_marker_age_ms: markerAgeMs,
+        unplaced_marker_age_ms: recordAgeMs,
       })
       await closeBanner()
       return
@@ -245,12 +313,12 @@ onMounted(async () => {
 
     rows.value = stillUnplaced
     visible.value = true
-    recordUnplacedBannerShown(identity)
+    recordUnplacedBannerShown(identity, record.updatedAt)
     trackAnalyticsEvent('unplaced_banner_evaluated', {
       ...baseProps(),
       result: 'unplaced',
       unplaced_count: stillUnplaced.length,
-      unplaced_marker_age_ms: markerAgeMs,
+      unplaced_marker_age_ms: recordAgeMs,
     })
     trackAnalyticsEvent('unplaced_banner_shown', {
       ...baseProps(),
@@ -320,7 +388,7 @@ async function copyText(text: string): Promise<boolean> {
  * one re-arms the banner. "Not now, about these" — never "never again".
  */
 function onDismiss() {
-  if (identity) recordUnplacedBannerDismissed(identity, markerUpdatedAt)
+  if (identity) recordUnplacedBannerDismissed(identity, recordUpdatedAt)
   trackAnalyticsEvent('unplaced_banner_dismissed', {
     ...baseProps(),
     unplaced_count: rows.value.length,

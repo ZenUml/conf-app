@@ -50,6 +50,10 @@ export default defineComponent({
     }
     ,
     showHeader: { type: Boolean, default: true }
+    ,
+    // The Graph title lives in DrawIO's native action row. Keep the publish
+    // validation flow able to focus that real input when a title is required.
+    focusTitleInput: { type: Function, default: undefined }
   },
   setup(props) {
     const titleError = ref(false);
@@ -151,6 +155,7 @@ export default defineComponent({
       // automatically without the user typing.
       titleError.value = true;
       headerRef.value?.focusInput();
+      props.focusTitleInput?.();
       return new Promise((resolve) => {
         pendingResolve = resolve;
       });

@@ -1,5 +1,5 @@
 <template>
-  <div id="forge-graph-editor" :data-board-title="boardTitle">
+  <div id="forge-graph-editor" :data-drawio-title="drawioTitle">
     <!-- noExitBtn=1 suppresses DrawIO's standalone "Exit" button. The Atlassian
          header X is the canonical close affordance and onClose autosaves drafts.
          saveAndExit=1 keeps the explicit-publish button; publishClose=1
@@ -10,12 +10,11 @@
       class="drawio-frame"
       @load="onFrameLoad"
     ></iframe>
-    <!-- Title input overlays the iframe at the top-right, positioned to share
-         DrawIO's toolbar row visually (matching the official drawio Confluence
-         plugin's filename placement). The right offset clears DrawIO's
-         Save & Exit button. currentXml feeds the AI auto-title watcher with the
-         live diagram content (initial body, then each DrawIO autosave). -->
-    <DrawIoExtension ref="drawioExtension" :doc="doc" :current-xml="currentXml" :editor-mode="editorMode" :show-header="editorMode !== 'board'" />
+    <!-- The title is mounted inside DrawIO's native action group, directly
+         before Publish. Keeping the title in the iframe means Graph and Board
+         share the same toolbar geometry instead of layering a host overlay on
+         top of the editor. -->
+    <DrawIoExtension ref="drawioExtension" :doc="doc" :current-xml="currentXml" :editor-mode="editorMode" :show-header="false" :focus-title-input="focusDrawioTitleInput" />
     <!-- Publishing overlay. The graph macro's Publish button lives INSIDE the
          DrawIO iframe (Save & Exit, relabeled), so unlike the other editors it
          can't show the PublishButton "Publishing…" spinner. Without this,
@@ -44,6 +43,7 @@ import { getView, getContext as initForgeContext, isInserting } from '@/model/gl
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
+import store from "@/model/store2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
 import {
@@ -88,8 +88,8 @@ export default {
     currentXml() {
       return this.xmlForMode(this.editorMode);
     },
-    boardTitle() {
-      return window.diagram?.title || '';
+    drawioTitle() {
+      return store.state.diagram?.title || window.diagram?.title || '';
     },
     iframeSrc() {
       return buildDrawioEditorSrc(this.editorMode);
@@ -216,43 +216,44 @@ export default {
         reservedLeftPx,
         reservedRightPx: 176,
       });
-      this.mountBoardTitle(frameDoc);
+      this.mountDrawioTitle(frameDoc);
     },
-    mountBoardTitle(frameDoc) {
-      if (this.editorMode !== 'board') {
-        this.boardTitleObserver?.disconnect();
-        this.boardTitleObserver = null;
-        return;
-      }
-      const status = frameDoc.querySelector('a.geStatus');
-      if (!status?.parentElement) return;
-      frameDoc.querySelectorAll('.zenuml-board-title-slot').forEach((node) => node.remove());
+    mountDrawioTitle(frameDoc) {
+      // Graph's filename/status anchor is in the menubar, while its Publish
+      // action lives in DrawIO's separate button container. Anchor on the
+      // action itself so this remains correct across Graph and Sketch/Board.
+      const publish = frameDoc.querySelector('button.geEmbedBtn.gePrimaryBtn');
+      if (!publish?.parentElement) return;
+      frameDoc.querySelectorAll('.zenuml-drawio-title-slot').forEach((node) => node.remove());
 
       const slot = frameDoc.createElement('div');
-      slot.className = 'zenuml-board-title-slot';
+      slot.className = 'zenuml-drawio-title-slot';
       slot.style.cssText = 'display:flex;align-items:center;min-width:72px;max-width:320px;height:28px;padding:0 6px;border:1px solid transparent;border-radius:4px;box-sizing:border-box;color:#111827;font:600 14px/1 system-ui,sans-serif;';
       const spark = frameDoc.createElement('button');
       spark.type = 'button'; spark.textContent = '✦'; spark.title = 'Generate title with AI';
       spark.style.cssText = 'width:18px;height:18px;margin-right:5px;padding:0;border:0;background:transparent;color:#9CA3AF;cursor:pointer;';
       const input = frameDoc.createElement('input');
-      input.type = 'text'; input.placeholder = 'Name your graph…'; input.value = this.boardTitle;
+      input.type = 'text'; input.placeholder = 'Name your graph…'; input.value = this.drawioTitle;
       input.style.cssText = 'width:100%;min-width:0;border:0;outline:0;background:transparent;color:#111827;font:inherit;';
       input.addEventListener('input', () => this.$refs.drawioExtension?.handleTitleChange(input.value));
       input.addEventListener('focus', () => { slot.style.background = '#fff'; slot.style.borderColor = '#F08705'; });
       input.addEventListener('blur', () => { slot.style.background = ''; slot.style.borderColor = 'transparent'; });
       spark.addEventListener('click', () => this.$refs.drawioExtension?.onManualGenerate());
       slot.append(spark, input);
-      status.parentElement.insertBefore(slot, status);
-      this.boardTitleInput = input;
+      publish.parentElement.insertBefore(slot, publish);
+      this.drawioTitleInput = input;
 
-      this.boardTitleObserver?.disconnect();
-      this.boardTitleObserver = new MutationObserver(() => {
-        if (!frameDoc.querySelector('.zenuml-board-title-slot')) this.mountBoardTitle(frameDoc);
+      this.drawioTitleObserver?.disconnect();
+      this.drawioTitleObserver = new MutationObserver(() => {
+        if (!frameDoc.querySelector('.zenuml-drawio-title-slot')) this.mountDrawioTitle(frameDoc);
       });
-      this.boardTitleObserver.observe(status.parentElement, { childList: true });
+      this.drawioTitleObserver.observe(publish.parentElement, { childList: true });
     },
-    syncBoardTitle() {
-      if (this.boardTitleInput && this.boardTitleInput.value !== this.boardTitle) this.boardTitleInput.value = this.boardTitle;
+    syncDrawioTitle() {
+      if (this.drawioTitleInput && this.drawioTitleInput.value !== this.drawioTitle) this.drawioTitleInput.value = this.drawioTitle;
+    },
+    focusDrawioTitleInput() {
+      this.drawioTitleInput?.focus();
     },
     scheduleMountModeSwitch() {
       this.mountTimers.forEach((id) => clearTimeout(id));
@@ -299,12 +300,12 @@ export default {
       draftScope: null,
       restoreListener: null,
       messageListener: null,
-      boardTitleInput: null,
-      boardTitleObserver: null,
+      drawioTitleInput: null,
+      drawioTitleObserver: null,
     };
   },
   updated() {
-    this.syncBoardTitle();
+    this.syncDrawioTitle();
   },
   created() {
     // Register the DrawIO postMessage listener BEFORE the iframe begins
@@ -404,7 +405,7 @@ export default {
   beforeUnmount() {
     this.isUnmounted = true;
     this.mountTimers.forEach((id) => clearTimeout(id));
-    this.boardTitleObserver?.disconnect();
+    this.drawioTitleObserver?.disconnect();
     this.closeGuardOff?.();
     this.draftSaver?.flush();
     if (this.savedListener) EventBus.$off('saved', this.savedListener);

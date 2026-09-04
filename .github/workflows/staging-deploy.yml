@@ -166,6 +166,15 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))' -i manifest.yml
+      # The unplaced-diagram banner is gated on a content property written only
+      # by zenuml-byline-diagrams, which is Lite-only. Anywhere else it is a
+      # module that can never fire. Mirrors the manifestEdits in
+      # scripts/forge-wizard.mjs.
+      - name: Remove the unplaced-diagram page banner (non-Lite variants)
+        if: needs.resolve.outputs.variant != 'lite'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))' -i manifest.yml
       - name: Remove licensing (Lite is free)
         if: needs.resolve.outputs.variant == 'lite'
         uses: mikefarah/yq@master

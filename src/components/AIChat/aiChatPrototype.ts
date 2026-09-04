@@ -28,6 +28,7 @@ export type AIChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
+  tone?: 'neutral' | 'error'
   preview?: AIChatChangePreview
 }
 

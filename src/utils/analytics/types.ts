@@ -89,7 +89,8 @@ export type AnalyticsProperties = {
   // attach the raw backend error, prompt, diagram code, or job id.
   failure_reason?: string;
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
-  // _failed). `duration_ms` below is click-to-visible-result wall time;
+  // _failed), plus the benign ordinary-chat ai_chat_no_change outcome.
+  // `duration_ms` below is click-to-visible-result wall time;
   // `backend_duration_ms` is job started-to-terminal time reported by the
   // Diagramly backend; `backend_llm_duration_ms` sums only the backend LLM
   // calls across repair attempts. Keep all three so UI/polling and non-LLM

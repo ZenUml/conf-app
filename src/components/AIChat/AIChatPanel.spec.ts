@@ -173,6 +173,55 @@ describe('AIChatPanel core flow', () => {
     await flushPromises()
   })
 
+  it('shows an ordinary reply and does not apply code for a no-change result', async () => {
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      diagramCreated: false,
+      updatedCode: 'A->B: original',
+      noChange: true,
+      jobId: 'job-1',
+      pollCount: 3,
+      repairAttempts: 3,
+      backendDurationMs: 2400,
+      backendLlmDurationMs: 2100,
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramlyDiagramId: 'diagram-1',
+        currentCode: 'A->B: original',
+      },
+    })
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Optimize it')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No changes were needed for the current diagram.')
+    expect(wrapper.text()).not.toContain('could not apply the change')
+    const noChangeMessage = wrapper.findAll('[data-testid="ai-chat-message"]').at(-1)!
+    expect(noChangeMessage.classes()).toContain('is-assistant')
+    expect(noChangeMessage.classes()).not.toContain('is-error')
+    expect(wrapper.find('[data-testid="ai-change-preview"]').exists()).toBe(false)
+    expect(wrapper.emitted('apply-code')).toBeUndefined()
+    expect(wrapper.emitted('apply')).toBeUndefined()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_no_change',
+      expect.objectContaining({
+        change_kind: 'request',
+        generation_source: 'chat_panel',
+        poll_count: 3,
+        repair_attempts: 3,
+        backend_duration_ms: 2400,
+        backend_llm_duration_ms: 2100,
+      }),
+    )
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'ai_chat_prompt_failed',
+      expect.anything(),
+    )
+  })
+
   it('uses the same session with syntax context for parent and in-panel repair requests', async () => {
     vi.mocked(runAIChatSession).mockResolvedValue({
       diagramId: 'diagram-1',
@@ -562,6 +611,8 @@ describe('AIChatPanel core flow', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('AI Chat could not apply the change: Diagramly unavailable')
+    expect(wrapper.findAll('[data-testid="ai-chat-message"]').at(-1)?.classes())
+      .toContain('is-error')
     expect((wrapper.get('[data-testid="ai-chat-send"]').element as HTMLButtonElement).disabled).toBe(true)
     await wrapper.get('[data-testid="ai-chat-input"]').setValue('Retry')
     expect((wrapper.get('[data-testid="ai-chat-send"]').element as HTMLButtonElement).disabled).toBe(false)

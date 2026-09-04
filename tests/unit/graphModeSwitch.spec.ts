@@ -4,6 +4,7 @@ import {
   hideDrawioFilename,
   injectGraphModeSwitch,
 } from '@/components/DrawIoExtension/graphModeSwitch'
+import { getNotchGeometry } from '@/components/Notch/notchGeometry'
 
 function menubarFixture(height = 30, width = 1200) {
   const menubar = document.createElement('div')
@@ -52,7 +53,7 @@ describe('injectGraphModeSwitch', () => {
     expect(root.querySelector('input')).toBeNull()
   })
 
-  it('matches menubar height and has no top stroke', () => {
+  it('matches menubar height, preserves the cubic shoulders, and has no top stroke', () => {
     const menubar = menubarFixture(30)
     injectGraphModeSwitch(menubar, { mode: 'diagram', onSelect: vi.fn() })
     const root = menubar.querySelector('.graph-mode-switch') as HTMLElement
@@ -60,7 +61,7 @@ describe('injectGraphModeSwitch', () => {
     const fill = root.querySelector('path[fill="white"]') as SVGPathElement
     const stroke = root.querySelector('path[stroke]') as SVGPathElement
     expect(fill).toBeTruthy()
-    expect(fill.getAttribute('d')).toContain('C 10 0, 13 4, 18 12')
+    expect(fill.getAttribute('d')).toBe(getNotchGeometry(0, 30).fillPath)
     expect(stroke.getAttribute('d')?.trim().endsWith('Z')).toBe(false)
     expect(stroke.getAttribute('d')).not.toMatch(/Z\s*$/)
   })
@@ -215,7 +216,7 @@ describe('injectGraphModeSwitch', () => {
     expect({ width: boardRoot.style.width, height: boardRoot.style.height }).toEqual(diagramSize)
   })
 
-  it('shrinks horizontally instead of overlapping reserved TITLE space', () => {
+  it('keeps the minimum reference width when reserved title space is narrow', () => {
     const menubar = menubarFixture(30, 700)
     injectGraphModeSwitch(menubar, {
       mode: 'diagram',
@@ -225,8 +226,7 @@ describe('injectGraphModeSwitch', () => {
     })
     const root = menubar.querySelector('.graph-mode-switch') as HTMLElement
     const width = parseFloat(root.style.width)
-    expect(width).toBeLessThanOrEqual(120)
-    expect(width).toBeGreaterThan(0)
+    expect(width).toBe(getNotchGeometry(120, 30).width)
   })
 })
 

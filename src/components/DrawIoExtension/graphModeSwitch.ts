@@ -1,40 +1,15 @@
 import type { GraphEditorMode } from '@/utils/graph/graphEditorMode'
+import {
+  DIAGRAM_SWITCH_HEIGHT,
+  NOTCH_REFERENCE_HEIGHT,
+  getNotchGeometry,
+} from '@/components/Notch/notchGeometry'
 
 export const GRAPH_MODE_SWITCH_CLASS = 'graph-mode-switch'
 export const GRAPH_MODE_SWITCH_STYLE_ID = 'zenuml-graph-mode-switch-css'
 export const DRAWIO_FILENAME_STYLE_ID = 'zenuml-hide-drawio-filename'
 
-const NOTCH_REF_WIDTH = 252
-const NOTCH_REF_HEIGHT = 31
-// The classic Diagram menubar renders the switch at 30px in the editor. Keep
-// Board's body-mounted switch on that same visual baseline; the sketch toolbar
-// itself is 44px tall, but its chrome size must not change our control.
-const DIAGRAM_SWITCH_HEIGHT = 30
-const NOTCH_REF_INSET = 37.5
 const MIN_VISIBLE_WIDTH = 100
-
-const FILL_PATH = `
-  M 0 0
-  C 10 0, 13 4, 18 12
-  L 25 24
-  C 27.5 28.5, 32 31, 37.5 31
-  H 214.5
-  C 220 31, 224.5 28.5, 227 24
-  L 234 12
-  C 239 4, 242 0, 252 0
-  Z
-`
-
-const STROKE_PATH = `
-  M 0 0
-  C 10 0, 13 4, 18 12
-  L 25 24
-  C 27.5 28.5, 32 31, 37.5 31
-  H 214.5
-  C 220 31, 224.5 28.5, 227 24
-  L 234 12
-  C 239 4, 242 0, 252 0
-`
 
 const SWITCH_CSS = `
 .graph-mode-switch {
@@ -51,7 +26,7 @@ const SWITCH_CSS = `
   width: 100%;
   height: 100%;
   overflow: visible;
-  filter: drop-shadow(0 2px 4px rgb(9 30 66 / 12%));
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 6%));
   pointer-events: none;
 }
 .graph-mode-switch__controls {
@@ -67,34 +42,26 @@ const SWITCH_CSS = `
   position: relative;
   border: 0;
   background: transparent;
-  color: #626f86;
-  font: 600 13px/1 system-ui, sans-serif;
+  color: #6b7280;
+  font: 500 13px/1 system-ui, sans-serif;
+  padding: 0 12px;
   cursor: pointer;
 }
 .graph-mode-switch button[aria-pressed="true"] {
-  color: #172b4d;
-}
-.graph-mode-switch button[aria-pressed="true"]::after {
-  content: "";
-  position: absolute;
-  right: 20px;
-  bottom: 1px;
-  left: 20px;
-  height: 2px;
-  border-radius: 1px;
-  background: #0c66e4;
+  color: #1f2937;
+  font-weight: 600;
 }
 .graph-mode-switch button:focus {
   outline: none;
 }
 .graph-mode-switch button:focus-visible {
-  outline: 2px solid #0c66e4;
+  outline: 2px solid #f08705;
   outline-offset: -2px;
 }
 .graph-mode-switch__divider {
   width: 1px;
-  height: 19px;
-  background: #dfe1e6;
+  height: 12px;
+  background: #e5e7eb;
 }
 `
 
@@ -205,9 +172,9 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   const mountOutsideToolbar = mountTarget !== menubar
   const height = mountOutsideToolbar
     ? DIAGRAM_SWITCH_HEIGHT
-    : (isShortToolbar ? box.height : NOTCH_REF_HEIGHT)
-  const heightScale = height / NOTCH_REF_HEIGHT
-  let width = NOTCH_REF_WIDTH * heightScale
+    : (isShortToolbar ? box.height : NOTCH_REFERENCE_HEIGHT)
+  const heightScale = height / NOTCH_REFERENCE_HEIGHT
+  let width = getNotchGeometry(0, height).width
 
   const reservedLeft = options.reservedLeftPx ?? 0
   const reservedRight = options.reservedRightPx ?? 0
@@ -233,7 +200,8 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
   root.style.top = '0px'
   root.style.left = '50%'
   root.style.transform = 'translateX(-50%)'
-  root.style.width = `${width}px`
+  const geometry = getNotchGeometry(width, height)
+  root.style.width = `${geometry.width}px`
   root.style.height = `${height}px`
   // A body-mounted switch is centred with position:fixed, so the constraint is
   // the VIEWPORT, not the transient toolbar it was measured from. Without this
@@ -248,28 +216,26 @@ export function injectGraphModeSwitch(menubar: HTMLElement, options: GraphModeSw
 
   const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('class', 'graph-mode-switch__shape')
-  svg.setAttribute('viewBox', `0 0 ${NOTCH_REF_WIDTH} ${NOTCH_REF_HEIGHT}`)
-  svg.setAttribute('preserveAspectRatio', 'none')
+  svg.setAttribute('viewBox', `0 0 ${geometry.width} ${geometry.height}`)
   svg.setAttribute('aria-hidden', 'true')
 
   const fill = doc.createElementNS('http://www.w3.org/2000/svg', 'path')
-  fill.setAttribute('d', FILL_PATH)
+  fill.setAttribute('d', geometry.fillPath)
   fill.setAttribute('fill', 'white')
   svg.appendChild(fill)
 
   const stroke = doc.createElementNS('http://www.w3.org/2000/svg', 'path')
-  stroke.setAttribute('d', STROKE_PATH)
+  stroke.setAttribute('d', geometry.strokePath)
   stroke.setAttribute('fill', 'none')
-  stroke.setAttribute('stroke', '#c1c7d0')
+  stroke.setAttribute('stroke', '#e5e7eb')
   stroke.setAttribute('stroke-width', '1')
   svg.appendChild(stroke)
   root.appendChild(svg)
 
   const controls = doc.createElement('div')
   controls.className = 'graph-mode-switch__controls'
-  const inset = NOTCH_REF_INSET * (width / NOTCH_REF_WIDTH)
-  controls.style.left = `${inset}px`
-  controls.style.right = `${inset}px`
+  controls.style.left = `${geometry.inset}px`
+  controls.style.right = `${geometry.inset}px`
 
   const diagramBtn = doc.createElement('button')
   diagramBtn.type = 'button'

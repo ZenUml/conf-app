@@ -4,9 +4,9 @@
       <DiagramTitleInput />
     </div>
     <div class="notch">
-      <TabSwitcher
+      <Notch
         v-model="diagramType"
-        :options="diagramOptions"
+        :items="diagramOptions"
       />
     </div>
     <div class="flex items-center gap-3 shrink-0 ml-auto">
@@ -60,7 +60,7 @@
 <script>
 import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
-import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
+import Notch from "@/components/Notch/Notch.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
@@ -111,7 +111,7 @@ export default {
   emits: ["toggle-ai-chat"],
   components: {
     PublishButton,
-    TabSwitcher,
+    Notch,
     DiagramTitleInput,
     TemplateGallery,
     LightBulbIcon: { render: LightBulbIcon },

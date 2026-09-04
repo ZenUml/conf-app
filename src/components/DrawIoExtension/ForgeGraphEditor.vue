@@ -230,8 +230,24 @@ export default {
       slot.className = 'zenuml-drawio-title-slot';
       slot.style.cssText = 'display:flex;align-items:center;min-width:72px;max-width:320px;height:28px;padding:0 6px;border:1px solid transparent;border-radius:4px;box-sizing:border-box;color:#111827;font:600 14px/1 system-ui,sans-serif;';
       const spark = frameDoc.createElement('button');
-      spark.type = 'button'; spark.textContent = '✦'; spark.title = 'Generate title with AI';
+      spark.type = 'button'; spark.title = 'Generate title with AI';
       spark.style.cssText = 'width:18px;height:18px;margin-right:5px;padding:0;border:0;background:transparent;color:#9CA3AF;cursor:pointer;';
+      // Keep the established three-spark AI affordance when moving the title
+      // into DrawIO's native toolbar. A text ✦ glyph is not the same icon.
+      const sparkIcon = frameDoc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      sparkIcon.setAttribute('width', '13');
+      sparkIcon.setAttribute('height', '13');
+      sparkIcon.setAttribute('viewBox', '0 0 24 24');
+      sparkIcon.setAttribute('fill', 'none');
+      sparkIcon.setAttribute('stroke', 'currentColor');
+      sparkIcon.setAttribute('stroke-width', '1.5');
+      sparkIcon.setAttribute('stroke-linecap', 'round');
+      sparkIcon.setAttribute('stroke-linejoin', 'round');
+      sparkIcon.setAttribute('aria-hidden', 'true');
+      const sparkPath = frameDoc.createElementNS('http://www.w3.org/2000/svg', 'path');
+      sparkPath.setAttribute('d', 'M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z');
+      sparkIcon.appendChild(sparkPath);
+      spark.appendChild(sparkIcon);
       const input = frameDoc.createElement('input');
       input.type = 'text'; input.placeholder = 'Name your graph…'; input.value = this.drawioTitle;
       input.style.cssText = 'width:100%;min-width:0;border:0;outline:0;background:transparent;color:#111827;font:inherit;';

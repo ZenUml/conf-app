@@ -127,6 +127,39 @@ describe("React AIChatPanel core flow", () => {
     );
   });
 
+  it("scrolls the conversation to the latest turn after sending", async () => {
+    let finish!: () => void;
+    vi.mocked(runAIChatSession).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finish = () => resolve({
+          diagramId: "diagram-1",
+          diagramCreated: false,
+          updatedCode: "openapi: 3.0.0",
+          noChange: true,
+          jobId: "job-1",
+          pollCount: 1,
+        });
+      }),
+    );
+    renderPanel({
+      currentCode: "openapi: 3.0.0",
+      initialMessages: [{
+        id: "assistant-long",
+        role: "assistant",
+        text: "A long response\n".repeat(100),
+      }],
+    });
+    const content = container.querySelector(".ai-chat-content") as HTMLElement;
+    Object.defineProperty(content, "scrollHeight", { configurable: true, value: 1200 });
+    content.scrollTop = 200;
+
+    submit("Add one more endpoint");
+
+    expect(content.scrollTop).toBe(1200);
+
+    await act(async () => finish());
+  });
+
   it("runs the OpenAPI session, binds the diagram, applies code, and exposes line diff", async () => {
     vi.mocked(runAIChatSession).mockImplementationOnce(async (options) => {
       options.onStage?.("processing", {

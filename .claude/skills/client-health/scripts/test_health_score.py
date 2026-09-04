@@ -115,5 +115,75 @@ class BuildAndParseCreatorsQuery(unittest.TestCase):
         self.assertEqual(parsed["other"], 1)
 
 
+class ComputeRawSignals(unittest.TestCase):
+    def setUp(self):
+        self.fleet = {
+            "acme": {"cloud_id": "c1", "seat_tier": 100, "company": "Acme"},
+            "quiet": {"cloud_id": "c2", "seat_tier": 100, "company": "Quiet Co"},
+        }
+        self.today = datetime.date(2026, 9, 4)
+
+    def test_excludes_domains_with_zero_usage_volume(self):
+        volume = {"acme": {"usage_volume": 10, "paywall_friction": 0,
+                            "recent_views": 5, "prior_views": 5,
+                            "last_event_date": self.today}}
+        raw = health_score.compute_raw_signals(self.fleet, volume, {}, today=self.today)
+        self.assertIn("acme", raw)
+        self.assertNotIn("quiet", raw)   # not in `volume` at all -> inactive, excluded
+
+    def test_growth_trend_and_adoption_breadth(self):
+        volume = {"acme": {"usage_volume": 100, "paywall_friction": 2,
+                            "recent_views": 60, "prior_views": 40,
+                            "last_event_date": self.today}}
+        raw = health_score.compute_raw_signals(self.fleet, volume, {"acme": 20}, today=self.today)
+        self.assertAlmostEqual(raw["acme"]["growth_trend"], 0.5)          # (60-40)/40
+        self.assertAlmostEqual(raw["acme"]["adoption_breadth"], 0.2)      # 20/100
+        self.assertEqual(raw["acme"]["days_since_last_event"], 0)
+
+    def test_recency_days_since_last_event(self):
+        volume = {"acme": {"usage_volume": 5, "paywall_friction": 0,
+                            "recent_views": 5, "prior_views": 0,
+                            "last_event_date": datetime.date(2026, 8, 25)}}
+        raw = health_score.compute_raw_signals(self.fleet, volume, {}, today=self.today)
+        self.assertEqual(raw["acme"]["days_since_last_event"], 10)
+
+
+class ScoreFleet(unittest.TestCase):
+    def test_broad_adopter_outranks_thin_adopter_on_opportunity_and_risk(self):
+        # Mirrors this session's tenant-a (broad) vs tenant-b (thin) finding:
+        # near-identical seat tier and usage volume, very different
+        # adoption breadth and growth.
+        raw = {
+            "broad": {"seat_tier": 800, "arr_monthly": 150.0, "adoption_breadth": 0.015,
+                       "usage_volume": 3000, "growth_trend": 0.1, "paywall_friction": 0,
+                       "days_since_last_event": 0, "unique_creators": 12},
+            "thin": {"seat_tier": 800, "arr_monthly": 150.0, "adoption_breadth": 0.005,
+                      "usage_volume": 3000, "growth_trend": -0.3, "paywall_friction": 0,
+                      "days_since_last_event": 5, "unique_creators": 4},
+            "small": {"seat_tier": 20, "arr_monthly": 8.8, "adoption_breadth": 0.01,
+                       "usage_volume": 50, "growth_trend": 0.0, "paywall_friction": 0,
+                       "days_since_last_event": 20, "unique_creators": 1},
+        }
+        scored = health_score.score_fleet(raw)
+        self.assertGreater(scored["broad"]["opportunity_score"], scored["thin"]["opportunity_score"])
+        self.assertGreater(scored["thin"]["risk_score"], scored["broad"]["risk_score"])
+
+    def test_scores_are_bounded_0_to_100(self):
+        raw = {
+            "a": {"seat_tier": 10, "arr_monthly": 4.4, "adoption_breadth": 0.1,
+                   "usage_volume": 5, "growth_trend": 0.0, "paywall_friction": 0,
+                   "days_since_last_event": 1, "unique_creators": 1},
+            "b": {"seat_tier": 1000, "arr_monthly": 400.0, "adoption_breadth": 0.5,
+                   "usage_volume": 5000, "growth_trend": 2.0, "paywall_friction": 10,
+                   "days_since_last_event": 0, "unique_creators": 100},
+        }
+        scored = health_score.score_fleet(raw)
+        for s in scored.values():
+            self.assertGreaterEqual(s["opportunity_score"], 0)
+            self.assertLessEqual(s["opportunity_score"], 100)
+            self.assertGreaterEqual(s["risk_score"], 0)
+            self.assertLessEqual(s["risk_score"], 100)
+
+
 if __name__ == "__main__":
     unittest.main()

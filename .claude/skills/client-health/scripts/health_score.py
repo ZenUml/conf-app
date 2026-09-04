@@ -180,5 +180,69 @@ def fetch_mixpanel_signals(api_secret, days=90):
     return parse_volume_rows(volume_rows, today=today), parse_creators_rows(creators_rows)
 
 
+# ----- Signal assembly + scoring -------------------------------------------
+def compute_raw_signals(fleet, volume_by_domain, creators_by_domain, today=None):
+    """Merge the Marketplace fleet with the two Mixpanel signal sources
+    into one raw-signal row per ACTIVE domain (macro_viewed > 0 in the
+    window — inactive tenants are simply absent from `volume_by_domain`
+    or have usage_volume == 0, and are excluded here per the spec)."""
+    today = today or datetime.date.today()
+    raw = {}
+    for domain, info in fleet.items():
+        v = volume_by_domain.get(domain)
+        if v is None or v["usage_volume"] == 0:
+            continue
+        seat_tier = info["seat_tier"]
+        unique_creators = creators_by_domain.get(domain, 0)
+        prior = v["prior_views"]
+        growth_trend = (v["recent_views"] - prior) / max(prior, 1)
+        last_date = v["last_event_date"]
+        days_since = (today - last_date).days if last_date else 999
+        raw[domain] = {
+            "seat_tier": seat_tier,
+            "arr_monthly": arr_monthly(seat_tier),
+            "adoption_breadth": (unique_creators / seat_tier) if seat_tier else 0.0,
+            "usage_volume": v["usage_volume"],
+            "growth_trend": growth_trend,
+            "paywall_friction": v["paywall_friction"],
+            "days_since_last_event": days_since,
+            "unique_creators": unique_creators,
+        }
+    return raw
+
+
+def score_fleet(raw):
+    """Percentile-rank each signal against the active fleet in `raw`,
+    average into Opportunity (5 signals) and Risk (3 signals) per the
+    design doc's tables. `growth_trend` and `adoption_breadth` are each
+    ranked twice, with opposite `direction`, once per score — that is
+    intentional (see the design doc), not a bug."""
+    domains = list(raw.keys())
+
+    def col(name):
+        return [raw[d][name] for d in domains]
+
+    seat_tier_p = {d: percentile.percentile_rank(raw[d]["seat_tier"], col("seat_tier")) for d in domains}
+    arr_p = {d: percentile.percentile_rank(raw[d]["arr_monthly"], col("arr_monthly")) for d in domains}
+    breadth_p = {d: percentile.percentile_rank(raw[d]["adoption_breadth"], col("adoption_breadth")) for d in domains}
+    volume_p = {d: percentile.percentile_rank(raw[d]["usage_volume"], col("usage_volume")) for d in domains}
+    growth_p = {d: percentile.percentile_rank(raw[d]["growth_trend"], col("growth_trend")) for d in domains}
+    paywall_p = {d: percentile.percentile_rank(raw[d]["paywall_friction"], col("paywall_friction")) for d in domains}
+
+    growth_risk_p = {d: percentile.percentile_rank(raw[d]["growth_trend"], col("growth_trend"), direction="lower_is_better") for d in domains}
+    recency_risk_p = {d: percentile.percentile_rank(raw[d]["days_since_last_event"], col("days_since_last_event")) for d in domains}
+    breadth_risk_p = {d: percentile.percentile_rank(raw[d]["adoption_breadth"], col("adoption_breadth"), direction="lower_is_better") for d in domains}
+
+    scored = {}
+    for d in domains:
+        size_value = (seat_tier_p[d] + arr_p[d]) / 2
+        opportunity = (size_value + breadth_p[d] + volume_p[d] + growth_p[d] + paywall_p[d]) / 5
+        risk = (growth_risk_p[d] + recency_risk_p[d] + breadth_risk_p[d]) / 3
+        scored[d] = {**raw[d],
+                     "opportunity_score": round(opportunity, 1),
+                     "risk_score": round(risk, 1)}
+    return scored
+
+
 if __name__ == "__main__":
     pass  # CLI entrypoint added in Task 5

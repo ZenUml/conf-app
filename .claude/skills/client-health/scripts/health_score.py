@@ -71,5 +71,114 @@ def arr_monthly(seat_tier):
     return mp_pricing.monthly_list_price(seat_tier)
 
 
+# ----- Mixpanel: usage volume, growth trend, recency, paywall friction ----
+INTERNAL_DOMAINS = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev",
+                     "dia-stg", "diagramly"]
+VOLUME_EVENTS = ["macro_viewed", "macro_create_succeeded", "macro_save_succeeded",
+                  "paywall_triggered", "paywall_blocked_create", "paywall_blocked_edit"]
+
+
+def _domain_filter_js(internal_domains):
+    """The JS filter body shared by both JQL scripts below: product_type
+    must be 'lite', client_domain must be set and not start with any
+    internal-domain prefix (mirrors the mixpanel skill's minimal exclude
+    list — see reference_mixpanel_internal_filter)."""
+    return f"""
+    var p = e.properties;
+    if (p.product_type !== 'lite') return false;
+    var d = p.client_domain || '';
+    if (!d) return false;
+    for (var i = 0; i < internal.length; i++) {{
+      if (d.indexOf(internal[i]) === 0) return false;
+    }}
+    return true;
+"""
+
+
+def build_volume_query(days=90, today=None):
+    today = today or datetime.date.today()
+    from_date = today - datetime.timedelta(days=days)
+    return f"""
+function main() {{
+  var internal = {json.dumps(INTERNAL_DOMAINS)};
+  var events = {json.dumps(VOLUME_EVENTS)};
+  return Events({{
+    from_date: '{from_date.isoformat()}', to_date: '{today.isoformat()}',
+    event_selectors: events.map(function(n){{ return {{event: n}}; }})
+  }})
+  .filter(function(e){{{_domain_filter_js(INTERNAL_DOMAINS)}}})
+  .groupBy([
+    function(e){{ return e.properties.client_domain; }},
+    function(e){{ return new Date(e.time).toISOString().slice(0,10); }},
+    'name'
+  ], mixpanel.reducer.count());
+}}
+"""
+
+
+def parse_volume_rows(rows, today=None):
+    today = today or datetime.date.today()
+    recent_cut = today - datetime.timedelta(days=29)     # last 30 days: [today-29, today]
+    prior_start = today - datetime.timedelta(days=59)     # prior 30 days: [today-59, today-30]
+    prior_end = today - datetime.timedelta(days=30)
+    paywall_events = {"paywall_triggered", "paywall_blocked_create", "paywall_blocked_edit"}
+
+    per_domain = defaultdict(lambda: {
+        "usage_volume": 0, "paywall_friction": 0,
+        "recent_views": 0, "prior_views": 0, "last_event_date": None,
+    })
+    for row in rows:
+        domain, date_str, event_name = row["key"]
+        count = row["value"]
+        d = per_domain[domain]
+        date = datetime.date.fromisoformat(date_str)
+        if event_name == "macro_viewed":
+            d["usage_volume"] += count
+            if date >= recent_cut:
+                d["recent_views"] += count
+            elif prior_start <= date <= prior_end:
+                d["prior_views"] += count
+        if event_name in paywall_events:
+            d["paywall_friction"] += count
+        if count > 0 and (d["last_event_date"] is None or date > d["last_event_date"]):
+            d["last_event_date"] = date
+    return dict(per_domain)
+
+
+def build_creators_query(days=90, today=None):
+    today = today or datetime.date.today()
+    from_date = today - datetime.timedelta(days=days)
+    return f"""
+function main() {{
+  var internal = {json.dumps(INTERNAL_DOMAINS)};
+  return Events({{
+    from_date: '{from_date.isoformat()}', to_date: '{today.isoformat()}',
+    event_selectors: [{{event: 'macro_create_succeeded'}}]
+  }})
+  .filter(function(e){{{_domain_filter_js(INTERNAL_DOMAINS)}}})
+  .groupBy([
+    function(e){{ return e.properties.client_domain; }},
+    function(e){{ return e.properties.user_account_id; }}
+  ], mixpanel.reducer.count());
+}}
+"""
+
+
+def parse_creators_rows(rows):
+    per_domain = defaultdict(set)
+    for row in rows:
+        domain, user_id = row["key"]
+        if user_id:
+            per_domain[domain].add(user_id)
+    return {domain: len(users) for domain, users in per_domain.items()}
+
+
+def fetch_mixpanel_signals(api_secret, days=90):
+    today = datetime.date.today()
+    volume_rows = mp_query.run_jql(build_volume_query(days=days, today=today), api_secret, pace=5)
+    creators_rows = mp_query.run_jql(build_creators_query(days=days, today=today), api_secret, pace=5)
+    return parse_volume_rows(volume_rows, today=today), parse_creators_rows(creators_rows)
+
+
 if __name__ == "__main__":
     pass  # CLI entrypoint added in Task 5

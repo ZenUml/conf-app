@@ -254,6 +254,11 @@ export default {
       input.addEventListener('input', () => this.$refs.drawioExtension?.handleTitleChange(input.value));
       input.addEventListener('focus', () => { slot.style.background = '#fff'; slot.style.borderColor = '#F08705'; });
       input.addEventListener('blur', () => { slot.style.background = ''; slot.style.borderColor = 'transparent'; });
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        input.blur();
+      });
       spark.addEventListener('click', () => this.$refs.drawioExtension?.onManualGenerate());
       slot.append(spark, input);
       publish.parentElement.insertBefore(slot, publish);

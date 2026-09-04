@@ -287,13 +287,23 @@ describe('findDrawioMenubar', () => {
 })
 
 describe('hideDrawioFilename', () => {
-  it('hides DrawIO filename chrome so TITLE remains the only naming control', () => {
+  it('hides DrawIO filename and status chrome so TITLE remains the only naming control', () => {
     const menubar = menubarFixture()
     const fnameWrapper = document.createElement('div')
     fnameWrapper.className = 'geFilename'
     fnameWrapper.textContent = 'Untitled Diagram'
-    menubar.appendChild(fnameWrapper)
+    const embedTitle = document.createElement('div')
+    embedTitle.className = 'geStatusDiv'
+    embedTitle.textContent = 'Untitled Graph'
+    const sketchStatus = document.createElement('a')
+    sketchStatus.className = 'geStatus'
+    sketchStatus.textContent = 'Saving…'
+    menubar.append(fnameWrapper, embedTitle, sketchStatus)
+
     hideDrawioFilename(document)
-    expect(getComputedStyle(fnameWrapper).display === 'none' || fnameWrapper.style.display === 'none').toBe(true)
+
+    for (const element of [fnameWrapper, embedTitle, sketchStatus]) {
+      expect(getComputedStyle(element).display === 'none' || element.style.display === 'none').toBe(true)
+    }
   })
 })

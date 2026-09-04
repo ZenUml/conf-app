@@ -162,11 +162,13 @@ export function hideDrawioFilename(doc: Document) {
     .geFilename,
     .geDiagramTitle,
     .geDiagramName,
+    .geStatus,
+    .geStatusDiv,
     #geFilename {
       display: none !important;
     }
   `)
-  doc.querySelectorAll('.geFilename, .geDiagramTitle, .geDiagramName, #geFilename').forEach((el) => {
+  doc.querySelectorAll('.geFilename, .geDiagramTitle, .geDiagramName, .geStatus, .geStatusDiv, #geFilename').forEach((el) => {
     (el as HTMLElement).style.display = 'none'
   })
   doc.querySelectorAll('.geMenubarContainer a.geItem').forEach((el) => {

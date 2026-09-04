@@ -1,4 +1,4 @@
-import React, { FormEventHandler, useEffect, useRef, useState } from 'react';
+import React, { FormEventHandler, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { watch } from 'vue';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import store from '@/model/store2';
@@ -57,6 +57,8 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
   const onTitleChangeRef = useRef(onTitleChange);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const generatedTitleSyncedRef = useRef(false);
+  const measureRef = useRef<HTMLSpanElement | null>(null);
+  const [fieldWidth, setFieldWidth] = useState(72);
 
   titleRef.current = title;
   specRef.current = spec;
@@ -149,9 +151,23 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
   };
 
   const displayTitle = state.isAnimating ? state.displayedTitle : title;
+  const measureText = displayTitle || 'Name your API…';
+
+  // The title belongs in the trailing Publish group. Measure its actual text
+  // rather than letting a flex:1 field consume the whole right half of the
+  // toolbar; slack there makes the title look centred instead of right-aligned.
+  useLayoutEffect(() => {
+    const measured = measureRef.current?.getBoundingClientRect().width || 0;
+    // `fieldWidth` is the whole trailing control, not only the text input.
+    // Keep room for the spark, clear affordance and horizontal padding or a
+    // fitted title would still be clipped by those controls.
+    const textWidth = Math.min(320, Math.max(72, Math.ceil(measured + 4)));
+    const controlsWidth = 12 + 23 + (displayTitle ? 18 : 0);
+    setFieldWidth(textWidth + controlsWidth);
+  }, [measureText, displayTitle]);
 
   return (
-    <div className="flex flex-col flex-1 min-w-0 max-w-2xl mr-2">
+    <div className="relative flex-none min-w-0 mr-2" style={{ width: `${fieldWidth}px` }}>
       <div className="group/openapi-title flex h-6 items-center w-full px-1.5 border border-transparent rounded transition-colors focus-within:bg-white focus-within:border-[#388bff] hover:bg-black/[0.05]">
         {(state.aiTitleEnabled || state.autoNameAnimationDone) && (
           <button
@@ -204,6 +220,9 @@ export default function OpenApiTitleInput({ title, spec, parseError, onTitleChan
           Note: YAML parsing error detected. Title changes may not be saved to the specification.
         </div>
       )}
+      <span ref={measureRef} aria-hidden="true" className="invisible absolute -z-10 whitespace-pre text-[14px] font-semibold">
+        {measureText}
+      </span>
     </div>
   );
 }

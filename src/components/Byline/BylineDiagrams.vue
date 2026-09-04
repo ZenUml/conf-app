@@ -827,10 +827,20 @@ function reportPlacement() {
  * written down as "everything is unplaced", which is precisely what an
  * undefined `placedIds` would mean if it were treated as an empty set — the
  * same trap `isUnplaced` guards against.
+ *
+ * Silent too whenever the host page is IN THE EDITOR, and that one is the
+ * difference between an affordance and a claim. The scan reads the PUBLISHED
+ * ADF, which cannot see the editor's draft, so a diagram the author has just
+ * pasted still reads as unplaced. In the byline that only ever ADDED a Copy URL
+ * button for the author (see `isUnplaced`); recorded here it becomes a banner
+ * shown to EVERYONE on the page, asserting something we cannot verify while a
+ * draft is open. So the author finishes first, and the next scan — from a
+ * published page — is what records anything.
  */
 async function syncUnplacedState() {
   const ids = placedIds.value
   if (!ids) return
+  if (hostInEditor) return
   const identity = deriveUnplacedIdentity()
   if (!identity) return
   // An empty list is not skipped: it is what retires a banner for diagrams the
@@ -1060,8 +1070,10 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     // A diagram that was just saved from here is unplaced BY DEFINITION — the
     // paste has not happened yet — so this is the write that arms the banner for
     // the exact failure the create→paste handoff has. Runs on the cancelled path
-    // too: the list was re-read either way, and a marker that ignored it would
-    // keep naming diagrams the user has since placed.
+    // too: the list was re-read either way, and a record that ignored it would
+    // keep naming diagrams the user has since placed. In the editor it no-ops
+    // (see syncUnplacedState): the author is mid-paste and the published ADF
+    // cannot yet show it.
     void syncUnplacedState()
     if (!newId) {
       trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })

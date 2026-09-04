@@ -959,6 +959,27 @@ describe('BylineDiagrams', () => {
       expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([]);
     });
 
+    it('records nothing while the host page is in the EDITOR', async () => {
+      // The scan reads the PUBLISHED ADF, which cannot see the draft the author
+      // is editing — so a diagram they have just pasted still reads as
+      // unplaced. In the byline that only added a Copy URL button for the
+      // author; recorded on the page it becomes a banner telling EVERYONE the
+      // diagram is missing, which is a claim we cannot verify while a draft is
+      // open.
+      forgeGlobalMock.forgeContext = {
+        cloudId: 'cloud-1',
+        extension: { content: { id: 'page-1' }, isEditing: true },
+      };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      await mountByline();
+
+      expect(persistUnplacedProperty).not.toHaveBeenCalled();
+      expect(readUnplacedMarker(IDENTITY)).toBeNull();
+      // The panel still labels it for the author — the affordance is unchanged.
+      expect(events('byline_unplaced_scanned')[0][1]).toMatchObject({ unplaced_count: 1 });
+    });
+
     it('writes no marker at all when the page could not be scanned', async () => {
       // An unreadable ADF must never be written down as "everything is
       // unplaced" — the banner would then name every diagram on the page.

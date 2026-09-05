@@ -195,6 +195,26 @@ describe('UnplacedDiagramsBanner', () => {
       expect(events('unplaced_banner_shown')[0][1]).toMatchObject({ unplaced_source: 'marker' });
     });
 
+    it('says nothing about a diagram that belongs to another page', async () => {
+      // The ADF scan cannot catch this: another page's diagram is genuinely not
+      // rendered here, so it "verifies" and comes out as "saved on this page".
+      window.localStorage.setItem(
+        `bylineUnplaced:example-tenant:page-1`,
+        JSON.stringify({
+          entries: [STRAY],
+          updatedAt: '2026-08-30T00:00:00.000Z',
+          pageId: 'page-somewhere-else',
+        }),
+      );
+      const wrapper = await mountBanner({ source: 'marker' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(viewClose).toHaveBeenCalled();
+      expect(events('unplaced_banner_evaluated').at(-1)?.[1]).toMatchObject({
+        result: 'page_mismatch',
+      });
+    });
+
     it('stands the fallback down when a property exists after all', async () => {
       // Two authors: A's write landed (so the gated module is already showing
       // this page's notice) and B's was denied. `viaProperty` cannot catch it —

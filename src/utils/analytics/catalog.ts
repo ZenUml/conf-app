@@ -572,6 +572,9 @@ export type AnalyticsEventName =
   //                         we stop buying an ADF read for it.
   //   'shows_exhausted'   — this browser has been told about this record the
   //                         maximum number of times.
+  //   'page_mismatch'     — the fallback record names a different page than the
+  //                         one it was read on, so it says nothing. Any hit
+  //                         here is a bug: the record reached the wrong page.
   //   'dismissed_quiet'   — this user dismissed the notice within the quiet
   //                         window, so the load stood down before reading the
   //                         record at all.

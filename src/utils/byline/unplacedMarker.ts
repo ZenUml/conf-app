@@ -63,6 +63,21 @@ export interface UnplacedMarker {
   /** ISO timestamp of the byline scan that produced `entries`. */
   updatedAt: string
   /**
+   * The page these entries were scanned on, stamped INSIDE the record rather
+   * than left implicit in the key.
+   *
+   * The banner's whole claim is "saved on THIS page", and its verification
+   * (`referencedCustomContentIds`) only proves the page does not RENDER them —
+   * which is trivially true of a diagram belonging to some other page. So a
+   * record that reaches the wrong page survives verification and announces a
+   * diagram that is not there. The key already carries a page id; this makes
+   * the record say so itself, so the reader can check rather than trust.
+   *
+   * `null` on a record written before this field existed: unverifiable, and
+   * treated as a mismatch.
+   */
+  pageId: string | null
+  /**
    * The content property (unplacedProperty.ts) took this verdict, so the
    * dedicated `zenuml-unplaced-banner` module — gated server-side on that
    * property — will carry it. The shared page-banner host must then NOT also
@@ -218,6 +233,7 @@ export function parseUnplacedMarker(raw: string | null): UnplacedMarker | null {
     return {
       entries: sanitizeUnplacedEntries(p.entries),
       updatedAt: p.updatedAt,
+      pageId: typeof p.pageId === 'string' && p.pageId ? p.pageId : null,
       viaProperty: p.viaProperty === true,
     }
   } catch {
@@ -254,6 +270,18 @@ export function readUnplacedMarker(identity: UnplacedIdentity): UnplacedMarker |
   return parseUnplacedMarker(readRaw(unplacedMarkerKey(identity)))
 }
 
+/**
+ * Does this record actually describe the page we are on?
+ *
+ * The key says so, but only the key — and the banner turns the record into a
+ * sentence about this page. A record whose stamp disagrees (or predates the
+ * stamp, so cannot agree) is not evidence about this page, and saying nothing
+ * beats naming a diagram that lives somewhere else.
+ */
+export function isMarkerForPage(marker: UnplacedMarker, identity: UnplacedIdentity): boolean {
+  return marker.pageId === identity.pageId
+}
+
 export function readUnplacedBannerMarker(identity: UnplacedIdentity): UnplacedBannerMarker {
   return parseUnplacedBannerMarker(readRaw(unplacedBannerMarkerKey(identity)))
 }
@@ -279,6 +307,7 @@ export function writeUnplacedMarker(
   const marker: UnplacedMarker = {
     entries: sanitizeUnplacedEntries(entries),
     updatedAt: new Date(now).toISOString(),
+    pageId: identity.pageId,
     viaProperty: opts.viaProperty,
   }
   writeRaw(unplacedMarkerKey(identity), JSON.stringify(marker))
@@ -363,6 +392,7 @@ export function isUnplacedBannerCandidate(
   if (!identity) return false
   const marker = readUnplacedMarker(identity)
   if (!marker || marker.entries.length === 0) return false
+  if (!isMarkerForPage(marker, identity)) return false
   // The property took it, so the gated module shows it — to everyone, not just
   // this browser. Offering it here too would stack two banners saying the same
   // thing on the one page.

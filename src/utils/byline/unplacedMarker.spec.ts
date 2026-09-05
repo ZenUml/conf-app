@@ -87,6 +87,7 @@ describe('unplacedMarker — the byline→banner handoff', () => {
       expect(readUnplacedMarker(IDENTITY)).toEqual({
         entries: [ENTRY],
         updatedAt: '2026-08-20T10:00:00.000Z',
+        pageId: IDENTITY.pageId,
         viaProperty: false,
       })
     })
@@ -129,14 +130,30 @@ describe('unplacedMarker — the byline→banner handoff', () => {
       expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(false)
     })
 
-    it('treats a marker written before viaProperty existed as the fallback', () => {
-      // Forward compatibility: markers already in users' browsers have no such
-      // field, and they are exactly the creator-only case.
+    it('will not speak for a marker that does not name the page it is read on', () => {
+      // The banner turns this record into "saved on THIS page". A record from
+      // another page passes the ADF scan for free — that page's diagram really
+      // is not rendered here — so the stamp is the only thing that catches it.
+      window.localStorage.setItem(
+        unplacedMarkerKey(IDENTITY),
+        JSON.stringify({
+          entries: [ENTRY],
+          updatedAt: new Date(NOW).toISOString(),
+          pageId: 'some-other-page',
+        }),
+      )
+      expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(false)
+    })
+
+    it('stays silent on a marker written before the page stamp existed', () => {
+      // Unverifiable, not trusted: an unstamped record cannot say which page it
+      // describes, and the fallback is the minor path — the byline restamps it
+      // the next time it is opened.
       window.localStorage.setItem(
         unplacedMarkerKey(IDENTITY),
         JSON.stringify({ entries: [ENTRY], updatedAt: new Date(NOW).toISOString() }),
       )
-      expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(true)
+      expect(isUnplacedBannerCandidate(IDENTITY, NOW)).toBe(false)
     })
 
     it('expires after the TTL rather than paying an ADF read forever', () => {

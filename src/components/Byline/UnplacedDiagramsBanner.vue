@@ -121,6 +121,7 @@ import {
   deriveUnplacedIdentity,
   hasExhaustedShows,
   isDismissalQuiet,
+  isMarkerForPage,
   readUnplacedBannerMarker,
   readUnplacedMarker,
   recordUnplacedBannerDismissed,
@@ -212,6 +213,9 @@ async function closeBanner() {
  * has already confirmed carries the property — the gate means we are never
  * paying it speculatively.
  */
+/** Set when readRecord() has already emitted the load's evaluated event. */
+let evaluationReported = false
+
 async function readRecord(): Promise<{ entries: UnplacedDiagramEntry[]; updatedAt: string } | null> {
   if (!identity) return null
   if (props.source === 'property') {
@@ -223,6 +227,19 @@ async function readRecord(): Promise<{ entries: UnplacedDiagramEntry[]; updatedA
   }
   const marker = readUnplacedMarker(identity)
   if (!marker || marker.entries.length === 0) return null
+  // A record from another page survives the ADF scan — that page's diagram is
+  // genuinely not rendered here — and comes out as "saved on this page" about a
+  // diagram that is not. Only the record's own stamp can catch it.
+  if (!isMarkerForPage(marker, identity)) {
+    trackAnalyticsEvent('unplaced_banner_evaluated', {
+      ...baseProps(),
+      result: 'page_mismatch',
+    })
+    // Already reported, and with the reason that matters — the caller's generic
+    // 'record_unreadable' would double-count this load in the denominator.
+    evaluationReported = true
+    return null
+  }
   // The fallback exists for browsers whose property write was DENIED. If the
   // property turns out to exist anyway — a second author's write landed — then
   // the gated module is already showing this page's notice, and continuing here
@@ -294,10 +311,12 @@ onMounted(async () => {
       // did not read back — forbidden, malformed, or already emptied. It is a
       // real load with a real cost, so it is reported rather than swallowed:
       // the catalog promises this event fires on every load past the gate.
-      trackAnalyticsEvent('unplaced_banner_evaluated', {
-        ...baseProps(),
-        result: 'record_unreadable',
-      })
+      if (!evaluationReported) {
+        trackAnalyticsEvent('unplaced_banner_evaluated', {
+          ...baseProps(),
+          result: 'record_unreadable',
+        })
+      }
       await closeBanner()
       return
     }

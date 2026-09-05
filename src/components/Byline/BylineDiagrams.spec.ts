@@ -6,7 +6,7 @@ import { openModal } from '@/model/globals/forgeGlobal';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { readUnplacedMarker } from '@/utils/byline/unplacedMarker';
 import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty';
-import { addDiagramToPage } from '@/utils/byline/addToPage';
+import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -29,6 +29,7 @@ vi.mock('@/utils/byline/unplacedProperty', () => ({
 // The one-click place. Its REST behaviour is covered in addToPage.spec.ts.
 vi.mock('@/utils/byline/addToPage', () => ({
   addDiagramToPage: vi.fn(async () => ({ result: 'added', pageMacroCount: 1 })),
+  reloadHostPage: vi.fn(async () => true),
 }));
 
 const forgeGlobalMock = vi.hoisted(() => ({ forgeContext: { cloudId: 'cloud-1' } as any }));
@@ -851,7 +852,7 @@ describe('BylineDiagrams', () => {
       expect(rows[1].text()).toContain('not on this page');
     });
 
-    it('places the diagram in one click and drops the label without a reload', async () => {
+    it('places the diagram in one click and drops the label', async () => {
       // The four-step alternative is the flow the user already abandoned once —
       // which is why this diagram is unplaced at all.
       forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
@@ -872,6 +873,9 @@ describe('BylineDiagrams', () => {
       // The record the banner reads is rewritten in the same breath, or the
       // page banner would announce a diagram the user just watched appear.
       expect(persistUnplacedProperty).toHaveBeenLastCalledWith('page-1', []);
+      // The stored page changed but the page behind this panel did not, so the
+      // diagram would otherwise appear nowhere until the user navigated.
+      expect(reloadHostPage).toHaveBeenCalled();
     });
 
     it('falls back to the link when the write is refused', async () => {

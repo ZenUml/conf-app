@@ -237,3 +237,29 @@ export async function addDiagramToPage(
     return { result: 'failed' }
   }
 }
+
+/**
+ * Reload the Confluence page the iframe is embedded in.
+ *
+ * The write above changes the page's stored ADF; the rendered page in front of
+ * the user does not change with it. Without this the successful case looks
+ * like nothing happened — the banner or row quietly updates itself, and the
+ * diagram the user was promised appears only on the next navigation.
+ *
+ * Called once the surface has nothing left to place, not after every add: a
+ * full Confluence page load between two clicks would cost the second one.
+ *
+ * Best-effort. A refused or unavailable reload leaves the page as it was,
+ * which is the pre-existing behaviour, so it must never surface as an error on
+ * an operation that SUCCEEDED.
+ */
+export async function reloadHostPage(): Promise<boolean> {
+  try {
+    const { router } = await import('@forge/bridge')
+    await router.reload()
+    return true
+  } catch (e) {
+    console.debug('[add-to-page] host reload unavailable', e)
+    return false
+  }
+}

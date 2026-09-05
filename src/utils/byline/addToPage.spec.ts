@@ -3,13 +3,15 @@ import {
   addDiagramToPage,
   buildMacroNode,
   referencesCustomContent,
+  reloadHostPage,
   resolveIdentity,
 } from './addToPage'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 const requestConfluence = vi.hoisted(() => vi.fn())
-vi.mock('@forge/bridge', () => ({ requestConfluence }))
+const routerReload = vi.hoisted(() => vi.fn())
+vi.mock('@forge/bridge', () => ({ requestConfluence, router: { reload: routerReload } }))
 
 const APP = '8ad26115-211f-4216-971b-0540f606303d'
 const ENV = 'de60a8cb-4c03-48e5-bdb7-63226e9394c4'
@@ -171,5 +173,23 @@ describe('addToPage — placing a diagram without the four-step detour', () => {
       expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({ result: 'failed' })
       error.mockRestore()
     })
+  })
+})
+
+describe('reloadHostPage', () => {
+  it('reloads the Confluence page the iframe sits in', async () => {
+    routerReload.mockResolvedValue(undefined)
+    await expect(reloadHostPage()).resolves.toBe(true)
+    expect(routerReload).toHaveBeenCalled()
+  })
+
+  it('reports failure instead of throwing on an operation that succeeded', async () => {
+    // The diagram IS on the page by the time this runs. A refused reload leaves
+    // the page as it was — the pre-existing behaviour — and must never surface
+    // as an error about the add.
+    routerReload.mockRejectedValue(new Error('no bridge'))
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    await expect(reloadHostPage()).resolves.toBe(false)
+    debug.mockRestore()
   })
 })

@@ -133,7 +133,7 @@ import {
 } from '@/utils/byline/unplacedMarker'
 import { clearUnplacedProperty, readUnplacedProperty } from '@/utils/byline/unplacedProperty'
 import { higherPriorityBannerPending } from '@/utils/banners/priority'
-import { addDiagramToPage } from '@/utils/byline/addToPage'
+import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage'
 
 /**
  * "Saved here, but on no page" — said on the surface that is actually read.
@@ -442,6 +442,9 @@ onBeforeUnmount(() => {
  * that keeps naming a diagram the user has visibly placed is the exact wrong
  * answer. When the last row goes, so does the banner.
  */
+/** At least one entry was really written, so the rendered page is out of date. */
+let addedAny = false
+
 async function onAddToPage(entry: UnplacedDiagramEntry) {
   if (!identity || addingId.value) return
   addingId.value = entry.id
@@ -473,11 +476,18 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
   }
 
   // 'added' or 'already_present' — either way the page now renders it.
+  if (result === 'added') addedAny = true
   rows.value = rows.value.filter(r => r.id !== entry.id)
   if (rows.value.length === 0) {
     if (props.source === 'property') void clearUnplacedProperty(identity.pageId)
     else recordUnplacedBannerResolved(identity, recordUpdatedAt)
     visible.value = false
+    // Reload BEFORE closing: the reload is the point — the page in front of
+    // the user still shows the body from before the write, so without it the
+    // diagram they were just told about is nowhere to be seen. Closing the
+    // iframe first would abort the call, the same reason every other exit
+    // path here awaits its work before view.close().
+    if (addedAny) await reloadHostPage()
     void closeBanner()
   }
 }

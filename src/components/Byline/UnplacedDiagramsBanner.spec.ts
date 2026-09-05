@@ -25,7 +25,8 @@ vi.mock('@/utils/banners/priority', () => ({ higherPriorityBannerPending }));
 
 // The one-click place. Its REST behaviour is covered in addToPage.spec.ts.
 const addDiagramToPage = vi.hoisted(() => vi.fn(async () => ({ result: 'added', pageMacroCount: 1 })));
-vi.mock('@/utils/byline/addToPage', () => ({ addDiagramToPage }));
+const reloadHostPage = vi.hoisted(() => vi.fn(async () => true));
+vi.mock('@/utils/byline/addToPage', () => ({ addDiagramToPage, reloadHostPage }));
 
 const apWrapper = vi.hoisted(() => ({
   referencedCustomContentIds: vi.fn(async () => [] as string[] | undefined),
@@ -502,6 +503,14 @@ describe('UnplacedDiagramsBanner', () => {
         surface: 'page_banner',
         page_macro_count: 1,
       });
+      // The write changed the STORED page; the rendered page in front of the
+      // user did not change with it, so without this the successful case looks
+      // like nothing happened.
+      expect(reloadHostPage).toHaveBeenCalled();
+      // And before the close, because closing the iframe aborts in-flight work.
+      expect(reloadHostPage.mock.invocationCallOrder[0]).toBeLessThan(
+        viewClose.mock.invocationCallOrder[0],
+      );
     });
 
     it('keeps the banner up for the diagrams still unplaced', async () => {
@@ -517,6 +526,22 @@ describe('UnplacedDiagramsBanner', () => {
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(true);
       expect(wrapper.find('[data-testid="unplaced-banner-text"]').text()).toContain('Retry path');
       expect(clearUnplacedProperty).not.toHaveBeenCalled();
+      // A full Confluence page load between the two clicks would cost the user
+      // the second one — the reload waits for the last diagram.
+      expect(reloadHostPage).not.toHaveBeenCalled();
+    });
+
+    it('does not reload for a diagram the page already carried', async () => {
+      // Nothing was written, so there is nothing new to render.
+      addDiagramToPage.mockResolvedValue({ result: 'already_present', pageMacroCount: 1 });
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(reloadHostPage).not.toHaveBeenCalled();
     });
 
     it('offers the link instead when the reader cannot edit the page', async () => {

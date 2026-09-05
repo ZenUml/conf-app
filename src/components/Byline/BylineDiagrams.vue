@@ -370,7 +370,7 @@ import {
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
 import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
 import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
-import { addDiagramToPage } from '@/utils/byline/addToPage'
+import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -957,7 +957,12 @@ async function onAddToPage(d: PageDiagram) {
   // The page renders it now. Fold that into the scan result we already hold so
   // the row updates in place, and rewrite the record the banner reads.
   if (placedOrder.value) placedOrder.value = [...placedOrder.value, d.id]
-  void syncUnplacedState()
+  await syncUnplacedState()
+  // The stored page changed; the page BEHIND this panel did not. Reload it so
+  // the diagram actually appears — but only once nothing here is still waiting
+  // to be placed, because the reload takes this panel with it and a second
+  // unplaced diagram would need the whole flow again.
+  if (result === 'added' && !diagrams.value.some(isUnplaced)) await reloadHostPage()
 }
 
 async function onCopySource(d: PageDiagram) {

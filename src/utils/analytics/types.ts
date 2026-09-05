@@ -397,6 +397,11 @@ export type AnalyticsProperties = {
   // an 'all_placed' result means we kept paying for the verification scan long
   // after the user fixed the page.
   unplaced_marker_age_ms?: number;
+  // diagram_revealed: how long between the surface requesting the reveal (just
+  // before it reloaded the page) and the macro claiming it. Spans a full
+  // Confluence page load, so it is a page-weight number as much as ours — read
+  // against REVEAL_TTL_MS, which is what a slower page would have exceeded.
+  reveal_age_ms?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser

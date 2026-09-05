@@ -644,6 +644,19 @@ export type AnalyticsEventName =
   // A material 'forbidden' share means the banner is reaching the wrong
   // audience and the button should be gated rather than offered-then-refused.
   | "diagram_added_to_page"
+  // The macro that was just placed pulled the reloaded page to itself and
+  // flashed a ring around the diagram. Fired by the MACRO, not by the surface
+  // that placed it: the two are different iframes and only the macro knows it
+  // rendered.
+  //
+  // It is the second half of `diagram_added_to_page` (result 'added') and only
+  // means anything read against it. A gap between the two is the reveal being
+  // requested and never claimed — the macro never booted, the reload never
+  // happened, or the request went stale — which is invisible from the placing
+  // side, because that iframe is gone by then. `reveal_age_ms` says how long
+  // the round trip took; a value near the TTL is a page slow enough that the
+  // next one would have missed it.
+  | "diagram_revealed"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-

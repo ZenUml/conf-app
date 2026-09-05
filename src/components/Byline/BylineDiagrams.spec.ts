@@ -32,6 +32,11 @@ vi.mock('@/utils/byline/addToPage', () => ({
   reloadHostPage: vi.fn(async () => true),
 }));
 
+// The hand-off to the placed macro across the reload.
+const requestReveal = vi.hoisted(() => vi.fn());
+const cancelReveal = vi.hoisted(() => vi.fn());
+vi.mock('@/utils/byline/revealDiagram', () => ({ requestReveal, cancelReveal }));
+
 const forgeGlobalMock = vi.hoisted(() => ({ forgeContext: { cloudId: 'cloud-1' } as any }));
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: forgeGlobalMock,
@@ -876,6 +881,8 @@ describe('BylineDiagrams', () => {
       // The stored page changed but the page behind this panel did not, so the
       // diagram would otherwise appear nowhere until the user navigated.
       expect(reloadHostPage).toHaveBeenCalled();
+      // …to a page that opens above the macro it just appended, hence the note.
+      expect(requestReveal).toHaveBeenCalledWith('page-1', '2');
     });
 
     it('falls back to the link when the write is refused', async () => {

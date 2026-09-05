@@ -371,6 +371,7 @@ import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnail
 import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
 import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
 import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage'
+import { cancelReveal, requestReveal } from '@/utils/byline/revealDiagram'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -962,7 +963,12 @@ async function onAddToPage(d: PageDiagram) {
   // the diagram actually appears — but only once nothing here is still waiting
   // to be placed, because the reload takes this panel with it and a second
   // unplaced diagram would need the whole flow again.
-  if (result === 'added' && !diagrams.value.some(isUnplaced)) await reloadHostPage()
+  if (result === 'added' && !diagrams.value.some(isUnplaced)) {
+    // The macro is appended to the END of the page, so the reloaded page opens
+    // above it. This note is what lets it pull the page down to itself.
+    requestReveal(pageId, d.id)
+    if (!(await reloadHostPage())) cancelReveal()
+  }
 }
 
 async function onCopySource(d: PageDiagram) {

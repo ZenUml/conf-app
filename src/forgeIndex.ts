@@ -1066,6 +1066,64 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   } else {
     await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
   }
+
+  // Last, and for every macro kind: if THIS macro is the one the user just
+  // placed from the byline or the banner, pull the reloaded page down to it and
+  // ring it. Placed here rather than in each viewer because the note is keyed
+  // by customContentId, which is the same fact whatever renders it. Never
+  // awaited and never throws — the diagram is on the page either way.
+  if (!editable) void maybeRevealPlacedMacro(recoveryPageId, customContentId, doc?.diagramType);
+}
+
+/**
+ * The receiving half of the one-click place (see utils/byline/revealDiagram.ts
+ * for why a focus is what scrolls Confluence).
+ *
+ * Waits for the macro to stop growing first. The iframe is sized by its
+ * content, so focusing while the diagram is still rendering would scroll to a
+ * box that is about to move — the scroll has to be the last thing that happens.
+ */
+async function maybeRevealPlacedMacro(
+  pageId: string | undefined,
+  customContentId: string | undefined,
+  diagramType: string | undefined,
+) {
+  try {
+    const { claimReveal, revealThisMacro } = await import('@/utils/byline/revealDiagram');
+    const ageMs = claimReveal(pageId, customContentId);
+    if (ageMs === null) return;
+
+    await settled();
+    revealThisMacro();
+
+    const [{ trackAnalyticsEvent }, { toMacroType }] = await Promise.all([
+      import('@/utils/analytics/trackAnalyticsEvent'),
+      import('@/utils/byline/pageDiagrams'),
+    ]);
+    trackAnalyticsEvent('diagram_revealed', {
+      feature_area: 'byline',
+      surface: 'macro',
+      ...(diagramType ? { macro_type: toMacroType(diagramType) } : {}),
+      reveal_age_ms: ageMs,
+    });
+  } catch (e) {
+    console.debug('[reveal] skipped', e);
+  }
+}
+
+/** Resolve once the document has held the same height twice in a row, or at the deadline. */
+function settled(deadlineMs = 4000, quietMs = 250): Promise<void> {
+  return new Promise(resolve => {
+    const started = Date.now();
+    let last = -1;
+    const tick = () => {
+      const h = document.documentElement.scrollHeight;
+      if (h === last || Date.now() - started > deadlineMs) return resolve();
+      last = h;
+      window.setTimeout(tick, quietMs);
+    };
+    window.setTimeout(tick, quietMs);
+  });
 }
 
 // Main function to orchestrate the two-phase loading

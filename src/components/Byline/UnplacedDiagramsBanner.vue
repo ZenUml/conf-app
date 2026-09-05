@@ -134,6 +134,7 @@ import {
 import { clearUnplacedProperty, readUnplacedProperty } from '@/utils/byline/unplacedProperty'
 import { higherPriorityBannerPending } from '@/utils/banners/priority'
 import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage'
+import { cancelReveal, requestReveal } from '@/utils/byline/revealDiagram'
 
 /**
  * "Saved here, but on no page" — said on the surface that is actually read.
@@ -444,6 +445,8 @@ onBeforeUnmount(() => {
  */
 /** At least one entry was really written, so the rendered page is out of date. */
 let addedAny = false
+/** The last entry actually written — the one worth scrolling to. */
+let lastAdded: string | null = null
 
 async function onAddToPage(entry: UnplacedDiagramEntry) {
   if (!identity || addingId.value) return
@@ -476,7 +479,10 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
   }
 
   // 'added' or 'already_present' — either way the page now renders it.
-  if (result === 'added') addedAny = true
+  if (result === 'added') {
+    addedAny = true
+    lastAdded = entry.id
+  }
   rows.value = rows.value.filter(r => r.id !== entry.id)
   if (rows.value.length === 0) {
     if (props.source === 'property') void clearUnplacedProperty(identity.pageId)
@@ -487,7 +493,15 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
     // diagram they were just told about is nowhere to be seen. Closing the
     // iframe first would abort the call, the same reason every other exit
     // path here awaits its work before view.close().
-    if (addedAny) await reloadHostPage()
+    if (addedAny) {
+      // Leave the note the placed macro claims on the other side of the reload:
+      // it is appended to the END of the document, so on any page longer than a
+      // screen the reloaded page opens above it and the click looks like it did
+      // nothing. Named for the LAST diagram placed, which is the one the user
+      // just clicked.
+      if (lastAdded) requestReveal(identity.pageId, lastAdded)
+      if (!(await reloadHostPage())) cancelReveal()
+    }
     void closeBanner()
   }
 }

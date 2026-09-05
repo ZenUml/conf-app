@@ -28,6 +28,11 @@ const addDiagramToPage = vi.hoisted(() => vi.fn(async () => ({ result: 'added', 
 const reloadHostPage = vi.hoisted(() => vi.fn(async () => true));
 vi.mock('@/utils/byline/addToPage', () => ({ addDiagramToPage, reloadHostPage }));
 
+// The hand-off to the placed macro across the reload.
+const requestReveal = vi.hoisted(() => vi.fn());
+const cancelReveal = vi.hoisted(() => vi.fn());
+vi.mock('@/utils/byline/revealDiagram', () => ({ requestReveal, cancelReveal }));
+
 const apWrapper = vi.hoisted(() => ({
   referencedCustomContentIds: vi.fn(async () => [] as string[] | undefined),
 }));
@@ -511,6 +516,24 @@ describe('UnplacedDiagramsBanner', () => {
       expect(reloadHostPage.mock.invocationCallOrder[0]).toBeLessThan(
         viewClose.mock.invocationCallOrder[0],
       );
+      // The macro is appended to the END of the page, so the reloaded page
+      // opens above it. This note is how it pulls the page down to itself.
+      expect(requestReveal).toHaveBeenCalledWith('page-1', 'cc-2');
+      expect(requestReveal.mock.invocationCallOrder[0]).toBeLessThan(
+        reloadHostPage.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('drops the reveal note when the reload never happened', async () => {
+      // A note nobody can claim would scroll the NEXT page load instead.
+      reloadHostPage.mockResolvedValue(false);
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(cancelReveal).toHaveBeenCalled();
     });
 
     it('keeps the banner up for the diagrams still unplaced', async () => {
@@ -527,8 +550,10 @@ describe('UnplacedDiagramsBanner', () => {
       expect(wrapper.find('[data-testid="unplaced-banner-text"]').text()).toContain('Retry path');
       expect(clearUnplacedProperty).not.toHaveBeenCalled();
       // A full Confluence page load between the two clicks would cost the user
-      // the second one — the reload waits for the last diagram.
+      // the second one — the reload waits for the last diagram, and so does the
+      // note that says which one to scroll to.
       expect(reloadHostPage).not.toHaveBeenCalled();
+      expect(requestReveal).not.toHaveBeenCalled();
     });
 
     it('does not reload for a diagram the page already carried', async () => {

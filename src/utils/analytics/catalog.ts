@@ -572,10 +572,19 @@ export type AnalyticsEventName =
   //                         we stop buying an ADF read for it.
   //   'shows_exhausted'   — this browser has been told about this record the
   //                         maximum number of times.
+  //   'dismissed_quiet'   — this user dismissed the notice within the quiet
+  //                         window, so the load stood down before reading the
+  //                         record at all.
+  //   'dismissed_version' — this user dismissed the notice for exactly this
+  //                         record version; a new diagram re-arms it.
   //   'yielded'           — a higher-priority banner has the page's one banner
   //                         slot; `suppressed_by` names it. Two Confluence
   //                         modules mean two iframes, so this notice stands
   //                         down rather than stack (utils/banners/priority.ts).
+  //
+  // The two 'dismissed_*' results are what separates "the gate never fires" from
+  // "it fires and everyone has already said no" — the question that otherwise
+  // needs a browser and the user's own localStorage to answer.
   //
   // A rising 'all_placed' share is the signal that the record's write/retire
   // cycle is leaking, not that users are ignoring the banner. A rising

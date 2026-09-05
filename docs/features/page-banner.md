@@ -72,6 +72,19 @@ keeps — a diagram saved on a page and placed nowhere on it is still unplaced
 tomorrow, and its banner re-arms itself. A CSAT window closes; a paywall block is
 happening now.
 
+That order is enforced in TWO places, and it has to be. Inside the shared host a
+cascade is enough: it picks one. The gated module is a separate iframe that
+Confluence renders on its own, so the cascade cannot reach it — it asks the same
+question itself, before doing anything, via `higherPriorityBannerPending()` in
+`utils/banners/priority.ts`. Those are the same synchronous localStorage reads
+the host makes, which is what makes it safe across two iframes that cannot talk:
+they are not coordinating, they are reading the same facts and reaching the same
+conclusion. No handshake, no race, and yielding costs nothing because it happens
+before the property read.
+
+Yielding is measured (`result: 'yielded'`, with `suppressed_by`) because a notice
+that never gets the slot looks exactly like a notice nobody needs.
+
 `zenuml-unplaced-banner` is the one module in this app that escapes the whole
 cost model at the top of this document: its condition is page state, so
 Confluence never creates the iframe on a page with nothing to say.

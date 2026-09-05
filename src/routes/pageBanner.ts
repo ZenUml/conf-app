@@ -1,9 +1,8 @@
 import { createApp } from 'vue';
 import globals from '@/model/globals';
-import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner';
-import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { isCsatPendingFresh } from '@/utils/csat';
 import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/byline/unplacedMarker';
+import { higherPriorityBannerPending } from '@/utils/banners/priority';
 
 /**
  * Single `confluence:pageBanner` host. Confluence creates exactly one banner
@@ -53,18 +52,13 @@ export type PageBannerChoice =
  * flag — keeping the pre-existing path free of any async work.
  */
 export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
-  const identity = deriveWarningBannerIdentity();
-  // Pre-Phase-5b gate first: if this user qualified as a recent author, nothing
-  // about their experience changes and no flag is involved.
-  if (shouldShowPaywallBanner(now, identity, false)) return 'paywall';
-  // The admin verdict is a third localStorage read, still synchronous. forgeIndex
-  // awaits maybeProbeSpaceAdmin() BEFORE calling this, so on the load that first
-  // resolves admin status the verdict is already written — an admin sees the
-  // banner on that same load, not the next one.
-  if (isCurrentUserSpaceAdmin(identity) && shouldShowPaywallBanner(now, identity, true)) {
-    return 'paywall-admin';
-  }
-  if (isCsatPendingFresh(now)) return 'csat';
+  // The same question the unplaced module asks itself, from the same reads —
+  // see utils/banners/priority.ts for why it is asked twice rather than
+  // implied by this cascade. forgeIndex awaits maybeProbeSpaceAdmin() BEFORE
+  // calling this, so on the load that first resolves admin status the verdict
+  // is already written: an admin sees the banner on that same load.
+  const higher = higherPriorityBannerPending(now);
+  if (higher) return higher;
   // Candidate, not verdict: this reads only the marker the byline left behind
   // (utils/byline/unplacedMarker.ts). The component pays for the page ADF read
   // that confirms it, and closes without a word if it cannot.

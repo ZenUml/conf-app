@@ -406,6 +406,12 @@ export type AnalyticsProperties = {
   // 'marker' share means property writes are failing in the field and the
   // banner has quietly degraded to creator-only reach.
   unplaced_source?: 'property' | 'marker';
+  // unplaced_banner_evaluated, result 'yielded'. Which higher-priority banner
+  // took the page instead. Two Confluence modules render two iframes, so this
+  // notice stands down rather than stack — and the count says how often the
+  // page's one banner slot was already spoken for, which is the only way to
+  // tell "nobody sees this" apart from "nobody has unplaced diagrams".
+  suppressed_by?: 'paywall' | 'paywall-admin' | 'csat';
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).

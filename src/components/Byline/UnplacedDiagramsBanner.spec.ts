@@ -17,6 +17,10 @@ const readUnplacedProperty = vi.hoisted(() => vi.fn());
 const clearUnplacedProperty = vi.hoisted(() => vi.fn(async () => 'deleted'));
 vi.mock('@/utils/byline/unplacedProperty', () => ({ readUnplacedProperty, clearUnplacedProperty }));
 
+// The cross-iframe half of the banner priority order.
+const higherPriorityBannerPending = vi.hoisted(() => vi.fn(() => null as string | null));
+vi.mock('@/utils/banners/priority', () => ({ higherPriorityBannerPending }));
+
 const apWrapper = vi.hoisted(() => ({
   referencedCustomContentIds: vi.fn(async () => [] as string[] | undefined),
 }));
@@ -67,6 +71,7 @@ describe('UnplacedDiagramsBanner', () => {
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
     apWrapper.referencedCustomContentIds.mockResolvedValue([]);
     readUnplacedProperty.mockResolvedValue({ status: 'absent' });
+    higherPriorityBannerPending.mockReturnValue(null);
     clearUnplacedProperty.mockResolvedValue('deleted');
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(async () => {}) },
@@ -257,6 +262,43 @@ describe('UnplacedDiagramsBanner', () => {
 
       expect(second.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
       expect(apWrapper.referencedCustomContentIds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('one page, one banner', () => {
+    it('stands down for a banner that outranks it', async () => {
+      // Two Confluence modules means two iframes: the host's priority cascade
+      // cannot reach this one, so it asks the same question itself. Observed
+      // stacked above the CSAT survey on a real page before this existed.
+      higherPriorityBannerPending.mockReturnValue('csat');
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(viewClose).toHaveBeenCalled();
+      expect(events('unplaced_banner_evaluated')[0][1]).toMatchObject({
+        result: 'yielded',
+        suppressed_by: 'csat',
+      });
+    });
+
+    it('yields BEFORE reading the record, so it costs nothing', async () => {
+      higherPriorityBannerPending.mockReturnValue('paywall');
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      await mountBanner({ source: 'property' });
+
+      expect(readUnplacedProperty).not.toHaveBeenCalled();
+      expect(apWrapper.referencedCustomContentIds).not.toHaveBeenCalled();
+    });
+
+    it('does not consume an impression or a dismissal when it yields', async () => {
+      // Yielding is not being seen. Counting it would burn the show cap on
+      // loads the user never had the chance to act on.
+      higherPriorityBannerPending.mockReturnValue('csat');
+      await mountBanner({ source: 'property' });
+
+      expect(readUnplacedBannerMarker(IDENTITY).showCount).toBe(0);
+      expect(readUnplacedBannerMarker(IDENTITY).dismissedFor).toBeNull();
     });
   });
 

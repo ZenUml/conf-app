@@ -552,16 +552,37 @@ export type AnalyticsEventName =
   // page banner mounts on every page load, which is where the fact has to be
   // said. Fired from UnplacedDiagramsBanner.vue.
   //
-  // The banner is candidate-gated SYNCHRONOUSLY off a localStorage marker the
-  // byline writes (utils/byline/unplacedMarker.ts), so the ~99.9% of page loads
-  // with no marker pay nothing. `unplaced_banner_evaluated` is the one event
-  // that fires on every load past that gate, and it is the denominator that
-  // makes the gate's cost measurable: `result` = 'unplaced' (the banner shows),
-  // 'all_placed' (the marker was stale — the user has since pasted the link, so
-  // we paid one ADF read and showed nothing) or 'scan_failed' (the page ADF
-  // could not be read; we show nothing rather than claim something we cannot
-  // prove). A rising 'all_placed' share is the signal that the marker's
-  // write/resolve cycle is leaking, not that users are ignoring the banner.
+  // Two gates admit a load. The dedicated `zenuml-unplaced-banner` module is
+  // gated by Confluence itself on a content property, so its iframe is never
+  // created on a page with nothing to say; the shared page-banner host gates
+  // its fallback synchronously off the localStorage marker. Either way the
+  // ~99.9% of page loads with no record pay nothing.
+  //
+  // `unplaced_banner_evaluated` fires on every load past those gates, and it is
+  // the denominator that makes their cost measurable. `result` covers every
+  // path out, so that claim actually holds:
+  //   'unplaced'          — the banner shows.
+  //   'all_placed'        — the record was stale (the user pasted the link
+  //                         since), so we paid one ADF read and showed nothing.
+  //   'scan_failed'       — the page ADF could not be read; we show nothing
+  //                         rather than claim what we cannot prove.
+  //   'record_unreadable' — the gate fired but the record did not read back
+  //                         (forbidden, malformed, already emptied).
+  //   'expired'           — nobody has re-confirmed the record in 30 days, so
+  //                         we stop buying an ADF read for it.
+  //   'shows_exhausted'   — this browser has been told about this record the
+  //                         maximum number of times.
+  //   'yielded'           — a higher-priority banner has the page's one banner
+  //                         slot; `suppressed_by` names it. Two Confluence
+  //                         modules mean two iframes, so this notice stands
+  //                         down rather than stack (utils/banners/priority.ts).
+  //
+  // A rising 'all_placed' share is the signal that the record's write/retire
+  // cycle is leaking, not that users are ignoring the banner. A rising
+  // 'record_unreadable' share means the gate and the reader disagree — most
+  // likely a permission the writer holds and the reader does not. A high
+  // 'yielded' share is how we tell "nobody sees this notice" apart from
+  // "nobody has unplaced diagrams".
   | "unplaced_banner_evaluated"
   // The banner is committed to displaying. Split from _evaluated because only
   // this one is an impression: it is the denominator for the copy and dismiss

@@ -100,6 +100,7 @@ import {
   type UnplacedIdentity,
 } from '@/utils/byline/unplacedMarker'
 import { clearUnplacedProperty, readUnplacedProperty } from '@/utils/byline/unplacedProperty'
+import { higherPriorityBannerPending } from '@/utils/banners/priority'
 
 /**
  * "Saved here, but on no page" — said on the surface that is actually read.
@@ -195,6 +196,26 @@ onMounted(async () => {
   try {
     identity = deriveUnplacedIdentity()
     if (!identity) {
+      await closeBanner()
+      return
+    }
+
+    // Stand down for a banner that outranks this one. Two Confluence modules
+    // means two iframes, and the host's priority cascade cannot reach this one
+    // — so it asks the same question from the same synchronous reads. Checked
+    // before the record, so yielding costs no request at all.
+    //
+    // It can over-yield: CsatBanner re-runs an async suppression check and may
+    // still close itself, leaving this load with no banner where one was
+    // possible. That is the trade the ordering already accepts — this notice is
+    // the one that keeps, and it re-arms on the next load.
+    const higher = higherPriorityBannerPending()
+    if (higher) {
+      trackAnalyticsEvent('unplaced_banner_evaluated', {
+        ...baseProps(),
+        result: 'yielded',
+        suppressed_by: higher,
+      })
       await closeBanner()
       return
     }

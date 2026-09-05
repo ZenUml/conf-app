@@ -159,7 +159,13 @@
            Copy source is a power-user affordance on a minority of types, so it
            stays out of the way until the row is hovered or focused — the open,
            which is what the whole row does, is the labelled action. -->
-      <div v-for="d in orderedDiagrams" :key="d.id" class="row" data-testid="byline-item">
+      <div
+        v-for="d in orderedDiagrams"
+        :key="d.id"
+        class="row"
+        :class="{ 'row--actionable': isUnplaced(d) && canEdit }"
+        data-testid="byline-item"
+      >
         <button type="button" class="row__open" @click="onOpenDiagram(d)">
           <span class="row__thumb">
             <img v-if="thumbs[d.id]" class="row__img" :src="thumbs[d.id]" alt="" data-testid="byline-thumb" />
@@ -183,7 +189,7 @@
         <button
           v-if="isUnplaced(d) && canEdit"
           type="button"
-          class="row__copy row__copy--add"
+          class="row__add"
           :disabled="addingId === d.id"
           data-testid="byline-add-to-page"
           title="Add this diagram to the end of the page"
@@ -1598,10 +1604,13 @@ async function onLearnMore() {
    brings it up when the user tabs onto it. */
 /* Fixed width, right-aligned: the slot holds "Copy source", "Copy URL" or a
    hidden placeholder, and "Open" sits immediately before it. Sizing the slot to
-   its content moved Open on whichever rows had the longer label. */
+   its content moved Open on whichever rows had the longer label.
+   96px, not 82px: `.row__add` occupies the same slot and has to fit "Add to
+   page" plus its padding without clipping. The width is shared so that Open
+   still lands in the same place on every row, whichever action the row carries. */
 .row__copy {
   flex: none;
-  width: 82px;
+  width: 96px;
   text-align: right;
   margin-left: 12px;
   background: none;
@@ -1623,19 +1632,49 @@ async function onLearnMore() {
 .row__copy--slot {
   visibility: hidden;
 }
-/* The one-click place. Filled rather than quiet: on a row that says the diagram
-   is not on the page, this is the action, not an accessory. */
-.row__copy--add {
+/* The one-click place. A real button box, mirroring the page banner's primary
+   (UnplacedDiagramsBanner.vue `.unplaced__btn--primary`) so the same action
+   looks the same on both surfaces.
+   It deliberately does NOT reuse `.row__copy`: that class is a right-aligned
+   TEXT slot with no padding and no radius, so a fill on it rendered as a raw
+   rectangle wider than its 96px box — clipped at the panel's edge.
+   Same width as the slot, so Open stays put across rows; centred, because a
+   filled button's label belongs in the middle of its fill. */
+.row__add {
+  flex: none;
+  width: 96px;
+  margin-left: 12px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 3px;
   background: #0C66E4;
-  color: #FFFFFF;
-  opacity: 1;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
 }
-.row__copy--add:hover {
-  background: #0055CC;
+.row__add:hover {
+  background: #0055cc;
 }
-.row__copy--add:disabled {
-  background: #8590A2;
+.row__add:disabled {
+  background: #8590a2;
   cursor: default;
+}
+.row__add:focus-visible {
+  outline: 2px solid #0052cc;
+  outline-offset: 2px;
+}
+/* One blue per row. Open is the secondary once a filled primary sits beside it —
+   the same hierarchy the banner uses, where Copy link goes quiet next to Add to
+   page. On every other row Open keeps the link colour, because there it IS the
+   action. */
+.row--actionable .row__cta {
+  color: #5e6c84;
+  font-weight: 400;
 }
 
 /* Always visible, unlike Copy source. An unplaced diagram is invisible on the

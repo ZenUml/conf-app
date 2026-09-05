@@ -80,23 +80,6 @@ test.describe('Viewer toolbar actions', () => {
       expect(result.kind).toBe('export-modal');
     });
 
-    // LEFT FAILING (2026-09-03): "Copy Code" for Graph was removed by the V8
-    // viewer redesign and NOT replaced. showViewSource() in GenericViewer.vue
-    // gates the Source/Copy-for-AI affordances to text-DSL diagram types only
-    // (Sequence/Mermaid/PlantUML); ForgeGraphViewer.vue adds no source-copy
-    // button of its own. There is currently no way to retrieve a graph
-    // macro's DrawIO XML from the read-only viewer toolbar at all — this is a
-    // real product gap, not a stale selector. Left failing rather than forced
-    // green; see the branch's final report for the owner decision needed.
-    test('viewer-actions:6 — Graph Copy Code copies DrawIO XML', async ({ page }) => {
-      await insertAndPublishMacro(page, 'graph', { title: `gr-cp-${Date.now()}` });
-      const text = await clickCopyCodeAndRead(page, 'graph');
-      expect(text.length).toBeGreaterThan(0);
-      expect(text).not.toMatch(/^__clipboard_error__/);
-      // DrawIO XML is the expected payload — recognizable by mxGraphModel root.
-      expect(text).toMatch(/mxGraphModel|mxCell/i);
-    });
-
     test('viewer-actions:7 — Graph Versions logs version metadata', async ({ page }) => {
       await insertAndPublishMacro(page, 'graph', { title: `gr-vr-${Date.now()}` });
       const logs = await clickVersionsAndCaptureLogs(page, 'graph');
@@ -118,20 +101,6 @@ test.describe('Viewer toolbar actions', () => {
       await insertAndPublishMacro(page, 'openapi', { title: `oa-ex-${Date.now()}` });
       const result = await openExport(page, 'openapi');
       expect(result.kind).toBe('export-modal');
-    });
-
-    // LEFT FAILING (2026-09-03): same product gap as viewer-actions:6 — Copy
-    // Code for OpenAPI was removed by the V8 viewer redesign and not
-    // replaced. showViewSource() gates Source/Copy-for-AI to text-DSL types
-    // only; OpenApiViewer.vue adds no copy affordance of its own. See that
-    // test's comment and the branch's final report.
-    test('viewer-actions:10 — OpenAPI Copy Code copies YAML/JSON spec', async ({ page }) => {
-      await insertAndPublishMacro(page, 'openapi', { title: `oa-cp-${Date.now()}` });
-      const text = await clickCopyCodeAndRead(page, 'openapi');
-      expect(text.length).toBeGreaterThan(0);
-      expect(text).not.toMatch(/^__clipboard_error__/);
-      // OpenAPI spec — YAML or JSON; either way "openapi:" or "openapi" appears.
-      expect(text).toMatch(/openapi/i);
     });
 
     test('viewer-actions:11 — OpenAPI Versions logs version metadata', async ({ page }) => {

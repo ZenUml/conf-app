@@ -280,6 +280,10 @@ onMounted(async () => {
     // The quiet window is short enough that a genuinely new diagram still
     // surfaces the next day, where the version-scoped check below takes over.
     if (isDismissalQuiet(identity)) {
+      trackAnalyticsEvent('unplaced_banner_evaluated', {
+        ...baseProps(),
+        result: 'dismissed_quiet',
+      })
       await closeBanner()
       return
     }
@@ -301,6 +305,12 @@ onMounted(async () => {
     const recordAgeMs = Date.now() - Date.parse(record.updatedAt)
 
     if (readUnplacedBannerMarker(identity).dismissedFor === record.updatedAt) {
+      trackAnalyticsEvent('unplaced_banner_evaluated', {
+        ...baseProps(),
+        result: 'dismissed_version',
+        unplaced_count: record.entries.length,
+        unplaced_marker_age_ms: recordAgeMs,
+      })
       await closeBanner()
       return
     }

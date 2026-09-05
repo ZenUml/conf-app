@@ -4,8 +4,10 @@ import UnplacedDiagramsBanner from '@/components/Byline/UnplacedDiagramsBanner.v
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import {
+  DISMISSAL_QUIET_MS,
   MAX_BANNER_SHOWS,
   readUnplacedBannerMarker,
+  recordUnplacedBannerDismissed,
   writeUnplacedMarker,
   isUnplacedBannerCandidate,
 } from '@/utils/byline/unplacedMarker';
@@ -370,6 +372,30 @@ describe('UnplacedDiagramsBanner', () => {
       expect(second.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
       expect(readUnplacedProperty).not.toHaveBeenCalled();
       expect(apWrapper.referencedCustomContentIds).not.toHaveBeenCalled();
+      // Silent here is what makes "the gate never fired" look identical to
+      // "everyone already said no" — the exact question a missing banner asks.
+      expect(events('unplaced_banner_evaluated').at(-1)?.[1]).toMatchObject({
+        result: 'dismissed_quiet',
+      });
+    });
+
+    it('reports a dismissal of this record version once the quiet window lapses', async () => {
+      // Past the quiet window the record IS read, and the version-scoped
+      // dismissal is what stands the banner down — a different verdict from
+      // the quiet one, and worth telling apart in the readout.
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      recordUnplacedBannerDismissed(
+        IDENTITY,
+        '2026-08-30T00:00:00.000Z',
+        Date.now() - DISMISSAL_QUIET_MS - 1000,
+      );
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(events('unplaced_banner_evaluated').at(-1)?.[1]).toMatchObject({
+        result: 'dismissed_version',
+        unplaced_count: 1,
+      });
     });
   });
 

@@ -21,6 +21,10 @@ vi.mock('@/utils/byline/unplacedProperty', () => ({ readUnplacedProperty, clearU
 const higherPriorityBannerPending = vi.hoisted(() => vi.fn(() => null as string | null));
 vi.mock('@/utils/banners/priority', () => ({ higherPriorityBannerPending }));
 
+// The one-click place. Its REST behaviour is covered in addToPage.spec.ts.
+const addDiagramToPage = vi.hoisted(() => vi.fn(async () => ({ result: 'added', pageMacroCount: 1 })));
+vi.mock('@/utils/byline/addToPage', () => ({ addDiagramToPage }));
+
 const apWrapper = vi.hoisted(() => ({
   referencedCustomContentIds: vi.fn(async () => [] as string[] | undefined),
 }));
@@ -72,6 +76,7 @@ describe('UnplacedDiagramsBanner', () => {
     apWrapper.referencedCustomContentIds.mockResolvedValue([]);
     readUnplacedProperty.mockResolvedValue({ status: 'absent' });
     higherPriorityBannerPending.mockReturnValue(null);
+    addDiagramToPage.mockResolvedValue({ result: 'added', pageMacroCount: 1 });
     clearUnplacedProperty.mockResolvedValue('deleted');
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(async () => {}) },
@@ -412,6 +417,80 @@ describe('UnplacedDiagramsBanner', () => {
       const rows = wrapper.findAll('[data-testid="unplaced-banner-row"]');
       expect(rows).toHaveLength(2);
       expect(rows[1].text()).toContain('Retry path');
+    });
+  });
+
+  describe('one-click place', () => {
+    it('places the diagram and closes, retiring the record immediately', async () => {
+      // The page just changed. A banner that keeps naming a diagram the user
+      // watched appear is the exact wrong answer, so the record goes now rather
+      // than waiting for the next load's verification.
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(addDiagramToPage).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: 'cc-2' }));
+      expect(clearUnplacedProperty).toHaveBeenCalledWith('page-1');
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+      expect(viewClose).toHaveBeenCalled();
+      expect(events('diagram_added_to_page')[0][1]).toMatchObject({
+        result: 'added',
+        surface: 'page_banner',
+        page_macro_count: 1,
+      });
+    });
+
+    it('keeps the banner up for the diagrams still unplaced', async () => {
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY, SECOND]));
+      const wrapper = await mountBanner({ source: 'property' });
+      await wrapper.find('[data-testid="unplaced-banner-toggle"]').trigger('click');
+
+      await wrapper.findAll('[data-testid="unplaced-banner-add"]')[0].trigger('click');
+      await flushPromises();
+
+      // Two became one, so the list collapses back to the single-diagram form
+      // that names it outright — the same shape it would have had all along.
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="unplaced-banner-text"]').text()).toContain('Retry path');
+      expect(clearUnplacedProperty).not.toHaveBeenCalled();
+    });
+
+    it('offers the link instead when the reader cannot edit the page', async () => {
+      addDiagramToPage.mockResolvedValue({ result: 'forbidden' });
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="unplaced-banner-add"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="unplaced-banner-copy"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="unplaced-banner-add-failed"]').text()).toContain('permission');
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(true);
+    });
+
+    it('says so and stays put when the page changed underneath', async () => {
+      addDiagramToPage.mockResolvedValue({ result: 'conflict' });
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="unplaced-banner-add-failed"]').text()).toContain('Reload');
+      // Still offered — a conflict is worth retrying, unlike a refusal.
+      expect(wrapper.find('[data-testid="unplaced-banner-add"]').exists()).toBe(true);
+    });
+
+    it('keeps Copy link available even when the button works', async () => {
+      // Placing it HERE is not the only reason to want the link.
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner-add"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="unplaced-banner-copy"]').exists()).toBe(true);
     });
   });
 

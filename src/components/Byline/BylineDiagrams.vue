@@ -174,12 +174,24 @@
           <span class="row__cta">Open</span>
         </button>
         <!-- Saved but never pasted: it exists as this page's custom content and
-             already counts against the Lite limit, but no macro renders it. The
-             link is the only way to place it, so it is offered outright rather
-             than on hover — this row is the one place the diagram is reachable
-             at all. -->
+             already counts against the Lite limit, but no macro renders it.
+             The fix belongs on the row that names the problem, and it is ONE
+             click — copy, open the editor, paste, publish is the flow the user
+             already abandoned once, which is why this diagram is here at all.
+             Offered outright rather than on hover: this row is the one place
+             the diagram is reachable. -->
         <button
-          v-if="isUnplaced(d)"
+          v-if="isUnplaced(d) && canEdit"
+          type="button"
+          class="row__copy row__copy--add"
+          :disabled="addingId === d.id"
+          data-testid="byline-add-to-page"
+          title="Add this diagram to the end of the page"
+          @click="onAddToPage(d)"
+        >{{ addingId === d.id ? 'Adding…' : 'Add to page' }}</button>
+        <!-- The fallback for a reader who cannot edit the page. -->
+        <button
+          v-else-if="isUnplaced(d)"
           type="button"
           class="row__copy row__copy--url"
           :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-url'"
@@ -352,6 +364,7 @@ import {
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
 import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
 import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
+import { addDiagramToPage } from '@/utils/byline/addToPage'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -363,6 +376,10 @@ import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
 const copiedId = ref<string | null>(null)
+const addingId = ref<string | null>(null)
+/** Flips off the first time a write is refused; the Copy URL fallback takes
+ *  over. Optimistic on purpose — see the banner for the same reasoning. */
+const canEdit = ref(true)
 /** Separates "this page has no diagrams" (empty) from "we could not find out"
  *  (failed). Previously both collapsed into the empty state, which told a user
  *  with restricted content that their diagrams did not exist. */
@@ -903,6 +920,38 @@ async function onOpenDiagram(d: PageDiagram) {
   } catch (e) {
     console.error('[byline] failed to open diagram', e)
   }
+}
+
+/**
+ * Place the diagram on the page from the row that says it is not on it.
+ *
+ * On success the local placement set is updated immediately, so the row loses
+ * its "· not on this page" label without a reload, and the record the banner
+ * reads is rewritten in the same breath — leaving it would have the page banner
+ * announce a diagram the user just watched appear.
+ */
+async function onAddToPage(d: PageDiagram) {
+  if (addingId.value) return
+  acted = true
+  addingId.value = d.id
+  const { result, pageMacroCount } = await addDiagramToPage(pageId, d)
+  addingId.value = null
+  trackAnalyticsEvent('diagram_added_to_page', {
+    ...baseProps(),
+    macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+    result,
+    ...(pageMacroCount === undefined ? {} : { page_macro_count: pageMacroCount }),
+  })
+  if (result === 'forbidden' || result === 'failed') {
+    // Fall back to the link rather than leave a button that cannot work.
+    canEdit.value = false
+    return
+  }
+  if (result === 'conflict') return
+  // The page renders it now. Fold that into the scan result we already hold so
+  // the row updates in place, and rewrite the record the banner reads.
+  if (placedOrder.value) placedOrder.value = [...placedOrder.value, d.id]
+  void syncUnplacedState()
 }
 
 async function onCopySource(d: PageDiagram) {
@@ -1574,6 +1623,21 @@ async function onLearnMore() {
 .row__copy--slot {
   visibility: hidden;
 }
+/* The one-click place. Filled rather than quiet: on a row that says the diagram
+   is not on the page, this is the action, not an accessory. */
+.row__copy--add {
+  background: #0C66E4;
+  color: #FFFFFF;
+  opacity: 1;
+}
+.row__copy--add:hover {
+  background: #0055CC;
+}
+.row__copy--add:disabled {
+  background: #8590A2;
+  cursor: default;
+}
+
 /* Always visible, unlike Copy source. An unplaced diagram is invisible on the
    page it belongs to, so its one route back must not be behind a hover. Placed
    after the base rule deliberately — same specificity, later wins. */

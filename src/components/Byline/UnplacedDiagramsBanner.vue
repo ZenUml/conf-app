@@ -27,10 +27,30 @@
            single button. More than one and the summary alone cannot say WHICH,
            so the rows carry that — behind a toggle, because this banner sits
            above every load of the page and must not own the fold. -->
+      <!-- One click finishes the job. The four-step alternative — copy, open
+           the editor, paste, publish — is what the user already abandoned once;
+           that is why this diagram is unplaced. Copy link stays as the fallback
+           for a reader who cannot edit the page (see `canEdit`). -->
+      <!-- One click finishes the job. The four-step alternative — copy, open
+           the editor, paste, publish — is what the user already abandoned once;
+           that is why this diagram is unplaced. -->
+      <button
+        v-if="rows.length === 1 && canEdit"
+        type="button"
+        class="unplaced__btn unplaced__btn--primary"
+        :disabled="addingId === rows[0].id"
+        data-testid="unplaced-banner-add"
+        @click="onAddToPage(rows[0])"
+      >{{ addingId === rows[0].id ? 'Adding…' : 'Add to page' }}</button>
+      <!-- Copy link stays even when the button works: placing it HERE is not the
+           only reason to want the link — sending it to someone, or putting the
+           diagram on a different page, are both real — and it is the fallback
+           when the write is refused. -->
       <button
         v-if="rows.length === 1"
         type="button"
-        class="unplaced__btn unplaced__btn--primary"
+        class="unplaced__btn"
+        :class="canEdit ? 'unplaced__btn--secondary' : 'unplaced__btn--primary'"
         :data-testid="copiedId === rows[0].id ? 'unplaced-banner-copied' : 'unplaced-banner-copy'"
         @click="onCopy(rows[0])"
       >{{ copiedId === rows[0].id ? '✓ Link copied' : 'Copy link' }}</button>
@@ -59,7 +79,10 @@
          clipboard is only half the job, and pasting a URL into the editor being
          enough IS the surprising step. Shown once the copy lands, where it is
          the next thing to do. -->
-    <div v-if="copiedId" class="unplaced__hint" data-testid="unplaced-banner-hint">
+    <div v-if="addFailure" class="unplaced__hint" data-testid="unplaced-banner-add-failed">
+      {{ addFailure }}
+    </div>
+    <div v-else-if="copiedId" class="unplaced__hint" data-testid="unplaced-banner-hint">
       Edit this page and paste the link where you want the diagram — Confluence turns it into the diagram itself.
     </div>
 
@@ -67,6 +90,14 @@
       <div v-for="d in rows" :key="d.id" class="unplaced__row" data-testid="unplaced-banner-row">
         <span class="unplaced__row-title" :title="d.title">{{ d.title || 'Untitled diagram' }}</span>
         <span class="unplaced__row-type">{{ typeLabel(d.diagramType) }}</span>
+        <button
+          v-if="canEdit"
+          type="button"
+          class="unplaced__btn unplaced__btn--primary"
+          :disabled="addingId === d.id"
+          data-testid="unplaced-banner-add"
+          @click="onAddToPage(d)"
+        >{{ addingId === d.id ? 'Adding…' : 'Add to page' }}</button>
         <button
           type="button"
           class="unplaced__btn unplaced__btn--secondary"
@@ -101,6 +132,7 @@ import {
 } from '@/utils/byline/unplacedMarker'
 import { clearUnplacedProperty, readUnplacedProperty } from '@/utils/byline/unplacedProperty'
 import { higherPriorityBannerPending } from '@/utils/banners/priority'
+import { addDiagramToPage } from '@/utils/byline/addToPage'
 
 /**
  * "Saved here, but on no page" — said on the surface that is actually read.
@@ -139,6 +171,18 @@ const visible = ref(false)
 const expanded = ref(false)
 const rows = ref<UnplacedDiagramEntry[]>([])
 const copiedId = ref<string | null>(null)
+const addingId = ref<string | null>(null)
+/** Set only when a write could not land, so the copy fallback has a reason. */
+const addFailure = ref<string | null>(null)
+/**
+ * Whether to offer the one-click place at all.
+ *
+ * Starts true and flips off the first time a write comes back 'forbidden'.
+ * Deliberately optimistic: knowing up front would cost a permissions request on
+ * every banner load, to spare a minority one refused click — and the refusal is
+ * handled, with the link offered in its place.
+ */
+const canEdit = ref(true)
 const COPY_FLASH_MS = 4000
 let copyFlashTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -354,6 +398,54 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
 })
+
+/**
+ * Place the diagram on the page, in one click.
+ *
+ * On success the row is gone and the record is retired immediately rather than
+ * left for the next load's verification: the page just changed, and a banner
+ * that keeps naming a diagram the user has visibly placed is the exact wrong
+ * answer. When the last row goes, so does the banner.
+ */
+async function onAddToPage(entry: UnplacedDiagramEntry) {
+  if (!identity || addingId.value) return
+  addingId.value = entry.id
+  addFailure.value = null
+  const { result, pageMacroCount } = await addDiagramToPage(identity.pageId, entry)
+  addingId.value = null
+  trackAnalyticsEvent('diagram_added_to_page', {
+    ...baseProps(),
+    macro_type: toMacroType(entry.diagramType) as MacroTypeValue,
+    result,
+    ...(pageMacroCount === undefined ? {} : { page_macro_count: pageMacroCount }),
+  })
+
+  if (result === 'forbidden') {
+    // Expected on a notice that reaches every reader: a reader is not always an
+    // author. Hand over the link instead of leaving a button that cannot work.
+    canEdit.value = false
+    addFailure.value = 'You do not have permission to edit this page — copy the link and send it to someone who does.'
+    return
+  }
+  if (result === 'conflict') {
+    addFailure.value = 'Someone edited the page while we were adding it. Reload and try again.'
+    return
+  }
+  if (result === 'failed') {
+    addFailure.value = "Couldn't add it to the page. Copy the link and paste it into the editor instead."
+    canEdit.value = false
+    return
+  }
+
+  // 'added' or 'already_present' — either way the page now renders it.
+  rows.value = rows.value.filter(r => r.id !== entry.id)
+  if (rows.value.length === 0) {
+    if (props.source === 'property') void clearUnplacedProperty(identity.pageId)
+    else recordUnplacedBannerResolved(identity, recordUpdatedAt)
+    visible.value = false
+    void closeBanner()
+  }
+}
 
 /**
  * Copy the link that places the diagram, exactly as the byline's Copy URL does

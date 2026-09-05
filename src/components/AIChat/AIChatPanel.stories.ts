@@ -48,6 +48,7 @@ const errorMessages: AIChatMessage[] = [
   {
     id: 'story-assistant-error',
     role: 'assistant',
+    tone: 'error',
     text: 'AI Chat could not apply the change: The generated diagram was not valid.',
   },
 ]

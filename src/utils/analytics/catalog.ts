@@ -317,6 +317,10 @@ export type AnalyticsEventName =
   | "ai_chat_closed"
   | "ai_chat_suggestion_selected"
   | "ai_chat_prompt_submitted"
+  // Ordinary chat only: the backend exhausted its validation attempts with an
+  // unchanged diagram and completed the request as a benign no-change result.
+  // Syntax repair keeps its fail-closed error path and never emits this event.
+  | "ai_chat_no_change"
   | "ai_chat_change_applied"
   | "ai_chat_prompt_failed"
   | "ai_chat_prompt_cancelled"

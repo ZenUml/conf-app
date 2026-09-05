@@ -23,6 +23,7 @@ export type DiagramlyJobStatus = {
   output?: {
     diagramId?: string;
     diagramCode?: string;
+    noChange?: boolean;
     versionId?: string;
     versionNumber?: number;
     createdAt?: string;

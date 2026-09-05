@@ -1,4 +1,4 @@
-import { flushPromises, shallowMount } from '@vue/test-utils'
+import { shallowMount } from '@vue/test-utils'
 import Editor from '@/components/Editor/Editor.vue'
 import store from "@/model/store2";
 import {DiagramType} from "@/model/Diagram/Diagram";
@@ -76,19 +76,19 @@ describe('Editor', () => {
 
     store.commit('updateCode2', 'A.method( {');
     const wrapper = shallowMount(Editor, { global: { plugins: [store] } });
-    await vi.advanceTimersByTimeAsync(1_000);
+    vi.advanceTimersByTime(1_000);
     expect(validationMocks.sequence).toHaveBeenCalledWith('A.method( {');
 
     store.commit('updateError', 'Old syntax error');
     store.commit('updateCode2', 'A.method()');
     await wrapper.vm.$nextTick();
     expect(store.state.error).toBeNull();
-    await vi.advanceTimersByTimeAsync(1_000);
+    vi.advanceTimersByTime(1_000);
 
     resolveLatest({ valid: true, error: null, location: null });
-    await flushPromises();
+    await Promise.resolve();
     resolveOld({ valid: false, error: 'Old syntax error', location: null });
-    await flushPromises();
+    await Promise.resolve();
 
     expect(store.state.error).toBeNull();
     wrapper.unmount();

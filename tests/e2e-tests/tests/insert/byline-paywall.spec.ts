@@ -1,23 +1,25 @@
 /**
- * The Lite byline's "Add a diagram" must be restricted by the paywall.
+ * The Lite byline's "Add a diagram" is no longer blocked by the paywall.
  *
- * It already is, structurally: the byline opens the ordinary editor via
- * `openModal({ macroMode: 'editor' })` with no customContentId, so
- * tryPageEditorPaywall takes its create branch and blocks on the same predicate
- * as an insert-menu create. But that is EMERGENT — it falls out of forgeIndex
- * skipping the byline branch for opened modals — and nothing outside a unit test
- * states it. moduleKey-based routing on this branch has already regressed twice,
- * and either regression would have silently un-gated the byline while leaving
- * every other paywall test green.
+ * Retired 2026-09: `shouldBlockActions` in `useCustomerSuccessService` is
+ * hardcoded `false` (the paywall no longer blocks editing at any macro
+ * count — see useCustomerSuccessService.ts). The byline's create still
+ * routes through `tryPageEditorPaywall`'s create branch like any other
+ * insert-menu create, but that branch now never fires, so picking a type in
+ * the byline on an over-limit space must land on a usable editor, not a
+ * gate.
  *
- * So this asserts the product behaviour end to end: on an over-limit Lite space,
- * picking a type in the byline lands on the paywall modal, not a usable editor.
+ * This spec previously asserted the opposite (over-limit → paywall modal,
+ * under-limit → editor) to guard against the create branch silently
+ * un-gating. It now guards the inverse regression: a future change that
+ * reintroduces a block on this branch without also updating the byline.
  *
- * Over-limit state is forced with the documented localStorage mocks rather than
- * a real saturated space, so the test does not depend on a fixture space staying
- * over 100 macros. The mocks live in the Forge iframe's origin
- * (cdn.prod.atlassian-dev.net), NOT the top-level Confluence page — writing them
- * to the page does nothing, which is the classic false negative here.
+ * Over-limit state is forced with the documented localStorage mocks rather
+ * than a real saturated space, so the test does not depend on a fixture
+ * space staying over 100 macros. The mocks live in the Forge iframe's
+ * origin (cdn.prod.atlassian-dev.net), NOT the top-level Confluence page —
+ * writing them to the page does nothing, which is the classic false
+ * negative here.
  */
 import { test, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
@@ -25,21 +27,22 @@ import { AUTH_STATE_PATH } from '../../config/auth-state.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
 import { expectVisibleOrFailOnLogin } from '../../helpers/authGuard.js';
 import { setAppMocks } from '../../helpers/pageBanner.js';
-import { openBylineModal, frameWithTestId, expectPaywallModal } from '../../helpers/byline.js';
+import { openBylineModal } from '../../helpers/byline.js';
 
 const MACRO_IFRAME =
   '[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]';
 
-// shouldBlockActions = macrosCreated >= 100 && cssEnabled && isLite, unless the
-// space is paid. mockSpacePaid short-circuits the real /api/space-status read,
-// so a genuinely licensed staging space can't silently invert this test.
+// shouldBlockActions is hardcoded false (paywall block retired), so this
+// count no longer matters for gating — kept only to prove the byline still
+// opens a usable editor even for a space that WOULD have been saturated
+// under the old block.
 const OVER_LIMIT_MOCKS = {
   mockMacroCount: '105',
   mockCSSEnabled: 'true',
   mockSpacePaid: 'false',
 };
 
-test.describe.serial(`Byline create is paywalled - ${testConfig.productType}`, () => {
+test.describe.serial(`Byline create is not paywalled - ${testConfig.productType}`, () => {
   // The byline entry ships on Lite only (manifest strip in staging-deploy.yml),
   // and the paywall is Lite-only, so both gates are the same gate here.
   test.skip(!testConfig.isForge, 'byline is Forge-only');
@@ -72,10 +75,9 @@ test.describe.serial(`Byline create is paywalled - ${testConfig.productType}`, (
     expect(pageId, 'beforeAll must publish a macro page').toBeTruthy();
   });
 
-  test('picking a type on an over-limit space lands on the paywall, not the editor', async ({
+  test('picking a type on an over-limit space still lands on a usable editor', async ({
     page,
   }) => {
-    // Two page loads and a modal chain on top of the shared fixture.
     test.slow();
 
     await page.goto(testConfig.pageUrl(pageId));
@@ -95,28 +97,6 @@ test.describe.serial(`Byline create is paywalled - ${testConfig.productType}`, (
 
     // Any type tile: all of them route through tryPageEditorPaywall's create
     // branch. Sequence is the one every variant ships.
-    await bylineFrame.locator('[data-testid="byline-type-sequence"]').first().click();
-
-    // The editor opens as its own Forge modal frame. It must come up gated.
-    const editorFrame = await frameWithTestId(page, 'continue-editing-btn', 30000).catch(
-      async () => frameWithTestId(page, 'continue-attempts-exhausted', 5000),
-    );
-    await expectPaywallModal(editorFrame);
-  });
-
-  test('the same click is NOT paywalled when the space is under the limit', async ({ page }) => {
-    // The negative leg. Without it, a gate that fired unconditionally — or a
-    // byline that failed to open an editor at all — would pass the test above.
-    test.slow();
-
-    await page.goto(testConfig.pageUrl(pageId));
-    await expectVisibleOrFailOnLogin(page, page.locator(MACRO_IFRAME).first(), TIMEOUTS.FRAME_LOAD);
-
-    await setAppMocks(page, { ...OVER_LIMIT_MOCKS, mockMacroCount: '3' });
-    await page.reload();
-    await expectVisibleOrFailOnLogin(page, page.locator(MACRO_IFRAME).first(), TIMEOUTS.FRAME_LOAD);
-
-    const bylineFrame = await openBylineModal(page);
     const framesBefore = page.frames().length;
     await bylineFrame.locator('[data-testid="byline-type-sequence"]').first().click();
 
@@ -127,7 +107,7 @@ test.describe.serial(`Byline create is paywalled - ${testConfig.productType}`, (
     await expect
       .poll(() => page.frames().length, {
         timeout: 30000,
-        message: 'byline click opened no editor modal, so the negative leg would be vacuous',
+        message: 'byline click opened no editor modal, so the paywall-retired assertion would be vacuous',
       })
       .toBeGreaterThan(framesBefore);
 
@@ -135,10 +115,10 @@ test.describe.serial(`Byline create is paywalled - ${testConfig.productType}`, (
     await page.waitForTimeout(5000);
     for (const f of page.frames()) {
       const gated = await f
-        .locator('[data-testid="continue-editing-btn"]')
+        .locator('[data-testid="continue-editing-btn"], [data-testid="continue-attempts-exhausted"]')
         .count()
         .catch(() => 0);
-      expect(gated, 'paywall fired on an under-limit space').toBe(0);
+      expect(gated, 'paywall gate fired on an over-limit space despite the block being retired').toBe(0);
     }
   });
 });

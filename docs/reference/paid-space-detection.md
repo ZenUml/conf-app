@@ -28,7 +28,6 @@
 3. Look for console messages:
    - `🔍 Checking space paid status...`
    - `💳 Space paid status: { isPaid: true, ... }`
-   - `✅ Space is paid - bypassing all restrictions`
 4. Verify:
    - No upgrade button appears in the viewer header
    - Edit button works regardless of macro count
@@ -49,7 +48,8 @@
 2. Normal restrictions apply:
    - At 50+ macros: Upgrade button appears
    - At 85+ macros: Warning notices appear
-   - At 100+ macros: Actions are blocked (for Lite version)
+   - At 100+ macros: Non-blocking warning banner appears; editing is NOT
+     blocked (paywall block retired 2026-09, see useCustomerSuccessService.ts)
 
 ### 3. Test with Mock Data
 
@@ -100,13 +100,13 @@ Expected response for paid space:
 - ✅ No macro count restrictions
 - ✅ No upgrade prompts or buttons
 - ✅ All features fully accessible
-- ✅ Console shows "Space is paid - bypassing all restrictions"
 
 ### When Space is Unpaid (Evaluation/Trial)
 - ⚠️ Normal restrictions apply based on macro count
 - ⚠️ Upgrade button shows at 50+ macros
 - ⚠️ Warning notices at 85+ macros
-- ⚠️ Actions blocked at 100+ macros (Lite version)
+- ⚠️ Non-blocking warning banner at 100+ macros — editing is NOT blocked
+  (paywall block retired 2026-09)
 
 ## Debugging Tips
 

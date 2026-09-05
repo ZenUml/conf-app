@@ -115,8 +115,21 @@ Three rules keep it inside this document's checklist:
   re-reads the page ADF and shows only entries still unreferenced. A failed scan
   shows nothing; a scan that finds everything placed retires the record — the
   property is DELETED, taking the page back off the gate.
-- **One page, one banner.** The byline stamps `viaProperty` on the fallback
-  marker so the shared host stands down whenever the gated module has it.
+- **One page, one banner.** Three guards, because the first two are not enough
+  on their own. The byline stamps `viaProperty` on the fallback marker so the
+  shared host stands down whenever the gated module has it — but that records
+  only what THIS browser managed to write, so the component ALSO re-reads the
+  property on the fallback path and stands down unless it comes back `absent`
+  (fail closed: a `forbidden` or `error` read is not evidence that no property
+  covers the page). And the record carries the page it was scanned on, checked
+  on read — see "When the record is written".
+- **Say it about the right page.** `referencedCustomContentIds` proves only that
+  the page does not RENDER an entry, which is trivially true of a diagram
+  belonging to some other page — so verification alone cannot catch a record
+  that reaches the wrong page, and one did (below). The fallback marker stamps
+  `pageId` and the reader checks it, reporting `page_mismatch` rather than
+  speaking. An unstamped record cannot say which page it describes and is
+  treated the same way; the byline restamps it on its next open.
 
 ### Where the record lives
 
@@ -139,6 +152,78 @@ reach) and `unplaced_property_write` reports how often that happens, with
 `unplaced_source` on the banner events reporting the same ratio from the other
 end.
 
+### When the record is written
+
+Only from the byline iframe, and only in three moments — every one of them a
+`syncUnplacedState()` call in `BylineDiagrams.vue`, which is the single place
+that writes:
+
+| Where | Trigger |
+|---|---|
+| `:726` | The byline panel is **opened** — in `loadDiagrams()`'s `finally`, once the page-diagram list resolves. Never awaited: the rows must paint without waiting on a write meant for the next page load. |
+| `:1137` | A diagram is **saved or cancelled from the byline's own create flow**. A diagram created here is unplaced by definition — the paste has not happened — so this is the write that arms the banner for the create→paste gap. |
+| `:960` | **"Add to page" succeeded**, so the set just shrank. |
+
+The banner deletes in two more: when it verifies a record stale (everything in
+it is placed now, `UnplacedDiagramsBanner.vue:395`) and when the last row is
+placed (`:482`).
+
+**So the record only ever moves when someone clicks the byline.** That is the
+same 5-opens-against-39,197 number this banner exists because of, and it cuts
+both ways: a page nobody opens the byline on never gets a record at all, and a
+page whose diagrams were placed long ago keeps a stale one until either the
+byline is opened again or the banner retires it. Any feature that wants a
+fresher record needs a new write site, not a tweak here.
+
+Two guards inside `syncUnplacedState()` decide nothing is written:
+
+- **`placedIds` undefined** — the ADF scan failed. An unreadable page must never
+  be recorded as "everything is unplaced", the same trap `isUnplaced` guards.
+- **`hostInEditor`** — the scan reads the PUBLISHED ADF, so a diagram the author
+  just pasted still reads as unplaced. In the byline that only ever added a Copy
+  URL button for the author; recorded to the property it becomes a banner shown
+  to everyone, asserting something we cannot verify while a draft is open.
+
+And `persistUnplacedProperty` itself decides what reaches the API. It reads
+first: `forbidden` → no write (this is what the localStorage fallback exists
+for); `error` → no write either, because an unreadable property is not a licence
+to overwrite it — a POST would 409 against a key we merely failed to read, and a
+blind delete would discard a set we cannot see. An **empty list DELETEs**, since
+the property's presence IS the display condition. Same entry ids as before →
+`unchanged`, no request at all, which keeps `updatedAt` stable so a user who
+dismissed the banner is not shown it again for merely reopening the byline.
+Otherwise POST (absent) or PUT with version n+1, retried once on 409.
+
+### Why a user may see no banner on a page that has the property
+
+Per-browser suppression, all deliberate, all in localStorage under
+`bylineUnplacedBanner:<domain>:<pageId>`:
+
+- **`isDismissalQuiet`** — dismissed within `DISMISSAL_QUIET_MS` (24 h). Closes
+  before reading the record at all, so a dismissing user buys no REST call.
+- **`dismissedFor === record.updatedAt`** — dismissed for this exact record
+  version. Only a NEW diagram re-arms it.
+- **`hasExhaustedShows`** — `MAX_BANNER_SHOWS` (5) impressions of this record
+  version. Enough to silence it for anyone testing in a few reloads.
+
+All three report `unplaced_banner_evaluated` (`dismissed_quiet`,
+`dismissed_version`, `shows_exhausted`), which is what separates "the gate never
+fired" from "everyone already said no" without needing a browser.
+
+### One-click place
+
+"Add to page" appends the macro node to the page ADF and publishes one version
+(`utils/byline/addToPage.ts`), rather than leaving the user the copy → open
+editor → paste → publish flow they already abandoned once. It is offered
+optimistically — `canEdit` starts `true` and flips off only after a write
+returns `forbidden`, which costs a refused click instead of a permissions
+request on every banner load; `diagram_added_to_page`'s `forbidden` share is the
+signal to revisit that. On success the host page is reloaded
+(`router.reload()`), because the write changes the STORED ADF and the rendered
+page does not follow — without it the success case looks like nothing happened.
+The reload waits until the surface has nothing left to place: a full page load
+between two clicks would cost the user the second one.
+
 ### Checklist items still open
 
 Recorded rather than quietly skipped, because the checklist above is the bar:
@@ -148,8 +233,14 @@ Recorded rather than quietly skipped, because the checklist above is the bar:
   verified against a third-party banner app.
 - **Mobile.** Not visually checked on a narrow viewport or the Confluence mobile
   web view.
-- **In-page navigation.** Tab-bar / `pushState` URL changes reload banner
-  iframes; not measured for this module.
+- ~~**In-page navigation.**~~ Measured on whimet4, 2026-09-05, across link
+  clicks and browser Back/Forward between a page carrying the property and one
+  without: Confluence tore the banner iframes down and rebuilt them on every
+  transition (the `iFrameResizer` counter advances; no old id survives), one
+  banner on the property page and none on the control, sampled 0.5 s → 20 s. A
+  banner that appeared to persist onto another page turned out to be a fallback
+  record from a different page — fixed by the `pageId` stamp above, not by
+  anything about navigation.
 - **Read-only viewers.** See above.
 
 ## Related in this repo

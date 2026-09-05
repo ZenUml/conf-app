@@ -228,8 +228,14 @@ async function readRecord(): Promise<{ entries: UnplacedDiagramEntry[]; updatedA
   // the gated module is already showing this page's notice, and continuing here
   // would stack two banners saying the same thing. `viaProperty` cannot catch
   // that case: it records only what THIS browser managed to write.
+  //
+  // Fail CLOSED: only `absent` proves no gated module can be painting. A read
+  // that 403s or errors leaves that open, and a stacked banner is a worse
+  // outcome than a missed one — this notice re-arms on the next load, and the
+  // gated module reaches everyone anyway on exactly the pages where the read
+  // being unreadable is most likely to mean "the property is there".
   const property = await readUnplacedProperty(identity.pageId)
-  if (property.status === 'ok') return null
+  if (property.status !== 'absent') return null
   return marker
 }
 

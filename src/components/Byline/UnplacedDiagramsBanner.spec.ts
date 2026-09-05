@@ -206,6 +206,22 @@ describe('UnplacedDiagramsBanner', () => {
       expect(viewClose).toHaveBeenCalled();
     });
 
+    it.each([['forbidden'], ['error']])(
+      'stands the fallback down when the property read comes back %s',
+      async status => {
+        // Fail closed. A read that cannot answer "does a property cover this
+        // page?" is not evidence that none does — and the gated module paints
+        // off the property, not off this read. Showing anyway is how one page
+        // ends up carrying the same notice twice.
+        writeUnplacedMarker(IDENTITY, [STRAY], FALLBACK);
+        readUnplacedProperty.mockResolvedValue({ status });
+        const wrapper = await mountBanner({ source: 'marker' });
+
+        expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
+        expect(viewClose).toHaveBeenCalled();
+      },
+    );
+
     it('DELETES the property once the diagrams are placed, taking the page off the gate', async () => {
       // Stamping a localStorage resolution would only silence this browser —
       // every other reader would keep booting the iframe forever.

@@ -9,7 +9,7 @@
  *
  * Gated on the unreleased agent-link build: skips (not fails) when
  * `/agent-link/mcp` isn't routed on conf-stg-lite (shared-alias clobber or the
- * feature simply isn't deployed) — mirrors insert/upgrade-prompt.spec.ts.
+ * feature simply isn't deployed).
  *
  * The relay session is WS-lifetime-bound, so every agent call happens while the
  * Playwright page is open. The edit is restored, so the run is non-destructive.

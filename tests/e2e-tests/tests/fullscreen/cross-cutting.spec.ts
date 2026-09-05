@@ -10,7 +10,6 @@ import {
   expectModalVisible,
   expectFullscreenLayout,
   expectSingleHeaderClose,
-  expectHeaderTitle,
   expectNoConfluenceChrome,
   clickHeaderClose,
   expectModalClosed,
@@ -50,15 +49,10 @@ test.describe('Forge bridge fullscreen modal — cross-cutting chrome', () => {
     await expect(innerCloseBtns).toHaveCount(0);
   });
 
-  // cross:2 — Header shows app icon + macro title.
-  test('cross:2 — header shows the macro module title', async ({ page }) => {
-    await insertMacro(page, 'sequence');
-    // The exact module title from manifest.yml. Lite variant adds " Lite".
-    const titlePart = testConfig.isLite
-      ? /Diagram \(Mermaid, PlantUML & ZenUML\) Lite/
-      : /Diagram \(Mermaid, PlantUML & ZenUML\)/;
-    await expectHeaderTitle(page, titlePart, 'edit');
-  });
+  // cross:2 deleted 2026-09-03 (fix/e2e-stale-specs, issue #609): asserted
+  // Atlassian's own modal-header chrome text (the macro module title), not
+  // anything this app owns or controls — that chrome is out of scope for our
+  // E2E suite.
 
   // cross:3 — No Confluence chrome around modal.
   test('cross:3 — modal has aria-modal=true (no chrome reachable)', async ({ page }) => {

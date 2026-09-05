@@ -79,7 +79,7 @@ on:
 # arithmetic is on the `E2E: Lite` job in build-test-deploy.yml. If shard 1 grows
 # again, move a byline spec out of the `byline-*` name range rather than raising
 # the ceiling a second time.
-# shard 4 = typed-deeplink-render + upgrade-prompt.
+# shard 4 = typed-deeplink-render.
 # typed-deeplink-render builds its own fixture (insert a graph, publish, read
 # back its custom content, paste a link to it on a second page) and is the
 # longest single test; it no longer gets a shard to itself, so if shard 4 starts

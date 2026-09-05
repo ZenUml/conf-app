@@ -76,10 +76,26 @@ test.describe('Sequence — Create flow', () => {
     await expect(frame.locator('.cm-content, .CodeMirror').first()).toContainText(/@startuml|@enduml/);
   });
 
-  // sequence-create:5 — Title field empty → Publish disabled.
-  test('sequence-create:5 — empty title disables Publish', async ({ page }) => {
+  // LEFT FAILING (2026-09-03): "empty title disables Publish" is no longer
+  // generally true. useAutoTitle.ts's `aiTitleEnabled` ref defaults `true`
+  // unconditionally (no feature-flag gate) and DiagramTitleInput.vue wires it
+  // up via scheduleAutoGenerate() on a 1.5s debounce (AUTO_DEBOUNCE_MS) — so
+  // sequence-create:5 — Publish stays disabled while the title is empty.
+  //
+  // In normal operation an empty title is transient: useAutoTitle fires on
+  // editor mount and fills it within ~1.5s, and DiagramTitleInput.onClear()
+  // re-triggers generation, so the product never leaves a diagram untitled.
+  // The gate (`!this.$store.state.diagram.title` in Header.vue's
+  // isPublishDisabled) is what prevents an untitled publish when the AI title
+  // service is unavailable, which is the scenario this test pins: fail
+  // /ai-generate-title, then assert the gate holds and releases on input.
+  test('sequence-create:5 — Publish stays disabled while the title is empty (AI title unavailable)', async ({ page }) => {
+    await page.route('**/ai-generate-title*', route =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false}' }));
     await insertMacro(page, 'sequence');
     await expectPublishButtonState(page, 'disabled');
+    await fillEditorTitle(page, `seq-title-${Date.now()}`);
+    await expectPublishButtonState(page, 'enabled');
   });
 
   // sequence-create:6 — Title non-empty → Publish enabled.

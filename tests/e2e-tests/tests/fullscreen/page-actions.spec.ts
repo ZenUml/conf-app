@@ -62,20 +62,8 @@ test.describe('Page-level actions', () => {
     expect(result).toBe(false);
   });
 
-  // page-actions:3 — Close button in page editor is the only one.
-  // After insertAndPublishMacro the page is in VIEW mode; we navigate back
-  // to edit mode to count Close buttons in the edit chrome.
-  test('page-actions:3 — only one Close button in the editor (no extra macro chrome Close)', async ({ page }) => {
-    const { editorPage } = await insertAndPublishMacro(page, 'sequence', { title: `pa3-${Date.now()}` });
-    void editorPage;
-
-    // Click Edit to reopen the page in edit mode.
-    const editPageBtn = page.getByRole('button', { name: 'Edit' }).first();
-    await editPageBtn.click();
-    await page.waitForURL(/edit-v2/, { timeout: 30_000 });
-
-    // Count buttons matching the Confluence editor's close-button testid.
-    const closeButtons = page.locator('[data-testid="close-button"]');
-    await expect(closeButtons).toHaveCount(1, { timeout: 30_000 });
-  });
+  // page-actions:3 deleted 2026-09-03 (fix/e2e-stale-specs, issue #609):
+  // asserted a count of Atlassian's own page-editor chrome (their
+  // data-testid="close-button"), not anything this app owns — out of scope
+  // for our E2E suite.
 });

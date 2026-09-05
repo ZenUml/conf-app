@@ -1,6 +1,6 @@
 import { deriveWarningBannerIdentity, shouldShowPaywallBanner } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
-import { isCsatPendingFresh } from '@/utils/csat'
+import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
 
 /**
  * Which banner outranks the unplaced-diagram notice on this page load.
@@ -24,6 +24,16 @@ import { isCsatPendingFresh } from '@/utils/csat'
  * CSAT trigger is fresh for hours — miss its window and the answer is gone. A
  * diagram saved on a page and placed nowhere on it is still saved and still
  * unplaced tomorrow, and its banner re-arms itself on the next load.
+ *
+ * A yield still has to be worth something, though. The CSAT branch originally
+ * asked only whether a trigger had been ARMED, and a trigger is armed by every
+ * save; whether the survey may actually SHOW is a second, per-account question
+ * that CsatBanner asked for the first time on mount. For anyone who had
+ * dismissed the survey in the past week the two answers disagreed, and the page
+ * showed no banner at all for ten minutes after each save — this notice stood
+ * down, and the survey it stood down for closed itself. Both questions are
+ * asked here now (isCsatSuppressed), off the same record and the same
+ * synchronous read as everything else in this cascade.
  */
 export type HigherPriorityBanner = 'paywall' | 'paywall-admin' | 'csat'
 
@@ -36,6 +46,10 @@ export function higherPriorityBannerPending(now: number = Date.now()): HigherPri
   if (isCurrentUserSpaceAdmin(identity) && shouldShowPaywallBanner(now, identity, true)) {
     return 'paywall-admin'
   }
-  if (isCsatPendingFresh(now)) return 'csat'
+  // Armed AND eligible. The trigger alone is not a reason to yield: a user who
+  // dismissed the survey inside the last week has it suppressed, CsatBanner
+  // would close itself on mount, and the yield would buy nothing — see
+  // isCsatSuppressed for the failure this cost us.
+  if (isCsatPendingFresh(now) && !isCsatSuppressed(now)) return 'csat'
   return null
 }

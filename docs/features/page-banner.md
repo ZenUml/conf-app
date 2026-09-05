@@ -61,7 +61,7 @@ Two modules, not one:
 | Module | Choice | Component | Gate |
 |---|---|---|---|
 | `zenuml-page-banner` | `paywall` / `paywall-admin` | `UpgradePrompt/PaywallWarningBanner.vue` | localStorage targeting marker written by the macro iframe |
-| `zenuml-page-banner` | `csat` | `CSAT/CsatBanner.vue` | a fresh CSAT trigger in localStorage |
+| `zenuml-page-banner` | `csat` | `CSAT/CsatBanner.vue` | a fresh CSAT trigger in localStorage **and** no live per-account suppression |
 | `zenuml-page-banner` | `unplaced` | `Byline/UnplacedDiagramsBanner.vue` | localStorage fallback marker (creator-only), used when the property write was denied |
 | `zenuml-unplaced-banner` | `unplaced-property` | `Byline/UnplacedDiagramsBanner.vue` | **`displayConditions` on a content property — evaluated by Confluence, server-side** |
 
@@ -81,6 +81,21 @@ the host makes, which is what makes it safe across two iframes that cannot talk:
 they are not coordinating, they are reading the same facts and reaching the same
 conclusion. No handshake, no race, and yielding costs nothing because it happens
 before the property read.
+
+A yield has to be worth something, and the CSAT branch originally was not. It
+asked whether a trigger had been ARMED (`csatPending`, written by every save,
+fresh for 10 minutes) — but whether the survey may actually SHOW is a second,
+per-account question (`csat_state`, the 7-day record a Dismiss writes) that
+`CsatBanner` asked for the first time on mount, asynchronously, after the yield
+was already spent. For anyone who had dismissed the survey that week the two
+answers disagreed and the page showed NO banner at all for ten minutes after
+every save: the unplaced notice stood down, and the survey it stood down for
+closed itself. Both questions are asked in the cascade now, via
+`isCsatSuppressed()` in `utils/csat.ts` — the one place either side reads that
+record, so the banner's own gate (`useCSATState.checkStateOfCSAT`) and the
+cascade cannot drift apart again. It stays a plain synchronous localStorage
+read: the account id comes off the Forge context, which `forgeIndex` resolves
+before any banner code runs.
 
 Yielding is measured (`result: 'yielded'`, with `suppressed_by`) because a notice
 that never gets the slot looks exactly like a notice nobody needs.

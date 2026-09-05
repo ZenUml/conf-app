@@ -273,10 +273,11 @@ onMounted(async () => {
     // — so it asks the same question from the same synchronous reads. Checked
     // before the record, so yielding costs no request at all.
     //
-    // It can over-yield: CsatBanner re-runs an async suppression check and may
-    // still close itself, leaving this load with no banner where one was
-    // possible. That is the trade the ordering already accepts — this notice is
-    // the one that keeps, and it re-arms on the next load.
+    // The CSAT branch checks eligibility, not just the armed trigger, so a
+    // yield to a survey that would close itself no longer happens. What remains
+    // is genuinely undecidable from here: CsatBanner's own mount can still fail
+    // (storage, bridge) and close. This notice is the one that keeps, and it
+    // re-arms on the next load.
     const higher = higherPriorityBannerPending()
     if (higher) {
       trackAnalyticsEvent('unplaced_banner_evaluated', {

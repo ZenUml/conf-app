@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { decidePageBanner, handlePageBannerRoute } from './pageBanner'
 import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
-import { isCsatPendingFresh } from '@/utils/csat'
+import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
 
 const IDENTITY = { clientDomain: 'example-tenant', spaceKey: 'ENG' }
 
@@ -11,7 +11,7 @@ vi.mock('@/utils/paywall/warningBanner', () => ({
   deriveWarningBannerIdentity: vi.fn(),
 }))
 vi.mock('@/utils/paywall/spaceAdminProbe', () => ({ isCurrentUserSpaceAdmin: vi.fn() }))
-vi.mock('@/utils/csat', () => ({ isCsatPendingFresh: vi.fn() }))
+vi.mock('@/utils/csat', () => ({ isCsatPendingFresh: vi.fn(), isCsatSuppressed: vi.fn() }))
 vi.mock('@/utils/byline/unplacedMarker', () => ({
   deriveUnplacedIdentity: vi.fn(),
   isUnplacedBannerCandidate: vi.fn(),
@@ -38,6 +38,7 @@ vi.mock('vue', async (importOriginal) => ({
 
 const paywall = vi.mocked(shouldShowPaywallBanner)
 const csat = vi.mocked(isCsatPendingFresh)
+const csatSuppressed = vi.mocked(isCsatSuppressed)
 const identity = vi.mocked(deriveWarningBannerIdentity)
 const isAdmin = vi.mocked(isCurrentUserSpaceAdmin)
 const flag = vi.mocked((await import('@/utils/paywall/adminBannerFlag')).isAdminBannerEnabled)
@@ -50,6 +51,7 @@ describe('decidePageBanner — central priority for page-banner slots', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     identity.mockReturnValue(IDENTITY)
+    csatSuppressed.mockReturnValue(false)
     isAdmin.mockReturnValue(false)
     unplaced.mockReturnValue(false)
     unplacedIdentity.mockReturnValue(UNPLACED_IDENTITY)
@@ -79,6 +81,17 @@ describe('decidePageBanner — central priority for page-banner slots', () => {
     paywall.mockReturnValue(false)
     csat.mockReturnValue(false)
     expect(decidePageBanner()).toBe('none')
+  })
+
+  it('does not spend the slot on a CSAT trigger the user has suppressed', () => {
+    // Handing the slot to CsatBanner here wastes it: the component re-reads the
+    // same suppression record on mount and closes itself, so the unplaced
+    // notice that WOULD have shown never gets its turn.
+    paywall.mockReturnValue(false)
+    csat.mockReturnValue(true)
+    csatSuppressed.mockReturnValue(true)
+    unplaced.mockReturnValue(true)
+    expect(decidePageBanner()).toBe('unplaced')
   })
 
   it('threads `now` to both predicates', () => {

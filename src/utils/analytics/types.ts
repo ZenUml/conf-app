@@ -412,6 +412,11 @@ export type AnalyticsProperties = {
   // page's one banner slot was already spoken for, which is the only way to
   // tell "nobody sees this" apart from "nobody has unplaced diagrams".
   suppressed_by?: 'paywall' | 'paywall-admin' | 'csat';
+  // diagram_added_to_page. How many macros the page already carried when the
+  // one-click place ran. Read with `result`: a page at the Lite limit is the
+  // case where placing a diagram and hitting the paywall collide, and this is
+  // the only number that would show it.
+  page_macro_count?: number;
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).

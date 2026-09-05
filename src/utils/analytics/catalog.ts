@@ -611,6 +611,27 @@ export type AnalyticsEventName =
   // which is exactly what `unplaced_source` on the banner events reports from
   // the other end.
   | "unplaced_property_write"
+  // One-click place: the app writes the macro into the page ADF itself, instead
+  // of handing over a link for the user to paste. THE conversion event for this
+  // whole feature — every other event here measures noticing, and this one
+  // measures the thing actually getting fixed. Read against
+  // `advocacy_message_copied` (ui_component 'byline_unplaced_link' /
+  // 'page_banner_unplaced_link'), which is the same intent taking the four-step
+  // route: copy, open the editor, paste, publish.
+  //
+  // `result`:
+  //   'added'           — a new page version carries the macro.
+  //   'already_present' — the page already referenced it (someone else placed
+  //                       it, or a double click); nothing was written.
+  //   'forbidden'       — the user cannot edit this page. Expected, not a bug:
+  //                       the notice reaches every reader, and a reader is not
+  //                       always an author. The UI falls back to the link.
+  //   'conflict'        — the page changed under us twice; we do not force.
+  //   'failed'          — anything else, including an unreadable page body.
+  //
+  // A material 'forbidden' share means the banner is reaching the wrong
+  // audience and the button should be gated rather than offered-then-refused.
+  | "diagram_added_to_page"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-

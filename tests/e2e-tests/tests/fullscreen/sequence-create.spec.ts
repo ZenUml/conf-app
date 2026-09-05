@@ -80,21 +80,22 @@ test.describe('Sequence — Create flow', () => {
   // generally true. useAutoTitle.ts's `aiTitleEnabled` ref defaults `true`
   // unconditionally (no feature-flag gate) and DiagramTitleInput.vue wires it
   // up via scheduleAutoGenerate() on a 1.5s debounce (AUTO_DEBOUNCE_MS) — so
-  // once the editor mounts with the seeded sample sequence code already in
-  // the buffer (sequence-create:2's "Sequence tab selected by default with
-  // sample code"), the title auto-fills within ~1.5s and Publish (gated only
-  // on `!this.$store.state.diagram.title` in Header.vue's isPublishDisabled)
-  // goes enabled on its own, with no user input. Racing the assertion before
-  // that debounce fires would be testing an artificial timing window, not
-  // real product behavior — the actual current contract is "an empty EDITOR
-  // disables Publish only until auto-title fills it in", which is a
-  // different assertion than this test's title, so it's left failing rather
-  // than quietly redefined. Same root cause as graph-create.spec.ts's
-  // graph-create:3 (DrawIO's ensureTitle() auto-titling); see this branch's
-  // final report.
-  test('sequence-create:5 — empty title disables Publish', async ({ page }) => {
+  // sequence-create:5 — Publish stays disabled while the title is empty.
+  //
+  // In normal operation an empty title is transient: useAutoTitle fires on
+  // editor mount and fills it within ~1.5s, and DiagramTitleInput.onClear()
+  // re-triggers generation, so the product never leaves a diagram untitled.
+  // The gate (`!this.$store.state.diagram.title` in Header.vue's
+  // isPublishDisabled) is what prevents an untitled publish when the AI title
+  // service is unavailable, which is the scenario this test pins: fail
+  // /ai-generate-title, then assert the gate holds and releases on input.
+  test('sequence-create:5 — Publish stays disabled while the title is empty (AI title unavailable)', async ({ page }) => {
+    await page.route('**/ai-generate-title*', route =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false}' }));
     await insertMacro(page, 'sequence');
     await expectPublishButtonState(page, 'disabled');
+    await fillEditorTitle(page, `seq-title-${Date.now()}`);
+    await expectPublishButtonState(page, 'enabled');
   });
 
   // sequence-create:6 — Title non-empty → Publish enabled.

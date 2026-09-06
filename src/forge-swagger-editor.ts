@@ -16,6 +16,8 @@ import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { openDocument } from '@/utils/documentOpening/openDocument';
 import { buildOpenApiEditorTarget } from '@/utils/documentOpening/targets/openApiTarget';
 import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
+import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
+import globals from "@/model/globals";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
 import { toast } from '@/utils/toast';
@@ -120,7 +122,6 @@ async function saveOpenApiAndExit() {
   // click in react/Header.tsx). Stopped at the redirect below.
   markPublishClicked();
   const code = window.specContent;
-  console.log('saveOpenApiAndExit - window.diagram', store.state.diagram);
   // Dashboard Edit: force an in-place update. CustomContentStorageProvider.save
   // only updates when (id && !isCopy); the dashboard space page false-positives
   // isCopy=true, which would otherwise fork a new doc ("editing made a new
@@ -134,7 +135,6 @@ async function saveOpenApiAndExit() {
       ? capturedOrigin.originalCustomContentId
       : undefined,
   });
-  console.log('saveOpenApiAndExit - diagram', JSON.stringify(diagram, null, 2));
   // @ts-ignore
   window.diagram = Object.assign(window.diagram || {}, diagram);
 
@@ -179,13 +179,17 @@ async function saveOpenApiAndExit() {
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+      error_code: (error as any)?.code,
+      error_shape: (error as any)?.errorShape,
     });
-    toast({ message: 'Failed to save. Please try again.', duration: 5000 });
+    // A create-time 404 is probed once (save_failed_diagnosed) so the toast can
+    // name a missing space permission instead of inviting a retry that cannot
+    // succeed — see model/saveFailureDiagnosis.ts.
+    const message = await diagnoseSaveFailure(error, { surface: 'editor', macro_type: 'openapi' }, globals.apWrapper);
+    toast({ message, duration: message === GENERIC_SAVE_FAILED_MESSAGE ? 5000 : 12000 });
     // Do NOT end journey, do NOT close — keep editor open so the user can retry.
     return;
   }
-  console.log('saveOpenApiAndExit - id', id);
-
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
@@ -444,11 +448,9 @@ async function initializeMacro() {
       });
     }
 
-    console.log('-------------- loaded spec:', doc?.code);
     // eslint-disable-next-line
     // @ts-ignore
     window.updateSpec(store.state.diagram.code || OpenApiExample);
-    console.log('-------------- updateSpec with:', doc?.code);
 
     // Initialize spec listeners for validation and store sync
     window.specListeners = window.specListeners || [];

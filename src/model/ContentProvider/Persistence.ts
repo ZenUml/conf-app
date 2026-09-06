@@ -12,6 +12,7 @@ import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason, snapshotFailureDetail } from '@/model/SnapshotAttachment';
 import { getEditorMutationSummary } from '@/utils/analytics/editorMutationTelemetry';
+import { toMacroType } from '@/utils/byline/pageDiagrams';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -80,15 +81,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
 
   // Analytics: embed editor handles its own tracking
   if (diagram.diagramType !== DiagramType.Embed) {
-    const DIAGRAM_TYPE_TO_MACRO_TYPE: Record<string, MacroTypeValue> = {
-      [DiagramType.Sequence]: 'sequence',
-      [DiagramType.Mermaid]:  'mermaid',
-      [DiagramType.PlantUml]: 'plantuml',
-      [DiagramType.Graph]:    'graph',
-      [DiagramType.OpenApi]:  'openapi',
-      [DiagramType.AsyncApi]: 'asyncapi',
-    };
-    const macroType: MacroTypeValue = DIAGRAM_TYPE_TO_MACRO_TYPE[diagram.diagramType] ?? 'none';
+    const macroType = toMacroType(diagram.diagramType) as MacroTypeValue;
 
     // Always identify analytics by the actually-saved customContent.id, not by
     // whatever the Forge context currently advertises: for first save the context

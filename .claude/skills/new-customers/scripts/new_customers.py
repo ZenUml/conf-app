@@ -43,7 +43,7 @@ APPS = {
     'asyncapi': 'my-api',
 }
 INTERNAL = ('whimet', 'zenuml', 'd4c-forge', 'async-prd', 'zicjin', 'danshuitaihejie',
-            'lite-stg', 'full-stg', 'dia-stg', 'lite-dev', 'mtwtf', 'nextrelease-sbx',
+            'lite-stg', 'full-stg', 'dia-stg', 'lite-dev', 'lite-prod', 'mtwtf', 'nextrelease-sbx',
             '2023-bug-bounty', 'diagramly-install-test')
 
 D1_SQL = ("SELECT clientDomain, key, min(timestamp) AS first_seen FROM ClientInstallation "

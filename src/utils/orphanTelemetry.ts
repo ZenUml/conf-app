@@ -17,8 +17,8 @@ export type ProbeResult = Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>
  * failed). The same event covers both cases so Mixpanel queries can compute
  * recovery rate as `count where recovery_used=true / count(all)`.
  *
- * Best-effort. Wrapped in try/catch so a telemetry failure can never re-crash
- * the caller.
+ * Best-effort. Delegates to trackEvent, which never throws synchronously
+ * (fire-and-forget async internally), so it can never re-crash the caller.
  *
  * INVARIANT — fire at most ONCE per macro load. Every macro type has exactly
  * one owner for this event: forgeIndex.ts (the shared Custom UI entry) owns it
@@ -38,35 +38,31 @@ export function reportOrphanObserved(
   probeResult: ProbeResult | undefined,
   options: { recoveryUsed?: boolean; recoveredId?: string } = {},
 ): void {
-  try {
-    if (!pageId || !probeResult) {
-      // Two distinct reasons we couldn't probe:
-      //   - no_page_id:       context.extension.content.id was undefined at call time
-      //   - no_probe_result:  pageId was present but loadCustomContentWithOrphanRecovery
-      //                       refused to probe (transient direct-fetch error: 403/5xx/parse).
-      //                       The CC may still exist — don't conflate with true orphans.
-      trackEvent(orphanId, 'customcontent_orphan_observed', 'warning', {
-        diagram_kind: diagramKind,
-        recoverable: !pageId ? 'probe_skipped_no_page_id' : 'probe_skipped_no_probe_result',
-        recovery_used: false,
-        ...(pageId && { page_id: pageId }),
-      });
-      return;
-    }
+  if (!pageId || !probeResult) {
+    // Two distinct reasons we couldn't probe:
+    //   - no_page_id:       context.extension.content.id was undefined at call time
+    //   - no_probe_result:  pageId was present but loadCustomContentWithOrphanRecovery
+    //                       refused to probe (transient direct-fetch error: 403/5xx/parse).
+    //                       The CC may still exist — don't conflate with true orphans.
     trackEvent(orphanId, 'customcontent_orphan_observed', 'warning', {
       diagram_kind: diagramKind,
-      page_id: pageId,
-      recoverable: String(probeResult.recoverable),
-      candidate_count: probeResult.candidateCount,
-      page_children_total: probeResult.pageChildrenTotal,
-      recovery_used: Boolean(options.recoveryUsed),
-      ...(options.recoveredId && { recovered_id: options.recoveredId }),
-      ...(probeResult.truncated && { truncated: true }),
-      ...(probeResult.probeError && { probe_error: probeResult.probeError }),
+      recoverable: !pageId ? 'probe_skipped_no_page_id' : 'probe_skipped_no_probe_result',
+      recovery_used: false,
+      ...(pageId && { page_id: pageId }),
     });
-  } catch (e) {
-    console.warn('[orphanTelemetry] reportOrphanObserved failed', e);
+    return;
   }
+  trackEvent(orphanId, 'customcontent_orphan_observed', 'warning', {
+    diagram_kind: diagramKind,
+    page_id: pageId,
+    recoverable: String(probeResult.recoverable),
+    candidate_count: probeResult.candidateCount,
+    page_children_total: probeResult.pageChildrenTotal,
+    recovery_used: Boolean(options.recoveryUsed),
+    ...(options.recoveredId && { recovered_id: options.recoveredId }),
+    ...(probeResult.truncated && { truncated: true }),
+    ...(probeResult.probeError && { probe_error: probeResult.probeError }),
+  });
 }
 
 /**
@@ -81,14 +77,10 @@ export function reportOrphanMacroRepaired(
   newId: string,
   diagramKind: OrphanDiagramKind,
 ): void {
-  try {
-    trackEvent(oldOrphanId, 'customcontent_orphan_macro_repaired', 'info', {
-      diagram_kind: diagramKind,
-      ...(pageId && { page_id: pageId }),
-      old_custom_content_id: oldOrphanId,
-      new_custom_content_id: newId,
-    });
-  } catch (e) {
-    console.warn('[orphanTelemetry] reportOrphanMacroRepaired failed', e);
-  }
+  trackEvent(oldOrphanId, 'customcontent_orphan_macro_repaired', 'info', {
+    diagram_kind: diagramKind,
+    ...(pageId && { page_id: pageId }),
+    old_custom_content_id: oldOrphanId,
+    new_custom_content_id: newId,
+  });
 }

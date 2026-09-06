@@ -37,9 +37,13 @@ test.describe('Viewer toolbar actions', () => {
     test('viewer-actions:1 — Sequence Export opens an export UI', async ({ page }) => {
       await insertAndPublishMacro(page, 'sequence', { title: `seq-ex-${Date.now()}` });
       const result = await openExport(page, 'sequence');
-      expect(['export-modal', 'drawio-sidebar']).toContain(result.kind);
+      expect(result.kind).toBe('export-modal');
     });
 
+    // Copy Code was replaced by the "Source" panel (view-source-btn ->
+    // ViewSourcePanel's own Copy button) in the V8 viewer redesign
+    // (6a68de0d, 2026-05-04). clickCopyCodeAndRead() drives that current
+    // flow for the sequence kind — see its doc comment.
     test('viewer-actions:2 — Sequence Copy Code puts source on clipboard', async ({ page }) => {
       await insertAndPublishMacro(page, 'sequence', { title: `seq-cp-${Date.now()}` });
       const text = await clickCopyCodeAndRead(page, 'sequence');
@@ -66,19 +70,14 @@ test.describe('Viewer toolbar actions', () => {
       await expectFullscreenLayout(page, 'fullscreen-viewer');
     });
 
-    test('viewer-actions:5 — Graph Export opens DrawIO export sidebar', async ({ page }) => {
+    // The V8 viewer redesign (6a68de0d, 2026-05-04) unified Export across all
+    // three macro types onto the shared ExportModal (Export PNG pill) — Graph
+    // no longer opens a separate DrawIO export sidebar. See openExport()'s
+    // doc comment.
+    test('viewer-actions:5 — Graph Export opens the shared Export PNG modal', async ({ page }) => {
       await insertAndPublishMacro(page, 'graph', { title: `gr-ex-${Date.now()}` });
       const result = await openExport(page, 'graph');
-      expect(['drawio-sidebar', 'export-modal']).toContain(result.kind);
-    });
-
-    test('viewer-actions:6 — Graph Copy Code copies DrawIO XML', async ({ page }) => {
-      await insertAndPublishMacro(page, 'graph', { title: `gr-cp-${Date.now()}` });
-      const text = await clickCopyCodeAndRead(page, 'graph');
-      expect(text.length).toBeGreaterThan(0);
-      expect(text).not.toMatch(/^__clipboard_error__/);
-      // DrawIO XML is the expected payload — recognizable by mxGraphModel root.
-      expect(text).toMatch(/mxGraphModel|mxCell/i);
+      expect(result.kind).toBe('export-modal');
     });
 
     test('viewer-actions:7 — Graph Versions logs version metadata', async ({ page }) => {
@@ -101,16 +100,7 @@ test.describe('Viewer toolbar actions', () => {
     test('viewer-actions:9 — OpenAPI Export opens an export UI', async ({ page }) => {
       await insertAndPublishMacro(page, 'openapi', { title: `oa-ex-${Date.now()}` });
       const result = await openExport(page, 'openapi');
-      expect(['export-modal', 'drawio-sidebar']).toContain(result.kind);
-    });
-
-    test('viewer-actions:10 — OpenAPI Copy Code copies YAML/JSON spec', async ({ page }) => {
-      await insertAndPublishMacro(page, 'openapi', { title: `oa-cp-${Date.now()}` });
-      const text = await clickCopyCodeAndRead(page, 'openapi');
-      expect(text.length).toBeGreaterThan(0);
-      expect(text).not.toMatch(/^__clipboard_error__/);
-      // OpenAPI spec — YAML or JSON; either way "openapi:" or "openapi" appears.
-      expect(text).toMatch(/openapi/i);
+      expect(result.kind).toBe('export-modal');
     });
 
     test('viewer-actions:11 — OpenAPI Versions logs version metadata', async ({ page }) => {

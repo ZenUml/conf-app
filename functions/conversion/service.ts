@@ -419,6 +419,7 @@ function sanitizeStats(input: Record<string, unknown>): Record<string, number | 
     'pagesFailed',
     'macrosConverted',
     'macrosSkippedEmbed',
+    'macrosSkippedAsyncApi',
     'macrosSkippedUnknownKey',
     'macrosSkippedBodyMissing',
     'dryRun',

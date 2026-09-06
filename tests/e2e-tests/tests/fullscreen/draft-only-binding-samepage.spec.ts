@@ -30,17 +30,13 @@
 import { test, expect, Page } from '@playwright/test';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
-import { createPageAndSetup } from '../insert/insert-helpers.js';
 import {
   modalContentFrame,
-  fillEditorTitle,
   clickEditorPublish,
   expectModalVisible,
   expectModalClosed,
 } from '../../helpers/FullscreenModalHelper.js';
-import { dismissStarterGalleryIfPresent } from '../../helpers/starterGallery.js';
 
-const SEQUENCE_MACRO_BASE = 'Diagram (Mermaid, PlantUML & ZenUML)';
 const REPRO_PAGE_ID = process.env.REPRO_PAGE_ID?.trim();
 
 // Lite editor-mount paywall overlay intercepts clicks; clear it before touching
@@ -68,64 +64,16 @@ test.describe('SAME-PAGE #169 — one page: broken on buggy deploy → fixed on 
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 
-  // PHASE A — run on the BUGGY deploy. Sets up the draft-only binding and proves
-  // the fork/submit failure on a concrete page, then prints that page's id.
-  test('PHASE A (buggy): create draft-only-bound macro, edit fails (modal stuck)', async ({ page }) => {
-    test.skip(!!REPRO_PAGE_ID, 'phase B requested (REPRO_PAGE_ID set)');
-
-    const submitFailures: string[] = [];
-    page.on('console', (m) => {
-      if (/view\.submit\/close failed after save|not submittable/i.test(m.text())) submitFailures.push(m.text());
-    });
-
-    // 1) Publish an EMPTY page → published version exists with no macro binding.
-    const editorPage = await createPageAndSetup(page, ' Lite');
-    await editorPage.dismissLearnTheBasicsPanel();
-    await editorPage.publishPage();
-    const pageId = page.url().match(/\/pages\/(\d+)\//)?.[1];
-    expect(pageId, 'published page id from URL').toBeTruthy();
-
-    // 2) Re-open the editor (fresh draft) and insert the macro. Publishing the
-    //    macro config writes customContentId into the DRAFT only.
-    await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/edit-v2/${pageId}`);
-    await expect(page.locator('[data-test-id="editor-title"]')).toBeVisible({ timeout: 30_000 });
-    await editorPage.dismissLearnTheBasicsPanel();
-    await editorPage.clickInsertElements();
-    await editorPage.searchAndSelectMacro('diagram', editorPage.getMacroName(SEQUENCE_MACRO_BASE));
-    await expectModalVisible(page, 'edit');
-    await page.waitForTimeout(1500);
-    await dismissPaywall(page);
-    await dismissStarterGalleryIfPresent(page, modalContentFrame(page, 'edit'));
-    await fillEditorTitle(page, `SamePage169 ${Date.now()}`);
-    await clickEditorPublish(page);
-    await expectModalClosed(page, 'edit');
-    // NOTE: page deliberately NOT republished → published body has no macro→cc.
-
-    // 3) Edit the macro via its in-editor Edit button (opens the Forge Modal).
-    const macroPage = new MacroPage(page);
-    const macroFrame = macroPage.getSequenceMacroFrame();
-    await expect(macroFrame.locator('body')).toBeVisible({ timeout: 30_000 });
-    await macroPage.editMacro(macroFrame);
-    await expectModalVisible(page, 'edit');
-    await page.waitForTimeout(1500);
-    await dismissPaywall(page);
-
-    await dirtyAndPublish(page);
-
-    // RED proof: the buggy save forks → view.submit() in a non-submittable modal
-    // → throws → modal stays open. Poll for the failure, then confirm modal open.
-    await expect
-      .poll(() => submitFailures.length, {
-        timeout: 20_000,
-        message: 'expected a view.submit/not-submittable failure on the buggy deploy',
-      })
-      .toBeGreaterThan(0);
-    await expectModalVisible(page, 'edit', 3_000);
-
-    await page.screenshot({ path: `samepage169-A-stuck-${pageId}-${Date.now()}.png`, fullPage: true });
-    // Hand the pageId to phase B. Greppable marker.
-    console.log(`\nSAMEPAGE_PAGE_ID=${pageId}\n`);
-  });
+  // PHASE A deleted 2026-09-03 (fix/e2e-stale-specs, issue #609): asserted a
+  // "view.submit/not-submittable failure" that only reproduces against the
+  // pre-fix (buggy) ApWrapper2 guard (`count === 1`) described in the file
+  // header above. Fixed code (`count <= 1`, shipped long ago) cannot fail
+  // this assertion — it isn't a stale selector, the thing it tests for no
+  // longer exists to happen. PHASE B below is unaffected: it takes its page
+  // id from the REPRO_PAGE_ID env var, set by hand from a real PHASE A run
+  // against an actually-buggy deploy (not from any state this file produces
+  // at run time), so it's still meaningful as a standalone throwaway
+  // verification script for a future regression of #169.
 
   // PHASE B — run on the FIXED deploy against the SAME page from phase A.
   test('PHASE B (fixed): reopen that same page, edit succeeds (modal closes, no fork)', async ({ page }) => {

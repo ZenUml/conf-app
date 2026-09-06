@@ -12,6 +12,7 @@ jobs:
 #    environment:  # It will wait for approval if we add an environment
 #      name: staging
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
       FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
@@ -56,12 +57,13 @@ jobs:
               *)         echo "cf_project=conf-$LICENSE" ;;
             esac
           } >> "$GITHUB_OUTPUT"
-      # The asyncapi build (pnpm build:asyncapi) needs vendor/asyncapi-studio
-      # checked out so scripts/build-studio.sh can rebuild Studio from source.
-      # Default checkout above does NOT init submodules — we init explicitly
-      # (and only for asyncapi) so the private submodule isn't attempted.
+      # The asyncapi and lite builds (pnpm build:asyncapi / build:lite) need
+      # vendor/asyncapi-studio checked out so scripts/build-studio.sh can
+      # rebuild Studio from source (lite ships the AsyncAPI macro per
+      # ADR-0005). Default checkout above does NOT init submodules — we init
+      # explicitly so the private submodule isn't attempted.
       - name: Init asyncapi-studio submodule
-        if: ${{ steps.properties.outputs.license == 'asyncapi' }}
+        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' }}
         run: git submodule update --init --depth 1 vendor/asyncapi-studio
       - name: Build and publish to Cloudflare
         uses: ./.github/actions/wrangler-publish
@@ -77,16 +79,27 @@ jobs:
           sentry-dsn: ${{ vars.SENTRY_DSN }}
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
           page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_PROD }}
-      # All non-asyncapi variants: strip the asyncapi-only modules so they never
-      # leak into the lite/full/diagramly production apps. They live in
-      # manifest.yml only so the asyncapi variant can ship them. Mirrors
+      # full/diagramly: strip the asyncapi-only modules so they never leak
+      # into the full/diagramly production apps. They live in manifest.yml
+      # only so the asyncapi variant can ship them. Mirrors
       # scripts/forge-wizard.mjs (zenuml-asyncapi-* macros, async-api-doc custom
       # content, and the asyncapi-only confluence:spacePage dashboard).
       - name: Remove asyncapi modules in manifest.yml
-        if: ${{ steps.properties.outputs.license != 'asyncapi' }}
+        if: ${{ steps.properties.outputs.license != 'asyncapi' && steps.properties.outputs.license != 'lite' }}
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
+      # lite: ADR-0005 Option A — keep the page-rendered AsyncAPI macro
+      # (content stored under the shared zenuml-content-sequence type); strip
+      # only the embed macro (references async-api-doc documents, a type Lite
+      # doesn't claim), the async-api-doc custom content, and the dashboard
+      # spacePage. Grant unsafe-eval for AsyncAPI Studio's runtime schema
+      # compilation. Mirrors the lite manifestEdits in scripts/forge-wizard.mjs.
+      - name: Remove asyncapi embed/content/dashboard in manifest.yml, allow unsafe-eval (Lite keeps the AsyncAPI macro)
+        if: ${{ steps.properties.outputs.license == 'lite' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro")) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"]) | .permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
       # confluence:contentBylineItem now carries THREE entries and every variant
       # ships a different subset, so each strip below is key-scoped. A blanket
       # module delete would take the activation nudge with it — don't
@@ -173,7 +186,7 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: |
-            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
+            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
 
       # The Lite->Full conversion executor ships only in Full
       # (docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md).
@@ -305,6 +318,7 @@ jobs:
   deploy-cron-worker:
     name: Deploy Cron Worker to Production
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
         with:

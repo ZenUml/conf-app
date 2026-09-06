@@ -4,9 +4,14 @@ import { Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Header from "./Header";
 import { isAiChatEnabled } from "@/apis/aiTitleFeatureFlag";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 vi.mock("@/apis/aiTitleFeatureFlag", () => ({
   isAiChatEnabled: vi.fn(),
+}));
+
+vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
+  trackAnalyticsEvent: vi.fn(),
 }));
 
 vi.mock("@/components/react/OpenApiTitleInput", () => ({
@@ -79,6 +84,11 @@ describe("React Header AI Chat feature flag", () => {
 
     expect(toggle).not.toBeNull();
     expect(toggle.className).toContain("bg-violet-100");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("ai_chat_button_shown", {
+      feature_area: "ai",
+      surface: "editor",
+      macro_type: "openapi",
+    });
     act(() => {
       Simulate.click(toggle);
     });
@@ -89,5 +99,9 @@ describe("React Header AI Chat feature flag", () => {
     await renderHeader(false);
 
     expect(container.querySelector('[data-testid="react-ai-chat-toggle"]')).toBeNull();
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      "ai_chat_button_shown",
+      expect.anything(),
+    );
   });
 });

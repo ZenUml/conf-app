@@ -11,8 +11,7 @@ export class AtlasDocFormat {
     const result = [] as Array<AtlasDocElement>;
     const traverse = (node: any) => {
       if(node.type === AtlasDocElementType.Extension
-          && ((!forgeGlobal.isForge && node.attrs.extensionType === AtlasDocExtensionType.Macro) 
-            || (forgeGlobal.isForge && node.attrs.extensionType === AtlasDocExtensionType.Macro) //migrate old macros
+          && (node.attrs.extensionType === AtlasDocExtensionType.Macro //migrate old macros
             || (forgeGlobal.isForge && node.attrs.extensionType === AtlasDocExtensionType.ForgeMacro)
           )
           && (!macroKey || (forgeGlobal.isForge && node.attrs.extensionKey.includes(macroKey)) || (!forgeGlobal.isForge && node.attrs.extensionKey === macroKey))) {

@@ -1,8 +1,8 @@
 import { DiagramType } from './Diagram';
 import {
   getDiagramConfig,
-  getViewerUrl,
   getCodeFromDiagram,
+  getDiagramData,
   getStoreUpdateAction,
   getEditorDiagramOptions,
 } from './DiagramTypeConfig';
@@ -14,7 +14,6 @@ describe('DiagramTypeConfig', () => {
       expect(config).toBeDefined();
       expect(config!.dataField).toBe('code');
       expect(config!.storeUpdateAction).toBe('updateCode2');
-      expect(config!.wide).toBe(false);
       expect(config!.rendersInDiagramPortal).toBe(true);
     });
 
@@ -23,14 +22,12 @@ describe('DiagramTypeConfig', () => {
       expect(config).toBeDefined();
       expect(config!.dataField).toBe('mermaidCode');
       expect(config!.storeUpdateAction).toBe('updateMermaidCode');
-      expect(config!.wide).toBe(true);
     });
 
     it('returns config for Graph', () => {
       const config = getDiagramConfig(DiagramType.Graph);
       expect(config).toBeDefined();
       expect(config!.dataField).toBe('graphXml');
-      expect(config!.viewerUrl).toBe('/drawio/viewer.html');
       expect(config!.rendersInDiagramPortal).toBe(false);
     });
 
@@ -38,7 +35,6 @@ describe('DiagramTypeConfig', () => {
       const config = getDiagramConfig(DiagramType.OpenApi);
       expect(config).toBeDefined();
       expect(config!.dataField).toBe('code');
-      expect(config!.viewerUrl).toBe('/swagger-ui.html');
     });
 
     it('returns config for PlantUml', () => {
@@ -46,7 +42,6 @@ describe('DiagramTypeConfig', () => {
       expect(config).toBeDefined();
       expect(config!.dataField).toBe('plantUmlCode');
       expect(config!.storeUpdateAction).toBe('updatePlantUmlCode');
-      expect(config!.wide).toBe(true);
       expect(config!.rendersInDiagramPortal).toBe(true);
     });
 
@@ -56,28 +51,6 @@ describe('DiagramTypeConfig', () => {
 
     it('returns undefined for Unknown', () => {
       expect(getDiagramConfig(DiagramType.Unknown)).toBeUndefined();
-    });
-  });
-
-  describe('getViewerUrl', () => {
-    it('returns /sequence-viewer.html for Sequence', () => {
-      expect(getViewerUrl(DiagramType.Sequence)).toBe('/sequence-viewer.html');
-    });
-
-    it('returns /sequence-viewer.html for Mermaid', () => {
-      expect(getViewerUrl(DiagramType.Mermaid)).toBe('/sequence-viewer.html');
-    });
-
-    it('returns /drawio/viewer.html for Graph', () => {
-      expect(getViewerUrl(DiagramType.Graph)).toBe('/drawio/viewer.html');
-    });
-
-    it('returns /swagger-ui.html for OpenApi', () => {
-      expect(getViewerUrl(DiagramType.OpenApi)).toBe('/swagger-ui.html');
-    });
-
-    it('returns fallback for unknown type', () => {
-      expect(getViewerUrl(DiagramType.Unknown)).toBe('/sequence-viewer.html');
     });
   });
 
@@ -143,6 +116,35 @@ describe('DiagramTypeConfig', () => {
       expect(options[0]).toEqual({ value: DiagramType.Sequence, label: 'Sequence' });
       expect(options[1]).toEqual({ value: DiagramType.Mermaid, label: 'Mermaid' });
       expect(options[2]).toEqual({ value: DiagramType.PlantUml, label: 'PlantUML' });
+    });
+  });
+
+  describe('getDiagramData', function () {
+    // A doc converted from the default sequence template keeps every field —
+    // getDiagramData must select the body matching the doc's OWN type, never
+    // the leftover ZenUML `code` (regression: embed viewer passed `code` for
+    // a plantuml doc, firing a doomed PlantUML-server PNG fetch).
+    const convertedDoc = {
+      diagramType: DiagramType.PlantUml,
+      code: 'title Order Service\nOrderController.post(payload)',
+      mermaidCode: 'sequenceDiagram\n  A->>B: hi',
+      plantUmlCode: '@startuml\nAlice -> Bob\n@enduml',
+      graphXml: '<mxGraphModel/>',
+    };
+
+    it('selects plantUmlCode for a plantuml doc, ignoring the leftover code field', function () {
+      expect(getDiagramData(convertedDoc)).toBe(convertedDoc.plantUmlCode);
+    });
+
+    it('selects the body field matching each diagram type', function () {
+      expect(getDiagramData({ ...convertedDoc, diagramType: DiagramType.Sequence })).toBe(convertedDoc.code);
+      expect(getDiagramData({ ...convertedDoc, diagramType: DiagramType.Mermaid })).toBe(convertedDoc.mermaidCode);
+      expect(getDiagramData({ ...convertedDoc, diagramType: DiagramType.Graph })).toBe(convertedDoc.graphXml);
+    });
+
+    it('returns an empty string for an unknown type or missing body', function () {
+      expect(getDiagramData({ diagramType: undefined, code: 'x' })).toBe('');
+      expect(getDiagramData({ diagramType: DiagramType.PlantUml })).toBe('');
     });
   });
 });

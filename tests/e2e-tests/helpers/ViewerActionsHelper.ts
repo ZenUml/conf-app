@@ -50,44 +50,49 @@ export async function openFullscreenViewer(page: Page, kind: ViewerKind): Promis
 }
 
 /**
- * Click the toolbar Export button. For sequence/openapi this opens the in-
- * iframe ExportModal (Vue); for graph it opens the DrawIO sidebar.
- * Returns true if a recognizable export UI surfaced.
+ * Click the toolbar "Export PNG" pill button and assert the shared
+ * ExportModal (src/components/ExportModal/ExportModal.vue) opens. As of the
+ * V8 viewer redesign (2026-05-04) ALL three macro types share this one
+ * export UI — Graph no longer opens a separate DrawIO export sidebar; it's
+ * the same Export PNG pill + modal as Sequence/OpenAPI (aria-label="Export
+ * PNG" per GenericViewer.vue's bottom pill row).
  */
-export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 'export-modal' | 'drawio-sidebar' | 'unknown' }> {
+export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 'export-modal' | 'unknown' }> {
   const frame = viewerFrame(page, kind);
   await expect(frame.locator('body')).toBeVisible({ timeout: 30_000 });
-  // Button uses aria-label="Download PNG" in GenericViewer.vue.
-  const exportBtn = frame.getByRole('button', { name: /download png|export/i }).first();
+  const exportBtn = frame.getByRole('button', { name: 'Export PNG' });
   await expect(exportBtn).toBeVisible();
   await exportBtn.click();
 
-  if (kind === 'sequence' || kind === 'openapi') {
-    // Vue ExportModal — has a "Download" or "PNG" button visible.
-    const exportModal = frame.locator('[data-testid="export-modal"], .export-modal, [class*="export"]').first();
-    if (await exportModal.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      return { kind: 'export-modal' };
-    }
-    // Fallback: heading text "Export Settings".
-    const exportHeading = frame.getByText(/export settings/i).first();
-    if (await exportHeading.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      return { kind: 'export-modal' };
-    }
-    return { kind: 'unknown' };
+  // Shared ExportModal — role=dialog, .export-modal, heading "Export Settings".
+  const exportModal = frame.locator('[data-testid="export-modal"], .export-modal, [class*="export"]').first();
+  if (await exportModal.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    return { kind: 'export-modal' };
   }
-
-  // Graph (DrawIO) — sidebar appears.
-  const drawioFrame = frame.locator('iframe').contentFrame();
-  const sidebar = drawioFrame.locator('.sidebar-container, [class*="sidebar-container"]').first();
-  if (await sidebar.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    return { kind: 'drawio-sidebar' };
+  const exportHeading = frame.getByText(/export settings/i).first();
+  if (await exportHeading.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    return { kind: 'export-modal' };
   }
   return { kind: 'unknown' };
 }
 
 /**
- * Click Copy Code, then read clipboard from the top-level page. Returns the
- * clipboard text. Caller asserts the content matches the expected diagram.
+ * Retrieve the diagram source and put it on the clipboard, then read the
+ * clipboard from the top-level page. Returns the clipboard text.
+ *
+ * The old single "Copy Code" button (viewerFrame -> Copy Code -> clipboard)
+ * was removed by the V8 viewer redesign (2026-05-04). The current path for
+ * text-DSL macros (sequence/mermaid/plantuml — see GenericViewer.vue's
+ * `showViewSource` gate) is: click "Source" (data-testid="view-source-btn")
+ * to open the ViewSourcePanel side sheet, then its own Copy button
+ * (data-testid="view-source-copy") writes the source to the clipboard.
+ *
+ * Graph and OpenAPI have NO source-retrieval affordance in the current
+ * viewer toolbar at all — `showViewSource` is gated to text-DSL diagram
+ * types only, and neither ForgeGraphViewer.vue nor OpenApiViewer.vue add
+ * one of their own. Callers for those kinds will find no "Source" button
+ * and this correctly times out — that reflects a real, deliberate product
+ * gap (not a stale selector), not a bug in this helper.
  *
  * The clipboard read happens on the OUTER `page` because the iframe doesn't
  * have clipboard-read permission — even if we wrote to the clipboard from
@@ -95,21 +100,45 @@ export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 
  */
 export async function clickCopyCodeAndRead(page: Page, kind: ViewerKind): Promise<string> {
   const frame = viewerFrame(page, kind);
-  const btn = frame.getByRole('button', { name: 'Copy Code' });
-  await expect(btn).toBeVisible({ timeout: 30_000 });
   // Grant clipboard-read so navigator.clipboard.readText() works.
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+  if (kind === 'sequence') {
+    // data-testid, not getByRole(name: 'Source') — the diagram canvas can
+    // contain a participant/node whose accessible name is something like
+    // "Icon-Resource/Compute/…", and Playwright's default name match is a
+    // case-insensitive SUBSTRING match, so "Source" matches "Re[source]"
+    // too (strict-mode violation, 2 elements). See view-source-btn in
+    // GenericViewer.vue.
+    const sourceBtn = frame.getByTestId('view-source-btn');
+    await expect(sourceBtn).toBeVisible({ timeout: 30_000 });
+    await sourceBtn.click();
+    const copyBtn = frame.getByTestId('view-source-copy');
+    await expect(copyBtn).toBeVisible({ timeout: 10_000 });
+    await copyBtn.click();
+    // Small settle window — Vue mutation observers fire async.
+    await page.waitForTimeout(300);
+    return page.evaluate(async () => {
+      try {
+        return await navigator.clipboard.readText();
+      } catch (e) {
+        return `__clipboard_error__:${(e as Error).message}`;
+      }
+    });
+  }
+
+  // graph / openapi — no source-retrieval affordance exists; see doc comment.
+  const btn = frame.getByRole('button', { name: 'Copy Code' });
+  await expect(btn).toBeVisible({ timeout: 30_000 });
   await btn.click();
-  // Small settle window — Vue mutation observers fire async.
   await page.waitForTimeout(300);
-  const text = await page.evaluate(async () => {
+  return page.evaluate(async () => {
     try {
       return await navigator.clipboard.readText();
     } catch (e) {
       return `__clipboard_error__:${(e as Error).message}`;
     }
   });
-  return text;
 }
 
 /**

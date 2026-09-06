@@ -1,6 +1,7 @@
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
-import { Diagram, DiagramType, NULL_DIAGRAM, getDiagramData } from '@/model/Diagram/Diagram';
+import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import store from '@/model/store2';
 import type { DiagramLoadError, ViewerLoadState } from '@/model/store2/types';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
@@ -43,7 +44,6 @@ export function publishLoadedDiagram(doc: Diagram | undefined, loadError?: Diagr
   // a terminal error rather than an endless "Loading embedded diagram…".
   store.state.diagramLoadComplete = true;
   window.diagram = diagram;
-  console.log('loadDiagram - window.diagram', window.diagram);
   return diagram;
 }
 

@@ -12,7 +12,7 @@ import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
-import { normalizeProductType, type ProductType } from "./productType";
+import { normalizeProductType } from "./productType";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -171,10 +171,6 @@ async function _getMacroUuid(): Promise<string> {
   }
 }
 
-function _getProductType(): ProductType {
-  return normalizeProductType(import.meta.env.PRODUCT_TYPE);
-}
-
 function _identify() {
   if (_identified) return;
   const id = _getCurrentUserAccountId();
@@ -218,7 +214,6 @@ async function _getSpaceAdminTelemetry(
       return {};
     }
 
-    console.info("[macro_viewed] space admins", admins);
     return { space_admin_count: admins.length };
   } catch (e) {
     console.warn("[macro_viewed] failed to resolve space admins", e);
@@ -316,7 +311,7 @@ export async function _awaitableTrackAnalyticsEvent(
       confluence_space:
         callerProps.confluence_space ?? getSpaceKey() ?? "unknown_space",
       macro_uuid: callerProps.macro_uuid ?? (await _getMacroUuid()),
-      product_type: callerProps.product_type ?? _getProductType(),
+      product_type: callerProps.product_type ?? normalizeProductType(import.meta.env.PRODUCT_TYPE),
       environment_type:
         callerProps.environment_type ??
         forgeGlobal.forgeContext?.environmentType ??

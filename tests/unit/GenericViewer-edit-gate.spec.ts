@@ -47,11 +47,6 @@ vi.mock('@/utils/upgradeTracking', () => ({
 
 vi.mock('@/utils/window', () => ({ trackEvent: vi.fn(), getUrlParam: vi.fn() }))
 
-vi.mock('@/services/DiagramLikes', () => ({
-  toggleDiagramLike: vi.fn(() => Promise.resolve([])),
-  getDiagramLikes: vi.fn(() => Promise.resolve([])),
-}))
-
 vi.mock('@/composables/useCustomerSuccessService', () => {
   return {
     useCustomerSuccessService: vi.fn(() => ({

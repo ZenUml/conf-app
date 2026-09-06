@@ -302,9 +302,23 @@ modules:
       icon: resource:main;image/diagram_macro_icon.png
       unlicensedAccess:
         - unlicensed
-    # AsyncAPI macro: ships only with the asyncapi variant; lite/full/diagramly
-    # strip this entry via manifestEdits in scripts/forge-wizard.mjs.
-    - key: zenuml-asyncapi-macro
+    # AsyncAPI macro: ships with the asyncapi variant AND lite (ADR-0005
+    # Option A — on lite the content is stored under the shared
+    # zenuml-content-sequence type, discriminated by diagramType, like
+    # OpenAPI). full/diagramly strip this entry via manifestEdits in
+    # scripts/forge-wizard.mjs (mirrored in release.yml / staging-deploy.yml).
+    #
+    # ${LITE_KEY_SUFFIX} for the same reason every other Lite macro carries it:
+    # it resolves to `-lite` on Lite and to empty everywhere else, so this key
+    # is UNCHANGED for the asyncapi variant and becomes
+    # `zenuml-asyncapi-macro-lite` on Lite — matching zenuml-openapi-macro,
+    # zenuml-graph-macro and zenuml-embed-macro above, and keeping Lite's macro
+    # keys distinguishable in the CQL `macro in (...)` searches that key on the
+    # bare macro name (e.g. src/lite-full-conversion.ts). Lite has never
+    # shipped this macro, so there is no stored content under the unsuffixed
+    # key to migrate — settling it now costs nothing and after release would
+    # be breaking.
+    - key: zenuml-asyncapi-macro${LITE_KEY_SUFFIX}
       title: AsyncAPI Spec
       description: Create an AsyncAPI Spec. ${APP_LABEL}
       resource: main
@@ -319,11 +333,28 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
+      # Paste-to-create / paste-to-place, for the Lite byline picker's AsyncAPI
+      # tile — same contract as the openapi and graph macros above. `/new/...`
+      # opens a blank AsyncAPI editor; `/d/asyncapi/<cloudId>/<contentId>`
+      # places an already-saved document (resolved by
+      # resolveEffectiveCustomContentId, which both AsyncAPI entries now use).
+      #
+      # ONLY Lite mints these links — it is the only variant with a byline. The
+      # asyncapi variant strips them (scripts/forge-wizard.mjs) for the same
+      # reason full/diagramly strip the other types': identical patterns in two
+      # installed apps race for one pasted URL, and losing that race yields a
+      # macro pointing at app-scoped content it cannot read.
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/new/asyncapi
+          - pattern: https://confluence.zenuml.com/d/asyncapi/*/*
     # AsyncAPI embed macro: lets the user reference an existing AsyncAPI
     # document (created from the dashboard or the regular asyncapi macro)
-    # from anywhere else on the site. Ships only with the asyncapi variant;
-    # the lite/full/diagramly yq edits strip it via the same `test(
-    # "zenuml-asyncapi")` filter that drops zenuml-asyncapi-macro.
+    # from anywhere else on the site. Ships only with the asyncapi variant —
+    # it references `async-api-doc` documents, a content type only that
+    # variant claims. full/diagramly strip it via the `test("zenuml-asyncapi")`
+    # filter that also drops zenuml-asyncapi-macro; lite strips it by exact
+    # key (keeping the page macro, per ADR-0005).
     - key: zenuml-asyncapi-embed-macro
       title: Embed AsyncAPI Spec
       description: Embed an existing AsyncAPI document. ${APP_LABEL}
@@ -688,8 +719,9 @@ modules:
       handler: export.handler
     # AsyncAPI macros use a dedicated export handler (asyncapi-export.js) so the
     # shared exportMacro stays free of asyncapi logic. Only the asyncapi macros
-    # reference it; on lite/full/diagramly the asyncapi macros are stripped, so
-    # this function is simply unused there (and could be stripped too).
+    # reference it — live on the asyncapi variant and lite (ADR-0005); on
+    # full/diagramly the asyncapi macros are stripped, so this function is
+    # simply unused there (and could be stripped too).
     - key: asyncApiExportMacro
       handler: asyncapi-export.handler
     - key: pageCaptureFn

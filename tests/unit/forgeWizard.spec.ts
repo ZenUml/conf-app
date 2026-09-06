@@ -8,6 +8,8 @@ import {
   getManifestEditYqArgs,
 } from '../../scripts/forge-wizard.mjs'
 
+import { DEEPLINK_TYPES } from '../../src/utils/embedDeeplink'
+
 describe('forge-wizard manifest preview helpers', () => {
   it('keeps PlantUML egress client-only', () => {
     const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
@@ -53,16 +55,21 @@ describe('forge-wizard manifest preview helpers', () => {
     }
   })
 
-  it('lite strips licensing, contentBylineItem, and asyncapi bits', () => {
+  it('lite strips licensing, contentBylineItem, and asyncapi bits (but keeps the AsyncAPI macro)', () => {
     const desc = getManifestEditDescriptions('lite')
     expect(desc).toContain('Remove licensing (lite is free)')
     expect(desc).toContain('Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)')
-    // Single edit strips both zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro.
+    // ADR-0005 Option A: Lite ships zenuml-asyncapi-macro (content stored
+    // under the shared zenuml-content-sequence type) and strips ONLY the
+    // embed macro, which references async-api-doc documents.
     expect(desc).toContain(
-      'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
+      'Remove asyncapi embed macro (zenuml-asyncapi-embed-macro; Lite keeps zenuml-asyncapi-macro per ADR-0005)',
     )
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
     expect(desc).toContain('Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)')
+    expect(desc).toContain(
+      "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
+    )
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
     expect(desc).toContain('Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)')
 
@@ -73,15 +80,157 @@ describe('forge-wizard manifest preview helpers', () => {
     // here would take both of them with it.
     expect(yq).toContain('del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))')
     expect(yq).not.toContain('del(.modules["confluence:contentBylineItem"])')
+    // The broad test("zenuml-asyncapi") filter would take the page macro too —
+    // Lite must use the exact embed-macro key.
     expect(yq).toContain(
+      'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro"))',
+    )
+    expect(yq).not.toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
     )
     expect(yq).toContain(
       'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc")))',
     )
     expect(yq).toContain('del(.modules["confluence:spacePage"])')
+    expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
     expect(yq).toContain('del(.connectModules)')
     expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
+  })
+
+  // scripts/forge-wizard.mjs is the source of truth, but three workflows carry
+  // hand-copied duplicates of its yq edits and have drifted before (#383/#460,
+  // and deploy-whimet4.yml was missed when ADR-0005 landed). Pin the Lite
+  // asyncapi edits across every workflow that deploys Lite, so the next drift
+  // fails here instead of shipping a manifest nobody intended.
+  describe('Lite asyncapi manifest edits are mirrored in every Lite-deploying workflow', () => {
+    const LITE_WORKFLOWS = [
+      '.github/workflows/release.yml',
+      '.github/workflows/staging-deploy.yml',
+      '.github/workflows/deploy-whimet4.yml',
+    ]
+    const BROAD_ASYNCAPI_STRIP =
+      'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))'
+    const liteYq = (): string[] =>
+      getManifestEditYqArgs('lite').map((x: { expr: string }) => x.expr)
+
+    it.each(LITE_WORKFLOWS)('%s carries the wizard\'s Lite asyncapi edits', (file: string) => {
+      const yaml = fs.readFileSync(file, 'utf8')
+      const yq = liteYq()
+      const embedStrip = yq.find((e: string) => e.includes('zenuml-asyncapi-embed-macro'))
+      const cspEdit = yq.find((e: string) => e.includes('unsafe-eval'))
+      expect(embedStrip).toBeDefined()
+      expect(cspEdit).toBeDefined()
+      expect(yaml).toContain(embedStrip!)
+      expect(yaml).toContain(cspEdit!)
+    })
+
+    // deploy-whimet4.yml deploys ONLY Lite, so unlike release.yml /
+    // staging-deploy.yml it has no legitimate reason to carry the broad
+    // filter — that filter would strip the page macro Lite is meant to ship.
+    it('deploy-whimet4.yml never uses the broad asyncapi filter', () => {
+      const yaml = fs.readFileSync('.github/workflows/deploy-whimet4.yml', 'utf8')
+      expect(yaml).not.toContain(BROAD_ASYNCAPI_STRIP)
+    })
+
+    // Every macro Lite ships must carry ${LITE_KEY_SUFFIX} so its key resolves
+    // to a `-lite` name, the way the CQL `macro in (...)` searches that key on
+    // the bare macro name expect (src/lite-full-conversion.ts). The AsyncAPI
+    // macro was added unsuffixed when ADR-0005 landed.
+    it('every macro Lite keeps is templated with the Lite key suffix', () => {
+      const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+      const liteStrips = getManifestEditYqArgs('lite')
+        .map((x: { expr: string }) => x.expr)
+        .filter((e: string) => e.includes('.modules.macro'))
+      const strippedFromLite = (key: string) =>
+        liteStrips.some((e: string) => e.includes(`"${key}"`))
+
+      const kept = manifest.modules.macro
+        .map((m: { key: string }) => m.key)
+        .filter((key: string) => !strippedFromLite(key))
+      expect(kept).toContain('zenuml-asyncapi-macro${LITE_KEY_SUFFIX}')
+      for (const key of kept) {
+        // ${SEQUENCE_MACRO_KEY} is substituted whole per variant, so it needs
+        // no suffix of its own.
+        if (key === '${SEQUENCE_MACRO_KEY}') continue
+        expect(key).toContain('${LITE_KEY_SUFFIX}')
+      }
+    })
+
+    // `pnpm build:lite` chains `build:studio`, which needs the submodule.
+    it('every Lite-deploying workflow inits the asyncapi-studio submodule', () => {
+      for (const file of LITE_WORKFLOWS) {
+        expect(fs.readFileSync(file, 'utf8'))
+          .toContain('git submodule update --init --depth 1 vendor/asyncapi-studio')
+      }
+    })
+  })
+
+  // The other half of the paste-to-place contract. buildDiagramDeeplink mints a
+  // link for every type in DEEPLINK_TYPES; a type with no matching autoConvert
+  // matcher in the manifest produces a link that pastes as inert text, so the
+  // byline's post-create panel reports `linked` and hands the user a URL that
+  // does nothing. The two lists have to move together, and only a test that
+  // reads both can say so.
+  it('every minted deeplink type has autoConvert matchers in the manifest', () => {
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    const patterns: string[] = manifest.modules.macro.flatMap(
+      (m: any) => (m.autoConvert?.matchers ?? []).map((x: any) => String(x.pattern)),
+    )
+    for (const type of DEEPLINK_TYPES) {
+      expect(patterns, type).toContain(`https://confluence.zenuml.com/new/${type}`)
+      expect(patterns, type).toContain(`https://confluence.zenuml.com/d/${type}/*/*`)
+    }
+  })
+
+  // BylineDiagrams.vue renders its picker tiles unconditionally, on the strength
+  // of this: whatever variant keeps the byline keeps every macro a tile points
+  // at. A variant with the panel but no AsyncAPI macro would NOT show a dead
+  // tile — forgeIndex reads `modal.diagramType === 'asyncapi'` but falls through
+  // to the OpenAPI branch when its product gate fails, so the user would pick
+  // AsyncAPI and get a swagger document filed under the wrong type.
+  it('no variant keeps the byline panel without the macros its tiles create', () => {
+    const TILE_MACRO_KEYS = [
+      '${SEQUENCE_MACRO_KEY}',
+      'zenuml-graph-macro${LITE_KEY_SUFFIX}',
+      'zenuml-openapi-macro${LITE_KEY_SUFFIX}',
+      'zenuml-asyncapi-macro${LITE_KEY_SUFFIX}',
+    ]
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    const baseMacroKeys: string[] = manifest.modules.macro.map((m: any) => m.key)
+    // Sanity: the tile list is written against the base manifest, so a renamed
+    // macro key must break here rather than silently pass the loop below.
+    for (const key of TILE_MACRO_KEYS) expect(baseMacroKeys, key).toContain(key)
+
+    for (const variant of ['lite', 'full', 'diagramly', 'asyncapi'] as const) {
+      const exprs = getManifestEditYqArgs(variant).map((x: { expr: string }) => x.expr)
+      const keepsByline = !exprs.some(
+        (e: string) =>
+          e.includes('zenuml-byline-diagrams') || e.includes('del(.modules["confluence:contentBylineItem"])'),
+      )
+      if (!keepsByline) continue
+      const macroStrips = exprs.filter(
+        // `| not` inverts the selector into a KEEP-list (the asyncapi variant's
+        // shape). No byline-keeping variant uses one today, and reading it as a
+        // strip would invert the whole assertion, so it is excluded explicitly
+        // rather than by accident.
+        (e: string) => e.includes('.modules.macro') && !e.includes('| not'),
+      )
+      // Two ways a macro gets stripped, and the second is the one that actually
+      // regressed once: an exact `select(.key == "...")`, or a broad
+      // `select(.key | test("..."))` whose regex happens to cover the key. The
+      // broad `test("zenuml-asyncapi")` filter removed the very macro Lite is
+      // meant to ship, so the regex form is evaluated, not just string-matched.
+      const broadPatterns = macroStrips.flatMap(
+        (e: string) => Array.from(e.matchAll(/test\("([^"]+)"\)/g)).map(m => m[1]),
+      )
+      for (const key of TILE_MACRO_KEYS) {
+        const strippedByKey = macroStrips.some((e: string) => e.includes(`"${key}"`))
+        expect(strippedByKey, `${variant} strips ${key} by key but keeps the byline`).toBe(false)
+        const strippedByPattern = broadPatterns.find((p: string) => new RegExp(p).test(key))
+        expect(strippedByPattern, `${variant} strips ${key} via /${strippedByPattern}/ but keeps the byline`)
+          .toBeUndefined()
+      }
+    }
   })
 
   it('only Lite keeps the byline paste-to-create matchers', () => {
@@ -99,7 +248,7 @@ describe('forge-wizard manifest preview helpers', () => {
         .find((e: string) => e.includes('autoConvert.matchers'))
       // `[.]` not `\.`: a backslash escape would be eaten by the JS string
       // literal and silently widen the regex.
-      expect(expr, variant).toContain('test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)")')
+      expect(expr, variant).toContain('test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)")')
       // The follow-up clause must drop only EMPTIED autoConvert blocks — the
       // embed macro's 3-segment matchers survive the first del and keep theirs.
       expect(expr, variant).toContain('length == 0) | .autoConvert)')

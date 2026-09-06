@@ -18,6 +18,7 @@ import {
   type AIChatVersion,
 } from "@/components/AIChat/aiChatPrototype";
 import {
+  AI_CHAT_NO_CHANGE_MESSAGE,
   getAIChatFailureTelemetry,
   runAIChatSession,
   type AIChatFailurePhase,
@@ -159,6 +160,7 @@ export default function AIChatPanel({
   const [restoringVersionId, setRestoringVersionId] = useState("");
   const [restoringAction, setRestoringAction] = useState<"undo" | "rollback" | null>(null);
   const [syntaxResolved, setSyntaxResolved] = useState(false);
+  const contentRef = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeControllerRef = useRef<AbortController | null>(null);
   const activeStageRef = useRef<AIChatSessionStage | null>(null);
@@ -568,6 +570,32 @@ export default function AIChatPanel({
       });
       if (activeControllerRef.current !== controller) return false;
 
+      if (result.noChange) {
+        activeDiagramIdRef.current = result.diagramId;
+        messageCountRef.current += 1;
+        setMessages((current) => [
+          ...current,
+          {
+            id: nextMessageId("assistant"),
+            role: "assistant",
+            text: AI_CHAT_NO_CHANGE_MESSAGE,
+          },
+        ]);
+        lastPromptFailedRef.current = false;
+        trackAnalyticsEvent("ai_chat_no_change", {
+          ...analyticsBase(),
+          generation_source: "chat_panel",
+          chat_message_count: messageCountRef.current,
+          change_kind: kind,
+          duration_ms: durationSince(startedAt),
+          poll_count: result.pollCount || 0,
+          repair_attempts: result.repairAttempts,
+          backend_duration_ms: result.backendDurationMs,
+          backend_llm_duration_ms: result.backendLlmDurationMs,
+        });
+        return true;
+      }
+
       const previousVersionId = activeVersionIdRef.current;
       activeDiagramIdRef.current = result.diagramId;
       activeCodeRef.current = result.updatedCode;
@@ -646,6 +674,7 @@ export default function AIChatPanel({
         {
           id: nextMessageId("assistant"),
           role: "assistant",
+          tone: "error",
           text: `AI Chat could not apply the change: ${detail}`,
         },
       ]);
@@ -773,6 +802,7 @@ export default function AIChatPanel({
         {
           id: nextMessageId("assistant"),
           role: "assistant",
+          tone: "error",
           text: `AI Chat could not restore the version: ${detail}`,
         },
       ]);
@@ -844,6 +874,14 @@ export default function AIChatPanel({
   useEffect(() => {
     if (syntaxError) setSyntaxResolved(false);
   }, [syntaxError]);
+
+  useEffect(() => {
+    const latestMessage = messages[messages.length - 1];
+    const content = contentRef.current;
+    if (!open || latestMessage?.role !== "user" || !content) return;
+
+    content.scrollTop = content.scrollHeight;
+  }, [messages, open]);
 
   useEffect(() => {
     if (!open || !visibleSyntaxError || !syntaxError) {
@@ -966,7 +1004,7 @@ export default function AIChatPanel({
         )}
       </header>
 
-      <main className="ai-chat-content">
+      <main ref={contentRef} className="ai-chat-content">
         {messages.length === 0 && !isThinking ? (
           <section className="ai-chat-empty" data-testid="react-ai-chat-empty-state">
             <div className="ai-chat-empty-intro">
@@ -1001,7 +1039,9 @@ export default function AIChatPanel({
             {messages.map((message) => (
               <article
                 key={message.id}
-                className={`ai-chat-turn is-${message.role}`}
+                className={`ai-chat-turn is-${message.role}${
+                  message.tone ? ` is-${message.tone}` : ""
+                }`}
                 data-testid="react-ai-chat-message"
               >
                 {message.text && <p>{message.text}</p>}

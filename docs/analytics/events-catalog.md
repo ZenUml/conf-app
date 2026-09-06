@@ -205,6 +205,7 @@ and `macro_type: "mermaid"`.
 
 | Property | Notes |
 |---|---|
+| `lookup_outcome` | `indexed` when the current diagram has index rows; `index_miss` when the endpoint returns its intentional empty fail-open response. Historical events before deployment have this property unset. |
 | `participant_count` | Participants declared in the rendered diagram |
 | `participants_with_related` | Participants with at least one accessible related page |
 | `related_pages_total` | Total accessible related pages across participants |
@@ -220,9 +221,9 @@ and `macro_type: "mermaid"`.
 | `error_kind` | Stable failure kind |
 | `duration_ms` | Lookup duration in milliseconds |
 
-### `related_diagrams_shown`
+### `related_token_indicators_shown`
 
-**Trigger:** Footer rendered with at least one related participant.
+**Trigger:** Once per rendered view when at least one cross-diagram token indicator is displayed.
 
 | Property | Notes |
 |---|---|
@@ -251,7 +252,7 @@ and `macro_type: "mermaid"`.
 | `same_page` | Whether the related diagram is on the viewer's current page |
 
 No label text, page id, or tenant vocabulary is included in these events. Lookup events are not
-emitted when the feature flag is off, and `related_diagrams_shown` is not emitted for zero results.
+emitted when the feature flag is off, and `related_token_indicators_shown` is not emitted for zero results.
 
 ---
 
@@ -325,12 +326,6 @@ Same properties as `ai_generation_requested`.
 
 ---
 
-### `ai_editor_opened` / `ai_feedback_submitted`
-
-Backend-declared events in `functions/service/analyticsTypes.ts`. Not emitted by the current client code.
-
----
-
 ## Upgrade / paywall
 
 All upgrade events are routed through `trackUpgradeEvent` in `src/utils/upgradeTracking.ts`, which sets `feature_area: "upgrade"` and `surface: "modal"` as defaults (individual call sites may override `surface`).
@@ -383,12 +378,6 @@ Same properties as `paywall_triggered` with `action_type: "page_editor_create"`.
 
 ---
 
-### `upgrade_feature_enabled`
-
-Declared in `catalog.ts` but not currently emitted by client code. Reserved.
-
----
-
 ### `paywall_continue_used`
 
 **Trigger:** User clicks "Continue editing" in the paywall modal, decrementing the grace-window counter. Fired in `UpgradePrompt.vue`.
@@ -428,7 +417,7 @@ Same properties as `paywall_continue_used` with `remaining_attempts: 0`.
 
 **Trigger:** User clicks Dismiss on the paywall warning banner. Fired in `PaywallWarningBanner.vue`.
 
-Same properties as `paywall_banner_shown` plus `snooze_duration_days` (how long the banner is snoozed after dismiss).
+Same properties as `paywall_banner_shown`. The snooze window that starts on dismiss is kept in local storage by `src/utils/paywall/warningBanner.ts` and is not sent as an event property.
 
 ---
 
@@ -491,21 +480,11 @@ Same properties as `paywall_banner_shown` plus `snooze_duration_days` (how long 
 
 ---
 
-## Content / sync
+## Tenant activity (D1 only)
 
-These events are declared in `functions/service/analyticsTypes.ts` and emitted by the backend or by legacy Connect code. The current Forge client does not emit them directly.
+### `page_updated`
 
-### `content_sync_requested` / `content_sync_succeeded` / `content_sync_failed`
-
-Fired by the backend when syncing diagram custom content to the D1 mirror.
-
-### `custom_content_loaded`
-
-Fired by the backend when a custom-content record is loaded from Confluence.
-
-### `confluence_page_viewed` / `confluence_page_updated`
-
-Fired by `forge-user-behavior.ts` (the `avi:confluence:viewed:page` / `avi:confluence:updated:page` product-event trigger) and stored in D1 `AnalyticsEventFact`. **Not** forwarded to Mixpanel (intentionally commented out in `functions/forge-user-behavior.ts`). These are tenant-level activity signals, not macro-view signals. See [reference.md](reference.md) for the distinction.
+Fired by `functions/forge-user-behavior.ts` from the `avi:confluence:updated:page` product-event trigger (mapped in `functions/service/forgeUserBehavior.ts`) and stored in D1 `AnalyticsEventFact`. **Not** forwarded to Mixpanel. This is a tenant-level activity signal, not a macro-view signal. See [reference.md](reference.md) for the distinction. The `avi:confluence:viewed:page` subscription (`page_viewed`) was removed from `manifest.yml` on 2026-06-06; rows with that name predate the removal.
 
 ---
 
@@ -654,24 +633,6 @@ Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08
 | `surface` | `"editor"` |
 | `macro_type` | `"openapi"` |
 | `content_id` | Custom content ID passed via `extension.modal.customContentId` |
-
----
-
-### `feature_flags_fetch_failed`
-
-**Trigger:** The feature flag fetch from the backend failed. Declared in catalog and backend types; not currently wired to a `trackAnalyticsEvent` call in the client (may be emitted by legacy code paths or backend).
-
----
-
-### `attachment_create_failed`
-
-**Trigger:** Backend event emitted when creating the PNG attachment for a macro export fails. Not emitted by the client's `trackAnalyticsEvent`.
-
----
-
-### `custom_content_update_failed`
-
-**Trigger:** Backend event emitted when a Confluence custom-content update call fails. Not emitted by the client's `trackAnalyticsEvent`.
 
 ---
 

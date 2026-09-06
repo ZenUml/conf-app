@@ -18,6 +18,12 @@ process.env.VITE_APP_GIT_BRANCH = execSync('git branch --show-current').toString
 // Scope --match to the current variant so that a lite build gets v*-lite, not v*-full,
 // even when all three variant tags point to the same commit.
 const _productType = process.env.PRODUCT_TYPE || 'full'
+// Variants whose bundle carries the AsyncAPI runtime (@asyncapi/react-component
+// viewer + the Studio editor iframe assets): the asyncapi variant, and lite
+// since ADR-0005 Option A shipped the AsyncAPI macro there. Gates every
+// asyncapi-specific build treatment below (CJS interop, fs/stream stubs,
+// node polyfills, Studio asset copy) — full/diagramly stay untouched.
+const _hasAsyncApiRuntime = _productType === 'asyncapi' || _productType === 'lite'
 // Fallback for local/staging builds. Production release builds pass VITE_APP_VERSION
 // explicitly from github.event.release.tag_name because git describe --abbrev=0
 // returns the nearest reachable matching tag, not necessarily the release event tag.
@@ -121,7 +127,7 @@ export default defineConfig(({ command }) => ({
       // pre-bundling — otherwise `import { Readable } from 'readable-stream'`
       // resolves to undefined and `class FooStream extends Readable` throws
       // "Class extends value undefined". Mirrors AsyncAPI-Conf-V2's vite config.
-      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+      ...(_hasAsyncApiRuntime
         ? [
             'readable-stream',
             'qs',
@@ -130,7 +136,7 @@ export default defineConfig(({ command }) => ({
           ]
         : []),
     ],
-    ...(process.env.PRODUCT_TYPE === 'asyncapi'
+    ...(_hasAsyncApiRuntime
       ? {
           needsInterop: [
             'readable-stream',
@@ -150,7 +156,7 @@ export default defineConfig(({ command }) => ({
     // @asyncapi/parser's transitive deps (qs, avsc, readable-stream, …)
     // ship as mixed CJS/ESM. Enable transformMixedEsModules so Rollup
     // can handle the named-imports-from-CJS the parser depends on.
-    commonjsOptions: process.env.PRODUCT_TYPE === 'asyncapi'
+    commonjsOptions: _hasAsyncApiRuntime
       ? { transformMixedEsModules: true }
       : undefined,
 
@@ -187,7 +193,7 @@ export default defineConfig(({ command }) => ({
       // Use a hand-written stub instead: exports the names Rollup needs to
       // satisfy strict named-import resolution; bodies throw at call time,
       // which never happens because we don't invoke fromURL/fromFile.
-      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+      ...(_hasAsyncApiRuntime
         ? {
             'fs': resolve(__dirname, './src/stubs/empty-fs.ts'),
             'fs/promises': resolve(__dirname, './src/stubs/empty-fs.ts'),
@@ -218,9 +224,10 @@ export default defineConfig(({ command }) => ({
   // dep of @asyncapi/react-component used by forge-asyncapi-viewer). Mirror
   // the working config from AsyncAPI-Conf-V2: include buffer/process/util/
   // path/url/crypto/stream; exclude fs/os because they're aliased to memfs
-  // / left unresolved below. Only the asyncapi variant gets this runtime —
-  // the other variants don't import the AsyncAPI viewer.
-  ...(process.env.PRODUCT_TYPE === 'asyncapi'
+  // / left unresolved below. Only variants that bundle the AsyncAPI viewer
+  // (asyncapi, lite per ADR-0005) get this runtime — full/diagramly don't
+  // import it.
+  ...(_hasAsyncApiRuntime
     ? [nodePolyfills({
         protocolImports: true,
         globals: { Buffer: true, global: true, process: true },
@@ -255,12 +262,13 @@ export default defineConfig(({ command }) => ({
       // the Rollup module graph. Copy the entire dist/ tree (entry +
       // chunks/) so the relative imports inside the entry resolve.
       { src: 'node_modules/mermaid/dist/*', dest: 'dist/vendor/mermaid' },
-      // AsyncAPI Studio assets ship only with the asyncapi variant. Studio is
-      // loaded as a nested iframe from the AsyncAPI editor and uses
-      // localStorage to sync the document with the host; that requires
-      // same-origin, so Studio must live under the same Forge resource as
-      // index.html (`*.cdn.prod.atlassian-dev.net/<app-id>/asyncapi-studio/`).
-      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+      // AsyncAPI Studio assets ship with the variants that carry the AsyncAPI
+      // macro (asyncapi, lite per ADR-0005). Studio is loaded as a nested
+      // iframe from the AsyncAPI editor and uses localStorage to sync the
+      // document with the host; that requires same-origin, so Studio must
+      // live under the same Forge resource as index.html
+      // (`*.cdn.prod.atlassian-dev.net/<app-id>/asyncapi-studio/`).
+      ...(_hasAsyncApiRuntime
         ? [{ src: 'static/asyncapi-studio', dest: 'dist' }]
         : []),
     ],
@@ -405,6 +413,11 @@ export default defineConfig(({ command }) => ({
       // checks. They are run with tests/e2e-tests' Playwright config, never
       // as root Vitest unit suites.
       '**/private/customer-investigation/**/*.spec.ts',
+      // local-crm is a separate workspace package with its own Vite config,
+      // where `@` resolves to local-crm/src. The root config points `@` at
+      // ./src, so collecting its suites here fails at import resolution.
+      // Run them with `pnpm --dir local-crm test`.
+      '**/local-crm/**',
       // Skip the asyncapi-studio submodule's own tests — they import
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.
@@ -415,10 +428,6 @@ export default defineConfig(({ command }) => ({
     host: '0.0.0.0',
     port: 8080,
     proxy: {
-      '/authenticate': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
       '/api/metrics/evaluation': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
@@ -431,19 +440,11 @@ export default defineConfig(({ command }) => ({
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
-      '/attachment': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
       '/track': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true,
       },
       '/diagramly': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
-      '/diagram-likes': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },

@@ -43,14 +43,6 @@ function setupForge() {
   forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.example.com'
 }
 
-function setAiEnabled(enabled: boolean) {
-  if (enabled) {
-    localStorage.removeItem('mockAiTitleEnabled')
-  } else {
-    localStorage.setItem('mockAiTitleEnabled', 'false')
-  }
-}
-
 function setupStore({
   code = '',
   title = '',
@@ -69,7 +61,7 @@ const meta: Meta<typeof DiagramTitleInput> = {
     docs: {
       description: {
         component:
-          'Title input for the diagram editor header. When the AI feature flag is enabled, a spark button appears that generates a title from the diagram code.',
+          'Title input for the diagram editor header. The spark button generates a title from the diagram code.',
       },
     },
   },
@@ -87,22 +79,20 @@ const meta: Meta<typeof DiagramTitleInput> = {
 
 export default meta
 
-/** AI feature flag OFF — no spark button rendered. */
+/** Empty editor state. */
 export const Default: Story = {
   decorators: [
     () => {
-      setAiEnabled(false)
       setupStore()
       return { template: '<story />' }
     },
   ],
 }
 
-/** AI feature flag ON, no code yet — spark button is visible but auto-generate won't fire (empty code). */
+/** No code yet — the spark button is visible but auto-generate will not fire. */
 export const AIEnabled: Story = {
   decorators: [
     () => {
-      setAiEnabled(true)
       setupStore()
       return { template: '<story />' }
     },
@@ -113,7 +103,6 @@ export const AIEnabled: Story = {
 export const Generating: Story = {
   decorators: [
     () => {
-      setAiEnabled(true)
       setupStore({ code: SAMPLE_CODE })
       mockFetch('Payment Flow Sequence', 60_000)
       return { template: '<story />' }
@@ -131,7 +120,6 @@ export const Generating: Story = {
 export const Suggested: Story = {
   decorators: [
     () => {
-      setAiEnabled(true)
       setupStore({ code: SAMPLE_CODE })
       mockFetch('Payment Flow Sequence', 0)
       return { template: '<story />' }
@@ -157,7 +145,6 @@ export const Suggested: Story = {
 export const TitleError: Story = {
   decorators: [
     () => {
-      setAiEnabled(false)
       setupStore({ title: 'My Diagram' })
       return { template: '<story />' }
     },

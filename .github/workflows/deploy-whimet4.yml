@@ -34,6 +34,7 @@ jobs:
   deploy:
     name: 'Deploy: whimet4'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # whimet4-specific Forge credentials, falling back to the shared CI ones.
       # The shared principal (support@zenuml.com) is not a site admin of
@@ -50,6 +51,14 @@ jobs:
       SITE: whimet4.atlassian.net
     steps:
       - uses: actions/checkout@v5
+
+      # `pnpm build:lite` chains `build:studio`, which builds AsyncAPI Studio
+      # from the vendor/asyncapi-studio submodule (Lite ships the AsyncAPI
+      # macro per ADR-0005). `actions/checkout@v5` does NOT init submodules,
+      # so init this one explicitly — and only this one, so the private
+      # submodule isn't attempted. Mirrors staging-deploy.yml / release.yml.
+      - name: Init asyncapi-studio submodule
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
 
       # No `version` input: package.json's `packageManager` field is the single
       # source of the pnpm version, and action-setup hard-errors when the two
@@ -84,10 +93,19 @@ jobs:
       # modules Lite does not have — and any scope change that implies would
       # make the install need re-consent, which --non-interactive cannot give.
       # ---------------------------------------------------------------------
-      - name: Remove asyncapi modules from manifest
+      # ADR-0005 Option A — Lite KEEPS the page-rendered AsyncAPI macro
+      # (`zenuml-asyncapi-macro`); its content is stored under the shared
+      # zenuml-content-sequence type, discriminated by diagramType, like
+      # OpenAPI. Strip only the embed macro, BY EXACT KEY — the broad
+      # test("zenuml-asyncapi") filter this step used to carry would take the
+      # page macro with it — plus the async-api-doc custom content and the
+      # dashboard spacePage. Grant unsafe-eval for AsyncAPI Studio's runtime
+      # schema compilation. Mirrors the lite manifestEdits in
+      # scripts/forge-wizard.mjs.
+      - name: Remove asyncapi embed/content/dashboard from manifest, allow unsafe-eval (Lite keeps the AsyncAPI macro)
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
+          cmd: yq eval 'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro")) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"]) | .permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
 
       - name: Remove Connect lifecycle module (connectModules) from manifest
         uses: mikefarah/yq@master

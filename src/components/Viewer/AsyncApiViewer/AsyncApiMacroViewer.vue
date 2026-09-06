@@ -17,15 +17,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import AsyncApiReactView from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
 import { Diagram } from '@/model/Diagram/Diagram'
+import { trackRenderTime } from '@/utils/analytics/trackRenderTime'
 
 export default defineComponent({
   name: 'AsyncApiMacroViewer',
   components: { GenericViewer },
-  data() {
-    return {
-      reactRenderer: null as Root | null,
-    }
-  },
   props: {
     doc: { type: Object as PropType<Diagram | null>, default: null },
     hideHeader: { type: Boolean, default: false },
@@ -37,6 +33,14 @@ export default defineComponent({
     // fails (404, type-filtered, etc.) — surfaces a real error in the
     // viewer instead of the misleading "no saved spec yet" empty state.
     loadError: { type: String, default: undefined },
+  },
+  data() {
+    return {
+      // React 18 root handle for the mounted AsyncAPI view; markRaw'd so Vue
+      // never makes the root reactive. Unmounted in beforeUnmount.
+      reactRenderer: null as Root | null,
+      renderReported: false,
+    }
   },
   mounted() {
     this.render()
@@ -62,6 +66,16 @@ export default defineComponent({
       this.reactRenderer.render(
         React.createElement(AsyncApiReactView, { spec, loadError: this.loadError }),
       )
+      this.reportRenderOnce()
+    },
+    reportRenderOnce() {
+      if (this.renderReported) return
+      if (!this.doc && !this.loadError) return
+      this.renderReported = true
+      // @asyncapi/react-component renders asynchronously internally — this
+      // measures time-to-content, not time-to-full-paint. Same approximation
+      // as OpenApiViewer's trackRenderTime call.
+      trackRenderTime('asyncapi', this.$store.getters.isDisplayMode)
     },
   },
 })

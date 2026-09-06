@@ -1,16 +1,6 @@
-export async function loadAllPaginatedData(requestFunc: any, initialUrl: string, consumer: (data: any) => void): Promise<any> {
-  let data, url = initialUrl;
-  do {
-    data = await requestFunc(url);
-    consumer(data);
-    url = data?._links?.next || '';
-
-    const prefix = '/wiki';
-    if (url.startsWith(prefix)) {
-      url = url.substring(prefix.length);
-    }
-  } while (url);
-};
+export async function loadAllPaginatedData(requestFunc: any, initialUrl: string, consumer: (data: any) => void): Promise<void> {
+  return loadPaginatedDataUntil(requestFunc, initialUrl, consumer, () => false);
+}
 
 /**
  * Like loadAllPaginatedData, but stops following `_links.next` as soon as

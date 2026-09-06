@@ -9,7 +9,7 @@
  *
  * Gated on the unreleased agent-link build: skips (not fails) when
  * `/agent-link/mcp` isn't routed on conf-stg-lite (shared-alias clobber or the
- * feature simply isn't deployed) — mirrors insert/upgrade-prompt.spec.ts.
+ * feature simply isn't deployed).
  *
  * The relay session is WS-lifetime-bound, so every agent call happens while the
  * Playwright page is open. The edit is restored, so the run is non-destructive.
@@ -50,7 +50,9 @@ function mcpPayload(res: { result: any }): any {
       /* fall through */
     }
   }
-  return {};
+  // agentLinkMcp already unwraps structuredContent/content into `.result`;
+  // fall back to the payload itself for that (current) shape.
+  return res.result ?? {};
 }
 
 /**
@@ -128,7 +130,7 @@ test.describe('Live Agent Link — end to end', () => {
       // ---- agent side: read_page (also fires agent_connected) ----
       const rp = await agentLinkMcp(token!, 'read_page');
       expect(rp.status, 'read_page HTTP').toBe(200);
-      expect(String(rp.result?.structuredContent?.title ?? ''), 'read_page returns a real page title').not.toHaveLength(0);
+      expect(String(mcpPayload(rp).title ?? ''), 'read_page returns a real page title').not.toHaveLength(0);
 
       // ---- macro reflects the pairing: waiting -> connected (green border) ----
       await expect

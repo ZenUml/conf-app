@@ -38,12 +38,15 @@ export const APPS = {
           'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
       },
       {
-        // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
-        // `zenuml-asyncapi-embed-macro` (embed reference) — only the
-        // asyncapi variant ships these.
-        description: 'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
+        // ADR-0005 Option A: Lite ships the page-rendered AsyncAPI macro
+        // (`zenuml-asyncapi-macro`) — content stored under the shared
+        // `zenuml-content-sequence` type, discriminated by diagramType, like
+        // OpenAPI. Only the embed macro is stripped: it references documents
+        // of the `async-api-doc` type, which Lite does not claim (that type
+        // stays asyncapi-variant-only, along with the dashboard spacePage).
+        description: 'Remove asyncapi embed macro (zenuml-asyncapi-embed-macro; Lite keeps zenuml-asyncapi-macro per ADR-0005)',
         yqEvalExpr:
-          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
+          'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro"))',
       },
       {
         description: 'Remove asyncapi custom content (async-api-doc)',
@@ -53,6 +56,15 @@ export const APPS = {
       {
         description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
         yqEvalExpr: 'del(.modules["confluence:spacePage"])',
+      },
+      {
+        // AsyncAPI Studio (transitively via AJV / @asyncapi/parser) compiles
+        // JSON Schema validators at runtime via `new Function()`, which the
+        // default Forge Custom UI CSP forbids. Required now that Lite ships
+        // the AsyncAPI macro (ADR-0005); scoped to the app's sandboxed
+        // iframe. Same edit as the asyncapi variant's.
+        description: "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
+        yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
       },
       {
         // Strip the Connect lifecycle module (connectModules). It lives in
@@ -151,7 +163,7 @@ export const APPS = {
         // ever ships a byline that mints these links.
         description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
         yqEvalExpr:
-          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
@@ -235,7 +247,7 @@ export const APPS = {
         // ever ships a byline that mints these links.
         description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
         yqEvalExpr:
-          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
@@ -331,13 +343,18 @@ export const APPS = {
         yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
       },
       {
-        // Same reason as the full/diagramly copies: the asyncapi app keeps
-        // zenuml-openapi-macro, whose /new/openapi and /d/openapi/*/* matchers
-        // would otherwise race Lite's on a both-installed site for links only
-        // Lite's byline mints.
+        // Same reason as the full/diagramly copies, and load-bearing here in a
+        // way it is not there: full/diagramly delete the whole asyncapi macro
+        // module earlier, so its matchers go with it, but the asyncapi app KEEPS
+        // both zenuml-asyncapi-macro and zenuml-openapi-macro. Their
+        // /new/<type> and /d/<type>/*/* matchers would otherwise race Lite's on
+        // a both-installed site for links only Lite's byline mints — and the
+        // loser's macro points at custom content scoped to the other app, which
+        // it cannot read. The embed macro's 3-segment /d/*/* matcher is
+        // untouched: the pattern requires a literal type segment.
         description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
         yqEvalExpr:
-          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',

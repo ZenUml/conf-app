@@ -61,17 +61,25 @@ on:
 # shards do pure test work (no per-shard login), so scaling shards finally cuts
 # wall-clock instead of multiplying auth-flake exposure (the reason an earlier
 # N=4 attempt without dedup was slower). N=4 splits the insert suite, which is
-# 23 tests across 14 files (`--list`, 2026-08-08) since the typed-deeplink and
-# byline specs were added. Variant skips are evaluated at RUN time, so that
+# 17 files (`ls tests/insert`, 2026-08-30) since the typed-deeplink, byline and
+# byline-asyncapi specs were added. Variant skips are evaluated at RUN time, so a
 # static count is an upper bound rather than the Lite figure.
 # Note: `--shard` splits CONTIGUOUSLY by file and can't split within a
 # file, so the dense paywall spec bounds the heaviest shard — and files sort by
-# name, so `byline-create` lands next to `byline-paywall` on shard 1. That is
+# name, so every `byline-*` spec piles onto shard 1. That is
 # why byline-create folds its listing assertion into the create test rather than
-# adding a third slow test to that shard. Measured membership
-# on 2026-08-08: shard 1 = byline-create + byline-paywall + close-guard +
-# edit-graph (6 tests, four of them test.slow() — the shard to watch against the
-# 8-min reap below), shard 4 = typed-deeplink-render + upgrade-prompt.
+# adding a third slow test to that shard.
+#
+# Shard 1 is the one to watch, and it has grown. Measured on the Lite job:
+#   2026-08-08  6 tests         byline-create + byline-paywall + close-guard + edit-graph
+#   2026-08-29  6 tests  3m36s  run 33252116691 (head b15caec)
+#   2026-08-30  8 tests  5m35s  run 33281984333 (head 6b1f6f2) — byline-asyncapi
+#                               sorts at #2 of 17 and landed here
+# The Lite caller therefore raises timeout-minutes above the 8 default; the retry
+# arithmetic is on the `E2E: Lite` job in build-test-deploy.yml. If shard 1 grows
+# again, move a byline spec out of the `byline-*` name range rather than raising
+# the ceiling a second time.
+# shard 4 = typed-deeplink-render.
 # typed-deeplink-render builds its own fixture (insert a graph, publish, read
 # back its custom content, paste a link to it on a second page) and is the
 # longest single test; it no longer gets a shard to itself, so if shard 4 starts
@@ -88,8 +96,40 @@ jobs:
   auth:
     name: auth bootstrap
     runs-on: ubuntu-latest
-    # OTP login maxes at ~1m14s in practice; 2 min reaps a hung login fast.
-    timeout-minutes: 2
+    # EVERY caller of this workflow logs in as the same robot account and reads the
+    # same `vars.ATLASSIAN_OTP`, so any two bootstraps that overlap can be handed the
+    # same TOTP code and the loser fails. That is not limited to one app: the five
+    # staging callers in build-test-deploy.yml (Lite, Lite DrawIO Publish, Full,
+    # Diagramly, AsyncAPI) and the three production callers in smoke-test.yml all
+    # pass the same OTP variable. Observed 2026-09-01: two zenuml-lite@stg bootstraps
+    # started in the same second, DrawIO's finished at 09:37:09Z, and the other logged
+    # `OTP attempt 1 failed, retrying...` and was reaped, which skipped every
+    # E2E: Lite shard.
+    #
+    # The group key is therefore a repo-wide constant, not per app — concurrency
+    # groups are scoped to the repository, so one constant serialises every bootstrap
+    # in every workflow and on every branch.
+    #
+    # `queue: max` is required, not decoration. The default is `queue: single`, where
+    # "at most one job or workflow run can be pending in the concurrency group" and a
+    # newly queued job CANCELS the one already pending. With five callers on one
+    # constant group that would cancel three of them. `max` allows up to 100 pending
+    # and releases them first-in-first-out. It cannot be combined with
+    # `cancel-in-progress: true`, which this job does not use.
+    #
+    # Wall-clock cost is small because the callers are already close to serial.
+    # Measured on main run 33510893735 (2026-09-01), the five bootstraps ran
+    # 13:04:31-13:08:37, a 4m06s span for 3m14s of work, with a single 10-second
+    # overlap between AsyncAPI and Lite DrawIO Publish. After the first login of the
+    # day every later bootstrap restores the daily cache and skips login entirely.
+    concurrency:
+      group: e2e-auth
+      cancel-in-progress: false
+      queue: max
+    # A clean OTP login took 42-55s in the four uncollided bootstraps measured on
+    # 2026-09-01. 2 minutes reaped a legitimate retry mid-flight; 4 covers the full
+    # 3-attempt cycle and still reaps a hung login well inside a shard's budget.
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm

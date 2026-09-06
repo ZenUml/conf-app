@@ -42,17 +42,35 @@ If `isDraft === false`, the PR is already Ready — report that and stop. (No ne
 gh pr ready <PR_NUMBER> --repo ZenUml/conf-app
 ```
 
-### 4. Report
+### 4. Babysit CI (always)
+
+The whole point of flipping to Ready is the `E2E: Lite` signal, so **always** carry through to that
+signal — invoke the `babysit-pr` skill with the PR number:
+
+```
+/babysit-pr <PR_NUMBER>
+```
+
+It monitors the new `Build, Test and Draft Release` run, diagnoses any failure, and attempts fixes
+(up to 3 attempts). On a Ready PR the expected jobs are `Build and Unit Test`, `Deploy: Lite / deploy`
+and `E2E: Lite / test` — all three must reach success; Full/Diagramly/AsyncAPI still skip on a feature
+branch. Do not stop at "marked Ready"; carry through until babysit-pr reports PASSED or exhausts its
+retry budget.
+
+Skip this step only if the user explicitly said "don't babysit" / "just mark it ready".
+
+### 5. Report
 
 Tell the user:
 
 - The PR is now Ready for Review (with the URL).
-- A new CI run should start within ~10s; expect ~14 min wall-clock for the full pipeline including `E2E: Lite`.
-- Optionally suggest `/babysit-pr <PR>` to watch it.
+- The full pipeline including `E2E: Lite` takes ~14 min wall-clock.
+- **The babysit-pr result** (PASSED / failures + fixes / retries exhausted).
 
 ## Does NOT
 
 - Push commits (use `/submit-branch`)
-- Wait for CI (use `/babysit-pr`)
 - Merge (use `/land-pr` or `/ship-branch`)
 - Convert back to Draft — that's a separate action; use `gh pr ready --undo <PR>` directly if needed
+
+CI watching and fixing is delegated to `babysit-pr` in Step 4, not done by this skill directly.

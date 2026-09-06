@@ -51,14 +51,14 @@ Every Lite tenant sits in one of three states. Your job is to determine which st
 | State | Gate (`PAYWALL_EXEMPTIONS`) | What user sees |
 |-------|-----|----------------|
 | **Unrestricted (exempt)** | domain or `"*"` set to `true` | No paywall at all |
-| **Paywall on (default)** | absent or `false` | Warning at 85 macros (per space), blocked at 100 macros (per space). `UpgradePrompt` when an edit is blocked. The user gets **15 "continue editing" attempts per user+space** before the modal hard-blocks (continue button disappears, replaced by "Request extension to continue editing") — see **Continue-attempts gate** below. |
+| **Paywall on (default)** | absent or `false` | Warning at 85 macros (per space), blocked at 100 macros (per space). `UpgradePrompt` when an edit is blocked. The user gets **3 "continue editing" attempts per user+space** (15 before 2026-08-16) before the modal hard-blocks (continue button disappears, replaced by "Request extension to continue editing") — see **Continue-attempts gate** below. |
 | **Licensed** | any | Space paid via KV license — restrictions bypassed entirely |
 
 ## Continue-attempts gate (added 2026-06-02, `v2026.06.02-lite`)
 
 Once a space is over the limit, the `UpgradePrompt` no longer offers unlimited "Continue editing without upgrading". Each user gets **3 attempts per (clientDomain, spaceKey, userAccountId)**, tracked client-side (`DEFAULT_CONTINUE_ATTEMPTS`, lowered from 15 on 2026-08-16). The new value applies to new (user, space) pairs only — a stored balance is never rewritten, so users who started under the old default still hold up to 15.
 
-- **Mechanism:** `src/utils/paywall/continueAttempts.ts`. State lives in **localStorage** under key `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (parts URL-encoded), shape `{ remainingAttempts, firstTriggeredAt, lastUsedAt, exhaustedAt }`. Default `DEFAULT_CONTINUE_ATTEMPTS = 15`. Created at paywall mount (`getOrCreateContinueAttempts`), decremented per continue click (`useContinueAttempt`). **Lite-only** — gated on `isLite`, so full/diagramly never trigger it. localStorage lives in the **Forge iframe origin** (`*.cdn.prod.atlassian-dev.net`), not the top-level page.
+- **Mechanism:** `src/utils/paywall/continueAttempts.ts`. State lives in **localStorage** under key `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (parts URL-encoded), shape `{ remainingAttempts, firstTriggeredAt, lastUsedAt, exhaustedAt }`. Default `DEFAULT_CONTINUE_ATTEMPTS = 3` (15 before 2026-08-16). Created at paywall mount (`getOrCreateContinueAttempts`), decremented per continue click (`useContinueAttempt`). **Lite-only** — gated on `isLite`, so full/diagramly never trigger it. localStorage lives in the **Forge iframe origin** (`*.cdn.prod.atlassian-dev.net`), not the top-level page.
 - **UI:** continue button reads `Continue editing without upgrading (N)`; at `N=0` it's replaced by the `continue-attempts-exhausted` span ("Request extension to continue editing"). The advocacy/request-extension CTAs remain.
 - **New events** (register/query alongside the existing paywall events):
   - `paywall_continue_used` — every continue click while attempts are tracked. Props: `remaining_attempts_before`, `remaining_attempts_after`, `storage_source: 'local_storage'`, `action_type`, plus upgrade context. **This is the decrement event.**
@@ -124,7 +124,7 @@ Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centra
 
 > **CORRUPTION GUARD — empty `__unique` maps mean the WHOLE run is bad.** Observed 2026-06-03, 2026-06-04, 2026-06-10: `daily` returned `{}` for every `__unique` key while totals were silently undercounted 10–30× (e.g. `example-tenant-a` triggered 3 vs actual 91 — real name: see private/ client profiles). Root cause (found 2026-06-10): `date_range()` used local-time `dt.date.today()` — in an AEST morning that date hasn't started in the Mixpanel project timezone, so the script queried a near-future day. Fixed in the script (project-tz-safe window), but keep the tripwire: **if any `__unique` map comes back empty, discard ALL script output from that run (`daily` AND `per-space-all`) and re-pull via MCP Insights.** `ab-metrics --window-days 7` usually only loses a leading sliver, but see the 2026-07-10 update to Guard #2 below — it is not immune either.
 >
-> **CORRUPTION GUARD #2 — `__unique` > total is impossible; the `__unique` map is the bad one (NOT the totals).** Observed 2026-06-22: `daily` totals were correct (paywall_triggered `example-tenant-a`=3, `example-tenant-b`=2, MCP-confirmed) but the `__unique` maps were **inflated** — reported `paywall_triggered__unique` `example-tenant-a`=17, `example-tenant-c`=6, `example-tenant-b`=5, etc. (32 "unique users" against 5 total events; real names: see private/ client profiles). The JQL `__unique` sub-query appears to span a wider-than-today window in this failure mode (opposite of guard #1, where totals undercount and uniques empty). **Tripwire: for any event, if a domain's `__unique` value exceeds its total, the whole `__unique` set is untrustworthy this run — keep the totals, but re-pull the unique counts via MCP Insights** (math:`unique`, breakdown `client_domain`, last 1 day). Totals + per-space (which carry no unique) stay usable. **2026-07-10 update: this also hit `ab-metrics --window-days 7`** — 3 low-volume domains showed `macro_save_succeeded__unique` of 1-2 against a total of 0 (unique > total, same signature). Small magnitude (immaterial for high-volume tenants) but the earlier "has stayed reliable" claim for `ab-metrics` was too strong — apply the same tripwire to it, not just `daily`/`per-space-all`.
+> **CORRUPTION GUARD #2 — `__unique` > total is impossible; the `__unique` map is the bad one (NOT the totals).** Observed 2026-06-22: `daily` totals were correct (paywall_triggered `example-tenant-a`=3, `example-tenant-b`=2, MCP-confirmed) but the `__unique` maps were **inflated** — reported `paywall_triggered__unique` `example-tenant-a`=17, `example-tenant-c`=6, `example-tenant-b`=5, etc. (32 "unique users" against 5 total events; real names: see private/ client profiles). The JQL `__unique` sub-query appears to span a wider-than-today window in this failure mode (opposite of guard #1, where totals undercount and uniques empty). **Tripwire: for any event, if a domain's `__unique` value exceeds its total, the whole `__unique` set is untrustworthy this run — keep the totals, but re-pull the unique counts via MCP Insights** (math:`unique`, breakdown `client_domain`, last 1 day, global `is_internal_client_domain = "false"` filter). Totals + per-space (which carry no unique) stay usable. **2026-07-10 update: this also hit `ab-metrics --window-days 7`** — 3 low-volume domains showed `macro_save_succeeded__unique` of 1-2 against a total of 0 (unique > total, same signature). Small magnitude (immaterial for high-volume tenants) but the earlier "has stayed reliable" claim for `ab-metrics` was too strong — apply the same tripwire to it, not just `daily`/`per-space-all`.
 
 ```bash
 # Q1 + Q3–Q4 in one call (paywall_triggered, advocacy_message_copied,
@@ -155,7 +155,7 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py per-space <domain>
 python3 .claude/skills/paywall/scripts/paywall_queries.py daily --window-days 7
 ```
 
-The legacy MCP-based approach below is preserved for the cases where the script can't run (`.env.mixpanel` missing, no network, or you need a chart format the script doesn't produce). In those cases use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`. The query reference below documents each event's purpose — read those notes regardless of execution path, since they tell you what each metric *means*.
+The legacy MCP-based approach below is preserved for the cases where the script can't run (`.env.mixpanel` missing, no network, or you need a chart format the script doesn't produce). In those cases use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`, plus the mixpanel skill's global `is_internal_client_domain = "false"` filter. The query reference below documents each event's purpose — read those notes regardless of execution path, since they tell you what each metric *means*.
 
 > **Server name matters (MCP fallback).** Use the `mcp__claude_ai_Mixpanel__` tool namespace consistently — the older, deprecated Mixpanel MCP server rejected the `report` parameter as a string in some sessions (`Input should be a valid dictionary`); the claude.ai namespace accepts the same payload reliably.
 
@@ -164,7 +164,7 @@ The legacy MCP-based approach below is preserved for the cases where the script 
 "breakdowns": [{"metric": {"type": "property", "propertyName": "client_domain", "propertyType": "string", "resource": "event"}}]
 ```
 
-**Filter shapes (MCP fallback, verified 2026-07-28):** string filters take a SINGLE value — no arrays (`{"type":"string","propertyName":"client_domain","operator":"equals","value":"<one-domain>"}`). For a domain list, either breakdown by `client_domain` and filter rows client-side, or use one metric per domain with metric-level `filters`. Boolean filters need both operator and value: `{"type":"boolean","propertyName":"is_internal_client_domain","operator":"false","value":false}`. For per-editor (champion-structure) breakdowns use `user_account_id` — breaking down by `distinct_id` returns a single `"undefined"` bucket.
+**Filter shapes (MCP fallback, verified 2026-08-22):** string filters take a SINGLE value — no arrays (`{"type":"string","propertyName":"client_domain","operator":"equals","value":"<one-domain>"}`). For a customer-wide domain table, pair the breakdown with the mixpanel skill's global filter `{"type":"string","propertyName":"is_internal_client_domain","propertyType":"string","resource":"event","operator":"equals","value":"false"}`; do not list internal domains one by one. A specifically targeted customer query may instead use its `client_domain = "<one-domain>"` filter. For per-editor (champion-structure) breakdowns use `user_account_id` — breaking down by `distinct_id` returns a single `"undefined"` bucket.
 
 The daily script runs these events in parallel internally.
 
@@ -633,7 +633,7 @@ Apply proposed improvements directly to the skill file without asking for confir
 ## How the Lite paywall actually enforces (don't misread this as a bug)
 
 It is a **metered soft-paywall, and the number in "Continue editing without upgrading (N)" IS the gate.**
-`DEFAULT_CONTINUE_ATTEMPTS = 15`; each click decrements N and lets the user reach the editor and
+`DEFAULT_CONTINUE_ATTEMPTS = 3` (15 before 2026-08-16; a stored balance is never rewritten); each click decrements N and lets the user reach the editor and
 **save normally — saves persisting during the grace window is BY DESIGN, not a leak.** When N hits 0,
 the Continue-editing button is replaced by non-clickable "Request extension to continue editing"
 (`UpgradePrompt.vue`, `canContinueEditing = remainingContinueAttempts > 0`), and the modal can no
@@ -644,7 +644,7 @@ via the counter, not at the persistence layer. (The "save is gated in the persis
 comments are misleading wording; ignore them.)
 
 The only real weakness: the counter is `localStorage`-keyed
-(`paywallContinueAttempts:domain:space:user`), so clearing storage/incognito resets it to 15 — a minor
+(`paywallContinueAttempts:domain:space:user`), so clearing storage/incognito resets it to 3 (the default) — a minor
 client-side soft spot, NOT a missing save-gate.
 
 ### Skipping the paywall on an over-limit Lite space

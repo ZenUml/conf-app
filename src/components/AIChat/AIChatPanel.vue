@@ -67,7 +67,7 @@
       </div>
     </header>
 
-    <main class="ai-chat-content">
+    <main ref="content" class="ai-chat-content">
       <section
         v-if="messages.length === 0 && !isThinking"
         class="ai-chat-empty"
@@ -105,7 +105,7 @@
           v-for="message in messages"
           :key="message.id"
           class="ai-chat-turn"
-          :class="`is-${message.role}`"
+          :class="[`is-${message.role}`, message.tone ? `is-${message.tone}` : null]"
           data-testid="ai-chat-message"
         >
           <p v-if="message.text">{{ message.text }}</p>
@@ -391,6 +391,7 @@ import {
   type AIChatVersion,
 } from './aiChatPrototype'
 import {
+  AI_CHAT_NO_CHANGE_MESSAGE,
   getAIChatFailureTelemetry,
   runAIChatSession,
   type AIChatFailurePhase,
@@ -446,6 +447,7 @@ const stages: Array<{ key: AIChatSessionStage; label: string }> = [
 ]
 
 const prompt = ref('')
+const content = ref<HTMLElement | null>(null)
 const input = ref<HTMLTextAreaElement | null>(null)
 const messages = ref<AIChatMessage[]>(props.initialMessages.map(cloneMessage))
 const isThinking = ref(false)
@@ -825,6 +827,10 @@ async function submitPrompt(
   messages.value.push({ id: nextMessageId('user'), role: 'user', text })
   prompt.value = ''
   pendingInputSource = 'typed'
+  void nextTick(() => {
+    if (!content.value) return
+    content.value.scrollTop = content.value.scrollHeight
+  })
   trackAnalyticsEvent('ai_chat_prompt_submitted', {
     ...analyticsBase(),
     generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',
@@ -862,6 +868,28 @@ async function submitPrompt(
       },
     })
     if (activeController !== controller) return false
+
+    if (result.noChange) {
+      activeDiagramId.value = result.diagramId
+      messages.value.push({
+        id: nextMessageId('assistant'),
+        role: 'assistant',
+        text: AI_CHAT_NO_CHANGE_MESSAGE,
+      })
+      lastPromptFailed = false
+      trackAnalyticsEvent('ai_chat_no_change', {
+        ...analyticsBase(),
+        generation_source: 'chat_panel',
+        chat_message_count: messages.value.length,
+        change_kind: kind,
+        duration_ms: durationSince(startedAt),
+        poll_count: result.pollCount || 0,
+        repair_attempts: result.repairAttempts,
+        backend_duration_ms: result.backendDurationMs,
+        backend_llm_duration_ms: result.backendLlmDurationMs,
+      })
+      return true
+    }
 
     const previousVersionId = activeVersionId.value
     activeDiagramId.value = result.diagramId
@@ -934,6 +962,7 @@ async function submitPrompt(
     messages.value.push({
       id: nextMessageId('assistant'),
       role: 'assistant',
+      tone: 'error',
       text: `AI Chat could not apply the change: ${detail}`,
     })
     return false
@@ -1041,6 +1070,7 @@ async function restoreTargetVersion(
     messages.value.push({
       id: nextMessageId('assistant'),
       role: 'assistant',
+      tone: 'error',
       text: `AI Chat could not restore the version: ${detail}`,
     })
     return false

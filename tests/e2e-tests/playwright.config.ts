@@ -5,7 +5,7 @@ import { AUTH_STATE_PATH } from './config/auth-state.js';
 export default defineConfig({
   testDir: './tests',
   timeout: 120000,
-  testIgnore: ['**/node_modules/**', '../../**', '**/ai-repair/**'],
+  testIgnore: ['**/node_modules/**', '../../**'],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -62,10 +62,9 @@ export default defineConfig({
     {
       name: 'insert',
       testMatch: 'insert/**/*.spec.ts',
-      // upgrade-prompt suite is gated on the unreleased space-licensing Forge
-      // build and skips at runtime in CI. Excluding at collection time so
-      // `--shard` doesn't allocate idle slots to skipped tests.
-      testIgnore: process.env.CI ? ['insert/upgrade-prompt.spec.ts', 'insert/spot-check-metrics-fix.spec.ts'] : [],
+      // spot-check-metrics-fix skips at runtime in CI. Excluding at collection
+      // time so `--shard` doesn't allocate idle slots to skipped tests.
+      testIgnore: process.env.CI ? ['insert/spot-check-metrics-fix.spec.ts'] : [],
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       timeout: 300000,
@@ -94,13 +93,6 @@ export default defineConfig({
       // when /agent-link/mcp isn't routed on conf-stg-lite, so it's safe in CI.
       name: 'agent-link',
       testMatch: 'agent-link/**/*.spec.ts',
-      use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
-      timeout: 300000,
-    },
-    {
-      name: 'ai-repair',
-      testMatch: 'ai-repair/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       timeout: 300000,

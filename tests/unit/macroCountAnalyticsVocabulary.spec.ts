@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { AnalyticsEventName as FrontendAnalyticsEventName } from "../../src/utils/analytics/catalog";
 import type { AnalyticsProperties } from "../../src/utils/analytics/types";
 import {
-  CANONICAL_EVENT_NAMES,
+  CANONICAL_EVENT_NAME_LIST,
   type AnalyticsEventName as BackendAnalyticsEventName,
 } from "../../functions/service/analyticsTypes";
+
+// CANONICAL_EVENT_NAMES (a ReadonlySet derived from CANONICAL_EVENT_NAME_LIST)
+// was removed 2026-09-02 — this spec was its only consumer. Derive the set
+// locally rather than reintroducing an export with a single test-only reader.
+const CANONICAL_EVENT_NAMES: ReadonlySet<string> = new Set(CANONICAL_EVENT_NAME_LIST);
 
 const eventNames = [
   "macro_count_snapshot_completed",

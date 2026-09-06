@@ -84,7 +84,11 @@ if ! command -v pnpm >/dev/null 2>&1; then
 fi
 
 echo "> pnpm install in $SUBMODULE_DIR"
-( cd "$SUBMODULE_DIR" && PUPPETEER_SKIP_DOWNLOAD=true pnpm install --frozen-lockfile=false )
+# CYPRESS_INSTALL_BINARY=0: the Studio monorepo's cypress devDependency tries
+# to download its binary on postinstall; the Studio build never runs Cypress,
+# and behind a restrictive proxy the download fails the whole install
+# (observed 2026-08-22: corrupted-download checksum mismatch).
+( cd "$SUBMODULE_DIR" && PUPPETEER_SKIP_DOWNLOAD=true CYPRESS_INSTALL_BINARY=0 pnpm install --frozen-lockfile=false )
 
 BUILT=false
 for cmd in \

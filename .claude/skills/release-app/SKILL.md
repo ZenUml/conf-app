@@ -7,8 +7,8 @@ description: >
   production, verifies with PVT, then runs a spot check — targeted coverage for what shipped this
   iteration (not keyword→skill matching alone). Falls back to manually
   triggering a fresh build only when no recent draft exists.
-  Use when the user wants to release, deploy, ship, or push the lite, full, diagramly, or asyncapi Forge app to
-  production. Triggers on "release lite", "release full", "release diagramly", "release asyncapi", "deploy to prod",
+  Use when the user wants to release, deploy, ship, or push the lite, full, diagramly (or dia), or asyncapi (or async/api)
+  Forge app to production. Triggers on "release lite", "release full", "release diagramly", "release dia", "release asyncapi", "release async", "release api", "deploy to prod",
   "ship forge app", "push to production", "release forge app", "release app", or any request to
   promote staging builds to production for the conf-app project.
 ---
@@ -19,7 +19,11 @@ End-to-end release pipeline for ZenUML Forge apps (lite, full, diagramly, and as
 
 ## Arguments
 
-Usage: `/release-app [lite] [full] [diagramly] [asyncapi]`
+Usage: `/release-app [lite] [full] [diagramly|dia] [asyncapi|async|api]`
+
+Aliases are officially supported: `dia` means `diagramly`, and `async` or `api`
+means `asyncapi`. Normalize aliases to their canonical variant names before
+selecting drafts, checking prerequisites, composing notes, or publishing.
 
 - **If no variant is specified, STOP and ASK which variant(s) to release. Do NOT release anything by default.** There is no "release all" default — an unscoped invocation is a question to the user, never a command to ship.
 - The user must name one or more variants. Release **only** the named variant(s) — never a variant the user didn't name. `/release-app lite` releases lite and nothing else; do **not** continue to full (or any other tier) afterward. An explicit variant is not authorization for adjacent tiers.

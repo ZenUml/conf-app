@@ -1,22 +1,14 @@
 import { FeatureFlags, type FeatureFlagUser, type ForgeFeatureFlagConfig } from '@forge/bridge'
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
-const AI_TITLE_FLAG_ID = 'ai-title-enabled'
 const AI_CHAT_FLAG_ID = 'ai-chat-enabled'
+const AI_CHAT_REPAIR_FLAG_ID = 'ai-chat-repair-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
-
-function standaloneAiTitleEnabled(): boolean {
-  try {
-    return localStorage.getItem('mockAiTitleEnabled') !== 'false'
-  } catch {
-    return true
-  }
-}
 
 function standaloneAiRepairEnabled(): boolean {
   try {
@@ -29,6 +21,14 @@ function standaloneAiRepairEnabled(): boolean {
 function standaloneAiChatEnabled(): boolean {
   try {
     return localStorage.getItem('mockAiChatEnabled') !== 'false'
+  } catch {
+    return false
+  }
+}
+
+function standaloneAiChatRepairEnabled(): boolean {
+  try {
+    return localStorage.getItem('mockAiChatRepairEnabled') === 'true'
   } catch {
     return false
   }
@@ -84,13 +84,6 @@ async function getFeatureFlagsClient(): Promise<FeatureFlags> {
   }
 }
 
-export async function isAiTitleEnabled(): Promise<boolean> {
-  if (!forgeGlobal.isForge) return standaloneAiTitleEnabled()
-
-  const client = await getFeatureFlagsClient()
-  return client.checkFlag(AI_TITLE_FLAG_ID, false)
-}
-
 export async function isAiRepairEnabled(): Promise<boolean> {
   if (!forgeGlobal.isForge) return standaloneAiRepairEnabled()
 
@@ -115,6 +108,22 @@ export async function isAiChatEnabled(): Promise<boolean> {
   }
 }
 
+/**
+ * Controls whether the syntax-error AI Repair entry point delegates to AI
+ * Chat. This does not gate the AI Chat button or syntax repair inside Chat.
+ */
+export async function isAiChatRepairEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneAiChatRepairEnabled()
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(AI_CHAT_REPAIR_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load AI Chat repair feature flag:', error)
+    return false
+  }
+}
+
 // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
 // master switch for mounting the Connect UI into the macro host — the flag
 // gates everything, so when it resolves false the macro renders exactly as
@@ -134,7 +143,7 @@ export async function isArchitectureTokensEnabled(): Promise<boolean> {
   return client.checkFlag(ARCHITECTURE_TOKENS_FLAG_ID, false)
 }
 
-export function resetAiTitleFlagForTests(): void {
+export function resetFeatureFlagsForTests(): void {
   featureFlags?.shutdown()
   featureFlags = undefined
   initializePromise = undefined

@@ -144,6 +144,20 @@ export default {
         return this.$store.state.diagram.diagramType;
       },
       set(value) {
+        const fromMacroType = this.diagramType;
+        if (value !== fromMacroType) {
+          const isNewMacro = !this.$store.state.diagram.id;
+          trackAnalyticsEvent('macro_type_changed', {
+            feature_area: 'macro',
+            surface: 'editor',
+            macro_type: value,
+            from_macro_type: fromMacroType,
+            to_macro_type: value,
+            operation_mode: isNewMacro ? 'create' : 'edit',
+            type_requested: !!this.$store.state.diagram.typeRequested,
+            is_new_macro: isNewMacro,
+          });
+        }
         this.updateDiagramType(value);
         // Save user's tab preference to localStorage
         localStorage.setItem('zenuml-preferred-diagram-type', value);
@@ -288,6 +302,18 @@ export default {
     },
   },
   watch: {
+    aiChatAvailable: {
+      immediate: true,
+      handler(visible, wasVisible) {
+        if (visible && !wasVisible) {
+          trackAnalyticsEvent('ai_chat_button_shown', {
+            feature_area: 'ai',
+            surface: 'editor',
+            macro_type: this.diagramType,
+          });
+        }
+      },
+    },
     // The gallery overlay covers the TabSwitcher while open, so a mouse
     // click can't reach it — but there's no focus trap, so keyboard/AT
     // navigation could still tab to a hidden tab button and switch

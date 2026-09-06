@@ -1,18 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-// Reproduction + instrumentation test for issue #302: the Lite paywall gate is
-// FAIL-OPEN on the macro-count read. `shouldBlockActions` reads module-ref
-// `macrosCreated`, which defaults to 0 and is only raised when `getMacroMetrics()`
-// returns a truthy `.total`. When that read rejects, returns undefined, or
-// returns total:0 (KV stale-low / collect under-return / network error), the
-// count stays 0, so `0 >= 100` is false and the gate does NOT fire on an
-// over-limit space — the editor mounts ungated and the save persists at N=0
-// with no paywall event, no continue_used, no reset.
-//
-// These tests PIN the current (leaky) behavior AND assert the new
-// `macroCountSource` telemetry classifies each read outcome, which is what the
-// `paywall_gate_evaluated.macro_count_source` dimension reports. If the paywall
-// is later made fail-closed, flip the `shouldBlockActions` expectations.
+// Originally a reproduction + instrumentation test for issue #302 (the Lite
+// paywall gate was fail-open on the macro-count read: a rejected/undefined/
+// zero-total read left the count at 0, so the block never fired on an
+// over-limit space). Retired 2026-09: `shouldBlockActions` is now hardcoded
+// `false` (the paywall no longer blocks editing at any macro count — see
+// useCustomerSuccessService.ts), so the fail-open distinction is moot for
+// blocking. Kept to assert `macroCountSource` still classifies each read
+// outcome correctly, since `paywall_gate_evaluated.macro_count_source` still
+// reports it.
 
 vi.mock('@/apis/featureFlags', () => ({
   default: vi.fn().mockResolvedValue({ PAYWALL_EXEMPT: false }),
@@ -92,22 +88,22 @@ describe('#302 fail-open: over-limit Lite space, macro-count read fails', () => 
     expect(svc.macroCountSource.value).toBe('zero')
   })
 
-  it('control — real over-limit count from KV → gate fires, source = kv', async () => {
+  it('control — real over-limit count from KV → block stays off, source = kv', async () => {
     const { default: macroMetrics } = await import('@/services/MacroMetrics')
     vi.mocked(macroMetrics.getMacroMetrics).mockResolvedValue(overLimit({ source: 'kv' }))
     const svc = await freshService()
     await svc.initialize()
     expect(svc.macrosCreated.value).toBe(150)
-    expect(svc.shouldBlockActions.value).toBe(true)
+    expect(svc.shouldBlockActions.value).toBe(false)
     expect(svc.macroCountSource.value).toBe('kv')
   })
 
-  it('control — real over-limit count from fresh collect → gate fires, source = collect', async () => {
+  it('control — real over-limit count from fresh collect → block stays off, source = collect', async () => {
     const { default: macroMetrics } = await import('@/services/MacroMetrics')
     vi.mocked(macroMetrics.getMacroMetrics).mockResolvedValue(overLimit({ source: 'collect' }))
     const svc = await freshService()
     await svc.initialize()
-    expect(svc.shouldBlockActions.value).toBe(true)
+    expect(svc.shouldBlockActions.value).toBe(false)
     expect(svc.macroCountSource.value).toBe('collect')
   })
 
@@ -115,7 +111,7 @@ describe('#302 fail-open: over-limit Lite space, macro-count read fails', () => 
     localStorage.mockMacroCount = '150'
     const svc = await freshService()
     await svc.initialize()
-    expect(svc.shouldBlockActions.value).toBe(true)
+    expect(svc.shouldBlockActions.value).toBe(false)
     expect(svc.macroCountSource.value).toBe('mock')
   })
 })

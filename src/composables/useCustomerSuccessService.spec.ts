@@ -69,7 +69,7 @@ describe('useCustomerSuccessService - Paid Space Detection', () => {
     expect(shouldBlockActions.value).toBe(false) // Should NOT block despite 150 macros
   })
 
-  it('should block actions when space is not paid and over limit', async () => {
+  it('does not block actions even when space is not paid and over limit (paywall block retired)', async () => {
     const { callRemote } = await import('@/utils/requestUtil')
 
     // Mock space status API to return unpaid status
@@ -90,7 +90,8 @@ describe('useCustomerSuccessService - Paid Space Detection', () => {
     await initialize()
 
     expect(spacePaid.value).toBe(false)
-    expect(shouldBlockActions.value).toBe(true) // Should block because unpaid and over 100
+    // Retired 2026-09: the paywall no longer blocks editing at any macro count.
+    expect(shouldBlockActions.value).toBe(false)
   })
 
   it('should not show action required when space is paid', async () => {
@@ -378,7 +379,7 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
     expect(svc.shouldBlockActions.value).toBe(false)
   })
 
-  it('default_on blocks at 100 macros in an unpaid space', async () => {
+  it('default_on no longer blocks at 100 macros in an unpaid space (paywall block retired)', async () => {
     const getFeatureFlags = (await import('@/apis/featureFlags')).default
     vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
     localStorage.mockMacroCount = '100'
@@ -387,7 +388,7 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
     const svc = useCustomerSuccessService()
     await svc.initialize()
 
-    expect(svc.shouldBlockActions.value).toBe(true)
+    expect(svc.shouldBlockActions.value).toBe(false)
   })
 
   it('an explicit exemption disables both the warning and the block at the same counts', async () => {

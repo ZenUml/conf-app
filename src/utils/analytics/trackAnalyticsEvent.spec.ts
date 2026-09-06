@@ -502,6 +502,68 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
+  // Fullscreen is the deliberate-intent surface: a user who opened it is
+  // working on one diagram, so its sessions are worth watching in full. It is
+  // NOT distinguishable by moduleKey — the modal loads the same macro resource
+  // as the inline viewer — so the override keys on the modal context Forge
+  // passes through openModal (forgeIndex.ts's 'fullscreen' handler).
+  it("always records the fullscreen modal at 100% and skips the flag fetch", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+      extension: { modal: { macroMode: "fullscreen" } },
+    } as any;
+    // Even if the flag would say off, fullscreen short-circuits to 100.
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 100 })
+    );
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "fullscreen",
+    });
+  });
+
+  // The inline viewer is the same module with no modal context. It must stay on
+  // the Forge-flag rate — the override must not leak to every macro render.
+  it("leaves the inline viewer on the Forge flag rate", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+      extension: {},
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(getSessionReplayConfig).toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 0 })
+    );
+  });
+
   it("takes record_sessions_percent from the Forge flag config in a macro context", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: undefined,

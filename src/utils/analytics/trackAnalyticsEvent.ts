@@ -85,13 +85,34 @@ function _initMixpanel(): Promise<void> {
       // not by moduleKey) — so this is hardcoded here rather than attempted as
       // a flag. Revisit (drop back to the flag-driven rate) once the funnel has
       // enough real traffic that 100% capture stops being worth the review cost.
-      const moduleKey = (forgeGlobal.forgeContext as any)?.moduleKey;
+      //
+      // The fullscreen modal is the third override, and the only one that is
+      // not a moduleKey: it loads the same macro resource as the inline
+      // viewer, and is told apart by the modal context forgeIndex.ts passes to
+      // openModal. It records at 100% because it is the deliberate-intent
+      // viewer surface — a user who opened fullscreen is working on ONE
+      // diagram, so the session is worth watching end to end, where an inline
+      // render is usually incidental to reading a page. Like the plan-usage
+      // page, per-surface targeting is not something the Forge-flag cohort
+      // system can express (it buckets by install/account), so this is
+      // hardcoded rather than attempted as a flag.
+      //
+      // Cost, measured 2026-09-07: ~4.1k fullscreen opens/month across all
+      // variants (3.4k of them Lite), against ~17.7k distinct replays in the
+      // trailing 30 days — roughly a 23% increase in recorded sessions.
+      // Revisit if the replay quota becomes the binding constraint.
+      const forgeContext = forgeGlobal.forgeContext as any;
+      const moduleKey = forgeContext?.moduleKey;
       const isPageBanner = moduleKey === "zenuml-page-banner";
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
+      const isFullscreen =
+        forgeContext?.extension?.modal?.macroMode === "fullscreen";
       const { percent, source } = isPageBanner
         ? { percent: 0, source: "off" as const }
         : isPlanUsagePage
         ? { percent: 100, source: "plan_usage_page" as const }
+        : isFullscreen
+        ? { percent: 100, source: "fullscreen" as const }
         : await getSessionReplayConfig();
 
       mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {

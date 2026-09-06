@@ -183,12 +183,15 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // flag cohort. See macro_create_started / macro_edit_started below.
 // `plan_usage_page` is the same kind of hardcoded override, in the opposite
 // direction from the page-banner's hardcoded 0% — see _initMixpanel in
-// trackAnalyticsEvent.ts.
+// trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
+// the deliberate-intent viewer surface, and it cannot be expressed as a Forge
+// flag because the cohort system buckets by install/account, not by surface.
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
   | "plan_usage_page"
+  | "fullscreen"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues

@@ -46,6 +46,10 @@ A spot check assertion that requires UI verification must be confirmed by actual
 
 Do not assert facts about external systems, APIs, processes, or behavior unless you can point to proof — code you read, a doc you fetched, a command you ran. If you don't have evidence, say "I don't know" or "I'd need to verify this." Guessing and presenting it as fact is strictly prohibited.
 
+### Always label PR references
+
+In every user-facing message, never write a PR number by itself. Pair it with a short adjacent name, label, or purpose: write `PR #528 — authoring session replay telemetry` or `#528 (authoring-session-replay)`, not only `PR #528` or `#528`. When asking to merge, approve, release, or land it, the label must describe the user-visible behavior change rather than diff size or file count.
+
 ### Plan Mixpanel events before implementing any feature
 
 Before writing code for any new feature, define the analytics events first. For each event specify: name, trigger (what user action or system transition fires it), and the key properties (e.g. `feature_area`, `surface`, `macro_type`, outcome fields). Add them to `src/utils/analytics/catalog.ts` and `src/utils/analytics/types.ts` as the first commit of the feature branch.
@@ -86,17 +90,9 @@ The original directory stays untouched. When in doubt, ask before any destructiv
 
 ## Architecture
 
-### Frontend
-
-- **Entry Point**: Single Forge Custom UI entry (`index.html` + `src/forgeIndex.ts`)
-- **Forge Entry Points**: `src/forge-*.ts` files for different diagram types
-- **Forge Integration**: `@forge/bridge` for Confluence API access (`requestConfluence`, `invokeRemote`, `view`, `router`)
-
 ### Backend (Cloudflare Workers)
 
-- **Functions**: Located in `functions/` directory. **CRITICAL:** `public/_routes.json` is an explicit allowlist — any new function path must be added to its `include` array, otherwise Cloudflare Pages serves the path as a static SPA HTML fallback instead of routing it to the function. Symptom: `GET /your/path` returns 200 with `content-type: text/html` instead of running your code.
-- **Database**: D1 database with migrations in `functions/migrations/`
-- **Auth**: Forge invocation token (RS256) validated via `functions/utils/authenticate.ts`
+Backend code is in `functions/`. See [functions/CLAUDE.md](functions/CLAUDE.md) — it holds the `public/_routes.json` allowlist gotcha, which makes a new function path return static HTML instead of running.
 
 ### Content management
 
@@ -146,14 +142,7 @@ Never echo a secret's value; prove access with a status code instead.
 
 ### Forge deployment
 
-```bash
-# Deploy to Forge staging
-pnpm forge:deploy:lite:staging
-pnpm forge:deploy:full:prod
-
-# Forge tunnel for local development
-pnpm forge:tunnel
-```
+See the `forge:deploy:*` scripts in `package.json`, one per variant and environment. For local tunnelling use the **forge-tunnel** skill.
 
 #### Forge CLI auth
 

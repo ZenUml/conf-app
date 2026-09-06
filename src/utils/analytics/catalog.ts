@@ -568,6 +568,13 @@ export type AnalyticsEventName =
   //                         rather than claim what we cannot prove.
   //   'record_unreadable' — the gate fired but the record did not read back
   //                         (forbidden, malformed, already emptied).
+  //   'property_covers_page' — FALLBACK path only: a content property exists (or
+  //                         could not be ruled out), so the gated module is
+  //                         carrying this page's notice and the fallback stood
+  //                         down rather than stack a second banner. Distinct
+  //                         from 'record_unreadable', which means we had
+  //                         nothing to say; here we had something and someone
+  //                         else is saying it.
   //   'expired'           — nobody has re-confirmed the record in 30 days, so
   //                         we stop buying an ADF read for it.
   //   'shows_exhausted'   — this browser has been told about this record the

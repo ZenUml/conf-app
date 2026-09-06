@@ -485,6 +485,17 @@ modules:
       route: zenuml-dashboard
       resolver:
         endpoint: remote-connect
+    # Lite paywall redesign phase 2: site-level usage + Request-Full entry
+    # point (spec: banner -> "Plan and usage"). Shares `resource: main` /
+    # `resolver: remote-connect` with zenuml-dashboard-page above — discriminated
+    # client-side by moduleKey (same pattern as the three contentBylineItem
+    # entries below). Lite-only for now, same as the paywall itself.
+    - key: zenuml-plan-usage-page
+      resource: main
+      title: Plan and usage
+      route: zenuml-plan-usage
+      resolver:
+        endpoint: remote-connect
   confluence:pageBanner:
     - key: zenuml-page-banner
       resource: main

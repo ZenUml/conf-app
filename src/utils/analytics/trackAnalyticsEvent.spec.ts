@@ -474,6 +474,34 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
+  it("always records the plan-usage page at 100% and skips the flag fetch", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-plan-usage-page",
+      environmentType: "production",
+    } as any;
+    // Even if the flag would say off, the plan-usage page short-circuits to 100.
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("plan_usage_viewed", {
+      feature_area: "upgrade",
+      surface: "dashboard",
+    });
+
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 100 })
+    );
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "plan_usage_page",
+    });
+  });
+
   it("takes record_sessions_percent from the Forge flag config in a macro context", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: undefined,

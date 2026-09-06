@@ -96,9 +96,15 @@ async function initializeCriticalPath() {
   }
 
   // Check if this is a global page route (dashboard). The ZenUML variants
-  // route this to the existing getStarted UI.
+  // route this to the existing getStarted UI, except the new Plan-and-usage
+  // entry (moduleKey-discriminated, same pattern as the byline entries below).
   if (!isOpenedModal && context.extension?.type === 'confluence:globalPage') {
-    await handleGetStartedRoute();
+    if (context.moduleKey === 'zenuml-plan-usage-page') {
+      const { handlePlanUsageRoute } = await import('./routes/planUsage');
+      await handlePlanUsageRoute();
+    } else {
+      await handleGetStartedRoute();
+    }
     return { macroData: null };
   }
 

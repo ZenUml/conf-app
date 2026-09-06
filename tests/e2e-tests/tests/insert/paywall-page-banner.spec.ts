@@ -24,6 +24,7 @@ import {
   expectBannerAbsent,
   expectCsatAbsent,
   armCsatPending,
+  ageLastImpression,
 } from '../../helpers/pageBanner.js';
 
 // The Forge macro iframe. Its presence guarantees an app-origin
@@ -115,11 +116,19 @@ test.describe.serial('Paywall page banner', () => {
     await expectBannerAbsent(page);
   });
 
-  test('single host: paywall outranks CSAT (no stacking)', async ({ page }) => {
-    // Hard-limit state makes paywall eligible; arm a fresh CSAT trigger too. The single
-    // host must render ONLY the paywall banner — proving the #202 consolidation.
+  test('impression taper, then single host: paywall outranks CSAT (no stacking)', async ({ page }) => {
     await showWarningBanner(page);
     await armCsatPending(page);
+
+    // Taper (2026-09-07): a 2nd impression inside 24h of the 1st is suppressed,
+    // and with the paywall standing down the armed CSAT survey takes the slot.
+    await page.reload();
+    await page.waitForTimeout(6_000);
+    await expectBannerAbsent(page);
+
+    // Age the 1st impression past the 24h gap: paywall is eligible again, and the
+    // single host must render ONLY the paywall banner — the #202 consolidation.
+    await ageLastImpression(page, 25);
     await page.reload();
     await page.waitForTimeout(6_000);
     await expect((await pageBannerFrame(page)).getByTestId('paywall-warning-banner')).toBeVisible({

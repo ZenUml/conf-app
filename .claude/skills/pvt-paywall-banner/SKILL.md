@@ -55,6 +55,14 @@ they share localStorage. The flow is deliberately **two page loads**:
    marker `paywallWarning:<domain>:<space>` (domain = Confluence subdomain, no `.atlassian.net`).
 2. **Reload again** → the page-banner host reads the marker on load and mounts the banner.
 
+> **Impression taper trap (since 2026-09-07).** Once the banner has mounted ONCE in this browser
+> for this `domain:space`, a further reload inside 24h shows **nothing** — by design, not a
+> regression (`isTaperGapMet` in `src/utils/paywall/warningBanner.ts`: 2nd/3rd impression ≥ 24h
+> apart, 4th+ ≥ 7d). To re-show it, either clear `paywallBanner:<domain>:<space>` or back-date
+> its `lastShownAt` (the E2E helper `ageLastImpression(page, 25)` does exactly this). Every
+> `paywall_banner_shown` carries `show_count` (ordinal of this impression) and
+> `hours_since_last_shown` — assert them when verifying the taper in Mixpanel.
+
 ```js
 // In the Forge-iframe origin (cdn.prod.atlassian-dev.net or localhost:8000):
 const frame = page.frames().find(f =>
@@ -101,11 +109,15 @@ Run each; screenshot after the key assertion. Clear markers/mocks between scenar
   `advocacy_draft_preview_clicked`.
 - [ ] **5. Dismiss → 7-day snooze** — click `paywall-banner-dismiss` → `paywallBanner:<domain>:<space>`
   records `dismissedAt`; reload → banner gone despite the warning marker still being written.
-- [ ] **6. Critical band (100+) → NO banner** — `mockMacroCount=105`, clear markers, two reloads →
-  **no** banner (`forge-page-banner-wrapper` iframe hidden). At 100+ the **hard modal** (pvt-paywall)
-  owns the band; the banner gate is warning-only. The marker still records `severity:"critical"`
-  (telemetry-accurate) but `isWarningBannerVisible` returns false.
-- [ ] **7. Below band (<85) → NO banner** — `mockMacroCount=50` → no marker written (severity `none`) → no banner.
+- [ ] **6. Over-limit only (> 100) → banner; ≤ 100 → NO banner.** *(Corrected 2026-09-07 — items 6/7
+  previously described the retired 85–99 warning band and the retired hard modal.)*
+  `mockMacroCount=100` (or any 85–99 value) → marker written, but `isWarningBannerVisible` returns
+  false at `macroCount <= 100` → no banner. `mockMacroCount=101` → banner. The block modal is
+  retired (`shouldBlockActions` is hardcoded false), so there is no competing surface at 100+.
+- [ ] **7. Taper** — after item 1's first impression, reload immediately → **no** banner
+  (`show_count` would have been 2, inside the 24h gap). `ageLastImpression(page, 25)` (or edit
+  `lastShownAt` by hand) → reload → banner, and its `paywall_banner_shown` carries `show_count: 2`,
+  `hours_since_last_shown: 25`.
 - [ ] **8. Single-host priority** — warning band eligible **and** a fresh `csatPending-<domain>` armed →
   the single host renders ONLY the paywall banner; CSAT survey (`.pb-bar`) absent. Proves the
   one-host consolidation (PR #202) needs no cross-iframe defer.

@@ -102,17 +102,29 @@ let passesGate = false
 let macroCountValue = 0
 const isSpaceAdmin = props.isSpaceAdmin
 let spaceAdminCount: number | undefined
+// Taper position of THIS impression, read once BEFORE recordBannerShown bumps
+// the marker: ordinal = prior showCount + 1; gap = whole hours since the
+// previous impression (absent on a first impression).
+let showCount = 1
+let hoursSinceLastShown: number | undefined
 try {
   identity = deriveWarningBannerIdentity()
   const targeting = readTargetingMarker(identity)
   spaceAdminCount = readProbeMarker(identity)?.adminCount
+  const now = Date.now()
+  const dismissal = readDismissalMarker(identity)
+  showCount = (dismissal?.showCount ?? 0) + 1
+  if (dismissal?.lastShownAt) {
+    const lastShownMs = Date.parse(dismissal.lastShownAt)
+    if (Number.isFinite(lastShownMs)) hoursSinceLastShown = Math.round((now - lastShownMs) / 3_600_000)
+  }
   passesGate =
     !!targeting &&
     isWarningBannerVisible(
       targeting,
-      readDismissalMarker(identity),
+      dismissal,
       readMacroActivityMarker(identity),
-      Date.now(),
+      now,
       isSpaceAdmin
     )
   if (passesGate && targeting) {
@@ -169,6 +181,9 @@ function bannerContext() {
     is_space_admin: isSpaceAdmin,
     banner_audience: audience,
     ...(spaceAdminCount === undefined ? {} : { space_admin_count: spaceAdminCount }),
+    // Impression taper position — see utils/paywall/warningBanner.ts BANNER_TAPER_*.
+    show_count: showCount,
+    ...(hoursSinceLastShown === undefined ? {} : { hours_since_last_shown: hoursSinceLastShown }),
   }
 }
 

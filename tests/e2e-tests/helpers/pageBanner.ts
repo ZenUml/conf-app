@@ -114,6 +114,25 @@ export async function clearPaywallMarkers(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Back-date the dismissal marker's `lastShownAt` by `hours` so the impression
+ * taper (warningBanner.ts BANNER_TAPER_*) treats the next page load as due.
+ * Without this, any reload inside 24h of the first impression is suppressed by
+ * design — which is exactly what a real user experiences, and what the taper
+ * assertion in the spec checks first.
+ */
+export async function ageLastImpression(page: Page, hours: number): Promise<void> {
+  const f = await appFrame(page);
+  if (!f) throw new Error('[page-banner] app Forge iframe not found — is a macro rendered?');
+  await f.evaluate((h) => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith('paywallBanner:'));
+    if (!key) throw new Error('[page-banner] no dismissal marker to age — banner never recorded an impression');
+    const marker = JSON.parse(localStorage.getItem(key) || '{}');
+    marker.lastShownAt = new Date(Date.now() - h * 3_600_000).toISOString();
+    localStorage.setItem(key, JSON.stringify(marker));
+  }, hours);
+}
+
 /** Reset all banner-related state (markers, mocks, CSAT trigger/suppression). */
 export async function clearAllBannerState(page: Page): Promise<void> {
   const f = await appFrame(page);

@@ -122,12 +122,21 @@ Three rules keep it inside this document's checklist:
   an iframe at all; the fallback gate (`isUnplacedBannerCandidate`) is
   synchronous localStorage, and the component is its own lazy chunk either way.
   Be precise about what that does *not* cover: on a page the gate admits, the
-  component awaits a property read **and** an ADF read before it can show or
-  close, so the two outcomes that end in `view.close()` hold the reserved slot
-  for two round-trips — the flicker item 1 of this document calls "unusable".
-  That cost is bounded (only pages that carry the property, and a dismissal goes
-  quiet for a day without any read at all) but it is real, and it is the first
-  thing to attack if the banner ever feels heavy.
+  module awaits the space-admin probe, then the component awaits a property read
+  and an ADF read, before it can show or close — so the two outcomes that end in
+  `view.close()` hold the reserved slot for those round-trips, the flicker item 1
+  of this document calls "unusable". That cost is bounded (only pages carrying
+  the property; a dismissal goes quiet for a day without any read at all) but it
+  is real, and it is the first thing to attack if the banner ever feels heavy.
+
+  The probe is the newest and least obvious of the three. It is awaited because
+  the component's `higherPriorityBannerPending()` reads the verdict it writes —
+  without it the notice cannot know to stand down, which is how it once stacked
+  under the paywall banner. It is throttled to once per 30 days per domain:space,
+  so almost every load exits it synchronously; on the load where it does fire,
+  the banner was measured mounting **+12.3s** after the page settled (whimet4,
+  2026-09-06). If that ever matters more than the stacking it prevents, the shape
+  of the fix is a short deadline on the probe rather than dropping the await.
 - **Never claim what we cannot verify.** The record states what the byline saw;
   the user may have pasted the link a second later. Past the gate the component
   re-reads the page ADF and shows only entries still unreferenced. A failed scan
@@ -254,6 +263,74 @@ unplaced. Both surfaces go through one step (`utils/byline/placeDiagram.ts`) —
 call, report, decide what the outcome says about this user, leave the reveal
 note, reload, withdraw the note if the reload never came. That ordering matters
 and had already drifted between the two copies once.
+
+### Showing the diagram you just placed
+
+The reload alone is not enough. The macro is appended to the END of the
+document, so on any page longer than a screen the reloaded page opens above it:
+the user clicks, the page reloads, and the thing they were promised is out of
+sight. So the placed macro scrolls the page to itself and flashes.
+
+**Nothing in this app can scroll a Confluence page.** The banner, the byline and
+every macro are sandboxed cross-origin iframes. What a macro CAN do is take
+FOCUS, and the browser then scrolls its ancestors — across the origin boundary —
+to bring the focused element into view. `scrollIntoView` does NOT do this; it
+stops at the iframe's own document.
+
+Measured on lite-stg 2026-09-05, on a 70-paragraph page:
+
+| | |
+|---|---|
+| macro before | extension node 4,965px below the viewport top |
+| after `focus()` inside its iframe | 423px from the top; `div#AkMainContent` (Confluence's own scroll container) moved with it |
+| `scrollIntoView` inside the iframe | host did not move |
+| macro iframe while 4,965px off-screen | already booted — so there is no chicken-and-egg |
+
+**The hand-off** (`utils/byline/revealDiagram.ts`) crosses a full page reload and
+two iframes that cannot talk, so it goes through localStorage — every one of our
+iframes is served from the same app origin. The placing surface leaves a note
+naming the page and the customContentId; the macro that matches it claims the
+note and reveals itself. Four properties earn their keep:
+
+- **Claiming DELETES the note**, so one scroll even when the same diagram is on
+  the page twice, and no repeat on the next load.
+- **The note names the PAGE**, because two tabs share this storage.
+- **`REVEAL_TTL_MS` (60s)**, so an abandoned note cannot yank a page around
+  minutes later. The observed round trip was ~13–15s, most of it Confluence's
+  page load.
+- **Withdrawn when the reload does not happen**, or the note would scroll the
+  next page load instead.
+
+The macro side hooks in at the end of `loadHeavyComponents` (`forgeIndex.ts`),
+once for every macro kind and only in view mode, because the note is keyed by
+customContentId — the same fact whatever renders it. It waits for its own
+document height to stop changing first: the iframe is content-sized, so focusing
+mid-render would scroll to a box that is about to move.
+
+**The highlight** is an overlay, not a border. `position: fixed; inset: 0` is
+exactly the macro's footprint (the Forge iframe is sized to its content), so a
+tinted wash plus a 4px border paints OVER the diagram rather than around it —
+a hairline ring at the edge of a 400px macro is easy to miss after a 4,500px
+scroll, which is how the first attempt shipped and got reported. Three pulses
+over 2.8s, because a single fade is over before someone who watched the page
+move has re-focused on where it landed. Inert throughout (`pointer-events:
+none`, `aria-hidden`), removed when the animation ends, and reduced motion holds
+the wash steady instead of blinking.
+
+`diagram_revealed` is fired by the MACRO, and it is the only vantage point that
+can report this half — the placing iframe is gone by then. Its gap against
+`diagram_added_to_page` (result `added`) is the reveal requested and never
+claimed: the macro never booted, the reload never happened, or the note went
+stale. `reveal_age_ms` is that round trip, and a value near the TTL is a page
+slow enough that the next one would have missed it.
+
+Verified end-to-end on whimet4, 2026-09-06, on 70-paragraph fixtures:
+
+| path | result |
+|---|---|
+| banner | flash at +13.5s; scroll container 0 → 2622 of 2819; node 424px from top |
+| byline row | flash at +15.0s; identical geometry |
+| first of two diagrams | flash at +14.4s, and the reloaded page's banner named the one still unplaced |
 
 ### Checklist items still open
 

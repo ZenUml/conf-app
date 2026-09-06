@@ -622,6 +622,8 @@ describe('GenericViewer (chrome-less)', () => {
         [DiagramType.Sequence, 'Sequence', 'viewer-type-chip--sequence'],
         [DiagramType.Mermaid, 'Mermaid', 'viewer-type-chip--mermaid'],
         [DiagramType.PlantUml, 'PlantUML', 'viewer-type-chip--plantuml'],
+        [DiagramType.Graph, 'Graph', 'viewer-type-chip--graph'],
+        [DiagramType.OpenApi, 'OpenAPI', 'viewer-type-chip--openapi'],
       ])('labels %s with its accent in fullscreen', async (type, label, accentClass) => {
         asFullscreen()
         store.commit('updateDiagramType', type)
@@ -645,11 +647,12 @@ describe('GenericViewer (chrome-less)', () => {
         expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
       })
 
-      // No accent is defined for graph / openapi / asyncapi / embed, and the
-      // chip is not worth inventing one for.
+      // The accent system (colors_and_type.css) defines five ramps and the
+      // design's TABS map names five types. AsyncAPI and Embed are in neither,
+      // and the chip is not worth inventing an accent for.
       it('is omitted for a diagram type with no accent', async () => {
         asFullscreen()
-        store.commit('updateDiagramType', DiagramType.Graph)
+        store.commit('updateDiagramType', DiagramType.AsyncApi)
         const wrapper = mountViewer()
         await flushPromises()
 

@@ -5,6 +5,17 @@ import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import EventBus from '@/EventBus'
 import { getContext } from '@/model/globals/forgeGlobal'
 import { getPresetById } from '@/sandbox/presets'
+import { DiagramType } from '@/model/Diagram/Diagram'
+
+// A preset's diagramType is the string the Forge modal context carries, which
+// is lower-case throughout; the store holds DiagramType, whose OpenApi and
+// AsyncApi members are 'OpenAPI' / 'AsyncAPI'. Committing the preset string
+// raw left the openapi presets with a type no `case DiagramType.OpenApi`
+// matches, so the harness silently hid exactly the type-gated chrome it exists
+// to show.
+function toDiagramType(preset: string): string {
+  return Object.values(DiagramType).find((t) => t.toLowerCase() === preset.toLowerCase()) ?? preset
+}
 
 async function bootstrap() {
   const params = new URLSearchParams(location.search)
@@ -26,7 +37,7 @@ async function bootstrap() {
   // fullscreen type chip — so the harness rendered chrome no real macro shows.
   const preset = getPresetById(params.get('sandbox') ?? 'seq-view')
   if (preset) {
-    store.commit('updateDiagramType', preset.diagramType)
+    store.commit('updateDiagramType', toDiagramType(preset.diagramType))
     store.commit('updateTitle', 'build_router_graph')
     store.commit('updateCode2', 'Actor->Service.getorder() {\n  Controller.sendMessage(sss)\n}\n')
     store.state.viewerLoadState = 'ready'

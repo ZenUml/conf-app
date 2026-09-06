@@ -653,15 +653,21 @@ export default {
     // owns the close button, so the header has room the inline macro doesn't —
     // and unlike the inline macro, whose Confluence context surrounds it, the
     // fullscreen modal is the whole screen with nothing else naming the type.
-    // Only the three types the accent system defines (DESIGN.md §2 / the design
-    // system's TabSwitcher): graph / openapi / asyncapi / embed get no chip
-    // rather than an invented accent.
+    // Only the five types the accent system defines (colors_and_type.css's
+    // --accent-<sequence|mermaid|plantuml|drawio|openapi>-* ramps, which the
+    // design's TABS map names one-for-one). Graph and OpenAPI reach this
+    // component through ForgeGraphViewer.vue / OpenApiViewer.vue, which wrap
+    // GenericViewer for their own chrome, so the chip names them on the same
+    // fullscreen surface. AsyncAPI and Embed have no accent and get no chip
+    // rather than an invented one.
     fullscreenTypeChip() {
       if (!this.isFullscreenMode) return null;
       switch (this.diagramType) {
         case DiagramType.Sequence: return { id: 'sequence', label: 'Sequence' };
         case DiagramType.Mermaid: return { id: 'mermaid', label: 'Mermaid' };
         case DiagramType.PlantUml: return { id: 'plantuml', label: 'PlantUML' };
+        case DiagramType.Graph: return { id: 'graph', label: 'Graph' };
+        case DiagramType.OpenApi: return { id: 'openapi', label: 'OpenAPI' };
         default: return null;
       }
     },
@@ -1579,6 +1585,11 @@ export default {
 .viewer-frame--fullscreen .viewer-title {
   font-size: 16px;
 }
+/* The design's header row is 12px-gapped; the inline macro's tighter 10px is
+   tuned for a row with no chip in it. */
+.viewer-frame--fullscreen .viewer-title-area {
+  gap: 12px;
+}
 
 /* Read-only diagram-type indicator. Reproduces what the design system's
    TabSwitcher renders for a single active tab — tray plus accent-tinted
@@ -1616,6 +1627,10 @@ export default {
 .viewer-type-chip--mermaid .viewer-type-chip-dot { background: #FF3670; }
 .viewer-type-chip--plantuml { background: #FDF1E9; color: #6B2900; }
 .viewer-type-chip--plantuml .viewer-type-chip-dot { background: #B84800; }
+.viewer-type-chip--graph { background: #FFF7E8; color: #8A4B00; }
+.viewer-type-chip--graph .viewer-type-chip-dot { background: #F08705; }
+.viewer-type-chip--openapi { background: #F1F8EA; color: #3A5C1D; }
+.viewer-type-chip--openapi .viewer-type-chip-dot { background: #6BA539; }
 
 /* .viewer-frame--auto sizes the frame to fit-content, which in fullscreen made
    it as wide as the diagram — leaving the rest of the window bare (the
@@ -1640,6 +1655,21 @@ export default {
 .viewer-frame--fullscreen .viewer-footer-row {
   width: 100%;
   max-width: 1000px;
+}
+/* @zenuml/core's root is `inline-block`, so the frame shrink-wraps the diagram.
+   Inline that is right — the macro should not claim a page's width it isn't
+   using. In fullscreen it left a two-participant diagram as a ~330px card
+   pinned to the left of a 1000px column, with the byline's right edge 660px
+   away from the diagram's: the column alignment this redesign is built on only
+   holds if the frame actually fills the column. Width only — a stretched
+   HEIGHT is measurably worse, because @zenuml/core's bottom toolbar does not
+   follow the taller frame and a short diagram gets an empty white slab under
+   it. Vertical fill belongs in @zenuml/core, not in an override here. */
+/* :deep() because the node is rendered by @zenuml/core, not by this template,
+   so a scoped selector alone never matches it. */
+.viewer-frame--fullscreen :deep(.zenuml > div) {
+  display: block;
+  width: 100%;
 }
 /* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
    .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row

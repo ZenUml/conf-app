@@ -88,21 +88,17 @@ test.describe.serial('Paywall page banner', () => {
   // gates, and Mixpanel assertions — lives in the `pvt-paywall-banner` skill as
   // a production-verification recipe.
 
-  test('hard limit: banner renders with the count and both CTAs work', async ({ page, context }) => {
+  test('hard limit: banner renders with the count and the primary CTA opens Plan and usage', async ({ page }) => {
     await showWarningBanner(page);
     const frame = await pageBannerFrame(page);
     await expect(frame.getByTestId('paywall-warning-banner')).toContainText('101 of 100');
-    await expect(frame.getByTestId('paywall-banner-request-extension')).toBeVisible();
+    await expect(frame.getByTestId('paywall-banner-plan-usage')).toBeVisible();
 
-    // Copy admin message → button swaps its testid to paywall-banner-copied ("✓ Copied").
-    await frame.getByTestId('paywall-banner-copy-admin').click();
-    await expect(frame.getByTestId('paywall-banner-copied')).toBeVisible({ timeout: 5_000 });
-
-    // Request extension → openUrl()/router.open() opens the Service Desk in a new tab.
-    const popupPromise = context.waitForEvent('page', { timeout: 15_000 });
-    await frame.getByTestId('paywall-banner-request-extension').click();
-    const popup = await popupPromise;
-    await expect.poll(() => popup.url()).toMatch(/servicedesk|customer\/portal/i);
+    // navigateToAppPage() uses router.navigate(), which reloads the top-level
+    // Confluence page in place (no new tab) — unlike the retired
+    // Request-extension/Copy-admin-message CTAs, which opened a popup/clipboard.
+    await frame.getByTestId('paywall-banner-plan-usage').click();
+    await page.waitForURL(/zenuml-plan-usage/, { timeout: 15_000 });
   });
 
   test('dismiss snoozes — banner gone after reload despite the warning marker', async ({ page }) => {

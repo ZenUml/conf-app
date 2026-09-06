@@ -77,10 +77,21 @@ function _initMixpanel(): Promise<void> {
       // the flag fetch entirely. Every other iframe's sampling rate is set live
       // from the Forge Developer Console (see sessionReplayFlags.ts) — there is
       // deliberately no hardcoded percentage here.
-      const isPageBanner =
-        (forgeGlobal.forgeContext as any)?.moduleKey === "zenuml-page-banner";
+      //
+      // The Plan-and-usage page is the opposite override: it's a brand-new,
+      // low-traffic funnel (paywall banner -> usage -> Request Full) we want
+      // fully observed while it's new, and per-page targeting isn't something
+      // the Forge-flag cohort system supports (it buckets by install/account,
+      // not by moduleKey) — so this is hardcoded here rather than attempted as
+      // a flag. Revisit (drop back to the flag-driven rate) once the funnel has
+      // enough real traffic that 100% capture stops being worth the review cost.
+      const moduleKey = (forgeGlobal.forgeContext as any)?.moduleKey;
+      const isPageBanner = moduleKey === "zenuml-page-banner";
+      const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const { percent, source } = isPageBanner
         ? { percent: 0, source: "off" as const }
+        : isPlanUsagePage
+        ? { percent: 100, source: "plan_usage_page" as const }
         : await getSessionReplayConfig();
 
       mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {

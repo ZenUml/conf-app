@@ -25,28 +25,16 @@
          because for them the next step really is to ask someone. -->
     <div class="paywall-banner__actions">
       <button
-        v-if="audience === 'space_admin'"
         class="paywall-banner__btn paywall-banner__btn--primary"
+        data-testid="paywall-banner-plan-usage"
+        @click="onViewPlanUsage"
+      >View plan and usage</button>
+      <button
+        v-if="audience === 'space_admin'"
+        class="paywall-banner__btn paywall-banner__btn--secondary"
         data-testid="paywall-banner-unlock-space"
         @click="onUnlockSpace"
       >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
-      <button
-        :class="[
-          'paywall-banner__btn',
-          audience === 'space_admin' ? 'paywall-banner__btn--secondary' : 'paywall-banner__btn--primary',
-        ]"
-        data-testid="paywall-banner-request-extension"
-        @click="onRequestExtension"
-      >Request extension</button>
-      <button
-        v-if="audience !== 'space_admin'"
-        class="paywall-banner__btn paywall-banner__btn--secondary"
-        :data-testid="copyState === 'copied' ? 'paywall-banner-copied' : 'paywall-banner-copy-admin'"
-        @click="onCopyAdminMessage"
-      >
-        <template v-if="copyState === 'copied'">✓ Copied</template>
-        <template v-else>Copy admin message</template>
-      </button>
     </div>
     <button
       class="paywall-banner__dismiss"
@@ -69,16 +57,8 @@ import {
   UpgradeEventName,
   bundleClientReferenceId,
 } from '@/utils/upgradeTracking'
-import {
-  buildAdvocacyMessage,
-  type AdvocacyMessageContext,
-} from './buildAdvocacyMessage'
-import {
-  buildExtensionRequestContext,
-  buildExtensionRequestMessage,
-  buildExtensionRequestUrl,
-} from './buildExtensionRequest'
-import { getView, openUrl } from '@/model/globals/forgeGlobal'
+import { getView, openUrl, navigateToAppPage } from '@/model/globals/forgeGlobal'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import {
   deriveWarningBannerIdentity,
@@ -111,8 +91,6 @@ const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
 const customerSuccess = useCustomerSuccessService()
 
 const macrosLimit = MACROS_LIMIT
-const copyState = ref<'default' | 'copied'>('default')
-let copyRevertTimer: ReturnType<typeof setTimeout> | null = null
 
 // Evaluate the visibility gate SYNCHRONOUSLY in setup so the first render is
 // already correct — no false→true flash, and the gate result drives v-if from
@@ -195,18 +173,6 @@ function bannerContext() {
   }
 }
 
-function messageContext(): AdvocacyMessageContext {
-  return {
-    spaceKey: identity.spaceKey,
-    macroCount: macroCount.value,
-    macrosLimit,
-    upgradeUrl: customerSuccess.upgradeUrl.value,
-    enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-    enterpriseBundlePrice: ENTERPRISE_BUNDLE_PRICE,
-    macroKind: 'unknown',
-  }
-}
-
 function onDismiss() {
   // Snooze, not kill: stamp dismissedAt to start the 7-day window. The banner
   // returns afterwards because the underlying problem is unchanged.
@@ -220,46 +186,23 @@ function onDismiss() {
   void closeBannerView()
 }
 
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // fall through to execCommand
-  }
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.top = '-9999px'
-    textarea.setAttribute('readonly', '')
-    document.body.appendChild(textarea)
-    textarea.select()
-    const ok = document.execCommand('copy')
-    document.body.removeChild(textarea)
-    return ok
-  } catch {
-    return false
-  }
-}
-
-async function onCopyAdminMessage() {
-  const message = buildAdvocacyMessage(messageContext())
-  const copied = await copyToClipboard(message)
-  if (copied) {
-    trackUpgradeEvent(UpgradeEventName.ADVOCACY_MESSAGE_COPIED, {
-      surface: 'page_banner',
-      severity,
-      ...bannerContext(),
-    })
-    if (copyRevertTimer) clearTimeout(copyRevertTimer)
-    copyState.value = 'copied'
-    copyRevertTimer = setTimeout(() => {
-      copyState.value = 'default'
-      copyRevertTimer = null
-    }, 2000)
+/**
+ * Primary CTA (Lite paywall redesign phase 2): the banner's entry point into
+ * the site-level "Plan and usage" page, which is where the Request-Full
+ * guidance flow lives. Falls back to the Marketplace upgrade URL in the rare
+ * case navigateToAppPage can't resolve our own app/environment ids from the
+ * running iframe's location (see forgeGlobal.ts buildAppPageUrl).
+ */
+async function onViewPlanUsage() {
+  trackAnalyticsEvent('plan_usage_viewed', {
+    feature_area: 'upgrade',
+    surface: 'page_banner',
+    entry_point: 'route',
+    ...bannerContext(),
+  })
+  const navigated = await navigateToAppPage('zenuml-plan-usage')
+  if (!navigated) {
+    await openUrl(customerSuccess.upgradeUrl.value)
   }
 }
 
@@ -281,26 +224,6 @@ async function onUnlockSpace() {
     ...bannerContext(),
   })
   await openUrl(bundleUrl)
-}
-
-async function onRequestExtension() {
-  const requestContext = buildExtensionRequestContext({
-    spaceKey: identity.spaceKey,
-    macroCount: macroCount.value,
-    macrosLimit,
-    macroKind: 'unknown',
-  })
-  const requestUrl = buildExtensionRequestUrl(requestContext)
-  const requestMessage = buildExtensionRequestMessage(requestContext)
-  // Clipboard copy is a safety net: JSM drops the prefill params if the user
-  // navigates within the portal before submitting.
-  await copyToClipboard(requestMessage)
-  trackUpgradeEvent(UpgradeEventName.EXTENSION_REQUEST_CLICKED, {
-    surface: 'page_banner',
-    severity,
-    ...bannerContext(),
-  })
-  await openUrl(requestUrl)
 }
 </script>
 

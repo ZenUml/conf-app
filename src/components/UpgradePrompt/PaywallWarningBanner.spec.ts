@@ -128,17 +128,12 @@ describe('PaywallWarningBanner (page banner)', () => {
     it('renders the author copy when the host does not mark the user as an admin', () => {
       const wrapper = mount(PaywallWarningBanner)
       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="paywall-banner-copy-admin"]').exists()).toBe(true)
     })
 
     it('swaps the advocacy relay for a direct purchase CTA', () => {
       const wrapper = mount(PaywallWarningBanner, asAdmin)
       expect(wrapper.text()).toContain('You administer this space')
       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="paywall-banner-copy-admin"]').exists()).toBe(false)
-      // Asking us for more free time stays available — it is how a tenant that
-      // genuinely can't buy today still reaches us.
-      expect(wrapper.find('[data-testid="paywall-banner-request-extension"]').exists()).toBe(true)
     })
 
     it('quotes the bundle price on the CTA', () => {

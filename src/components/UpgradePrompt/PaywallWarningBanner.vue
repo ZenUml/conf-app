@@ -25,16 +25,18 @@
          because for them the next step really is to ask someone. -->
     <div class="paywall-banner__actions">
       <button
-        v-if="audience === 'space_admin'"
         class="paywall-banner__btn paywall-banner__btn--primary"
+        data-testid="paywall-banner-plan-usage"
+        @click="onViewPlanUsage"
+      >View plan and usage</button>
+      <button
+        v-if="audience === 'space_admin'"
+        class="paywall-banner__btn paywall-banner__btn--secondary"
         data-testid="paywall-banner-unlock-space"
         @click="onUnlockSpace"
       >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
       <button
-        :class="[
-          'paywall-banner__btn',
-          audience === 'space_admin' ? 'paywall-banner__btn--secondary' : 'paywall-banner__btn--primary',
-        ]"
+        class="paywall-banner__btn paywall-banner__btn--secondary"
         data-testid="paywall-banner-request-extension"
         @click="onRequestExtension"
       >Request extension</button>
@@ -78,7 +80,8 @@ import {
   buildExtensionRequestMessage,
   buildExtensionRequestUrl,
 } from './buildExtensionRequest'
-import { getView, openUrl } from '@/model/globals/forgeGlobal'
+import { getView, openUrl, navigateToAppPage } from '@/model/globals/forgeGlobal'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import {
   deriveWarningBannerIdentity,
@@ -270,6 +273,26 @@ async function onCopyAdminMessage() {
  * upgrade — the only other rail — requires a Confluence SITE admin, which a
  * space admin is not, and which we cannot detect at all.
  */
+/**
+ * Primary CTA (Lite paywall redesign phase 2): the banner's entry point into
+ * the site-level "Plan and usage" page, which is where the Request-Full
+ * guidance flow lives. Falls back to the Marketplace upgrade URL in the rare
+ * case navigateToAppPage can't resolve our own app/environment ids from the
+ * running iframe's location (see forgeGlobal.ts buildAppPageUrl).
+ */
+async function onViewPlanUsage() {
+  trackAnalyticsEvent('plan_usage_viewed', {
+    feature_area: 'upgrade',
+    surface: 'page_banner',
+    entry_point: 'route',
+    ...bannerContext(),
+  })
+  const navigated = await navigateToAppPage('zenuml-plan-usage')
+  if (!navigated) {
+    await openUrl(customerSuccess.upgradeUrl.value)
+  }
+}
+
 async function onUnlockSpace() {
   const bundleUrl = customerSuccess.enterpriseBundleUrl.value
   const reference = bundleClientReferenceId(bundleUrl)

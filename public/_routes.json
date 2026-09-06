@@ -15,6 +15,7 @@
     "/api/diagram-impact/*",
     "/api/architecture-tokens/*",
     "/api/space-status",
+    "/api/plan-usage",
     "/api/space-license",
     "/api/support/extension-actions",
     "/api/user-cohorts",

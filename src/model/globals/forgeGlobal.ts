@@ -260,6 +260,39 @@ export async function navigateToPage(spaceKey: string, pageId: string) {
   }
 }
 
+// In-product navigation to one of OUR OWN app's other confluence:globalPage
+// routes (e.g. the page banner linking to the Plan-and-usage page). Forge
+// exposes no bridge API to resolve "my own app's URL" from inside a running
+// Custom UI iframe, but every such iframe's own `location.pathname` already
+// starts with `/<appId>/<environmentId>/...` (verified against a live
+// zenuml-dashboard globalPage load: the browser-visible URL is
+// `/wiki/apps/<appId>/<environmentId>/<route>` — same two IDs, same order).
+// Deriving them from the running iframe's own address avoids hardcoding an
+// environment-specific app/environment id pair that would break across
+// dev/staging/prod.
+export function buildAppPageUrl(route: string): string | undefined {
+  try {
+    const segments = window.location.pathname.split('/').filter(Boolean);
+    const [appId, environmentId] = segments;
+    if (!appId || !environmentId) return undefined;
+    return `/wiki/apps/${appId}/${environmentId}/${route}`;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function navigateToAppPage(route: string): Promise<boolean> {
+  const path = buildAppPageUrl(route);
+  if (!path) return false;
+  if (global.isForge) {
+    const { router } = await import("@forge/bridge");
+    await router.navigate(path);
+  } else {
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+  return true;
+}
+
 // @ts-ignore
 window.forgeGlobal = global;
 

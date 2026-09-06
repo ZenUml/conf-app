@@ -12,12 +12,11 @@
     </svg>
     <span v-if="audience === 'space_admin'" class="paywall-banner__text">
       You administer this space, and it is over the ZenUML Lite diagram limit
-      ({{ macroCount }} of {{ macrosLimit }}). Your team can keep creating and editing
-      diagrams — consider upgrading to Full so this space stays covered.
+      ({{ macroCount }} of {{ macrosLimit }}). Upgrade to Full before it affects your team.
     </span>
     <span v-else class="paywall-banner__text">
       This space is over the ZenUML Lite diagram limit ({{ macroCount }} of {{ macrosLimit }}).
-      You can keep creating and editing diagrams — ask a space admin about upgrading to Full.
+      Ask a site admin to upgrade to Full before it affects your team.
     </span>
     <!-- Space admins get a purchase path they can execute alone: the Enterprise
          Bundle is per-space and paid by card, so unlike the Marketplace upgrade

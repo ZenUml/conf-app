@@ -125,7 +125,9 @@ const copyState = ref<'default' | 'copied'>('default')
 const upgradeUrl = computed(() => `${BASE_UPGRADE_URL}?domain=${domain.value}`)
 
 const reasonText = computed(() => {
-  const spaceList = overLimitSpaces.value.map((s) => s.spaceKey).join(', ') || getSpaceKey() || 'this space'
+  const spaceList = overLimitSpaces.value.length
+    ? overLimitSpaces.value.map((s) => `${s.spaceKey} (${s.macroCount.toLocaleString()} diagrams)`).join(', ')
+    : getSpaceKey() || 'this space'
   return [
     `Our team uses ZenUML diagrams on Confluence, and we've grown past the Lite plan's per-space limit`,
     `(${macrosLimit.value} diagrams) in: ${spaceList}.`,

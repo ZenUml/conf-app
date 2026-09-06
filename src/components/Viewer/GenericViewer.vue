@@ -1665,11 +1665,22 @@ export default {
    HEIGHT is measurably worse, because @zenuml/core's bottom toolbar does not
    follow the taller frame and a short diagram gets an empty white slab under
    it. Vertical fill belongs in @zenuml/core, not in an override here. */
-/* :deep() because the node is rendered by @zenuml/core, not by this template,
-   so a scoped selector alone never matches it. */
+/* :deep() because these nodes are rendered by @zenuml/core, not by this
+   template, so a scoped selector alone never matches them.
+
+   `max-content` rather than `100%`: a diagram wider than the column has to
+   stay reachable. @zenuml/core's own wrapper is `overflow: hidden`, so pinning
+   its root to the column's width silently cut the right-hand participants off
+   with nothing to scroll — the frame is allowed to be as wide as its content,
+   and the column scrolls to it. `min-width: 100%` is what makes the narrow
+   case fill rather than shrink-wrap. */
+.viewer-frame--fullscreen :deep(.zenuml) {
+  overflow-x: auto;
+}
 .viewer-frame--fullscreen :deep(.zenuml > div) {
   display: block;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
 }
 /* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
    .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row

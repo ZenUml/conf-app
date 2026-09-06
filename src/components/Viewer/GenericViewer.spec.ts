@@ -605,6 +605,157 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // Fullscreen Viewer v2 (design handoff). Fullscreen gets its own chrome: a
+  // diagram-type chip beside the title, a Source button that toggles, and
+  // Escape unwinding one layer at a time. The inline macro is unchanged.
+  describe('Fullscreen Viewer v2', () => {
+    const asFullscreen = () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+    }
+
+    afterEach(() => {
+      delete (window as any).forgeGlobal
+    })
+
+    describe('diagram-type chip', () => {
+      it.each([
+        [DiagramType.Sequence, 'Sequence', 'viewer-type-chip--sequence'],
+        [DiagramType.Mermaid, 'Mermaid', 'viewer-type-chip--mermaid'],
+        [DiagramType.PlantUml, 'PlantUML', 'viewer-type-chip--plantuml'],
+      ])('labels %s with its accent in fullscreen', async (type, label, accentClass) => {
+        asFullscreen()
+        store.commit('updateDiagramType', type)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        const chip = wrapper.find('[data-testid="viewer-type-chip"]')
+        expect(chip.exists()).toBe(true)
+        expect(chip.text()).toBe(label)
+        expect(chip.find('.viewer-type-chip').classes()).toContain(accentClass)
+      })
+
+      // The chip earns its place by naming the type on a surface that fills the
+      // screen; the inline macro sits in a Confluence page that already frames
+      // it, and its header row is deliberately quiet.
+      it('is not rendered on the inline viewer', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
+      })
+
+      // No accent is defined for graph / openapi / asyncapi / embed, and the
+      // chip is not worth inventing one for.
+      it('is omitted for a diagram type with no accent', async () => {
+        asFullscreen()
+        store.commit('updateDiagramType', DiagramType.Graph)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
+      })
+    })
+
+    describe('Source toggle', () => {
+      it('closes the panel it opened when clicked a second time', async () => {
+        asFullscreen()
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        const button = wrapper.find('[data-testid="view-source-btn"]')
+        await button.trigger('click')
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(true)
+        expect(button.attributes('aria-expanded')).toBe('true')
+
+        await button.trigger('click')
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
+        expect(button.attributes('aria-expanded')).toBe('false')
+      })
+
+      // The toggle must not double-count the funnel: viewer_source_opened still
+      // means "a panel was opened", once per open.
+      it('tracks viewer_source_opened only on the opening click', async () => {
+        asFullscreen()
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        const button = wrapper.find('[data-testid="view-source-btn"]')
+        await button.trigger('click')
+        await button.trigger('click')
+        await button.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        const opens = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_source_opened')
+        expect(opens).toHaveLength(2)
+      })
+    })
+
+    describe('Escape', () => {
+      it('closes the source panel', async () => {
+        asFullscreen()
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(true)
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
+
+        wrapper.unmount()
+      })
+
+      // One Escape, one layer: the Copy-for-AI menu is on top, so it goes first
+      // and the panel behind it survives. Regression guard for the
+      // capture-phase listener — a bubble-phase one reads the menu as already
+      // closed (CopyForAiMenu's own handler runs first) and closes both.
+      it('closes the Copy for AI menu before the panel', async () => {
+        asFullscreen()
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+        await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[role="menu"]').exists()).toBe(true)
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+        expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(true)
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
+
+        wrapper.unmount()
+      })
+
+      // The listener is document-level; an unmounted viewer must not keep
+      // answering keystrokes.
+      it('stops listening once the viewer unmounts', async () => {
+        asFullscreen()
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const removeSpy = vi.spyOn(document, 'removeEventListener')
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        wrapper.unmount()
+        expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function), true)
+        removeSpy.mockRestore()
+      })
+    })
+  })
+
   // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).
   describe('Copy for AI', () => {
     const SOURCE_DSL = 'Alice->Bob: hello\nBob->Alice: hi'

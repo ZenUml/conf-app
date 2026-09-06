@@ -3,7 +3,14 @@ export interface SandboxPreset {
   label: string;
   group: 'Sequence' | 'Graph' | 'OpenAPI' | 'Embed' | 'Paywall';
   moduleKey: string;
-  macroMode: 'editor' | 'viewer';
+  /**
+   * 'fullscreen' is the Forge fullscreen modal — a viewer surface, not an
+   * authoring one (ApWrapper2.isDisplayMode() returns true for it). It needs
+   * its own value because the standalone context shape matches neither of the
+   * other two: 'viewer' has no extension.modal at all, and 'editor' sets
+   * macro.isConfiguring.
+   */
+  macroMode: 'editor' | 'viewer' | 'fullscreen';
   diagramType: string;
   customContentId?: string;
   /**
@@ -22,6 +29,18 @@ export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
     group: 'Sequence',
     moduleKey: 'zenuml-sequence-macro',
     macroMode: 'viewer',
+    diagramType: 'sequence',
+    customContentId: 'fake-content-id-diagram-sequence',
+  },
+  // The fullscreen modal had no local repro until the Fullscreen Viewer v2
+  // redesign needed one: its chrome, canvas and byline placement all differ
+  // from the inline macro's, and none of that is reachable from 'seq-view'.
+  'seq-fullscreen': {
+    id: 'seq-fullscreen',
+    label: 'Sequence – Fullscreen viewer',
+    group: 'Sequence',
+    moduleKey: 'zenuml-sequence-macro',
+    macroMode: 'fullscreen',
     diagramType: 'sequence',
     customContentId: 'fake-content-id-diagram-sequence',
   },

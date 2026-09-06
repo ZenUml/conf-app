@@ -116,14 +116,19 @@ function getStandaloneContext(): any {
     if (preset) {
       if (preset.paywall) applyPaywallSandboxMocks();
       const isEditor = preset.macroMode === 'editor';
+      // Fullscreen is the other bridge-opened modal. It carries extension.modal
+      // like the editor does, but is a display surface — isDisplayMode() reads
+      // macroMode === 'fullscreen' as true, and macro.isConfiguring stays false.
+      const isModal = isEditor || preset.macroMode === 'fullscreen';
       return {
         extension: {
           type: 'standalone',
           content: { id: 'local-dev-page' },
           config: { uuid: 'local-dev-uuid', customContentId: preset.customContentId },
           // In a real Forge page macro, extension.modal is only set when the app is opened
-          // as a dialog (editor). Viewer mode has no modal — isDisplayMode() checks for this.
-          modal: isEditor ? { macroMode: preset.macroMode, diagramType: preset.diagramType } : undefined,
+          // as a dialog (editor or fullscreen). Inline viewer mode has no modal —
+          // isDisplayMode() checks for this.
+          modal: isModal ? { macroMode: preset.macroMode, diagramType: preset.diagramType } : undefined,
           macro: { isConfiguring: isEditor, isInserting: false },
         },
         moduleKey: preset.moduleKey,

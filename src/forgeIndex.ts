@@ -171,6 +171,26 @@ async function initializeCriticalPath() {
   // stays a true fast-exit.
   // (Routed by moduleKey, not extension.type, because the pageBanner extension
   // carries no macro config to discriminate on.)
+  // The unplaced-diagram banner. A SEPARATE pageBanner module from the host
+  // below because Confluence gates it server-side on a content property
+  // (`entityPropertyExists`, see manifest.yml): reaching this line at all
+  // means the page HAS unplaced diagrams recorded, so there is no cheap
+  // local gate to run and nothing to fast-exit. The component verifies the
+  // record against the live page and closes itself if it does not hold.
+  if ((context as any).moduleKey === 'zenuml-unplaced-banner') {
+    // Awaited for the same reason the shared host awaits it, and this module
+    // needs it MORE: its component asks higherPriorityBannerPending(), which
+    // reads the space-admin verdict this probe writes. Without it, on the one
+    // load per 30 days where the probe first resolves, an admin on an
+    // over-limit unpaid Lite space gets no verdict here, does not yield, and
+    // the unplaced notice renders stacked under the paywall banner — the exact
+    // stacking that priority cascade exists to prevent. Lite-only and throttled
+    // inside, so every other load exits synchronously. Never throws.
+    await maybeProbeSpaceAdmin();
+    await handlePageBannerRoute('unplaced-property');
+    return { macroData: null };
+  }
+
   if ((context as any).moduleKey === 'zenuml-page-banner') {
     // Phase 5a measurement: detect whether the current user is a space admin
     // and, when so, fire `space_admin_active`. Runs on EVERY page-banner load
@@ -253,7 +273,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   if (
     (!isOpenedModal &&
       ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage', 'confluence:homepageFeed'].includes(context.extension?.type)) ||
-    (context as any).moduleKey === 'zenuml-page-banner'
+    (context as any).moduleKey === 'zenuml-page-banner' ||
+    (context as any).moduleKey === 'zenuml-unplaced-banner'
   ) {
     console.log('Skipping heavy components load for global context');
     return;
@@ -1060,6 +1081,64 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   } else {
     await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
   }
+
+  // Last, and for every macro kind: if THIS macro is the one the user just
+  // placed from the byline or the banner, pull the reloaded page down to it and
+  // ring it. Placed here rather than in each viewer because the note is keyed
+  // by customContentId, which is the same fact whatever renders it. Never
+  // awaited and never throws — the diagram is on the page either way.
+  if (!editable) void maybeRevealPlacedMacro(recoveryPageId, customContentId, doc?.diagramType);
+}
+
+/**
+ * The receiving half of the one-click place (see utils/byline/revealDiagram.ts
+ * for why a focus is what scrolls Confluence).
+ *
+ * Waits for the macro to stop growing first. The iframe is sized by its
+ * content, so focusing while the diagram is still rendering would scroll to a
+ * box that is about to move — the scroll has to be the last thing that happens.
+ */
+async function maybeRevealPlacedMacro(
+  pageId: string | undefined,
+  customContentId: string | undefined,
+  diagramType: string | undefined,
+) {
+  try {
+    const { claimReveal, revealThisMacro } = await import('@/utils/byline/revealDiagram');
+    const ageMs = claimReveal(pageId, customContentId);
+    if (ageMs === null) return;
+
+    await settled();
+    revealThisMacro();
+
+    const [{ trackAnalyticsEvent }, { toMacroType }] = await Promise.all([
+      import('@/utils/analytics/trackAnalyticsEvent'),
+      import('@/utils/byline/pageDiagrams'),
+    ]);
+    trackAnalyticsEvent('diagram_revealed', {
+      feature_area: 'byline',
+      surface: 'macro',
+      ...(diagramType ? { macro_type: toMacroType(diagramType) } : {}),
+      reveal_age_ms: ageMs,
+    });
+  } catch (e) {
+    console.debug('[reveal] skipped', e);
+  }
+}
+
+/** Resolve once the document has held the same height twice in a row, or at the deadline. */
+function settled(deadlineMs = 4000, quietMs = 250): Promise<void> {
+  return new Promise(resolve => {
+    const started = Date.now();
+    let last = -1;
+    const tick = () => {
+      const h = document.documentElement.scrollHeight;
+      if (h === last || Date.now() - started > deadlineMs) return resolve();
+      last = h;
+      window.setTimeout(tick, quietMs);
+    };
+    window.setTimeout(tick, quietMs);
+  });
 }
 
 // Main function to orchestrate the two-phase loading

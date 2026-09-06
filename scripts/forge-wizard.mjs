@@ -151,6 +151,16 @@ export const APPS = {
           '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
       },
       {
+        // The unplaced-diagram banner is gated on a content property that only
+        // `zenuml-byline-diagrams` writes, and that entry is Lite-only (stripped
+        // just above). Shipped here it is a module that can never fire — an
+        // iframe slot Confluence reserves against a key nothing in this variant
+        // will ever set. Mirrored in release.yml and staging-deploy.yml.
+        description:
+          'Remove zenuml-unplaced-banner from confluence:pageBanner — only Lite ships zenuml-byline-diagrams, the sole writer of the content property it is gated on',
+        yqEvalExpr: 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))',
+      },
+      {
         // The /new/<type> and /d/<type>/*/* matchers are the byline's
         // paste-to-create and paste-to-place links, and ONLY Lite ships the
         // byline that mints them. Left in place they collide on both-installed
@@ -233,6 +243,16 @@ export const APPS = {
         description: 'Remove the Lite diagrams byline entry (Diagramly keeps Aide)',
         yqEvalExpr:
           'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))',
+      },
+      {
+        // The unplaced-diagram banner is gated on a content property that only
+        // `zenuml-byline-diagrams` writes, and that entry is Lite-only (stripped
+        // just above). Shipped here it is a module that can never fire — an
+        // iframe slot Confluence reserves against a key nothing in this variant
+        // will ever set. Mirrored in release.yml and staging-deploy.yml.
+        description:
+          'Remove zenuml-unplaced-banner from confluence:pageBanner — only Lite ships zenuml-byline-diagrams, the sole writer of the content property it is gated on',
+        yqEvalExpr: 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))',
       },
       {
         // The /new/<type> and /d/<type>/*/* matchers are the byline's
@@ -327,6 +347,16 @@ export const APPS = {
         description: 'Remove globalSettings + globalPage + contentBylineItem + homepageFeed (asyncapi uses spacePage only)',
         yqEvalExpr:
           'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"]) | del(.modules["confluence:homepageFeed"])',
+      },
+      {
+        // The unplaced-diagram banner is gated on a content property that only
+        // `zenuml-byline-diagrams` writes, and that entry is Lite-only (stripped
+        // just above). Shipped here it is a module that can never fire — an
+        // iframe slot Confluence reserves against a key nothing in this variant
+        // will ever set. Mirrored in release.yml and staging-deploy.yml.
+        description:
+          'Remove zenuml-unplaced-banner from confluence:pageBanner — only Lite ships zenuml-byline-diagrams, the sole writer of the content property it is gated on',
+        yqEvalExpr: 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))',
       },
       {
         description: 'Remove non-asyncapi custom content types',

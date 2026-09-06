@@ -506,6 +506,30 @@ modules:
       # because every macro module already declares this same binding.
       resolver:
         endpoint: remote-connect
+    # The unplaced-diagram notice: a diagram saved on this page that no macro on
+    # it renders. Its own module rather than a fourth branch of the host above,
+    # because THIS one can be gated server-side.
+    #
+    # `entityPropertyExists` is evaluated by Confluence BEFORE the module
+    # renders, so on a page with no unplaced diagram the iframe is never
+    # created — no boot, no request, no reserved slot to collapse. The host
+    # above cannot do that: paywall and CSAT targeting live in localStorage,
+    # which Confluence cannot see, so it must boot to decide.
+    #
+    # The property is written by the byline (src/utils/byline/
+    # unplacedProperty.ts) and deleted by it — or by this banner — once the
+    # diagrams are placed. Key templated like every other per-variant key:
+    # content properties are site-global across apps, so an unsuffixed key
+    # would let Full's banner boot on a property Lite wrote. Keep it in
+    # lockstep with UNPLACED_PROPERTY_KEY.
+    - key: zenuml-unplaced-banner
+      resource: main
+      resolver:
+        endpoint: remote-connect
+      displayConditions:
+        entityPropertyExists:
+          entity: content
+          propertyKey: zenuml-unplaced-diagrams${LITE_KEY_SUFFIX}
   # End-user entry point on the Confluence Home page (right side panel). The
   # confluence:globalSettings "Get Started" page above is admin-only — end
   # users never open global settings — so this is the only onboarding surface

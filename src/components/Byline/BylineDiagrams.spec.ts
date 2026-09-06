@@ -4,6 +4,8 @@ import BylineDiagrams from '@/components/Byline/BylineDiagrams.vue';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { openModal } from '@/model/globals/forgeGlobal';
 import { DiagramType } from '@/model/Diagram/Diagram';
+import { readUnplacedMarker } from '@/utils/byline/unplacedMarker';
+import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -16,6 +18,23 @@ const apWrapper = vi.hoisted(() => ({
   referencedCustomContentIds: vi.fn(async () => undefined as string[] | undefined),
 }));
 vi.mock('@/model/globals', () => ({ default: { apWrapper } }));
+
+// The cross-user store. Its own REST behaviour is covered in
+// unplacedProperty.spec.ts; here only the byline's use of it is in scope.
+vi.mock('@/utils/byline/unplacedProperty', () => ({
+  persistUnplacedProperty: vi.fn(async () => 'written'),
+}));
+
+// The one-click place. Its REST behaviour is covered in addToPage.spec.ts.
+// The shared place-then-reload step. Its ordering (record rewritten before the
+// reload, note withdrawn when the reload fails) is covered in placeDiagram.spec.
+const placeDiagram = vi.hoisted(() =>
+  vi.fn(async (_pageId: string, d: any, onPlaced?: () => any) => {
+    await onPlaced?.();
+    return { result: 'added', pageMacroCount: 1, placed: true, refused: false, message: null };
+  }),
+);
+vi.mock('@/utils/byline/placeDiagram', () => ({ placeDiagram }));
 
 const forgeGlobalMock = vi.hoisted(() => ({ forgeContext: { cloudId: 'cloud-1' } as any }));
 vi.mock('@/model/globals/forgeGlobal', () => ({
@@ -34,6 +53,7 @@ const spaceKey = vi.hoisted(() => ({ value: 'SPACE' }));
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   NO_SPACE_CONTEXT: 'no_space_context',
   getSpaceKey: () => spaceKey.value,
+  getClientDomain: () => 'example-tenant',
 }));
 
 const routerNavigate = vi.hoisted(() => vi.fn(async () => {}));
@@ -74,12 +94,18 @@ describe('BylineDiagrams', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     spaceKey.value = 'SPACE';
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1' };
     apWrapper._getCurrentPageId.mockResolvedValue('page-1');
     apWrapper.listPageDiagramContents.mockResolvedValue([]);
     apWrapper.getAttachmentsV2.mockResolvedValue([]);
     apWrapper.referencedCustomContentIds.mockResolvedValue(undefined);
+    vi.mocked(persistUnplacedProperty).mockResolvedValue('written');
+    placeDiagram.mockImplementation(async (_p: string, _d: any, onPlaced?: () => any) => {
+      await onPlaced?.();
+      return { result: 'added', pageMacroCount: 1, placed: true, refused: false, message: null };
+    });
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
@@ -813,22 +839,71 @@ describe('BylineDiagrams', () => {
   });
 
   describe('diagrams that are not on the page', () => {
+    /** The banner reads by domain + page id; both sides derive it the same way. */
+    const IDENTITY = { clientDomain: 'example-tenant', pageId: 'page-1' };
     const TWO = [
       ok(child('1', 'Placed', DiagramType.Sequence), child('2', 'Stray', DiagramType.Sequence)),
     ];
 
-    it('offers a Copy URL only on the diagram no macro renders', async () => {
+    it('offers the fix only on the diagram no macro renders', async () => {
       // A diagram saved from the byline and never pasted exists as this page's
       // custom content — and counts against the Lite limit — but nothing shows
-      // it. The link is the only way to place it.
+      // it. The fix belongs on the row that names the problem.
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
       apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       const wrapper = await mountByline();
 
       const rows = wrapper.findAll('[data-testid="byline-item"]');
-      expect(rows[0].find('[data-testid="byline-copy-url"]').exists()).toBe(false);
-      expect(rows[1].find('[data-testid="byline-copy-url"]').exists()).toBe(true);
+      expect(rows[0].find('[data-testid="byline-add-to-page"]').exists()).toBe(false);
+      expect(rows[1].find('[data-testid="byline-add-to-page"]').exists()).toBe(true);
       expect(rows[1].text()).toContain('not on this page');
+    });
+
+    it('places the diagram in one click and drops the label', async () => {
+      // The four-step alternative is the flow the user already abandoned once —
+      // which is why this diagram is unplaced at all.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+
+      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: '2' }), expect.any(Function));
+      expect(wrapper.text()).not.toContain('not on this page');
+      expect(events('diagram_added_to_page')[0][1]).toMatchObject({
+        result: 'added',
+        macro_type: 'sequence',
+        page_macro_count: 1,
+      });
+      // The record the banner reads is rewritten in the same breath, or the
+      // page banner would announce a diagram the user just watched appear.
+      expect(persistUnplacedProperty).toHaveBeenLastCalledWith('page-1', []);
+      // The stored page changed but the page behind this panel did not, so the
+      // diagram would otherwise appear nowhere until the user navigated.
+      // The reload and the reveal note live in placeDiagram (see its spec); the
+      // row's job is to hand it the record rewrite to run before the reload.
+      expect(placeDiagram.mock.calls[0][2]).toEqual(expect.any(Function));
+    });
+
+    it('falls back to the link when the write is refused', async () => {
+      // The byline reaches every reader, and a reader is not always an author.
+      placeDiagram.mockResolvedValue({
+        result: 'forbidden', placed: false, refused: true,
+        message: 'You do not have permission to edit this page — copy the link and send it to someone who does.',
+      });
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="byline-add-to-page"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-copy-url"]').exists()).toBe(true);
+      expect(wrapper.text()).toContain('not on this page');
+      expect(events('diagram_added_to_page')[0][1]).toMatchObject({ result: 'forbidden' });
     });
 
     it('renders the rows in the order the page reads, strays last', async () => {
@@ -861,9 +936,16 @@ describe('BylineDiagrams', () => {
     });
 
     it('copies the typed deeplink for the stray diagram', async () => {
+      // Copy URL is the fallback once a write has been refused.
+      placeDiagram.mockResolvedValue({
+        result: 'forbidden', placed: false, refused: true,
+        message: 'You do not have permission to edit this page — copy the link and send it to someone who does.',
+      });
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
       apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       const wrapper = await mountByline();
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
 
       await wrapper.find('[data-testid="byline-copy-url"]').trigger('click');
       await flushPromises();
@@ -891,12 +973,127 @@ describe('BylineDiagrams', () => {
       });
     });
 
+    it('records the verdict on the PAGE, so it reaches whoever opens it', async () => {
+      // The content property is the cross-user store, and Confluence gates the
+      // banner module on its existence — the browser-local marker can only ever
+      // reach the person who created the diagram.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      await mountByline();
+
+      expect(persistUnplacedProperty).toHaveBeenCalledWith('page-1', [
+        { id: '2', title: 'Stray', diagramType: DiagramType.Sequence },
+      ]);
+      expect(events('unplaced_property_write')[0][1]).toMatchObject({
+        result: 'written',
+        unplaced_count: 1,
+      });
+    });
+
+    it('stands the shared banner host down once the property carries it', async () => {
+      // Otherwise the gated module AND the shared host both show the notice.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      await mountByline();
+
+      expect(readUnplacedMarker(IDENTITY)?.viaProperty).toBe(true);
+    });
+
+    it('falls back to the per-browser marker when the property write is denied', async () => {
+      // The write runs as the user; creating custom content on a page does not
+      // prove permission to write its properties. Creator-only reach beats none.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      vi.mocked(persistUnplacedProperty).mockResolvedValue('forbidden');
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      await mountByline();
+
+      const marker = readUnplacedMarker(IDENTITY);
+      expect(marker?.viaProperty).toBe(false);
+      expect(marker?.entries).toEqual([{ id: '2', title: 'Stray', diagramType: DiagramType.Sequence }]);
+      expect(events('unplaced_property_write')[0][1]).toMatchObject({ result: 'forbidden' });
+    });
+
+    it('clears the record once everything is placed, retiring the banner', async () => {
+      // An empty list reaches the property as a DELETE — taking the page off
+      // the display-condition gate entirely.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1', '2']);
+      await mountByline();
+
+      expect(persistUnplacedProperty).toHaveBeenCalledWith('page-1', []);
+      expect(readUnplacedMarker(IDENTITY)?.entries).toEqual([]);
+    });
+
+    it('records nothing while the host page is in the EDITOR', async () => {
+      // The scan reads the PUBLISHED ADF, which cannot see the draft the author
+      // is editing — so a diagram they have just pasted still reads as
+      // unplaced. In the byline that only added a Copy URL button for the
+      // author; recorded on the page it becomes a banner telling EVERYONE the
+      // diagram is missing, which is a claim we cannot verify while a draft is
+      // open.
+      forgeGlobalMock.forgeContext = {
+        cloudId: 'cloud-1',
+        extension: { content: { id: 'page-1' }, isEditing: true },
+      };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      await mountByline();
+
+      expect(persistUnplacedProperty).not.toHaveBeenCalled();
+      expect(readUnplacedMarker(IDENTITY)).toBeNull();
+      // The panel still labels it for the author — the affordance is unchanged.
+      expect(events('byline_unplaced_scanned')[0][1]).toMatchObject({ unplaced_count: 1 });
+    });
+
+    it('writes no marker at all when the page could not be scanned', async () => {
+      // An unreadable ADF must never be written down as "everything is
+      // unplaced" — the banner would then name every diagram on the page.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(undefined);
+      await mountByline();
+
+      expect(readUnplacedMarker(IDENTITY)).toBeNull();
+      expect(persistUnplacedProperty).not.toHaveBeenCalled();
+    });
+
+    it('arms the banner for a diagram just created here', async () => {
+      // The create→paste handoff's one failure mode: saved, never pasted. At
+      // this instant it is unplaced by definition.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      apWrapper.referencedCustomContentIds.mockResolvedValue([]);
+      const wrapper = await mountByline();
+
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('9', 'Brand new', DiagramType.Mermaid)),
+      ]);
+      await wrapper.find('[data-testid="byline-type-flowchart"]').trigger('click');
+      await flushPromises();
+      await closeEditor();
+
+      expect(persistUnplacedProperty).toHaveBeenLastCalledWith('page-1', [
+        { id: '9', title: 'Brand new', diagramType: DiagramType.Mermaid },
+      ]);
+    });
+
     it('does not hand over a broken link when there is no cloudId', async () => {
+      // Copy URL is the fallback once a write has been refused.
+      placeDiagram.mockResolvedValue({
+        result: 'forbidden', placed: false, refused: true,
+        message: 'You do not have permission to edit this page — copy the link and send it to someone who does.',
+      });
       forgeGlobalMock.forgeContext = { cloudId: undefined };
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
       apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const wrapper = await mountByline();
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
 
       await wrapper.find('[data-testid="byline-copy-url"]').trigger('click');
       await flushPromises();

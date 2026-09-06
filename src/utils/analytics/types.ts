@@ -385,7 +385,44 @@ export type AnalyticsProperties = {
   // pasted. Read against `diagram_count` from the same event. Deliberately
   // absent rather than 0 when the ADF could not be read: "scanned, found none"
   // and "could not scan" must not collapse into the same number.
+  // Also carried by unplaced_banner_evaluated / _shown, where it is the
+  // VERIFIED count from that load's own ADF scan — not the marker's stored
+  // one, which may name diagrams the user has since pasted.
   unplaced_count?: number;
+  // unplaced_banner_evaluated. Date.now() − the updatedAt of whichever RECORD
+  // admitted the load — the content property on the gated path, the localStorage
+  // marker on the fallback (`unplaced_source` says which). Named for the marker
+  // because that store came first; it measures the same thing either way: how
+  // long ago the byline last observed these diagrams unplaced. Read against
+  // `result`, it says how quickly a stale record is discovered — a large age on
+  // an 'all_placed' result means we kept paying for the verification scan long
+  // after the user fixed the page.
+  unplaced_marker_age_ms?: number;
+  // diagram_revealed: how long between the surface requesting the reveal (just
+  // before it reloaded the page) and the macro claiming it. Spans a full
+  // Confluence page load, so it is a page-weight number as much as ours — read
+  // against REVEAL_TTL_MS, which is what a slower page would have exceeded.
+  reveal_age_ms?: number;
+  // Which store armed the unplaced banner. 'property' is the Confluence content
+  // property — cross-user, and gated server-side by displayConditions, so the
+  // iframe only boots on pages that have it. 'marker' is the per-browser
+  // localStorage fallback, used when the property write was denied.
+  //
+  // Read as a ratio this is the health of the whole cross-user path: a rising
+  // 'marker' share means property writes are failing in the field and the
+  // banner has quietly degraded to creator-only reach.
+  unplaced_source?: 'property' | 'marker';
+  // unplaced_banner_evaluated, result 'yielded'. Which higher-priority banner
+  // took the page instead. Two Confluence modules render two iframes, so this
+  // notice stands down rather than stack — and the count says how often the
+  // page's one banner slot was already spoken for, which is the only way to
+  // tell "nobody sees this" apart from "nobody has unplaced diagrams".
+  suppressed_by?: 'paywall' | 'paywall-admin' | 'csat';
+  // diagram_added_to_page. How many macros the page already carried when the
+  // one-click place ran. Read with `result`: a page at the Lite limit is the
+  // case where placing a diagram and hitting the paywall collide, and this is
+  // the only number that would show it.
+  page_macro_count?: number;
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).

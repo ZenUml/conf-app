@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import yaml from "js-yaml";
 import { getManifestEditYqArgs } from "./scripts/forge-wizard.mjs";
+import { UNPLACED_PROPERTY_KEY } from "./src/utils/byline/unplacedProperty";
 
 describe("manifest.yml embed deeplink autoConvert matcher", () => {
   it("default (lite/diagramly-inherited) matcher points at conf-lite.zenuml.com", () => {
@@ -84,4 +85,64 @@ describe("manifest.yml embed deeplink autoConvert matcher", () => {
     expect(stepsMentioningEmbedMacroRemoval(release.jobs.release.steps)).toEqual([]);
     expect(stepsMentioningEmbedMacroRemoval(staging.jobs.deploy.steps)).toEqual([]);
   });
+});
+
+// The unplaced-diagram banner is the one module whose visibility Confluence
+// decides for us, from a content property key that is written in TypeScript and
+// read in YAML. Two comments say "keep them in lockstep"; this is what enforces
+// it — a rename on either side silently means the banner never shows again.
+describe("unplaced-diagram banner — the property key both sides depend on", () => {
+  const manifest: any = yaml.load(readFileSync("./manifest.yml", "utf-8"));
+  const banner = () =>
+    manifest.modules["confluence:pageBanner"].find((m: any) => m.key === "zenuml-unplaced-banner");
+
+  it("gates the module on a content property that exists", () => {
+    const condition = banner()?.displayConditions?.entityPropertyExists;
+    expect(condition?.entity).toBe("content");
+    // ${LITE_KEY_SUFFIX} is substituted by Forge at deploy time from the
+    // per-variant environment (see .env.forge.*), so the manifest carries the
+    // template and the build carries the value.
+    expect(condition?.propertyKey).toBe("zenuml-unplaced-diagrams${LITE_KEY_SUFFIX}");
+  });
+
+  it("resolves to the same key the writer uses", () => {
+    // PRODUCT_TYPE is not set in the unit build, so the writer resolves to the
+    // unsuffixed form here. Compare the STEMS: that is what a rename on either
+    // side breaks, and it holds whichever variant the bundle is built for.
+    const template: string = banner().displayConditions.entityPropertyExists.propertyKey;
+    expect(template.replace("${LITE_KEY_SUFFIX}", "")).toBe(
+      UNPLACED_PROPERTY_KEY.replace(/-lite$/, ""),
+    );
+  });
+
+  it("is stripped from every variant that cannot write the property", () => {
+    // Only Lite ships zenuml-byline-diagrams, the sole writer. Elsewhere the
+    // module could never fire, so it should not be deployed at all.
+    for (const variant of ["full", "diagramly", "asyncapi"]) {
+      const exprs = getManifestEditYqArgs(variant).map((e) => e.expr);
+      expect(
+        exprs.some((e) => e.includes('select(.key == "zenuml-unplaced-banner")')),
+        `${variant} should strip zenuml-unplaced-banner`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps the module on Lite", () => {
+    const exprs = getManifestEditYqArgs("lite").map((e) => e.expr);
+    expect(exprs.some((e) => e.includes("zenuml-unplaced-banner"))).toBe(false);
+  });
+
+  for (const [file, gate] of [
+    [".github/workflows/staging-deploy.yml", "needs.resolve.outputs.variant != 'lite'"],
+    [".github/workflows/release.yml", "${{ steps.properties.outputs.license != 'lite' }}"],
+  ] as const) {
+    it(`${file} strips it for non-Lite variants too`, () => {
+      const workflow: any = yaml.load(readFileSync(`./${file}`, "utf-8"));
+      const step = Object.values<any>(workflow.jobs)
+        .flatMap((job: any) => job.steps ?? [])
+        .find((s: any) => s.name === "Remove the unplaced-diagram page banner (non-Lite variants)");
+      expect(step?.if).toBe(gate);
+      expect(step?.with?.cmd).toContain('select(.key == "zenuml-unplaced-banner")');
+    });
+  }
 });

@@ -552,6 +552,126 @@ export type AnalyticsEventName =
   // ('closed' | 'unsupported' | 'failed') is how we find out whether a byline
   // item can dismiss itself, rather than assuming it.
   | "byline_view_close_requested"
+  // ---- Unplaced-diagram page banner (byline surface, page_banner surface) ----
+  //
+  // The byline already labels a diagram "not on this page" (BylineDiagrams.vue,
+  // `isUnplaced`), but Confluence boots the byline iframe only on CLICK — 5
+  // opens against 39,197 macro views — so the label reaches almost nobody. The
+  // page banner mounts on every page load, which is where the fact has to be
+  // said. Fired from UnplacedDiagramsBanner.vue.
+  //
+  // Two gates admit a load. The dedicated `zenuml-unplaced-banner` module is
+  // gated by Confluence itself on a content property, so its iframe is never
+  // created on a page with nothing to say; the shared page-banner host gates
+  // its fallback synchronously off the localStorage marker. Either way the
+  // ~99.9% of page loads with no record pay nothing.
+  //
+  // `unplaced_banner_evaluated` fires on every load past those gates, and it is
+  // the denominator that makes their cost measurable. `result` covers every
+  // path out, so that claim actually holds:
+  //   'unplaced'          — the banner shows.
+  //   'all_placed'        — the record was stale (the user pasted the link
+  //                         since), so we paid one ADF read and showed nothing.
+  //   'scan_failed'       — the page ADF could not be read; we show nothing
+  //                         rather than claim what we cannot prove.
+  //   'record_unreadable' — the gate fired but the record did not read back
+  //                         (forbidden, malformed, already emptied).
+  //   'property_covers_page' — FALLBACK path only: a content property exists (or
+  //                         could not be ruled out), so the gated module is
+  //                         carrying this page's notice and the fallback stood
+  //                         down rather than stack a second banner. Distinct
+  //                         from 'record_unreadable', which means we had
+  //                         nothing to say; here we had something and someone
+  //                         else is saying it.
+  //   'expired'           — nobody has re-confirmed the record in 30 days, so
+  //                         we stop buying an ADF read for it.
+  //   'shows_exhausted'   — this browser has been told about this record the
+  //                         maximum number of times.
+  //   'page_mismatch'     — the fallback record names a different page than the
+  //                         one it was read on, so it says nothing. Any hit
+  //                         here is a bug: the record reached the wrong page.
+  //   'dismissed_quiet'   — this user dismissed the notice within the quiet
+  //                         window, so the load stood down before reading the
+  //                         record at all.
+  //   'dismissed_version' — this user dismissed the notice for exactly this
+  //                         record version; a new diagram re-arms it.
+  //   'yielded'           — a higher-priority banner has the page's one banner
+  //                         slot; `suppressed_by` names it. Two Confluence
+  //                         modules mean two iframes, so this notice stands
+  //                         down rather than stack (utils/banners/priority.ts).
+  //
+  // The two 'dismissed_*' results are what separates "the gate never fires" from
+  // "it fires and everyone has already said no" — the question that otherwise
+  // needs a browser and the user's own localStorage to answer.
+  //
+  // A rising 'all_placed' share is the signal that the record's write/retire
+  // cycle is leaking, not that users are ignoring the banner. A rising
+  // 'record_unreadable' share means the gate and the reader disagree — most
+  // likely a permission the writer holds and the reader does not. A high
+  // 'yielded' share is how we tell "nobody sees this notice" apart from
+  // "nobody has unplaced diagrams".
+  | "unplaced_banner_evaluated"
+  // The banner is committed to displaying. Split from _evaluated because only
+  // this one is an impression: it is the denominator for the copy and dismiss
+  // rates, and `unplaced_count` on it is the verified count (post-scan), not
+  // the marker's possibly-stale one.
+  | "unplaced_banner_shown"
+  // The user dismissed the banner. Dismissal is scoped to the marker version it
+  // was shown for, so a NEW unplaced diagram re-arms the banner rather than
+  // being silenced by an old dismissal — which means this event counts
+  // "not now, for these diagrams", never "never again".
+  | "unplaced_banner_dismissed"
+  // The byline recorded (or cleared) the page's unplaced set as a Confluence
+  // CONTENT PROPERTY — the shared, cross-user store the banner's
+  // `displayConditions` gate reads server-side.
+  //
+  // This event exists to measure the one assumption the property design rests
+  // on: that the byline user can actually write a page property. The write runs
+  // as the USER (requestConfluence), and a user who can create custom content
+  // on a page cannot be assumed to hold edit permission on the page itself.
+  // `result` = 'written' | 'deleted' | 'unchanged' | 'forbidden' | 'failed'.
+  // Also emitted by the BANNER when it retires a record it proved stale, so a
+  // reader who lacks delete permission is visible instead of leaving every
+  // later reader to pay the same ADF read forever.
+  // A material 'forbidden' share means the cross-user path is not reaching the
+  // people who need it and the localStorage fallback is carrying the feature —
+  // which is exactly what `unplaced_source` on the banner events reports from
+  // the other end.
+  | "unplaced_property_write"
+  // One-click place: the app writes the macro into the page ADF itself, instead
+  // of handing over a link for the user to paste. THE conversion event for this
+  // whole feature — every other event here measures noticing, and this one
+  // measures the thing actually getting fixed. Read against
+  // `advocacy_message_copied` (ui_component 'byline_unplaced_link' /
+  // 'page_banner_unplaced_link'), which is the same intent taking the four-step
+  // route: copy, open the editor, paste, publish.
+  //
+  // `result`:
+  //   'added'           — a new page version carries the macro.
+  //   'already_present' — the page already referenced it (someone else placed
+  //                       it, or a double click); nothing was written.
+  //   'forbidden'       — the user cannot edit this page. Expected, not a bug:
+  //                       the notice reaches every reader, and a reader is not
+  //                       always an author. The UI falls back to the link.
+  //   'conflict'        — the page changed under us twice; we do not force.
+  //   'failed'          — anything else, including an unreadable page body.
+  //
+  // A material 'forbidden' share means the banner is reaching the wrong
+  // audience and the button should be gated rather than offered-then-refused.
+  | "diagram_added_to_page"
+  // The macro that was just placed pulled the reloaded page to itself and
+  // flashed a ring around the diagram. Fired by the MACRO, not by the surface
+  // that placed it: the two are different iframes and only the macro knows it
+  // rendered.
+  //
+  // It is the second half of `diagram_added_to_page` (result 'added') and only
+  // means anything read against it. A gap between the two is the reveal being
+  // requested and never claimed — the macro never booted, the reload never
+  // happened, or the request went stale — which is invisible from the placing
+  // side, because that iframe is gone by then. `reveal_age_ms` says how long
+  // the round trip took; a value near the TTL is a page slow enough that the
+  // next one would have missed it.
+  | "diagram_revealed"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-

@@ -159,7 +159,13 @@
            Copy source is a power-user affordance on a minority of types, so it
            stays out of the way until the row is hovered or focused — the open,
            which is what the whole row does, is the labelled action. -->
-      <div v-for="d in orderedDiagrams" :key="d.id" class="row" data-testid="byline-item">
+      <div
+        v-for="d in orderedDiagrams"
+        :key="d.id"
+        class="row"
+        :class="{ 'row--actionable': isUnplaced(d) && canEdit }"
+        data-testid="byline-item"
+      >
         <button type="button" class="row__open" @click="onOpenDiagram(d)">
           <span class="row__thumb">
             <img v-if="thumbs[d.id]" class="row__img" :src="thumbs[d.id]" alt="" data-testid="byline-thumb" />
@@ -174,12 +180,24 @@
           <span class="row__cta">Open</span>
         </button>
         <!-- Saved but never pasted: it exists as this page's custom content and
-             already counts against the Lite limit, but no macro renders it. The
-             link is the only way to place it, so it is offered outright rather
-             than on hover — this row is the one place the diagram is reachable
-             at all. -->
+             already counts against the Lite limit, but no macro renders it.
+             The fix belongs on the row that names the problem, and it is ONE
+             click — copy, open the editor, paste, publish is the flow the user
+             already abandoned once, which is why this diagram is here at all.
+             Offered outright rather than on hover: this row is the one place
+             the diagram is reachable. -->
         <button
-          v-if="isUnplaced(d)"
+          v-if="isUnplaced(d) && canEdit"
+          type="button"
+          class="row__add"
+          :disabled="addingId === d.id"
+          data-testid="byline-add-to-page"
+          title="Add this diagram to the end of the page"
+          @click="onAddToPage(d)"
+        >{{ addingId === d.id ? 'Adding…' : 'Add to page' }}</button>
+        <!-- The fallback for a reader who cannot edit the page. -->
+        <button
+          v-else-if="isUnplaced(d)"
           type="button"
           class="row__copy row__copy--url"
           :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-url'"
@@ -350,6 +368,9 @@ import {
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
+import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
+import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
+import { placeDiagram } from '@/utils/byline/placeDiagram'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -361,6 +382,10 @@ import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
 const copiedId = ref<string | null>(null)
+const addingId = ref<string | null>(null)
+/** Flips off the first time a write is refused; the Copy URL fallback takes
+ *  over. Optimistic on purpose — see the banner for the same reasoning. */
+const canEdit = ref(true)
 /** Separates "this page has no diagrams" (empty) from "we could not find out"
  *  (failed). Previously both collapsed into the empty state, which told a user
  *  with restricted content that their diagrams did not exist. */
@@ -696,6 +721,9 @@ async function loadDiagrams() {
     }
     void loadThumbnails()
     reportPlacement()
+    // Never awaited: this is a write for the NEXT page load, and the list must
+    // not wait on it to paint.
+    void syncUnplacedState()
   }
 }
 
@@ -795,6 +823,66 @@ function reportPlacement() {
   })
 }
 
+/**
+ * Leave the verdict where the page banner can find it.
+ *
+ * This panel is the only surface that knows a diagram is saved here but not on
+ * the page — and Confluence boots it only on click, so almost nobody is told.
+ * The banner mounts on every page load and cannot afford to work this out for
+ * itself (one custom-content listing per type, plus a full-page ADF read), so
+ * the byline hands over what it already paid for.
+ *
+ * Two stores, in priority order:
+ *
+ *  1. The CONTENT PROPERTY (unplacedProperty.ts) — page state, so the notice
+ *     reaches whoever opens the page, and Confluence gates the banner module on
+ *     its existence server-side. This is the one that matters.
+ *  2. The localStorage MARKER (unplacedMarker.ts) — the fallback for when the
+ *     property write is denied. The write runs as the user, and creating custom
+ *     content on a page does not prove permission to write its properties.
+ *
+ * The marker is written either way, carrying `viaProperty` so the shared
+ * page-banner host knows whether the gated module has already got this — two
+ * banners saying the same thing on one page is the failure mode that flag
+ * exists to prevent.
+ *
+ * Silent unless the scan actually landed: an unreadable page must never be
+ * written down as "everything is unplaced", which is precisely what an
+ * undefined `placedIds` would mean if it were treated as an empty set — the
+ * same trap `isUnplaced` guards against.
+ *
+ * Silent too whenever the host page is IN THE EDITOR, and that one is the
+ * difference between an affordance and a claim. The scan reads the PUBLISHED
+ * ADF, which cannot see the editor's draft, so a diagram the author has just
+ * pasted still reads as unplaced. In the byline that only ever ADDED a Copy URL
+ * button for the author (see `isUnplaced`); recorded here it becomes a banner
+ * shown to EVERYONE on the page, asserting something we cannot verify while a
+ * draft is open. So the author finishes first, and the next scan — from a
+ * published page — is what records anything.
+ */
+async function syncUnplacedState() {
+  const ids = placedIds.value
+  if (!ids) return
+  if (hostInEditor) return
+  const identity = deriveUnplacedIdentity()
+  if (!identity) return
+  // An empty list is not skipped: it is what retires a banner for diagrams the
+  // user has since placed — a property DELETE, taking the page off the gate.
+  const entries = diagrams.value
+    .filter(d => !ids.has(d.id))
+    .map(d => ({ id: d.id, title: d.title, diagramType: d.diagramType }))
+  const result = await persistUnplacedProperty(identity.pageId, entries)
+  trackAnalyticsEvent('unplaced_property_write', {
+    ...baseProps(),
+    result,
+    unplaced_count: entries.length,
+  })
+  // 'unchanged' counts as carried: the property already says this, including
+  // the empty case where it is legitimately absent.
+  const viaProperty = result === 'written' || result === 'deleted' || result === 'unchanged'
+  writeUnplacedMarker(identity, entries, { viaProperty })
+}
+
 function onRetry() {
   failed.value = false
   loading.value = true
@@ -838,6 +926,41 @@ async function onOpenDiagram(d: PageDiagram) {
   } catch (e) {
     console.error('[byline] failed to open diagram', e)
   }
+}
+
+/**
+ * Place the diagram on the page from the row that says it is not on it.
+ *
+ * On success the local placement set is updated immediately, so the row loses
+ * its "· not on this page" label without a reload, and the record the banner
+ * reads is rewritten in the same breath — leaving it would have the page banner
+ * announce a diagram the user just watched appear.
+ */
+async function onAddToPage(d: PageDiagram) {
+  if (addingId.value) return
+  acted = true
+  addingId.value = d.id
+
+  const outcome = await placeDiagram(pageId, d, async () => {
+    // Before the reload, so the reloaded page reads the rewritten record: fold
+    // the placement into the scan result we already hold, so the row updates in
+    // place, and rewrite what the banner reads.
+    if (placedOrder.value) placedOrder.value = [...placedOrder.value, d.id]
+    await syncUnplacedState()
+  })
+  addingId.value = null
+
+  trackAnalyticsEvent('diagram_added_to_page', {
+    ...baseProps(),
+    macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+    result: outcome.result,
+    ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
+  })
+
+  // Only a refusal withdraws the action. 'failed' is a blip, and the fix for a
+  // blip is to try again — clearing this on it took the button off every
+  // remaining row of the panel.
+  if (outcome.refused) canEdit.value = false
 }
 
 async function onCopySource(d: PageDiagram) {
@@ -1002,6 +1125,14 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     createUnresolved.value = false
     pendingCreate = null
     diagrams.value = after
+    // A diagram that was just saved from here is unplaced BY DEFINITION — the
+    // paste has not happened yet — so this is the write that arms the banner for
+    // the exact failure the create→paste handoff has. Runs on the cancelled path
+    // too: the list was re-read either way, and a record that ignored it would
+    // keep naming diagrams the user has since placed. In the editor it no-ops
+    // (see syncUnplacedState): the author is mid-paste and the published ADF
+    // cannot yet show it.
+    void syncUnplacedState()
     if (!newId) {
       trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })
       return
@@ -1476,10 +1607,13 @@ async function onLearnMore() {
    brings it up when the user tabs onto it. */
 /* Fixed width, right-aligned: the slot holds "Copy source", "Copy URL" or a
    hidden placeholder, and "Open" sits immediately before it. Sizing the slot to
-   its content moved Open on whichever rows had the longer label. */
+   its content moved Open on whichever rows had the longer label.
+   96px, not 82px: `.row__add` occupies the same slot and has to fit "Add to
+   page" plus its padding without clipping. The width is shared so that Open
+   still lands in the same place on every row, whichever action the row carries. */
 .row__copy {
   flex: none;
-  width: 82px;
+  width: 96px;
   text-align: right;
   margin-left: 12px;
   background: none;
@@ -1501,6 +1635,51 @@ async function onLearnMore() {
 .row__copy--slot {
   visibility: hidden;
 }
+/* The one-click place. A real button box, mirroring the page banner's primary
+   (UnplacedDiagramsBanner.vue `.unplaced__btn--primary`) so the same action
+   looks the same on both surfaces.
+   It deliberately does NOT reuse `.row__copy`: that class is a right-aligned
+   TEXT slot with no padding and no radius, so a fill on it rendered as a raw
+   rectangle wider than its 96px box — clipped at the panel's edge.
+   Same width as the slot, so Open stays put across rows; centred, because a
+   filled button's label belongs in the middle of its fill. */
+.row__add {
+  flex: none;
+  width: 96px;
+  margin-left: 12px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 3px;
+  background: #0C66E4;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+}
+.row__add:hover {
+  background: #0055cc;
+}
+.row__add:disabled {
+  background: #8590a2;
+  cursor: default;
+}
+.row__add:focus-visible {
+  outline: 2px solid #0052cc;
+  outline-offset: 2px;
+}
+/* One blue per row. Open is the secondary once a filled primary sits beside it —
+   the same hierarchy the banner uses, where Copy link goes quiet next to Add to
+   page. On every other row Open keeps the link colour, because there it IS the
+   action. */
+.row--actionable .row__cta {
+  color: #5e6c84;
+  font-weight: 400;
+}
+
 /* Always visible, unlike Copy source. An unplaced diagram is invisible on the
    page it belongs to, so its one route back must not be behind a hover. Placed
    after the base rule deliberately — same specificity, later wins. */

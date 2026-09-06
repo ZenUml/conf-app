@@ -51,6 +51,306 @@ If we ever add `confluence:pageBanner` to lite/full/diagramly:
 - [ ] **Mobile pass.** No platform guidance exists; visually check on a narrow viewport and on the Confluence mobile web view.
 - [ ] **Analytics for actual visibility, not just "mounted".** `paywall_triggered`-style events should fire when the banner is *visibly* shown to the user, not when the iframe boots — otherwise we'll over-count by the same margin as the flicker problem.
 
+## What occupies the slot today
+
+Two `confluence:pageBanner` modules, not one. `zenuml-page-banner` is the shared
+host — `src/routes/pageBanner.ts` picks at most one banner per page load from
+it — and `zenuml-unplaced-banner` is a second module Confluence gates
+server-side. Because two modules are two iframes, the host's priority cascade
+cannot reach the second one, which is why both sides ask
+`higherPriorityBannerPending()` (utils/banners/priority.ts) rather than one
+telling the other.
+
+| Module | Choice | Component | Gate |
+|---|---|---|---|
+| `zenuml-page-banner` | `paywall` / `paywall-admin` | `UpgradePrompt/PaywallWarningBanner.vue` | localStorage targeting marker written by the macro iframe |
+| `zenuml-page-banner` | `csat` | `CSAT/CsatBanner.vue` | a fresh CSAT trigger in localStorage **and** no live per-account suppression |
+| `zenuml-page-banner` | `unplaced` | `Byline/UnplacedDiagramsBanner.vue` | localStorage fallback marker (creator-only), used when the property write was denied |
+| `zenuml-unplaced-banner` | `unplaced-property` | `Byline/UnplacedDiagramsBanner.vue` | **`displayConditions` on a content property — evaluated by Confluence, server-side** |
+
+`zenuml-page-banner` is the shared host: paywall and CSAT targeting live in
+localStorage, which Confluence cannot see, so the iframe must boot to decide.
+Inside it, `unplaced` sits last because it is the only one of the three that
+keeps — a diagram saved on a page and placed nowhere on it is still unplaced
+tomorrow, and its banner re-arms itself. A CSAT window closes; a paywall block is
+happening now.
+
+That order is enforced in TWO places, and it has to be. Inside the shared host a
+cascade is enough: it picks one. The gated module is a separate iframe that
+Confluence renders on its own, so the cascade cannot reach it — it asks the same
+question itself, before doing anything, via `higherPriorityBannerPending()` in
+`utils/banners/priority.ts`. Those are the same synchronous localStorage reads
+the host makes, which is what makes it safe across two iframes that cannot talk:
+they are not coordinating, they are reading the same facts and reaching the same
+conclusion. No handshake, no race, and yielding costs nothing because it happens
+before the property read.
+
+A yield has to be worth something, and the CSAT branch originally was not. It
+asked whether a trigger had been ARMED (`csatPending`, written by every save,
+fresh for 10 minutes) — but whether the survey may actually SHOW is a second,
+per-account question (`csat_state`, the 7-day record a Dismiss writes) that
+`CsatBanner` asked for the first time on mount, asynchronously, after the yield
+was already spent. For anyone who had dismissed the survey that week the two
+answers disagreed and the page showed NO banner at all for ten minutes after
+every save: the unplaced notice stood down, and the survey it stood down for
+closed itself. Both questions are asked in the cascade now, via
+`isCsatSuppressed()` in `utils/csat.ts` — the one place either side reads that
+record, so the banner's own gate (`useCSATState.checkStateOfCSAT`) and the
+cascade cannot drift apart again. It stays a plain synchronous localStorage
+read: the account id comes off the Forge context, which `forgeIndex` resolves
+before any banner code runs.
+
+Yielding is measured (`result: 'yielded'`, with `suppressed_by`) because a notice
+that never gets the slot looks exactly like a notice nobody needs.
+
+`zenuml-unplaced-banner` is the one module in this app that escapes the whole
+cost model at the top of this document: its condition is page state, so
+Confluence never creates the iframe on a page with nothing to say.
+
+### The unplaced-diagram notice
+
+Says the thing the byline already knows — a diagram was saved from the byline and
+never pasted, so it costs a Lite macro slot and renders nowhere — on the surface
+that is actually read. Confluence boots the byline iframe only on CLICK (5 opens
+against 39,197 macro views), so its own "· not on this page" label reaches almost
+nobody.
+
+Three rules keep it inside this document's checklist:
+
+- **Nothing on the hot path — for pages with nothing to say.** The primary gate
+  is Confluence's own `entityPropertyExists`, so an unaffected page does not boot
+  an iframe at all; the fallback gate (`isUnplacedBannerCandidate`) is
+  synchronous localStorage, and the component is its own lazy chunk either way.
+  Be precise about what that does *not* cover: on a page the gate admits, the
+  module awaits the space-admin probe, then the component awaits a property read
+  and an ADF read, before it can show or close — so the two outcomes that end in
+  `view.close()` hold the reserved slot for those round-trips, the flicker item 1
+  of this document calls "unusable". That cost is bounded (only pages carrying
+  the property; a dismissal goes quiet for a day without any read at all) but it
+  is real, and it is the first thing to attack if the banner ever feels heavy.
+
+  The probe is the newest and least obvious of the three. It is awaited because
+  the component's `higherPriorityBannerPending()` reads the verdict it writes —
+  without it the notice cannot know to stand down, which is how it once stacked
+  under the paywall banner. It is throttled to once per 30 days per domain:space,
+  so almost every load exits it synchronously; on the load where it does fire,
+  the banner was measured mounting **+12.3s** after the page settled (whimet4,
+  2026-09-06). If that ever matters more than the stacking it prevents, the shape
+  of the fix is a short deadline on the probe rather than dropping the await.
+- **Never claim what we cannot verify.** The record states what the byline saw;
+  the user may have pasted the link a second later. Past the gate the component
+  re-reads the page ADF and shows only entries still unreferenced. A failed scan
+  shows nothing; a scan that finds everything placed retires the record — the
+  property is DELETED, taking the page back off the gate.
+- **One page, one banner.** Three guards, because the first two are not enough
+  on their own. The byline stamps `viaProperty` on the fallback marker so the
+  shared host stands down whenever the gated module has it — but that records
+  only what THIS browser managed to write, so the component ALSO re-reads the
+  property on the fallback path and stands down unless it comes back `absent`
+  (fail closed: a `forbidden` or `error` read is not evidence that no property
+  covers the page). And the record carries the page it was scanned on, checked
+  on read — see "When the record is written".
+- **Say it about the right page.** `referencedCustomContentIds` proves only that
+  the page does not RENDER an entry, which is trivially true of a diagram
+  belonging to some other page — so verification alone cannot catch a record
+  that reaches the wrong page, and one did (below). The fallback marker stamps
+  `pageId` and the reader checks it, reporting `page_mismatch` rather than
+  speaking. An unstamped record cannot say which page it describes and is
+  treated the same way; the byline restamps it on its next open.
+
+### Where the record lives
+
+The store is a content property, `zenuml-unplaced-diagrams${LITE_KEY_SUFFIX}`,
+written by the byline as the user. Verified against lite-stg on 2026-08-31:
+POST `200`, GET `200` (`results: []` when absent), PUT with version n+1 `200`,
+PUT with a stale version `409`, DELETE `204` — and **the page's own version
+never moved**, so property writes leave no trace in page history.
+
+The key is variant-suffixed for the reason space properties are: they are
+site-global across apps, so an unsuffixed key would let Full's banner boot on a
+property Lite wrote.
+
+Permission was the design's one unproven assumption, and it is now checked: on
+2026-09-04 a non-admin account (`update:page`, `admin? false`) both created the
+property from the byline and deleted it from the banner on whimet4. What remains
+untested is a READ-ONLY viewer, who should be refused — a denial is handled, not
+assumed away: the byline falls back to the per-browser marker (creator-only
+reach) and `unplaced_property_write` reports how often that happens, with
+`unplaced_source` on the banner events reporting the same ratio from the other
+end.
+
+### When the record is written
+
+Only from the byline iframe, and only in three moments — every one of them a
+`syncUnplacedState()` call in `BylineDiagrams.vue`, which is the single place
+that writes:
+
+| Where | Trigger |
+|---|---|
+| `:726` | The byline panel is **opened** — in `loadDiagrams()`'s `finally`, once the page-diagram list resolves. Never awaited: the rows must paint without waiting on a write meant for the next page load. |
+| `:1137` | A diagram is **saved or cancelled from the byline's own create flow**. A diagram created here is unplaced by definition — the paste has not happened — so this is the write that arms the banner for the create→paste gap. |
+| `:960` | **"Add to page" succeeded**, so the set just shrank. |
+
+The banner deletes in two more: when it verifies a record stale (everything in
+it is placed now, `UnplacedDiagramsBanner.vue:395`) and when the last row is
+placed (`:482`).
+
+**So the record only ever moves when someone clicks the byline.** That is the
+same 5-opens-against-39,197 number this banner exists because of, and it cuts
+both ways: a page nobody opens the byline on never gets a record at all, and a
+page whose diagrams were placed long ago keeps a stale one until either the
+byline is opened again or the banner retires it. Any feature that wants a
+fresher record needs a new write site, not a tweak here.
+
+Two guards inside `syncUnplacedState()` decide nothing is written:
+
+- **`placedIds` undefined** — the ADF scan failed. An unreadable page must never
+  be recorded as "everything is unplaced", the same trap `isUnplaced` guards.
+- **`hostInEditor`** — the scan reads the PUBLISHED ADF, so a diagram the author
+  just pasted still reads as unplaced. In the byline that only ever added a Copy
+  URL button for the author; recorded to the property it becomes a banner shown
+  to everyone, asserting something we cannot verify while a draft is open.
+
+And `persistUnplacedProperty` itself decides what reaches the API. It reads
+first: `forbidden` → no write (this is what the localStorage fallback exists
+for); `error` → no write either, because an unreadable property is not a licence
+to overwrite it — a POST would 409 against a key we merely failed to read, and a
+blind delete would discard a set we cannot see. An **empty list DELETEs**, since
+the property's presence IS the display condition. Same entry ids as before →
+`unchanged`, no request at all, which keeps `updatedAt` stable so a user who
+dismissed the banner is not shown it again for merely reopening the byline.
+Otherwise POST (absent) or PUT with version n+1, retried once on 409.
+
+### Why a user may see no banner on a page that has the property
+
+Per-browser suppression, all deliberate, all in localStorage under
+`bylineUnplacedBanner:<domain>:<pageId>`:
+
+- **`isDismissalQuiet`** — dismissed within `DISMISSAL_QUIET_MS` (24 h). Closes
+  before reading the record at all, so a dismissing user buys no REST call.
+- **`dismissedFor === record.updatedAt`** — dismissed for this exact record
+  version. Only a NEW diagram re-arms it.
+- **`hasExhaustedShows`** — `MAX_BANNER_SHOWS` (5) impressions of this record
+  version. Enough to silence it for anyone testing in a few reloads.
+
+Two more close without the user ever seeing anything, and belong on the same
+list because they answer the same question:
+
+- **`expired`** — nobody has re-confirmed the record in `UNPLACED_MARKER_TTL_MS`
+  (30 days), so we stop buying an ADF read for it.
+- **`page_mismatch`** — the fallback record names a different page than the one
+  it was read on. Any hit here is a bug, not a suppression (see "Say it about
+  the right page").
+
+All five report `unplaced_banner_evaluated`, which is what separates "the gate
+never fired" from "everyone already said no" without needing a browser.
+
+### One-click place
+
+"Add to page" appends the macro node to the page ADF and publishes one version
+(`utils/byline/addToPage.ts`), rather than leaving the user the copy → open
+editor → paste → publish flow they already abandoned once. It is offered
+optimistically — `canEdit` starts `true` and flips off only on `forbidden`,
+which is a durable answer about this user; a `failed` (a 500, a dropped
+connection) keeps the button, because the fix for a blip is to try again, which costs a refused click instead of a permissions
+request on every banner load; `diagram_added_to_page`'s `forbidden` share is the
+signal to revisit that. On success the host page is reloaded
+(`router.reload()`), because the write changes the STORED ADF and the rendered
+page does not follow — without it the success case looks like nothing happened.
+It runs on EVERY successful write, not just the last of several: the record is
+rewritten first, so the reloaded page's banner offers whatever is still
+unplaced. Both surfaces go through one step (`utils/byline/placeDiagram.ts`) —
+call, report, decide what the outcome says about this user, leave the reveal
+note, reload, withdraw the note if the reload never came. That ordering matters
+and had already drifted between the two copies once.
+
+### Showing the diagram you just placed
+
+The reload alone is not enough. The macro is appended to the END of the
+document, so on any page longer than a screen the reloaded page opens above it:
+the user clicks, the page reloads, and the thing they were promised is out of
+sight. So the placed macro scrolls the page to itself and flashes.
+
+**Nothing in this app can scroll a Confluence page.** The banner, the byline and
+every macro are sandboxed cross-origin iframes. What a macro CAN do is take
+FOCUS, and the browser then scrolls its ancestors — across the origin boundary —
+to bring the focused element into view. `scrollIntoView` does NOT do this; it
+stops at the iframe's own document.
+
+Measured on lite-stg 2026-09-05, on a 70-paragraph page:
+
+| | |
+|---|---|
+| macro before | extension node 4,965px below the viewport top |
+| after `focus()` inside its iframe | 423px from the top; `div#AkMainContent` (Confluence's own scroll container) moved with it |
+| `scrollIntoView` inside the iframe | host did not move |
+| macro iframe while 4,965px off-screen | already booted — so there is no chicken-and-egg |
+
+**The hand-off** (`utils/byline/revealDiagram.ts`) crosses a full page reload and
+two iframes that cannot talk, so it goes through localStorage — every one of our
+iframes is served from the same app origin. The placing surface leaves a note
+naming the page and the customContentId; the macro that matches it claims the
+note and reveals itself. Four properties earn their keep:
+
+- **Claiming DELETES the note**, so one scroll even when the same diagram is on
+  the page twice, and no repeat on the next load.
+- **The note names the PAGE**, because two tabs share this storage.
+- **`REVEAL_TTL_MS` (60s)**, so an abandoned note cannot yank a page around
+  minutes later. The observed round trip was ~13–15s, most of it Confluence's
+  page load.
+- **Withdrawn when the reload does not happen**, or the note would scroll the
+  next page load instead.
+
+The macro side hooks in at the end of `loadHeavyComponents` (`forgeIndex.ts`),
+once for every macro kind and only in view mode, because the note is keyed by
+customContentId — the same fact whatever renders it. It waits for its own
+document height to stop changing first: the iframe is content-sized, so focusing
+mid-render would scroll to a box that is about to move.
+
+**The highlight** is an overlay, not a border. `position: fixed; inset: 0` is
+exactly the macro's footprint (the Forge iframe is sized to its content), so a
+tinted wash plus a 4px border paints OVER the diagram rather than around it —
+a hairline ring at the edge of a 400px macro is easy to miss after a 4,500px
+scroll, which is how the first attempt shipped and got reported. Three pulses
+over 2.8s, because a single fade is over before someone who watched the page
+move has re-focused on where it landed. Inert throughout (`pointer-events:
+none`, `aria-hidden`), removed when the animation ends, and reduced motion holds
+the wash steady instead of blinking.
+
+`diagram_revealed` is fired by the MACRO, and it is the only vantage point that
+can report this half — the placing iframe is gone by then. Its gap against
+`diagram_added_to_page` (result `added`) is the reveal requested and never
+claimed: the macro never booted, the reload never happened, or the note went
+stale. `reveal_age_ms` is that round trip, and a value near the TTL is a page
+slow enough that the next one would have missed it.
+
+Verified end-to-end on whimet4, 2026-09-06, on 70-paragraph fixtures:
+
+| path | result |
+|---|---|
+| banner | flash at +13.5s; scroll container 0 → 2622 of 2819; node 424px from top |
+| byline row | flash at +15.0s; identical geometry |
+| first of two diagrams | flash at +14.4s, and the reloaded page's banner named the one still unplaced |
+
+### Checklist items still open
+
+Recorded rather than quietly skipped, because the checklist above is the bar:
+
+- **Stacking.** The paywall/CSAT host and this module are separate iframes, so a
+  page carrying the property AND an eligible paywall warning shows both. Not
+  verified against a third-party banner app.
+- **Mobile.** Not visually checked on a narrow viewport or the Confluence mobile
+  web view.
+- ~~**In-page navigation.**~~ Measured on whimet4, 2026-09-05, across link
+  clicks and browser Back/Forward between a page carrying the property and one
+  without: Confluence tore the banner iframes down and rebuilt them on every
+  transition (the `iFrameResizer` counter advances; no old id survives), one
+  banner on the property page and none on the control, sampled 0.5 s → 20 s. A
+  banner that appeared to persist onto another page turned out to be a fallback
+  record from a different page — fixed by the `pageId` stamp above, not by
+  anything about navigation.
+- **Read-only viewers.** See above.
+
 ## Related in this repo
 
 - `manifest.yml` — where a `confluence:pageBanner` module would be declared per variant.

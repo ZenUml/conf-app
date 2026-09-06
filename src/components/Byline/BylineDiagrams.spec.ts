@@ -36,6 +36,24 @@ vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   getSpaceKey: () => spaceKey.value,
 }));
 
+// The Lite limit pre-check. Mocked rather than driven through the real
+// composable so these tests state the ONE input they care about — is this space
+// blocked — instead of assembling a macro count, a policy read and a paid-status
+// read to imply it.
+const paywall = vi.hoisted(() => ({
+  shouldBlock: false,
+  countSource: 'kv' as string,
+  initialize: vi.fn(async (_opts?: { persistMarker?: boolean }) => {}),
+}));
+vi.mock('@/composables/useCustomerSuccessService', () => ({
+  useCustomerSuccessService: () => ({
+    initialize: paywall.initialize,
+    shouldBlockActions: { value: paywall.shouldBlock },
+    macrosCreated: { value: 128 },
+    macroCountSource: { value: paywall.countSource },
+  }),
+}));
+
 const routerNavigate = vi.hoisted(() => vi.fn(async () => {}));
 const viewClose = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('@forge/bridge', () => ({
@@ -74,6 +92,11 @@ describe('BylineDiagrams', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks resets calls but NOT implementations, so a test that makes
+    // the tracker throw would leak that into every test after it.
+    vi.mocked(trackAnalyticsEvent).mockImplementation(() => {});
+    paywall.shouldBlock = false;
+    paywall.countSource = 'kv';
     spaceKey.value = 'SPACE';
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1' };
     apWrapper._getCurrentPageId.mockResolvedValue('page-1');
@@ -262,7 +285,10 @@ describe('BylineDiagrams', () => {
       // limit. Treating the unreadable re-read as "no new id" wiped the list,
       // emitted byline_create_cancelled for a saved diagram, and left no link.
       expect(events('byline_create_cancelled')).toHaveLength(0);
-      expect(events('byline_diagram_created')[0][1]).toMatchObject({ result: 'listing_failed' });
+      // Reported as unresolved rather than created (#572): we do not know that
+      // a diagram exists, and byline_diagram_created claims we do.
+      expect(events('byline_diagram_created')).toHaveLength(0);
+      expect(events('byline_create_unresolved')[0][1]).toMatchObject({ result: 'listing_failed' });
       expect(wrapper.find('[data-testid="byline-create-unresolved"]').exists()).toBe(true);
     });
 
@@ -283,8 +309,255 @@ describe('BylineDiagrams', () => {
       await closeEditor();
 
       expect(events('byline_create_cancelled')).toHaveLength(0);
-      expect(events('byline_diagram_created')[0][1]).toMatchObject({ result: 'listing_partial' });
+      expect(events('byline_diagram_created')).toHaveLength(0);
+      expect(events('byline_create_unresolved')[0][1]).toMatchObject({ result: 'listing_partial' });
       expect(wrapper.find('[data-testid="byline-create-unresolved"]').exists()).toBe(true);
+    });
+
+    // #572: the create funnel must SUM. 278 clicks produced 180 cancelled + 35
+    // created, leaving 63 (22.7%) with no terminal event at all, because two of
+    // the four unresolved paths emitted nothing.
+    describe('every create reports exactly one outcome', () => {
+      it('reports resolve_failed when the post-editor re-read throws', async () => {
+        // The catch used to only set the retry UI. A genuine rejection is what
+        // it exists for — the ordinary 403 RESOLVES with an error body (see
+        // `forbidden`) and is the listing_failed case above, not this one.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+
+        apWrapper.listPageDiagramContents.mockRejectedValue(new Error('network down'));
+        await closeEditor();
+
+        expect(events('byline_create_cancelled')).toHaveLength(0);
+        expect(events('byline_diagram_created')).toHaveLength(0);
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+        expect(events('byline_create_unresolved')[0][1]).toMatchObject({
+          result: 'resolve_failed',
+          failure_reason: 'network down',
+        });
+      });
+
+      it('does not report a second outcome when the trailing work throws after a save', async () => {
+        // The try block wraps the success path too: loadThumbnails and the
+        // automatic copy both run AFTER byline_diagram_created has fired, so a
+        // throw from either lands in the same catch that reports an unresolved
+        // create. Without the outcome guard that turns one saved diagram into
+        // both a created and an unresolved event.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+
+        vi.mocked(trackAnalyticsEvent).mockImplementation((name: any) => {
+          if (name === 'advocacy_message_copied') throw new Error('copy tracking blew up');
+        });
+        apWrapper.listPageDiagramContents.mockResolvedValue([
+          ok(child('9', 'New', DiagramType.Sequence)),
+        ]);
+        await closeEditor();
+
+        expect(events('byline_diagram_created')).toHaveLength(1);
+        expect(events('byline_create_unresolved')).toHaveLength(0);
+      });
+
+      it('emits NOTHING when the iframe goes away mid-create — the known gap', async () => {
+        // Pins the shipped behaviour, not an aspiration. A pagehide reporter for
+        // this was written and reverted (#572): a lite-stg spot check showed it
+        // never reaching Mixpanel, while byline_dismissed on the same listener
+        // did, so it was not a delivery problem and the mechanism is unknown.
+        // This test exists so re-adding one is a deliberate change with a
+        // failing test attached, rather than a silent no-op in production.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+
+        window.dispatchEvent(new Event('pagehide'));
+        await flushPromises();
+
+        expect(events('byline_create_unresolved')).toHaveLength(0);
+        // byline_dismissed stays suppressed too: `acted` is true once a create
+        // has started, so a teardown mid-create is not a "looked and left".
+        expect(events('byline_dismissed')).toHaveLength(0);
+      });
+
+      it('still reports an outcome when the editor never opens', async () => {
+        // byline_editor_deeplinked result:'failed' answers whether the open
+        // routed, not what became of the create, so on its own it leaves the
+        // same silent gap this event exists to remove.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        vi.mocked(openModal).mockRejectedValueOnce(new Error('modal refused'));
+
+        await openEditorFrom(wrapper);
+
+        expect(events('byline_editor_deeplinked')[0][1]).toMatchObject({ result: 'failed' });
+        // The tiles must come back. `creating` stuck true is what the missing
+        // await in forgeGlobal.openModal actually caused in production: every
+        // picker tile permanently disabled with no error surfaced.
+        await flushPromises();
+        expect(
+          wrapper.find('[data-testid="byline-type-sequence"]').attributes('disabled'),
+        ).toBeUndefined();
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+        expect(events('byline_create_unresolved')[0][1]).toMatchObject({
+          result: 'editor_never_opened',
+          failure_reason: 'modal refused',
+        });
+
+        // ...and that outcome is final: nothing later adds a second one.
+        window.dispatchEvent(new Event('pagehide'));
+        await flushPromises();
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+      });
+
+      it('does not report an abandoned create once the editor has resolved', async () => {
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+        await closeEditor();
+        expect(events('byline_create_cancelled')).toHaveLength(1);
+
+        window.dispatchEvent(new Event('pagehide'));
+        await flushPromises();
+
+        expect(events('byline_create_unresolved')).toHaveLength(0);
+      });
+
+      it('lets a retry report its own outcome, marked as a retry', async () => {
+        // A retry is a fresh resolution attempt: the first attempt already
+        // cleared the outcome flag, so without re-arming, a create that failed
+        // to resolve and then succeeded would report nothing the second time.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+
+        apWrapper.listPageDiagramContents.mockRejectedValue(new Error('network down'));
+        await closeEditor();
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+        expect(events('byline_create_unresolved')[0][1].is_retry).toBeUndefined();
+
+        apWrapper.listPageDiagramContents.mockResolvedValue([
+          ok(child('9', 'New', DiagramType.Sequence)),
+        ]);
+        await wrapper.find('[data-testid="byline-retry-create"]').trigger('click');
+        await flushPromises();
+
+        expect(events('byline_diagram_created')).toHaveLength(1);
+        expect(events('byline_diagram_created')[0][1]).toMatchObject({ is_retry: true });
+      });
+    });
+
+    describe('the Lite limit pre-check', () => {
+      it('warns on an over-limit space without blocking the create', async () => {
+        // Warning, not gating: the editor's own gate carries the "Continue
+        // editing (N)" allowance, and 6 of the 27 byline creates blocked over
+        // 2026-08-21..27 used it. Blocking here would take that away silently.
+        paywall.shouldBlock = true;
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+
+        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(true);
+        expect(events('byline_create_limit_warned')).toHaveLength(1);
+        expect(events('byline_create_limit_warned')[0][1]).toMatchObject({
+          create_limit_reached: true,
+          macro_count: 128,
+        });
+
+        await openEditorFrom(wrapper);
+        expect(vi.mocked(openModal)).toHaveBeenCalled();
+        expect(events('byline_create_clicked')[0][1]).toMatchObject({
+          create_limit_reached: true,
+        });
+      });
+
+      it('stays silent on a space that is under the limit', async () => {
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+
+        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(false);
+        expect(events('byline_create_limit_warned')).toHaveLength(0);
+        await openEditorFrom(wrapper);
+        expect(events('byline_create_clicked')[0][1]).toMatchObject({
+          create_limit_reached: false,
+        });
+      });
+
+      it('reads the paywall decision without writing the banner targeting marker', async () => {
+        // The targeting marker is single-writer by design — only the macro
+        // iframe writes it, when a macro renders (see warningBanner.ts). The
+        // byline is a READER. Writing it from here would create a marker on
+        // pages where no macro rendered, which alone makes the warning banner
+        // eligible for a space admin, and a degraded read could clobber a good
+        // marker and suppress a banner that should have shown.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        await mountByline();
+
+        expect(paywall.initialize).toHaveBeenCalledWith({ persistMarker: false });
+      });
+
+      it('warns once per open, not once per list load', async () => {
+        // loadDiagrams' finally runs the check, and onRetry re-runs loadDiagrams.
+        // Unguarded, a retry counted as a second warning — and only users who hit
+        // a load failure can retry, so the inflation is biased toward the failure
+        // population. Exactly what the byline_opened guard exists to prevent.
+        paywall.shouldBlock = true;
+        apWrapper.listPageDiagramContents.mockResolvedValue([forbidden]);
+        const wrapper = await mountByline();
+        expect(events('byline_create_limit_warned')).toHaveLength(1);
+
+        apWrapper.listPageDiagramContents.mockResolvedValue([
+          ok(child('1', 'Login', DiagramType.Sequence)),
+        ]);
+        await wrapper.find('[data-testid="byline-retry"]').trigger('click');
+        await flushPromises();
+
+        expect(events('byline_create_limit_warned')).toHaveLength(1);
+      });
+
+      it('treats an unreadable macro count as unknown, not as zero', async () => {
+        // Every loader inside initialize() catches its own error, so a failed
+        // count read never reaches the catch — it arrives as macroCountSource
+        // 'undefined' with the count left at 0, which would otherwise resolve to
+        // "not blocked" and stamp create_limit_reached: false on a space we know
+        // nothing about.
+        paywall.countSource = 'undefined';
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+
+        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(false);
+        expect(events('byline_create_limit_warned')).toHaveLength(0);
+        await openEditorFrom(wrapper);
+        expect(events('byline_create_clicked')[0][1].create_limit_reached).toBeUndefined();
+      });
+
+      it('carries the count source so a degraded read stays filterable', async () => {
+        // An empty space and an under-returning read both surface as 'zero' and
+        // are indistinguishable by construction, so the source rides along rather
+        // than the decision pretending to more certainty than it has.
+        paywall.countSource = 'zero';
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+
+        await openEditorFrom(wrapper);
+        expect(events('byline_create_clicked')[0][1]).toMatchObject({
+          create_limit_reached: false,
+          macro_count_source: 'zero',
+        });
+      });
+
+      it('claims no limit it could not actually read', async () => {
+        // A failed read must not invent a paywall the user is not at, and must
+        // not report create_limit_reached: false either — undefined is the
+        // honest answer and is what the property documents.
+        paywall.initialize.mockRejectedValueOnce(new Error('metrics unreachable'));
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+
+        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(false);
+        expect(events('byline_create_limit_warned')).toHaveLength(0);
+        await openEditorFrom(wrapper);
+        expect(events('byline_create_clicked')[0][1].create_limit_reached).toBeUndefined();
+      });
     });
 
     it('a found id proves the save even when another type failed', async () => {

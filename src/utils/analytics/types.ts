@@ -386,6 +386,22 @@ export type AnalyticsProperties = {
   // absent rather than 0 when the ADF could not be read: "scanned, found none"
   // and "could not scan" must not collapse into the same number.
   unplaced_count?: number;
+  // byline_create_unresolved. True when the outcome came from onRetryCreate
+  // re-running the resolution rather than from the editor closing. A create
+  // that failed to resolve and then succeeded on retry emits BOTH
+  // byline_create_unresolved and byline_diagram_created, so the create funnel
+  // sums per resolution attempt, not per click — this flag is what separates
+  // the two. Absent (rather than false) on first attempts, so a query can tell
+  // "not a retry" from "emitted before this property existed".
+  is_retry?: boolean;
+  // byline_create_clicked / byline_create_limit_warned. Whether the space was
+  // already at the Lite macro limit when the byline's create picker was shown,
+  // as judged by the same `shouldBlockActions` predicate the editor's gate uses.
+  // On byline_create_clicked it splits the create funnel by a condition the
+  // click alone cannot show; undefined means the pre-check had not resolved yet
+  // (it runs after the list paints and can lose the race against a fast click),
+  // which is NOT the same as false.
+  create_limit_reached?: boolean;
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).

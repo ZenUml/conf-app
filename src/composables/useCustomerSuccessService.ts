@@ -268,14 +268,30 @@ export function useCustomerSuccessService() {
     });
   }
 
-  const initialize = async () => {
+  /**
+   * Load the paywall inputs, and by default record the targeting marker.
+   *
+   * `persistMarker: false` is for READERS of the paywall decision that are not
+   * the macro iframe. The targeting marker is single-writer by design (see the
+   * module comment in utils/paywall/warningBanner.ts): only the macro iframe
+   * writes it, when a macro renders. A second writer breaks that two ways —
+   * it can create a marker on a page where no macro rendered, which is enough
+   * on its own to make the warning banner eligible for a space admin; and
+   * because the write is a full overwrite, a degraded read (macro count 0)
+   * would clobber a good marker with severity 'none' and SUPPRESS a banner
+   * that should have shown.
+   *
+   * The Lite byline's create-limit pre-check (BylineDiagrams.vue) is the first
+   * such reader: it needs `shouldBlockActions` and nothing else.
+   */
+  const initialize = async ({ persistMarker = true }: { persistMarker?: boolean } = {}) => {
     await Promise.all([
       loadMacroMetrics(),
       loadPaywallPolicy(),
       loadSpacePaidStatus(),
       loadSpaceKey(),
     ]);
-    persistTargetingMarker();
+    if (persistMarker) persistTargetingMarker();
   }
 
   return {

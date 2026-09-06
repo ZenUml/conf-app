@@ -98,19 +98,40 @@ describe('revealDiagram — the hand-off across the reload', () => {
 
       expect(focus).toHaveBeenCalled()
       expect(blur).toHaveBeenCalled()
-      expect(document.body.querySelector('[aria-hidden="true"]')).toBeNull()
+      // The 1px anchor is gone; only the overlay (also aria-hidden) remains.
+      expect(document.body.querySelector('[tabindex="-1"]')).toBeNull()
       vi.mocked(document.createElement).mockRestore()
     })
 
-    it('rings the macro and takes the ring back off', () => {
+    it('washes the whole macro box, not just its edge, and cleans up after', () => {
+      // A hairline ring on a large diagram is easy to miss after a long scroll.
       vi.useFakeTimers()
       revealThisMacro(1000)
 
+      const overlay = document.querySelector('[data-testid="zenuml-reveal-flash"]');
+      expect(overlay).not.toBeNull()
       expect(document.documentElement.classList.contains('zenuml-revealed')).toBe(true)
       expect(document.getElementById('zenuml-reveal-style')).not.toBeNull()
 
       vi.advanceTimersByTime(1001)
+      expect(document.querySelector('[data-testid="zenuml-reveal-flash"]')).toBeNull()
       expect(document.documentElement.classList.contains('zenuml-revealed')).toBe(false)
+    })
+
+    it('never swallows a click meant for the diagram underneath', () => {
+      revealThisMacro()
+      const overlay = document.querySelector('[data-testid="zenuml-reveal-flash"]') as HTMLElement
+      expect(overlay.getAttribute('aria-hidden')).toBe('true')
+      // The style rule carries pointer-events: none; assert the contract holds
+      // at the sheet, since jsdom does not compute it.
+      expect(document.getElementById('zenuml-reveal-style')!.textContent)
+        .toContain('pointer-events: none')
+    })
+
+    it('leaves one overlay behind when revealed twice', () => {
+      revealThisMacro()
+      revealThisMacro()
+      expect(document.querySelectorAll('[data-testid="zenuml-reveal-flash"]')).toHaveLength(1)
     })
 
     it('never breaks the render when the DOM refuses', () => {

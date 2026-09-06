@@ -38,8 +38,8 @@ const REVEAL_KEY = 'zenumlRevealDiagram'
  */
 export const REVEAL_TTL_MS = 60_000
 
-/** How long the ring stays on the diagram once the page has stopped moving. */
-export const REVEAL_HIGHLIGHT_MS = 2400
+/** How long the highlight runs once the page has stopped moving. */
+export const REVEAL_HIGHLIGHT_MS = 2800
 
 interface RevealNote {
   pageId: string
@@ -118,7 +118,8 @@ export function cancelReveal(): void {
   clear()
 }
 
-const RING_STYLE_ID = 'zenuml-reveal-style'
+const REVEAL_STYLE_ID = 'zenuml-reveal-style'
+const REVEAL_OVERLAY_CLASS = 'zenuml-reveal-flash'
 
 /**
  * Pull the page here, then say which one moved.
@@ -127,9 +128,18 @@ const RING_STYLE_ID = 'zenuml-reveal-style'
  * focusing a real control would also ARM it — a stray Enter would then open or
  * edit the diagram the user has not looked at yet.
  *
- * The ring is drawn as an inset shadow on the root element: the iframe's box IS
- * the macro's box on the page, so an inset ring reads as a ring around the
- * diagram, and unlike an outline it cannot be clipped by the iframe edge.
+ * The highlight is an OVERLAY, not a border on the root element. A hairline
+ * ring at the edge of a large macro is easy to miss — it sits far from where
+ * the eye lands after a scroll, and on a Confluence page full of blue chrome it
+ * reads as part of the furniture. A tinted wash across the whole box, pulsing
+ * three times, is unmissable and unambiguous about WHICH element it means.
+ *
+ * `position: fixed; inset: 0` is exactly the macro's box: the Forge iframe is
+ * sized to its content, so the iframe's viewport and the diagram's footprint on
+ * the page are the same rectangle. It paints over the diagram rather than
+ * around it, which is what makes it visible on a busy one — and it is inert
+ * (`pointer-events: none`, `aria-hidden`), so it never intercepts a click or
+ * reaches a screen reader.
  */
 export function revealThisMacro(highlightMs: number = REVEAL_HIGHLIGHT_MS): void {
   try {
@@ -145,28 +155,57 @@ export function revealThisMacro(highlightMs: number = REVEAL_HIGHLIGHT_MS): void
     anchor.blur()
     anchor.remove()
 
-    if (!doc.getElementById(RING_STYLE_ID)) {
+    if (!doc.getElementById(REVEAL_STYLE_ID)) {
       const style = doc.createElement('style')
-      style.id = RING_STYLE_ID
-      // The pulse is what makes the ring read as "this one, just now" rather
-      // than as a permanent border. Reduced motion keeps the ring and drops the
-      // movement, which is the part that carries the meaning anyway.
+      style.id = REVEAL_STYLE_ID
+      // Three pulses, not one: a single fade is over before a user who was
+      // watching the scroll has re-focused on where the page landed. Reduced
+      // motion holds the wash steady instead — the colour is what identifies
+      // the diagram, the blinking only draws the eye to it.
       style.textContent = `
-@keyframes zenumlRevealPulse {
-  0%   { box-shadow: inset 0 0 0 3px rgba(12,102,228,0.9); }
-  70%  { box-shadow: inset 0 0 0 3px rgba(12,102,228,0.9); }
-  100% { box-shadow: inset 0 0 0 3px rgba(12,102,228,0); }
+@keyframes zenumlRevealFlash {
+  0%   { opacity: 0; }
+  6%   { opacity: 1; }
+  28%  { opacity: 0.3; }
+  44%  { opacity: 1; }
+  64%  { opacity: 0.3; }
+  78%  { opacity: 1; }
+  100% { opacity: 0; }
 }
-.zenuml-revealed { animation: zenumlRevealPulse var(--zenuml-reveal-ms,2400ms) ease-out 1; border-radius: 3px; }
+.${REVEAL_OVERLAY_CLASS} {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  border: 4px solid #0C66E4;
+  border-radius: 4px;
+  background: rgba(12,102,228,0.18);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.85);
+  animation: zenumlRevealFlash var(--zenuml-reveal-ms,2800ms) ease-in-out 1 both;
+}
 @media (prefers-reduced-motion: reduce) {
-  .zenuml-revealed { animation: none; box-shadow: inset 0 0 0 3px rgba(12,102,228,0.9); }
+  .${REVEAL_OVERLAY_CLASS} { animation: none; opacity: 1; }
 }`
       doc.head.appendChild(style)
     }
+
+    // The class on the root is the state marker the rest of the app (and the
+    // spot checks) can see; the overlay is what the user sees.
     const root = doc.documentElement
     root.style.setProperty('--zenuml-reveal-ms', `${highlightMs}ms`)
     root.classList.add('zenuml-revealed')
-    window.setTimeout(() => root.classList.remove('zenuml-revealed'), highlightMs)
+
+    doc.querySelectorAll(`.${REVEAL_OVERLAY_CLASS}`).forEach(el => el.remove())
+    const overlay = doc.createElement('div')
+    overlay.className = REVEAL_OVERLAY_CLASS
+    overlay.setAttribute('aria-hidden', 'true')
+    overlay.dataset.testid = 'zenuml-reveal-flash'
+    doc.body.appendChild(overlay)
+
+    window.setTimeout(() => {
+      root.classList.remove('zenuml-revealed')
+      overlay.remove()
+    }, highlightMs)
   } catch (e) {
     // The diagram is on the page either way. Never let the flourish break the render.
     console.debug('[reveal] could not reveal this macro', e)

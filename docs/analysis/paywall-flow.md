@@ -16,7 +16,7 @@ flowchart TB
     NONE & WARN & BLOCK --> TM[("localStorage TargetingMarker<br/>severity · macroCount · spacePaid · paywall on")]
     TM --> GE[/"paywall_gate_evaluated"/]
     TM --> DB{"decidePageBanner()<br/>paywall > paywall-admin > csat"}
-    DB --> B1["'paywall' — author in last 30 d, unpaid, not snoozed 7 d"]
+    DB --> B1["'paywall' — author in last 30 d, unpaid, not snoozed 7 d, taper gap met (1 / 24h / 24h / 7d)"]
     DB --> B2["'paywall-admin' — space admin, flag paywall-admin-banner-enabled"]
     DB --> B3["'csat' / 'none'"]
     B1 & B2 --> BS[/"paywall_banner_shown / dismissed"/]
@@ -46,4 +46,4 @@ flowchart TB
   TM -.-> TRY
 ```
 
-Thresholds: warn 85 (`WARNING_THRESHOLD`, `useCustomerSuccessService.ts:11`), block 100 (`PAYWALL_BANNER_MIN_MACRO_COUNT`), 3 continue attempts (`DEFAULT_CONTINUE_ATTEMPTS`; 15 before 2026-08-16, and a stored balance is never rewritten), 7-day banner snooze (`WARNING_BANNER_SUPPRESSION_MS`), 30-day admin probe. Lite only — Full, Diagramly and AsyncAPI run none of these gates. Spot-check rule: expect the modal at editor mount, never after Publish.
+Thresholds: warn 85 (`WARNING_THRESHOLD`, `useCustomerSuccessService.ts:11`), block 100 (`PAYWALL_BANNER_MIN_MACRO_COUNT`), 3 continue attempts (`DEFAULT_CONTINUE_ATTEMPTS`; 15 before 2026-08-16, and a stored balance is never rewritten), 7-day banner snooze (`WARNING_BANNER_SUPPRESSION_MS`), banner impression taper — 2nd/3rd ≥ 24h apart, 4th+ ≥ 7d (`BANNER_TAPER_*`, since 2026-09-07), 30-day admin probe. Lite only — Full, Diagramly and AsyncAPI run none of these gates. Spot-check rule: expect the modal at editor mount, never after Publish.

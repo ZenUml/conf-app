@@ -296,6 +296,13 @@ export type AnalyticsProperties = {
   // users reached on the 'editor' gate across 19 CSS tenants, against 5,021
   // unique space admins already loading the banner iframe unreached.
   banner_audience?: 'editor' | 'space_admin';
+  // Impression taper (2026-09-07), on every page-banner event. `show_count` is
+  // the 1-based ordinal of the CURRENT impression for this browser+tenant+space
+  // (prior showCount + 1); `hours_since_last_shown` is the whole-hour gap since
+  // the previous impression and is absent on a first impression. Together they
+  // verify the 1 / 24h / 24h / 7d schedule from Mixpanel alone.
+  show_count?: number;
+  hours_since_last_shown?: number;
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;

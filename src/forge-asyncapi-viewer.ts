@@ -13,7 +13,7 @@
 //    "close current modal, reopen as editor" flow.
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, openModal } from '@/model/globals/forgeGlobal'
@@ -78,7 +78,6 @@ async function initializeMacro() {
     console.error('forge-asyncapi-viewer: #app element missing')
     return
   }
-
   // The embed macro references a document owned elsewhere. On a published page
   // it must not offer an inline Edit pencil — editing the source happens at the
   // origin (dashboard / original macro), and re-targeting which document is
@@ -99,6 +98,7 @@ async function initializeMacro() {
     // Inline React viewer. The dashboard view gets an Edit button that swaps
     // to the Studio editor in place (no second modal, no gesture loss); the
     // fullscreen macro viewer omits it (showInlineEdit === false).
+    const reactRoot = createRoot(root)
 
     async function closeModal() {
       try {
@@ -121,7 +121,7 @@ async function initializeMacro() {
         const [{ default: AsyncApiStudioEditor }] = await Promise.all([
           import('@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'),
         ])
-        ReactDOM.render(
+        reactRoot.render(
           React.createElement(AsyncApiStudioEditor, {
             initialSpec: spec,
             onSave: async (newSpec: string) => {
@@ -146,21 +146,19 @@ async function initializeMacro() {
             },
             onCancel: closeModal,
           }),
-          root,
         )
       } catch (err) {
         console.error('Failed to swap viewer → editor:', err)
       }
     }
 
-    ReactDOM.render(
+    reactRoot.render(
       React.createElement(AsyncApiViewer, {
         spec,
         onEdit: showInlineEdit ? renderEditor : undefined,
         onCancel: closeModal,
         loadError,
       }),
-      root,
     )
   } else {
     // -------- Page-rendered macro path --------

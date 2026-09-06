@@ -1,6 +1,5 @@
-import React from 'react'
-import ReactDOM from 'react-dom'
-import { act } from 'react-dom/test-utils'
+import React, { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fakeStore = vi.hoisted(() => {
@@ -33,6 +32,7 @@ const okRes = (text: string) => ({ ok: true, text: async () => text }) as any
 
 describe('OpenApiTitleInput', () => {
   let container: HTMLDivElement
+  let root: Root
 
   beforeEach(() => {
     ;(useAutoTitle as any).__resetForTests()
@@ -43,11 +43,12 @@ describe('OpenApiTitleInput', () => {
     vi.useFakeTimers()
     container = document.createElement('div')
     document.body.appendChild(container)
+    root = createRoot(container)
   })
 
   afterEach(() => {
     act(() => {
-      ReactDOM.unmountComponentAtNode(container)
+      root.unmount()
     })
     container.remove()
     vi.useRealTimers()
@@ -55,14 +56,13 @@ describe('OpenApiTitleInput', () => {
 
   async function renderTitleInput(onTitleChange = vi.fn(), title = '') {
     await act(async () => {
-      ReactDOM.render(
+      root.render(
         <OpenApiTitleInput
           title={title}
           spec={SPEC}
           parseError={null}
           onTitleChange={onTitleChange}
         />,
-        container,
       )
       await Promise.resolve()
     })

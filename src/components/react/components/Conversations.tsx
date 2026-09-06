@@ -25,7 +25,7 @@ interface ChatSession {
 }
 
 const Conversations = ({ sessions = [] }: { sessions?: ChatSession[] }) => {
-  const boxRef = React.createRef();
+  const boxRef = React.createRef<HTMLDivElement>();
 
   useScrollToBttom(boxRef);
 

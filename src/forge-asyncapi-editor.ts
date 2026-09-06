@@ -4,7 +4,7 @@
 // Forge resource so localStorage works as a sync channel.
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, isInserting, isConfiguring } from '@/model/globals/forgeGlobal'
@@ -92,18 +92,19 @@ async function initializeMacro() {
     }
   }
 
-  const root = document.getElementById('app')
-  if (!root) {
+  const container = document.getElementById('app')
+  if (!container) {
     console.error('forge-asyncapi-editor: #app element missing')
     return
   }
+  const root = createRoot(container)
 
   // If we were asked to edit a specific document but its load threw, do NOT
   // silently fall through to the DEFAULT_ASYNCAPI_SPEC editor: the user would
   // edit a blank template and the save would fork a brand-new document,
   // orphaning the one they meant to edit. Surface the failure instead.
   if (loadFailed) {
-    ReactDOM.render(
+    root.render(
       React.createElement(
         'div',
         {
@@ -120,7 +121,6 @@ async function initializeMacro() {
           'Close this dialog and try again. Editing now would create a new, separate document.',
         ),
       ),
-      root,
     )
     return
   }
@@ -210,14 +210,13 @@ async function initializeMacro() {
   // the Studio's own dark header with a floating Publish button) and
   // wants the same at edit time. ownTitleBar:false reproduces that
   // layout in every entry path.
-  ReactDOM.render(
+  root.render(
     React.createElement(AsyncApiStudioEditor, {
       initialSpec,
       onSave: handleSave,
       onCancel: handleCancel,
       ownTitleBar: false,
     }),
-    root,
   )
 }
 

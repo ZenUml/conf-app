@@ -31,9 +31,6 @@
            the editor, paste, publish — is what the user already abandoned once;
            that is why this diagram is unplaced. Copy link stays as the fallback
            for a reader who cannot edit the page (see `canEdit`). -->
-      <!-- One click finishes the job. The four-step alternative — copy, open
-           the editor, paste, publish — is what the user already abandoned once;
-           that is why this diagram is unplaced. -->
       <button
         v-if="rows.length === 1 && canEdit"
         type="button"
@@ -133,8 +130,7 @@ import {
 } from '@/utils/byline/unplacedMarker'
 import { clearUnplacedProperty, readUnplacedProperty } from '@/utils/byline/unplacedProperty'
 import { higherPriorityBannerPending } from '@/utils/banners/priority'
-import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage'
-import { cancelReveal, requestReveal } from '@/utils/byline/revealDiagram'
+import { placeDiagram } from '@/utils/byline/placeDiagram'
 
 /**
  * "Saved here, but on no page" — said on the surface that is actually read.
@@ -253,7 +249,18 @@ async function readRecord(): Promise<{ entries: UnplacedDiagramEntry[]; updatedA
   // gated module reaches everyone anyway on exactly the pages where the read
   // being unreadable is most likely to mean "the property is there".
   const property = await readUnplacedProperty(identity.pageId)
-  if (property.status !== 'absent') return null
+  if (property.status !== 'absent') {
+    // Its own result, not the caller's 'record_unreadable': that one means we
+    // had nothing to say, and this means we had something and the gated module
+    // is already saying it. Counted as one number they cancel out, and a
+    // healthy cross-user path reads as a broken reader.
+    trackAnalyticsEvent('unplaced_banner_evaluated', {
+      ...baseProps(),
+      result: 'property_covers_page',
+    })
+    evaluationReported = true
+    return null
+  }
   return marker
 }
 
@@ -444,67 +451,39 @@ onBeforeUnmount(() => {
  * that keeps naming a diagram the user has visibly placed is the exact wrong
  * answer. When the last row goes, so does the banner.
  */
-/** At least one entry was really written, so the rendered page is out of date. */
-let addedAny = false
-/** The last entry actually written — the one worth scrolling to. */
-let lastAdded: string | null = null
-
 async function onAddToPage(entry: UnplacedDiagramEntry) {
   if (!identity || addingId.value) return
+  const pageId = identity.pageId
   addingId.value = entry.id
   addFailure.value = null
-  const { result, pageMacroCount } = await addDiagramToPage(identity.pageId, entry)
+
+  const outcome = await placeDiagram(pageId, entry, () => {
+    // Runs before the reload, deliberately: the reloaded page reads this record
+    // and would otherwise race the write. Retiring it here rather than leaving
+    // it to the next load's verification is the point — a banner that keeps
+    // naming a diagram the user has visibly placed is the exact wrong answer.
+    rows.value = rows.value.filter(r => r.id !== entry.id)
+    if (rows.value.length > 0) return
+    if (props.source === 'property') void clearUnplacedProperty(pageId)
+    else recordUnplacedBannerResolved(identity!, recordUpdatedAt)
+    visible.value = false
+  })
   addingId.value = null
+
   trackAnalyticsEvent('diagram_added_to_page', {
     ...baseProps(),
     macro_type: toMacroType(entry.diagramType) as MacroTypeValue,
-    result,
-    ...(pageMacroCount === undefined ? {} : { page_macro_count: pageMacroCount }),
+    result: outcome.result,
+    ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
   })
 
-  if (result === 'forbidden') {
-    // Expected on a notice that reaches every reader: a reader is not always an
-    // author. Hand over the link instead of leaving a button that cannot work.
-    canEdit.value = false
-    addFailure.value = 'You do not have permission to edit this page — copy the link and send it to someone who does.'
-    return
-  }
-  if (result === 'conflict') {
-    addFailure.value = 'Someone edited the page while we were adding it. Reload and try again.'
-    return
-  }
-  if (result === 'failed') {
-    addFailure.value = "Couldn't add it to the page. Copy the link and paste it into the editor instead."
-    canEdit.value = false
-    return
-  }
-
-  // 'added' or 'already_present' — either way the page now renders it.
-  if (result === 'added') {
-    addedAny = true
-    lastAdded = entry.id
-  }
-  rows.value = rows.value.filter(r => r.id !== entry.id)
-  if (rows.value.length === 0) {
-    if (props.source === 'property') void clearUnplacedProperty(identity.pageId)
-    else recordUnplacedBannerResolved(identity, recordUpdatedAt)
-    visible.value = false
-    // Reload BEFORE closing: the reload is the point — the page in front of
-    // the user still shows the body from before the write, so without it the
-    // diagram they were just told about is nowhere to be seen. Closing the
-    // iframe first would abort the call, the same reason every other exit
-    // path here awaits its work before view.close().
-    if (addedAny) {
-      // Leave the note the placed macro claims on the other side of the reload:
-      // it is appended to the END of the document, so on any page longer than a
-      // screen the reloaded page opens above it and the click looks like it did
-      // nothing. Named for the LAST diagram placed, which is the one the user
-      // just clicked.
-      if (lastAdded) requestReveal(identity.pageId, lastAdded)
-      if (!(await reloadHostPage())) cancelReveal()
-    }
-    void closeBanner()
-  }
+  // Only a refusal is durable enough to withdraw the action; a transient
+  // failure keeps the button, because the fix for it is to try again.
+  if (outcome.refused) canEdit.value = false
+  addFailure.value = outcome.message
+  // Closed last, for the same reason every other exit path here awaits its work
+  // first: closing the iframe aborts what is in flight, the reload included.
+  if (outcome.placed && rows.value.length === 0) void closeBanner()
 }
 
 /**

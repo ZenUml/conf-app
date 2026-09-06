@@ -96,6 +96,26 @@ describe('addToPage — placing a diagram without the four-step detour', () => {
       ).toBe(true)
       expect(referencesCustomContent({ content: [macroNode('8')] }, '7')).toBe(false)
     })
+
+    it('sees a macro created by PASTING the link, which carries no customContentId', () => {
+      // The regression this closes: "Copy link" -> paste -> publish leaves a
+      // macro with only `autoConvertLink`. A check that reads customContentId
+      // alone calls the page unplaced, and the next click appends a SECOND
+      // copy of a diagram the page is already rendering.
+      // A real cloudId shape: the deeplink parser guards on it, because content
+      // ids are per-site integers and a foreign link must not count as placed.
+      forgeGlobal.forgeContext = { cloudId: '866c3a03-ec62-4717-91c4-1ad078bfcc60' } as any
+      const pasted = {
+        type: 'extension',
+        attrs: {
+          extensionType: 'com.atlassian.ecosystem',
+          parameters: { autoConvertLink: 'https://confluence.zenuml.com/d/sequence/866c3a03-ec62-4717-91c4-1ad078bfcc60/713064451' },
+        },
+      }
+      expect(referencesCustomContent({ content: [pasted] }, '713064451')).toBe(true)
+      // …and still says no for a link that names a different diagram.
+      expect(referencesCustomContent({ content: [pasted] }, '999')).toBe(false)
+    })
   })
 
   describe('writing', () => {

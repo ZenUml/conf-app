@@ -23,15 +23,34 @@ vi.mock('@/utils/byline/unplacedProperty', () => ({ readUnplacedProperty, clearU
 const higherPriorityBannerPending = vi.hoisted(() => vi.fn(() => null as string | null));
 vi.mock('@/utils/banners/priority', () => ({ higherPriorityBannerPending }));
 
-// The one-click place. Its REST behaviour is covered in addToPage.spec.ts.
-const addDiagramToPage = vi.hoisted(() => vi.fn(async () => ({ result: 'added', pageMacroCount: 1 })));
-const reloadHostPage = vi.hoisted(() => vi.fn(async () => true));
-vi.mock('@/utils/byline/addToPage', () => ({ addDiagramToPage, reloadHostPage }));
+// The shared place-then-reload step. Its ordering (record rewritten before the
+// reload, note withdrawn when the reload fails) is covered in placeDiagram.spec.
+const placeDiagram = vi.hoisted(() =>
+  vi.fn(async (_pageId: string, d: any, onPlaced?: () => any) => {
+    await onPlaced?.();
+    return { result: 'added', pageMacroCount: 1, placed: true, refused: false, message: null };
+  }),
+);
+vi.mock('@/utils/byline/placeDiagram', () => ({ placeDiagram }));
 
-// The hand-off to the placed macro across the reload.
-const requestReveal = vi.hoisted(() => vi.fn());
-const cancelReveal = vi.hoisted(() => vi.fn());
-vi.mock('@/utils/byline/revealDiagram', () => ({ requestReveal, cancelReveal }));
+/** Make placeDiagram answer with one of its non-happy outcomes. */
+const placeReturns = (result: string, over: Record<string, unknown> = {}) =>
+  placeDiagram.mockImplementation(async (_p: string, _d: any, onPlaced?: () => any) => {
+    const placed = result === 'added' || result === 'already_present';
+    if (placed) await onPlaced?.();
+    return {
+      result,
+      pageMacroCount: 1,
+      placed,
+      refused: result === 'forbidden',
+      message: ({
+        forbidden: 'You do not have permission to edit this page — copy the link and send it to someone who does.',
+        conflict: 'Someone edited the page while we were adding it. Reload and try again.',
+        failed: "Couldn't add it to the page. Try again, or copy the link and paste it into the editor.",
+      } as any)[result] ?? null,
+      ...over,
+    };
+  });
 
 const apWrapper = vi.hoisted(() => ({
   referencedCustomContentIds: vi.fn(async () => [] as string[] | undefined),
@@ -84,7 +103,6 @@ describe('UnplacedDiagramsBanner', () => {
     apWrapper.referencedCustomContentIds.mockResolvedValue([]);
     readUnplacedProperty.mockResolvedValue({ status: 'absent' });
     higherPriorityBannerPending.mockReturnValue(null);
-    addDiagramToPage.mockResolvedValue({ result: 'added', pageMacroCount: 1 });
     clearUnplacedProperty.mockResolvedValue('deleted');
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(async () => {}) },
@@ -219,6 +237,18 @@ describe('UnplacedDiagramsBanner', () => {
       expect(events('unplaced_banner_evaluated').at(-1)?.[1]).toMatchObject({
         result: 'page_mismatch',
       });
+    });
+
+    it('reports the stand-down as its own result, not as an unreadable record', async () => {
+      // Counted as 'record_unreadable' these two cancel out: a healthy
+      // cross-user path reads as a broken reader.
+      writeUnplacedMarker(IDENTITY, [STRAY], FALLBACK);
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      await mountBanner({ source: 'marker' });
+
+      const results = events('unplaced_banner_evaluated').map(([, p]: any) => p.result);
+      expect(results).toContain('property_covers_page');
+      expect(results).not.toContain('record_unreadable');
     });
 
     it('stands the fallback down when a property exists after all', async () => {
@@ -499,7 +529,7 @@ describe('UnplacedDiagramsBanner', () => {
       await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
       await flushPromises();
 
-      expect(addDiagramToPage).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: 'cc-2' }));
+      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: 'cc-2' }), expect.any(Function));
       expect(clearUnplacedProperty).toHaveBeenCalledWith('page-1');
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
       expect(viewClose).toHaveBeenCalled();
@@ -508,35 +538,14 @@ describe('UnplacedDiagramsBanner', () => {
         surface: 'page_banner',
         page_macro_count: 1,
       });
-      // The write changed the STORED page; the rendered page in front of the
-      // user did not change with it, so without this the successful case looks
-      // like nothing happened.
-      expect(reloadHostPage).toHaveBeenCalled();
-      // And before the close, because closing the iframe aborts in-flight work.
-      expect(reloadHostPage.mock.invocationCallOrder[0]).toBeLessThan(
-        viewClose.mock.invocationCallOrder[0],
-      );
-      // The macro is appended to the END of the page, so the reloaded page
-      // opens above it. This note is how it pulls the page down to itself.
-      expect(requestReveal).toHaveBeenCalledWith('page-1', 'cc-2');
-      expect(requestReveal.mock.invocationCallOrder[0]).toBeLessThan(
-        reloadHostPage.mock.invocationCallOrder[0],
-      );
+      // The retire runs inside placeDiagram's onPlaced callback, which is what
+      // puts it BEFORE the reload — the reloaded page reads this record and
+      // would otherwise race the write. (placeDiagram.spec covers the ordering
+      // itself; here we only care that the surface passes the work in.)
+      expect(placeDiagram.mock.calls[0][2]).toEqual(expect.any(Function));
     });
 
-    it('drops the reveal note when the reload never happened', async () => {
-      // A note nobody can claim would scroll the NEXT page load instead.
-      reloadHostPage.mockResolvedValue(false);
-      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
-      const wrapper = await mountBanner({ source: 'property' });
-
-      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
-      await flushPromises();
-
-      expect(cancelReveal).toHaveBeenCalled();
-    });
-
-    it('keeps the banner up for the diagrams still unplaced', async () => {
+    it('keeps the banner up for the diagrams still unplaced, and still reloads', async () => {
       readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY, SECOND]));
       const wrapper = await mountBanner({ source: 'property' });
       await wrapper.find('[data-testid="unplaced-banner-toggle"]').trigger('click');
@@ -549,16 +558,14 @@ describe('UnplacedDiagramsBanner', () => {
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(true);
       expect(wrapper.find('[data-testid="unplaced-banner-text"]').text()).toContain('Retry path');
       expect(clearUnplacedProperty).not.toHaveBeenCalled();
-      // A full Confluence page load between the two clicks would cost the user
-      // the second one — the reload waits for the last diagram, and so does the
-      // note that says which one to scroll to.
-      expect(reloadHostPage).not.toHaveBeenCalled();
-      expect(requestReveal).not.toHaveBeenCalled();
+      // Still placed through the shared step, which reloads on every success —
+      // the reloaded page's banner then offers what is left.
+      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: 'cc-2' }), expect.any(Function));
     });
 
-    it('does not reload for a diagram the page already carried', async () => {
-      // Nothing was written, so there is nothing new to render.
-      addDiagramToPage.mockResolvedValue({ result: 'already_present', pageMacroCount: 1 });
+    it('retires the record for a diagram the page already carried', async () => {
+      // Nothing was written, but the page does render it, so the notice is wrong.
+      placeReturns('already_present');
       readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
       const wrapper = await mountBanner({ source: 'property' });
 
@@ -566,11 +573,11 @@ describe('UnplacedDiagramsBanner', () => {
       await flushPromises();
 
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
-      expect(reloadHostPage).not.toHaveBeenCalled();
+      expect(clearUnplacedProperty).toHaveBeenCalledWith('page-1');
     });
 
     it('offers the link instead when the reader cannot edit the page', async () => {
-      addDiagramToPage.mockResolvedValue({ result: 'forbidden' });
+      placeReturns('forbidden');
       readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
       const wrapper = await mountBanner({ source: 'property' });
 
@@ -583,8 +590,22 @@ describe('UnplacedDiagramsBanner', () => {
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(true);
     });
 
+    it('keeps the button after a transient failure — that is not a permission answer', async () => {
+      // One 500 used to take "Add to page" off every remaining row for the life
+      // of the iframe. The fix for a blip is to try again.
+      placeReturns('failed');
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="unplaced-banner-add"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="unplaced-banner-add-failed"]').text()).toContain('Try again');
+    });
+
     it('says so and stays put when the page changed underneath', async () => {
-      addDiagramToPage.mockResolvedValue({ result: 'conflict' });
+      placeReturns('conflict');
       readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
       const wrapper = await mountBanner({ source: 'property' });
 

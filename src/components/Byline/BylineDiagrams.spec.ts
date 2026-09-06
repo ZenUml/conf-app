@@ -6,7 +6,6 @@ import { openModal } from '@/model/globals/forgeGlobal';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { readUnplacedMarker } from '@/utils/byline/unplacedMarker';
 import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty';
-import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -27,15 +26,15 @@ vi.mock('@/utils/byline/unplacedProperty', () => ({
 }));
 
 // The one-click place. Its REST behaviour is covered in addToPage.spec.ts.
-vi.mock('@/utils/byline/addToPage', () => ({
-  addDiagramToPage: vi.fn(async () => ({ result: 'added', pageMacroCount: 1 })),
-  reloadHostPage: vi.fn(async () => true),
-}));
-
-// The hand-off to the placed macro across the reload.
-const requestReveal = vi.hoisted(() => vi.fn());
-const cancelReveal = vi.hoisted(() => vi.fn());
-vi.mock('@/utils/byline/revealDiagram', () => ({ requestReveal, cancelReveal }));
+// The shared place-then-reload step. Its ordering (record rewritten before the
+// reload, note withdrawn when the reload fails) is covered in placeDiagram.spec.
+const placeDiagram = vi.hoisted(() =>
+  vi.fn(async (_pageId: string, d: any, onPlaced?: () => any) => {
+    await onPlaced?.();
+    return { result: 'added', pageMacroCount: 1, placed: true, refused: false, message: null };
+  }),
+);
+vi.mock('@/utils/byline/placeDiagram', () => ({ placeDiagram }));
 
 const forgeGlobalMock = vi.hoisted(() => ({ forgeContext: { cloudId: 'cloud-1' } as any }));
 vi.mock('@/model/globals/forgeGlobal', () => ({
@@ -103,7 +102,10 @@ describe('BylineDiagrams', () => {
     apWrapper.getAttachmentsV2.mockResolvedValue([]);
     apWrapper.referencedCustomContentIds.mockResolvedValue(undefined);
     vi.mocked(persistUnplacedProperty).mockResolvedValue('written');
-    vi.mocked(addDiagramToPage).mockResolvedValue({ result: 'added', pageMacroCount: 1 });
+    placeDiagram.mockImplementation(async (_p: string, _d: any, onPlaced?: () => any) => {
+      await onPlaced?.();
+      return { result: 'added', pageMacroCount: 1, placed: true, refused: false, message: null };
+    });
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
@@ -868,7 +870,7 @@ describe('BylineDiagrams', () => {
       await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
       await flushPromises();
 
-      expect(addDiagramToPage).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: '2' }));
+      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: '2' }), expect.any(Function));
       expect(wrapper.text()).not.toContain('not on this page');
       expect(events('diagram_added_to_page')[0][1]).toMatchObject({
         result: 'added',
@@ -880,14 +882,17 @@ describe('BylineDiagrams', () => {
       expect(persistUnplacedProperty).toHaveBeenLastCalledWith('page-1', []);
       // The stored page changed but the page behind this panel did not, so the
       // diagram would otherwise appear nowhere until the user navigated.
-      expect(reloadHostPage).toHaveBeenCalled();
-      // …to a page that opens above the macro it just appended, hence the note.
-      expect(requestReveal).toHaveBeenCalledWith('page-1', '2');
+      // The reload and the reveal note live in placeDiagram (see its spec); the
+      // row's job is to hand it the record rewrite to run before the reload.
+      expect(placeDiagram.mock.calls[0][2]).toEqual(expect.any(Function));
     });
 
     it('falls back to the link when the write is refused', async () => {
       // The byline reaches every reader, and a reader is not always an author.
-      vi.mocked(addDiagramToPage).mockResolvedValue({ result: 'forbidden' });
+      placeDiagram.mockResolvedValue({
+        result: 'forbidden', placed: false, refused: true,
+        message: 'You do not have permission to edit this page — copy the link and send it to someone who does.',
+      });
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
       apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       const wrapper = await mountByline();
@@ -932,7 +937,10 @@ describe('BylineDiagrams', () => {
 
     it('copies the typed deeplink for the stray diagram', async () => {
       // Copy URL is the fallback once a write has been refused.
-      vi.mocked(addDiagramToPage).mockResolvedValue({ result: 'forbidden' });
+      placeDiagram.mockResolvedValue({
+        result: 'forbidden', placed: false, refused: true,
+        message: 'You do not have permission to edit this page — copy the link and send it to someone who does.',
+      });
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
       apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       const wrapper = await mountByline();
@@ -1075,7 +1083,10 @@ describe('BylineDiagrams', () => {
 
     it('does not hand over a broken link when there is no cloudId', async () => {
       // Copy URL is the fallback once a write has been refused.
-      vi.mocked(addDiagramToPage).mockResolvedValue({ result: 'forbidden' });
+      placeDiagram.mockResolvedValue({
+        result: 'forbidden', placed: false, refused: true,
+        message: 'You do not have permission to edit this page — copy the link and send it to someone who does.',
+      });
       forgeGlobalMock.forgeContext = { cloudId: undefined };
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
       apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);

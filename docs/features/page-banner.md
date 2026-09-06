@@ -53,10 +53,13 @@ If we ever add `confluence:pageBanner` to lite/full/diagramly:
 
 ## What occupies the slot today
 
-One `confluence:pageBanner` module (`zenuml-page-banner`) hosts all of them, and
-`src/routes/pageBanner.ts` picks at most one per page load. In priority order:
-
-Two modules, not one:
+Two `confluence:pageBanner` modules, not one. `zenuml-page-banner` is the shared
+host — `src/routes/pageBanner.ts` picks at most one banner per page load from
+it — and `zenuml-unplaced-banner` is a second module Confluence gates
+server-side. Because two modules are two iframes, the host's priority cascade
+cannot reach the second one, which is why both sides ask
+`higherPriorityBannerPending()` (utils/banners/priority.ts) rather than one
+telling the other.
 
 | Module | Choice | Component | Gate |
 |---|---|---|---|
@@ -221,23 +224,36 @@ Per-browser suppression, all deliberate, all in localStorage under
 - **`hasExhaustedShows`** — `MAX_BANNER_SHOWS` (5) impressions of this record
   version. Enough to silence it for anyone testing in a few reloads.
 
-All three report `unplaced_banner_evaluated` (`dismissed_quiet`,
-`dismissed_version`, `shows_exhausted`), which is what separates "the gate never
-fired" from "everyone already said no" without needing a browser.
+Two more close without the user ever seeing anything, and belong on the same
+list because they answer the same question:
+
+- **`expired`** — nobody has re-confirmed the record in `UNPLACED_MARKER_TTL_MS`
+  (30 days), so we stop buying an ADF read for it.
+- **`page_mismatch`** — the fallback record names a different page than the one
+  it was read on. Any hit here is a bug, not a suppression (see "Say it about
+  the right page").
+
+All five report `unplaced_banner_evaluated`, which is what separates "the gate
+never fired" from "everyone already said no" without needing a browser.
 
 ### One-click place
 
 "Add to page" appends the macro node to the page ADF and publishes one version
 (`utils/byline/addToPage.ts`), rather than leaving the user the copy → open
 editor → paste → publish flow they already abandoned once. It is offered
-optimistically — `canEdit` starts `true` and flips off only after a write
-returns `forbidden`, which costs a refused click instead of a permissions
+optimistically — `canEdit` starts `true` and flips off only on `forbidden`,
+which is a durable answer about this user; a `failed` (a 500, a dropped
+connection) keeps the button, because the fix for a blip is to try again, which costs a refused click instead of a permissions
 request on every banner load; `diagram_added_to_page`'s `forbidden` share is the
 signal to revisit that. On success the host page is reloaded
 (`router.reload()`), because the write changes the STORED ADF and the rendered
 page does not follow — without it the success case looks like nothing happened.
-The reload waits until the surface has nothing left to place: a full page load
-between two clicks would cost the user the second one.
+It runs on EVERY successful write, not just the last of several: the record is
+rewritten first, so the reloaded page's banner offers whatever is still
+unplaced. Both surfaces go through one step (`utils/byline/placeDiagram.ts`) —
+call, report, decide what the outcome says about this user, leave the reveal
+note, reload, withdraw the note if the reload never came. That ordering matters
+and had already drifted between the two copies once.
 
 ### Checklist items still open
 

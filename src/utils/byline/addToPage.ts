@@ -1,5 +1,7 @@
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { referencedCustomContentId } from '@/model/page/referencedCustomContent'
+import { requestConfluenceJson as request } from '@/utils/byline/confluenceRequest'
 
 /**
  * Place a saved diagram on its page in one click.
@@ -48,13 +50,31 @@ export interface AddToPageOutcome {
  * `zenuml-sequence-macro` hosts sequence, mermaid and plantuml, exactly as they
  * share the `zenuml-content-sequence` custom-content type.
  */
+/**
+ * The diagram macro's key for THIS build.
+ *
+ * It is not a constant across variants: the manifest templates it as
+ * `${SEQUENCE_MACRO_KEY}`, which is `zenuml-sequence-macro` on lite/full,
+ * `gpt-diagram-macro` on diagramly and `zenuml-asyncapi-macro` on asyncapi (see
+ * the forge:deploy:* scripts in package.json). Hardcoding one of those here
+ * would emit an extensionKey no variant but Lite could render — the exact
+ * failure this file's header records from the lite→full conversion, where a
+ * malformed key rendered as an unknown extension on a customer's page. Only
+ * Lite ships the byline today, so the fallback preserves today's behaviour
+ * while the env var decides when that changes.
+ */
+const SEQUENCE_MACRO_KEY = import.meta.env.SEQUENCE_MACRO_KEY || 'zenuml-sequence-macro'
+
 const MACRO_KEY_BY_DIAGRAM_TYPE: Record<string, string> = {
-  [DiagramType.Sequence]: 'zenuml-sequence-macro',
-  [DiagramType.Mermaid]: 'zenuml-sequence-macro',
-  [DiagramType.PlantUml]: 'zenuml-sequence-macro',
+  [DiagramType.Sequence]: SEQUENCE_MACRO_KEY,
+  [DiagramType.Mermaid]: SEQUENCE_MACRO_KEY,
+  [DiagramType.PlantUml]: SEQUENCE_MACRO_KEY,
   [DiagramType.Graph]: 'zenuml-graph-macro',
   [DiagramType.OpenApi]: 'zenuml-openapi-macro',
-  [DiagramType.AsyncApi]: 'zenuml-asyncapi-macro',
+  // No AsyncApi entry: the asyncapi variant strips zenuml-byline-diagrams
+  // (scripts/forge-wizard.mjs), which is the only thing that offers this
+  // action, so the key could never be used and having it here only suggests
+  // otherwise to the next reader.
 }
 
 /** Fold case, like pageDiagrams.lookup: stored types spell OpenAPI/openapi. */
@@ -131,22 +151,27 @@ function cryptoRandomId(): string {
   }
 }
 
-/** Does this document already reference the diagram? */
+/**
+ * Does this document already reference the diagram?
+ *
+ * Asks model/page/referencedCustomContent, the same walk AtlasPage's scan uses.
+ * It used to have its own copy that read `customContentId` only, which misses a
+ * macro created by PASTING the deeplink — exactly the macro this feature's own
+ * "Copy link" produces. The two then disagreed: the banner's scan saw the
+ * diagram on the page, this check did not, and a click appended a second copy.
+ */
 export function referencesCustomContent(adf: unknown, customContentId: string): boolean {
+  const cloudId = forgeGlobal.forgeContext?.cloudId
   let found = false
   const walk = (node: unknown): void => {
     if (found) return
     if (Array.isArray(node)) return node.forEach(walk)
     if (!node || typeof node !== 'object') return
     const n = node as any
-    const params = n.attrs?.parameters
-    for (const p of [params?.guestParams, params?.macroParams, params]) {
-      const raw = p?.customContentId
-      const id = typeof raw === 'string' ? raw : raw?.value
-      if (id && String(id) === String(customContentId)) {
-        found = true
-        return
-      }
+    const id = referencedCustomContentId(n.attrs?.parameters, cloudId)
+    if (id && String(id) === String(customContentId)) {
+      found = true
+      return
     }
     Object.values(n).forEach(walk)
   }
@@ -167,15 +192,6 @@ function countExtensions(adf: unknown): number {
   }
   walk(adf)
   return count
-}
-
-async function request(url: string, method: string, body?: unknown) {
-  const { requestConfluence } = await import('@forge/bridge')
-  return requestConfluence(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  })
 }
 
 /**

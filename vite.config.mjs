@@ -95,6 +95,13 @@ export default defineConfig(({ command }) => ({
   base: './',
   define: {
     'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'full'),
+    // The diagram macro's key for this variant, the same env var the manifest
+    // templates as ${SEQUENCE_MACRO_KEY} (see the forge:deploy:* scripts).
+    // src/utils/byline/addToPage.ts builds a macro node's extensionKey from it:
+    // hardcoding one variant's key there would emit an extensionKey no other
+    // variant can render, which is how a malformed key once rendered as an
+    // unknown extension on a customer's page.
+    'import.meta.env.SEQUENCE_MACRO_KEY': JSON.stringify(process.env.SEQUENCE_MACRO_KEY || 'zenuml-sequence-macro'),
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),

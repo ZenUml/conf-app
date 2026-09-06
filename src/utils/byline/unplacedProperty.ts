@@ -1,4 +1,5 @@
 import { sanitizeUnplacedEntries, type UnplacedDiagramEntry } from './unplacedMarker'
+import { requestConfluenceJson as request } from '@/utils/byline/confluenceRequest'
 
 /**
  * The page's unplaced-diagram set, stored as a Confluence CONTENT PROPERTY.
@@ -85,15 +86,6 @@ export type UnplacedPropertyWrite = 'written' | 'deleted' | 'unchanged' | 'forbi
 
 function propertiesPath(pageId: string): string {
   return `/wiki/api/v2/pages/${encodeURIComponent(pageId)}/properties`
-}
-
-async function request(url: string, method: string, body?: unknown) {
-  const { requestConfluence } = await import('@forge/bridge')
-  return requestConfluence(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  })
 }
 
 function parseValue(raw: unknown): UnplacedPropertyValue | null {

@@ -370,8 +370,7 @@ import {
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
 import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
 import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
-import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage'
-import { cancelReveal, requestReveal } from '@/utils/byline/revealDiagram'
+import { placeDiagram } from '@/utils/byline/placeDiagram'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -941,34 +940,27 @@ async function onAddToPage(d: PageDiagram) {
   if (addingId.value) return
   acted = true
   addingId.value = d.id
-  const { result, pageMacroCount } = await addDiagramToPage(pageId, d)
+
+  const outcome = await placeDiagram(pageId, d, async () => {
+    // Before the reload, so the reloaded page reads the rewritten record: fold
+    // the placement into the scan result we already hold, so the row updates in
+    // place, and rewrite what the banner reads.
+    if (placedOrder.value) placedOrder.value = [...placedOrder.value, d.id]
+    await syncUnplacedState()
+  })
   addingId.value = null
+
   trackAnalyticsEvent('diagram_added_to_page', {
     ...baseProps(),
     macro_type: toMacroType(d.diagramType) as MacroTypeValue,
-    result,
-    ...(pageMacroCount === undefined ? {} : { page_macro_count: pageMacroCount }),
+    result: outcome.result,
+    ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
   })
-  if (result === 'forbidden' || result === 'failed') {
-    // Fall back to the link rather than leave a button that cannot work.
-    canEdit.value = false
-    return
-  }
-  if (result === 'conflict') return
-  // The page renders it now. Fold that into the scan result we already hold so
-  // the row updates in place, and rewrite the record the banner reads.
-  if (placedOrder.value) placedOrder.value = [...placedOrder.value, d.id]
-  await syncUnplacedState()
-  // The stored page changed; the page BEHIND this panel did not. Reload it so
-  // the diagram actually appears — but only once nothing here is still waiting
-  // to be placed, because the reload takes this panel with it and a second
-  // unplaced diagram would need the whole flow again.
-  if (result === 'added' && !diagrams.value.some(isUnplaced)) {
-    // The macro is appended to the END of the page, so the reloaded page opens
-    // above it. This note is what lets it pull the page down to itself.
-    requestReveal(pageId, d.id)
-    if (!(await reloadHostPage())) cancelReveal()
-  }
+
+  // Only a refusal withdraws the action. 'failed' is a blip, and the fix for a
+  // blip is to try again — clearing this on it took the button off every
+  // remaining row of the panel.
+  if (outcome.refused) canEdit.value = false
 }
 
 async function onCopySource(d: PageDiagram) {

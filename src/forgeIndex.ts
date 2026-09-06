@@ -172,6 +172,15 @@ async function initializeCriticalPath() {
   // local gate to run and nothing to fast-exit. The component verifies the
   // record against the live page and closes itself if it does not hold.
   if ((context as any).moduleKey === 'zenuml-unplaced-banner') {
+    // Awaited for the same reason the shared host awaits it, and this module
+    // needs it MORE: its component asks higherPriorityBannerPending(), which
+    // reads the space-admin verdict this probe writes. Without it, on the one
+    // load per 30 days where the probe first resolves, an admin on an
+    // over-limit unpaid Lite space gets no verdict here, does not yield, and
+    // the unplaced notice renders stacked under the paywall banner — the exact
+    // stacking that priority cascade exists to prevent. Lite-only and throttled
+    // inside, so every other load exits synchronously. Never throws.
+    await maybeProbeSpaceAdmin();
     await handlePageBannerRoute('unplaced-property');
     return { macroData: null };
   }

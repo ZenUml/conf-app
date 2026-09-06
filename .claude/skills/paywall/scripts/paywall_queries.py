@@ -124,6 +124,16 @@ def _open_with_retry(
     raise last_err
 
 
+# Mixpanel's segmentation API returns only its top-N `on` buckets by volume when
+# `limit` is omitted (default N = 60). Every other bucket is silently absent and
+# reads as zero downstream. Observed 2026-09-06: a fleet-wide client_domain
+# breakdown came back with exactly 60 domains while MCP Insights returned 209 for
+# the same window. Any breakdown query must therefore send an explicit limit that
+# comfortably exceeds the fleet (662 Lite tenants at the time). See SKILL.md
+# "CORRUPTION GUARD #3".
+SEGMENTATION_BUCKET_LIMIT = 5000
+
+
 def call_segmentation(
     secret: str,
     event: str,
@@ -142,6 +152,7 @@ def call_segmentation(
     }
     if on:
         params["on"] = on
+        params["limit"] = str(SEGMENTATION_BUCKET_LIMIT)
     if where:
         params["where"] = where
     url = MIXPANEL_SEGMENTATION_URL + "?" + urllib.parse.urlencode(params)

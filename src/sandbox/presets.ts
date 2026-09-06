@@ -88,6 +88,15 @@ export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
     diagramType: 'mermaid',
     customContentId: 'fake-content-id-diagram-mermaid',
   },
+  'plantuml-fullscreen': {
+    id: 'plantuml-fullscreen',
+    label: 'PlantUML – Fullscreen viewer',
+    group: 'Sequence',
+    moduleKey: 'zenuml-sequence-macro',
+    macroMode: 'fullscreen',
+    diagramType: 'plantuml',
+    customContentId: 'fake-content-id-diagram-plantuml',
+  },
   'graph-view': {
     id: 'graph-view',
     label: 'Graph – Viewer',

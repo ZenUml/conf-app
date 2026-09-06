@@ -7,6 +7,19 @@ description: Manage the ZenUML Lite paywall rollout (Lite variant only — Full 
 
 This skill covers the Lite variant only. Full and Diagramly have no in-app restrictions.
 
+## ⚠️ Block retired 2026-09 — most of this doc is now historical
+
+`shouldBlockActions` in `useCustomerSuccessService.ts` is hardcoded `false`: editing is **never
+blocked** at any macro count, on any space. `PaywallGate`/`UpgradePrompt` no longer mount, and
+`paywall_triggered`, `paywall_blocked_edit`, and `paywall_blocked_create` **stop firing entirely**
+going forward — do not read a drop in those events as tenants falling under the limit. The
+non-blocking `PaywallWarningBanner` (`paywall_banner_shown`/`paywall_banner_dismissed`,
+`extension_request_clicked`, `paywall_bundle_cta_clicked`) is the only surviving in-app signal.
+Everything below this notice that reasons about block/trigger events, Continue-attempts, or
+Group A/B block-rate comparisons describes the retired behavior — treat it as historical unless a
+future Plan-and-usage/Request-Full redesign reinstates a gate. CSS/`PAYWALL_EXEMPT` enrollment
+state (Steps 1–5) is unaffected and still governs whether the warning banner is eligible to show.
+
 ## Default-on semantics (2026-08-07, lite-paywall-default-on)
 
 The Lite paywall is now **on by default for every Lite tenant**. `CUSTOMER_SUCCESS_SERVICE`

@@ -149,8 +149,7 @@ export const Shown: Story = {
     const banner = await canvas.findByTestId('paywall-warning-banner')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveTextContent(`${MACRO_COUNT} of 100`)
-    await expect(await canvas.findByTestId('paywall-banner-request-extension')).toBeVisible()
-    await expect(await canvas.findByTestId('paywall-banner-copy-admin')).toBeVisible()
+    await expect(await canvas.findByTestId('paywall-banner-plan-usage')).toBeVisible()
     await expect(await canvas.findByTestId('paywall-banner-dismiss')).toBeVisible()
   },
 }
@@ -198,21 +197,6 @@ export const SpaceAdmin: Story = {
     await expect(banner).toHaveTextContent('You administer this space')
     // The purchase CTA replaces the advocacy relay for this audience.
     await expect(await canvas.findByTestId('paywall-banner-unlock-space')).toHaveTextContent('$299')
-    await expect(await canvas.findByTestId('paywall-banner-request-extension')).toBeVisible()
-    await expect(canvas.queryByTestId('paywall-banner-copy-admin')).toBeNull()
-  },
-}
-
-/**
- * Copy admin message button: switches label to "✓ Copied" after click, then
- * reverts to "Copy admin message" after the 2-second revert timer.
- */
-export const CopyAdminMessageCopied: Story = {
-  name: 'Copy admin message — copied state',
-  play: async () => {
-    const canvas = within(document.body)
-    await canvas.findByTestId('paywall-warning-banner')
-    await userEvent.click(await canvas.findByTestId('paywall-banner-copy-admin'))
-    await expect(await canvas.findByTestId('paywall-banner-copied')).toHaveTextContent('✓ Copied')
+    await expect(await canvas.findByTestId('paywall-banner-plan-usage')).toBeVisible()
   },
 }

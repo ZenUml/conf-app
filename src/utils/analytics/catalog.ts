@@ -803,7 +803,30 @@ export type AnalyticsEventName =
   | "homepage_feed_viewed"
   | "homepage_feed_action_clicked"
   | "homepage_feed_diagram_opened"
-  | "homepage_feed_example_expanded";
+  | "homepage_feed_example_expanded"
+  // Plan and usage (site-level, Lite paywall redesign phase 2). `plan_usage_viewed`
+  // fires once per mount, carrying `is_site_admin` so the funnel splits by
+  // whether the viewer sees the admin pricing/purchase block or the
+  // usage-only view. `plan_usage_request_full_clicked` fires when either
+  // audience opens the Request-Full guidance page from here (the entry point
+  // named in the spec: banner -> Plan and usage -> "申请 Full").
+  | "plan_usage_viewed"
+  | "plan_usage_request_full_clicked"
+  // Admin's direct purchase entry point on the Plan and usage page itself
+  // (distinct from the Request-Full flow, which is the non-admin/ask-someone
+  // path). Reuses the same upgradeUrl as the existing paywall CTAs.
+  | "plan_usage_purchase_clicked"
+  // Request-Full guidance page funnel (spec: 展示 / 复制 / 跳转 — a jump does
+  // NOT mean the native Atlassian request was actually submitted; there is no
+  // public API to read that result back, so `request_full_atlassian_clicked`
+  // is the funnel's last measurable step, not a submission event).
+  // `request_full_reason_copied` fires on the user-facing reason-text copy
+  // action (the text a REQUESTER pastes into Atlassian's native flow — never
+  // the admin-facing purchase-reference text, which is a separate copy
+  // action already covered by `advocacy_message_copied`).
+  | "request_full_guide_shown"
+  | "request_full_reason_copied"
+  | "request_full_atlassian_clicked";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

@@ -85,9 +85,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import globals from '@/model/globals'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
-import { openUrl } from '@/model/globals/forgeGlobal'
+import forgeGlobal, { openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { AnalyticsEventName } from '@/utils/analytics/catalog'
 
@@ -122,7 +121,7 @@ async function loadUsage() {
   loading.value = true
   loadError.value = false
   try {
-    const baseUrl = globals.zenumlRemoteBaseUrl
+    const baseUrl = forgeGlobal.zenumlRemoteBaseUrl
     const response = await fetch(`${baseUrl}/api/plan-usage?client=${encodeURIComponent(domain.value)}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()

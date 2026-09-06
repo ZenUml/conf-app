@@ -4,7 +4,7 @@
 // Forge resource so localStorage works as a sync channel.
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, isInserting, isConfiguring } from '@/model/globals/forgeGlobal'
@@ -124,7 +124,7 @@ async function initializeMacro() {
   // edit a blank template and the save would fork a brand-new document,
   // orphaning the one they meant to edit. Surface the failure instead.
   if (loadFailed) {
-    ReactDOM.render(
+    createRoot(root).render(
       React.createElement(
         'div',
         {
@@ -141,7 +141,6 @@ async function initializeMacro() {
           'Close this dialog and try again. Editing now would create a new, separate document.',
         ),
       ),
-      root,
     )
     return
   }
@@ -233,14 +232,13 @@ async function initializeMacro() {
   // layout in every entry path.
   const mountStudio = (target: HTMLElement | null) => {
     if (!target) return
-    ReactDOM.render(
+    createRoot(target).render(
       React.createElement(AsyncApiStudioEditor, {
         initialSpec,
         onSave: handleSave,
         onCancel: handleCancel,
         ownTitleBar: false,
       }),
-      target,
     )
   }
 

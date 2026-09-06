@@ -2,7 +2,7 @@
   AsyncAPI macro viewer wrapper. Renders inside GenericViewer so it
   inherits the host's title bar (Edit / Fullscreen), export-PNG button,
   versions, copy-link, etc. The actual spec rendering is delegated to
-  @asyncapi/react-component via ReactDOM.render into a slot div.
+  @asyncapi/react-component via a React root mounted into a slot div.
 -->
 <template>
   <generic-viewer :wide="true" :hideHeader="hideHeader" :hideEdit="hideEdit">
@@ -11,9 +11,9 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, PropType } from 'vue'
+import { defineComponent, markRaw, PropType } from 'vue'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot, type Root } from 'react-dom/client'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import AsyncApiReactView from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
 import { Diagram } from '@/model/Diagram/Diagram'
@@ -35,15 +35,19 @@ export default defineComponent({
     loadError: { type: String, default: undefined },
   },
   data() {
-    return { renderReported: false }
+    return {
+      // React 18 root handle for the mounted AsyncAPI view; markRaw'd so Vue
+      // never makes the root reactive. Unmounted in beforeUnmount.
+      reactRenderer: null as Root | null,
+      renderReported: false,
+    }
   },
   mounted() {
     this.render()
   },
   beforeUnmount() {
-    if (this.$refs.reactRoot) {
-      ReactDOM.unmountComponentAtNode(this.$refs.reactRoot as HTMLElement)
-    }
+    this.reactRenderer?.unmount()
+    this.reactRenderer = null
   },
   watch: {
     doc: {
@@ -57,10 +61,10 @@ export default defineComponent({
     render() {
       const root = this.$refs.reactRoot as HTMLElement | undefined
       if (!root) return
+      this.reactRenderer ??= markRaw(createRoot(root))
       const spec = (this.doc as any)?.code as string | undefined
-      ReactDOM.render(
+      this.reactRenderer.render(
         React.createElement(AsyncApiReactView, { spec, loadError: this.loadError }),
-        root,
       )
       this.reportRenderOnce()
     },

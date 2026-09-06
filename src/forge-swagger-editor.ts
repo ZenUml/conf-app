@@ -4,7 +4,8 @@ import "./assets/swagger-editor.css";
 import SpecListener from './utils/spec-listener'
 
 import React from 'react';
-import ReactDOM from 'react-dom';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import SwaggerEditor from "@/components/react/SwaggerEditor";
 // @ts-ignore
 import './assets/tailwind.css'
@@ -97,10 +98,13 @@ function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
   }
   swaggerReactMounted = true;
 
-  ReactDOM.render(
-    React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
-    mountEl,
-  );
+  // SwaggerEditorBundle immediately queries the #swagger-editor element that
+  // this shell creates, so the concurrent root must commit before bootstrap.
+  flushSync(() => {
+    createRoot(mountEl).render(
+      React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
+    );
+  });
 
   const editor = SwaggerEditorBundle({
     dom_id: '#swagger-editor',

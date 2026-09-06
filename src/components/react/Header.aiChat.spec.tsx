@@ -1,6 +1,6 @@
-import React from "react";
-import ReactDOM from "react-dom";
-import { act, Simulate } from "react-dom/test-utils";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Header from "./Header";
 import { isAiChatEnabled } from "@/apis/aiTitleFeatureFlag";
@@ -43,16 +43,18 @@ vi.mock("@/utils/draftStore", () => ({
 
 describe("React Header AI Chat feature flag", () => {
   let container: HTMLDivElement;
+  let root: Root;
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
+    root = createRoot(container);
     window.specListeners = [];
     window.diagram = undefined;
   });
 
   afterEach(() => {
-    ReactDOM.unmountComponentAtNode(container);
+    act(() => root.unmount());
     container.remove();
     vi.clearAllMocks();
   });
@@ -60,14 +62,13 @@ describe("React Header AI Chat feature flag", () => {
   async function renderHeader(enabled: boolean, onToggleAiChat = vi.fn()) {
     vi.mocked(isAiChatEnabled).mockResolvedValue(enabled);
     await act(async () => {
-      ReactDOM.render(
+      root.render(
         <Header
           saveAndExit={vi.fn()}
           exit={vi.fn()}
           aiChatOpen
           onToggleAiChat={onToggleAiChat}
         />,
-        container,
       );
       await Promise.resolve();
       await Promise.resolve();

@@ -220,9 +220,9 @@ and `macro_type: "mermaid"`.
 | `error_kind` | Stable failure kind |
 | `duration_ms` | Lookup duration in milliseconds |
 
-### `related_diagrams_shown`
+### `related_token_indicators_shown`
 
-**Trigger:** Footer rendered with at least one related participant.
+**Trigger:** At least one cross-diagram related-token indicator is displayed on a page. Fired once per eligible page render, not once per participant.
 
 | Property | Notes |
 |---|---|
@@ -251,7 +251,7 @@ and `macro_type: "mermaid"`.
 | `same_page` | Whether the related diagram is on the viewer's current page |
 
 No label text, page id, or tenant vocabulary is included in these events. Lookup events are not
-emitted when the feature flag is off, and `related_diagrams_shown` is not emitted for zero results.
+emitted when the feature flag is off, and `related_token_indicators_shown` is not emitted for zero results.
 
 ---
 

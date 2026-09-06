@@ -206,9 +206,35 @@ describe('RelatedDiagramsFooter', () => {
       }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
-      'related_diagrams_shown',
+      'related_token_indicators_shown',
       expect.objectContaining({ participants_with_related: 1 }),
     )
+  })
+
+  it('emits one indicator event per eligible page render when several indicators are displayed', async () => {
+    related.value = {
+      ...twoParticipants,
+      participants: [
+        twoParticipants.participants[0],
+        {
+          actorId: 'U',
+          rawLabel: 'User',
+          related: [{
+            contentId: '4',
+            pageId: '400',
+            pageTitle: 'Overview',
+            spaceKey: 'OP',
+            rawLabelThere: 'User',
+          }],
+        },
+      ],
+    }
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent.mock.calls.filter(
+      ([event]) => event === 'related_token_indicators_shown',
+    )).toHaveLength(1)
   })
 
   it('drops every response participant when the current SVG has no [name] nodes', async () => {

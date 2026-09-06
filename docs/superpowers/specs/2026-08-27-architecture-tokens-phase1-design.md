@@ -117,7 +117,7 @@ Three retired flags (`renderer-prefetch-banner`, `renderer-prefetch`, `viewport-
 |---|---|---|
 | `related_diagrams_lookup_succeeded` | route returned after render | `participant_count`, `participants_with_related`, `related_pages_total`, `index_age_days`, `duration_ms` |
 | `related_diagrams_lookup_failed` | route error / timeout / `error_kind` in body | `error_kind`, `duration_ms` |
-| `related_diagrams_shown` | footer rendered with ≥1 related participant | same counts as succeeded |
+| `related_token_indicators_shown` | ≥1 cross-diagram related-token indicator displayed on a page; once per eligible page render | same counts as succeeded |
 | `related_diagram_popover_opened` | click on a lifeline's count pill | `related_count`, `label_variant_count` |
 | `related_diagram_link_clicked` | a related page link opened | `related_count`, `same_space` |
 

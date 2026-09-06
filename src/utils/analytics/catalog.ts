@@ -576,10 +576,12 @@ export type AnalyticsEventName =
   | "diagram_audience_registration_succeeded"
   | "diagram_audience_registration_failed"
   // Architecture Tokens Phase 1 (viewer footer + lifeline popover). No label
-  // text, page id, or tenant vocabulary on any of these.
+  // text, page id, or tenant vocabulary on any of these. The indicator event
+  // fires once per eligible page render, after at least one cross-diagram
+  // related-token indicator is displayed.
   | "related_diagrams_lookup_succeeded"
   | "related_diagrams_lookup_failed"
-  | "related_diagrams_shown"
+  | "related_token_indicators_shown"
   | "related_diagram_popover_opened"
   | "related_diagram_link_clicked"
   // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG

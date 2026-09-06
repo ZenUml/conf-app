@@ -181,10 +181,14 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a macro create/edit start forced recording independently of the Forge
 // flag cohort. See macro_create_started / macro_edit_started below.
+// `plan_usage_page` is the same kind of hardcoded override, in the opposite
+// direction from the page-banner's hardcoded 0% — see _initMixpanel in
+// trackAnalyticsEvent.ts.
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
+  | "plan_usage_page"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues

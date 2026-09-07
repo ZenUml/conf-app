@@ -1931,6 +1931,68 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
     })
 
+    // The rail is 316px + a 16px gap of the fullscreen width. ConnectPanel has no
+    // `idle` branch, so before a session exists it renders nothing at all — and the
+    // only way to start one is the small-macro Connect button, which is hidden in
+    // fullscreen. A blank 332px column stayed reserved next to the diagram, which is
+    // why a wide PlantUML diagram started scrolling well before it ran out of window.
+    // The fullscreen column is capped at 1000px so the byline under the diagram stays
+    // a readable line length. A PlantUML diagram that overflows that column gains
+    // nothing from the cap — it just scrolls sooner while the window sits unused, so
+    // the capture box drops the cap for that case (the byline keeps it).
+    it('lets an overflowing PlantUML diagram use the full fullscreen width', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.PlantUml)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .toContain('screen-capture-content--uncapped')
+    })
+
+    it('lets a Graph diagram use the full fullscreen width too', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Graph)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .toContain('screen-capture-content--uncapped')
+    })
+
+    it('keeps the 1000px column for the text-bearing diagram types', async () => {
+      setFullscreen(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .not.toContain('screen-capture-content--uncapped')
+
+      for (const type of [DiagramType.Mermaid, DiagramType.OpenApi]) {
+        store.commit('updateDiagramType', type)
+        const w = mountViewer()
+        await flushPromises()
+        expect(w.find('.screen-capture-content').classes())
+          .not.toContain('screen-capture-content--uncapped')
+      }
+    })
+
+    it('collapses the Fullscreen rail while the panel is idle', async () => {
+      // readAnySession() scans every localStorage key, so a handoff left behind by
+      // another spec file hydrates this mount to `waiting` and there is no idle state
+      // left to assert. The suite's beforeEach only clears sessionStorage.
+      localStorage.clear()
+      setFullscreen(true)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const rail = wrapper.find('[data-testid="agent-link-fullscreen-rail"]')
+      expect(rail.exists()).toBe(true)
+      expect(rail.classes()).toContain('agent-link-rail--collapsed')
+      expect(wrapper.find('.viewer-body').classes()).not.toContain('viewer-body--with-agent-rail')
+    })
+
     // Amendment D: the composable's alreadyLinkedUntil (set from a mint 409's
     // lockExpiresAt) must reach ConnectPanel's already_linked SessionNotice for
     // an honest countdown instead of a blind "already linked" notice.
@@ -2036,6 +2098,25 @@ describe('GenericViewer (chrome-less)', () => {
       ;(forgeRuntime as any).isForge = originalIsForge
       ;(forgeRuntime as any).forgeContext = originalForgeContext
       localStorage.clear()
+    })
+
+    it('reserves the rail width once a session exists', async () => {
+      setFullscreenWithPageId('page-123')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-abc',
+        cloudId: 'cloud-1',
+        pageId: 'page-123',
+        contentId: 'content-123',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const rail = wrapper.find('[data-testid="agent-link-fullscreen-rail"]')
+      expect(rail.classes()).not.toContain('agent-link-rail--collapsed')
+      expect(wrapper.find('.viewer-body').classes()).toContain('viewer-body--with-agent-rail')
     })
 
     it('hydrates the rail to waiting via readSession(pageId) even when globals.apWrapper is absent', async () => {

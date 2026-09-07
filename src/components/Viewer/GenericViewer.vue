@@ -10,7 +10,7 @@
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
     <template v-if="!isDisplayMode || hideHeader">
-      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
+      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
         <slot></slot>
       </div>
     </template>
@@ -20,7 +20,7 @@
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
-        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': showAgentLinkPanel}">
+        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
@@ -270,7 +270,7 @@
                 </button>
               </div>
             </div>
-            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
+            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
               <slot></slot>
             </div>
             <div
@@ -375,7 +375,12 @@
              in the Fullscreen modal. See connectToAgent()'s comment: this
              panel is driven by ITS OWN useAgentLinkSession() instance
              (a fresh Vue app boot inside the Fullscreen modal's iframe). -->
-        <aside v-if="showAgentLinkPanel" class="agent-link-rail" data-testid="agent-link-fullscreen-rail">
+        <aside
+          v-if="showAgentLinkPanel"
+          class="agent-link-rail"
+          :class="{'agent-link-rail--collapsed': !agentLinkRailReserved}"
+          data-testid="agent-link-fullscreen-rail"
+        >
           <ConnectPanel
             :state="agentLinkState"
             :token="agentLinkToken"
@@ -723,6 +728,30 @@ export default {
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+    },
+    // The fullscreen column is capped at 1000px so the byline under the diagram keeps a
+    // readable line length. That reasoning is about TEXT, so it holds for the types whose
+    // content is text the reader tracks line by line (sequence, mermaid, openapi) and not
+    // for the two rendered-picture types. Measured on lite-stg in a 1280px window:
+    // PlantUML hands back a fixed-size image (6228px on the #626 repro) that overflows
+    // the column and scrolls, so capping only makes it scroll sooner; Graph scales to its
+    // container (a 1008px board drawn into exactly 1000px), so capping only makes it
+    // smaller. Both spend the window's remaining ~230px on nothing. .viewer-footer-row
+    // keeps the cap, so the byline stays readable — it just no longer shares the
+    // diagram's right edge, which an overflowing diagram does not have on screen anyway.
+    fullscreenUncappedDiagram() {
+      if (!this.isFullscreenMode) return false;
+      return [DiagramType.PlantUml, DiagramType.Graph].includes(this.diagramType);
+    },
+    // Whether the rail actually takes its 316px of the fullscreen width. ConnectPanel
+    // has no `idle` branch — before a session exists it renders nothing — and the only
+    // way to start one is the small-macro Connect button, which is hidden in
+    // fullscreen. Reserving the column anyway left a blank 332px strip beside the
+    // diagram, so a wide PlantUML diagram began scrolling long before it ran out of
+    // window. The aside stays mounted (it owns the session composable that hydrates
+    // an existing session on load); only its width collapses.
+    agentLinkRailReserved() {
+      return this.showAgentLinkPanel && this.agentLinkState !== 'idle';
     },
     // Fullscreen toolbar link-status chip (Track H). Same gating as the rail,
     // but only once a session actually exists (connected/suspended/closed/
@@ -1656,6 +1685,11 @@ export default {
   width: 100%;
   max-width: 1000px;
 }
+/* See fullscreenUncappedDiagram(). Only the diagram box opts out; .viewer-footer-row
+   above keeps the 1000px so the byline stays a readable line. */
+.viewer-frame--fullscreen .screen-capture-content--uncapped {
+  max-width: none;
+}
 /* @zenuml/core's root is `inline-block`, so the frame shrink-wraps the diagram.
    Inline that is right — the macro should not claim a page's width it isn't
    using. In fullscreen it left a two-participant diagram as a ~330px card
@@ -1747,6 +1781,13 @@ export default {
   border-left: 1px solid #E5E7EB;
   display: flex;
   min-height: 0;
+}
+/* Idle: mounted but taking no width — see agentLinkRailReserved(). */
+.agent-link-rail--collapsed {
+  flex: 0 0 0;
+  width: 0;
+  border-left: none;
+  overflow: hidden;
 }
 
 .viewer-edge-top {

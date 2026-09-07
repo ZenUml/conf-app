@@ -35,6 +35,38 @@ type AuthoringReplayProperties = Pick<
 const DEMO_PAGE_TELEMETRY_TIMEOUT_MS = 750;
 const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
 
+// Share of authoring sessions that record. Authoring replay used to be forced
+// on every create/edit; measured over the 30 days to 2026-09-07 that was 13,905
+// of 17,743 distinct replays — 78% of a 20,000/month quota consumed by one
+// policy, which exhausted the quota before month end and left the last week of
+// each month with no recordings at all.
+//
+// The rate is derived, not picked: the flag-driven viewer baseline is ~3,838
+// replays/month and the fullscreen surface adds ~4,108, so ~7,946 are spoken
+// for. Half of authoring (~6,950) brings the month to ~14,900 — about 500/day
+// against a 667/day ceiling, leaving a quarter of the quota as headroom for
+// growth and for targeted inspections.
+//
+// Not a Forge flag: Lite is at its 10-flag cap, and the cohort system buckets
+// by install/account rather than by session, which is the wrong axis for this.
+// Re-derive from the same two numbers if the quota or the fullscreen volume
+// changes.
+const AUTHORING_REPLAY_RATE = 0.5;
+
+// Drawn once per iframe, not per event. A user who creates one macro and then
+// edits another in the same session must get one whole recording or none —
+// re-drawing per event would start the recorder partway through a session,
+// which is worse than not recording it at all for the save-failure
+// investigations this policy exists to serve.
+let _authoringReplayDecision: boolean | null = null;
+
+function _shouldRecordAuthoring(): boolean {
+  if (_authoringReplayDecision === null) {
+    _authoringReplayDecision = Math.random() < AUTHORING_REPLAY_RATE;
+  }
+  return _authoringReplayDecision;
+}
+
 function _startAuthoringReplay(
   eventName: AnalyticsEventName
 ): Partial<AuthoringReplayProperties> {
@@ -43,6 +75,14 @@ function _startAuthoringReplay(
     eventName !== "macro_edit_started"
   ) {
     return {};
+  }
+
+  // Outside the sample: leave the Forge-flag cohort's decision untouched. Not
+  // re-registering matters as much as not starting — stamping `authoring` here
+  // would misattribute a flag-driven recording to this policy and corrupt the
+  // measurement the rate is tuned from.
+  if (!_shouldRecordAuthoring()) {
+    return { session_replay_start_call_outcome: "skipped_sampled" };
   }
 
   try {
@@ -401,4 +441,5 @@ export async function trackAnalyticsEventBeforeUnload(
 export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
+  _authoringReplayDecision = null;
 }

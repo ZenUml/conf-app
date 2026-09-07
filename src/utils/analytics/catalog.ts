@@ -197,8 +197,14 @@ export type SessionReplayEventSource =
 // `start_session_recording()` is a void SDK call whose recorder work continues
 // asynchronously. `returned` records only that the call did not synchronously
 // throw; it is not proof that a replay was uploaded. `$mp_replay_id` on a later
-// event is the outcome evidence.
-export type SessionReplayStartCallOutcome = "returned" | "threw";
+// event is the outcome evidence. `skipped_sampled` means the call was never
+// made: authoring replay is sampled, and this session was outside the sample,
+// so whatever the Forge-flag cohort decided stands. Its share of authoring
+// events is the live measurement of the sampling rate.
+export type SessionReplayStartCallOutcome =
+  | "returned"
+  | "threw"
+  | "skipped_sampled";
 
 /**
  * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.

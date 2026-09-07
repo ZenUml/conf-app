@@ -408,11 +408,16 @@
       </div>
     </template>
 
+  <!-- Inline on the macro surface so the panel is IN the document and Forge's
+       automatic iframe resize grows the macro to fit it; overlay in Fullscreen,
+       which already has the viewport for one. See ExportModal.vue's `variant`. -->
   <ExportModal
     :visible="showExportModal"
     :macro-type="diagramType"
     :capture-node-getter="getCaptureNode"
     :diagram-title="title"
+    :variant="isFullscreenMode ? 'overlay' : 'inline'"
+    :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
     @close="showExportModal = false"
   />
 </div>
@@ -1038,6 +1043,12 @@ export default {
     onEscapeKeydown(e) {
       if (e.key !== 'Escape') return;
       if (this.$refs.copyForAiMenu?.open) return;
+      // The export panel is the topmost layer and handles Escape itself (on
+      // bubble). Without this yield the same keypress closed the Source panel
+      // here AND the export panel there — two layers on one Escape. The inline
+      // export variant makes the pair reachable at once, since the viewer stays
+      // live beside the panel rather than under an overlay.
+      if (this.showExportModal) return;
       if (!this.showSourcePanel) return;
       this.showSourcePanel = false;
     },

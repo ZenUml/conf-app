@@ -1,16 +1,26 @@
 <template>
   <Transition name="modal">
-    <div v-if="visible" class="export-modal-backdrop" @click.self="$emit('close')">
+    <div
+      v-if="visible"
+      class="export-modal-backdrop"
+      :class="isInline ? 'export-modal-backdrop--inline' : 'export-modal-backdrop--overlay'"
+      @click.self="onBackdropClick"
+    >
       <div
         class="export-modal"
         ref="dialogEl"
         role="dialog"
-        aria-modal="true"
+        :aria-modal="isInline ? undefined : 'true'"
         aria-labelledby="export-settings-title"
         tabindex="-1"
         @keydown="onDialogKeydown"
       >
-        <ExportPreview :state="state" @refresh="capturePreview" />
+        <ExportPreview
+          :state="state"
+          :surface="surface"
+          :macro-type="macroType"
+          @refresh="capturePreview"
+        />
         <div class="export-divider"></div>
         <ExportSidebar :state="state" @close="$emit('close')" @export="handleExport" @copy="handleCopy" />
       </div>
@@ -19,13 +29,13 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, watch, provide, onUnmounted, nextTick, ref, type PropType } from 'vue';
+import { defineComponent, watch, provide, onUnmounted, nextTick, ref, computed, type PropType } from 'vue';
 import ExportPreview from './ExportPreview.vue';
 import ExportSidebar from './ExportSidebar.vue';
 import { exportStateKey, useExportState } from './useExportState';
 import { useExportEngine, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import type { MacroTypeValue } from '@/utils/analytics/catalog';
+import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
@@ -40,6 +50,22 @@ export default defineComponent({
     macroType: { type: String as PropType<MacroTypeValue>, default: 'none' },
     captureNodeGetter: { type: Function as PropType<() => HTMLElement | null> },
     diagramTitle: { type: String, default: '' },
+    /**
+     * `overlay` (default) is the full-viewport dialog Fullscreen has room for.
+     * `inline` renders the same panel IN the document flow so Forge's automatic
+     * iframe resize can grow the macro to fit it — a `position: fixed` overlay
+     * adds no document height, which is why the inline dialog was clipped to
+     * the macro's own box (564x256 on production page 2774138946, leaving the
+     * annotation controls in a 24px-tall scroller holding 312px of form).
+     */
+    variant: { type: String as PropType<'overlay' | 'inline'>, default: 'overlay' },
+    /**
+     * Which macro surface the export was started from. Was the literal
+     * `'modal'` on all four export events, which made an inline export and a
+     * Fullscreen one indistinguishable; every other GenericViewer event already
+     * reports `viewer` / `fullscreen`, so these now match.
+     */
+    surface: { type: String as PropType<Surface>, default: 'modal' },
   },
   emits: ['close', 'export', 'copy'],
 
@@ -112,8 +138,12 @@ export default defineComponent({
     }
 
     function onDialogKeydown(event: KeyboardEvent) {
+      // The trap is what makes a dialog modal to a keyboard user, so it belongs
+      // only to the overlay variant. Inline, the viewer's own controls sit
+      // beside the panel and stay live — trapping there would contradict the
+      // dropped aria-modal and strand keyboard users inside the panel.
       if (event.key === 'Tab') {
-        trapTab(event);
+        if (!isInline.value) trapTab(event);
       } else if (event.key === 'Escape') {
         handleEscape();
       }
@@ -148,7 +178,7 @@ export default defineComponent({
     function trackSucceeded(method: 'download' | 'clipboard') {
       trackAnalyticsEvent('export_png_succeeded', {
         feature_area: 'macro',
-        surface: 'modal',
+        surface: props.surface,
         macro_type: props.macroType,
         method,
         background: state.background.value,
@@ -162,7 +192,7 @@ export default defineComponent({
     function trackFailed(reason: string) {
       trackAnalyticsEvent('export_png_failed', {
         feature_area: 'macro',
-        surface: 'modal',
+        surface: props.surface,
         macro_type: props.macroType,
         failure_reason: reason,
       });
@@ -194,7 +224,7 @@ export default defineComponent({
         if (copiedTimeoutId) { clearTimeout(copiedTimeoutId); copiedTimeoutId = null; }
         trackAnalyticsEvent('export_png_opened', {
           feature_area: 'macro',
-          surface: 'modal',
+          surface: props.surface,
           macro_type: props.macroType,
         });
         await nextTick();
@@ -204,7 +234,7 @@ export default defineComponent({
         if (!exportSucceeded) {
           trackAnalyticsEvent('export_png_dismissed', {
             feature_area: 'macro',
-            surface: 'modal',
+            surface: props.surface,
             macro_type: props.macroType,
           });
         }
@@ -268,7 +298,28 @@ export default defineComponent({
       if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
     });
 
-    return { state, dialogEl, capturePreview, handleExport, handleCopy, onDialogKeydown };
+    const isInline = computed(() => props.variant === 'inline');
+
+    /**
+     * Overlay: the dimmed area around the panel is a click target that closes
+     * it. Inline: there is no dimmed area — the same element is just the panel's
+     * own box in the page, and closing on a stray click inside the macro would
+     * be a trap, not an affordance.
+     */
+    function onBackdropClick() {
+      if (!isInline.value) emit('close');
+    }
+
+    return {
+      state,
+      dialogEl,
+      isInline,
+      onBackdropClick,
+      capturePreview,
+      handleExport,
+      handleCopy,
+      onDialogKeydown,
+    };
   },
 });
 </script>
@@ -292,6 +343,11 @@ export default defineComponent({
 
 /* ─── Backdrop ─── */
 .export-modal-backdrop {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Overlay variant — Fullscreen, where the viewport is the whole modal. */
+.export-modal-backdrop--overlay {
   position: fixed;
   inset: 0;
   z-index: 9999;
@@ -300,18 +356,46 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Inline variant — the macro iframe.
+   In flow, with NO viewport-derived size: a `position: fixed` panel adds no
+   document height, so Forge's automatic iframe resize never sees it and the
+   dialog is clipped to the macro's own box. Measured on production page
+   2774138946: the macro iframe is 564x256, and growing the document inside it
+   (body min-height 1200px) grew the iframe to 1200 and back. Nothing here may
+   reintroduce vh/vw or fixed positioning. */
+.export-modal-backdrop--inline {
+  position: relative;
+  display: block;
+  padding: 12px 0 0;
 }
 
 /* ─── Modal shell ─── */
 .export-modal {
   display: flex;
-  width: min(1100px, 95vw);
-  height: min(720px, 90vh);
   background: var(--modal-bg);
   border-radius: 14px;
   overflow: hidden;
+}
+
+.export-modal-backdrop--overlay .export-modal {
+  width: min(1100px, 95vw);
+  height: min(720px, 90vh);
   box-shadow: 0 32px 80px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+/* Column, because the macro column is ~560px wide: side-by-side would give the
+   sidebar ~220px. Height comes from the content — that is the whole point. */
+.export-modal-backdrop--inline .export-modal {
+  flex-direction: column;
+  width: 100%;
+  height: auto;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+.export-modal-backdrop--inline .export-divider {
+  width: auto;
+  height: 1px;
 }
 
 /* ─── Vertical divider ─── */
@@ -326,14 +410,16 @@ export default defineComponent({
    inline surface the iframe hugs the diagram (autoResize), so the modal
    can be clamped to a few hundred px. Stack preview above sidebar and
    fill the available space instead of clipping. */
+/* Overlay only. The inline variant has no viewport to fill, and applying this
+   to it is what produced the 24px sidebar scroller (55% of a 256px box). */
 @media (max-width: 900px), (max-height: 600px) {
-  .export-modal {
+  .export-modal-backdrop--overlay .export-modal {
     flex-direction: column;
     width: 100vw;
     height: 100vh;
     border-radius: 0;
   }
-  .export-divider {
+  .export-modal-backdrop--overlay .export-divider {
     width: auto;
     height: 1px;
   }
@@ -649,14 +735,39 @@ export default defineComponent({
   .btn-place-note.active { animation: none; }
 }
 
+/* Overlay only — see the scoped block above. */
 @media (max-width: 900px), (max-height: 600px) {
-  .export-preview-pane {
+  .export-modal-backdrop--overlay .export-preview-pane {
     flex: 1 1 auto;
     min-height: 0;
   }
-  .export-sidebar {
+  .export-modal-backdrop--overlay .export-sidebar {
     flex: 0 1 auto;
     max-height: 55%;
   }
+}
+
+/* ─── Inline variant: every pane sized by its content ───
+   Each rule here replaces one that measured against the viewport or a fixed
+   parent height. `overflow: visible` on the sidebar scroller is the fix for the
+   24px window: in flow the content must add to document height, not scroll
+   inside a box that has none. */
+.export-modal-backdrop--inline .export-preview-pane {
+  flex: 0 0 auto;
+}
+.export-modal-backdrop--inline .preview-stage {
+  padding: 12px;
+  overflow: visible;
+}
+.export-modal-backdrop--inline .preview-canvas-wrap {
+  max-height: none;
+}
+.export-modal-backdrop--inline .export-sidebar {
+  flex: 0 0 auto;
+  max-height: none;
+}
+.export-modal-backdrop--inline .sidebar-scroll {
+  flex: 0 0 auto;
+  overflow: visible;
 }
 </style>

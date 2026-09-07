@@ -2257,6 +2257,35 @@ describe('GenericViewer (chrome-less)', () => {
 
 })
 
+describe('GenericViewer — Escape ownership while the export panel is open', () => {
+  // One Escape dismisses one layer. The viewer's own capture-phase listener
+  // closes the Source panel; ExportModal's bubble handler closes the export
+  // panel. With both open the same keypress reached both, so a single Escape
+  // closed two layers. The export panel is the topmost layer, so it owns the
+  // key while it is open.
+  it('leaves the Source panel open when Escape closes the export panel', async () => {
+    const wrapper = mountViewer()
+    await wrapper.setData({ showSourcePanel: true, showExportModal: true })
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.showSourcePanel).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('still closes the Source panel on Escape when no export panel is open', async () => {
+    const wrapper = mountViewer()
+    await wrapper.setData({ showSourcePanel: true, showExportModal: false })
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.showSourcePanel).toBe(false)
+    wrapper.unmount()
+  })
+})
+
 describe('GenericViewer embed detection', () => {
   const source = readFileSync(resolve(__dirname, './GenericViewer.vue'), 'utf-8')
 

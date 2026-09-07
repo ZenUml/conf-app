@@ -544,6 +544,10 @@ export type AnalyticsProperties = {
   has_arrow?: boolean;
   has_callout?: boolean;
   has_watermark?: boolean;
+  // export_annotation_tool_clicked (ExportPreview.vue). Which annotation tool
+  // the user reached for. Fired on activation only, not on turning a tool back
+  // off: the intent is already recorded by then.
+  tool?: 'arrow' | 'callout' | 'note' | 'watermark';
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.

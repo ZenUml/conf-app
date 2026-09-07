@@ -1978,6 +1978,10 @@ describe('GenericViewer (chrome-less)', () => {
     })
 
     it('collapses the Fullscreen rail while the panel is idle', async () => {
+      // readAnySession() scans every localStorage key, so a handoff left behind by
+      // another spec file hydrates this mount to `waiting` and there is no idle state
+      // left to assert. The suite's beforeEach only clears sessionStorage.
+      localStorage.clear()
       setFullscreen(true)
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()

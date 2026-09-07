@@ -88,14 +88,25 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, nextTick, type PropType } from 'vue';
 import { exportStateKey, type ActiveTool } from './useExportState';
 import OverlayLayer from './OverlayLayer.vue';
 import AdsIcon from './AdsIcon.vue';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 
 export default defineComponent({
   name: 'ExportPreview',
   components: { OverlayLayer, AdsIcon },
+
+  props: {
+    // Analytics context for export_annotation_tool_clicked. Passed down rather
+    // than inferred here: this component has no view of the macro surface, and
+    // an intent event without the surface cannot separate inline annotation
+    // intent from Fullscreen intent — the comparison the event exists for.
+    surface: { type: String as PropType<Surface>, default: 'modal' },
+    macroType: { type: String as PropType<MacroTypeValue>, default: 'none' },
+  },
 
   inject: {
     state: {
@@ -136,12 +147,24 @@ export default defineComponent({
   },
 
   methods: {
+    // Activation only — turning a tool back off is not a second intent, and
+    // counting it would inflate the very number this event exists to read.
+    trackToolIntent(tool: 'arrow' | 'callout' | 'note' | 'watermark') {
+      trackAnalyticsEvent('export_annotation_tool_clicked', {
+        feature_area: 'macro',
+        surface: this.surface,
+        macro_type: this.macroType,
+        tool,
+      });
+    },
+
     toggleTool(tool: ActiveTool) {
       if (this.state.activeTool.value === tool) {
         this.state.activeTool.value = null;
       } else {
         this.state.activeTool.value = tool;
         this.state.selectedAnnotation.value = null;
+        if (tool) this.trackToolIntent(tool);
       }
     },
 
@@ -151,6 +174,7 @@ export default defineComponent({
       } else {
         this.state.watermarkVisible.value = true;
         this.state.selectedAnnotation.value = 'watermark';
+        this.trackToolIntent('watermark');
       }
     },
 

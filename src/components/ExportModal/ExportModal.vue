@@ -10,7 +10,12 @@
         tabindex="-1"
         @keydown="onDialogKeydown"
       >
-        <ExportPreview :state="state" @refresh="capturePreview" />
+        <ExportPreview
+          :state="state"
+          :surface="surface"
+          :macro-type="macroType"
+          @refresh="capturePreview"
+        />
         <div class="export-divider"></div>
         <ExportSidebar :state="state" @close="$emit('close')" @export="handleExport" @copy="handleCopy" />
       </div>
@@ -25,7 +30,7 @@ import ExportSidebar from './ExportSidebar.vue';
 import { exportStateKey, useExportState } from './useExportState';
 import { useExportEngine, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import type { MacroTypeValue } from '@/utils/analytics/catalog';
+import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
@@ -40,6 +45,13 @@ export default defineComponent({
     macroType: { type: String as PropType<MacroTypeValue>, default: 'none' },
     captureNodeGetter: { type: Function as PropType<() => HTMLElement | null> },
     diagramTitle: { type: String, default: '' },
+    /**
+     * Which macro surface the export was started from. Was the literal
+     * `'modal'` on all four export events, which made an inline export and a
+     * Fullscreen one indistinguishable; every other GenericViewer event already
+     * reports `viewer` / `fullscreen`, so these now match.
+     */
+    surface: { type: String as PropType<Surface>, default: 'modal' },
   },
   emits: ['close', 'export', 'copy'],
 
@@ -148,7 +160,7 @@ export default defineComponent({
     function trackSucceeded(method: 'download' | 'clipboard') {
       trackAnalyticsEvent('export_png_succeeded', {
         feature_area: 'macro',
-        surface: 'modal',
+        surface: props.surface,
         macro_type: props.macroType,
         method,
         background: state.background.value,
@@ -162,7 +174,7 @@ export default defineComponent({
     function trackFailed(reason: string) {
       trackAnalyticsEvent('export_png_failed', {
         feature_area: 'macro',
-        surface: 'modal',
+        surface: props.surface,
         macro_type: props.macroType,
         failure_reason: reason,
       });
@@ -194,7 +206,7 @@ export default defineComponent({
         if (copiedTimeoutId) { clearTimeout(copiedTimeoutId); copiedTimeoutId = null; }
         trackAnalyticsEvent('export_png_opened', {
           feature_area: 'macro',
-          surface: 'modal',
+          surface: props.surface,
           macro_type: props.macroType,
         });
         await nextTick();
@@ -204,7 +216,7 @@ export default defineComponent({
         if (!exportSucceeded) {
           trackAnalyticsEvent('export_png_dismissed', {
             feature_area: 'macro',
-            surface: 'modal',
+            surface: props.surface,
             macro_type: props.macroType,
           });
         }

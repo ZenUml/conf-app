@@ -24,6 +24,13 @@ _Avoid_: engine, kind.
 **Variant**:
 A build flavour of the add-on: **lite** (free, paywalled), **full** (paid), **diagramly** (Diagramly-branded). All three are pure Forge.
 
+**Surface**:
+Where a piece of UI is mounted inside Confluence — the closed union in `src/utils/analytics/catalog.ts` (`Surface`). UI-bearing values: `viewer`, `editor`, `modal`, `page_banner`, `dashboard`, `route`, `byline`, `byline_modal`, `fullscreen`. Non-UI values (`forge_trigger`, `scheduled_job`, `support_automation`) exist only to label backend events. Surface is the organising axis for the Storybook sidebar, so one word names the same thing in Mixpanel, in `CONTEXT.md`, and in the component tree. The sidebar groups are *derived* from the union rather than equal to it: `editor` is subdivided into the two independent editor shells (`Workspace.vue`, `DrawIoExtension.vue`), and the `route` catch-all is split into the real pages behind it. Enforced by `src/components/storyTitles.spec.ts`.
+_Avoid_: "screen", "page", "context" — and do not organise UI by component type (atom/molecule/layout), which cuts across this axis.
+
+**Cross-surface component**:
+A component whose surface is decided by its caller, not by where it lives — `UpgradePrompt` (its surface comes from `surfaceForActionType()`: `editor`, `viewer`, or `byline`), `PublishButton`, `TabSwitcher`, `DocumentList`. These have no single home in a surface-organised tree and are grouped under `Shared`.
+
 ## Relationships
 
 - A **macro** (Diagram, Graph, OpenAPI, or Embed) appears in the Confluence macro browser and renders one or more **DiagramType**s.
@@ -46,3 +53,4 @@ _Avoid_: calling all `*_failed` events "errors" without grouping — they have d
 ## Flagged ambiguities
 
 - `Sequence` (DiagramType enum value) and "ZenUML" (user-facing brand) refer to the same rendering engine — resolved: prefer "ZenUML" in user-facing text; keep `Sequence` only in code that references the enum.
+- **Is the paywall gate dead code?** The [[Paywall banner]] is described as the only in-app paywall surface, with editing never blocked, but `utils/paywall/mountPaywallGate.ts:258` still evaluates `editBlocked` / `createBlocked` and fires `PAYWALL_BLOCKED_EDIT` / `_CREATE`, mounting `PaywallGate.vue` → `UpgradePrompt.vue` from 8 entry points. Unresolved — settle it by reading `paywall_blocked_*` volume in Mixpanel, not from code. If the volume is zero, the description is right and the gate should be deleted; if not, that description is stale.

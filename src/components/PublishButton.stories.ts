@@ -4,7 +4,7 @@ import PublishButton from './PublishButton.vue'
 type Story = StoryObj<typeof PublishButton>
 
 const meta: Meta<typeof PublishButton> = {
-  title: 'Actions/PublishButton',
+  title: 'Shared/PublishButton',
   component: PublishButton,
   parameters: {
     layout: 'padded',

@@ -218,7 +218,7 @@ const DocumentListShell = {
 // ---------------------------------------------------------------------------
 
 const meta: Meta<Args> = {
-  title: 'DocumentList/DocumentList',
+  title: 'Shared/DocumentList',
   parameters: {
     layout: 'fullscreen',
     docs: {

@@ -10,7 +10,7 @@ function setError(error: string | null) {
 }
 
 const meta: Meta<typeof SyntaxErrorBox> = {
-  title: 'Feedback/SyntaxErrorBox',
+  title: 'Editor/Diagram/SyntaxErrorBox',
   component: SyntaxErrorBox,
   parameters: {
     layout: 'fullscreen',

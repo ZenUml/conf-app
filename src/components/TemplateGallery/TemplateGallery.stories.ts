@@ -3,7 +3,7 @@ import TemplateGallery from './TemplateGallery.vue'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 const meta: Meta<typeof TemplateGallery> = {
-  title: 'Editor/TemplateGallery',
+  title: 'Editor/Diagram/TemplateGallery',
   component: TemplateGallery,
   parameters: {
     layout: 'fullscreen',

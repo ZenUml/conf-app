@@ -16,7 +16,7 @@ const ALL_ICONS: { name: string; component: object }[] = [
 ]
 
 const meta: Meta<typeof IconCloud> = {
-  title: 'Atoms/Icons',
+  title: 'Shared/Icons',
   parameters: {
     layout: 'padded',
     docs: {

@@ -126,7 +126,7 @@ function renderViewer(args: Args) {
 }
 
 const meta: Meta<typeof GenericViewer> = {
-  title: 'Viewer/Macro with attribution',
+  title: 'Viewer/MacroWithAttribution',
   component: GenericViewer,
   parameters: { layout: 'fullscreen' },
 }

@@ -330,7 +330,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.933 2.185 2.25 2.25 0 0 0-3.933-2.185Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
                 </svg>
               </button>
-              <button @click="showExportModal = true" title="Export PNG" aria-label="Export PNG" class="viewer-pill-btn">
+              <button @click="openExport" title="Export PNG" aria-label="Export PNG" class="viewer-pill-btn">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                 </svg>
@@ -413,7 +413,8 @@
     :macro-type="diagramType"
     :capture-node-getter="getCaptureNode"
     :diagram-title="title"
-    @close="showExportModal = false"
+    :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+    @close="onExportModalClose"
   />
 </div>
 </template>
@@ -466,6 +467,13 @@ function isMermaidSequenceSource(source) {
   return /^\s*\uFEFF?\s*(?:---(?:\r?\n)[\s\S]*?(?:\r?\n)---\s*)?(?:(?:%%[^\r\n]*)(?:\r?\n|$)\s*)*sequenceDiagram(?:\s|$)/.test(source ?? '')
 }
 
+/**
+ * Upper bound on how long an export-entry Fullscreen open waits for the
+ * renderer before showing the dialog anyway. Graph and OpenAPI emit no
+ * diagramLoaded; without this they would never see it.
+ */
+const EXPORT_AUTO_OPEN_FALLBACK_MS = 4000;
+
 export default {
   name: "GenericViewer",
   // hideEdit: callers that render a reference to content they shouldn't edit
@@ -477,6 +485,9 @@ export default {
     canUserEdit: true,
     isHovering: false,
     showExportModal: false,
+    // Export-entry auto-open bookkeeping (see mounted / openExportOnce).
+    exportAutoOpened: false,
+    exportAutoOpenTimer: null,
     showSourcePanel: false,
     isDownloadingDebug: false,
     // Copy for AI inline feedback state machine (Mintlify-style — replaces the
@@ -560,6 +571,12 @@ export default {
     },
     isFullscreenMode() {
       return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
+    },
+    // This modal was opened BY Export PNG (forgeIndex's fullscreen handler puts
+    // the flag in the modal context), not by someone asking for Fullscreen.
+    isExportEntryModal() {
+      return this.isFullscreenMode
+        && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport === true;
     },
     // Mermaid-only fullscreen fix. In the fullscreen modal `wide` is false (it's
     // wired to autoResize), so the frame is .viewer-frame--auto (width: fit-content).
@@ -894,6 +911,20 @@ export default {
     // Capture runs before either bubble listener, so the state read here is
     // the state at keypress.
     document.addEventListener('keydown', this.onEscapeKeydown, true);
+    // Export entry (see openExport): the modal was opened BY the Export PNG
+    // button, so the dialog opens here on arrival. On 'diagramLoaded', not on
+    // mount — the dialog captures its preview off the `visible` watcher, and
+    // at mount the renderer has not painted yet, so the user would land on a
+    // blank preview and a Refresh click. Graph and OpenAPI emit no such event;
+    // they keep the button.
+    if (this.isExportEntryModal) {
+      EventBus.$on('diagramLoaded', this.onDiagramLoadedOpenExport);
+      // Graph (DrawIO) and OpenAPI emit no diagramLoaded at all, so the event
+      // alone would strand those users in Fullscreen with no dialog. The timer
+      // is the floor, not the normal path: sequence/mermaid/plantuml open on
+      // their event, usually well inside it.
+      this.exportAutoOpenTimer = setTimeout(this.openExportOnce, EXPORT_AUTO_OPEN_FALLBACK_MS);
+    }
     try {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
@@ -1021,6 +1052,11 @@ export default {
   },
   beforeUnmount() {
     document.removeEventListener('keydown', this.onEscapeKeydown, true);
+    EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
+    if (this.exportAutoOpenTimer) {
+      clearTimeout(this.exportAutoOpenTimer);
+      this.exportAutoOpenTimer = null;
+    }
     // Cleans up the storage-event listener + poll interval started by
     // watchForHandoff() above (no-op if it was never set up, e.g. flag-off
     // or non-fullscreen).
@@ -1226,15 +1262,68 @@ export default {
       // screen — never before — and measures a real view-layer render_ms.
       this.$nextTick(() => this.agentLinkSession?.notifyRenderSettled());
     },
-    fullscreen() {
+    /**
+     * Export PNG's entry point. The dialog needs room the inline macro does not
+     * have: the iframe is 564x256 on production page 2774138946, which leaves
+     * the annotation controls in a 24px scroller over 312px of form. Rendering
+     * it in flow grows the iframe but then pushes the preview out of the
+     * viewport while those controls are edited, so the dialog opens on the
+     * surface that has room. In Fullscreen it is already there — open it in
+     * place rather than nesting another modal.
+     */
+    // Once. A later re-render (or the fallback timer firing after the event)
+    // must not reopen a dialog the user has closed.
+    openExportOnce() {
+      if (this.exportAutoOpened) return;
+      this.exportAutoOpened = true;
+      EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
+      if (this.exportAutoOpenTimer) {
+        clearTimeout(this.exportAutoOpenTimer);
+        this.exportAutoOpenTimer = null;
+      }
+      this.showExportModal = true;
+    },
+    onDiagramLoadedOpenExport() {
+      this.openExportOnce();
+    },
+    /**
+     * An export-entry modal exists only to host the dialog. The route skips the
+     * fullscreen-viewer paywall (the user pressed Export PNG, which is ungated
+     * inline), so leaving the fullscreen viewer standing behind a dismissed
+     * dialog would hand a saturated Lite space a free read-only fullscreen
+     * viewer — exactly what that gate protects. Dismissing the dialog therefore
+     * leaves the modal. A dialog the user opened by hand inside Fullscreen just
+     * closes.
+     */
+    onExportModalClose() {
+      this.showExportModal = false;
+      if (this.isExportEntryModal) {
+        EventBus.$emit('closeFullscreen');
+      }
+    },
+    openExport() {
+      if (this.isFullscreenMode) {
+        this.showExportModal = true;
+        return;
+      }
+      this.fullscreen({ openExport: true });
+    },
+    fullscreen(options = {}) {
+      const openExport = options.openExport === true;
       trackEvent('fullscreen', 'click', 'viewing');
       trackAnalyticsEvent('fullscreen_opened', {
         feature_area: 'macro',
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
-        entry_point: 'page_view',
+        entry_point: openExport ? 'export' : 'page_view',
       });
-      EventBus.$emit('fullscreen');
+      // Single-argument emit on the ordinary path: every existing listener and
+      // test treats `fullscreen` as a bare signal.
+      if (openExport) {
+        EventBus.$emit('fullscreen', { openExport: true });
+      } else {
+        EventBus.$emit('fullscreen');
+      }
     },
     showContentVersions() {
       trackEvent('show_content_versions', 'click', 'viewing');

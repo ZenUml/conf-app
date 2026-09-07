@@ -23,7 +23,7 @@
 
 import { Page, FrameLocator, expect, ConsoleMessage } from '@playwright/test';
 import { MacroPage } from '../pages/MacroPage.js';
-import { modalDialog, expectModalVisible } from './FullscreenModalHelper.js';
+import { modalDialog, modalContentFrame, expectModalVisible } from './FullscreenModalHelper.js';
 
 export type ViewerKind = 'sequence' | 'graph' | 'openapi';
 
@@ -64,13 +64,19 @@ export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 
   await expect(exportBtn).toBeVisible();
   await exportBtn.click();
 
-  // Shared ExportModal — role=dialog, .export-modal, heading "Export Settings".
-  const exportModal = frame.locator('[data-testid="export-modal"], .export-modal, [class*="export"]').first();
-  if (await exportModal.isVisible({ timeout: 5_000 }).catch(() => false)) {
+  // The dialog no longer opens inside the inline macro iframe. That iframe is
+  // ~560px wide and a few hundred px tall (564x256 on the production page this
+  // was reported from), which leaves the annotation controls unusable, so the
+  // button opens the Fullscreen modal and the dialog opens there on arrival.
+  await expectModalVisible(page, 'fullscreen-viewer');
+  const modalFrame = modalContentFrame(page, 'fullscreen-viewer');
+
+  const exportModal = modalFrame.locator('[data-testid="export-modal"], .export-modal').first();
+  if (await exportModal.isVisible({ timeout: 20_000 }).catch(() => false)) {
     return { kind: 'export-modal' };
   }
-  const exportHeading = frame.getByText(/export settings/i).first();
-  if (await exportHeading.isVisible({ timeout: 2_000 }).catch(() => false)) {
+  const exportHeading = modalFrame.getByText(/export settings/i).first();
+  if (await exportHeading.isVisible({ timeout: 5_000 }).catch(() => false)) {
     return { kind: 'export-modal' };
   }
   return { kind: 'unknown' };

@@ -6,10 +6,63 @@ ChatGPT, Cursor, …). The primary segment is one click with a generic prompt; t
 opens a menu of five job-framed entry points that copy the exact same payload, differing only in
 the preamble that frames what the paste is for.
 
-**Status:** demand test. This feature exists to measure whether "diagram + page content → AI agent"
-is a real user job *before* further Agent Link stabilization investment. It is deliberately not an
-Agent Link surface: no live session, no dialog, no deep links, nothing leaves the browser except via
-the user's own clipboard.
+**Status: test concluded 2026-08-30 — passed, narrowly. The button stays.** See
+[Outcome](#outcome-2026-08-30) below before reading the decision rule, which is preserved as
+written rather than rewritten after the fact.
+
+This feature existed to measure whether "diagram + page content → AI agent" is a real user job
+*before* further Agent Link stabilization investment. It is deliberately not an Agent Link surface:
+no live session, no dialog, no deep links, nothing leaves the browser except via the user's own
+clipboard.
+
+## Outcome (2026-08-30)
+
+The 30-day window ran 2026-07-30 to 2026-08-30, non-internal, 188 unique copiers across 86 tenants
+and 285 clicks.
+
+| Reading | Result | Rule |
+|---|---|---|
+| **Primary — try rate** | **2.15%** | ≥2% → pass. Passed on the last read, having climbed 1.28 → 1.63 → 1.78 → 2.15. |
+| **Override — repeat cohort** | 5.85% (11 of 188) | Intended to *rescue* a marginal miss. Here it points the other way. |
+
+Per the rule as written, the primary passed: **demand confirmed, Agent Link investment continues,
+the button is not reverted.**
+
+It passed on the weaker of the two readings, and that matters more than the pass. Against the
+control — `viewer_source_copied`, the plain copy button on the same toolbar, same population, same
+window — Copy for AI loses on every measure of habit:
+
+| | Copy for AI | `viewer_source_copied` |
+|---|---:|---:|
+| Users returning on a second day | 5.85% | 23.5% |
+| Used exactly once | 75% | 45.8% |
+| Median clicks per user | 1 | 2 |
+| Copy → save within 2h | 21.4% | 26.9% |
+
+The verdict recorded at the time: **reach grows, habit does not.** The feature roughly doubled the
+copying population — 59 people used Copy for AI and never touched the plain copy button, with no
+cannibalization of it — but the people it reached did not come back, and they completed a write-back
+less often than the plain button's users did.
+
+**What this bounds for Agent Link.** Copy for AI is a *direct* proxy for Agent Link's funnel top,
+not a partial one: same viewer toolbar, same population, same job of "update the diagram I am
+looking at". Every number here is therefore an **upper bound** on Agent Link, which costs a click
+*plus* a token paste *plus* one-time MCP setup. Try rate ≤2.15%; return-on-another-day ≤5.85%; the
+manual copy → AI → save loop runs about 40 users a month fleet-wide. A production cohort enable of
+`agent-link-enabled` measures what fraction of those hand-loopers complete MCP setup — a
+setup-friction test, not a second demand test.
+
+**Discovery rate, computed 2026-09-07.** `copy_for_ai_impression` was added on 2026-08-11 to supply
+a denominator of people who actually *saw* the button, rather than all text-DSL viewers. That number
+was never computed before the decision was taken, and the 2.15% above rests on the older, wider
+denominator. Measured over the 30 days to 2026-09-07, non-internal: 4,414 users saw the button and
+166 clicked it — a **3.76% discovery rate**, i.e. the feature looks better on the denominator built
+for it than on the one the verdict used. It does not change the habit findings, which are the
+binding ones.
+
+That event is sampled to 10% from 2026-09-07 (`utils/analytics/eventSampling.ts`): at 80,912
+occurrences a month it was 19.4% of all billable Mixpanel volume, and the rate it feeds survives
+sampling. Treat 3.76% as the pre-sampling reference.
 
 ## Scope (settled 2026-07-29)
 

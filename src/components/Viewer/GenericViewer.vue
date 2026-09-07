@@ -26,6 +26,19 @@
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
           <div class="viewer-edge-top">
             <div class="viewer-title-area">
+              <!-- Fullscreen diagram-type chip (Fullscreen Viewer v2). Read-only
+                   type indicator, NOT the editor's TabSwitcher: this surface has
+                   no type to switch to, and TabSwitcher.vue writes the user's
+                   preferred type to localStorage on click. Renders the same
+                   pixels the design system's TabSwitcher produces when handed a
+                   single active tab (tray + accent-tinted pill). Inline macros
+                   keep their current title row untouched. -->
+              <span v-if="fullscreenTypeChip" class="viewer-type-chip-tray" data-testid="viewer-type-chip">
+                <span class="viewer-type-chip" :class="`viewer-type-chip--${fullscreenTypeChip.id}`">
+                  <span class="viewer-type-chip-dot" aria-hidden="true"></span>
+                  {{ fullscreenTypeChip.label }}
+                </span>
+              </span>
               <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
               <LiveBadge
                 v-if="showAgentLinkBadge"
@@ -79,7 +92,8 @@
                 aria-label="Source"
                 title="View source"
                 data-testid="view-source-btn"
-                @click="openViewSource"
+                :aria-expanded="showSourcePanel ? 'true' : 'false'"
+                @click="toggleViewSource"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
@@ -161,7 +175,7 @@
                     </span>
                   </span>
                 </button>
-                <CopyForAiMenu @select="copyForAi" @opened="onCopyForAiMenuOpened" />
+                <CopyForAiMenu ref="copyForAiMenu" @select="copyForAi" @opened="onCopyForAiMenuOpened" />
                 <!-- Mintlify-style inline feedback: the button's own label already
                      shows Copying…/Copied/Copy failed/Nothing to copy visibly, but a
                      visually-hidden live region also announces the terminal states
@@ -634,6 +648,29 @@ export default {
         && !this.isLoadFailed
         && this.showViewSource;
     },
+    // Fullscreen-only diagram-type indicator (Fullscreen Viewer v2). Fullscreen
+    // drops Edit and Fullscreen from the action row and the Confluence modal
+    // owns the close button, so the header has room the inline macro doesn't —
+    // and unlike the inline macro, whose Confluence context surrounds it, the
+    // fullscreen modal is the whole screen with nothing else naming the type.
+    // Only the five types the accent system defines (colors_and_type.css's
+    // --accent-<sequence|mermaid|plantuml|drawio|openapi>-* ramps, which the
+    // design's TABS map names one-for-one). Graph and OpenAPI reach this
+    // component through ForgeGraphViewer.vue / OpenApiViewer.vue, which wrap
+    // GenericViewer for their own chrome, so the chip names them on the same
+    // fullscreen surface. AsyncAPI and Embed have no accent and get no chip
+    // rather than an invented one.
+    fullscreenTypeChip() {
+      if (!this.isFullscreenMode) return null;
+      switch (this.diagramType) {
+        case DiagramType.Sequence: return { id: 'sequence', label: 'Sequence' };
+        case DiagramType.Mermaid: return { id: 'mermaid', label: 'Mermaid' };
+        case DiagramType.PlantUml: return { id: 'plantuml', label: 'PlantUML' };
+        case DiagramType.Graph: return { id: 'graph', label: 'Graph' };
+        case DiagramType.OpenApi: return { id: 'openapi', label: 'OpenAPI' };
+        default: return null;
+      }
+    },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
     },
@@ -818,6 +855,16 @@ export default {
     }));
   },
   async mounted() {
+    // Escape dismisses one layer at a time: the Copy-for-AI menu first, then
+    // the Source panel (Fullscreen Viewer v2). CopyForAiMenu.vue has its own
+    // document-level Escape handler and calls stopPropagation(), which does
+    // NOT stop a second listener on that same node — and because a child's
+    // mounted() runs before its parent's, the menu would already have set
+    // itself closed by the time this ran, so reading its state in the bubble
+    // phase can't distinguish "menu was open" from "menu was never open".
+    // Capture runs before either bubble listener, so the state read here is
+    // the state at keypress.
+    document.addEventListener('keydown', this.onEscapeKeydown, true);
     try {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
@@ -944,6 +991,7 @@ export default {
     }
   },
   beforeUnmount() {
+    document.removeEventListener('keydown', this.onEscapeKeydown, true);
     // Cleans up the storage-event listener + poll interval started by
     // watchForHandoff() above (no-op if it was never set up, e.g. flag-off
     // or non-fullscreen).
@@ -955,6 +1003,15 @@ export default {
     }
   },
   methods: {
+    // See the addEventListener comment in mounted() for why this is a
+    // capture-phase listener. Yields to the Copy-for-AI menu while it is open
+    // so one Escape dismisses one layer.
+    onEscapeKeydown(e) {
+      if (e.key !== 'Escape') return;
+      if (this.$refs.copyForAiMenu?.open) return;
+      if (!this.showSourcePanel) return;
+      this.showSourcePanel = false;
+    },
     // Export PNG (code review): give ExportModal the actual DOM node instead
     // of a global document.querySelector('.screen-capture-content'), which
     // only worked by the accident of exactly one copy ever being mounted at
@@ -1047,6 +1104,17 @@ export default {
     edit() {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
+    },
+    // The Source button is a toggle: a second click closes the panel it opened
+    // (Fullscreen Viewer v2). Only the opening half is tracked —
+    // `viewer_source_opened` still counts one event per open, so the toggle
+    // does not change what the funnel measures.
+    toggleViewSource() {
+      if (this.showSourcePanel) {
+        this.showSourcePanel = false;
+        return;
+      }
+      this.openViewSource();
     },
     // View Source panel (#333). Uses in-memory diagram DSL — no refetch.
     // Available to all viewers; do not gate on canUserEdit.
@@ -1481,6 +1549,139 @@ export default {
 .viewer-frame--fullscreen .viewer-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .viewer-frame--fullscreen .viewer-surface { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .viewer-frame--fullscreen .viewer-canvas { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+
+/* ----- Fullscreen Viewer v2 ---------------------------------------------
+   Fullscreen is the surface where the diagram is the whole point, so its
+   chrome is designed rather than borrowed from the inline macro: a solid
+   56px header that always shows its actions, and the design system's cream
+   dot-grid canvas (--canvas-bg / --canvas-dot in colors_and_type.css; the
+   same pair Workspace.vue already paints in the editor) instead of the flat
+   white that made the diagram look like it had failed to load.
+
+   The ZenUML embed itself is deliberately untouched: @zenuml/core renders
+   the frame, its own bottom toolbar and the watermark as one unit, and this
+   redesign only changes what surrounds it and how much room it gets.
+
+   Everything here is scoped to --fullscreen. The inline macro's hover-quiet
+   chrome (transparent border, actions at opacity 0) is correct in a
+   Confluence page and is not changed. */
+.viewer-frame--fullscreen .viewer-edge-top {
+  flex-shrink: 0;
+  height: 56px;
+  padding: 0 20px;
+  border-bottom-color: #E5E7EB;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  /* Above the canvas, so the header's shadow falls onto the dot grid. */
+  position: relative;
+  z-index: 2;
+}
+/* Hover-to-reveal is an inline-macro affordance — it keeps a page of macros
+   quiet. In fullscreen the user opened this surface to act on the diagram,
+   and there is no page to keep quiet, so the actions are always present. */
+.viewer-frame--fullscreen .viewer-top-actions {
+  opacity: 1;
+  gap: 4px;
+}
+.viewer-frame--fullscreen .viewer-title {
+  font-size: 16px;
+}
+/* The design's header row is 12px-gapped; the inline macro's tighter 10px is
+   tuned for a row with no chip in it. */
+.viewer-frame--fullscreen .viewer-title-area {
+  gap: 12px;
+}
+
+/* Read-only diagram-type indicator. Reproduces what the design system's
+   TabSwitcher renders for a single active tab — tray plus accent-tinted
+   pill — without the editor TabSwitcher's click-to-switch behaviour, which
+   this surface has no use for. Accents are the shared five from DESIGN.md §2
+   (--accent-<type>-50 / -500 / -800). */
+.viewer-type-chip-tray {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 3px;
+  background: #F4F5F7;
+  border-radius: 6px;
+}
+.viewer-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.viewer-type-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.viewer-type-chip--sequence { background: #E8F6FD; color: #054E76; }
+.viewer-type-chip--sequence .viewer-type-chip-dot { background: #0094D9; }
+.viewer-type-chip--mermaid { background: #FFF0F4; color: #8E0F33; }
+.viewer-type-chip--mermaid .viewer-type-chip-dot { background: #FF3670; }
+.viewer-type-chip--plantuml { background: #FDF1E9; color: #6B2900; }
+.viewer-type-chip--plantuml .viewer-type-chip-dot { background: #B84800; }
+.viewer-type-chip--graph { background: #FFF7E8; color: #8A4B00; }
+.viewer-type-chip--graph .viewer-type-chip-dot { background: #F08705; }
+.viewer-type-chip--openapi { background: #F1F8EA; color: #3A5C1D; }
+.viewer-type-chip--openapi .viewer-type-chip-dot { background: #6BA539; }
+
+/* .viewer-frame--auto sizes the frame to fit-content, which in fullscreen made
+   it as wide as the diagram — leaving the rest of the window bare (the
+   min-height rule above fixed the same thing vertically). That was survivable
+   while the frame was white on white; a canvas has to reach the edges or it
+   reads as a stripe down the middle. The diagram keeps its centered position
+   below, now against a canvas that owns the whole surface. */
+.viewer-frame--fullscreen { width: 100%; }
+
+.viewer-frame--fullscreen .viewer-canvas {
+  padding: 24px;
+  align-items: center;
+  background-color: #F8F7F4;
+  background-image: radial-gradient(circle, #D0CEC7 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+/* One column, one width: the diagram and the byline under it share this box,
+   which is what puts the byline's right edge on the diagram's right edge.
+   1000px is the design's number — the diagram stops growing before the text
+   under it becomes a long, hard-to-track line on a wide monitor. */
+.viewer-frame--fullscreen .screen-capture-content,
+.viewer-frame--fullscreen .viewer-footer-row {
+  width: 100%;
+  max-width: 1000px;
+}
+/* @zenuml/core's root is `inline-block`, so the frame shrink-wraps the diagram.
+   Inline that is right — the macro should not claim a page's width it isn't
+   using. In fullscreen it left a two-participant diagram as a ~330px card
+   pinned to the left of a 1000px column, with the byline's right edge 660px
+   away from the diagram's: the column alignment this redesign is built on only
+   holds if the frame actually fills the column. Width only — a stretched
+   HEIGHT is measurably worse, because @zenuml/core's bottom toolbar does not
+   follow the taller frame and a short diagram gets an empty white slab under
+   it. Vertical fill belongs in @zenuml/core, not in an override here. */
+/* :deep() because these nodes are rendered by @zenuml/core, not by this
+   template, so a scoped selector alone never matches them.
+
+   `max-content` rather than `100%`: a diagram wider than the column has to
+   stay reachable. @zenuml/core's own wrapper is `overflow: hidden`, so pinning
+   its root to the column's width silently cut the right-hand participants off
+   with nothing to scroll — the frame is allowed to be as wide as its content,
+   and the column scrolls to it. `min-width: 100%` is what makes the narrow
+   case fill rather than shrink-wrap. */
+.viewer-frame--fullscreen :deep(.zenuml) {
+  overflow-x: auto;
+}
+.viewer-frame--fullscreen :deep(.zenuml > div) {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
 /* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
    .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
    back into a column. */
@@ -1805,13 +2006,17 @@ export default {
   width: 100%;
 }
 .viewer-footer-row :deep(.diagram-attribution) { margin-left: auto; }
+/* Fullscreen Viewer v2: the byline belongs to the diagram, not to the window.
+   It used to be a full-width white bar pinned to the bottom of the viewport,
+   which read as a status bar and left it stranded far below a short diagram.
+   In flow at the end of the canvas column it sits directly under the unit and
+   shares its right edge, because both fill the same 24px-padded content box. */
 .viewer-frame--fullscreen .viewer-footer-row {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  border-top: 1px solid #E5E7EB;
-  background: #fff;
-  z-index: 1;
+  position: static;
+  flex: 0 0 auto;
+}
+.viewer-frame--fullscreen .viewer-footer-row :deep(.diagram-attribution) {
+  padding: 10px 0 0;
 }
 .viewer-footer-row:not(:empty) ~ .viewer-edge-bottom-pill { bottom: 44px; }
 

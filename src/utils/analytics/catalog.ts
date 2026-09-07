@@ -183,19 +183,28 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // flag cohort. See macro_create_started / macro_edit_started below.
 // `plan_usage_page` is the same kind of hardcoded override, in the opposite
 // direction from the page-banner's hardcoded 0% — see _initMixpanel in
-// trackAnalyticsEvent.ts.
+// trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
+// the deliberate-intent viewer surface, and it cannot be expressed as a Forge
+// flag because the cohort system buckets by install/account, not by surface.
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
   | "plan_usage_page"
+  | "fullscreen"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues
 // asynchronously. `returned` records only that the call did not synchronously
 // throw; it is not proof that a replay was uploaded. `$mp_replay_id` on a later
-// event is the outcome evidence.
-export type SessionReplayStartCallOutcome = "returned" | "threw";
+// event is the outcome evidence. `skipped_sampled` means the call was never
+// made: authoring replay is sampled, and this session was outside the sample,
+// so whatever the Forge-flag cohort decided stands. Its share of authoring
+// events is the live measurement of the sampling rate.
+export type SessionReplayStartCallOutcome =
+  | "returned"
+  | "threw"
+  | "skipped_sampled";
 
 /**
  * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.

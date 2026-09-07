@@ -730,13 +730,18 @@ export default {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
     },
     // The fullscreen column is capped at 1000px so the byline under the diagram keeps a
-    // readable line length. A PlantUML diagram is a server-rendered image that routinely
-    // overflows that column and scrolls; capping it there only makes it scroll sooner
-    // while the rest of the window sits empty. The footer row keeps the cap, so the
-    // byline stays readable — it just no longer shares the diagram's right edge, which
-    // an overflowing diagram does not have on screen anyway.
+    // readable line length. That reasoning is about TEXT, so it holds for the types whose
+    // content is text the reader tracks line by line (sequence, mermaid, openapi) and not
+    // for the two rendered-picture types. Measured on lite-stg in a 1280px window:
+    // PlantUML hands back a fixed-size image (6228px on the #626 repro) that overflows
+    // the column and scrolls, so capping only makes it scroll sooner; Graph scales to its
+    // container (a 1008px board drawn into exactly 1000px), so capping only makes it
+    // smaller. Both spend the window's remaining ~230px on nothing. .viewer-footer-row
+    // keeps the cap, so the byline stays readable — it just no longer shares the
+    // diagram's right edge, which an overflowing diagram does not have on screen anyway.
     fullscreenUncappedDiagram() {
-      return this.isFullscreenMode && this.diagramType === DiagramType.PlantUml;
+      if (!this.isFullscreenMode) return false;
+      return [DiagramType.PlantUml, DiagramType.Graph].includes(this.diagramType);
     },
     // Whether the rail actually takes its 316px of the fullscreen width. ConnectPanel
     // has no `idle` branch — before a session exists it renders nothing — and the only

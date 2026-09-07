@@ -1950,13 +1950,31 @@ describe('GenericViewer (chrome-less)', () => {
         .toContain('screen-capture-content--uncapped')
     })
 
-    it('keeps the 1000px column for diagram types that fit it', async () => {
+    it('lets a Graph diagram use the full fullscreen width too', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Graph)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .toContain('screen-capture-content--uncapped')
+    })
+
+    it('keeps the 1000px column for the text-bearing diagram types', async () => {
       setFullscreen(true)
       const wrapper = mountViewer()
       await flushPromises()
 
       expect(wrapper.find('.screen-capture-content').classes())
         .not.toContain('screen-capture-content--uncapped')
+
+      for (const type of [DiagramType.Mermaid, DiagramType.OpenApi]) {
+        store.commit('updateDiagramType', type)
+        const w = mountViewer()
+        await flushPromises()
+        expect(w.find('.screen-capture-content').classes())
+          .not.toContain('screen-capture-content--uncapped')
+      }
     })
 
     it('collapses the Fullscreen rail while the panel is idle', async () => {

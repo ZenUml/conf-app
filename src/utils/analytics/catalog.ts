@@ -350,13 +350,14 @@ export type AnalyticsEventName =
   | "ai_chat_version_restore_failed"
   // AI Repair CTA impression. SEMANTICS CHANGED 2026-09-07: the button is now
   // armed only after the store error has stood unchanged for
-  // AI_REPAIR_ARM_DELAY_MS (2000 ms, SyntaxErrorBox.vue), on top of the
-  // editor's own 1000 ms validation debounce. So one event means "the author
-  // paused ~3s on a syntax error", i.e. a plausible stuck moment. Before that
-  // date the gate was a bare `!!error`, and because Editor.vue clears the error
-  // on every keystroke, the event fired once per typing pause — a single
+  // AI_REPAIR_ARM_DELAY_MS (src/components/aiRepairArming.ts), on top of the
+  // editor's own validation debounce. So one event means "the author stopped
+  // typing and sat on a syntax error", i.e. a plausible stuck moment. Before
+  // that date the gate was a bare `!!error`, and because Editor.vue clears the
+  // error on every keystroke, the event fired once per typing pause — a single
   // editing session could emit six of them in twenty seconds. Do not compare
-  // counts across 2026-09-07 without accounting for that.
+  // counts across the release that carries this change without accounting for
+  // it, and re-date this note if the arm delay is ever retuned.
   | "ai_repair_button_shown"
   // AI Repair performance lifecycle. requested fires immediately before the
   // start request and carries poll_interval_ms + timeout_budget_ms plus the

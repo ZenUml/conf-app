@@ -16,10 +16,8 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 }))
 
 import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
+import { AI_REPAIR_ARM_DELAY_MS as ARM_DELAY_MS } from '@/components/aiRepairArming'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-
-// Keep in sync with AI_REPAIR_ARM_DELAY_MS in SyntaxErrorBox.vue.
-const ARM_DELAY_MS = 2000
 
 const AIRepairStub = defineComponent({
   name: 'AIRepairStub',
@@ -262,6 +260,30 @@ describe('SyntaxErrorBox AI Repair arm delay', () => {
     await settle()
 
     expect(wrapper.find('[data-testid="ai-repair-button"]').exists()).toBe(false)
+  })
+
+  it('waits for a slow feature flag that resolves after the arm delay', async () => {
+    // On a slow tenant the Forge bridge round-trip can outlast the arm delay,
+    // so the two halves of the button's condition settle in the reverse order.
+    let resolveRepairFlag: (enabled: boolean) => void = () => {}
+    featureFlags.isAiRepairEnabled.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveRepairFlag = resolve
+      }),
+    )
+    const { wrapper } = mountSyntaxErrorBox()
+    await settle()
+
+    await advance(ARM_DELAY_MS)
+
+    expect(wrapper.find('[data-testid="ai-repair-button"]').exists()).toBe(false)
+    expect(impressions()).toHaveLength(0)
+
+    resolveRepairFlag(true)
+    await settle()
+
+    expect(wrapper.find('[data-testid="ai-repair-button"]').exists()).toBe(true)
+    expect(impressions()).toHaveLength(1)
   })
 
   it('keeps the legacy repair dialog mounted while the button is unarmed', async () => {

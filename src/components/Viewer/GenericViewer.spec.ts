@@ -1936,6 +1936,29 @@ describe('GenericViewer (chrome-less)', () => {
     // only way to start one is the small-macro Connect button, which is hidden in
     // fullscreen. A blank 332px column stayed reserved next to the diagram, which is
     // why a wide PlantUML diagram started scrolling well before it ran out of window.
+    // The fullscreen column is capped at 1000px so the byline under the diagram stays
+    // a readable line length. A PlantUML diagram that overflows that column gains
+    // nothing from the cap — it just scrolls sooner while the window sits unused, so
+    // the capture box drops the cap for that case (the byline keeps it).
+    it('lets an overflowing PlantUML diagram use the full fullscreen width', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.PlantUml)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .toContain('screen-capture-content--uncapped')
+    })
+
+    it('keeps the 1000px column for diagram types that fit it', async () => {
+      setFullscreen(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .not.toContain('screen-capture-content--uncapped')
+    })
+
     it('collapses the Fullscreen rail while the panel is idle', async () => {
       setFullscreen(true)
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)

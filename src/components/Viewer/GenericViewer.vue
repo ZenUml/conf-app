@@ -10,7 +10,7 @@
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
     <template v-if="!isDisplayMode || hideHeader">
-      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
+      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
         <slot></slot>
       </div>
     </template>
@@ -270,7 +270,7 @@
                 </button>
               </div>
             </div>
-            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
+            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
               <slot></slot>
             </div>
             <div
@@ -728,6 +728,15 @@ export default {
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+    },
+    // The fullscreen column is capped at 1000px so the byline under the diagram keeps a
+    // readable line length. A PlantUML diagram is a server-rendered image that routinely
+    // overflows that column and scrolls; capping it there only makes it scroll sooner
+    // while the rest of the window sits empty. The footer row keeps the cap, so the
+    // byline stays readable — it just no longer shares the diagram's right edge, which
+    // an overflowing diagram does not have on screen anyway.
+    fullscreenUncappedDiagram() {
+      return this.isFullscreenMode && this.diagramType === DiagramType.PlantUml;
     },
     // Whether the rail actually takes its 316px of the fullscreen width. ConnectPanel
     // has no `idle` branch — before a session exists it renders nothing — and the only
@@ -1670,6 +1679,11 @@ export default {
 .viewer-frame--fullscreen .viewer-footer-row {
   width: 100%;
   max-width: 1000px;
+}
+/* See fullscreenUncappedDiagram(). Only the diagram box opts out; .viewer-footer-row
+   above keeps the 1000px so the byline stays a readable line. */
+.viewer-frame--fullscreen .screen-capture-content--uncapped {
+  max-width: none;
 }
 /* @zenuml/core's root is `inline-block`, so the frame shrink-wraps the diagram.
    Inline that is right — the macro should not claim a page's width it isn't

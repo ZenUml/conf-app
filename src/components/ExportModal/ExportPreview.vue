@@ -6,7 +6,7 @@
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'arrow' }"
+          :class="{ active: isToolActive('arrow') }"
           @click="toggleTool('arrow')"
           title="Arrow (drag to draw)"
           aria-label="Arrow (drag to draw)"
@@ -17,7 +17,7 @@
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'callout' }"
+          :class="{ active: isToolActive('callout') }"
           @click="toggleTool('callout')"
           title="Callout (click to place)"
           aria-label="Callout (click to place)"
@@ -28,7 +28,7 @@
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'note' }"
+          :class="{ active: isToolActive('note') }"
           @click="toggleTool('note')"
           title="Note (click to place)"
           aria-label="Note (click to place)"
@@ -156,6 +156,17 @@ export default defineComponent({
         macro_type: this.macroType,
         tool,
       });
+    },
+
+    /**
+     * A tool reads as active while it is armed AND while the annotation it
+     * placed is the current selection. Placing an annotation clears
+     * activeTool, so binding to that alone left all four buttons looking
+     * identical at the exact moment the user is editing one of them.
+     */
+    isToolActive(tool: 'arrow' | 'callout' | 'note') {
+      return this.state.activeTool.value === tool
+        || this.state.selectedAnnotation.value === tool;
     },
 
     toggleTool(tool: ActiveTool) {

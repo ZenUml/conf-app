@@ -14,6 +14,7 @@
 
 <script>
 import { loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
@@ -72,7 +73,10 @@ export default {
       const mermaid = await loadMermaid();
       // Use the unique ID to render, avoiding creating extra elements in the body
       const { svg } = await mermaid.render(this.renderId, code);
-      return svg;
+      // A `useMaxWidth: false` diagram carries a fixed height that our flex
+      // wrapper cannot shrink, which letterboxes the drawing. See
+      // normalizeSvgSizing for the measurement.
+      return normalizeSvgSizing(svg);
     },
     removeTempNode() {
       if (!this.renderId) return;

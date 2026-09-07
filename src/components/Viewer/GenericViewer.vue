@@ -1682,6 +1682,28 @@ export default {
   width: max-content;
   min-width: 100%;
 }
+/* PlantUML gets the same treatment as .zenuml above, for the same reason
+   (conf-app#626). Normalising the server SVG makes it scale proportionally, but a
+   6228px diagram fitted into the column is a correct picture nobody can read. In
+   fullscreen the wrapper is allowed to be as wide as the drawing and scrolls to it;
+   `min-width: 100%` keeps a narrow diagram centered rather than shrink-wrapped. The
+   intrinsic width comes from PlantUml.vue, which reads it off the viewBox before the
+   width attribute is dropped — without it the SVG would fall back to the 300px CSS
+   default here. `justify-content` is reset because a scrolled flex row would otherwise
+   center the overflow and make the left edge unreachable. */
+.viewer-frame--fullscreen :deep(.plantuml-render) {
+  overflow-x: auto;
+  justify-content: flex-start;
+}
+.viewer-frame--fullscreen :deep(.plantuml-render > svg) {
+  /* `flex: 0 0 auto` is the part that matters: as a shrinkable flex item the SVG
+     would collapse back to the column width and there would be nothing to scroll. */
+  flex: 0 0 auto;
+  max-width: none;
+  width: var(--plantuml-intrinsic-width, 100%);
+  min-width: 100%;
+  height: auto;
+}
 /* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
    .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
    back into a column. */

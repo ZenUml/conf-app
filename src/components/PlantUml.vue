@@ -13,12 +13,13 @@ Alice -&gt; Bob: Hello
 Bob --&gt; Alice: Hi there!
 @enduml</pre>
   </div>
-  <div v-else class="flex justify-center" v-html="svg"></div>
+  <div v-else class="flex justify-center plantuml-render" :style="intrinsicSizeVars" v-html="svg"></div>
 </template>
 
 <script>
 import { plantumlEncode } from '@/utils/plantuml/encode';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
+import { normalizePlantUmlSvg, readPlantUmlSvgSize } from '@/utils/plantuml/normalizeSvg';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import globals from '@/model/globals';
 import EventBus from '@/EventBus';
@@ -45,6 +46,18 @@ export default {
     },
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
+    },
+    // Normalising drops the SVG's width/height, so fullscreen has no other way to
+    // render the diagram at 1:1 and scroll to it. Published as custom properties
+    // rather than inline width/height: only the fullscreen rule opts in, the
+    // inline viewer keeps the fit-to-width behaviour.
+    intrinsicSizeVars() {
+      const size = this.svg ? readPlantUmlSvgSize(this.svg) : null;
+      if (!size) return null;
+      return {
+        '--plantuml-intrinsic-width': `${size.width}px`,
+        '--plantuml-intrinsic-height': `${size.height}px`,
+      };
     },
   },
   async mounted() {
@@ -115,7 +128,9 @@ export default {
           if (!response.ok) {
             throw new Error(`PlantUML server returned ${response.status}`);
           }
-          return await response.text();
+          // The server's root pins a pixel width and preserveAspectRatio="none";
+          // injected into a flex parent that squashes one axis (conf-app#626).
+          return normalizePlantUmlSvg(await response.text());
         });
         if (!this.initialRenderTracked) {
           this.initialRenderTracked = true;
@@ -132,3 +147,12 @@ export default {
   },
 };
 </script>
+
+<style scoped>
+/* The fit-to-width cap lives here rather than inline on the SVG, so the fullscreen
+   rule in GenericViewer.vue can raise it and render the diagram at 1:1 with a
+   scrollbar (conf-app#626). `:deep` because the SVG arrives through `v-html`. */
+.plantuml-render :deep(svg) {
+  max-width: 100%;
+}
+</style>

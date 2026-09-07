@@ -470,13 +470,18 @@ export default defineComponent({
 .preview-loading { display: flex; align-items: center; justify-content: center; padding: 40px; }
 
 /* ─── Sidebar ───
-   A fixed 340px column rather than 40% of the surface: at 1920 the 40% column
+   A fixed 300px column rather than 40% of the surface: at 1920 the 40% column
    was 440px holding five controls, and the width is better spent on the
-   diagram. min-height:0 is what makes the scroll region below actually
-   scrollable inside a flex column — without it the wheel had no effect and only
-   Tab-key scrollIntoView reached the lower controls. */
+   diagram. 300px is measured against the reference products — Snagit's
+   Properties column is 201px of a 913px editor (22%), and 300px lands at 23%
+   of the 1280x563 modal and 16% of 1920x950, where 340px reached 27% at 1280,
+   wider than Snagit's. CleanShot X has no side column at all: tools and their
+   options share one ~40px top strip.
+   min-height:0 is what makes the scroll region below actually scrollable
+   inside a flex column — without it the wheel had no effect and only Tab-key
+   scrollIntoView reached the lower controls. */
 .export-sidebar {
-  flex: 0 0 340px;
+  flex: 0 0 300px;
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
@@ -614,18 +619,17 @@ export default defineComponent({
 }
 .toggle.on .toggle-thumb { transform: translateX(16px); }
 
-/* Wraps rather than overflowing: at the fixed 340px sidebar the three buttons
-   side by side pushed Download PNG past the edge. Download leads its own row so
-   the action every export ends on is never the one that gets clipped. */
+/* Stacked, because three buttons do not fit across a 300px column: side by
+   side they pushed Download PNG past the edge, and wrapping clipped Copy image.
+   column-reverse puts Download PNG — the action every export ends on — at the
+   top of the block, with Copy image and Cancel below it in decreasing weight. */
 .sidebar-actions {
-  display: flex; align-items: center; justify-content: flex-end;
-  flex-wrap: wrap-reverse;
+  display: flex; flex-direction: column-reverse; align-items: stretch;
   padding: 14px 20px; background: var(--sidebar-bg);
   box-shadow: 0 -1px 0 #1e293b, 0 -8px 16px rgba(15, 23, 42, 0.6);
   flex-shrink: 0; gap: 8px;
 }
-.sidebar-actions .btn-cancel { margin-right: auto; }
-.sidebar-actions .btn-export { flex: 1 1 auto; justify-content: center; }
+.sidebar-actions button { justify-content: center; width: 100%; }
 .btn-cancel {
   background: none; border: 1px solid #334155; border-radius: 8px;
   padding: 8px 14px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px;

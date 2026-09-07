@@ -293,11 +293,15 @@ export default defineComponent({
   background: rgba(239, 68, 68, 0.08);
 }
 
+/* Stacks inside the 300px column: side by side, Copy image + Download PNG
+   measured 290px plus padding and pushed Download past the sidebar's edge. */
 .sidebar-actions-primary {
   display: flex;
-  align-items: center;
+  flex-direction: column-reverse;
+  align-items: stretch;
   gap: 8px;
 }
+.sidebar-actions-primary > button { width: 100%; justify-content: center; }
 
 .btn-copy {
   display: flex;

@@ -88,6 +88,39 @@ That inverted a per-tenant comparison as well, because a tenant on the older bui
 all of its renders under the old name. Any claim that one tenant "shows the feature more"
 than another has to control for which build each was running.
 
+## The 2026-09-07 `ai_repair_button_shown` semantics break (evidence-verified)
+
+The event name and its properties are unchanged, so nothing in a query errors — the meaning
+changed underneath. **Do not compare counts across 2026-09-07.**
+
+| | Before | After |
+|---|---|---|
+| Gate | bare `!!store.state.error` | error unchanged for `AI_REPAIR_ARM_DELAY_MS` (`src/components/aiRepairArming.ts`) |
+| Fires once per | typing pause on invalid syntax | sustained pause (~3s, arm delay + the editor's 1s validation debounce) |
+| Reads as | "a validation pass found an error" | "the author stopped typing and sat on a syntax error" |
+
+`Editor.vue` clears the store error on **every keystroke** and the debounced validator restores it
+a second later, so the old gate toggled false→true once per pause. Measured on one real editing
+session (2026-09-07, one Lite tenant): **6 events in 21 seconds** and **5 in 26 seconds** — one
+person typing, not eleven exposures. After the change, a three-burst input with 1.3s gaps produced
+**zero** events where the old gate would have produced three, then exactly **one** once typing
+stopped.
+
+Shipped in commit `b1c6d8a9`, published to production **2026-09-07**: `v2026.09.071216-diagramly`
+(12:37Z) and `v2026.09.071222-lite` (12:44Z). Full and AsyncAPI were not released with it, so those
+variants keep the old semantics until their own release — **segment by `product_type` and
+`app_version` before comparing anything that spans this date.**
+
+Two further traps when reading this event:
+
+- **It is not fleet-wide.** The AI Repair entry point is Forge-flag gated per app, and the flag is
+  targeted, not global. Across 2026-09-01..07 the event came only from `lite-stg` and a single
+  customer tenant — our own `zenuml` production site emitted **zero**, before and after the release.
+  A zero for a given domain means the flag is off there, not that the feature broke.
+- **An impression is not an attempt.** `ai_repair_button_shown` says the CTA rendered;
+  `ai_repair_requested` says someone clicked it. Post-change the two are much closer in meaning
+  than they were, which will look like a conversion-rate jump that is entirely definitional.
+
 ## Event sampling — a raw count is NOT the volume
 
 **Since 2026-08-26 (`e572eb7b`, quota reduction) some events emit only a fraction of the

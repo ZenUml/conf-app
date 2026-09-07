@@ -6,7 +6,7 @@
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'arrow' }"
+          :class="{ active: isToolActive('arrow') }"
           @click="toggleTool('arrow')"
           title="Arrow (drag to draw)"
           aria-label="Arrow (drag to draw)"
@@ -17,7 +17,7 @@
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'callout' }"
+          :class="{ active: isToolActive('callout') }"
           @click="toggleTool('callout')"
           title="Callout (click to place)"
           aria-label="Callout (click to place)"
@@ -28,7 +28,7 @@
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'note' }"
+          :class="{ active: isToolActive('note') }"
           @click="toggleTool('note')"
           title="Note (click to place)"
           aria-label="Note (click to place)"
@@ -88,14 +88,25 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, nextTick, type PropType } from 'vue';
 import { exportStateKey, type ActiveTool } from './useExportState';
 import OverlayLayer from './OverlayLayer.vue';
 import AdsIcon from './AdsIcon.vue';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 
 export default defineComponent({
   name: 'ExportPreview',
   components: { OverlayLayer, AdsIcon },
+
+  props: {
+    // Analytics context for export_annotation_tool_clicked. Passed down rather
+    // than inferred here: this component has no view of the macro surface, and
+    // an intent event without the surface cannot separate inline annotation
+    // intent from Fullscreen intent — the comparison the event exists for.
+    surface: { type: String as PropType<Surface>, default: 'modal' },
+    macroType: { type: String as PropType<MacroTypeValue>, default: 'none' },
+  },
 
   inject: {
     state: {
@@ -136,12 +147,35 @@ export default defineComponent({
   },
 
   methods: {
+    // Activation only — turning a tool back off is not a second intent, and
+    // counting it would inflate the very number this event exists to read.
+    trackToolIntent(tool: 'arrow' | 'callout' | 'note' | 'watermark') {
+      trackAnalyticsEvent('export_annotation_tool_clicked', {
+        feature_area: 'macro',
+        surface: this.surface,
+        macro_type: this.macroType,
+        tool,
+      });
+    },
+
+    /**
+     * A tool reads as active while it is armed AND while the annotation it
+     * placed is the current selection. Placing an annotation clears
+     * activeTool, so binding to that alone left all four buttons looking
+     * identical at the exact moment the user is editing one of them.
+     */
+    isToolActive(tool: 'arrow' | 'callout' | 'note') {
+      return this.state.activeTool.value === tool
+        || this.state.selectedAnnotation.value === tool;
+    },
+
     toggleTool(tool: ActiveTool) {
       if (this.state.activeTool.value === tool) {
         this.state.activeTool.value = null;
       } else {
         this.state.activeTool.value = tool;
         this.state.selectedAnnotation.value = null;
+        if (tool) this.trackToolIntent(tool);
       }
     },
 
@@ -151,6 +185,7 @@ export default defineComponent({
       } else {
         this.state.watermarkVisible.value = true;
         this.state.selectedAnnotation.value = 'watermark';
+        this.trackToolIntent('watermark');
       }
     },
 

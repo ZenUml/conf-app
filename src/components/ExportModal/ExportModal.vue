@@ -10,7 +10,12 @@
         tabindex="-1"
         @keydown="onDialogKeydown"
       >
-        <ExportPreview :state="state" @refresh="capturePreview" />
+        <ExportPreview
+          :state="state"
+          :surface="surface"
+          :macro-type="macroType"
+          @refresh="capturePreview"
+        />
         <div class="export-divider"></div>
         <ExportSidebar :state="state" @close="$emit('close')" @export="handleExport" @copy="handleCopy" />
       </div>
@@ -25,7 +30,7 @@ import ExportSidebar from './ExportSidebar.vue';
 import { exportStateKey, useExportState } from './useExportState';
 import { useExportEngine, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import type { MacroTypeValue } from '@/utils/analytics/catalog';
+import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
@@ -40,6 +45,13 @@ export default defineComponent({
     macroType: { type: String as PropType<MacroTypeValue>, default: 'none' },
     captureNodeGetter: { type: Function as PropType<() => HTMLElement | null> },
     diagramTitle: { type: String, default: '' },
+    /**
+     * Which macro surface the export was started from. Was the literal
+     * `'modal'` on all four export events, which made an inline export and a
+     * Fullscreen one indistinguishable; every other GenericViewer event already
+     * reports `viewer` / `fullscreen`, so these now match.
+     */
+    surface: { type: String as PropType<Surface>, default: 'modal' },
   },
   emits: ['close', 'export', 'copy'],
 
@@ -148,7 +160,7 @@ export default defineComponent({
     function trackSucceeded(method: 'download' | 'clipboard') {
       trackAnalyticsEvent('export_png_succeeded', {
         feature_area: 'macro',
-        surface: 'modal',
+        surface: props.surface,
         macro_type: props.macroType,
         method,
         background: state.background.value,
@@ -162,7 +174,7 @@ export default defineComponent({
     function trackFailed(reason: string) {
       trackAnalyticsEvent('export_png_failed', {
         feature_area: 'macro',
-        surface: 'modal',
+        surface: props.surface,
         macro_type: props.macroType,
         failure_reason: reason,
       });
@@ -194,7 +206,7 @@ export default defineComponent({
         if (copiedTimeoutId) { clearTimeout(copiedTimeoutId); copiedTimeoutId = null; }
         trackAnalyticsEvent('export_png_opened', {
           feature_area: 'macro',
-          surface: 'modal',
+          surface: props.surface,
           macro_type: props.macroType,
         });
         await nextTick();
@@ -204,7 +216,7 @@ export default defineComponent({
         if (!exportSucceeded) {
           trackAnalyticsEvent('export_png_dismissed', {
             feature_area: 'macro',
-            surface: 'modal',
+            surface: props.surface,
             macro_type: props.macroType,
           });
         }
@@ -290,28 +302,29 @@ export default defineComponent({
   --danger: #ef4444;
 }
 
-/* ─── Backdrop ─── */
+/* ─── Backdrop ───
+   The dialog is only ever opened inside the Forge Fullscreen modal now (the
+   inline macro routes there — GenericViewer.openExport), and there is nothing
+   behind it worth dimming: the surface underneath is a read-only copy of the
+   same diagram. So it fills that modal rather than floating a 1100x720 card in
+   it — measured 1920x950, the card left ~410px of dimmed backdrop on each side
+   and the diagram no larger than in the old inline dialog. */
 .export-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(6px);
+  background: var(--modal-bg);
   display: flex;
-  align-items: center;
-  justify-content: center;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* ─── Modal shell ─── */
 .export-modal {
   display: flex;
-  width: min(1100px, 95vw);
-  height: min(720px, 90vh);
+  width: 100%;
+  height: 100%;
   background: var(--modal-bg);
-  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255,255,255,0.05);
 }
 
 /* ─── Vertical divider ─── */
@@ -321,17 +334,14 @@ export default defineComponent({
   flex-shrink: 0;
 }
 
-/* ─── Small macro-iframe surface ───
-   The modal is position:fixed INSIDE the Confluence macro iframe; on the
-   inline surface the iframe hugs the diagram (autoResize), so the modal
-   can be clamped to a few hundred px. Stack preview above sidebar and
-   fill the available space instead of clipping. */
-@media (max-width: 900px), (max-height: 600px) {
+/* ─── Narrow surfaces ───
+   Width only. The previous rule also stacked on `max-height: 600px`, which was
+   written for the macro iframe and then fired on a 1280x563 Fullscreen modal —
+   turning a laptop into a phone layout and clipping the annotation controls.
+   Height decides nothing here; the sidebar scrolls instead. */
+@media (max-width: 900px) {
   .export-modal {
     flex-direction: column;
-    width: 100vw;
-    height: 100vh;
-    border-radius: 0;
   }
   .export-divider {
     width: auto;
@@ -374,8 +384,11 @@ export default defineComponent({
    and inherit down to these panes — no redeclaration needed here. */
 
 /* ─── Preview pane (left 60%) ─── */
+/* The canvas takes everything the fixed sidebar does not. */
 .export-preview-pane {
-  flex: 0 0 60%;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: #f1f5f9;
@@ -456,12 +469,22 @@ export default defineComponent({
 .preview-real-diagram { display: block; max-width: 100%; height: auto; }
 .preview-loading { display: flex; align-items: center; justify-content: center; padding: 40px; }
 
-/* ─── Sidebar (right 40%) ─── */
+/* ─── Sidebar ───
+   A fixed 300px column rather than 40% of the surface: at 1920 the 40% column
+   was 440px holding five controls, and the width is better spent on the
+   diagram. 300px is measured against the reference products — Snagit's
+   Properties column is 201px of a 913px editor (22%), and 300px lands at 23%
+   of the 1280x563 modal and 16% of 1920x950, where 340px reached 27% at 1280,
+   wider than Snagit's. CleanShot X has no side column at all: tools and their
+   options share one ~40px top strip.
+   min-height:0 is what makes the scroll region below actually scrollable
+   inside a flex column — without it the wheel had no effect and only Tab-key
+   scrollIntoView reached the lower controls. */
 .export-sidebar {
-  flex: 0 0 40%;
+  flex: 0 0 300px;
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
-  display: flex; flex-direction: column; min-width: 0;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
 }
 
 .sidebar-header {
@@ -480,12 +503,14 @@ export default defineComponent({
 .sidebar-close:hover { color: var(--sidebar-text); background: var(--sidebar-hover); }
 
 .sidebar-scroll {
-  flex: 1; overflow-y: auto; padding: 8px 0 16px;
-  scrollbar-width: thin; scrollbar-color: #334155 transparent;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 0 16px;
+  /* A visible thumb: the old #334155-on-#0f172a thumb was invisible even when
+     the region did scroll, so nothing signalled that content continued. */
+  scrollbar-width: thin; scrollbar-color: #64748b transparent;
 }
 .sidebar-scroll::-webkit-scrollbar { width: 4px; }
 .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
-.sidebar-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: #64748b; border-radius: 4px; }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #475569; }
 
 .settings-section { padding: 16px 20px; border-bottom: 1px solid var(--sidebar-border); }
@@ -594,12 +619,17 @@ export default defineComponent({
 }
 .toggle.on .toggle-thumb { transform: translateX(16px); }
 
+/* Stacked, because three buttons do not fit across a 300px column: side by
+   side they pushed Download PNG past the edge, and wrapping clipped Copy image.
+   column-reverse puts Download PNG — the action every export ends on — at the
+   top of the block, with Copy image and Cancel below it in decreasing weight. */
 .sidebar-actions {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; flex-direction: column-reverse; align-items: stretch;
   padding: 14px 20px; background: var(--sidebar-bg);
   box-shadow: 0 -1px 0 #1e293b, 0 -8px 16px rgba(15, 23, 42, 0.6);
   flex-shrink: 0; gap: 8px;
 }
+.sidebar-actions button { justify-content: center; width: 100%; }
 .btn-cancel {
   background: none; border: 1px solid #334155; border-radius: 8px;
   padding: 8px 14px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px;
@@ -649,14 +679,15 @@ export default defineComponent({
   .btn-place-note.active { animation: none; }
 }
 
-@media (max-width: 900px), (max-height: 600px) {
+@media (max-width: 900px) {
   .export-preview-pane {
     flex: 1 1 auto;
     min-height: 0;
   }
   .export-sidebar {
-    flex: 0 1 auto;
-    max-height: 55%;
+    flex: 0 0 auto;
+    max-height: 60%;
+    min-height: 260px;
   }
 }
 </style>

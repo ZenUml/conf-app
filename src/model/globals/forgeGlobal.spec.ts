@@ -1,5 +1,39 @@
-import { describe, it, expect } from 'vitest'
-import { resolveZenumlRemoteBaseUrl } from './forgeGlobal'
+import { describe, it, expect, vi } from 'vitest'
+import { openModal, resolveZenumlRemoteBaseUrl } from './forgeGlobal'
+
+const openSpy = vi.fn()
+vi.mock('@forge/bridge', () => ({
+  Modal: class {
+    constructor(public options: unknown) {}
+    open() {
+      return openSpy()
+    }
+  },
+}))
+
+// The caller guards against a double open by awaiting this. Dropping open()'s
+// promise released that guard before the bridge had opened anything, and threw
+// away its rejection with it.
+describe('openModal', () => {
+  it('settles only when the bridge open settles', async () => {
+    let release: (() => void) | undefined
+    openSpy.mockReturnValueOnce(new Promise<void>((resolve) => { release = resolve }))
+
+    let settled = false
+    const pending = openModal({ resource: 'main' }).then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    release!()
+    await pending
+    expect(settled).toBe(true)
+  })
+
+  it('propagates a bridge failure to the caller', async () => {
+    openSpy.mockReturnValueOnce(Promise.reject(new Error('bridge refused')))
+    await expect(openModal({ resource: 'main' })).rejects.toThrow('bridge refused')
+  })
+})
 
 // Guards the variant→backend-origin mapping used by callRemote/invokeRemote.
 // The resolved origin MUST match the `connect` remote's baseUrl (manifest

@@ -62,14 +62,43 @@ export interface CalloutTipPoint {
 // Builds the callout's rounded-rect-with-tail path. `scale` is 1 in the
 // preview (its viewBox width is always VIEWBOX_REF_W) and w/VIEWBOX_REF_W in
 // the export builder, so the box/tail sizing matches on both surfaces.
+/**
+ * Measured content of a callout, in the same coordinate space as `scale`'s
+ * output. `textWidth` comes from the renderer that owns the text — the overlay
+ * SVG measures with `getComputedTextLength()`, the export canvas with
+ * `measureText()` — because neither the glyphs nor the font are knowable here.
+ */
+export interface CalloutContent {
+  textWidth: number;
+  fontSize: number;
+}
+
+/** Breathing room around the label, and the smallest box worth drawing. */
+const CALLOUT_PADDING_X = 14;
+const CALLOUT_PADDING_Y = 8;
+const CALLOUT_MIN_WIDTH = 60;
+const CALLOUT_MIN_HEIGHT = 28;
+const CALLOUT_LINE_HEIGHT = 1.35;
+
 export function computeCalloutPath(
   cx: number,
   cy: number,
   scale: number,
   tipPosition: CalloutTipPoint | null,
+  content?: CalloutContent,
 ): string {
-  const w = 120 * scale;
-  const h = 40 * scale;
+  // The box used to be a fixed 120x40 whatever it held, so a longer label or a
+  // larger font ran straight out of the chip and over the diagram — in the
+  // preview and in the exported PNG, which draws from this same path.
+  const w = content
+    ? Math.max(CALLOUT_MIN_WIDTH * scale, content.textWidth + 2 * CALLOUT_PADDING_X * scale)
+    : 120 * scale;
+  const h = content
+    ? Math.max(
+      CALLOUT_MIN_HEIGHT * scale,
+      content.fontSize * CALLOUT_LINE_HEIGHT + 2 * CALLOUT_PADDING_Y * scale,
+    )
+    : 40 * scale;
   const r = 5 * scale;
   const left = cx - w / 2;
   const top = cy - h / 2;

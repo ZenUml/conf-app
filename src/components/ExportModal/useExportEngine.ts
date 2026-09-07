@@ -137,9 +137,12 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
     const tipPx = options.callout.tipPosition
       ? { x: options.callout.tipPosition.x * w, y: options.callout.tipPosition.y * h }
       : null;
-    const calloutPath = computeCalloutPath(cx, cy, scale, tipPx);
     const strokeW = 1 * scale;
     const fontSize = options.callout.fontSize * scale;
+    const calloutPath = computeCalloutPath(cx, cy, scale, tipPx, {
+      textWidth: measureTextWidth(options.callout.text, fontSize, SANS_FONT_FAMILY),
+      fontSize,
+    });
     parts.push(`<path d="${calloutPath}" fill="${options.callout.bgColor}" stroke="#94a3b8" stroke-width="${strokeW}" stroke-linejoin="round"/>`);
     parts.push(`<text x="${cx}" y="${cy}" font-size="${fontSize}" fill="${options.callout.color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(options.callout.text)}</text>`);
   }
@@ -157,6 +160,28 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
 
   parts.push('</svg>');
   return parts.join('');
+}
+
+/**
+ * Width of the label as the exported SVG will draw it. A 2d canvas with the
+ * same font stack is the only measurement available before the SVG exists, and
+ * it is what keeps the exported callout box the same size as the one the user
+ * saw in the preview. Falls back to a per-character estimate where no canvas
+ * context is available (jsdom, a locked-down worker).
+ */
+function measureTextWidth(text: string, fontSize: number, fontFamily: string): number {
+  if (!text) return 0;
+  try {
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (ctx) {
+      ctx.font = `${fontSize}px ${fontFamily}`;
+      const measured = ctx.measureText(text).width;
+      if (measured > 0) return measured;
+    }
+  } catch {
+    // fall through to the estimate
+  }
+  return text.length * fontSize * 0.55;
 }
 
 function escapeXml(str: string): string {

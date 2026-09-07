@@ -189,7 +189,9 @@ describe('buildOverlaySvg', () => {
         },
       }),
     );
-    expect(svg).toContain('L 308 220 L 300 260 L 292 220 L'); // tail toward the tip
+    // The tail leaves the box's own bottom edge — which now follows the label
+    // and the font size rather than a fixed 40px box — and meets the tip.
+    expect(svg).toMatch(/L 308 [\d.]+ L 300 260 L 292 [\d.]+ L/); // tail toward the tip
     expect(svg).toContain('fill="#fffde7" stroke="#94a3b8" stroke-width="1"');
     expect(svg).toContain('<text x="300" y="200" font-size="14" fill="#1e293b"');
     expect(svg).toContain('>note<');

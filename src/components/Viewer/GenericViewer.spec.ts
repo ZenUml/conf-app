@@ -1931,6 +1931,23 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
     })
 
+    // The rail is 316px + a 16px gap of the fullscreen width. ConnectPanel has no
+    // `idle` branch, so before a session exists it renders nothing at all — and the
+    // only way to start one is the small-macro Connect button, which is hidden in
+    // fullscreen. A blank 332px column stayed reserved next to the diagram, which is
+    // why a wide PlantUML diagram started scrolling well before it ran out of window.
+    it('collapses the Fullscreen rail while the panel is idle', async () => {
+      setFullscreen(true)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const rail = wrapper.find('[data-testid="agent-link-fullscreen-rail"]')
+      expect(rail.exists()).toBe(true)
+      expect(rail.classes()).toContain('agent-link-rail--collapsed')
+      expect(wrapper.find('.viewer-body').classes()).not.toContain('viewer-body--with-agent-rail')
+    })
+
     // Amendment D: the composable's alreadyLinkedUntil (set from a mint 409's
     // lockExpiresAt) must reach ConnectPanel's already_linked SessionNotice for
     // an honest countdown instead of a blind "already linked" notice.
@@ -2036,6 +2053,25 @@ describe('GenericViewer (chrome-less)', () => {
       ;(forgeRuntime as any).isForge = originalIsForge
       ;(forgeRuntime as any).forgeContext = originalForgeContext
       localStorage.clear()
+    })
+
+    it('reserves the rail width once a session exists', async () => {
+      setFullscreenWithPageId('page-123')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-abc',
+        cloudId: 'cloud-1',
+        pageId: 'page-123',
+        contentId: 'content-123',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const rail = wrapper.find('[data-testid="agent-link-fullscreen-rail"]')
+      expect(rail.classes()).not.toContain('agent-link-rail--collapsed')
+      expect(wrapper.find('.viewer-body').classes()).toContain('viewer-body--with-agent-rail')
     })
 
     it('hydrates the rail to waiting via readSession(pageId) even when globals.apWrapper is absent', async () => {

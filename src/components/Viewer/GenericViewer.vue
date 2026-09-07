@@ -20,7 +20,7 @@
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
-        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': showAgentLinkPanel}">
+        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
@@ -375,7 +375,12 @@
              in the Fullscreen modal. See connectToAgent()'s comment: this
              panel is driven by ITS OWN useAgentLinkSession() instance
              (a fresh Vue app boot inside the Fullscreen modal's iframe). -->
-        <aside v-if="showAgentLinkPanel" class="agent-link-rail" data-testid="agent-link-fullscreen-rail">
+        <aside
+          v-if="showAgentLinkPanel"
+          class="agent-link-rail"
+          :class="{'agent-link-rail--collapsed': !agentLinkRailReserved}"
+          data-testid="agent-link-fullscreen-rail"
+        >
           <ConnectPanel
             :state="agentLinkState"
             :token="agentLinkToken"
@@ -723,6 +728,16 @@ export default {
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+    },
+    // Whether the rail actually takes its 316px of the fullscreen width. ConnectPanel
+    // has no `idle` branch — before a session exists it renders nothing — and the only
+    // way to start one is the small-macro Connect button, which is hidden in
+    // fullscreen. Reserving the column anyway left a blank 332px strip beside the
+    // diagram, so a wide PlantUML diagram began scrolling long before it ran out of
+    // window. The aside stays mounted (it owns the session composable that hydrates
+    // an existing session on load); only its width collapses.
+    agentLinkRailReserved() {
+      return this.showAgentLinkPanel && this.agentLinkState !== 'idle';
     },
     // Fullscreen toolbar link-status chip (Track H). Same gating as the rail,
     // but only once a session actually exists (connected/suspended/closed/
@@ -1747,6 +1762,13 @@ export default {
   border-left: 1px solid #E5E7EB;
   display: flex;
   min-height: 0;
+}
+/* Idle: mounted but taking no width — see agentLinkRailReserved(). */
+.agent-link-rail--collapsed {
+  flex: 0 0 0;
+  width: 0;
+  border-left: none;
+  overflow: hidden;
 }
 
 .viewer-edge-top {

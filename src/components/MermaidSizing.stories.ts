@@ -4,6 +4,9 @@ import { expect, waitFor } from 'storybook/test'
 import Mermaid from './Mermaid.vue'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
+import { defineComponent, h, onMounted, ref } from 'vue'
 
 type Story = StoryObj<typeof Mermaid>
 
@@ -148,4 +151,71 @@ export const UseMaxWidthTrue: Story = {
     await expect(svgHeight).toBeLessThan(contentHeight * 1.2)
     await expect(gap).toBeLessThan(40)
   },
+}
+
+/**
+ * Reproduces Mermaid.vue's wrapper — the same `flex justify-center` container —
+ * but lets the caller decide whether the fix runs. `patched: false` shows what
+ * every reader saw before this branch.
+ */
+const MermaidPane = defineComponent({
+  name: 'MermaidPane',
+  props: {
+    code: { type: String, required: true },
+    patched: { type: Boolean, required: true },
+  },
+  setup(props) {
+    const svg = ref('')
+    const measurement = ref('measuring...')
+    onMounted(async () => {
+      const mermaid = await loadMermaid()
+      const rendered = await mermaid.render(`mermaid-${crypto.randomUUID()}`, props.code)
+      svg.value = props.patched ? normalizeSvgSizing(rendered.svg) : rendered.svg
+      // Two frames plus a tick: the pane must be laid out before the SVG box
+      // means anything, and mermaid's fonts settle on the frame after that.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      const el = document.querySelectorAll<SVGSVGElement>('svg[id^="mermaid-"]')
+      const mine = [...el].find((candidate) => candidate.closest('[data-pane]')?.getAttribute('data-pane') === (props.patched ? 'after' : 'before'))
+      if (!mine) return
+      const content = mine.querySelector('g.root') ?? mine.querySelector('g')!
+      const svgBox = mine.getBoundingClientRect()
+      const contentBox = content.getBoundingClientRect()
+      measurement.value =
+        `svg box ${Math.round(svgBox.height)}px, drawing ${Math.round(contentBox.height)}px, ` +
+        `white on top ${Math.round(contentBox.top - svgBox.top)}px`
+    })
+    return () =>
+      h('div', { style: `width:${VIEWER_WIDTH}px;flex:0 0 ${VIEWER_WIDTH}px` }, [
+        h(
+          'div',
+          { style: 'font:600 13px system-ui;padding:6px 0' },
+          props.patched ? 'AFTER (this branch)' : 'BEFORE (shipped today)',
+        ),
+        h('div', { style: 'font:12px/1.5 system-ui;color:#475467;padding-bottom:6px' }, measurement.value),
+        h('div', {
+          'data-pane': props.patched ? 'after' : 'before',
+          class: 'flex justify-center',
+          style: 'outline:2px solid #d92d20',
+          innerHTML: svg.value,
+        }),
+      ])
+  },
+})
+
+/**
+ * Both panes render the same `useMaxWidth: false` diagram in the same 562px
+ * container. The left one skips normalizeSvgSizing, so its red box extends far
+ * above and below the drawing; the right one does not.
+ */
+export const BeforeAndAfter: Story = {
+  render: () => ({
+    components: { MermaidPane },
+    setup: () => ({ code: `${INIT_USE_MAX_WIDTH_FALSE}${WIDE_TALL_FLOWCHART}` }),
+    template:
+      '<div style="display:flex;gap:32px;align-items:flex-start;padding:16px">' +
+      '<MermaidPane :code="code" :patched="false" />' +
+      '<MermaidPane :code="code" :patched="true" />' +
+      '</div>',
+  }),
 }

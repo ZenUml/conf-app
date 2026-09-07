@@ -194,6 +194,10 @@ export type AnalyticsProperties = {
     | "adf_rewrite"
     | "page_update"
     | "report";
+  // PlantUML paste normalisation (conf-app#632)
+  diagrams_pasted?: number;
+  paste_truncated?: boolean;
+
   // AI
   prompt_length?: number;
   generation_source?: string;

@@ -249,6 +249,12 @@ export type AnalyticsEventName =
   // for existing type breakdowns. This is an action signal, not proof of a
   // successful render or publish.
   | "macro_type_changed"
+  // Fires when a PlantUML paste carried its own @startuml/@enduml markers and the
+  // editor rewrote it to fit the pinned scaffold (conf-app#632). `diagrams_pasted`
+  // counts the @startuml blocks found; `paste_truncated` is true when more than one
+  // was present and only the first was kept, because the macro renders a single
+  // diagram and merging them silently produced a picture the author never wrote.
+  | "plantuml_paste_normalized"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a

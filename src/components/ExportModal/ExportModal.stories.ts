@@ -149,3 +149,92 @@ export const ExportFailed: Story = {
     state.exportError.value = "Export failed — couldn't capture the diagram. Try Refresh, then export again."
   }),
 }
+
+// ---------------------------------------------------------------------------
+// Fullscreen-modal review stories
+// ---------------------------------------------------------------------------
+
+/**
+ * The export dialog now opens inside the Forge Fullscreen modal (Export PNG on
+ * the inline macro routes there, because the macro iframe — 564x256 on
+ * production page 2774138946 — cannot host it). These stories render the dialog
+ * at the sizes that modal actually has, so its layout can be reviewed at the
+ * proportions a user meets rather than at whatever the Storybook canvas is.
+ *
+ * `MODAL_SIZES` are measured: 1280x563 is a laptop with the Atlassian modal
+ * header taken off; 1920x950 is an external display. The inner story is loaded
+ * in a real iframe of that size, because the dialog is `position: fixed` and
+ * sized in viewport units — both resolve against the iframe's viewport, not the
+ * page's.
+ */
+const MODAL_SIZES = {
+  laptop: { width: 1280, height: 563 },
+  desktop: { width: 1920, height: 950 },
+} as const
+
+const INNER_IDS = {
+  plain: 'modal-exportmodal--fullscreen-inner',
+  editing: 'modal-exportmodal--fullscreen-inner-editing',
+} as const
+
+function inFrame(size: { width: number; height: number }, innerId: string) {
+  return {
+    setup() {
+      return {
+        style: {
+          width: `${size.width}px`,
+          height: `${size.height}px`,
+          border: '1px solid #cbd5e1',
+          display: 'block',
+          background: '#ffffff',
+        },
+        src: `iframe.html?id=${innerId}&viewMode=story`,
+        label: `Fullscreen modal ${size.width}x${size.height}`,
+      }
+    },
+    template: `
+      <div style="padding:16px; background:#f8fafc;">
+        <iframe :src="src" :style="style" :title="label"></iframe>
+      </div>
+    `,
+  }
+}
+
+/** The dialog alone, for the frame stories below to load. */
+export const FullscreenInner: Story = {
+  name: 'Fullscreen (inner document — load via a frame story)',
+  render: (args: Args) => withCaptureStage(args),
+}
+
+/** Mid-annotation: a callout is placed and selected, so its properties show. */
+export const FullscreenInnerEditing: Story = {
+  name: 'Fullscreen (inner document, callout selected)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    // hasCallout is computed from position + text, so setting those two is
+    // what makes the callout real; selecting it opens its properties panel.
+    state.callout.text = 'Retry happens here'
+    state.callout.position = { x: 0.46, y: 0.4 }
+    state.callout.tipPosition = { x: 0.58, y: 0.55 }
+    state.selectedAnnotation.value = 'callout'
+  }),
+}
+
+export const FullscreenLaptop: Story = {
+  name: 'Fullscreen at 1280x563 (laptop)',
+  render: () => inFrame(MODAL_SIZES.laptop, INNER_IDS.plain),
+}
+
+export const FullscreenLaptopEditing: Story = {
+  name: 'Fullscreen at 1280x563, editing a callout',
+  render: () => inFrame(MODAL_SIZES.laptop, INNER_IDS.editing),
+}
+
+export const FullscreenDesktop: Story = {
+  name: 'Fullscreen at 1920x950 (external display)',
+  render: () => inFrame(MODAL_SIZES.desktop, INNER_IDS.plain),
+}
+
+export const FullscreenDesktopEditing: Story = {
+  name: 'Fullscreen at 1920x950, editing a callout',
+  render: () => inFrame(MODAL_SIZES.desktop, INNER_IDS.editing),
+}

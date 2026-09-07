@@ -149,3 +149,99 @@ export const ExportFailed: Story = {
     state.exportError.value = "Export failed — couldn't capture the diagram. Try Refresh, then export again."
   }),
 }
+
+// ---------------------------------------------------------------------------
+// Repro: PNG export resolution collapses for a downscaled vector diagram
+// ---------------------------------------------------------------------------
+
+/**
+ * The PlantUML fixture from prod page 2774138946 in miniature: an SVG whose
+ * intrinsic coordinate space is 4647x1469 rendered into a 562px-wide macro
+ * column, i.e. downscaled 8.3x. `captureBlob` sizes the canvas from the
+ * node's CSS box (`clientWidth` x devicePixelRatio), so the exported PNG is
+ * 562x178 regardless of how much detail the source vector carries.
+ *
+ * The stage below reproduces exactly that geometry with generated text rows,
+ * so the resolution loss is visible in the preview pane and measurable from
+ * the play function.
+ */
+const OVERSIZED_VIEWBOX = { w: 4647, h: 1469 }
+const STAGE_WIDTH = 562
+
+function oversizedSvg(): string {
+  const rows: string[] = []
+  for (let r = 0; r < 12; r++) {
+    for (let c = 0; c < 5; c++) {
+      const x = 40 + c * 920
+      const y = 60 + r * 118
+      rows.push(
+        `<rect x="${x}" y="${y}" width="860" height="72" rx="12" fill="#f1f5f9" stroke="#94a3b8"/>` +
+          `<text x="${x + 430}" y="${y + 44}" font-size="28" font-family="sans-serif" fill="#0f172a" text-anchor="middle">` +
+          `branch ${c} step ${r} &#8212; validate, forward, and record outcome</text>`,
+      )
+    }
+  }
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${OVERSIZED_VIEWBOX.w} ${OVERSIZED_VIEWBOX.h}" ` +
+    `preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">` +
+    `<rect width="${OVERSIZED_VIEWBOX.w}" height="${OVERSIZED_VIEWBOX.h}" fill="#ffffff"/>${rows.join('')}</svg>`
+  )
+}
+
+function withOversizedStage(args: Args) {
+  return {
+    components: { ExportModal },
+    setup() {
+      const diagramRef = ref<HTMLElement | null>(null)
+      const modalRef = ref<ModalInstance | null>(null)
+      const getCaptureNode = () => diagramRef.value
+
+      onMounted(() => {
+        // Probe, not an assertion: log the canvas the export pipeline actually
+        // encodes, so a manual Download PNG click prints the resolution next
+        // to the source's intrinsic size. Idempotent across re-renders.
+        const w = window as unknown as { __pngProbeInstalled?: boolean }
+        if (!w.__pngProbeInstalled) {
+          w.__pngProbeInstalled = true
+          const original = HTMLCanvasElement.prototype.toBlob
+          HTMLCanvasElement.prototype.toBlob = function patched(this: HTMLCanvasElement, ...rest) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[PNGPROBE] source ${OVERSIZED_VIEWBOX.w}x${OVERSIZED_VIEWBOX.h}, ` +
+                `stage ${STAGE_WIDTH}px, devicePixelRatio ${window.devicePixelRatio}, ` +
+                `exported ${this.width}x${this.height}`,
+            )
+            return original.apply(this, rest as Parameters<typeof original>)
+          } as typeof HTMLCanvasElement.prototype.toBlob
+        }
+        modalRef.value!.capturePreview()
+      })
+
+      return { args, diagramRef, modalRef, getCaptureNode, svg: oversizedSvg() }
+    },
+    template: `
+      <div>
+        <div style="height:0; overflow:hidden;">
+          <div
+            ref="diagramRef"
+            class="screen-capture-content"
+            :style="{ width: '${STAGE_WIDTH}px', background: '#ffffff' }"
+            v-html="svg"
+          ></div>
+        </div>
+        <ExportModal
+          ref="modalRef"
+          v-bind="args"
+          :capture-node-getter="getCaptureNode"
+          diagram-title="Order Placement"
+          @close="args.visible = false"
+        />
+      </div>
+    `,
+  }
+}
+
+export const OversizedVectorLowRes: Story = {
+  name: 'Repro: oversized vector exports at screen resolution',
+  render: (args: Args) => withOversizedStage(args),
+}

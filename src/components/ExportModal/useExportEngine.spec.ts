@@ -277,6 +277,25 @@ describe('useExportEngine', () => {
       expect(captureBlob).toHaveBeenCalledWith(explicitEl, expect.any(Object));
     });
 
+    it('rasterises at the source vector resolution, not the on-screen size', async () => {
+      // Production page 2774138946's second macro: a PlantUML SVG with a
+      // 4647x1469 viewBox laid out in a 562px column exported 562x178.
+      const node = document.createElement('div');
+      Object.defineProperty(node, 'clientWidth', { value: 562, configurable: true });
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 4647 1469');
+      svg.getBoundingClientRect = () => ({ width: 562, height: 178 }) as DOMRect;
+      node.appendChild(svg);
+      vi.mocked(captureBlob).mockResolvedValue(null);
+
+      const { exportDiagram } = useExportEngine();
+      await exportDiagram(baseOptions(), 'Login flow', node);
+      expect(captureBlob).toHaveBeenCalledWith(
+        node,
+        expect.objectContaining({ pixelRatio: expect.closeTo(4647 / 562, 4) }),
+      );
+    });
+
     it('returns blob_null when the capture yields no blob, without saving', async () => {
       const node = document.createElement('div');
       vi.mocked(captureBlob).mockResolvedValue(null);

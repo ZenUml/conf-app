@@ -39,15 +39,17 @@ function viewBoxWidth(svg: SVGSVGElement): number {
  * Widest rather than first: PlantUml.vue's normalised diagram sits alongside
  * whatever inline icons the viewer chrome contributes.
  */
-function findDiagramSvg(node: HTMLElement): { svg: SVGSVGElement; renderedWidth: number } | null {
+function findDiagramSvg(
+  node: HTMLElement,
+): { svg: SVGSVGElement; renderedWidth: number; renderedHeight: number } | null {
   const nodeWidth = node.clientWidth;
   if (!nodeWidth) return null;
 
-  let best: { svg: SVGSVGElement; renderedWidth: number } | null = null;
+  let best: { svg: SVGSVGElement; renderedWidth: number; renderedHeight: number } | null = null;
   for (const svg of Array.from(node.querySelectorAll('svg'))) {
-    const renderedWidth = svg.getBoundingClientRect().width;
+    const { width: renderedWidth, height: renderedHeight } = svg.getBoundingClientRect();
     if (renderedWidth < nodeWidth * DIAGRAM_WIDTH_FRACTION) continue;
-    if (!best || renderedWidth > best.renderedWidth) best = { svg, renderedWidth };
+    if (!best || renderedWidth > best.renderedWidth) best = { svg, renderedWidth, renderedHeight };
   }
   return best;
 }
@@ -73,9 +75,11 @@ export function computeExportPixelRatio(node: HTMLElement | null | undefined): n
 
   // Past the browser's canvas cap html-to-image shrinks the canvas back down
   // proportionally, which would spend the memory and return the detail; stop
-  // at the largest ratio that still fits.
-  const maxRatio = CANVAS_DIMENSION_LIMIT / node.clientWidth;
-  return Math.min(ratio, maxRatio);
+  // at the largest ratio that still fits. BOTH axes matter, and height is the
+  // one that overflows first for the many-step flows this fix is aimed at.
+  const limits = [CANVAS_DIMENSION_LIMIT / node.clientWidth];
+  if (found.renderedHeight > 0) limits.push(CANVAS_DIMENSION_LIMIT / found.renderedHeight);
+  return Math.min(ratio, ...limits);
 }
 
 export { CANVAS_DIMENSION_LIMIT, DIAGRAM_WIDTH_FRACTION };

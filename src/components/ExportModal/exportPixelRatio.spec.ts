@@ -105,6 +105,18 @@ describe('computeExportPixelRatio', () => {
     expect(computeExportPixelRatio(node)).toBe(1);
   });
 
+  it('caps a tall diagram on its height, which is the axis that overflows first', () => {
+    // Height, not width, is what a many-step PlantUML flow runs out of: a
+    // 7500px-tall render asking for its source scale would need a 30000px
+    // canvas, and past 16384 html-to-image shrinks both axes back down —
+    // spending the memory and returning the detail.
+    setDevicePixelRatio(1);
+    const node = makeNode(500);
+    appendSvg(node, { viewBox: '0 0 2000 30000', renderedWidth: 500, renderedHeight: 7500 });
+
+    expect(computeExportPixelRatio(node) * 7500).toBeLessThanOrEqual(16384);
+  });
+
   it('caps the ratio so the canvas stays inside the browser dimension limit', () => {
     // A 40000px-wide source in a 500px column would ask for 80x, i.e. a
     // 40000px canvas; browsers cap a canvas dimension at 16384px and

@@ -5,7 +5,7 @@ import TabSwitcher from './TabSwitcher.vue'
 type Story = StoryObj<typeof TabSwitcher>
 
 const meta: Meta<typeof TabSwitcher> = {
-  title: 'Navigation/TabSwitcher',
+  title: 'Shared/TabSwitcher',
   component: TabSwitcher,
   parameters: {
     layout: 'padded',

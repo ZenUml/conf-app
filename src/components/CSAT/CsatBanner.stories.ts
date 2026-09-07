@@ -33,7 +33,7 @@ function installMocks() {
 }
 
 const meta: Meta<typeof CsatBanner> = {
-  title: 'Feedback/CsatBanner',
+  title: 'Page banner/CsatBanner',
   component: CsatBanner,
   tags: ['autodocs'],
   parameters: {

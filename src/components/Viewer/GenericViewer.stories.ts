@@ -330,7 +330,7 @@ function renderMermaidViewer(args: Args) {
 // ---------------------------------------------------------------------------
 
 const meta: Meta<typeof GenericViewer> = {
-  title: 'Viewer/GenericViewer — macro header',
+  title: 'Viewer/GenericViewer',
   component: GenericViewer,
   parameters: {
     layout: 'padded',

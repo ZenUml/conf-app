@@ -27,7 +27,7 @@
           <p>Syntax error</p>
         </div>
         <button
-          v-if="shouldShowAiRepair"
+          v-if="shouldShowAiRepair && aiRepairArmed"
           type="button"
           data-testid="ai-repair-button"
           @click="requestRepair"
@@ -65,6 +65,7 @@
 import { computed, ref, onMounted, watch } from "vue";
 import { useStore } from "vuex";
 import AIRepair from "@/components/AIRepair.vue";
+import { useSustainedFlag } from "@/composables/useSustainedFlag";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import {
@@ -108,7 +109,15 @@ const useAiChatRepair = computed(() => (
 const shouldShowAiRepair = computed(() => (
   (aiRepairFeatureEnabled.value || useAiChatRepair.value) && isSupportedDiagramType.value
 ));
-const aiRepairVisible = computed(() => !!error.value && shouldShowAiRepair.value);
+// The editor clears the store error on every keystroke and restores it one
+// second after typing stops, so a raw `!!error` gate makes the button blink in
+// and out through a whole authoring session. Only offer the CTA once the error
+// has stood still for AI_REPAIR_ARM_DELAY_MS — the point at which the author
+// has stopped and is plausibly stuck, rather than mid-sentence. Combined with
+// the editor's own 1s validation debounce the button lands at ~3s of pause.
+const AI_REPAIR_ARM_DELAY_MS = 2000;
+const aiRepairArmed = useSustainedFlag(error, AI_REPAIR_ARM_DELAY_MS);
+const aiRepairVisible = computed(() => aiRepairArmed.value && shouldShowAiRepair.value);
 const useLegacyAiRepair = computed(() => (
   shouldShowAiRepair.value && !useAiChatRepair.value
 ));

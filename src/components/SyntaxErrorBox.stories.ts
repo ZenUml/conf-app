@@ -17,7 +17,7 @@ const meta: Meta<typeof SyntaxErrorBox> = {
     docs: {
       description: {
         component:
-          'Sticky bottom bar that displays a syntax error from the Vuex store. Renders nothing when the store has no error. Includes an AI Repair button when the feature flag is enabled.',
+          'Sticky bottom bar that displays a syntax error from the Vuex store. Renders nothing when the store has no error. The AI Repair button appears when the feature flag is enabled AND the same error has stood for 2s (see useSustainedFlag) — the error text itself is not delayed.',
       },
     },
   },

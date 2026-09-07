@@ -317,6 +317,12 @@ export type AnalyticsEventName =
   // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
   // export attempt failed before delivery (`failure_reason`); dismissed =
   // modal closed with no successful export in that open session.
+  // Intent, as opposed to the outcome flags on export_png_succeeded: a user
+  // who picks a tool and exports without the annotation is otherwise
+  // indistinguishable from one who never wanted it. Needed to read whether
+  // annotation is unused because nobody wants it or because the dialog was
+  // too small to operate (see ExportModal.vue's inline variant).
+  | "export_annotation_tool_clicked"
   | "export_png_opened"
   | "export_png_succeeded"
   | "export_png_failed"

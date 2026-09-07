@@ -45,6 +45,7 @@
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import {
   isLegacyBoardDocument,
@@ -153,6 +154,11 @@ export default {
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
         trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        // Graph emits no 'diagramLoaded' (that event belongs to the text-DSL
+        // renderers). An export-entry Fullscreen open waits for this before it
+        // opens the export dialog, so the dialog's first capture is of a
+        // painted diagram rather than an empty container.
+        EventBus.$emit('viewerRenderSettled', 'graph');
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
         if (this.isBoardMode) {

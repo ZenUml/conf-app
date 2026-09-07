@@ -468,11 +468,14 @@ function isMermaidSequenceSource(source) {
 }
 
 /**
- * Upper bound on how long an export-entry Fullscreen open waits for the
- * renderer before showing the dialog anyway. Graph and OpenAPI emit no
- * diagramLoaded; without this they would never see it.
+ * Last-resort floor for an export-entry Fullscreen open. Every renderer now
+ * reports readiness — 'diagramLoaded' from the text-DSL viewers,
+ * 'viewerRenderSettled' from Graph and OpenAPI — so this fires only when a
+ * renderer never reports at all (a crashed DrawIO boot, a SwaggerUI throw).
+ * Long enough that a slow-but-working render reports first: DrawIO's own boot
+ * measured ~6s on production (MEMORY reference_graph_macro_load_anatomy).
  */
-const EXPORT_AUTO_OPEN_FALLBACK_MS = 4000;
+const EXPORT_AUTO_OPEN_FALLBACK_MS = 15000;
 
 export default {
   name: "GenericViewer",
@@ -918,11 +921,16 @@ export default {
     // blank preview and a Refresh click. Graph and OpenAPI emit no such event;
     // they keep the button.
     if (this.isExportEntryModal) {
+      // Two readiness signals, one per renderer family: the text-DSL viewers
+      // emit 'diagramLoaded', Graph and OpenAPI emit 'viewerRenderSettled'
+      // once their own output has painted. The dialog captures its preview the
+      // moment it becomes visible, so opening before either would capture an
+      // empty container.
       EventBus.$on('diagramLoaded', this.onDiagramLoadedOpenExport);
-      // Graph (DrawIO) and OpenAPI emit no diagramLoaded at all, so the event
-      // alone would strand those users in Fullscreen with no dialog. The timer
-      // is the floor, not the normal path: sequence/mermaid/plantuml open on
-      // their event, usually well inside it.
+      EventBus.$on('viewerRenderSettled', this.onDiagramLoadedOpenExport);
+      // Last resort, not the normal path: a renderer that never reports (a
+      // crashed DrawIO boot, a SwaggerUI that throws) would otherwise leave the
+      // user in Fullscreen with no dialog and no way to reach one.
       this.exportAutoOpenTimer = setTimeout(this.openExportOnce, EXPORT_AUTO_OPEN_FALLBACK_MS);
     }
     try {
@@ -1053,6 +1061,7 @@ export default {
   beforeUnmount() {
     document.removeEventListener('keydown', this.onEscapeKeydown, true);
     EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
+    EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
     if (this.exportAutoOpenTimer) {
       clearTimeout(this.exportAutoOpenTimer);
       this.exportAutoOpenTimer = null;
@@ -1277,6 +1286,7 @@ export default {
       if (this.exportAutoOpened) return;
       this.exportAutoOpened = true;
       EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
+      EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
       if (this.exportAutoOpenTimer) {
         clearTimeout(this.exportAutoOpenTimer);
         this.exportAutoOpenTimer = null;

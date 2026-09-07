@@ -3,6 +3,7 @@ import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
 import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { isExportEntry } from '@/model/globals/forgeGlobal';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import {
@@ -79,12 +80,20 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     if (globals.apWrapper.isDisplayMode()) {
       setViewerLoadState('loading', null);
     }
-    const paywalled = await tryFullscreenViewerPaywall({
-      doc: NULL_DIAGRAM,
-      content: options.content,
-      contentProps: options.contentProps,
-      macroKind: options.macroKind,
-    });
+    // Export entry is exempt, exactly as in forgeIndex's sequence-family path:
+    // the user pressed Export PNG, which is ungated on the inline surface, and
+    // this modal exists only to give that dialog room. Without this, routing
+    // export through Fullscreen would newly gate Graph and OpenAPI exports for
+    // a saturated Lite space, and the viewer would never mount to open the
+    // dialog at all.
+    const paywalled = (await isExportEntry())
+      ? false
+      : await tryFullscreenViewerPaywall({
+        doc: NULL_DIAGRAM,
+        content: options.content,
+        contentProps: options.contentProps,
+        macroKind: options.macroKind,
+      });
 
     // ── Content SWR: cache-first render on a viewer revisit ──────────────────
     // Mirrors the sequence-family block in forgeIndex.ts (measured there:

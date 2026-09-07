@@ -2350,16 +2350,28 @@ describe('GenericViewer — auto-opening the export dialog in Fullscreen', () =>
     wrapper.unmount()
   })
 
-  it('opens after a bounded wait for a renderer that emits no diagramLoaded', async () => {
-    // Graph (DrawIO) and OpenAPI never emit diagramLoaded, so waiting for it
-    // alone would leave the user in Fullscreen with no dialog at all.
+  it('opens on viewerRenderSettled, the readiness signal Graph and OpenAPI emit', async () => {
+    inFullscreen(true)
+    const wrapper = mountViewer()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(false)
+
+    EventBus.$emit('viewerRenderSettled', 'graph')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('opens on the last-resort floor when a renderer never reports at all', async () => {
+    // A crashed DrawIO boot or a SwaggerUI throw emits nothing; without the
+    // floor the user sits in Fullscreen with no dialog and no way to one.
     vi.useFakeTimers()
     inFullscreen(true)
     const wrapper = mountViewer()
     await wrapper.vm.$nextTick()
     expect(wrapper.vm.showExportModal).toBe(false)
 
-    vi.advanceTimersByTime(4000)
+    vi.advanceTimersByTime(15000)
     await wrapper.vm.$nextTick()
     expect(wrapper.vm.showExportModal).toBe(true)
     vi.useRealTimers()

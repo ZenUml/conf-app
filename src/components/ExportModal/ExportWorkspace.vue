@@ -384,7 +384,12 @@ function onKeydown(event: KeyboardEvent) {
   } else if (event.key === 'Escape' && (tool.value || selected.value || watermarkSelected.value)) {
     // Escape is the explicit "drop everything" key, so it still clears the
     // selection that chooseTool(null) now preserves.
-    chooseTool(null); deselect(); event.stopPropagation(); event.preventDefault();
+    chooseTool(null); deselect();
+    // The properties toolbar contains the focused control that triggered this
+    // Escape. Deselecting removes that toolbar, so return focus to the dialog
+    // shell before the DOM update leaves focus on a detached button.
+    (event.currentTarget as HTMLElement | null)?.closest<HTMLElement>('[role="dialog"]')?.focus();
+    event.stopPropagation(); event.preventDefault();
   } else if ((event.key === 'Delete' || event.key === 'Backspace') && (selected.value || watermarkSelected.value)) {
     if (watermarkSelected.value) removeWatermark(); else deleteSelected();
     event.preventDefault(); event.stopPropagation();

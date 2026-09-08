@@ -164,3 +164,59 @@ describe('Mermaid render retry when the document has no layout', () => {
     expect(awaitLayoutMock).not.toHaveBeenCalled();
   });
 });
+
+describe('Mermaid pasted-whitespace normalisation', () => {
+  const NBSP = '\u00A0';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isDisplayModeMock.mockReturnValue(true);
+    hasLayoutMock.mockReturnValue(true);
+    window.__macroLoadStart = 0;
+  });
+
+  // Rich-text paste turns indentation into U+00A0, which mermaid's Langium
+  // grammars reject outright. The stored body keeps the character, so the fix
+  // has to apply at render time or the diagram stays blank forever.
+  it('renders stored content whose indentation is NBSP', async () => {
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: `pie title Pets\n${NBSP}${NBSP}"Dogs" : 386`,
+    };
+    const render = vi.fn((_id: string, _code: string) => Promise.resolve({ svg: '<svg />' }));
+    loadMermaidMock.mockResolvedValue({ render });
+
+    mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => {
+      expect(render.mock.calls.length).toBeGreaterThan(0);
+    });
+
+    // Every call, not just the first: the watcher re-renders on its own and
+    // each pass must see normalised source.
+    for (const [, code] of render.mock.calls) {
+      expect(code).toBe('pie title Pets\n  "Dogs" : 386');
+    }
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('passes clean content through untouched', async () => {
+    const clean = 'sequenceDiagram\n  Alice->>Bob: hi';
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: clean,
+    };
+    const render = vi.fn((_id: string, _code: string) => Promise.resolve({ svg: '<svg />' }));
+    loadMermaidMock.mockResolvedValue({ render });
+
+    mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => {
+      expect(render.mock.calls.length).toBeGreaterThan(0);
+    });
+
+    for (const [, code] of render.mock.calls) {
+      expect(code).toBe(clean);
+    }
+  });
+});

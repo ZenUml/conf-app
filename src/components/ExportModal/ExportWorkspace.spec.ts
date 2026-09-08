@@ -143,6 +143,21 @@ describe('export workspace', () => {
     expect(wrapper.get('[aria-label="Select and move"]').attributes('aria-pressed')).toBe('true');
     wrapper.unmount();
   });
+  it('keeps a boundary selection handle fully visible for dragging', async () => {
+    const { state, wrapper, canvas } = mountWithPreview();
+    const arrow = state.annotations.add('arrow', { x: 0.5, y: 0.5 });
+    state.annotations.update(arrow.id, { end: { x: 1, y: 0 } });
+    state.annotations.select(arrow.id);
+    await wrapper.vm.$nextTick();
+
+    expect((canvas.element as SVGSVGElement).style.overflow).toBe('visible');
+    expect(wrapper.get('[aria-label="Drag end handle"]').attributes('cx')).toBe('600');
+    expect(wrapper.get('[aria-label="Drag end handle"]').attributes('cy')).toBe('0');
+    // The rendered/export SVG remains independently generated from normalized
+    // coordinates; this only changes the interactive SVG's clipping behavior.
+    expect(state.annotations.items.value[0].end).toEqual({ x: 1, y: 0 });
+    wrapper.unmount();
+  });
   it('places two labels, returns to select, and deletes only the selected one', async () => {
     const state = useExportState();
     state.previewDataUrl.value = 'data:image/png;base64,AA==';

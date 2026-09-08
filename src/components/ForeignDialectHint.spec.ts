@@ -123,3 +123,74 @@ describe("ForeignDialectHint (#373)", () => {
     expect(store.state.error).toBeNull();
   });
 });
+
+const MERMAID_ER = `erDiagram
+    USER {
+        uuid id PK
+    }
+    ORDER {
+        uuid id PK, FK
+    }
+    USER ||--o{ ORDER : places`;
+
+describe("ForeignDialectHint — mermaid", () => {
+  let activeWrapper;
+
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    store.commit("updateDiagramType", DiagramType.Sequence);
+    store.commit("updateCode2", "");
+    store.commit("updateMermaidCode", "");
+  });
+
+  afterEach(() => {
+    activeWrapper?.unmount();
+    activeWrapper = null;
+  });
+
+  it("appears for a pasted Mermaid erDiagram with Mermaid-specific copy and fires shown once", async () => {
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    store.commit("updateCode2", MERMAID_ER);
+    await wrapper.vm.$nextTick();
+
+    const hint = wrapper.find('[data-testid="foreign-dialect-hint"]');
+    expect(hint.exists()).toBe(true);
+    expect(hint.text()).toContain("Mermaid");
+    expect(hint.text()).not.toContain("PlantUML");
+    expect(wrapper.find('[data-testid="foreign-dialect-switch"]').text()).toBe("Switch to Mermaid");
+    expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("foreign_dialect_hint_shown", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: DiagramType.Sequence,
+      detected_dialect: "mermaid",
+    });
+  });
+
+  it("switching to Mermaid moves the code, changes the diagram type, and fires switch_clicked", async () => {
+    store.commit("updateCode2", MERMAID_ER);
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    expect(store.state.diagram.mermaidCode).toBe(MERMAID_ER);
+    expect(store.state.diagram.plantUmlCode || "").toBe("");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("foreign_dialect_hint_switch_clicked", expect.objectContaining({
+      detected_dialect: "mermaid",
+    }));
+  });
+
+  it("does not appear once the diagram type is already Mermaid", async () => {
+    store.commit("updateMermaidCode", MERMAID_ER);
+    store.commit("updateDiagramType", DiagramType.Mermaid);
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+  });
+});

@@ -124,6 +124,21 @@ describe('export workspace', () => {
     wrapper.unmount();
   });
 
+  it('preserves existing text when Escape cancels an empty draft', async () => {
+    const { state, wrapper } = mountWithPreview();
+    const callout = state.annotations.add('callout', { x: 0.4, y: 0.4 });
+    state.annotations.update(callout.id, { text: 'Original callout' });
+    state.annotations.select(callout.id);
+    await wrapper.vm.$nextTick();
+    await wrapper.get('[aria-label="Edit text"]').trigger('click');
+    const input = wrapper.get('[aria-label="Annotation text"]');
+    await input.setValue('');
+    await input.trigger('keydown', { key: 'Escape' });
+    expect(state.annotations.items.value).toHaveLength(1);
+    expect(state.annotations.items.value[0].text).toBe('Original callout');
+    wrapper.unmount();
+  });
+
   it.each(['Add arrow', 'Add rectangle'])('draws and resizes %s independently', async (label) => {
     const state = useExportState();
     state.previewDataUrl.value = 'data:image/png;base64,AA==';

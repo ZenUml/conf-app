@@ -39,6 +39,30 @@ async function placeText(wrapper: ReturnType<typeof mountWithPreview>['wrapper']
 }
 
 describe('export workspace', () => {
+  it('restores dialog focus when Escape removes the focused annotation properties', async () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.tabIndex = -1;
+    document.body.append(dialog);
+    const state = useExportState();
+    state.previewDataUrl.value = 'data:image/png;base64,AA==';
+    const annotation = state.annotations.add('callout', { x: 0.4, y: 0.4 });
+    state.annotations.select(annotation.id);
+    const wrapper = mount(ExportWorkspace, { props: { state }, attachTo: dialog });
+    try {
+      const color = wrapper.get('[aria-label="Annotation color"]');
+      (color.element as HTMLButtonElement).focus();
+      expect(document.activeElement).toBe(color.element);
+      await color.trigger('keydown', { key: 'Escape' });
+      expect(wrapper.find('[aria-label="Annotation properties"]').exists()).toBe(false);
+      expect(state.annotations.items.value).toHaveLength(1);
+      expect(document.activeElement).toBe(dialog);
+    } finally {
+      wrapper.unmount();
+      dialog.remove();
+    }
+  });
+
   it.each(['Add arrow', 'Add rectangle'])('draws and resizes %s independently', async (label) => {
     const state = useExportState();
     state.previewDataUrl.value = 'data:image/png;base64,AA==';

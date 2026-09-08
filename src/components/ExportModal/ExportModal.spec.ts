@@ -90,6 +90,26 @@ describe('ExportModal — Escape layering', () => {
     expect(wrapper.emitted('close')).toBeUndefined();
     wrapper.unmount();
   });
+
+  it('returns focus to the dialog when Escape removes a selected properties toolbar', async () => {
+    const wrapper = mountModal();
+    const item = wrapper.vm.state.annotations.add('callout', { x: 0.4, y: 0.4 });
+    wrapper.vm.state.annotations.update(item.id, { text: 'Retry happens here' });
+    wrapper.vm.state.annotations.select(item.id);
+    await nextTick();
+
+    const trigger = wrapper.find('button[aria-label="Download image"]');
+    (trigger.element as HTMLButtonElement).focus();
+    await trigger.trigger('keydown', { key: 'Escape' });
+
+    expect(wrapper.vm.state.annotations.selected.value).toBe(null);
+    expect(wrapper.vm.state.annotations.items.value).toHaveLength(1);
+    expect(document.activeElement).toBe(wrapper.find('.export-modal').element);
+
+    await wrapper.find('.export-modal').trigger('keydown', { key: 'Escape' });
+    expect(wrapper.emitted('close')).toHaveLength(1);
+    wrapper.unmount();
+  });
 });
 
 describe('ExportModal — focus management', () => {

@@ -7,6 +7,7 @@ import { expect, userEvent, waitFor, within } from 'storybook/test'
 import mixpanel from 'mixpanel-browser'
 import { FeatureFlags } from '@forge/bridge'
 import GenericViewer from './GenericViewer.vue'
+import Sequence from '@/components/Sequence.vue'
 import Mermaid from '@/components/Mermaid.vue'
 import store from '@/model/store2'
 import globals from '@/model/globals'
@@ -243,6 +244,7 @@ function configureStory(options: {
   clipboardWrites?: boolean
   pageFetchDelayMs?: number
   fullscreenMode?: boolean
+  exportEntryMode?: boolean
   architectureTokensEnabled?: boolean
   customContentId?: string
 } = {}) {
@@ -258,7 +260,10 @@ function configureStory(options: {
   if (options.fullscreenMode) {
     // isFullscreenMode reads window.forgeGlobal.forgeContext.extension.modal
     // (same object as the imported forgeGlobal — forgeGlobal.ts:229).
-    ;(forgeGlobal.forgeContext as any).extension.modal = { macroMode: 'fullscreen' }
+    ;(forgeGlobal.forgeContext as any).extension.modal = {
+      macroMode: 'fullscreen',
+      ...(options.exportEntryMode ? { openExport: true } : {}),
+    }
   }
   stubApWrapper({ delayMs: options.pageFetchDelayMs })
   stubMixpanel()
@@ -320,6 +325,21 @@ function renderMermaidViewer(args: Args) {
     template: `
       <GenericViewer v-bind="args">
         <Mermaid />
+      </GenericViewer>
+    `,
+  }
+}
+
+/** Production integration: GenericViewer with the real ZenUML renderer. */
+function renderSequenceViewer(args: Args) {
+  return {
+    components: { GenericViewer, Sequence },
+    setup() {
+      return { args }
+    },
+    template: `
+      <GenericViewer v-bind="args">
+        <Sequence />
       </GenericViewer>
     `,
   }
@@ -731,6 +751,39 @@ export const SourcePanelFullscreen: Story = {
         throw new Error('fullscreen surface must get the fullscreen class')
       }
     })
+  },
+}
+
+/** Export entry keeps the natural inline Sequence card in its fullscreen host. */
+export const ExportEntrySequenceFraming: Story = {
+  name: 'Export entry — Sequence keeps inline card width',
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Sequence,
+        title: 'Login flow',
+        code: SAMPLE_SEQUENCE,
+        fullscreenMode: true,
+        exportEntryMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderSequenceViewer(args),
+  play: async () => {
+    const capture = await waitFor(() => {
+      const node = document.querySelector<HTMLElement>('.viewer-frame--export-entry .screen-capture-content')
+      if (!node) throw new Error('export-entry capture node not mounted')
+      return node
+    })
+    await expect(capture).toBeVisible()
+    const frame = document.querySelector<HTMLElement>('.viewer-frame--export-entry')
+    if (!frame) throw new Error('export-entry frame not mounted')
+    // Real browser layout assertion: export-entry must not stretch the card to
+    // the fullscreen column. Keep a generous ratio for font/viewport variance.
+    if (capture.getBoundingClientRect().width >= frame.getBoundingClientRect().width * 0.9) {
+      throw new Error('Sequence export-entry capture unexpectedly fills the fullscreen frame')
+    }
   },
 }
 

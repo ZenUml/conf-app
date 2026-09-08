@@ -18,12 +18,20 @@
       <button aria-label="Refresh preview" data-tooltip="Refresh preview" :disabled="busy" @click="$emit('refresh')"><AdsIcon glyph="refresh" /></button>
       <span class="toolbar-spacer" />
       <label class="background-control">Background
-        <select aria-label="Image background" v-model="state.background.value">
+        <select aria-label="Image background" v-model="state.background.value" @change="backgroundMenu = false">
           <option v-for="bg in state.backgrounds" :key="bg.value" :value="bg.value">{{ bg.label }}</option>
           <option value="custom">Custom</option>
         </select>
       </label>
-      <input v-if="state.background.value === 'custom'" aria-label="Custom background color" type="color" v-model="state.customBgColor.value" />
+      <div v-if="state.background.value === 'custom'" class="color-control">
+        <button type="button" class="color-swatch" aria-label="Custom background color" data-tooltip="Custom background color" :aria-expanded="backgroundMenu" :style="{ backgroundColor: state.customBgColor.value }" @click.stop="toggleBackgroundMenu" />
+        <div v-if="backgroundMenu" class="color-menu" role="menu" aria-label="Custom background color choices">
+          <button v-for="choice in BACKGROUND_CHOICES" :key="choice.value" type="button" role="menuitem" :aria-label="choice.label" :data-tooltip="choice.label" :aria-pressed="state.customBgColor.value === choice.value" class="color-choice" :style="{ backgroundColor: choice.value }" @click.stop="chooseBackgroundColor(choice.value)" />
+          <input v-model="backgroundDraft" aria-label="Custom background hex" aria-describedby="background-format-error" :aria-invalid="!backgroundColorValid" class="color-hex" spellcheck="false" @keydown.enter.prevent="applyBackgroundColor" />
+          <button type="button" class="color-apply" :disabled="!backgroundColorValid" @click.stop="applyBackgroundColor">Apply</button>
+          <span v-if="!backgroundColorValid" id="background-format-error" class="color-format-error">Use #RRGGBB</span>
+        </div>
+      </div>
       <span class="image-meta">{{ state.previewNaturalWidth.value }} × {{ state.previewNaturalHeight.value }}<small>Image size</small></span>
       <span class="image-meta">{{ Math.round(fit.scale * 100) }}%<small>Zoom</small></span>
     </header>
@@ -52,11 +60,27 @@
       <div v-if="selected && !editingId" class="context-tools" aria-label="Annotation properties">
         <span>{{ selected.type === 'note' ? 'Text' : selected.type }}</span>
         <button v-if="selected.type === 'note' || selected.type === 'callout'" aria-label="Edit text" data-tooltip="Edit text" @click="editText(selected)"><AdsIcon glyph="text" /></button>
-        <input aria-label="Annotation color" type="color" :value="selected.color" @change="changeStyle('color', ($event.target as HTMLInputElement).value)" />
+        <div class="color-control">
+          <button type="button" class="color-swatch" aria-label="Annotation color" data-tooltip="Annotation color" :aria-expanded="colorMenu === 'color'" :style="{ backgroundColor: selected.color }" @click.stop="toggleColorMenu('color')" />
+          <div v-if="colorMenu === 'color'" class="color-menu" role="menu" aria-label="Annotation color choices">
+            <button v-for="choice in COLOR_CHOICES" :key="choice.value" type="button" role="menuitem" :aria-label="choice.label" :data-tooltip="choice.label" :aria-pressed="selected.color === choice.value" class="color-choice" :style="{ backgroundColor: choice.value }" @click.stop="chooseColor('color', choice.value)" />
+            <input v-model="colorDraft" aria-label="Custom annotation color" aria-describedby="color-format-error" :aria-invalid="!customColorValid" class="color-hex" spellcheck="false" @keydown.enter.prevent="applyCustomColor('color')" />
+            <button type="button" class="color-apply" :disabled="!customColorValid" @click.stop="applyCustomColor('color')">Apply</button>
+            <span v-if="!customColorValid" id="color-format-error" class="color-format-error">Use #RRGGBB</span>
+          </div>
+        </div>
         <label v-if="selected.type === 'note' || selected.type === 'callout'">Size <input aria-label="Font size" type="number" min="8" max="72" :value="selected.fontSize" @change="changeStyle('fontSize', Number(($event.target as HTMLInputElement).value))" /></label>
         <label v-if="selected.type === 'arrow' || selected.type === 'rectangle'">Width <input aria-label="Stroke width" type="number" min="1" max="12" :value="selected.thickness" @change="changeStyle('thickness', Number(($event.target as HTMLInputElement).value))" /></label>
         <select v-if="selected.type === 'arrow'" aria-label="Arrow direction" :value="selected.arrowType" @change="changeStyle('arrowType', ($event.target as HTMLSelectElement).value)"><option>→</option><option>←</option><option>←→</option></select>
-        <input v-if="selected.type === 'callout'" aria-label="Callout fill" type="color" :value="selected.bgColor" @change="changeStyle('bgColor', ($event.target as HTMLInputElement).value)" />
+        <div v-if="selected.type === 'callout'" class="color-control">
+          <button type="button" class="color-swatch" aria-label="Callout fill" data-tooltip="Callout fill" :aria-expanded="colorMenu === 'bgColor'" :style="{ backgroundColor: selected.bgColor }" @click.stop="toggleColorMenu('bgColor')" />
+          <div v-if="colorMenu === 'bgColor'" class="color-menu" role="menu" aria-label="Callout fill choices">
+            <button v-for="choice in COLOR_CHOICES" :key="choice.value" type="button" role="menuitem" :aria-label="choice.label" :data-tooltip="choice.label" :aria-pressed="selected.bgColor === choice.value" class="color-choice" :style="{ backgroundColor: choice.value }" @click.stop="chooseColor('bgColor', choice.value)" />
+            <input v-model="colorDraft" aria-label="Custom callout fill" aria-describedby="color-format-error" :aria-invalid="!customColorValid" class="color-hex" spellcheck="false" @keydown.enter.prevent="applyCustomColor('bgColor')" />
+            <button type="button" class="color-apply" :disabled="!customColorValid" @click.stop="applyCustomColor('bgColor')">Apply</button>
+            <span v-if="!customColorValid" id="color-format-error" class="color-format-error">Use #RRGGBB</span>
+          </div>
+        </div>
         <button aria-label="Delete annotation" data-tooltip="Delete annotation" @click="deleteSelected"><AdsIcon glyph="trash" /></button>
       </div>
       <div v-if="watermarkSelected" class="context-tools" aria-label="Watermark properties" @change="track('changed', 'watermark', 'style')">
@@ -79,8 +103,8 @@ import { computed, ref, toRaw, nextTick, onMounted, onUnmounted } from 'vue';
 import AdsIcon from './AdsIcon.vue';
 import type { ExportState, Point } from './useExportState';
 import type { Annotation, AnnotationType } from './useAnnotations';
-import { isClipboardExportSupported, buildOverlaySvg, measureTextWidth, fitWatermark } from './useExportEngine';
-import { computeCalloutBox, computeTextBox, SANS_FONT_FAMILY, MONO_FONT_FAMILY } from './overlayGeometry';
+import { isClipboardExportSupported, buildOverlaySvg, measureTextWidth, watermarkGeometry } from './useExportEngine';
+import { computeCalloutBox, computeTextBox, SANS_FONT_FAMILY } from './overlayGeometry';
 import { calculatePreviewFit } from './previewFit';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { Surface, MacroTypeValue } from '@/utils/analytics/catalog';
@@ -96,8 +120,32 @@ const canvas = ref<SVGSVGElement | null>(null);
 const textInput = ref<HTMLInputElement | null>(null);
 const stageSize = ref({ width: 800, height: 600 });
 const editingId = ref<string | null>(null);
+const colorMenu = ref<'color' | 'bgColor' | null>(null);
+const colorDraft = ref('');
+const customColorValid = computed(() => /^#[0-9a-f]{6}$/i.test(colorDraft.value.trim()));
+const backgroundMenu = ref(false);
+const backgroundDraft = ref('');
+const backgroundColorValid = computed(() => /^#[0-9a-f]{6}$/i.test(backgroundDraft.value.trim()));
 const draftText = ref('');
 const freshIds = new Set<string>();
+const COLOR_CHOICES = [
+  { value: '#111827', label: 'Ink' },
+  { value: '#374151', label: 'Slate' },
+  { value: '#6b7280', label: 'Gray' },
+  { value: '#2563eb', label: 'Blue' },
+  { value: '#16a34a', label: 'Green' },
+  { value: '#f97316', label: 'Orange' },
+  { value: '#dc2626', label: 'Red' },
+  { value: '#ffffff', label: 'White' },
+] as const;
+const BACKGROUND_CHOICES = [
+  { value: '#ffffff', label: 'White' },
+  { value: '#fffbf0', label: 'Warm' },
+  { value: '#f0f4ff', label: 'Cool' },
+  { value: '#f5f5f5', label: 'Light gray' },
+  { value: '#111827', label: 'Ink' },
+  { value: '#0f172a', label: 'Slate' },
+] as const;
 let drag: { id: string; mode: 'create' | 'move' | 'start' | 'end'; origin: Point; position: Point; end: Point; pointerId: number } | null = null;
 const viewHeight = computed(() => 600 * state.previewNaturalHeight.value / state.previewNaturalWidth.value);
 const fit = computed(() => calculatePreviewFit(stageSize.value.width, stageSize.value.height - 80, state.previewNaturalWidth.value, state.previewNaturalHeight.value));
@@ -157,13 +205,13 @@ const watermarkBox = computed(() => {
   const diagonal = position === 'diagonal';
   // Same fitting the overlay/export applies, so the outline stays on the glyphs
   // when a long watermark is shrunk to fit the rotated bounds.
-  const { fontSize } = fitWatermark(text, state.watermark.fontSize, diagonal, 600, viewHeight.value, 16);
-  const width = measuredWidth(text, fontSize, MONO_FONT_FAMILY) + 12;
+  const { fontSize, renderedWidth, padding } = watermarkGeometry(text, state.watermark.fontSize, diagonal, 600, viewHeight.value, 16);
+  const width = renderedWidth + 12;
   const height = fontSize * 1.4;
   // Mirrors useExportEngine's watermark placement: centred for diagonal,
   // right-anchored on the baseline EDGE_PADDING-ish inset for bottom-right.
-  const cx = diagonal ? 300 : 600 - 16 - width / 2;
-  const cy = diagonal ? viewHeight.value / 2 : viewHeight.value - 16 - fontSize * 0.35;
+  const cx = diagonal ? 300 : 600 - padding - width / 2;
+  const cy = diagonal ? viewHeight.value / 2 : viewHeight.value - padding - fontSize * 0.35;
   return {
     x: cx - width / 2,
     y: cy - height / 2,
@@ -197,6 +245,8 @@ function canvasDown(event: PointerEvent) {
 }
 function selectItem(item: Annotation, event: PointerEvent) {
   if (tool.value || editingId.value) return;
+  colorMenu.value = null;
+  colorDraft.value = '';
   state.annotations.select(item.id);
   watermarkSelected.value = false;
   beginDrag(item, 'move', event);
@@ -278,6 +328,7 @@ function cancelText() {
 function deselect() {
   state.annotations.select(null);
   watermarkSelected.value = false;
+  colorMenu.value = null;
 }
 function deleteSelected() {
   if (!selected.value) return;
@@ -292,10 +343,45 @@ function changeStyle(key: 'color' | 'fontSize' | 'thickness' | 'arrowType' | 'bg
   state.annotations.update(selected.value.id, { [key]: value });
   track('changed', selected.value.type, 'style');
 }
+function toggleColorMenu(kind: 'color' | 'bgColor') {
+  if (colorMenu.value !== kind) colorDraft.value = kind === 'color' ? selected.value?.color ?? '' : selected.value?.bgColor ?? '';
+  colorMenu.value = colorMenu.value === kind ? null : kind;
+}
+function chooseColor(key: 'color' | 'bgColor', value: string) {
+  changeStyle(key, value);
+  colorMenu.value = null;
+}
+function applyCustomColor(key: 'color' | 'bgColor') {
+  const value = colorDraft.value.trim();
+  if (!/^#[0-9a-f]{6}$/i.test(value)) return;
+  chooseColor(key, value.toLowerCase());
+}
+function toggleBackgroundMenu() {
+  if (!backgroundMenu.value) backgroundDraft.value = state.customBgColor.value;
+  backgroundMenu.value = !backgroundMenu.value;
+}
+function chooseBackgroundColor(value: string) {
+  state.customBgColor.value = value;
+  backgroundMenu.value = false;
+}
+function applyBackgroundColor() {
+  const value = backgroundDraft.value.trim();
+  if (!backgroundColorValid.value) return;
+  state.customBgColor.value = value.toLowerCase();
+  backgroundMenu.value = false;
+}
 function onKeydown(event: KeyboardEvent) {
   if ((event.target as HTMLElement).matches('input,select,textarea')) return;
   if (event.key === 'Escape' && drag) { pointerCancel(); event.stopPropagation(); event.preventDefault(); return; }
-  if (event.key === 'Escape' && (tool.value || selected.value || watermarkSelected.value)) {
+  if (event.key === 'Escape' && backgroundMenu.value) {
+    backgroundMenu.value = false;
+    event.stopPropagation();
+    event.preventDefault();
+  } else if (event.key === 'Escape' && colorMenu.value) {
+    colorMenu.value = null;
+    event.stopPropagation();
+    event.preventDefault();
+  } else if (event.key === 'Escape' && (tool.value || selected.value || watermarkSelected.value)) {
     // Escape is the explicit "drop everything" key, so it still clears the
     // selection that chooseTool(null) now preserves.
     chooseTool(null); deselect(); event.stopPropagation(); event.preventDefault();
@@ -358,6 +444,7 @@ button:focus-visible, input:focus-visible,select:focus-visible { outline:2px sol
 button:disabled { opacity:.4; cursor:default; }
 button[data-tooltip]::after { content:attr(data-tooltip); position:absolute; left:50%; top:calc(100% + 8px); transform:translateX(-50%); padding:6px 8px; border-radius:4px; color:white; background:#111827; font-size:12px; white-space:nowrap; opacity:0; visibility:hidden; transition:opacity 150ms; pointer-events:none; z-index:10; }
 button[data-tooltip]:hover::after,button[data-tooltip]:focus-visible::after { opacity:1; visibility:visible; }
+button[data-tooltip][aria-expanded=true]::after { opacity:0; visibility:hidden; }
 .separator { height:24px; width:1px; background:#e5e7eb; margin:0 4px; }
 .toolbar-spacer { flex:1; }
 .format-label { font-size:12px; color:#6b7280; }
@@ -370,6 +457,15 @@ button[data-tooltip]:hover::after,button[data-tooltip]:focus-visible::after { op
 .background-control { display:flex; gap:6px; align-items:center; font-size:12px; }
 input,select { border:1px solid #e5e7eb; border-radius:4px; padding:4px; background:white; color:#374151; max-width:160px; font:inherit; }
 input[type=color] { width:28px; height:28px; padding:2px; }
+.color-control { position:relative; display:inline-flex; }
+.color-swatch { width:28px; height:28px; padding:3px; border:1px solid #d1d5db; border-radius:4px; box-shadow:inset 0 0 0 1px white; }
+.color-swatch:hover { border-color:#9ca3af; }
+.color-menu { position:absolute; top:calc(100% + 6px); right:0; z-index:5; display:grid; grid-template-columns:repeat(4, 24px); gap:6px; padding:8px; border:1px solid #e5e7eb; border-radius:6px; background:white; box-shadow:0 4px 12px rgba(17,24,39,.15); }
+.color-choice { width:24px; height:24px; padding:0; border:1px solid #d1d5db; border-radius:50%; box-shadow:inset 0 0 0 2px white; }
+.color-choice[aria-pressed=true] { outline:2px solid #2563eb; outline-offset:2px; }
+.color-hex { grid-column:span 3; width:88px; height:24px; box-sizing:border-box; padding:2px 5px; text-transform:lowercase; }
+.color-apply { width:24px; height:24px; padding:0; font-size:10px; }
+.color-format-error { grid-column:1 / -1; color:#b91c1c; font-size:10px; white-space:nowrap; }
 .workspace-stage { position:relative; flex:1; min-height:0; display:flex; align-items:center; justify-content:center; background-color:#fafafa; background-image:conic-gradient(#f0f1f3 25%,transparent 0 50%,#f0f1f3 0 75%,transparent 0); background-size:16px 16px; }
 .image-surface { position:relative; flex-shrink:0; box-shadow:0 1px 4px #0000001a; }
 .image-surface > img { width:100%; height:100%; display:block; pointer-events:none; }

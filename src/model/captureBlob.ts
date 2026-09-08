@@ -43,6 +43,39 @@ export interface CaptureBlobOptions {
   pixelRatio?: number;
 }
 
+/**
+ * Remove only the opaque canvas/frame surfaces emitted by @zenuml/core.
+ *
+ * The source DOM is deliberately not touched: html-to-image has already
+ * cloned and serialised it at this point. Participant fills, borders and
+ * shadows use different classes and remain unchanged.
+ */
+export function prepareSequenceCaptureSvg(svg: string, source: HTMLElement): string {
+  if (!source.matches('.zenuml') && !source.querySelector('.zenuml')) return svg;
+
+  const comma = svg.indexOf(',');
+  const isDataUrl = svg.startsWith('data:') && comma !== -1;
+  const sourceMarkup = isDataUrl
+    ? (svg.slice(0, comma).includes(';base64')
+      ? atob(svg.slice(comma + 1))
+      : decodeURIComponent(svg.slice(comma + 1)))
+    : svg;
+
+  const documentView = source.ownerDocument?.defaultView;
+  const parser = documentView ? new documentView.DOMParser() : new DOMParser();
+  const parsed = parser.parseFromString(sourceMarkup, 'image/svg+xml');
+  const surfaces = parsed.querySelectorAll('.bg-skin-canvas, .bg-skin-frame');
+  surfaces.forEach((surface) => {
+    const style = surface.getAttribute('style') ?? '';
+    const next = /(?:^|;)\s*background-color\s*:/i.test(style)
+      ? style.replace(/background-color\s*:[^;]*/i, 'background-color: transparent')
+      : `${style}${style && !style.trim().endsWith(';') ? ';' : ''}background-color: transparent;`;
+    surface.setAttribute('style', next);
+  });
+  const serialised = new XMLSerializer().serializeToString(parsed);
+  return isDataUrl ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialised)}` : serialised;
+}
+
 // @see https://developer.mozilla.org/en-US/docs/Web/HTML/Element/canvas#maximum_canvas_size
 const CANVAS_DIMENSION_LIMIT = 16384;
 
@@ -100,7 +133,8 @@ export async function captureBlob(
   node: HTMLElement,
   options: CaptureBlobOptions = {},
 ): Promise<Blob | null> {
-  const svgDataUrl = await htmlToImage.toSvg(node, options);
+  const svg = await htmlToImage.toSvg(node, options);
+  const svgDataUrl = prepareSequenceCaptureSvg(svg, node);
   const img = await loadImage(svgDataUrl);
 
   const measured = measure(node);

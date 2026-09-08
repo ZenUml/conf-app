@@ -1,5 +1,6 @@
 import type { Args, Meta, StoryObj } from '@storybook/vue3-vite'
 import { onMounted, ref } from 'vue'
+import { expect, userEvent, within } from 'storybook/test'
 import ExportModal from './ExportModal.vue'
 
 type Story = StoryObj<typeof ExportModal>
@@ -96,6 +97,11 @@ const WIDE_COLUMN_GRAPH = `
           </div>
         </div>`
 
+const SHALLOW_LONG_WATERMARK = `
+        <div style="height:0; overflow:hidden;">
+          <div ref="diagramRef" style="width:554px; height:70px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;"></div>
+        </div>`
+
 function withCaptureStage(
   args: Args,
   configureState?: (state: ModalInstance['state']) => void,
@@ -161,6 +167,28 @@ export const Initial: Story = {
   render: (args: Args) => withCaptureStage(args),
 }
 
+/** Real toolbar interaction coverage for every background mode, including the
+ * app-owned custom palette used when native color wells are unavailable. */
+export const BackgroundChoices: Story = {
+  name: 'Background choices (real controls)',
+  render: (args: Args) => withCaptureStage(args),
+  play: async () => {
+    const canvas = within(document.body)
+    const background = await canvas.findByRole('combobox', { name: 'Image background' })
+    await userEvent.selectOptions(background, 'warm')
+    await expect(background).toHaveValue('warm')
+    await userEvent.selectOptions(background, 'cool')
+    await expect(background).toHaveValue('cool')
+    await userEvent.selectOptions(background, 'transparent')
+    await expect(background).toHaveValue('transparent')
+    await userEvent.selectOptions(background, 'custom')
+    await expect(background).toHaveValue('custom')
+    await userEvent.click(await canvas.findByRole('button', { name: 'Custom background color' }))
+    await userEvent.click(await canvas.findByRole('menuitem', { name: 'Warm' }))
+    await expect(canvas.getByRole('button', { name: 'Custom background color' })).toHaveAttribute('aria-expanded', 'false')
+  },
+}
+
 /**
  * Cool (blue-tinted) background selected, mirroring the moment a user has
  * picked a background before hitting Download PNG.
@@ -181,6 +209,26 @@ export const NotePlaced: Story = {
   render: (args: Args) => withCaptureStage(args, (state) => {
     place(state, 'note', { x: 0.5, y: 0.35 }, { x: 0.5, y: 0.35 }, 'Confirm before shipping')
   }),
+}
+
+/**
+ * Native color inputs are not a dependable interaction surface in the
+ * sandboxed export iframe. The contextual palette must be operable with a
+ * real click and update both the visible overlay and its serialized SVG.
+ */
+export const NoteColorPalette: Story = {
+  name: 'Note color palette (click updates rendered SVG)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    place(state, 'note', { x: 0.5, y: 0.35 }, { x: 0.5, y: 0.35 }, 'Colored note')
+  }),
+  play: async () => {
+    const canvas = within(document.body)
+    const color = await canvas.findByRole('button', { name: 'Annotation color' })
+    await userEvent.click(color)
+    await userEvent.click(await canvas.findByRole('menuitem', { name: 'Blue' }))
+    await expect(canvas.getByRole('button', { name: 'Annotation color' })).toHaveAttribute('aria-expanded', 'false')
+    await expect(document.querySelector('.rendered-annotations text[fill="#2563eb"]')).not.toBeNull()
+  },
 }
 
 /**
@@ -240,6 +288,15 @@ export const WatermarkLong: Story = {
     state.watermark.text = 'Internal review - Confidential'
     state.watermarkVisible.value = true
   }),
+}
+
+/** A 554x70 canvas keeps the fitted diagonal watermark geometry honest. */
+export const WatermarkLongShallow: Story = {
+  name: 'Long watermark on a shallow canvas',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    state.watermark.text = 'Internal review - Confidential'
+    state.watermarkVisible.value = true
+  }, SHALLOW_LONG_WATERMARK),
 }
 
 /**

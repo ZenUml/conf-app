@@ -132,7 +132,7 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
     const escaped = escapeXml(options.watermark.text);
     const padding = 16 * scale;
     const diagonal = options.watermark.position === 'diagonal';
-    const { fontSize, fitAttributes } = fitWatermark(
+    const { fontSize, fitAttributes, padding: effectivePadding } = watermarkGeometry(
       options.watermark.text,
       options.watermark.fontSize * scale,
       diagonal,
@@ -143,7 +143,7 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
     if (diagonal) {
       parts.push(`<text x="${w / 2}" y="${h / 2}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="middle" dominant-baseline="central" transform="rotate(-45, ${w / 2}, ${h / 2})"${fitAttributes}>${escaped}</text>`);
     } else {
-      parts.push(`<text x="${w - padding}" y="${h - padding}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="end"${fitAttributes}>${escaped}</text>`);
+      parts.push(`<text x="${w - effectivePadding}" y="${h - effectivePadding}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="end"${fitAttributes}>${escaped}</text>`);
     }
   }
 
@@ -178,25 +178,62 @@ export function fitWatermark(
   h: number,
   padding: number,
 ): { fontSize: number; fitAttributes: string } {
+  const { fontSize, fitAttributes } = watermarkGeometry(text, requestedFontSize, diagonal, w, h, padding);
+  return { fontSize, fitAttributes };
+}
+
+/** Fit data shared by SVG output and the workspace selection/hit geometry. */
+export function watermarkGeometry(
+  text: string,
+  requestedFontSize: number,
+  diagonal: boolean,
+  w: number,
+  h: number,
+  padding: number,
+): { fontSize: number; fitAttributes: string; renderedWidth: number; padding: number } {
+  // A regular canvas retains its requested inset. On a tiny canvas, use at
+  // most a quarter of its shortest edge so an inset cannot consume it.
+  const effectivePadding = Math.min(Math.max(0, padding), Math.max(0, Math.min(w, h) / 4));
+  const usableHeight = Math.max(0.5, h - 2 * effectivePadding);
+  // The font floor improves legibility on ordinary exports, but must never
+  // force a line taller than its physical canvas.
+  const heightLimitedRequest = Math.max(0.5, Math.min(requestedFontSize, usableHeight / WATERMARK_LINE_HEIGHT));
   const available = diagonal
     // (L + H)/√2 <= min(w, h)/2 - padding, per axis, for a -45° rotation about
     // the centre; solved for L.
-    ? Math.SQRT2 * (Math.min(w, h) - 2 * padding) - requestedFontSize * WATERMARK_LINE_HEIGHT
-    : w - 2 * padding;
-  if (available <= 0) return { fontSize: requestedFontSize, fitAttributes: '' };
+    ? Math.SQRT2 * (Math.min(w, h) - 2 * effectivePadding) - heightLimitedRequest * WATERMARK_LINE_HEIGHT
+    : w - 2 * effectivePadding;
+  if (available <= 0) {
+    // A positive but tiny canvas still deserves a complete watermark. Reduce
+    // the effective inset and font size proportionally rather than emitting
+    // textLength="0" (which silently removes nonempty text).
+    const minDimension = Math.min(w, h);
+    const adaptivePadding = effectivePadding;
+    const usable = diagonal
+      ? Math.SQRT2 * Math.max(minDimension - 2 * adaptivePadding, 0)
+      : Math.max(w - 2 * adaptivePadding, 0);
+    const fontSize = Math.max(0.5, Math.min(heightLimitedRequest, usable / (WATERMARK_LINE_HEIGHT * 2 || 1)));
+    const renderedWidth = Math.max(0.5, usable - fontSize * WATERMARK_LINE_HEIGHT);
+    return {
+      fontSize: roundSvgNumber(fontSize),
+      fitAttributes: ` textLength="${roundSvgNumber(renderedWidth)}" lengthAdjust="spacingAndGlyphs"`,
+      renderedWidth: roundSvgNumber(renderedWidth),
+      padding: roundSvgNumber(effectivePadding),
+    };
+  }
 
-  const measured = measureTextWidth(text, requestedFontSize, MONO_FONT_FAMILY);
-  if (measured <= available) return { fontSize: requestedFontSize, fitAttributes: '' };
+  const measured = measureTextWidth(text, heightLimitedRequest, MONO_FONT_FAMILY);
+  if (measured <= available) return { fontSize: roundSvgNumber(heightLimitedRequest), fitAttributes: '', renderedWidth: roundSvgNumber(measured), padding: roundSvgNumber(effectivePadding) };
 
   const fontSize = Math.max(
-    MIN_WATERMARK_FONT_SIZE,
-    requestedFontSize * (available / measured),
+    Math.min(MIN_WATERMARK_FONT_SIZE, heightLimitedRequest),
+    heightLimitedRequest * (available / measured),
   );
   const refit = measureTextWidth(text, fontSize, MONO_FONT_FAMILY);
   const fitAttributes = refit > available
     ? ` textLength="${roundSvgNumber(available)}" lengthAdjust="spacingAndGlyphs"`
     : '';
-  return { fontSize: roundSvgNumber(fontSize), fitAttributes };
+  return { fontSize: roundSvgNumber(fontSize), fitAttributes, renderedWidth: roundSvgNumber(Math.min(refit, available)), padding: roundSvgNumber(effectivePadding) };
 }
 
 function appendAnnotation(

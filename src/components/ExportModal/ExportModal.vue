@@ -34,6 +34,8 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 import { readExportSession, writeExportSession } from './exportSession';
 import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
+import { waitForCaptureAssets } from './captureReady';
+import { captureBlob } from '@/model/captureBlob';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
@@ -232,22 +234,35 @@ export default defineComponent({
       }
     }
 
+    function blobDataUrl(blob: Blob): Promise<string> {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error ?? new Error('preview blob read failed'));
+        reader.readAsDataURL(blob);
+      });
+    }
+
     async function capturePreview() {
       const node = resolveCaptureNode();
       if (!node) return;
       const gen = ++captureGen;
       state.isCapturing.value = true;
+      state.exportError.value = null;
       try {
-        const { toPng } = await import('html-to-image');
-        const bgColor = state.resolvedBgColor.value === 'transparent' ? undefined : state.resolvedBgColor.value;
+        await waitForCaptureAssets(node);
         // The preview is allowed to fit a small source up to the available
         // canvas. Capture at 2x so that display-only enlargement stays sharp;
         // the export path captures the source independently at native pixels.
-        const dataUrl = await toPng(node, {
+        const previewBlob = await captureBlob(node, {
           skipFonts: true,
           pixelRatio: 2,
-          backgroundColor: bgColor,
+          // Keep the cached base transparent. ExportWorkspace paints the
+          // selected background behind it, so changing background never
+          // leaves the preview baked to the color from initial capture.
         });
+        if (!previewBlob) throw new Error('preview capture returned no blob');
+        const dataUrl = await blobDataUrl(previewBlob);
         // Same crop as the export path, measured from the DOM. In fullscreen
         // the capture node is the layout column, so an uncropped preview shows
         // a small diagram stranded in viewport-wide whitespace — and every
@@ -256,6 +271,7 @@ export default defineComponent({
         if (captureGen === gen) state.previewDataUrl.value = cropped ?? dataUrl;
       } catch (e) {
         console.warn('[ExportModal] preview capture failed:', e);
+        if (captureGen === gen) state.exportError.value = EXPORT_ERROR_MESSAGE;
       } finally {
         if (captureGen === gen) state.isCapturing.value = false;
       }

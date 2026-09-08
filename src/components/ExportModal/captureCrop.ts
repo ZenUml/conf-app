@@ -17,12 +17,12 @@
  * diagram renders for itself. So this neither trims to the ink nor adds padding
  * of its own — both would invent a framing the user never saw.
  *
- * HOW. Walk the single-child chain from the capture node. A wrapper the same
- * size as the capture is part of the column and is passed through; the first
- * element that is genuinely smaller is the diagram's own box, and the walk
- * stops there, keeping everything inside it exactly as laid out. A branch (more
- * than one child) means the capture node is itself the diagram's box, and
- * nothing is cropped. The measurement is geometric, never colour-based: a
+ * HOW. Prefer the viewer's semantic capture root when one is present. This is
+ * important for DrawIO: GraphViewer adds an SVG (and, depending on mode, other
+ * helper nodes) below `.graph-viewer-canvas`, so a single-child walk stops at
+ * the fullscreen column instead of the diagram. For text diagrams, retain the
+ * geometric walk through same-size layout wrappers and stop at the first
+ * genuinely smaller box. The measurement is geometric, never colour-based: a
  * white-pixel scan cannot tell a diagram's intended background from the
  * column's.
  */
@@ -36,14 +36,6 @@ export interface CropBox {
 
 /** Tolerance for "same size as its parent", in CSS pixels. */
 const SIZE_SLACK = 0.5;
-
-/**
- * The diagram box must be at most this fraction of the capture before cropping
- * is worth doing. Above it the capture is already close to the diagram's own
- * size (the inline case, where the frame shrink-wraps it) and the difference is
- * the frame's own border/padding, not a column to remove.
- */
-const MAX_KEPT_FRACTION = 0.75;
 
 function contains(outer: CropBox, inner: CropBox): boolean {
   return outer.x <= inner.x + SIZE_SLACK
@@ -66,6 +58,30 @@ export function measureDiagramBox(node: HTMLElement): CropBox | null {
     width: rect.width,
     height: rect.height,
   });
+  const clampBox = (rect: CropBox): CropBox | null => {
+    const left = Math.max(0, Math.floor(rect.x));
+    const top = Math.max(0, Math.floor(rect.y));
+    const right = Math.min(nodeRect.width, Math.ceil(rect.x + rect.width));
+    const bottom = Math.min(nodeRect.height, Math.ceil(rect.y + rect.height));
+    return right > left && bottom > top
+      ? { x: left, y: top, width: right - left, height: bottom - top }
+      : null;
+  };
+
+  const semanticRoot = node.querySelector<HTMLElement>(
+    '[data-diagram-capture-root], .zenuml, .plantuml-render',
+  );
+  if (semanticRoot) {
+    const rect = toLocal(semanticRoot.getBoundingClientRect());
+    const width = Number(semanticRoot.dataset.captureBoxWidth);
+    const height = Number(semanticRoot.dataset.captureBoxHeight);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return clampBox({ ...rect, width, height });
+    }
+    if (rect.width < nodeRect.width - SIZE_SLACK || rect.height < nodeRect.height - SIZE_SLACK) {
+      return clampBox(rect);
+    }
+  }
 
   let current: Element = node;
   let currentRect: CropBox = { x: 0, y: 0, width: nodeRect.width, height: nodeRect.height };
@@ -88,15 +104,7 @@ export function measureDiagramBox(node: HTMLElement): CropBox | null {
   }
   if (current === node) return null;
 
-  const x = Math.max(0, Math.floor(currentRect.x));
-  const y = Math.max(0, Math.floor(currentRect.y));
-  const width = Math.min(nodeRect.width, Math.ceil(currentRect.x + currentRect.width)) - x;
-  const height = Math.min(nodeRect.height, Math.ceil(currentRect.y + currentRect.height)) - y;
-  if (width <= 0 || height <= 0) return null;
-
-  const worthCropping = width <= nodeRect.width * MAX_KEPT_FRACTION
-    || height <= nodeRect.height * MAX_KEPT_FRACTION;
-  return worthCropping ? { x, y, width, height } : null;
+  return clampBox(currentRect);
 }
 
 /**

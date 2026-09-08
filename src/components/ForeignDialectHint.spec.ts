@@ -188,6 +188,22 @@ describe("ForeignDialectHint — mermaid", () => {
     }));
   });
 
+  // Same stale-error mechanism as the PlantUML switch (see #642): Editor.vue's
+  // error-clearing watcher keys off its `code` computed's value, which is
+  // unchanged across this switch (the source just moved from diagram.code to
+  // diagram.mermaidCode), so the watcher never fires on its own.
+  it("clears a stale error left over from the Sequence tab when switching to Mermaid", async () => {
+    store.commit("updateCode2", MERMAID_ER);
+    store.commit("updateError", "Sequence syntax error: at line 1, column 0: leftover from before the paste");
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.error).toBeNull();
+  });
+
   it("does not appear once the diagram type is already Mermaid", async () => {
     store.commit("updateMermaidCode", MERMAID_ER);
     store.commit("updateDiagramType", DiagramType.Mermaid);

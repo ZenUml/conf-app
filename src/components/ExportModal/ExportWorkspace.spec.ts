@@ -63,6 +63,67 @@ describe('export workspace', () => {
     }
   });
 
+  it('restores dialog focus when Delete removes an annotation from a focused property control', async () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.tabIndex = -1;
+    document.body.append(dialog);
+    const state = useExportState();
+    state.previewDataUrl.value = 'data:image/png;base64,AA==';
+    const annotation = state.annotations.add('callout', { x: 0.4, y: 0.4 });
+    state.annotations.select(annotation.id);
+    const wrapper = mount(ExportWorkspace, { props: { state }, attachTo: dialog });
+    try {
+      const color = wrapper.get('[aria-label="Callout fill"]');
+      (color.element as HTMLButtonElement).focus();
+      await color.trigger('keydown', { key: 'Delete' });
+      expect(state.annotations.items.value).toHaveLength(0);
+      expect(document.activeElement).toBe(dialog);
+    } finally {
+      wrapper.unmount();
+      dialog.remove();
+    }
+  });
+
+  it('restores dialog focus after annotation and watermark toolbar deletion', async () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.tabIndex = -1;
+    document.body.append(dialog);
+    const state = useExportState();
+    state.previewDataUrl.value = 'data:image/png;base64,AA==';
+    const annotation = state.annotations.add('callout', { x: 0.4, y: 0.4 });
+    state.annotations.select(annotation.id);
+    const wrapper = mount(ExportWorkspace, { props: { state }, attachTo: dialog });
+    try {
+      const deleteAnnotation = wrapper.get('[aria-label="Delete annotation"]');
+      (deleteAnnotation.element as HTMLButtonElement).focus();
+      await deleteAnnotation.trigger('click');
+      expect(state.annotations.items.value).toHaveLength(0);
+      expect(document.activeElement).toBe(dialog);
+
+      await wrapper.get('[aria-label="Add watermark"]').trigger('click');
+      const deleteWatermark = wrapper.get('[aria-label="Delete watermark"]');
+      (deleteWatermark.element as HTMLButtonElement).focus();
+      await deleteWatermark.trigger('click');
+      expect(state.watermarkVisible.value).toBe(false);
+      expect(document.activeElement).toBe(dialog);
+    } finally {
+      wrapper.unmount();
+      dialog.remove();
+    }
+  });
+
+  it('keeps Delete as text editing when focus is in the annotation input', async () => {
+    const { state, wrapper, canvas } = mountWithPreview();
+    await placeText(wrapper, canvas, 'Keep editing');
+    await wrapper.get('[aria-label="Edit text"]').trigger('click');
+    const input = wrapper.get('[aria-label="Annotation text"]');
+    await input.trigger('keydown', { key: 'Delete' });
+    expect(state.annotations.items.value).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   it.each(['Add arrow', 'Add rectangle'])('draws and resizes %s independently', async (label) => {
     const state = useExportState();
     state.previewDataUrl.value = 'data:image/png;base64,AA==';

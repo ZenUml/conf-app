@@ -120,6 +120,26 @@ describe('export workspace', () => {
     wrapper.unmount();
   });
 
+  it('tracks the live draft width while re-editing, not the last committed text', async () => {
+    const { state, wrapper, canvas } = mountWithPreview();
+    await placeText(wrapper, canvas, 'iiiiiiiiii');
+    const narrow = Number(wrapper.get('[data-annotation-id] rect').attributes('width'));
+
+    // Re-enter editing the same way a double-click does, then edit the draft
+    // without committing it — the outline must not stay pinned to the
+    // pre-edit 'iiiiiiiiii' bounds while 'WWWWWWWWWW' is being typed.
+    await wrapper.get('[data-annotation-id]').trigger('dblclick');
+    await wrapper.get('[aria-label="Annotation text"]').setValue('WWWWWWWWWW');
+
+    const item = state.annotations.items.value[0];
+    expect(item.text).toBe('iiiiiiiiii'); // still uncommitted
+    const box = computeTextBox(1, { textWidth: measured('WWWWWWWWWW', item.fontSize), fontSize: item.fontSize });
+    const wide = Number(wrapper.get('[data-annotation-id] rect').attributes('width'));
+    expect(wide).toBeCloseTo(box.width, 5);
+    expect(wide).toBeGreaterThan(narrow * 4);
+    wrapper.unmount();
+  });
+
   it('matches the callout outline to the bubble the overlay draws', async () => {
     const { state, wrapper, canvas } = mountWithPreview();
     await wrapper.get('[aria-label="Add callout"]').trigger('click');

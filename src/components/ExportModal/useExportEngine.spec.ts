@@ -10,8 +10,11 @@ import {
   slugifyFilename,
   isClipboardExportSupported,
   buildOverlaySvg,
+  fitWatermark,
+  measureTextWidth,
   type ExportOptions,
 } from './useExportEngine';
+import { MONO_FONT_FAMILY } from './overlayGeometry';
 import type { Annotation } from './useAnnotations';
 
 function baseOptions(overrides: Partial<ExportOptions> = {}): ExportOptions {
@@ -26,6 +29,53 @@ function baseOptions(overrides: Partial<ExportOptions> = {}): ExportOptions {
     ...overrides,
   };
 }
+
+describe('fitWatermark', () => {
+  // A shallow, wide diagram — the shape that clipped "Internal review -
+  // Confidential" at both ends while the shorter default happened to fit.
+  const W = 840;
+  const H = 274;
+  const PADDING = 16;
+  const fits = (text: string, fontSize: number, diagonal = true) => {
+    const available = diagonal
+      ? Math.SQRT2 * (Math.min(W, H) - 2 * PADDING) - fontSize * 1.2
+      : W - 2 * PADDING;
+    return measureTextWidth(text, fontSize, MONO_FONT_FAMILY) <= available + 0.5;
+  };
+
+  it('leaves a watermark that already fits alone', () => {
+    const result = fitWatermark('Confidential', 24, true, W, H, PADDING);
+    expect(result).toEqual({ fontSize: 24, fitAttributes: '' });
+  });
+
+  it('shrinks a long diagonal watermark until it fits the rotated bounds', () => {
+    const result = fitWatermark('Internal review - Confidential', 24, true, W, H, PADDING);
+    expect(result.fontSize).toBeLessThan(24);
+    expect(result.fontSize).toBeGreaterThanOrEqual(8);
+    expect(fits('Internal review - Confidential', result.fontSize)).toBe(true);
+  });
+
+  it('compresses glyphs rather than clipping when the floor is reached', () => {
+    const result = fitWatermark('x'.repeat(400), 24, true, W, H, PADDING);
+    expect(result.fontSize).toBe(8);
+    expect(result.fitAttributes).toMatch(/textLength="[\d.]+" lengthAdjust="spacingAndGlyphs"/);
+  });
+
+  it('fits a bottom-right watermark to the width it is anchored in', () => {
+    const result = fitWatermark('Internal review - Confidential', 48, false, 300, 200, PADDING);
+    expect(result.fontSize).toBeLessThan(48);
+    expect(measureTextWidth('Internal review - Confidential', result.fontSize, MONO_FONT_FAMILY))
+      .toBeLessThanOrEqual(300 - 2 * PADDING + 0.5);
+  });
+
+  it('is what buildOverlaySvg stamps with', () => {
+    const svg = buildOverlaySvg(W, H, baseOptions({
+      watermark: { text: 'Internal review - Confidential', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'diagonal' },
+    }));
+    const fontSize = Number(svg.match(/font-size="([\d.]+)"[^>]*transform="rotate\(-45/)?.[1]);
+    expect(fontSize).toBeLessThan(24);
+  });
+});
 
 describe('slugifyFilename', () => {
   it('lowercases, replaces unsafe/space runs with a single hyphen, and appends .png', () => {

@@ -1,5 +1,5 @@
 <template>
-  <section class="export-workspace" aria-label="Export image" :aria-busy="busy" @keydown="onKeydown">
+  <section ref="workspace" class="export-workspace" aria-label="Export image" :aria-busy="busy" @keydown="onKeydown">
     <header role="toolbar" aria-label="Export tools" class="workspace-toolbar">
       <button aria-label="Close export" data-tooltip="Close" @click="$emit('close')"><AdsIcon glyph="cross" /></button>
       <span class="separator" />
@@ -115,6 +115,7 @@ defineEmits(['close', 'copy', 'export', 'refresh']);
 const tool = ref<AnnotationType | null>(null);
 const watermarkSelected = ref(false);
 const selected = state.annotations.selected;
+const workspace = ref<HTMLElement | null>(null);
 const stage = ref<HTMLElement | null>(null);
 const canvas = ref<SVGSVGElement | null>(null);
 const textInput = ref<HTMLInputElement | null>(null);
@@ -330,11 +331,15 @@ function deselect() {
   watermarkSelected.value = false;
   colorMenu.value = null;
 }
+function restoreDialogFocus() {
+  workspace.value?.closest<HTMLElement>('[role="dialog"]')?.focus();
+}
 function deleteSelected() {
   if (!selected.value) return;
   const item = selected.value;
   state.annotations.remove(item.id);
   track('deleted', item.type);
+  restoreDialogFocus();
 }
 function changeStyle(key: 'color' | 'fontSize' | 'thickness' | 'arrowType' | 'bgColor', value: string | number) {
   if (!selected.value) return;
@@ -388,7 +393,7 @@ function onKeydown(event: KeyboardEvent) {
     // The properties toolbar contains the focused control that triggered this
     // Escape. Deselecting removes that toolbar, so return focus to the dialog
     // shell before the DOM update leaves focus on a detached button.
-    (event.currentTarget as HTMLElement | null)?.closest<HTMLElement>('[role="dialog"]')?.focus();
+    restoreDialogFocus();
     event.stopPropagation(); event.preventDefault();
   } else if ((event.key === 'Delete' || event.key === 'Backspace') && (selected.value || watermarkSelected.value)) {
     if (watermarkSelected.value) removeWatermark(); else deleteSelected();
@@ -437,6 +442,7 @@ function removeWatermark() {
   state.watermarkVisible.value = false;
   watermarkSelected.value = false;
   track('deleted', 'watermark');
+  restoreDialogFocus();
 }
 </script>
 

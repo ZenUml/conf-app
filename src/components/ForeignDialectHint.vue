@@ -125,15 +125,15 @@ function switchDialect() {
   if (detectedDialect.value === "mermaid") {
     store.dispatch("updateMermaidCode", source);
     store.commit("updateDiagramType", DiagramType.Mermaid);
-    return;
+  } else {
+    store.dispatch("updatePlantUmlCode", source);
+    store.commit("updateDiagramType", DiagramType.PlantUml);
   }
-  store.dispatch("updatePlantUmlCode", source);
-  store.commit("updateDiagramType", DiagramType.PlantUml);
   // Editor.vue's error-clearing watcher keys off its `code` computed's VALUE.
   // Since that source string is unchanged across this switch (it just moved
-  // from diagram.code to diagram.plantUmlCode), the watcher never fires and
-  // the stale Sequence-tab error would otherwise survive into the PlantUML
-  // tab. Clear it explicitly instead of relying on that watcher.
+  // to the target dialect's own field), the watcher never fires and the
+  // stale Sequence-tab error would otherwise survive into the new tab. Clear
+  // it explicitly instead of relying on that watcher (#642).
   store.commit("updateError", null);
 }
 

@@ -64,15 +64,50 @@ describe('measureDiagramBox', () => {
     expect(measureDiagramBox(node)).toEqual({ x: 12, y: 20, width: 200, height: 100 });
   });
 
-  it('does not crop when the capture already shrink-wraps the diagram', () => {
-    // The inline case: the frame is the diagram's own width, so there is no
-    // column slack and cropping could only shave its edge.
+  it('keeps the diagram box rather than applying an arbitrary size threshold', () => {
+    // A small difference is still layout owned by the diagram. The crop must
+    // follow the measured view-mode box, not a percentage discontinuity.
     const node = el('div', { x: 0, y: 0, width: 420, height: 200 }) as HTMLElement;
     const diagram = el('div', { x: 10, y: 10, width: 400, height: 180 });
     diagram.appendChild(el('span', { x: 10, y: 10, width: 400, height: 180 }));
     node.appendChild(diagram);
 
-    expect(measureCaptureCrop(node)).toBeNull();
+    expect(measureCaptureCrop(node)).toEqual({ x: 10, y: 10, width: 400, height: 180 });
+  });
+
+  it('uses the semantic GraphViewer box when its SVG has helper siblings', () => {
+    const node = el('div', { x: 0, y: 0, width: 1630, height: 151 }) as HTMLElement;
+    const graph = el('div', { x: 0, y: 0, width: 1630, height: 151 }) as HTMLElement;
+    graph.dataset.diagramCaptureRoot = 'true';
+    graph.dataset.captureBoxWidth = '220';
+    graph.dataset.captureBoxHeight = '151';
+    graph.appendChild(el('svg', { x: 0, y: 0, width: 1630, height: 151 }));
+    graph.appendChild(el('div', { x: 0, y: 0, width: 0, height: 0 }));
+    node.appendChild(graph);
+
+    expect(measureDiagramBox(node)).toEqual({ x: 0, y: 0, width: 220, height: 151 });
+  });
+
+  it('intersects semantic bounds instead of retaining width outside the capture', () => {
+    const node = el('div', { x: 0, y: 0, width: 100, height: 100 }) as HTMLElement;
+    const graph = el('div', { x: -20, y: 0, width: 40, height: 40 }) as HTMLElement;
+    graph.dataset.diagramCaptureRoot = 'true';
+    graph.dataset.captureBoxWidth = '40';
+    graph.dataset.captureBoxHeight = '40';
+    node.appendChild(graph);
+
+    expect(measureDiagramBox(node)).toEqual({ x: 0, y: 0, width: 20, height: 40 });
+  });
+
+  it('finds a sequence root even when the viewer slot has siblings', () => {
+    const node = el('div', { x: 0, y: 0, width: 1000, height: 200 }) as HTMLElement;
+    node.appendChild(el('div', { x: 0, y: 0, width: 1000, height: 200 }));
+    const sequence = el('div', { x: 0, y: 20, width: 340, height: 160 });
+    sequence.classList.add('zenuml');
+    node.appendChild(sequence);
+    node.appendChild(el('div', { x: 0, y: 180, width: 1000, height: 20 }));
+
+    expect(measureDiagramBox(node)).toEqual({ x: 0, y: 20, width: 340, height: 160 });
   });
 
   it('does not crop when the capture node holds the layout itself', () => {

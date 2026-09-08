@@ -16,7 +16,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -1786,6 +1786,23 @@ export default {
    reads as a stripe down the middle. The diagram keeps its centered position
    below, now against a canvas that owns the whole surface. */
 .viewer-frame--fullscreen { width: 100%; }
+
+/* Export PNG opens a separate fullscreen host so the annotation workspace has
+   room. Preserve the natural text-diagram card from the preceding inline view
+   in that host; Graph uses its own rendered-box metadata and is unaffected. */
+.viewer-frame--export-entry:not(.viewer-frame--wide) {
+  width: fit-content;
+}
+.viewer-frame--export-entry:not(.viewer-frame--wide) .screen-capture-content {
+  width: fit-content;
+  max-width: none;
+}
+.viewer-frame--export-entry:not(.viewer-frame--wide) :deep(.zenuml > div) {
+  min-width: 0;
+}
+.viewer-frame--export-entry:not(.viewer-frame--wide) :deep(.plantuml-render > svg) {
+  min-width: 0;
+}
 
 .viewer-frame--fullscreen .viewer-canvas {
   padding: 24px;

@@ -15,6 +15,7 @@
 <script>
 import { loadMermaid } from '@/utils/mermaid/loadMermaid'
 import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
+import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
@@ -71,8 +72,12 @@ export default {
       // Generate a unique ID to avoid conflicts
       this.renderId = `mermaid-${crypto.randomUUID()}`;
       const mermaid = await loadMermaid();
+      // Bodies stored before the save-time normalisation still carry pasted
+      // U+00A0, which mermaid's Langium grammars refuse. Normalising here is
+      // what makes those diagrams render again without a data migration.
+      const source = normalizeMermaidWhitespace(code);
       // Use the unique ID to render, avoiding creating extra elements in the body
-      const { svg } = await mermaid.render(this.renderId, code);
+      const { svg } = await mermaid.render(this.renderId, source);
       // A `useMaxWidth: false` diagram carries a fixed height that our flex
       // wrapper cannot shrink, which letterboxes the drawing. See
       // normalizeSvgSizing for the measurement.

@@ -1,7 +1,16 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import AdsIcon from './AdsIcon.vue';
 import { ADS_ICONS } from './adsIcons';
+
+// The design's own SVG export, kept in the repo so the paths below can be
+// diffed against their source instead of eyeballed against a screenshot.
+const frameSvg = readFileSync(
+  resolve(process.cwd(), 'src/components/ExportModal/__design__/icons-frame.svg'),
+  'utf-8',
+);
 
 const expectedGlyphs = [
   'arrow', 'text', 'comment', 'lock', 'refresh', 'cross', 'download',
@@ -42,6 +51,14 @@ describe('AdsIcon', () => {
     for (const glyph of figmaSourced) {
       expect(ADS_ICONS[glyph].strokeWidth).toBe(1);
       expect(ADS_ICONS[glyph].viewBox).toMatch(/^\d+ 100 16 16$/);
+    }
+  });
+
+  // Guards the one failure mode a screenshot cannot catch: a path quietly
+  // hand-edited or redrawn so it no longer is what the designer exported.
+  it('quotes every Figma-sourced path verbatim from the stored frame export', () => {
+    for (const glyph of figmaSourced) {
+      expect(frameSvg).toContain(`d="${ADS_ICONS[glyph].d}"`);
     }
   });
 });

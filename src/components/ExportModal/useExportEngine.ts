@@ -11,6 +11,7 @@ import {
   CALLOUT_MAX_TEXT_WIDTH,
 } from './overlayGeometry';
 import type { Annotation } from './useAnnotations';
+import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 
 export type RenderResult = { ok: true; blob: Blob } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
 export type ExportResult = { ok: true } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
@@ -129,17 +130,73 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
 
   if (options.watermark?.text) {
     const escaped = escapeXml(options.watermark.text);
-    const fontSize = options.watermark.fontSize * scale;
     const padding = 16 * scale;
-    if (options.watermark.position === 'diagonal') {
-      parts.push(`<text x="${w / 2}" y="${h / 2}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="middle" dominant-baseline="central" transform="rotate(-45, ${w / 2}, ${h / 2})">${escaped}</text>`);
+    const diagonal = options.watermark.position === 'diagonal';
+    const { fontSize, fitAttributes } = fitWatermark(
+      options.watermark.text,
+      options.watermark.fontSize * scale,
+      diagonal,
+      w,
+      h,
+      padding,
+    );
+    if (diagonal) {
+      parts.push(`<text x="${w / 2}" y="${h / 2}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="middle" dominant-baseline="central" transform="rotate(-45, ${w / 2}, ${h / 2})"${fitAttributes}>${escaped}</text>`);
     } else {
-      parts.push(`<text x="${w - padding}" y="${h - padding}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="end">${escaped}</text>`);
+      parts.push(`<text x="${w - padding}" y="${h - padding}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="end"${fitAttributes}>${escaped}</text>`);
     }
   }
 
   parts.push('</svg>');
   return parts.join('');
+}
+
+/** Never shrink a watermark below this; past it, fit by compressing glyphs. */
+const MIN_WATERMARK_FONT_SIZE = 8;
+/** Cap height of a line, as a multiple of font size. */
+const WATERMARK_LINE_HEIGHT = 1.2;
+
+/**
+ * Size a watermark so it fits inside the image it is stamped on.
+ *
+ * The diagonal watermark is drawn centred and rotated -45°, so its footprint is
+ * not its text width: a string of length L and line height H occupies
+ * (L + H)/√2 in BOTH axes. On a shallow, wide diagram that overflowed the top
+ * and bottom edges, and the ends were silently cut off — "Internal review -
+ * Confidential" lost characters at both ends, while the shorter default
+ * "Confidential" happened to fit, which is why it went unnoticed.
+ *
+ * The fix keeps the whole string: shrink the font until the footprint fits, and
+ * only if that would take it below MIN_WATERMARK_FONT_SIZE fall back to
+ * compressing the glyphs via textLength. Nothing is ever clipped silently.
+ */
+export function fitWatermark(
+  text: string,
+  requestedFontSize: number,
+  diagonal: boolean,
+  w: number,
+  h: number,
+  padding: number,
+): { fontSize: number; fitAttributes: string } {
+  const available = diagonal
+    // (L + H)/√2 <= min(w, h)/2 - padding, per axis, for a -45° rotation about
+    // the centre; solved for L.
+    ? Math.SQRT2 * (Math.min(w, h) - 2 * padding) - requestedFontSize * WATERMARK_LINE_HEIGHT
+    : w - 2 * padding;
+  if (available <= 0) return { fontSize: requestedFontSize, fitAttributes: '' };
+
+  const measured = measureTextWidth(text, requestedFontSize, MONO_FONT_FAMILY);
+  if (measured <= available) return { fontSize: requestedFontSize, fitAttributes: '' };
+
+  const fontSize = Math.max(
+    MIN_WATERMARK_FONT_SIZE,
+    requestedFontSize * (available / measured),
+  );
+  const refit = measureTextWidth(text, fontSize, MONO_FONT_FAMILY);
+  const fitAttributes = refit > available
+    ? ` textLength="${roundSvgNumber(available)}" lengthAdjust="spacingAndGlyphs"`
+    : '';
+  return { fontSize: roundSvgNumber(fontSize), fitAttributes };
 }
 
 function appendAnnotation(
@@ -344,16 +401,24 @@ async function renderPngBlob(options: ExportOptions, node: HTMLElement | null | 
   }
 
   const img = await createImageBitmap(blob);
-  const canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  const ctx = canvas.getContext('2d')!;
+  const source = document.createElement('canvas');
+  source.width = img.width;
+  source.height = img.height;
+  const sourceCtx = source.getContext('2d')!;
 
   if (effectiveBg) {
-    ctx.fillStyle = effectiveBg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    sourceCtx.fillStyle = effectiveBg;
+    sourceCtx.fillRect(0, 0, source.width, source.height);
   }
-  ctx.drawImage(img, 0, 0);
+  sourceCtx.drawImage(img, 0, 0);
+
+  // Crop before the overlay is drawn: annotation coordinates are normalised
+  // against the (equally cropped) preview, so they must scale to the final
+  // image rather than to the capture node's layout column.
+  const cropBox = measureCaptureCrop(captureNode);
+  const captureScale = captureNode.offsetWidth ? source.width / captureNode.offsetWidth : 1;
+  const canvas = (cropBox && cropCanvasToBox(source, cropBox, captureScale)) ?? source;
+  const ctx = canvas.getContext('2d')!;
 
   const svgString = buildOverlaySvg(canvas.width, canvas.height, options);
   const svgImg = await svgToImage(svgString);

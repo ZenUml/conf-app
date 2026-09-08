@@ -63,6 +63,17 @@ Both names coexist **only in April 2026**; fully switched by May. **Window ≤ A
 
 Other events were renamed in the same wave; **`src/utils/analytics/catalog.ts` is authoritative** for current names — read it, don't trust a stale copy here.
 
+## The 2026-09 AI-title event rename
+
+`ai_generation_requested` / `ai_generation_succeeded` / `ai_generation_failed` were renamed to
+**`ai_title_generation_requested` / `_succeeded` / `_failed`** (commit on branch
+`chore/ai-title-generation-event-rename`, 2026-09-08). They are the AI **title** generator in
+`src/composables/useAutoTitle.ts`; `generation_source='init'` (automatic on editor open) is 97% of
+volume, so a count of these events is not a count of users asking for AI. Query both names across
+the release date; the old names are emitted by no code after it. Seven saved Insights/Flows reports
+(ids 90438085, 90450988, 90438088, 90486806, 90438092, 90438089, 90486745) still reference the old
+names and go flat after the release until re-pointed.
+
 ## The 2026-09 architecture-tokens rename (evidence-verified)
 
 `related_diagrams_shown` was renamed to **`related_token_indicators_shown`** in commit

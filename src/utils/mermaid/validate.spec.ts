@@ -49,3 +49,39 @@ describe('validateMermaidSyntax with pasted non-breaking spaces', () => {
     expect(result.error).toBeTruthy();
   });
 });
+
+// Both diagram types shipped in mermaid 11.13.0. On 11.12.2 they failed with
+// "No diagram type detected matching given configuration for text: venn-beta",
+// which is what two production macros on one tenant hit 29 times — the author
+// had written valid mermaid the bundled runtime was simply too old to know.
+describe('diagram types added in mermaid 11.13', () => {
+  it('accepts a venn-beta diagram', async () => {
+    const dsl = [
+      'venn-beta',
+      '  set A["Coffee"]',
+      '  set B["Tea"]',
+      '  union A, B',
+    ].join('\n');
+
+    const result = await validateMermaidSyntax(dsl);
+
+    expect(result.error).toBeNull();
+    expect(result.valid).toBe(true);
+  });
+
+  it('accepts an ishikawa-beta diagram', async () => {
+    const dsl = [
+      'ishikawa-beta',
+      '  Deploy failed',
+      '    Tooling',
+      '      Stale cache',
+      '    Process',
+      '      No rollback drill',
+    ].join('\n');
+
+    const result = await validateMermaidSyntax(dsl);
+
+    expect(result.error).toBeNull();
+    expect(result.valid).toBe(true);
+  });
+});

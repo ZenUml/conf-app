@@ -50,6 +50,22 @@ export default meta
 // — the same access pattern ExportModal.spec.ts already uses via
 // `wrapper.vm.state`. This runs the real html-to-image capture pipeline
 // instead of faking a preview data URL that the component would never see.
+const FAKE_DIAGRAM = `
+        <div style="height:0; overflow:hidden;">
+          <div
+            ref="diagramRef"
+            style="width:420px; padding:28px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;"
+          >
+            <div style="font-weight:700; margin-bottom:14px;">Login Flow</div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span>Client</span><span>&rarr;</span><span>Auth Service</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <span>Auth Service</span><span>&rarr;</span><span>Client: 200 OK</span>
+            </div>
+          </div>
+        </div>`
+
 function withCaptureStage(args: Args, configureState?: (state: ModalInstance['state']) => void) {
   return {
     components: { ExportModal },
@@ -67,20 +83,7 @@ function withCaptureStage(args: Args, configureState?: (state: ModalInstance['st
     },
     template: `
       <div>
-        <div style="height:0; overflow:hidden;">
-          <div
-            ref="diagramRef"
-            style="width:420px; padding:28px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;"
-          >
-            <div style="font-weight:700; margin-bottom:14px;">Login Flow</div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-              <span>Client</span><span>&rarr;</span><span>Auth Service</span>
-            </div>
-            <div style="display:flex; justify-content:space-between;">
-              <span>Auth Service</span><span>&rarr;</span><span>Client: 200 OK</span>
-            </div>
-          </div>
-        </div>
+        ${FAKE_DIAGRAM}
         <ExportModal
           ref="modalRef"
           v-bind="args"
@@ -91,6 +94,26 @@ function withCaptureStage(args: Args, configureState?: (state: ModalInstance['st
       </div>
     `,
   }
+}
+
+/**
+ * Place one annotation the way the canvas does: `add` creates it at a point and
+ * selects it, `update` gives it its far end and text. Stories must go through
+ * this rather than writing `state.note` / `state.callout` — those legacy fields
+ * belong to the retired sidebar surface (ExportPreview/ExportSidebar), which
+ * ExportModal no longer renders, so setting them produces a story that shows
+ * nothing at all. Found in Codex acceptance of the note-placed story.
+ */
+function place(
+  state: ModalInstance['state'],
+  type: 'note' | 'arrow' | 'callout' | 'rectangle',
+  position: { x: number; y: number },
+  end: { x: number; y: number },
+  text = '',
+) {
+  const item = state.annotations.add(type, position)
+  state.annotations.update(item.id, { end, text })
+  return item
 }
 
 /**
@@ -116,15 +139,80 @@ export const CoolBackground: Story = {
 }
 
 /**
- * A note has been dragged onto the diagram and is selected, so the sidebar
- * shows the Note Properties panel.
+ * A text annotation sits on the diagram and is selected, so the contextual
+ * properties bar appears above it.
  */
 export const NotePlaced: Story = {
-  name: 'Note placed (Note Properties panel)',
+  name: 'Note placed (contextual properties)',
   render: (args: Args) => withCaptureStage(args, (state) => {
-    state.note.text = 'Confirm before shipping'
-    state.notePoint.value = { x: 0.5, y: 0.35 }
-    state.selectedAnnotation.value = 'note'
+    place(state, 'note', { x: 0.5, y: 0.35 }, { x: 0.5, y: 0.35 }, 'Confirm before shipping')
+  }),
+}
+
+/**
+ * Every annotation type at once — two independent texts, an arrow, a rectangle
+ * and a callout with its tail — which is the state a reviewer needs to judge
+ * z-order, colour defaults and whether the properties bar follows the selection.
+ */
+export const AnnotationsMixed: Story = {
+  name: 'All annotation types placed',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    place(state, 'note', { x: 0.22, y: 0.2 }, { x: 0.22, y: 0.2 }, 'Client starts here')
+    place(state, 'note', { x: 0.68, y: 0.86 }, { x: 0.68, y: 0.86 }, 'Latency budget: 200ms')
+    place(state, 'arrow', { x: 0.3, y: 0.34 }, { x: 0.62, y: 0.52 })
+    place(state, 'rectangle', { x: 0.16, y: 0.6 }, { x: 0.52, y: 0.78 })
+    const callout = place(state, 'callout', { x: 0.55, y: 0.24 }, { x: 0.66, y: 0.4 }, 'Retry happens here')
+    state.annotations.select(callout.id)
+  }),
+}
+
+/**
+ * Close and reopen. The dialog is `v-if`'d on `visible`, so closing unmounts it
+ * while ExportModal itself — and the export state it owns — stays alive; the
+ * reopen must therefore bring the annotations back and re-run the capture.
+ * Click the X (or the backdrop), then Reopen export, and check the annotations
+ * are still on the canvas.
+ */
+export const CloseAndReopen: Story = {
+  name: 'Close, then reopen (annotations survive)',
+  render: (args: Args) => ({
+    components: { ExportModal },
+    setup() {
+      const diagramRef = ref<HTMLElement | null>(null)
+      const modalRef = ref<ModalInstance | null>(null)
+      const getCaptureNode = () => diagramRef.value
+
+      onMounted(() => {
+        const state = modalRef.value!.state
+        place(state, 'note', { x: 0.28, y: 0.3 }, { x: 0.28, y: 0.3 }, 'Survives a reopen')
+        place(state, 'arrow', { x: 0.34, y: 0.44 }, { x: 0.66, y: 0.6 })
+        modalRef.value!.capturePreview()
+      })
+
+      return { args, diagramRef, modalRef, getCaptureNode }
+    },
+    template: `
+      <div>
+        ${FAKE_DIAGRAM}
+        <div style="padding:24px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+          <button
+            type="button"
+            @click="args.visible = true"
+            style="padding:8px 14px; border:1px solid #cbd5e1; border-radius:6px; background:#ffffff; font-size:13px; cursor:pointer;"
+          >Reopen export</button>
+          <p style="margin-top:12px; font-size:13px; color:#475569;">
+            Close the dialog with its X, then reopen it: the two annotations must still be there.
+          </p>
+        </div>
+        <ExportModal
+          ref="modalRef"
+          v-bind="args"
+          :capture-node-getter="getCaptureNode"
+          diagram-title="Login Flow"
+          @close="args.visible = false"
+        />
+      </div>
+    `,
   }),
 }
 
@@ -212,22 +300,23 @@ export const FullscreenInner: Story = {
 export const FullscreenInnerEditing: Story = {
   name: 'Fullscreen (inner document, callout selected)',
   render: (args: Args) => withCaptureStage(args, (state) => {
-    // hasCallout is computed from position + text, so setting those two is
-    // what makes the callout real; selecting it opens its properties panel.
-    state.callout.text = 'Retry happens here'
-    state.callout.position = { x: 0.46, y: 0.4 }
-    state.callout.tipPosition = { x: 0.58, y: 0.55 }
-    state.selectedAnnotation.value = 'callout'
+    // `add` selects what it creates, so the contextual properties bar opens on
+    // the callout; `end` is the tail's tip.
+    place(state, 'callout', { x: 0.46, y: 0.4 }, { x: 0.58, y: 0.55 }, 'Retry happens here')
   }),
 }
 
-/** A deliberately dense selected state for checking sidebar scrolling. */
+/** A deliberately dense selected state for checking the properties bar's fit. */
 export const FullscreenInnerOverflowEditing: Story = {
   name: 'Fullscreen (inner document, overflowing note controls)',
   render: (args: Args) => withCaptureStage(args, (state) => {
-    state.note.text = 'A long note whose properties must remain reachable while the preview stays visible'
-    state.notePoint.value = { x: 0.5, y: 0.35 }
-    state.selectedAnnotation.value = 'note'
+    place(
+      state,
+      'note',
+      { x: 0.5, y: 0.35 },
+      { x: 0.5, y: 0.35 },
+      'A long note whose properties must remain reachable while the preview stays visible',
+    )
   }),
 }
 

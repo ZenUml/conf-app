@@ -4,7 +4,7 @@
 // shared 1.5px currentColor outline attributes. Keys map UI action -> glyph.
 export const ADS_ICONS = {
   /** Heroicons ArrowUpRightIcon — draw arrow (matches the Figma toolbar's diagonal arrow, not a horizontal one). */
-  arrow: "<path d=\"M4.5 19.5 19.5 4.5m0 0h-15m15 0v15\"/>",
+  arrow: "<path d=\"M4.5 19.5 19.5 4.5m0 0H8.25m11.25 0v11.25\"/>",
   /** A simple text-tool T (Heroicons has no standalone TextIcon). */
   text: "<path d=\"M5.25 5.25h13.5M12 5.25v13.5\"/>",
   /** Heroicons ChatBubbleLeftIcon — add callout. */

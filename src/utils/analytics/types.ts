@@ -544,10 +544,14 @@ export type AnalyticsProperties = {
   has_arrow?: boolean;
   has_callout?: boolean;
   has_watermark?: boolean;
+  has_rectangle?: boolean;
+  annotation_count?: number;
+  annotation_type?: 'note' | 'arrow' | 'callout' | 'rectangle' | 'watermark';
+  annotation_change?: 'move' | 'resize' | 'text' | 'style';
   // export_annotation_tool_clicked (ExportPreview.vue). Which annotation tool
   // the user reached for. Fired on activation only, not on turning a tool back
   // off: the intent is already recorded by then.
-  tool?: 'arrow' | 'callout' | 'note' | 'watermark';
+  tool?: 'arrow' | 'callout' | 'note' | 'rectangle' | 'watermark';
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.

@@ -8,29 +8,40 @@ const expectedGlyphs = [
   'copy', 'trash', 'add', 'info', 'check', 'select', 'rectangle', 'stamp',
 ] as const;
 
+// The nine toolbar glyphs are pasted verbatim from the Figma export, so they
+// keep that file's coordinate space instead of a shared 24x24 box.
+const figmaSourced = ['arrow', 'text', 'comment', 'cross', 'download', 'copy', 'select', 'rectangle', 'stamp'] as const;
+
 describe('AdsIcon', () => {
   it('keeps the existing glyph names and exposes annotation tools', () => {
     expect(Object.keys(ADS_ICONS)).toEqual(expectedGlyphs);
   });
 
-  it('renders the shared 24px, 1.5px currentColor outline treatment', () => {
+  it('renders one currentColor outline path in the glyph\'s own coordinate space', () => {
     const wrapper = mount(AdsIcon, { props: { glyph: 'stamp' } });
     const svg = wrapper.get('svg');
 
     expect(svg.attributes()).toMatchObject({
       width: '16',
       height: '16',
-      viewBox: '0 0 24 24',
+      viewBox: ADS_ICONS.stamp.viewBox,
       fill: 'none',
       stroke: 'currentColor',
-      'stroke-width': '1.5',
+      'stroke-width': String(ADS_ICONS.stamp.strokeWidth),
     });
-    expect(svg.findAll('path')).toHaveLength(2);
+    expect(svg.get('path').attributes('d')).toBe(ADS_ICONS.stamp.d);
   });
 
   it('does not retain filled glyph payloads', () => {
     for (const glyph of expectedGlyphs) {
-      expect(ADS_ICONS[glyph]).not.toMatch(/fill\s*=/);
+      expect(ADS_ICONS[glyph].d).not.toMatch(/fill\s*=/);
+    }
+  });
+
+  it('gives the Figma-sourced glyphs the export\'s own 16-unit window and 1px stroke', () => {
+    for (const glyph of figmaSourced) {
+      expect(ADS_ICONS[glyph].strokeWidth).toBe(1);
+      expect(ADS_ICONS[glyph].viewBox).toMatch(/^\d+ 100 16 16$/);
     }
   });
 });

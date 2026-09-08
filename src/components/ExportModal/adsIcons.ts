@@ -1,31 +1,38 @@
-// Official Atlassian Design System glyphs, extracted from @atlaskit/icon@21.12.8
-// (already a project dependency; the React components are unusable in Vue, so the
-// 24x24 currentColor SVG markup is inlined here). Keys map UI action -> ADS glyph.
+// Outline SVG path data for the export toolbar. Heroicons v2 is already a
+// project dependency; its Vue components cannot be used by this v-html based
+// component, so the 24x24 path data is inlined here. AdsIcon supplies the
+// shared 1.5px currentColor outline attributes. Keys map UI action -> glyph.
 export const ADS_ICONS = {
-  /** @atlaskit/icon/glyph/media-services/arrow */
-  arrow: "<path d=\"M10.527 11.078l-.842-1.867c-.588-1.305-1.456-1.269-1.942.07l-3.69 10.153c-.164.45.067.676.513.514l10.148-3.692c1.339-.488 1.37-1.357.07-1.944l-1.856-.837c.393-.37.79-.756 1.19-1.156 3.861-3.864 6.448-7.54 5.776-8.213-.672-.672-4.347 1.916-8.209 5.78-.4.4-.787.799-1.158 1.192z\" fill=\"currentColor\"/>",
-  /** @atlaskit/icon/glyph/media-services/text */
-  text: "<g fill=\"currentColor\" fill-rule=\"evenodd\"><path d=\"M11 7h2v11h-2zM6 5h12v2H6z\"/><path d=\"M5 5h2v3H5zm5 13h4v2h-4zm7-13h2v3h-2z\"/></g>",
-  /** @atlaskit/icon/glyph/comment */
-  comment: "<g fill=\"currentColor\" fill-rule=\"evenodd\"><path d=\"M4.998 11.513c0-3.038 3.141-5.51 7.002-5.51 3.861 0 7.002 2.472 7.002 5.51 0 3.039-3.141 5.51-7.002 5.51-3.861 0-7.002-2.471-7.002-5.51zm14.84 7.771v-.002s-1.564-2.26-.767-3.116l-.037.02C20.261 14.902 21 13.279 21 11.513 21 7.371 16.963 4 12 4s-9 3.37-9 7.513 4.037 7.514 9 7.514c1.42 0 2.76-.285 3.957-.776 1.003 1.022 2.287 1.572 3.24 1.719l.002-.003a.524.524 0 00.164.033.515.515 0 00.474-.716z\"/><rect x=\"7\" y=\"9\" width=\"10\" height=\"2\" rx=\"1\"/><rect x=\"7\" y=\"12\" width=\"5\" height=\"2\" rx=\"1\"/></g>",
-  /** @atlaskit/icon/glyph/lock */
-  lock: "<g fill=\"currentColor\"><path d=\"M16 11V9h-2V7.002A2.001 2.001 0 0012 5c-1.102 0-2 .898-2 2.002V9H8v2H7v8h10v-8h-1zm-2 0h-4V9h4v2zM8 9V7.002A4.004 4.004 0 0112 3a4 4 0 014 4.002V9h.994A2.01 2.01 0 0119 11.009v7.982c0 1.11-.897 2.009-2.006 2.009H7.006A2.009 2.009 0 015 18.991V11.01C5 9.899 5.897 9 7.006 9H8zm0 0h2v2H8V9zm6 0h2v2h-2V9z\"/><circle cx=\"12\" cy=\"15\" r=\"2\"/></g>",
-  /** @atlaskit/icon/glyph/refresh */
-  refresh: "<g fill=\"currentColor\" fill-rule=\"evenodd\"><path d=\"M8 6.003v2.995a1 1 0 102 0V5.102C10 4.494 9.507 4 8.9 4H5a1 1 0 000 2.003h3z\" fill-rule=\"nonzero\"/><path d=\"M9.428 18.018C7.351 16.989 6 14.807 6 12.37c0-2.266 1.167-4.319 3.02-5.425.48-.286.646-.922.371-1.421a.979.979 0 00-1.364-.386C5.557 6.611 4 9.35 4 12.37c0 3.248 1.802 6.158 4.57 7.529.498.247 1.095.026 1.332-.493.237-.52.025-1.141-.474-1.388z\" fill-rule=\"nonzero\"/><path d=\"M14 15.002v3.896c0 .608.493 1.102 1.1 1.102H19a1 1 0 000-2.003h-3v-2.995a1 1 0 10-2 0z\"/><path d=\"M14.097 4.596c-.237.52-.025 1.14.474 1.387 2.077 1.029 3.428 3.21 3.428 5.647 0 2.266-1.167 4.32-3.021 5.425a1.063 1.063 0 00-.37 1.42c.274.5.885.673 1.364.387 2.47-1.473 4.027-4.212 4.027-7.232 0-3.248-1.802-6.158-4.57-7.528A.957.957 0 0015.002 4a1 1 0 00-.905.596z\"/></g>",
-  /** @atlaskit/icon/glyph/cross */
-  cross: "<path d=\"M12 10.586L6.707 5.293a1 1 0 00-1.414 1.414L10.586 12l-5.293 5.293a1 1 0 001.414 1.414L12 13.414l5.293 5.293a1 1 0 001.414-1.414L13.414 12l5.293-5.293a1 1 0 10-1.414-1.414L12 10.586z\" fill=\"currentColor\"/>",
-  /** @atlaskit/icon/glyph/download */
-  download: "<g fill=\"currentColor\" fill-rule=\"evenodd\"><path d=\"M10.687 17.292a.983.983 0 00-1.397 0 1 1 0 000 1.407l1.964 1.98a1.082 1.082 0 001.538 0l1.919-1.933a1 1 0 000-1.408.983.983 0 00-1.398 0l-1.29 1.3-1.336-1.346z\" fill-rule=\"nonzero\"/><path d=\"M13.001 19.993L13 10.006C13 9.451 12.552 9 12 9s-1 .45-1 1.007l.001 9.987c0 .555.448 1.006 1 1.006s1-.45 1-1.007z\" fill-rule=\"nonzero\"/><path d=\"M7.938 5.48a4.8 4.8 0 00-.777-.062C4.356 5.418 2 7.62 2 10.498 2 13.409 4.385 16 7.1 16h2.881v-1.993H7.1c-1.657 0-3.115-1.663-3.115-3.508 0-1.778 1.469-3.087 3.104-3.087h.012c.389 0 .686.05.97.15l.17.063c.605.248.875-.246.875-.246l.15-.267c.73-1.347 2.201-2.096 3.716-2.12a4.14 4.14 0 014.069 3.645l.046.34s.071.525.665.525c.013 0 .012.005.023.005h.254c1.136 0 1.976.959 1.976 2.158 0 1.207-.987 2.342-2.07 2.342h-3.964V16h3.964C20.105 16 22 13.955 22 11.665c0-2-1.312-3.663-3.138-4.074-.707-2.707-3.053-4.552-5.886-4.591-1.975.02-3.901.9-5.038 2.48z\"/></g>",
-  /** @atlaskit/icon/glyph/copy */
-  copy: "<g fill=\"currentColor\"><path d=\"M10 19h8V8h-8v11zM8 7.992C8 6.892 8.902 6 10.009 6h7.982C19.101 6 20 6.893 20 7.992v11.016c0 1.1-.902 1.992-2.009 1.992H10.01A2.001 2.001 0 018 19.008V7.992z\"/><path d=\"M5 16V4.992C5 3.892 5.902 3 7.009 3H15v13H5zm2 0h8V5H7v11z\"/></g>",
-  /** @atlaskit/icon/glyph/trash */
-  trash: "<path d=\"M5 5a1 1 0 00-1 1v1h16V6a1 1 0 00-1-1H5zm11.15 15H7.845a1 1 0 01-.986-.835L5 8h14l-1.864 11.166a.999.999 0 01-.986.834M9 4.5a.5.5 0 01.491-.5h5.018a.5.5 0 01.491.5V5H9v-.5z\" fill=\"currentColor\" fill-rule=\"evenodd\"/>",
-  /** @atlaskit/icon/glyph/add */
-  add: "<path d=\"M13 11V3.993A.997.997 0 0012 3c-.556 0-1 .445-1 .993V11H3.993A.997.997 0 003 12c0 .557.445 1 .993 1H11v7.007c0 .548.448.993 1 .993.556 0 1-.445 1-.993V13h7.007A.997.997 0 0021 12c0-.556-.445-1-.993-1H13z\" fill=\"currentColor\" fill-rule=\"evenodd\"/>",
-  /** @atlaskit/icon/glyph/info */
-  info: "<g fill-rule=\"evenodd\"><path d=\"M2 12c0 5.523 4.477 10 10 10s10-4.477 10-10S17.523 2 12 2 2 6.477 2 12z\" fill=\"currentColor\"/><rect fill=\"inherit\" x=\"11\" y=\"10\" width=\"2\" height=\"7\" rx=\"1\"/><circle fill=\"inherit\" cx=\"12\" cy=\"8\" r=\"1\"/></g>",
-  /** @atlaskit/icon/glyph/check */
-  check: "<path d=\"M6.735 12.322a1 1 0 00-1.47 1.356l3.612 3.919c.537.526 1.337.526 1.834.03l.364-.359a2335.638 2335.638 0 003.939-3.883l.04-.04a492.598 492.598 0 003.658-3.643 1 1 0 00-1.424-1.404 518.42 518.42 0 01-3.64 3.625l-.04.04a2049.114 2049.114 0 01-3.775 3.722l-3.098-3.363z\" fill=\"currentColor\"/>",
+  /** Heroicons ArrowUpRightIcon — draw arrow (matches the Figma toolbar's diagonal arrow, not a horizontal one). */
+  arrow: "<path d=\"M4.5 19.5 19.5 4.5m0 0h-15m15 0v15\"/>",
+  /** A simple text-tool T (Heroicons has no standalone TextIcon). */
+  text: "<path d=\"M5.25 5.25h13.5M12 5.25v13.5\"/>",
+  /** Heroicons ChatBubbleLeftIcon — add callout. */
+  comment: "<path d=\"M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z\"/>",
+  /** Heroicons LockClosedIcon — retained for callers that need a lock. */
+  lock: "<path d=\"M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z\"/>",
+  /** Heroicons ArrowPathIcon — refresh preview. */
+  refresh: "<path d=\"M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99\"/>",
+  /** Heroicons XMarkIcon — close. */
+  cross: "<path d=\"M6 18 18 6M6 6l12 12\"/>",
+  /** Heroicons ArrowDownTrayIcon — download. */
+  download: "<path d=\"M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3\"/>",
+  /** Heroicons Square2StackIcon — copy. */
+  copy: "<path d=\"M16.5 8.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v8.25A2.25 2.25 0 0 0 6 16.5h2.25m8.25-8.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-7.5A2.25 2.25 0 0 1 8.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 0 0-2.25 2.25v6\"/>",
+  /** Heroicons TrashIcon — remove. */
+  trash: "<path d=\"m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0\"/>",
+  /** Heroicons PlusIcon — add. */
+  add: "<path d=\"M12 4.5v15m7.5-7.5h-15\"/>",
+  /** Heroicons InformationCircleIcon — information. */
+  info: "<path d=\"m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z\"/>",
+  /** Heroicons CheckIcon — success. */
+  check: "<path d=\"m4.5 12.75 6 6 9-13.5\"/>",
+  /** Heroicons CursorArrowRaysIcon pointer body, without its rays. */
+  select: "<path d=\"M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Z\"/>",
+  /** One outlined rectangle (Heroicons has no standalone RectangleIcon). */
+  rectangle: "<rect x=\"4.5\" y=\"4.5\" width=\"15\" height=\"15\" rx=\"1.5\"/>",
+  /** A small rubber-stamp outline (Heroicons has no StampIcon). */
+  stamp: "<path d=\"M9 3.75h6v3.375a3 3 0 0 0 1.5 2.598l.75.433V12H6.75v-1.844l.75-.433A3 3 0 0 0 9 7.125V3.75Z\"/><path d=\"M9.75 12v3.75m4.5-3.75v3.75M6.75 15.75h10.5A2.25 2.25 0 0 1 19.5 18v.75h-15V18a2.25 2.25 0 0 1 2.25-2.25ZM4.5 21h15\"/>",
 } as const;
 
 export type AdsIconName = keyof typeof ADS_ICONS;

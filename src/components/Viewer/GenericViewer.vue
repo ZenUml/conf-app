@@ -409,7 +409,9 @@
     </template>
 
   <ExportModal
+    ref="exportModal"
     :visible="showExportModal"
+    :capture-ready="!isExportEntryModal || exportPreviewReady"
     :macro-type="diagramType"
     :capture-node-getter="getCaptureNode"
     :diagram-title="title"
@@ -491,6 +493,7 @@ export default {
     // Export-entry auto-open bookkeeping (see mounted / openExportOnce).
     exportAutoOpened: false,
     exportAutoOpenTimer: null,
+    exportPreviewReady: false,
     showSourcePanel: false,
     isDownloadingDebug: false,
     // Copy for AI inline feedback state machine (Mintlify-style — replaces the
@@ -921,6 +924,10 @@ export default {
     // blank preview and a Refresh click. Graph and OpenAPI emit no such event;
     // they keep the button.
     if (this.isExportEntryModal) {
+      // Cover the ungated Fullscreen viewer immediately. Preview capture waits
+      // for the readiness signals below, but viewer-only controls must never be
+      // exposed during that wait.
+      this.showExportModal = true;
       // Two readiness signals, one per renderer family: the text-DSL viewers
       // emit 'diagramLoaded', Graph and OpenAPI emit 'viewerRenderSettled'
       // once their own output has painted. The dialog captures its preview the
@@ -1285,6 +1292,7 @@ export default {
     openExportOnce() {
       if (this.exportAutoOpened) return;
       this.exportAutoOpened = true;
+      this.exportPreviewReady = true;
       EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
       EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
       if (this.exportAutoOpenTimer) {
@@ -1308,6 +1316,17 @@ export default {
     onExportModalClose() {
       this.showExportModal = false;
       if (this.isExportEntryModal) {
+        // A close before either readiness signal fired must permanently
+        // cancel the auto-open, not just hide the dialog once — otherwise a
+        // 'diagramLoaded'/'viewerRenderSettled' event still in flight (or the
+        // fallback timer) reopens the dialog the user just dismissed.
+        this.exportAutoOpened = true;
+        EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
+        EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
+        if (this.exportAutoOpenTimer) {
+          clearTimeout(this.exportAutoOpenTimer);
+          this.exportAutoOpenTimer = null;
+        }
         EventBus.$emit('closeFullscreen');
       }
     },

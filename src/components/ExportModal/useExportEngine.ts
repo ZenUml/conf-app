@@ -8,7 +8,9 @@ import {
   computeArrowheadPath,
   computeNotePosition,
   computeCalloutPath,
+  CALLOUT_MAX_TEXT_WIDTH,
 } from './overlayGeometry';
+import type { Annotation } from './useAnnotations';
 
 export type RenderResult = { ok: true; blob: Blob } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
 export type ExportResult = { ok: true } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
@@ -63,6 +65,7 @@ export interface ExportOptions {
   } | null;
   arrowPoints?: { start: { x: number; y: number }; end: { x: number; y: number } } | null;
   notePoint?: { x: number; y: number } | null;
+  annotations?: Annotation[];
 }
 
 function resolveBgColor(background: string): string | undefined {
@@ -84,7 +87,11 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
   parts.push(`<feDropShadow dx="0" dy="${shadowDy}" stdDeviation="${shadowStd}" flood-color="rgba(0,0,0,0.3)" flood-opacity="1"/>`);
   parts.push(`</filter></defs>`);
 
-  if (options.note.text) {
+  if (options.annotations !== undefined) {
+    for (const annotation of options.annotations) {
+      appendAnnotation(parts, annotation, w, h, scale);
+    }
+  } else if (options.note.text) {
     let nx: number, ny: number, anchor: string;
     const fontSize = options.note.fontSize * scale;
     if (options.notePoint) {
@@ -97,54 +104,27 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
       ny = pos.y;
       anchor = pos.anchor;
     }
-    const escaped = escapeXml(options.note.text);
-    parts.push(`<text x="${nx}" y="${ny}" font-size="${fontSize}" fill="${options.note.color}" font-family='${SANS_FONT_FAMILY}' font-weight="500" text-anchor="${anchor}" dominant-baseline="central" filter="url(#ds)">${escaped}</text>`);
+    appendNote(parts, options.note.text, nx, ny, fontSize, options.note.color, anchor);
   }
 
-  if (options.arrowPoints) {
+  if (options.annotations === undefined && options.arrowPoints) {
     const pts = options.arrowPoints;
-    const sx = pts.start.x * w, sy = pts.start.y * h;
-    const ex = pts.end.x * w, ey = pts.end.y * h;
-    const angle = Math.atan2(ey - sy, ex - sx);
-    const t = options.arrow.thickness * scale;
-    const color = options.arrow.color;
-
-    parts.push(`<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="${color}" stroke-width="${t}" stroke-linejoin="round"/>`);
-
-    const isLeftOnly = options.arrow.type === '←';
-    const isDouble = options.arrow.type === '←→';
-    if (!isLeftOnly) {
-      parts.push(`<path d="${computeArrowheadPath(ex, ey, angle, t)}" fill="${color}" stroke="${color}" stroke-linejoin="round"/>`);
-    }
-    if (isDouble || isLeftOnly) {
-      parts.push(`<path d="${computeArrowheadPath(sx, sy, angle + Math.PI, t)}" fill="${color}" stroke="${color}" stroke-linejoin="round"/>`);
-    }
-
-    if (options.arrow.label) {
-      const midX = (sx + ex) / 2;
-      const midY = (sy + ey) / 2;
-      const labelOffset = 14 * scale;
-      const perpX = -Math.sin(angle) * labelOffset;
-      const perpY = Math.cos(angle) * labelOffset;
-      const labelFontSize = (12 + options.arrow.thickness) * scale;
-      parts.push(`<text x="${midX + perpX}" y="${midY + perpY}" font-size="${labelFontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(options.arrow.label)}</text>`);
-    }
+    appendArrow(parts, pts.start, pts.end, options.arrow.type, options.arrow.label, options.arrow.color, options.arrow.thickness, w, h, scale);
   }
 
-  if (options.callout?.position && options.callout.text) {
-    const cx = options.callout.position.x * w;
-    const cy = options.callout.position.y * h;
-    const tipPx = options.callout.tipPosition
-      ? { x: options.callout.tipPosition.x * w, y: options.callout.tipPosition.y * h }
-      : null;
-    const strokeW = 1 * scale;
-    const fontSize = options.callout.fontSize * scale;
-    const calloutPath = computeCalloutPath(cx, cy, scale, tipPx, {
-      textWidth: measureTextWidth(options.callout.text, fontSize, SANS_FONT_FAMILY),
-      fontSize,
-    });
-    parts.push(`<path d="${calloutPath}" fill="${options.callout.bgColor}" stroke="#94a3b8" stroke-width="${strokeW}" stroke-linejoin="round"/>`);
-    parts.push(`<text x="${cx}" y="${cy}" font-size="${fontSize}" fill="${options.callout.color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(options.callout.text)}</text>`);
+  if (options.annotations === undefined && options.callout?.position && options.callout.text) {
+    appendCallout(
+      parts,
+      options.callout.position,
+      options.callout.tipPosition,
+      options.callout.text,
+      options.callout.fontSize,
+      options.callout.color,
+      options.callout.bgColor,
+      w,
+      h,
+      scale,
+    );
   }
 
   if (options.watermark?.text) {
@@ -162,6 +142,143 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
   return parts.join('');
 }
 
+function appendAnnotation(
+  parts: string[],
+  annotation: Annotation,
+  w: number,
+  h: number,
+  scale: number,
+): void {
+  if (annotation.type === 'note') {
+    if (!annotation.text) return;
+    const x = annotation.position.x * w;
+    const y = annotation.position.y * h;
+    const fontSize = annotation.fontSize * scale;
+    appendNote(parts, annotation.text, x, y, fontSize, annotation.color, 'middle');
+    return;
+  }
+
+  if (annotation.type === 'arrow') {
+    appendArrow(parts, annotation.position, annotation.end, annotation.arrowType, annotation.text, annotation.color, annotation.thickness, w, h, scale);
+    return;
+  }
+
+  if (annotation.type === 'rectangle') {
+    const x = roundSvgNumber(Math.min(annotation.position.x, annotation.end.x) * w);
+    const y = roundSvgNumber(Math.min(annotation.position.y, annotation.end.y) * h);
+    const width = roundSvgNumber(Math.abs(annotation.end.x - annotation.position.x) * w);
+    const height = roundSvgNumber(Math.abs(annotation.end.y - annotation.position.y) * h);
+    const fill = annotation.bgColor || 'none';
+    const strokeWidth = annotation.thickness * scale;
+    parts.push(`<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" stroke="${annotation.color}" stroke-width="${strokeWidth}"/>`);
+    return;
+  }
+
+  if (annotation.type === 'callout') {
+    if (!annotation.text) return;
+    const hasTip = annotation.position.x !== annotation.end.x || annotation.position.y !== annotation.end.y;
+    const tip = hasTip ? annotation.end : null;
+    appendCallout(
+      parts,
+      annotation.position,
+      tip,
+      annotation.text,
+      annotation.fontSize,
+      annotation.color,
+      annotation.bgColor || 'none',
+      w,
+      h,
+      scale,
+    );
+  }
+}
+
+function appendNote(
+  parts: string[],
+  text: string,
+  x: number,
+  y: number,
+  fontSize: number,
+  color: string,
+  anchor: string,
+): void {
+  parts.push(`<text x="${x}" y="${y}" font-size="${fontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' font-weight="500" text-anchor="${anchor}" dominant-baseline="central" filter="url(#ds)">${escapeXml(text)}</text>`);
+}
+
+function appendArrow(
+  parts: string[],
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  type: string,
+  label: string,
+  color: string,
+  thickness: number,
+  w: number,
+  h: number,
+  scale: number,
+): void {
+  const sx = start.x * w;
+  const sy = start.y * h;
+  const ex = end.x * w;
+  const ey = end.y * h;
+  const angle = Math.atan2(ey - sy, ex - sx);
+  const t = thickness * scale;
+
+  parts.push(`<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="${color}" stroke-width="${t}" stroke-linejoin="round"/>`);
+
+  const isLeftOnly = type === '←';
+  const isDouble = type === '←→';
+  if (!isLeftOnly) {
+    parts.push(`<path d="${computeArrowheadPath(ex, ey, angle, t)}" fill="${color}" stroke="${color}" stroke-linejoin="round"/>`);
+  }
+  if (isDouble || isLeftOnly) {
+    parts.push(`<path d="${computeArrowheadPath(sx, sy, angle + Math.PI, t)}" fill="${color}" stroke="${color}" stroke-linejoin="round"/>`);
+  }
+
+  if (label) {
+    const midX = (sx + ex) / 2;
+    const midY = (sy + ey) / 2;
+    const labelOffset = 14 * scale;
+    const perpX = -Math.sin(angle) * labelOffset;
+    const perpY = Math.cos(angle) * labelOffset;
+    const labelFontSize = (12 + thickness) * scale;
+    parts.push(`<text x="${midX + perpX}" y="${midY + perpY}" font-size="${labelFontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(label)}</text>`);
+  }
+}
+
+function appendCallout(
+  parts: string[],
+  position: { x: number; y: number },
+  tip: { x: number; y: number } | null,
+  text: string,
+  fontSizeValue: number,
+  color: string,
+  bgColor: string,
+  w: number,
+  h: number,
+  scale: number,
+): void {
+  const cx = position.x * w;
+  const cy = position.y * h;
+  const tipPx = tip ? { x: tip.x * w, y: tip.y * h } : null;
+  const fontSize = fontSizeValue * scale;
+  const textWidth = measureTextWidth(text, fontSize, SANS_FONT_FAMILY);
+  const availableTextWidth = CALLOUT_MAX_TEXT_WIDTH * scale;
+  const fitAttributes = textWidth > availableTextWidth
+    ? ` textLength="${roundSvgNumber(availableTextWidth)}" lengthAdjust="spacingAndGlyphs"`
+    : '';
+  const calloutPath = computeCalloutPath(cx, cy, scale, tipPx, {
+    textWidth,
+    fontSize,
+  });
+  parts.push(`<path d="${calloutPath}" fill="${bgColor}" stroke="#94a3b8" stroke-width="${1 * scale}" stroke-linejoin="round"/>`);
+  parts.push(`<text x="${cx}" y="${cy}" font-size="${fontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central"${fitAttributes}>${escapeXml(text)}</text>`);
+}
+
+function roundSvgNumber(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
 /**
  * Width of the label as the exported SVG will draw it. A 2d canvas with the
  * same font stack is the only measurement available before the SVG exists, and
@@ -169,7 +286,7 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
  * saw in the preview. Falls back to a per-character estimate where no canvas
  * context is available (jsdom, a locked-down worker).
  */
-function measureTextWidth(text: string, fontSize: number, fontFamily: string): number {
+export function measureTextWidth(text: string, fontSize: number, fontFamily: string): number {
   if (!text) return 0;
   try {
     const ctx = document.createElement('canvas').getContext('2d');

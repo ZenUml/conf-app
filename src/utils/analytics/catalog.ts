@@ -327,6 +327,14 @@ export type AnalyticsEventName =
   // annotation is unused because nobody wants it or because the dialog was
   // too small to operate (see ExportModal.vue's inline variant).
   | "export_annotation_tool_clicked"
+  // Export workspace: created after placement/nonempty text, changed after a
+  // completed move/resize/style/text edit (never pointer-move or each keystroke),
+  // deleted on explicit removal. No annotation text or coordinates are tracked.
+  | "export_annotation_created"
+  | "export_annotation_changed"
+  | "export_annotation_deleted"
+  // Restored when reopening the same diagram during the current page visit.
+  | "export_annotations_restored"
   | "export_png_opened"
   | "export_png_succeeded"
   | "export_png_failed"

@@ -53,11 +53,10 @@ import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/r
 import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
 import {
   EXPORT_SESSION_EVENT,
-  isExportSessionClosePayload,
-  isExportSessionEventPayload,
   readExportSession,
   receiveExportSession,
 } from '@/components/ExportModal/exportSession';
+import { openWithExportSessionHandoff } from '@/components/ExportModal/exportSessionHandoff';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -1583,52 +1582,20 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
       || uuidv4();
 
     const exportSession = readExportSession();
-    let exportSessionSubscription: unknown;
-    let exportSessionSubscriptionDisposed = false;
-    const disposeExportSessionSubscription = () => {
-      if (exportSessionSubscriptionDisposed) return;
-      exportSessionSubscriptionDisposed = true;
-      if (typeof exportSessionSubscription === 'function') {
-        exportSessionSubscription();
-        return;
-      }
-      if (typeof exportSessionSubscription === 'object' && exportSessionSubscription !== null) {
-        const unsubscribe = (exportSessionSubscription as { unsubscribe?: unknown }).unsubscribe;
-        if (typeof unsubscribe === 'function') unsubscribe.call(exportSessionSubscription);
-      }
-    };
-    const onExportSession = (payload?: unknown) => {
-      if (!isExportSessionEventPayload(payload) || payload.macro_uuid !== macroUuid) return;
-      // Receiver writes never publish, otherwise the fullscreen child would
-      // echo its own bridge event forever.
-      receiveExportSession(payload.snapshot);
-    };
 
-    // The listener must be live before the child iframe opens: its first
-    // annotation write can happen as soon as the fullscreen export UI mounts.
-    try {
-      const { events } = await import('@forge/bridge');
-      exportSessionSubscription = await events.on(EXPORT_SESSION_EVENT, onExportSession);
-    } catch (error) {
-      // A bridge without Events still gets the context seed and keeps the
-      // existing fullscreen path usable; the handoff is best-effort.
-      console.warn('[exportSession] bridge listener unavailable:', error);
-    }
-
-    try {
-      await openModal({
+    // The listener's lifetime lives in openWithExportSessionHandoff, which is
+    // unit-tested: the bridge resolves openModal() when the modal has OPENED,
+    // so unsubscribing on that resolve loses every annotation the child makes.
+    await openWithExportSessionHandoff({
+      macroUuid,
+      subscribe: async (handler) => {
+        const { events } = await import('@forge/bridge');
+        return events.on(EXPORT_SESSION_EVENT, handler);
+      },
+      onSnapshot: receiveExportSession,
+      open: (onClose) => openModal({
         resource: 'main',
-        onClose: (payload?: unknown) => {
-          if (isExportSessionClosePayload(payload)) {
-            receiveExportSession(payload.exportSession);
-          }
-          disposeExportSessionSubscription();
-
-          // Export-entry close must only dismiss the temporary modal. A normal
-          // fullscreen close keeps the page visit alive when export state exists.
-          if (options?.openExport || readExportSession() !== null) return;
-          location.reload();
-        },
+        onClose,
         size: 'fullscreen',
         context: {
           macroMode: 'fullscreen',
@@ -1641,10 +1608,14 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
           // report a paywall_triggered the user never asked for.
           ...(options?.openExport ? { openExport: true } : {}),
         },
-      });
-    } finally {
-      disposeExportSessionSubscription();
-    }
+      }),
+      onClosed: () => {
+        // Export-entry close must only dismiss the temporary modal. A normal
+        // fullscreen close keeps the page visit alive when export state exists.
+        if (options?.openExport || readExportSession() !== null) return;
+        location.reload();
+      },
+    });
   } finally {
     fullscreenOpenInFlight = false;
   }

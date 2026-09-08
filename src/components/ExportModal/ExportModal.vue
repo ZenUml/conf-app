@@ -6,18 +6,20 @@
         ref="dialogEl"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="export-settings-title"
+        aria-label="Export image"
         tabindex="-1"
         @keydown="onDialogKeydown"
       >
-        <ExportPreview
+        <ExportWorkspace
           :state="state"
+          :waiting-for-preview="!captureReady"
           :surface="surface"
           :macro-type="macroType"
           @refresh="capturePreview"
+          @close="$emit('close')"
+          @export="handleExport"
+          @copy="handleCopy"
         />
-        <div class="export-divider"></div>
-        <ExportSidebar :state="state" @close="$emit('close')" @export="handleExport" @copy="handleCopy" />
       </div>
     </div>
   </Transition>
@@ -25,12 +27,12 @@
 
 <script lang="ts">
 import { defineComponent, watch, provide, onUnmounted, nextTick, ref, type PropType } from 'vue';
-import ExportPreview from './ExportPreview.vue';
-import ExportSidebar from './ExportSidebar.vue';
+import ExportWorkspace from './ExportWorkspace.vue';
 import { exportStateKey, useExportState } from './useExportState';
 import { useExportEngine, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
+import { readExportSession, writeExportSession } from './exportSession';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
@@ -38,7 +40,7 @@ const COPIED_FEEDBACK_MS = 1500;
 
 export default defineComponent({
   name: 'ExportModal',
-  components: { ExportPreview, ExportSidebar },
+  components: { ExportWorkspace },
 
   props: {
     visible: { type: Boolean, required: true },
@@ -52,11 +54,27 @@ export default defineComponent({
      * reports `viewer` / `fullscreen`, so these now match.
      */
     surface: { type: String as PropType<Surface>, default: 'modal' },
+    captureReady: { type: Boolean, default: true },
   },
   emits: ['close', 'export', 'copy'],
 
   setup(props, { emit }) {
     const state = useExportState();
+    const restored = readExportSession();
+    if (restored) {
+      state.annotations.items.value = restored.annotations;
+      Object.assign(state.watermark, restored.watermark);
+      state.watermarkVisible.value = restored.watermarkVisible;
+      state.background.value = restored.background;
+      state.customBgColor.value = restored.customBgColor;
+    }
+    watch(() => ({
+      annotations: state.annotations.items.value.filter(item => (item.type !== 'note' && item.type !== 'callout') || item.text.trim()),
+      watermark: state.watermark,
+      watermarkVisible: state.watermarkVisible.value,
+      background: state.background.value,
+      customBgColor: state.customBgColor.value,
+    }), writeExportSession, { deep: true, flush: 'sync' });
     provide(exportStateKey, state);
     const dialogEl = ref<HTMLElement | null>(null);
     let captureGen = 0;
@@ -147,6 +165,7 @@ export default defineComponent({
 
     function buildExportOptions(): ExportOptions {
       return {
+        annotations: state.annotations.items.value,
         background: state.background.value === 'custom' ? state.customBgColor.value : state.background.value,
         note: { text: state.note.text, position: state.note.position, fontSize: state.note.fontSize, color: state.note.color },
         arrow: { type: state.arrow.type, label: state.arrow.label, color: state.arrow.color, thickness: state.arrow.thickness },
@@ -164,9 +183,11 @@ export default defineComponent({
         macro_type: props.macroType,
         method,
         background: state.background.value,
-        has_note: state.hasNote.value,
-        has_arrow: state.hasArrow.value,
-        has_callout: state.hasCallout.value,
+        has_note: state.annotations.items.value.some(item => item.type === 'note'),
+        has_arrow: state.annotations.items.value.some(item => item.type === 'arrow'),
+        has_callout: state.annotations.items.value.some(item => item.type === 'callout'),
+        has_rectangle: state.annotations.items.value.some(item => item.type === 'rectangle'),
+        annotation_count: state.annotations.items.value.length + Number(state.hasWatermark.value),
         has_watermark: state.hasWatermark.value,
       });
     }
@@ -188,7 +209,14 @@ export default defineComponent({
       try {
         const { toPng } = await import('html-to-image');
         const bgColor = state.resolvedBgColor.value === 'transparent' ? undefined : state.resolvedBgColor.value;
-        const dataUrl = await toPng(node, { skipFonts: true, backgroundColor: bgColor ?? '#ffffff' });
+        // The preview is allowed to fit a small source up to the available
+        // canvas. Capture at 2x so that display-only enlargement stays sharp;
+        // the export path captures the source independently at native pixels.
+        const dataUrl = await toPng(node, {
+          skipFonts: true,
+          pixelRatio: 2,
+          backgroundColor: bgColor,
+        });
         if (captureGen === gen) state.previewDataUrl.value = dataUrl;
       } catch (e) {
         console.warn('[ExportModal] preview capture failed:', e);
@@ -197,7 +225,7 @@ export default defineComponent({
       }
     }
 
-    watch(() => props.visible, async (val) => {
+    watch(() => props.visible, async (val, previous) => {
       if (val) {
         previouslyFocused = document.activeElement as HTMLElement | null;
         exportSucceeded = false;
@@ -209,10 +237,16 @@ export default defineComponent({
           surface: props.surface,
           macro_type: props.macroType,
         });
+        if (state.annotations.items.value.length || state.hasWatermark.value) {
+          trackAnalyticsEvent('export_annotations_restored', {
+            feature_area: 'macro', surface: props.surface, macro_type: props.macroType,
+            annotation_count: state.annotations.items.value.length + Number(state.hasWatermark.value),
+          });
+        }
         await nextTick();
         dialogEl.value?.focus();
-        capturePreview();
-      } else {
+        if (props.captureReady) capturePreview();
+      } else if (previous) {
         if (!exportSucceeded) {
           trackAnalyticsEvent('export_png_dismissed', {
             feature_area: 'macro',
@@ -222,6 +256,10 @@ export default defineComponent({
         }
         restoreFocus();
       }
+    }, { immediate: true });
+
+    watch(() => props.captureReady, (ready) => {
+      if (ready && props.visible) capturePreview();
     });
 
     async function handleExport() {
@@ -450,8 +488,11 @@ export default defineComponent({
 .preview-canvas-wrap {
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0,0,0,0.08);
-  max-width: 100%; max-height: 100%;
+  box-sizing: content-box;
+  transform-origin: top left;
 }
+
+.preview-viewport { flex: 0 0 auto; }
 
 .preview-canvas {
   position: relative; width: 100%;
@@ -466,7 +507,7 @@ export default defineComponent({
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
   letter-spacing: 0.05em; color: #94a3b8;
 }
-.preview-real-diagram { display: block; max-width: 100%; height: auto; }
+.preview-real-diagram { display: block; width: 100%; height: 100%; object-fit: fill; }
 .preview-loading { display: flex; align-items: center; justify-content: center; padding: 40px; }
 
 /* ─── Sidebar ───
@@ -526,13 +567,21 @@ export default defineComponent({
   background: var(--accent); border-radius: 2px; flex-shrink: 0; opacity: 1;
 }
 
-.bg-swatches { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bg-swatches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bg-swatch {
-  width: 32px; height: 32px; border-radius: 6px; border: 1px solid #334155;
-  cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; flex-shrink: 0;
+  min-width: 0; border-radius: 7px; border: 1px solid #334155; padding: 5px;
+  background: #111c31; color: var(--sidebar-muted); cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s; text-align: left;
 }
-.bg-swatch:hover { transform: scale(1.1); }
-.bg-swatch.active { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); transform: scale(1.05); }
+.bg-swatch:hover { transform: translateY(-1px); }
+.bg-swatch.active { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
+.bg-swatch-preview {
+  display: flex; flex-direction: column; justify-content: center; gap: 5px;
+  height: 38px; padding: 0 9px; border-radius: 4px; overflow: hidden;
+}
+.bg-swatch-preview i { display: block; width: 74%; height: 2px; border-radius: 2px; background: #64748b; opacity: .7; }
+.bg-swatch-preview i:last-child { width: 48%; }
+.bg-swatch-label, .custom-color-label-text { display: block; padding-top: 4px; font-size: 10px; line-height: 1.2; }
 .swatch-transparent {
   background-image:
     linear-gradient(45deg, #94a3b8 25%, transparent 25%), linear-gradient(-45deg, #94a3b8 25%, transparent 25%),
@@ -540,8 +589,8 @@ export default defineComponent({
   background-size: 8px 8px; background-position: 0 0, 0 4px, 4px -4px, -4px 0;
   background-color: #e2e8f0;
 }
-.custom-color-wrap { position: relative; }
-.custom-color-label { cursor: pointer; }
+.custom-color-wrap { position: relative; grid-column: 1 / -1; }
+.custom-color-label { cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--sidebar-muted); }
 .custom-color-input { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
 .custom-color-swatch {
   display: flex; align-items: center; justify-content: center;
@@ -550,6 +599,7 @@ export default defineComponent({
 }
 .custom-color-swatch:hover { border-color: var(--accent); color: var(--accent); }
 .custom-color-label:focus-within .custom-color-swatch { box-shadow: 0 0 0 2px var(--accent); }
+.custom-color-label-text { padding: 0; }
 
 .field-row {
   display: flex; align-items: center; justify-content: space-between;
@@ -619,12 +669,10 @@ export default defineComponent({
 }
 .toggle.on .toggle-thumb { transform: translateX(16px); }
 
-/* Stacked, because three buttons do not fit across a 300px column: side by
-   side they pushed Download PNG past the edge, and wrapping clipped Copy image.
-   column-reverse puts Download PNG — the action every export ends on — at the
-   top of the block, with Copy image and Cancel below it in decreasing weight. */
+/* Stacked because the actions do not fit across a 300px column. DOM and visual
+   order both put Download PNG first, followed by the secondary Copy action. */
 .sidebar-actions {
-  display: flex; flex-direction: column-reverse; align-items: stretch;
+  display: flex; flex-direction: column; align-items: stretch;
   padding: 14px 20px; background: var(--sidebar-bg);
   box-shadow: 0 -1px 0 #1e293b, 0 -8px 16px rgba(15, 23, 42, 0.6);
   flex-shrink: 0; gap: 8px;

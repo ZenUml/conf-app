@@ -79,6 +79,10 @@ const CALLOUT_PADDING_Y = 8;
 const CALLOUT_MIN_WIDTH = 60;
 const CALLOUT_MIN_HEIGHT = 28;
 const CALLOUT_LINE_HEIGHT = 1.35;
+/** Keep a measured callout from growing beyond the image it annotates. */
+export const CALLOUT_MAX_WIDTH = VIEWBOX_REF_W * 0.9;
+/** Maximum text width inside the capped callout, before horizontal fitting. */
+export const CALLOUT_MAX_TEXT_WIDTH = CALLOUT_MAX_WIDTH - 2 * CALLOUT_PADDING_X;
 
 export function computeCalloutPath(
   cx: number,
@@ -91,7 +95,10 @@ export function computeCalloutPath(
   // larger font ran straight out of the chip and over the diagram — in the
   // preview and in the exported PNG, which draws from this same path.
   const w = content
-    ? Math.max(CALLOUT_MIN_WIDTH * scale, content.textWidth + 2 * CALLOUT_PADDING_X * scale)
+    ? Math.min(
+      CALLOUT_MAX_WIDTH * scale,
+      Math.max(CALLOUT_MIN_WIDTH * scale, content.textWidth + 2 * CALLOUT_PADDING_X * scale),
+    )
     : 120 * scale;
   const h = content
     ? Math.max(

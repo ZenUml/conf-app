@@ -51,6 +51,13 @@ import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderC
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
+import {
+  EXPORT_SESSION_EVENT,
+  isExportSessionClosePayload,
+  isExportSessionEventPayload,
+  readExportSession,
+  receiveExportSession,
+} from '@/components/ExportModal/exportSession';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -1575,23 +1582,69 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
       || context.extension?.config?.uuid
       || uuidv4();
 
-    await openModal({
-      resource: 'main',
-      onClose: () => {
-        location.reload();
-      },
-      size: 'fullscreen',
-      context: {
-        macroMode: 'fullscreen',
-        macro_uuid: macroUuid,
-        session_id: getOrCreateSession(),
-        // Export PNG entry: the modal opens the export dialog on arrival, and
-        // the fullscreen-viewer paywall is skipped for it — inline export has
-        // never been gated, and gating it here would both block the action and
-        // report a paywall_triggered the user never asked for.
-        ...(options?.openExport ? { openExport: true } : {}),
-      },
-    });
+    const exportSession = readExportSession();
+    let exportSessionSubscription: unknown;
+    let exportSessionSubscriptionDisposed = false;
+    const disposeExportSessionSubscription = () => {
+      if (exportSessionSubscriptionDisposed) return;
+      exportSessionSubscriptionDisposed = true;
+      if (typeof exportSessionSubscription === 'function') {
+        exportSessionSubscription();
+        return;
+      }
+      if (typeof exportSessionSubscription === 'object' && exportSessionSubscription !== null) {
+        const unsubscribe = (exportSessionSubscription as { unsubscribe?: unknown }).unsubscribe;
+        if (typeof unsubscribe === 'function') unsubscribe.call(exportSessionSubscription);
+      }
+    };
+    const onExportSession = (payload?: unknown) => {
+      if (!isExportSessionEventPayload(payload) || payload.macro_uuid !== macroUuid) return;
+      // Receiver writes never publish, otherwise the fullscreen child would
+      // echo its own bridge event forever.
+      receiveExportSession(payload.snapshot);
+    };
+
+    // The listener must be live before the child iframe opens: its first
+    // annotation write can happen as soon as the fullscreen export UI mounts.
+    try {
+      const { events } = await import('@forge/bridge');
+      exportSessionSubscription = await events.on(EXPORT_SESSION_EVENT, onExportSession);
+    } catch (error) {
+      // A bridge without Events still gets the context seed and keeps the
+      // existing fullscreen path usable; the handoff is best-effort.
+      console.warn('[exportSession] bridge listener unavailable:', error);
+    }
+
+    try {
+      await openModal({
+        resource: 'main',
+        onClose: (payload?: unknown) => {
+          if (isExportSessionClosePayload(payload)) {
+            receiveExportSession(payload.exportSession);
+          }
+          disposeExportSessionSubscription();
+
+          // Export-entry close must only dismiss the temporary modal. A normal
+          // fullscreen close keeps the page visit alive when export state exists.
+          if (options?.openExport || readExportSession() !== null) return;
+          location.reload();
+        },
+        size: 'fullscreen',
+        context: {
+          macroMode: 'fullscreen',
+          macro_uuid: macroUuid,
+          session_id: getOrCreateSession(),
+          ...(exportSession ? { exportSession } : {}),
+          // Export PNG entry: the modal opens the export dialog on arrival, and
+          // the fullscreen-viewer paywall is skipped for it — inline export has
+          // never been gated, and gating it here would both block the action and
+          // report a paywall_triggered the user never asked for.
+          ...(options?.openExport ? { openExport: true } : {}),
+        },
+      });
+    } finally {
+      disposeExportSessionSubscription();
+    }
   } finally {
     fullscreenOpenInFlight = false;
   }
@@ -1601,7 +1654,8 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
 // opened by Export PNG and skipped the fullscreen-viewer paywall, so the viewer
 // behind it must not stay reachable. See GenericViewer.onExportModalClose.
 EventBus.$on('closeFullscreen', async () => {
-  await (await getView()).close();
+  const exportSession = readExportSession();
+  await (await getView()).close({ exportSession });
 });
 
 EventBus.$on('updateContent', async (diagram: Diagram) => {

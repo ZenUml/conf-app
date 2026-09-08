@@ -12,6 +12,7 @@ import {
   buildOverlaySvg,
   type ExportOptions,
 } from './useExportEngine';
+import type { Annotation } from './useAnnotations';
 
 function baseOptions(overrides: Partial<ExportOptions> = {}): ExportOptions {
   return {
@@ -84,11 +85,182 @@ describe('buildOverlaySvg', () => {
   const W = 600; // === VIEWBOX_REF_W, so scale === 1
   const H = 400;
 
+  function annotation(overrides: Partial<Annotation> = {}): Annotation {
+    return {
+      id: 'annotation-1',
+      type: 'note',
+      position: { x: 0.25, y: 0.25 },
+      end: { x: 0.25, y: 0.25 },
+      text: '',
+      color: '#374151',
+      bgColor: 'none',
+      fontSize: 14,
+      thickness: 2,
+      arrowType: '→',
+      ...overrides,
+    };
+  }
+
   it('emits no note/arrow/callout/watermark elements when nothing is configured', () => {
     const svg = buildOverlaySvg(W, H, baseOptions());
     expect(svg).not.toContain('<text');
     expect(svg).not.toContain('<line');
     expect(svg).not.toContain('<path');
+  });
+
+  it('renders multiple same-type text annotations in insertion order and ignores legacy singleton values', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        note: { text: 'legacy note', position: 'bottom-center', fontSize: 14, color: '#374151' },
+        annotations: [
+          annotation({ id: 'first', text: 'first note', position: { x: 0.2, y: 0.3 }, end: { x: 0.2, y: 0.3 } }),
+          annotation({ id: 'second', text: 'second note', position: { x: 0.7, y: 0.4 }, end: { x: 0.7, y: 0.4 } }),
+        ],
+      }),
+    );
+
+    expect(svg.indexOf('>first note<')).toBeGreaterThan(-1);
+    expect(svg.indexOf('>second note<')).toBeGreaterThan(svg.indexOf('>first note<'));
+    expect(svg).not.toContain('legacy note');
+    expect(svg.match(/<text/g)).toHaveLength(2);
+  });
+
+  it('renders multiple arrow annotations in insertion order and ignores the legacy arrow', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        arrow: { type: '→', label: 'legacy arrow', color: '#ef4444', thickness: 2 },
+        arrowPoints: { start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
+        annotations: [
+          annotation({
+            id: 'first-arrow',
+            type: 'arrow',
+            position: { x: 0.1, y: 0.2 },
+            end: { x: 0.4, y: 0.2 },
+            text: 'first arrow',
+            color: '#2563eb',
+            thickness: 3,
+          }),
+          annotation({
+            id: 'second-arrow',
+            type: 'arrow',
+            position: { x: 0.6, y: 0.7 },
+            end: { x: 0.9, y: 0.7 },
+            text: 'second arrow',
+            color: '#16a34a',
+            thickness: 4,
+          }),
+        ],
+      }),
+    );
+
+    expect(svg).not.toContain('legacy arrow');
+    expect(svg.match(/<line/g)).toHaveLength(2);
+    expect(svg.indexOf('>first arrow<')).toBeGreaterThan(-1);
+    expect(svg.indexOf('>second arrow<')).toBeGreaterThan(svg.indexOf('>first arrow<'));
+    expect(svg).toContain('x1="60" y1="80" x2="240" y2="80" stroke="#2563eb" stroke-width="3"');
+    expect(svg).toContain('x1="360" y1="280" x2="540" y2="280" stroke="#16a34a" stroke-width="4"');
+  });
+
+  it('renders a rectangle from normalized corners using the minimum position and a none fill by default', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        annotations: [annotation({
+          id: 'rectangle',
+          type: 'rectangle',
+          position: { x: 0.8, y: 0.7 },
+          end: { x: 0.2, y: 0.3 },
+          color: '#f97316',
+          bgColor: 'none',
+          thickness: 5,
+        })],
+      }),
+    );
+
+    expect(svg).toContain('<rect x="120" y="120" width="360" height="160" fill="none" stroke="#f97316" stroke-width="5"');
+  });
+
+  it('renders an annotation callout using end as its normalized tip and escapes its text', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        annotations: [annotation({
+          id: 'callout',
+          type: 'callout',
+          position: { x: 0.5, y: 0.5 },
+          end: { x: 0.5, y: 0.75 },
+          text: 'A & <B> "quoted"',
+          color: '#1e293b',
+          bgColor: '#fffde7',
+          fontSize: 14,
+        })],
+      }),
+    );
+
+    expect(svg).toContain('L 300 300 L');
+    expect(svg).toContain('A &amp; &lt;B&gt; &quot;quoted&quot;');
+    expect(svg).not.toContain('A & <B> "quoted"');
+    expect(svg).not.toContain('textLength=');
+  });
+
+  it('fits an overlong callout label to the capped box only when its measured width exceeds the available width', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        annotations: [annotation({
+          id: 'long-callout',
+          type: 'callout',
+          position: { x: 0.5, y: 0.5 },
+          end: { x: 0.5, y: 0.5 },
+          text: 'x'.repeat(200),
+          bgColor: '#fffde7',
+        })],
+      }),
+    );
+
+    expect(svg).toContain('textLength="512" lengthAdjust="spacingAndGlyphs"');
+  });
+
+  it('renders the watermark exactly once after all annotations', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        watermark: { text: 'Watermark', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'diagonal' },
+        annotations: [
+          annotation({ id: 'first', text: 'first note' }),
+          annotation({ id: 'second', type: 'rectangle', end: { x: 0.5, y: 0.5 } }),
+        ],
+      }),
+    );
+
+    expect(svg.match(/>Watermark</g)).toHaveLength(1);
+    expect(svg.lastIndexOf('>Watermark<')).toBeGreaterThan(svg.lastIndexOf('<rect'));
+  });
+
+  it('scales normalized annotation coordinates, font sizes, and thickness from the capture width', () => {
+    const svg = buildOverlaySvg(
+      1200,
+      800,
+      baseOptions({
+        annotations: [
+          annotation({ id: 'note', text: 'scaled note', position: { x: 0.25, y: 0.5 }, end: { x: 0.25, y: 0.5 }, fontSize: 14 }),
+          annotation({ id: 'arrow', type: 'arrow', position: { x: 0.1, y: 0.25 }, end: { x: 0.4, y: 0.25 }, thickness: 3 }),
+          annotation({ id: 'rectangle', type: 'rectangle', position: { x: 0.2, y: 0.3 }, end: { x: 0.5, y: 0.6 }, thickness: 4 }),
+        ],
+      }),
+    );
+
+    expect(svg).toContain('<text x="300" y="400" font-size="28"');
+    expect(svg).toContain('x1="120" y1="200" x2="480" y2="200" stroke="#374151" stroke-width="6"');
+    expect(svg).toContain('<rect x="240" y="240" width="360" height="240" fill="none" stroke="#374151" stroke-width="8"');
   });
 
   it('escapes &, <, >, and " in note text', () => {

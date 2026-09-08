@@ -104,4 +104,22 @@ describe("ForeignDialectHint (#373)", () => {
       detected_dialect: "plantuml",
     }));
   });
+
+  // Editor.vue's error-clearing watcher keys off the `code` computed's VALUE,
+  // not off diagramType. switchToPlantUml() moves the exact same source
+  // string from diagram.code into diagram.plantUmlCode, so the computed's
+  // value is unchanged across the switch and the watcher never fires — the
+  // stale Sequence-tab error stays in store.state.error even though the
+  // PlantUML tab is now showing valid, unrelated source.
+  it("clears a stale error left over from the Sequence tab when switching to PlantUML", async () => {
+    store.commit("updateCode2", ISSUE_373_REPRO);
+    store.commit("updateError", "Sequence syntax error: at line 1, column 0: leftover from before the paste");
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.error).toBeNull();
+  });
 });

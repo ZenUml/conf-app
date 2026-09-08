@@ -123,3 +123,93 @@ describe("ForeignDialectHint (#373)", () => {
     expect(store.state.error).toBeNull();
   });
 });
+
+const MERMAID_ER = `erDiagram
+    USER {
+        uuid id PK
+    }
+    ORDER {
+        uuid id PK, FK
+    }
+    USER ||--o{ ORDER : places`;
+
+describe("ForeignDialectHint — mermaid", () => {
+  let activeWrapper;
+
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    store.commit("updateDiagramType", DiagramType.Sequence);
+    store.commit("updateCode2", "");
+    store.commit("updateMermaidCode", "");
+    store.commit("updatePlantUmlCode", "");
+  });
+
+  afterEach(() => {
+    activeWrapper?.unmount();
+    activeWrapper = null;
+  });
+
+  it("appears for a pasted Mermaid erDiagram with Mermaid-specific copy and fires shown once", async () => {
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    store.commit("updateCode2", MERMAID_ER);
+    await wrapper.vm.$nextTick();
+
+    const hint = wrapper.find('[data-testid="foreign-dialect-hint"]');
+    expect(hint.exists()).toBe(true);
+    expect(hint.text()).toContain("Mermaid");
+    expect(hint.text()).not.toContain("PlantUML");
+    expect(wrapper.find('[data-testid="foreign-dialect-switch"]').text()).toBe("Switch to Mermaid");
+    expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("foreign_dialect_hint_shown", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: DiagramType.Sequence,
+      detected_dialect: "mermaid",
+    });
+  });
+
+  it("switching to Mermaid moves the code, changes the diagram type, and fires switch_clicked", async () => {
+    store.commit("updateCode2", MERMAID_ER);
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    expect(store.state.diagram.mermaidCode).toBe(MERMAID_ER);
+    // The other tabs' sources are left alone: switching is a move into the
+    // Mermaid tab, not a reset of the whole diagram.
+    expect(store.state.diagram.plantUmlCode || "").toBe("");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("foreign_dialect_hint_switch_clicked", expect.objectContaining({
+      detected_dialect: "mermaid",
+    }));
+  });
+
+  // Same stale-error mechanism as the PlantUML switch (see #642): Editor.vue's
+  // error-clearing watcher keys off its `code` computed's value, which is
+  // unchanged across this switch (the source just moved from diagram.code to
+  // diagram.mermaidCode), so the watcher never fires on its own.
+  it("clears a stale error left over from the Sequence tab when switching to Mermaid", async () => {
+    store.commit("updateCode2", MERMAID_ER);
+    store.commit("updateError", "Sequence syntax error: at line 1, column 0: leftover from before the paste");
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.error).toBeNull();
+  });
+
+  it("does not appear once the diagram type is already Mermaid", async () => {
+    store.commit("updateMermaidCode", MERMAID_ER);
+    store.commit("updateDiagramType", DiagramType.Mermaid);
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+  });
+});

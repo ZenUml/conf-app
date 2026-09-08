@@ -25,16 +25,16 @@
           <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path>
           <path d="M12 17h.01"></path>
         </svg>
-        <span>This looks like PlantUML, not ZenUML — it will render, but the lifelines will be wrong.</span>
+        <span>{{ message }}</span>
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <button
           type="button"
           data-testid="foreign-dialect-switch"
           class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded text-sm"
-          @click="switchToPlantUml"
+          @click="switchDialect"
         >
-          Switch to PlantUML
+          {{ switchLabel }}
         </button>
         <button
           type="button"
@@ -51,17 +51,20 @@
 </template>
 
 <script setup>
-// #373: PlantUML pasted into a ZenUML sequence macro parses without error but
-// renders wrong-but-plausible nonsense (see detectForeignDialect.ts for the
-// rationale). This hint is purely additive — it never touches what
-// zenuml.render() produces (Sequence.vue is untouched) — it only tells the
-// user their source looks like the wrong dialect and offers a one-click route
-// to the macro that actually understands it.
+// #373: a foreign-dialect source (PlantUML or, since 2026-09-08, Mermaid)
+// pasted into a ZenUML sequence macro parses without error but renders
+// wrong-but-plausible nonsense or raw ANTLR parser text (see
+// detectForeignDialect.ts for the rationale, dialect by dialect). This hint
+// is purely additive — it never touches what zenuml.render() produces
+// (Sequence.vue is untouched) — it only tells the user their source looks
+// like the wrong dialect and offers a one-click route to the macro that
+// actually understands it.
 //
 // Editor-only by design: the switch action needs the diagram-type store state
-// this editor owns (diagram.code / diagram.plantUmlCode / diagram.diagramType),
-// which only exists on this surface — the read-only viewer has no type
-// switcher to route to, so showing the hint there would be a dead end.
+// this editor owns (diagram.code / diagram.plantUmlCode / diagram.mermaidCode
+// / diagram.diagramType), which only exists on this surface — the read-only
+// viewer has no type switcher to route to, so showing the hint there would be
+// a dead end.
 import { computed, ref, watch } from "vue";
 import { useStore } from "vuex";
 import { DiagramType } from "@/model/Diagram/Diagram";
@@ -73,6 +76,20 @@ const store = useStore();
 const isSequence = computed(() => store.state.diagram.diagramType === DiagramType.Sequence);
 const code = computed(() => (isSequence.value ? store.state.diagram.code : ""));
 const detectedDialect = computed(() => (isSequence.value ? detectForeignDialect(code.value) : null));
+
+const DIALECT_COPY = {
+  plantuml: {
+    message: "This looks like PlantUML, not ZenUML — it will render, but the lifelines will be wrong.",
+    switchLabel: "Switch to PlantUML",
+  },
+  mermaid: {
+    message: "This looks like Mermaid, not ZenUML — switch to the Mermaid tab to render it.",
+    switchLabel: "Switch to Mermaid",
+  },
+};
+
+const message = computed(() => DIALECT_COPY[detectedDialect.value]?.message ?? "");
+const switchLabel = computed(() => DIALECT_COPY[detectedDialect.value]?.switchLabel ?? "");
 
 // Dismissal is scoped to the exact source that triggered it: editing the
 // pasted text (or pasting something new) surfaces the hint again rather than
@@ -102,16 +119,21 @@ function dismiss() {
   dismissedForCode.value = code.value;
 }
 
-function switchToPlantUml() {
+function switchDialect() {
   trackAnalyticsEvent("foreign_dialect_hint_switch_clicked", baseProps());
   const source = code.value;
-  store.dispatch("updatePlantUmlCode", source);
-  store.commit("updateDiagramType", DiagramType.PlantUml);
+  if (detectedDialect.value === "mermaid") {
+    store.dispatch("updateMermaidCode", source);
+    store.commit("updateDiagramType", DiagramType.Mermaid);
+  } else {
+    store.dispatch("updatePlantUmlCode", source);
+    store.commit("updateDiagramType", DiagramType.PlantUml);
+  }
   // Editor.vue's error-clearing watcher keys off its `code` computed's VALUE.
   // Since that source string is unchanged across this switch (it just moved
-  // from diagram.code to diagram.plantUmlCode), the watcher never fires and
-  // the stale Sequence-tab error would otherwise survive into the PlantUML
-  // tab. Clear it explicitly instead of relying on that watcher.
+  // to the target dialect's own field), the watcher never fires and the
+  // stale Sequence-tab error would otherwise survive into the new tab. Clear
+  // it explicitly instead of relying on that watcher (#642).
   store.commit("updateError", null);
 }
 

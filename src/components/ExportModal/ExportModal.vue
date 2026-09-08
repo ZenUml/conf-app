@@ -33,6 +33,7 @@ import { useExportEngine, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 import { readExportSession, writeExportSession } from './exportSession';
+import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
@@ -201,6 +202,36 @@ export default defineComponent({
       });
     }
 
+    /**
+     * Re-encode a captured data URL cropped to the node's measured content.
+     * Returns null when there is nothing to crop or the image cannot be read,
+     * so the caller falls back to the full capture.
+     */
+    async function cropDataUrl(dataUrl: string, node: HTMLElement): Promise<string | null> {
+      const box = measureCaptureCrop(node);
+      if (!box) return null;
+      try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = dataUrl;
+        });
+        const full = document.createElement('canvas');
+        full.width = image.naturalWidth;
+        full.height = image.naturalHeight;
+        const ctx = full.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(image, 0, 0);
+        const scale = node.offsetWidth ? full.width / node.offsetWidth : 1;
+        const cropped = cropCanvasToBox(full, box, scale);
+        return cropped ? cropped.toDataURL('image/png') : null;
+      } catch (error) {
+        console.warn('[ExportModal] preview crop failed:', error);
+        return null;
+      }
+    }
+
     async function capturePreview() {
       const node = resolveCaptureNode();
       if (!node) return;
@@ -217,7 +248,12 @@ export default defineComponent({
           pixelRatio: 2,
           backgroundColor: bgColor,
         });
-        if (captureGen === gen) state.previewDataUrl.value = dataUrl;
+        // Same crop as the export path, measured from the DOM. In fullscreen
+        // the capture node is the layout column, so an uncropped preview shows
+        // a small diagram stranded in viewport-wide whitespace — and every
+        // annotation placed on it would be normalised against that column.
+        const cropped = await cropDataUrl(dataUrl, node);
+        if (captureGen === gen) state.previewDataUrl.value = cropped ?? dataUrl;
       } catch (e) {
         console.warn('[ExportModal] preview capture failed:', e);
       } finally {

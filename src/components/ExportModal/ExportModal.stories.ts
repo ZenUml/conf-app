@@ -66,7 +66,41 @@ const FAKE_DIAGRAM = `
           </div>
         </div>`
 
-function withCaptureStage(args: Args, configureState?: (state: ModalInstance['state']) => void) {
+/**
+ * The fullscreen shape of the bug: GenericViewer gives `.screen-capture-content`
+ * the layout column's width (`width:100%; max-width:1000px`), so a small diagram
+ * is captured inside a box many times its size. Both a ZenUML sequence diagram
+ * and a DrawIO graph land here.
+ */
+const WIDE_COLUMN_SEQUENCE = `
+        <div style="height:0; overflow:hidden;">
+          <div ref="diagramRef" style="width:1000px; padding:24px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;">
+            <div style="display:inline-block;">
+              <div style="font-weight:700; margin-bottom:12px;">Login Flow</div>
+              <div style="display:flex; gap:12px; margin-bottom:8px;"><span>Client</span><span>&rarr;</span><span>Auth</span></div>
+              <div style="display:flex; gap:12px;"><span>Auth</span><span>&rarr;</span><span>200 OK</span></div>
+            </div>
+          </div>
+        </div>`
+
+const WIDE_COLUMN_GRAPH = `
+        <div style="height:0; overflow:hidden;">
+          <div ref="diagramRef" style="width:1000px; padding:24px; background:#ffffff;">
+            <svg width="220" height="110" viewBox="0 0 220 110" xmlns="http://www.w3.org/2000/svg">
+              <rect x="4" y="30" width="80" height="40" rx="4" fill="#ffffff" stroke="#111827"/>
+              <text x="44" y="55" font-size="12" text-anchor="middle" font-family="sans-serif">Start</text>
+              <line x1="84" y1="50" x2="132" y2="50" stroke="#111827"/>
+              <rect x="132" y="30" width="84" height="40" rx="4" fill="#ffffff" stroke="#111827"/>
+              <text x="174" y="55" font-size="12" text-anchor="middle" font-family="sans-serif">Try it here</text>
+            </svg>
+          </div>
+        </div>`
+
+function withCaptureStage(
+  args: Args,
+  configureState?: (state: ModalInstance['state']) => void,
+  markup: string = FAKE_DIAGRAM,
+) {
   return {
     components: { ExportModal },
     setup() {
@@ -83,7 +117,7 @@ function withCaptureStage(args: Args, configureState?: (state: ModalInstance['st
     },
     template: `
       <div>
-        ${FAKE_DIAGRAM}
+        ${markup}
         <ExportModal
           ref="modalRef"
           v-bind="args"
@@ -177,6 +211,34 @@ export const TextMetrics: Story = {
     place(state, 'note', { x: 0.3, y: 0.25 }, { x: 0.3, y: 0.25 }, 'iiiiiiiiii')
     const wide = place(state, 'note', { x: 0.5, y: 0.7 }, { x: 0.5, y: 0.7 }, 'WWWWWWWWWW')
     state.annotations.select(wide.id)
+  }),
+}
+
+/**
+ * A short sequence diagram captured inside the 1000px fullscreen column. The
+ * preview must be the diagram's own size with even padding — not the column
+ * with the diagram pushed to its left edge.
+ */
+export const WideColumnSequence: Story = {
+  name: 'Fullscreen column, short sequence diagram',
+  render: (args: Args) => withCaptureStage(args, undefined, WIDE_COLUMN_SEQUENCE),
+}
+
+/** The same column holding a small DrawIO-style graph. */
+export const WideColumnGraph: Story = {
+  name: 'Fullscreen column, small graph',
+  render: (args: Args) => withCaptureStage(args, undefined, WIDE_COLUMN_GRAPH),
+}
+
+/**
+ * A watermark longer than the default on a shallow diagram: rotated -45° it
+ * used to overrun both edges and lose characters at each end.
+ */
+export const WatermarkLong: Story = {
+  name: 'Long watermark on a shallow diagram',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    state.watermark.text = 'Internal review - Confidential'
+    state.watermarkVisible.value = true
   }),
 }
 

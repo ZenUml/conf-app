@@ -79,7 +79,7 @@ import { computed, ref, toRaw, nextTick, onMounted, onUnmounted } from 'vue';
 import AdsIcon from './AdsIcon.vue';
 import type { ExportState, Point } from './useExportState';
 import type { Annotation, AnnotationType } from './useAnnotations';
-import { isClipboardExportSupported, buildOverlaySvg, measureTextWidth } from './useExportEngine';
+import { isClipboardExportSupported, buildOverlaySvg, measureTextWidth, fitWatermark } from './useExportEngine';
 import { computeCalloutBox, computeTextBox, SANS_FONT_FAMILY, MONO_FONT_FAMILY } from './overlayGeometry';
 import { calculatePreviewFit } from './previewFit';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
@@ -140,7 +140,11 @@ function bounds(item: Annotation) {
   if (item.type === 'rectangle') return { x: Math.min(item.position.x, item.end.x) * 600, y: Math.min(item.position.y, item.end.y) * viewHeight.value, width: Math.abs(item.end.x - item.position.x) * 600, height: Math.abs(item.end.y - item.position.y) * viewHeight.value };
   // scale 1: the overlay's viewBox is always VIEWBOX_REF_W wide, exactly what
   // buildOverlaySvg draws into.
-  const content = { textWidth: measuredWidth(item.text, item.fontSize, SANS_FONT_FAMILY), fontSize: item.fontSize };
+  // While this item is mid-edit, item.text is still the last committed value —
+  // measure the live draft instead so the outline tracks what's being typed
+  // rather than staying pinned to the pre-edit text until Enter commits it.
+  const text = item.id === editingId.value ? draftText.value : item.text;
+  const content = { textWidth: measuredWidth(text, item.fontSize, SANS_FONT_FAMILY), fontSize: item.fontSize };
   const box = item.type === 'callout' ? computeCalloutBox(1, content) : computeTextBox(1, content);
   return { x: item.position.x * 600 - box.width / 2, y: item.position.y * viewHeight.value - box.height / 2, width: box.width, height: box.height };
 }
@@ -149,10 +153,13 @@ function bounds(item: Annotation) {
 // the old hit box. Both the outline and the hit target are placed in the
 // watermark's own rotated frame instead.
 const watermarkBox = computed(() => {
-  const { text, fontSize, position } = state.watermark;
+  const { text, position } = state.watermark;
+  const diagonal = position === 'diagonal';
+  // Same fitting the overlay/export applies, so the outline stays on the glyphs
+  // when a long watermark is shrunk to fit the rotated bounds.
+  const { fontSize } = fitWatermark(text, state.watermark.fontSize, diagonal, 600, viewHeight.value, 16);
   const width = measuredWidth(text, fontSize, MONO_FONT_FAMILY) + 12;
   const height = fontSize * 1.4;
-  const diagonal = position === 'diagonal';
   // Mirrors useExportEngine's watermark placement: centred for diagonal,
   // right-anchored on the baseline EDGE_PADDING-ish inset for bottom-right.
   const cx = diagonal ? 300 : 600 - 16 - width / 2;

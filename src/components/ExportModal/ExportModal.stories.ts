@@ -167,6 +167,33 @@ export const AnnotationsMixed: Story = {
 }
 
 /**
+ * Two labels of equal length and wildly different width. The dashed selection
+ * box and the click target must both track the rendered glyphs — a box derived
+ * from the character count is far too wide for `i`s and too narrow for `W`s.
+ */
+export const TextMetrics: Story = {
+  name: 'Text metrics (narrow vs wide glyphs)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    place(state, 'note', { x: 0.3, y: 0.25 }, { x: 0.3, y: 0.25 }, 'iiiiiiiiii')
+    const wide = place(state, 'note', { x: 0.5, y: 0.7 }, { x: 0.5, y: 0.7 }, 'WWWWWWWWWW')
+    state.annotations.select(wide.id)
+  }),
+}
+
+/**
+ * A diagonal watermark on the canvas, nothing selected. Selection is the
+ * workspace's own state, so click the watermark to check the rest: its outline
+ * and hit target are drawn in the watermark's own rotated frame, so clicking
+ * the visible glyphs — including the lower half — selects it.
+ */
+export const WatermarkPlaced: Story = {
+  name: 'Watermark placed (rotated hit target)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    state.watermarkVisible.value = true
+  }),
+}
+
+/**
  * Close and reopen. The dialog is `v-if`'d on `visible`, so closing unmounts it
  * while ExportModal itself — and the export state it owns — stays alive; the
  * reopen must therefore bring the annotations back and re-run the capture.

@@ -1,15 +1,21 @@
 <template>
-  <section class="export-workspace" aria-label="Export image" @keydown="onKeydown">
+  <section class="export-workspace" aria-label="Export image" :aria-busy="busy" @keydown="onKeydown">
     <header role="toolbar" aria-label="Export tools" class="workspace-toolbar">
       <button aria-label="Close export" data-tooltip="Close" @click="$emit('close')"><AdsIcon glyph="cross" /></button>
       <span class="separator" />
       <button aria-label="Copy image" data-tooltip="Copy image" :disabled="busy || !clipboardSupported" @click="$emit('copy')"><AdsIcon :glyph="state.copySucceeded.value ? 'check' : 'copy'" /></button>
       <button aria-label="Download image" data-tooltip="Download image" :disabled="busy" @click="$emit('export')"><AdsIcon glyph="download" /></button>
       <span class="format-label">PNG</span>
+      <span v-if="busyLabel" class="busy-status" role="status"><span class="spinner" aria-hidden="true" />{{ busyLabel }}</span>
       <span class="separator" />
-      <button aria-label="Select annotations" data-tooltip="Select annotations" :aria-pressed="tool === null" @click="chooseTool(null)"><AdsIcon glyph="select" /></button>
+      <button aria-label="Select and move" data-tooltip="Select and move" :aria-pressed="tool === null && !watermarkSelected" @click="chooseTool(null)"><AdsIcon glyph="select" /></button>
       <button v-for="entry in tools" :key="entry.type" :aria-label="entry.label" :data-tooltip="entry.label" :aria-pressed="tool === entry.type" @click="chooseTool(entry.type)"><AdsIcon :glyph="entry.icon" /></button>
       <button aria-label="Add watermark" data-tooltip="Add watermark" :aria-pressed="watermarkSelected" @click="addWatermark"><AdsIcon glyph="stamp" /></button>
+      <span class="separator" />
+      <!-- Recovery must stay reachable while a preview is on screen: the export
+           error tells the user to refresh, and the only Refresh used to live in
+           the empty-preview placeholder they never see in that state. -->
+      <button aria-label="Refresh preview" data-tooltip="Refresh preview" :disabled="busy" @click="$emit('refresh')"><AdsIcon glyph="refresh" /></button>
       <span class="toolbar-spacer" />
       <label class="background-control">Background
         <select aria-label="Image background" v-model="state.background.value">
@@ -35,7 +41,10 @@
             <circle v-if="selected.type === 'arrow' || selected.type === 'rectangle'" aria-label="Drag start handle" :cx="selected.position.x * 600" :cy="selected.position.y * viewHeight" r="5" @pointerdown.stop="startHandle('start', $event)" />
             <circle v-if="selected.type !== 'note'" aria-label="Drag end handle" :cx="selected.end.x * 600" :cy="selected.end.y * viewHeight" r="5" @pointerdown.stop="startHandle('end', $event)" />
           </g>
-          <rect v-if="state.hasWatermark.value && !tool" aria-label="Select watermark" :x="state.watermark.position === 'diagonal' ? 180 : 380" :y="state.watermark.position === 'diagonal' ? viewHeight / 2 - 30 : viewHeight - 44" :width="state.watermark.position === 'diagonal' ? 240 : 210" height="40" fill="transparent" @pointerdown.stop="selectWatermark" />
+          <g v-if="state.hasWatermark.value" :transform="watermarkBox.transform">
+            <rect v-if="!tool" aria-label="Select watermark" :x="watermarkBox.x" :y="watermarkBox.y" :width="watermarkBox.width" :height="watermarkBox.height" fill="transparent" @pointerdown.stop="selectWatermark" />
+            <rect v-if="watermarkSelected" class="selection-outline" :x="watermarkBox.x" :y="watermarkBox.y" :width="watermarkBox.width" :height="watermarkBox.height" fill="none" stroke="#2563eb" stroke-width="1" stroke-dasharray="4 3" />
+          </g>
         </svg>
         <input v-if="editingId && selected" ref="textInput" class="canvas-text-input" aria-label="Annotation text" :style="{ left: selected.position.x * 100 + '%', top: selected.position.y * 100 + '%', fontSize: selected.fontSize * fit.width / 600 + 'px' }" v-model="draftText" @blur="finishText" @keydown.enter.prevent.stop="finishText" @keydown.escape.prevent.stop="cancelText" />
       </div>
@@ -56,8 +65,11 @@
         <select aria-label="Watermark position" v-model="state.watermark.position"><option value="diagonal">Diagonal</option><option value="bottom-right">Bottom right</option></select>
         <button aria-label="Delete watermark" data-tooltip="Delete watermark" @click="removeWatermark"><AdsIcon glyph="trash" /></button>
       </div>
-      <p v-if="state.exportError.value" role="alert">{{ state.exportError.value }}</p>
-      <p v-if="state.copySucceeded.value" role="status">Image copied to clipboard</p>
+      <!-- Out of the stage's flex row on purpose: as a flex child the alert was
+           squeezed into a clipped column at the right edge and pushed the
+           preview off-centre. -->
+      <p v-if="state.exportError.value" class="stage-message stage-message-error" role="alert">{{ state.exportError.value }}</p>
+      <p v-else-if="state.copySucceeded.value" class="stage-message" role="status">Image copied to clipboard</p>
     </div>
   </section>
 </template>
@@ -67,7 +79,8 @@ import { computed, ref, toRaw, nextTick, onMounted, onUnmounted } from 'vue';
 import AdsIcon from './AdsIcon.vue';
 import type { ExportState, Point } from './useExportState';
 import type { Annotation, AnnotationType } from './useAnnotations';
-import { isClipboardExportSupported, buildOverlaySvg } from './useExportEngine';
+import { isClipboardExportSupported, buildOverlaySvg, measureTextWidth } from './useExportEngine';
+import { computeCalloutBox, computeTextBox, SANS_FONT_FAMILY, MONO_FONT_FAMILY } from './overlayGeometry';
 import { calculatePreviewFit } from './previewFit';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { Surface, MacroTypeValue } from '@/utils/analytics/catalog';
@@ -108,12 +121,50 @@ function imageLoaded(event: Event) {
     state.previewNaturalHeight.value = img.naturalHeight / 2;
   }
 }
+// Character count times font size is not a width: `iiiiiiiiii` and
+// `WWWWWWWWWW` measure nothing alike, so the dashed outline sat far from the
+// glyphs and clicks near a wide letter missed the annotation entirely. Both
+// the outline and the hit target now come from the same measurement and the
+// same box helpers the rendered overlay draws from.
+const textWidthCache = new Map<string, number>();
+function measuredWidth(text: string, fontSize: number, fontFamily: string): number {
+  const key = `${fontFamily}|${fontSize}|${text}`;
+  let width = textWidthCache.get(key);
+  if (width === undefined) {
+    width = measureTextWidth(text, fontSize, fontFamily);
+    textWidthCache.set(key, width);
+  }
+  return width;
+}
 function bounds(item: Annotation) {
   if (item.type === 'rectangle') return { x: Math.min(item.position.x, item.end.x) * 600, y: Math.min(item.position.y, item.end.y) * viewHeight.value, width: Math.abs(item.end.x - item.position.x) * 600, height: Math.abs(item.end.y - item.position.y) * viewHeight.value };
-  const width = Math.max(24, item.text.length * item.fontSize * 0.65 + (item.type === 'callout' ? 28 : 8));
-  const height = item.fontSize * 1.35 + (item.type === 'callout' ? 16 : 8);
-  return { x: item.position.x * 600 - width / 2, y: item.position.y * viewHeight.value - height / 2, width, height };
+  // scale 1: the overlay's viewBox is always VIEWBOX_REF_W wide, exactly what
+  // buildOverlaySvg draws into.
+  const content = { textWidth: measuredWidth(item.text, item.fontSize, SANS_FONT_FAMILY), fontSize: item.fontSize };
+  const box = item.type === 'callout' ? computeCalloutBox(1, content) : computeTextBox(1, content);
+  return { x: item.position.x * 600 - box.width / 2, y: item.position.y * viewHeight.value - box.height / 2, width: box.width, height: box.height };
 }
+// The watermark is drawn rotated, so an axis-aligned rectangle over it covers
+// the wrong pixels: the visible lower half of a diagonal watermark sat outside
+// the old hit box. Both the outline and the hit target are placed in the
+// watermark's own rotated frame instead.
+const watermarkBox = computed(() => {
+  const { text, fontSize, position } = state.watermark;
+  const width = measuredWidth(text, fontSize, MONO_FONT_FAMILY) + 12;
+  const height = fontSize * 1.4;
+  const diagonal = position === 'diagonal';
+  // Mirrors useExportEngine's watermark placement: centred for diagonal,
+  // right-anchored on the baseline EDGE_PADDING-ish inset for bottom-right.
+  const cx = diagonal ? 300 : 600 - 16 - width / 2;
+  const cy = diagonal ? viewHeight.value / 2 : viewHeight.value - 16 - fontSize * 0.35;
+  return {
+    x: cx - width / 2,
+    y: cy - height / 2,
+    width,
+    height,
+    transform: diagonal ? `rotate(-45, ${cx}, ${cy})` : '',
+  };
+});
 function track(action: 'created' | 'changed' | 'deleted', type: AnnotationType | 'watermark', change?: 'text' | 'style' | 'move' | 'resize') {
   trackAnalyticsEvent(`export_annotation_${action}`, { feature_area: 'macro', surface: props.surface ?? 'modal', macro_type: props.macroType ?? 'none', annotation_type: type, annotation_count: state.annotations.items.value.length + Number(state.hasWatermark.value), ...(change ? { annotation_change: change } : {}) });
 }
@@ -238,7 +289,9 @@ function onKeydown(event: KeyboardEvent) {
   if ((event.target as HTMLElement).matches('input,select,textarea')) return;
   if (event.key === 'Escape' && drag) { pointerCancel(); event.stopPropagation(); event.preventDefault(); return; }
   if (event.key === 'Escape' && (tool.value || selected.value || watermarkSelected.value)) {
-    chooseTool(null); event.stopPropagation(); event.preventDefault();
+    // Escape is the explicit "drop everything" key, so it still clears the
+    // selection that chooseTool(null) now preserves.
+    chooseTool(null); deselect(); event.stopPropagation(); event.preventDefault();
   } else if ((event.key === 'Delete' || event.key === 'Backspace') && (selected.value || watermarkSelected.value)) {
     if (watermarkSelected.value) removeWatermark(); else deleteSelected();
     event.preventDefault(); event.stopPropagation();
@@ -246,20 +299,36 @@ function onKeydown(event: KeyboardEvent) {
 }
 const clipboardSupported = isClipboardExportSupported();
 const busy = computed(() => props.waitingForPreview || state.isCapturing.value || state.isExporting.value || state.isCopying.value);
+// A dimmed button reads as "unavailable", not as "working" — the export used to
+// run with no progress signal at all. The stage already announces its own
+// "Preparing preview…", so this covers only the two actions the user starts.
+const busyLabel = computed(() => {
+  if (state.isExporting.value) return 'Exporting…';
+  if (state.isCopying.value) return 'Copying…';
+  return '';
+});
 const tools = [
   { type: 'note', label: 'Add text', icon: 'text' },
   { type: 'arrow', label: 'Add arrow', icon: 'arrow' },
   { type: 'callout', label: 'Add callout', icon: 'comment' },
   { type: 'rectangle', label: 'Add rectangle', icon: 'rectangle' },
 ] as const;
+// Select is the select/move mode, not a "clear" button: returning to it from a
+// drawing tool must leave the current selection — and its properties bar —
+// standing, or the user loses what they were editing by putting the pen down.
+// Arming a drawing tool still clears, because the next click creates something.
 function chooseTool(value: AnnotationType | null) {
   tool.value = value;
-  watermarkSelected.value = false;
-  state.annotations.select(null);
-  if (value) trackAnalyticsEvent('export_annotation_tool_clicked', { feature_area: 'macro', surface: props.surface ?? 'modal', macro_type: props.macroType ?? 'none', tool: value });
+  if (value) {
+    watermarkSelected.value = false;
+    state.annotations.select(null);
+    trackAnalyticsEvent('export_annotation_tool_clicked', { feature_area: 'macro', surface: props.surface ?? 'modal', macro_type: props.macroType ?? 'none', tool: value });
+  }
 }
 function addWatermark() {
   chooseTool(null);
+  // The watermark becomes the selection, so nothing else may stay selected.
+  state.annotations.select(null);
   const alreadyVisible = state.watermarkVisible.value;
   state.watermarkVisible.value = true;
   watermarkSelected.value = true;
@@ -285,6 +354,10 @@ button[data-tooltip]:hover::after,button[data-tooltip]:focus-visible::after { op
 .separator { height:24px; width:1px; background:#e5e7eb; margin:0 4px; }
 .toolbar-spacer { flex:1; }
 .format-label { font-size:12px; color:#6b7280; }
+.busy-status { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#374151; white-space:nowrap; }
+.spinner { width:12px; height:12px; border:2px solid #d1d5db; border-top-color:#2563eb; border-radius:50%; animation:workspace-spin 700ms linear infinite; }
+@keyframes workspace-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .spinner { animation-duration:2.4s; } }
 .image-meta { border-left:1px solid #e5e7eb; padding-left:16px; white-space:nowrap; font-size:12px; }
 .image-meta small { display:block; color:#9ca3af; }
 .background-control { display:flex; gap:6px; align-items:center; font-size:12px; }
@@ -304,6 +377,8 @@ input[type=color] { width:28px; height:28px; padding:2px; }
 .context-tools input[type=number] { width:48px; }
 .empty-preview { text-align:center; }
 .context-tools { position:absolute; top:12px; right:16px; display:flex; align-items:center; gap:8px; padding:6px 8px; background:white; box-shadow:0 1px 4px #0000001a; border:1px solid #e5e7eb; border-radius:6px; z-index:2; }
+.stage-message { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); max-width:min(560px,calc(100% - 32px)); margin:0; padding:8px 12px; border-radius:6px; background:white; border:1px solid #e5e7eb; box-shadow:0 1px 4px #0000001a; text-align:center; line-height:1.4; z-index:2; }
+.stage-message-error { border-color:#fecaca; background:#fef2f2; color:#b91c1c; }
 .context-tools label { display:flex; align-items:center; gap:4px; font-size:12px; }
 .context-tools input[type=range] { width:72px; }
 @media(max-width:900px) { .background-control { font-size:0; } .background-control select { font-size:12px; } .workspace-toolbar { gap:4px; padding:0 8px; } .image-meta { padding-left:8px; } }

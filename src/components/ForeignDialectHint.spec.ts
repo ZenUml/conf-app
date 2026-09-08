@@ -141,6 +141,7 @@ describe("ForeignDialectHint — mermaid", () => {
     store.commit("updateDiagramType", DiagramType.Sequence);
     store.commit("updateCode2", "");
     store.commit("updateMermaidCode", "");
+    store.commit("updatePlantUmlCode", "");
   });
 
   afterEach(() => {
@@ -179,6 +180,8 @@ describe("ForeignDialectHint — mermaid", () => {
 
     expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
     expect(store.state.diagram.mermaidCode).toBe(MERMAID_ER);
+    // The other tabs' sources are left alone: switching is a move into the
+    // Mermaid tab, not a reset of the whole diagram.
     expect(store.state.diagram.plantUmlCode || "").toBe("");
     expect(trackAnalyticsEvent).toHaveBeenCalledWith("foreign_dialect_hint_switch_clicked", expect.objectContaining({
       detected_dialect: "mermaid",

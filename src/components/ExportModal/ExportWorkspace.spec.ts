@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import ExportWorkspace from './ExportWorkspace.vue';
 import { useExportState } from './useExportState';
 import { computeCalloutBox, computeTextBox } from './overlayGeometry';
+import { watermarkGeometry } from './useExportEngine';
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
 
 // jsdom has no canvas text metrics, so the real measurement collapses to a
@@ -120,6 +121,81 @@ describe('export workspace', () => {
     wrapper.unmount();
   });
 
+  it('changes annotation text color through the usable palette and serialized overlay', async () => {
+    const { state, wrapper, canvas } = mountWithPreview();
+    await placeText(wrapper, canvas, 'Color me');
+
+    const color = wrapper.get('[aria-label="Annotation color"]');
+    await color.trigger('click');
+    expect(wrapper.get('[aria-label="Annotation color choices"]')).toBeTruthy();
+    await wrapper.get('[aria-label="Blue"]').trigger('click');
+
+    expect(state.annotations.items.value[0].color).toBe('#2563eb');
+    expect(wrapper.get('.rendered-annotations').html()).toContain('fill="#2563eb"');
+    expect(wrapper.get('[aria-label="Annotation color"]').attributes('aria-expanded')).toBe('false');
+    wrapper.unmount();
+  });
+
+  it('accepts a validated custom hex color without relying on the native picker', async () => {
+    const { state, wrapper, canvas } = mountWithPreview();
+    await placeText(wrapper, canvas, 'Custom color');
+    await wrapper.get('[aria-label="Annotation color"]').trigger('click');
+    const input = wrapper.get('[aria-label="Custom annotation color"]');
+    await input.setValue('#12abef');
+    await wrapper.get('.color-apply').trigger('click');
+
+    expect(state.annotations.items.value[0].color).toBe('#12abef');
+    expect(wrapper.get('.rendered-annotations').html()).toContain('fill="#12abef"');
+    wrapper.unmount();
+  });
+
+  it('explains and disables Apply for an invalid custom color', async () => {
+    const { wrapper, canvas } = mountWithPreview();
+    await placeText(wrapper, canvas, 'Invalid color');
+    await wrapper.get('[aria-label="Annotation color"]').trigger('click');
+    const input = wrapper.get('[aria-label="Custom annotation color"]');
+    await input.setValue('oops');
+
+    expect(input.attributes('aria-invalid')).toBe('true');
+    expect(wrapper.get('#color-format-error').text()).toBe('Use #RRGGBB');
+    expect(wrapper.get('.color-apply').attributes('disabled')).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it('resets an open color menu when selecting another annotation', async () => {
+    const { state, wrapper, canvas } = mountWithPreview();
+    await placeText(wrapper, canvas, 'First');
+    const second = state.annotations.add('note', { x: 0.7, y: 0.5 });
+    state.annotations.update(second.id, { text: 'Second' });
+    await wrapper.vm.$nextTick();
+    await wrapper.get('[aria-label="Annotation color"]').trigger('click');
+    expect(wrapper.find('[aria-label="Annotation color choices"]').exists()).toBe(true);
+
+    await wrapper.findAll('[data-annotation-id]')[1].trigger('pointerdown', { clientX: 420, clientY: 200, button: 0 });
+    await canvas.trigger('pointerup', { clientX: 420, clientY: 200 });
+    expect(wrapper.find('[aria-label="Annotation color choices"]').exists()).toBe(false);
+    expect(wrapper.get('[aria-label="Annotation color"]').attributes('aria-expanded')).toBe('false');
+    expect(wrapper.get('[aria-label="Annotation color"]').attributes('data-tooltip')).toBe('Annotation color');
+    wrapper.unmount();
+  });
+
+  it('uses the app-owned custom background palette and validated hex input', async () => {
+    const { state, wrapper } = mountWithPreview();
+    state.background.value = 'custom';
+    await wrapper.vm.$nextTick();
+    await wrapper.get('[aria-label="Custom background color"]').trigger('click');
+    await wrapper.get('[aria-label="Warm"]').trigger('click');
+    expect(state.customBgColor.value).toBe('#fffbf0');
+
+    await wrapper.get('[aria-label="Custom background color"]').trigger('click');
+    const input = wrapper.get('[aria-label="Custom background hex"]');
+    await input.setValue('#123456');
+    await input.trigger('keydown', { key: 'Enter' });
+    expect(state.customBgColor.value).toBe('#123456');
+    expect(wrapper.find('[aria-label="Custom background color choices"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('tracks the live draft width while re-editing, not the last committed text', async () => {
     const { state, wrapper, canvas } = mountWithPreview();
     await placeText(wrapper, canvas, 'iiiiiiiiii');
@@ -166,6 +242,19 @@ describe('export workspace', () => {
     const hit = wrapper.get('[aria-label="Select watermark"]');
     expect(hit.element.parentElement?.getAttribute('transform')).toMatch(/^rotate\(-45,/);
     expect(wrapper.find('.selection-outline').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('sizes a shallow long-watermark hit box to the fitted SVG glyph width', async () => {
+    const { state, wrapper } = mountWithPreview();
+    state.previewNaturalWidth.value = 600;
+    state.previewNaturalHeight.value = 70;
+    state.watermark.text = 'Internal review - Confidential';
+    state.watermarkVisible.value = true;
+    await wrapper.get('[aria-label="Add watermark"]').trigger('click');
+    const geometry = watermarkGeometry(state.watermark.text, state.watermark.fontSize, true, 600, 600 * 70 / 600, 16);
+    expect(Number(wrapper.get('.selection-outline').attributes('width'))).toBeCloseTo(geometry.renderedWidth + 12, 5);
+    expect(Number(wrapper.get('.selection-outline').attributes('height'))).toBeCloseTo(geometry.fontSize * 1.4, 5);
     wrapper.unmount();
   });
 

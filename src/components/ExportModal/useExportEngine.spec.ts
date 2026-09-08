@@ -11,6 +11,7 @@ import {
   isClipboardExportSupported,
   buildOverlaySvg,
   fitWatermark,
+  watermarkGeometry,
   measureTextWidth,
   type ExportOptions,
 } from './useExportEngine';
@@ -59,6 +60,45 @@ describe('fitWatermark', () => {
     const result = fitWatermark('x'.repeat(400), 24, true, W, H, PADDING);
     expect(result.fontSize).toBe(8);
     expect(result.fitAttributes).toMatch(/textLength="[\d.]+" lengthAdjust="spacingAndGlyphs"/);
+  });
+
+  it('reports the post-textLength width used by the SVG renderer', () => {
+    const geometry = watermarkGeometry('Internal review - Confidential', 24, true, 600, 70, 16);
+    const svg = buildOverlaySvg(600, 70, baseOptions({
+      watermark: { text: 'Internal review - Confidential', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'diagonal' },
+    }));
+    expect(geometry.renderedWidth).toBeGreaterThan(0);
+    expect(svg).toContain(`textLength="${geometry.renderedWidth}"`);
+  });
+
+  it('keeps nonempty watermark text visible on a positive tiny canvas', () => {
+    const geometry = watermarkGeometry('Tiny canvas watermark', 24, true, 20, 10, 16);
+    const svg = buildOverlaySvg(20, 10, baseOptions({
+      watermark: { text: 'Tiny canvas watermark', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'diagonal' },
+    }));
+    expect(geometry.fontSize).toBeGreaterThan(0);
+    expect(geometry.renderedWidth).toBeGreaterThan(0);
+    expect(svg).toContain('>Tiny canvas watermark<');
+    expect(svg).not.toContain('textLength="0"');
+  });
+
+  it('keeps a tiny bottom-right watermark inside the actual SVG bounds', () => {
+    const svg = buildOverlaySvg(20, 10, baseOptions({
+      watermark: { text: 'Tiny canvas watermark', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'bottom-right' },
+    }));
+    const text = svg.match(/<text[^>]*>Tiny canvas watermark<\/text>/)?.[0];
+    expect(text).not.toBeNull();
+    const x = text!.match(/x="([\d.]+)"/)![1];
+    const y = text!.match(/y="([\d.]+)"/)![1];
+    const fontSize = text!.match(/font-size="([\d.]+)"/)![1];
+    const geometry = watermarkGeometry('Tiny canvas watermark', 24 * 20 / 600, false, 20, 10, 16 * 20 / 600);
+    // The 1.2 line-height is the watermark's documented vertical footprint.
+    expect(Number(x)).toBeGreaterThan(0);
+    expect(Number(x)).toBeLessThan(20);
+    expect(Number(y)).toBeGreaterThan(0);
+    expect(Number(y)).toBeLessThan(10);
+    expect(Number(fontSize) * 1.2).toBeLessThanOrEqual(10);
+    expect(geometry.renderedWidth).toBeGreaterThan(0);
   });
 
   it('fits a bottom-right watermark to the width it is anchored in', () => {

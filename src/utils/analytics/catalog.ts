@@ -321,9 +321,13 @@ export type AnalyticsEventName =
   | "export_png_succeeded"
   | "export_png_failed"
   | "export_png_dismissed"
-  | "ai_generation_requested"
-  | "ai_generation_succeeded"
-  | "ai_generation_failed"
+  // Renamed 2026-09-08 from `ai_generation_*`: these three are the AI *title*
+  // generator in useAutoTitle.ts (97% fire automatically on editor init), not a
+  // text->diagram feature. Data before the first release carrying this commit
+  // lives under the old names — see the mixpanel skill's rename table.
+  | "ai_title_generation_requested"
+  | "ai_title_generation_succeeded"
+  | "ai_title_generation_failed"
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
@@ -900,7 +904,7 @@ export type AnalyticsEventName =
   // (keyed by `template_id`) is the per-template pull signal the JTBD's
   // success metric needs ("editor_template_applied share of new creates").
   // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
-  // here (deferred 2026-08-03) — its ai_generation_* events already exist
+  // here (deferred 2026-08-03) — its ai_title_generation_* events already exist
   // above and are reused, not redefined, when that lands.
   | "editor_template_gallery_opened"
   | "editor_template_applied"

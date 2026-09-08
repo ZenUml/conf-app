@@ -48,7 +48,7 @@ Errors are grouped by the phase of the macro lifecycle where they occur. All emi
 | **Orphan errors** | `customcontent_orphan_observed`, `load_custom_content_v2_missing` | Load: CC ID no longer resolves | Track orphan total, `recovery_used=false`, and `v2_missing` separately; `v2_missing` spike without matching orphan spike = gap in orphan detection |
 | **Export errors** | `attachment_upload_failed` | Export/PNG write | Any spike means export broken |
 
-_Avoid_: calling all `*_failed` events "errors" without grouping — they have different severities and owners. AI generation failures (`ai_generation_failed`) and feature-flag fetch failures (`feature_flags_fetch_failed`) are soft degradations, not core errors.
+_Avoid_: calling all `*_failed` events "errors" without grouping — they have different severities and owners. AI generation failures (`ai_title_generation_failed`) and feature-flag fetch failures (`feature_flags_fetch_failed`) are soft degradations, not core errors.
 
 ## Flagged ambiguities
 

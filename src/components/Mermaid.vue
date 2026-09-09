@@ -23,6 +23,7 @@
       <div
         ref="viewport"
         class="mermaid-zoom-viewport"
+        :style="viewportStyle"
         :class="{
           'mermaid-zoom-viewport--zoomed': isZoomed,
           'mermaid-zoom-viewport--grabbable': canPan,
@@ -112,6 +113,17 @@ import * as renderPerf from '@/utils/analytics/renderPerf';
 // One trackpad swipe is dozens of events for a single intent.
 const GESTURE_IDLE_MS = 400;
 
+// The smallest window a zoomed diagram is explored through. A transform does
+// not change layout, so a zoomed diagram is clipped to the box it already
+// occupied — which is the right answer for a tall diagram (the macro keeps its
+// footprint and the reader pans) and a useless one for a short wide diagram,
+// the shape most likely to have been shrunk in the first place: measured in a
+// 562px column, a one-row flowchart occupies 66px, and magnifying it 2x inside
+// 66px is a peephole, not a zoom. So a zoomed viewport may grow — never past
+// what the drawing needs, never past this, and never at all for a diagram
+// already taller than it. It shrinks back on reset.
+const MIN_ZOOMED_VIEWPORT_PX = 320;
+
 export default {
   name: "Mermaid",
   data() {
@@ -174,6 +186,20 @@ export default {
     },
     isZoomed() {
       return !sameScale(this.naturalScale, this.fitScale);
+    },
+    /**
+     * The zoomed viewport's height. Absent (null) at the fit level, so the
+     * untouched diagram carries no inline height and the Forge iframe keeps
+     * sizing itself from the diagram exactly as before.
+     */
+    viewportStyle() {
+      if (!this.isZoomed) return null;
+      const fitHeight = this.baseSize.height;
+      if (!(fitHeight > 0)) return null;
+      const height = Math.min(this.scaledSize.height, Math.max(fitHeight, MIN_ZOOMED_VIEWPORT_PX));
+      // Growing is the point; shrinking below the diagram's own box is not.
+      if (height <= fitHeight) return null;
+      return { height: `${Math.round(height)}px` };
     },
     canvasStyle() {
       // No style object at all at the fit level: the untouched diagram keeps

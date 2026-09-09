@@ -550,6 +550,19 @@ export const MermaidInlinePanZoom: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    // The page viewer has no parent height to inherit and svg-pan-zoom removes the
+    // viewBox, so without a ratio on the box the SVG collapses to the browser's
+    // 150px default and the drawing is squeezed into a fraction of it. Assert the
+    // drawing fills the box in BOTH axes rather than a fixed pixel height, so the
+    // check holds at any column width.
+    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    const drawing = document.querySelector<SVGGraphicsElement>('.mermaid-viewport svg > g.svg-pan-zoom_viewport')
+    await waitFor(() => {
+      const box = viewport!.getBoundingClientRect()
+      const drawn = drawing!.getBoundingClientRect()
+      expect(drawn.width / box.width).toBeGreaterThan(0.95)
+      expect(drawn.height / box.height).toBeGreaterThan(0.8)
+    })
   },
 }
 

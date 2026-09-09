@@ -269,6 +269,25 @@ export const Mermaid: Story = {
     await expect(canvas.getByRole('toolbar', { name: 'Mermaid zoom controls' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    await waitFor(() => {
+      const viewerCanvas = document.querySelector<HTMLElement>('.viewer-canvas')
+      const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+      const svg = document.querySelector<SVGElement>('.mermaid-diagram svg')
+      if (!viewerCanvas || !viewport || !svg) throw new Error('Mermaid fullscreen surface is missing')
+
+      const canvasStyle = getComputedStyle(viewerCanvas)
+      const availableHeight = viewerCanvas.getBoundingClientRect().height
+        - Number.parseFloat(canvasStyle.paddingTop)
+        - Number.parseFloat(canvasStyle.paddingBottom)
+      const viewportHeight = viewport.getBoundingClientRect().height
+      const svgHeight = svg.getBoundingClientRect().height
+      if (Math.abs(viewportHeight - availableHeight) > 1 || Math.abs(svgHeight - viewportHeight) > 1) {
+        throw new Error('Mermaid does not fill the fullscreen canvas')
+      }
+      if (getComputedStyle(viewport).backgroundColor !== 'rgba(0, 0, 0, 0)') {
+        throw new Error('Mermaid fullscreen viewport creates a second canvas background')
+      }
+    })
   },
 }
 

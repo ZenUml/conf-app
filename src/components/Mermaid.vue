@@ -1,5 +1,11 @@
 <template>
-  <div class="mermaid-root" :class="{ 'mermaid-root--editor': !isDisplayMode }">
+  <div
+    class="mermaid-root"
+    :class="{
+      'mermaid-root--editor': !isDisplayMode,
+      'mermaid-root--fullscreen': isFullscreenMode,
+    }"
+  >
     <div v-if="!mermaidCode" class="flex flex-col items-center justify-center py-16 px-8 text-center select-none">
       <div class="text-4xl mb-3">🌿</div>
       <div class="text-sm font-semibold text-emerald-700 mb-1">Start with Mermaid</div>
@@ -316,15 +322,24 @@ export default {
   min-height: 0;
 }
 
+.mermaid-root--fullscreen {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
 .mermaid-viewport {
   position: relative;
   width: 100%;
 }
 
 .mermaid-viewport--fullscreen {
-  height: max(280px, calc(100vh - 190px));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .mermaid-viewport--interactive {
@@ -332,8 +347,10 @@ export default {
 }
 
 .mermaid-viewport--fullscreen .mermaid-diagram {
+  position: relative;
+  flex: 1 1 auto;
   width: 100%;
-  height: 100%;
+  min-height: 0;
 }
 
 .mermaid-viewport--interactive .mermaid-diagram :deep(svg) {
@@ -343,6 +360,8 @@ export default {
 }
 
 .mermaid-viewport--fullscreen .mermaid-diagram :deep(svg) {
+  position: absolute;
+  inset: 0;
   height: 100%;
 }
 

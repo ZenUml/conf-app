@@ -10,7 +10,7 @@
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
     <template v-if="!isDisplayMode || hideHeader">
-      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
+      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram, 'screen-capture-content--fill-canvas': fullscreenFillCanvasDiagram}">
         <slot></slot>
       </div>
     </template>
@@ -219,7 +219,7 @@
 
 
           <!-- Canvas + bottom-edge pill -->
-          <div class="viewer-canvas">
+          <div class="viewer-canvas" :class="{'viewer-canvas--fill': fullscreenFillCanvasDiagram}">
             <div v-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
               <div class="viewer-lf-icon-wrap">
                 <svg v-if="hasRetryableFailure" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
@@ -270,7 +270,7 @@
                 </button>
               </div>
             </div>
-            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
+            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram, 'screen-capture-content--fill-canvas': fullscreenFillCanvasDiagram}">
               <slot></slot>
             </div>
             <div
@@ -775,6 +775,9 @@ export default {
     fullscreenUncappedDiagram() {
       if (!this.isFullscreenMode) return false;
       return [DiagramType.PlantUml, DiagramType.Graph, DiagramType.Mermaid].includes(this.diagramType);
+    },
+    fullscreenFillCanvasDiagram() {
+      return this.isFullscreenMode && this.diagramType === DiagramType.Mermaid;
     },
     // Whether the rail actually takes its 316px of the fullscreen width. ConnectPanel
     // has no `idle` branch — before a session exists it renders nothing — and the only
@@ -1821,6 +1824,9 @@ export default {
   background-image: radial-gradient(circle, #D0CEC7 1px, transparent 1px);
   background-size: 20px 20px;
 }
+.viewer-frame--fullscreen .viewer-canvas--fill {
+  padding: 0;
+}
 /* One column, one width: the diagram and the byline under it share this box,
    which is what puts the byline's right edge on the diagram's right edge.
    1000px is the design's number — the diagram stops growing before the text
@@ -1834,6 +1840,15 @@ export default {
    above keeps the 1000px so the byline stays a readable line. */
 .viewer-frame--fullscreen .screen-capture-content--uncapped {
   max-width: none;
+}
+/* Mermaid owns an interactive pan/zoom viewport. In Fullscreen that viewport
+   should consume the canvas's available content box, not create a second,
+   fixed-height board inside it. The wrapper remains the PNG capture root. */
+.viewer-frame--fullscreen .screen-capture-content--fill-canvas {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 /* @zenuml/core's root is `inline-block`, so the frame shrink-wraps the diagram.
    Inline that is right — the macro should not claim a page's width it isn't

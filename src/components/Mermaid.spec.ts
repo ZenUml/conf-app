@@ -293,6 +293,17 @@ describe('Mermaid fullscreen viewport controls', () => {
     });
   });
 
+  it('lets the fullscreen Mermaid surface fill its host canvas', async () => {
+    window.forgeGlobal = {
+      forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
+    } as any;
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(svgPanZoomMock).toHaveBeenCalled());
+    expect(wrapper.get('.mermaid-root').classes()).toContain('mermaid-root--fullscreen');
+  });
+
   it('adds viewport controls to an inline diagram without fullscreen sizing', async () => {
     window.forgeGlobal = { forgeContext: { extension: {} } } as any;
 

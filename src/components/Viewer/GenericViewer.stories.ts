@@ -73,6 +73,10 @@ const SAMPLE_MERMAID_WIDE = `flowchart LR
   Test --> Ship[Ship]
   Review -->|Changes requested| Build
   Test -->|Failed| Build`
+const SAMPLE_MERMAID_EDITOR_SEQUENCE = `sequenceDiagram
+  Alice->>John: Hello John, how are you?
+  John-->>Alice: Great!
+  Alice-)John: See you later!`
 const SAMPLE_SEQUENCE = 'Client->Server: POST /login\nServer-->Client: 200 OK'
 const SAMPLE_PAGE = {
   title: 'Login flow — architecture notes',
@@ -346,7 +350,7 @@ function renderMermaidEditorPreview() {
   return {
     components: { Mermaid },
     template: `
-      <div style="width: 100%; min-height: 440px; padding: 24px; background: #F8F7F4;">
+      <div style="width: 100%; height: 440px; padding: 24px; box-sizing: border-box; background: #F8F7F4;">
         <Mermaid />
       </div>
     `,
@@ -565,8 +569,8 @@ export const MermaidEditorPanZoom: Story = {
     () => {
       configureStory({
         diagramType: DiagramType.Mermaid,
-        title: 'Idea to Ship',
-        mermaidCode: SAMPLE_MERMAID_WIDE,
+        title: 'Alice Greets John',
+        mermaidCode: SAMPLE_MERMAID_EDITOR_SEQUENCE,
         displayMode: false,
       })
       return { template: '<story />' }
@@ -577,6 +581,8 @@ export const MermaidEditorPanZoom: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
   },
 }
 

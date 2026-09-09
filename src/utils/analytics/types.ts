@@ -34,6 +34,8 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  ZoomAction,
+  ZoomInput,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -509,6 +511,17 @@ export type AnalyticsProperties = {
   // the same surface as the `/deeplink-ticket` share-preview endpoint, which
   // is owned by other PRs. See `outcome` above for this event's values.
   link_source?: 'viewer_pill';
+  // Mermaid viewer pan/zoom (viewer_zoom_changed / viewer_diagram_panned —
+  // Mermaid.vue). `zoom_level` is the resulting scale relative to the
+  // diagram's NATURAL size (1 = drawn at the size mermaid emitted, 2 = twice
+  // that), rounded to 2dp; `zoom_fit_scale` is the scale the same diagram
+  // draws at with no zoom, so `zoom_fit_scale < 1` marks the shrunk-to-fit
+  // diagrams this feature was built for. Both ride on the pan event too, so a
+  // drag can be read against the level it happened at.
+  zoom_action?: ZoomAction;
+  zoom_input?: ZoomInput;
+  zoom_level?: number;
+  zoom_fit_scale?: number;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many
   // macros on the page reference the clicked macro's customContentId (absent

@@ -487,6 +487,21 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Mermaid viewer pan/zoom (the reader-side answer to a diagram that was
+  // shrunk to fit its column). `viewer_zoom_changed` fires once per accepted
+  // level change — a click at the clamp changes nothing and emits nothing —
+  // and wheel gestures are coalesced into one event per gesture so a single
+  // trackpad swipe is not 30 events. `zoom_fit_scale` is the scale the diagram
+  // would draw at with no zoom applied: below 1 the reader was looking at a
+  // shrunk diagram, which is the case this feature exists for, and at 1 they
+  // zoomed a diagram that already fit. `viewer_diagram_panned` fires once per
+  // completed drag (pointerup), never per pointermove.
+  //
+  // The denominator is the existing macro_viewed with macro_type 'mermaid' on
+  // the same surface — every mermaid viewer render offers the control, so no
+  // separate impression event is needed.
+  | "viewer_zoom_changed"
+  | "viewer_diagram_panned"
   // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
   // instance; menu_opened fires on every closed -> open transition.
   | "copy_for_ai_impression"
@@ -1054,3 +1069,12 @@ export type AgentLinkListScope = "page" | "space" | "site";
 // Graph (DrawIO) editor chrome. `diagram` is Atlas/standard; `board` is
 // Sketch. Unknown persisted values must normalize to `diagram`.
 export type GraphEditorModeValue = "diagram" | "board";
+
+// Mermaid viewer zoom (viewer_zoom_changed). `in`/`out` are one step of the
+// zoom ladder; `reset` returns the diagram to the fit scale, whatever it was.
+export type ZoomAction = "in" | "out" | "reset";
+
+// Which affordance drove a zoom change. `wheel` is ctrl/cmd+wheel inline and
+// plain wheel in Fullscreen — the inline viewer lives inside a scrolling
+// Confluence page, so an unmodified wheel there must keep scrolling the page.
+export type ZoomInput = "button" | "keyboard" | "wheel";

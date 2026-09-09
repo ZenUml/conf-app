@@ -539,8 +539,8 @@ export const MermaidInlinePanZoom: Story = {
     () => {
       configureStory({
         diagramType: DiagramType.Mermaid,
-        title: 'Idea to Ship',
-        mermaidCode: SAMPLE_MERMAID_WIDE,
+        title: 'Alice Greets John',
+        mermaidCode: SAMPLE_MERMAID_EDITOR_SEQUENCE,
       })
       return { template: '<story />' }
     },
@@ -550,6 +550,8 @@ export const MermaidInlinePanZoom: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
   },
 }
 

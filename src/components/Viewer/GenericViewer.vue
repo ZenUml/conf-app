@@ -754,17 +754,26 @@ export default {
     },
     // The fullscreen column is capped at 1000px so the byline under the diagram keeps a
     // readable line length. That reasoning is about TEXT, so it holds for the types whose
-    // content is text the reader tracks line by line (sequence, mermaid, openapi) and not
-    // for the two rendered-picture types. Measured on lite-stg in a 1280px window:
+    // content is text the reader tracks line by line (sequence, openapi) and not for the
+    // rendered-picture types. Measured on lite-stg in a 1280px window:
     // PlantUML hands back a fixed-size image (6228px on the #626 repro) that overflows
     // the column and scrolls, so capping only makes it scroll sooner; Graph scales to its
     // container (a 1008px board drawn into exactly 1000px), so capping only makes it
     // smaller. Both spend the window's remaining ~230px on nothing. .viewer-footer-row
     // keeps the cap, so the byline stays readable — it just no longer shares the
     // diagram's right edge, which an overflowing diagram does not have on screen anyway.
+    //
+    // Mermaid was grouped with the text types here and left capped. That was a misread:
+    // a mermaid flowchart is a rendered picture, not lines of text a reader tracks, and
+    // it behaves exactly like Graph — normalizeSvgSizing hands it width:100% with
+    // max-width at the diagram's natural width, so it scales DOWN into whatever column
+    // it is given, and the viewer has no zoom control to win that size back. Measured in
+    // a 1920px window: the mermaid column was 1000px where PlantUML got 1864px, so a
+    // diagram wider than 1000px was shrunk while 920px of the window sat empty
+    // (ZEN-1207). Uncapped it draws at its natural width and stops there.
     fullscreenUncappedDiagram() {
       if (!this.isFullscreenMode) return false;
-      return [DiagramType.PlantUml, DiagramType.Graph].includes(this.diagramType);
+      return [DiagramType.PlantUml, DiagramType.Graph, DiagramType.Mermaid].includes(this.diagramType);
     },
     // Whether the rail actually takes its 316px of the fullscreen width. ConnectPanel
     // has no `idle` branch — before a session exists it renders nothing — and the only

@@ -1971,6 +1971,20 @@ describe('GenericViewer (chrome-less)', () => {
         .toContain('screen-capture-content--uncapped')
     })
 
+    // ZEN-1207: mermaid was grouped with the text types and kept the 1000px cap, but it
+    // is a rendered picture that scales down into its column — in a 1920px window it drew
+    // into 1000px while PlantUML got 1864px, and no zoom control exists to recover the
+    // difference. It belongs with Graph, not with the line-by-line text types.
+    it('lets a Mermaid diagram use the full fullscreen width', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .toContain('screen-capture-content--uncapped')
+    })
+
     it('keeps the 1000px column for the text-bearing diagram types', async () => {
       setFullscreen(true)
       const wrapper = mountViewer()
@@ -1979,7 +1993,7 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.screen-capture-content').classes())
         .not.toContain('screen-capture-content--uncapped')
 
-      for (const type of [DiagramType.Mermaid, DiagramType.OpenApi]) {
+      for (const type of [DiagramType.OpenApi]) {
         store.commit('updateDiagramType', type)
         const w = mountViewer()
         await flushPromises()

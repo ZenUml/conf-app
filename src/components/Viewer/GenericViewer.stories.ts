@@ -377,7 +377,7 @@ function renderSequenceViewer(args: Args) {
 // ---------------------------------------------------------------------------
 
 const meta: Meta<typeof GenericViewer> = {
-  title: 'Viewer/GenericViewer',
+  title: 'View/GenericViewer',
   component: GenericViewer,
   parameters: {
     layout: 'padded',

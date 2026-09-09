@@ -262,7 +262,7 @@ function renderStory(args: Args) {
 }
 
 const meta: Meta<typeof RelatedDiagramsFooter> = {
-  title: 'Viewer/RelatedDiagramsFooter',
+  title: 'View/RelatedDiagramsFooter',
   component: RelatedDiagramsFooter,
   parameters: { layout: 'fullscreen' },
   decorators: [

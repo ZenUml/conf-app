@@ -13,7 +13,7 @@ const CREATOR = 'acct-creator'
 const OTHER_AUTHOR = 'acct-other'
 
 const meta: Meta<typeof SecondDiagramPrompt> = {
-  title: 'Viewer/SecondDiagramPrompt',
+  title: 'View/SecondDiagramPrompt',
   component: SecondDiagramPrompt,
   parameters: { layout: 'centered' },
 }

@@ -83,7 +83,7 @@ async function measureTopGap(): Promise<{ gap: number; svgHeight: number; conten
 }
 
 const meta: Meta<typeof Mermaid> = {
-  title: 'Viewer/MermaidSizing',
+  title: 'View/MermaidSizing',
   component: Mermaid,
   parameters: {
     layout: 'fullscreen',

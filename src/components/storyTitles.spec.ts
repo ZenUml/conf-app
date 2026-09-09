@@ -3,15 +3,12 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * The Storybook sidebar is organised by SURFACE — where the UI is mounted inside
- * Confluence — not by component type (atom/molecule/layout). Group names are DERIVED
- * from the UI-bearing values of the `Surface` union in `src/utils/analytics/catalog.ts`
- * so one word names the same thing in Mixpanel, in CONTEXT.md, and in this tree. Three
- * are union values as-is (`Viewer`, `Modal`, `Page banner`); `Editor` is subdivided
- * because the union's single `editor` value covers two independent shells (Workspace.vue
- * and DrawIoExtension.vue, each with its own header); `Get started` and `Homepage feed`
- * are the two real pages behind the union's `route` catch-all; `Shared` is not a surface
- * at all — see below.
+ * The Storybook sidebar is organised by the product interfaces people look for,
+ * not by component type (atom/molecule/layout). The primary groups follow the
+ * Confluence journey: viewing, editing, fullscreen inspection, export, and the
+ * surrounding Confluence surfaces. `Editor` is subdivided because Diagram and
+ * Graph have independent shells. `Shared` remains for components whose surface
+ * is selected by their caller.
  *
  * Without this guard the tree drifts: before it existed, 23 story files had
  * accreted 15 top-level groups (8 holding a single story) across two competing
@@ -22,12 +19,15 @@ import { describe, expect, it } from 'vitest'
  * the point — `Surface` in catalog.ts is itself a closed union.
  */
 const ALLOWED_GROUPS = [
-  'Viewer',
+  'View',
   'Editor/Diagram',
   'Editor/Graph',
+  'Fullscreen',
+  'PNG Export',
+  'Byline',
   'Page banner',
-  'Modal',
-  'Get started',
+  'Get Started',
+  'Dashboard',
   'Homepage feed',
   // Components whose surface is decided by their caller (UpgradePrompt's comes from
   // surfaceForActionType(): editor | viewer | byline) or that belong to no surface

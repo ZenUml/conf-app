@@ -42,7 +42,7 @@ const WIDE_GRAPH = `<mxfile>
 </mxfile>`
 
 const meta: Meta<typeof ForgeGraphViewer> = {
-  title: 'Viewer/ForgeGraphViewer',
+  title: 'View/ForgeGraphViewer',
   component: ForgeGraphViewer,
   parameters: {
     layout: 'fullscreen',

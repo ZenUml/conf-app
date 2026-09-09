@@ -7,7 +7,7 @@ type Story = StoryObj<typeof ExportModal>
 type ModalInstance = InstanceType<typeof ExportModal>
 
 const meta: Meta<typeof ExportModal> = {
-  title: 'Modal/ExportModal',
+  title: 'PNG Export/ExportModal',
   component: ExportModal,
   tags: ['ai-generated'],
   parameters: {

@@ -214,7 +214,7 @@ async function verifyFullscreen(fixture: FullscreenFixture) {
 }
 
 const meta: Meta<typeof DiagramPortal> = {
-  title: 'Viewer/FullscreenViewer',
+  title: 'Fullscreen/FullscreenViewer',
   component: DiagramPortal,
   parameters: {
     layout: 'fullscreen',

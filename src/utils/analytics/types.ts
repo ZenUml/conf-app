@@ -55,7 +55,7 @@ export type AnalyticsProperties = {
   macro_type?: MacroTypeValue;
   // Mermaid pan/zoom toolbar. This is the user's explicit control
   // intent, not every intermediate wheel, drag, or pinch callback.
-  viewport_action?: "zoom_in" | "zoom_out";
+  viewport_action?: "zoom_in" | "zoom_out" | "fit";
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;

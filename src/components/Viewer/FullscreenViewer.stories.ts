@@ -268,6 +268,7 @@ export const Mermaid: Story = {
     const canvas = within(document.body)
     await expect(canvas.getByRole('toolbar', { name: 'Mermaid zoom controls' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Fit to screen' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
     await waitFor(() => {
       const viewerCanvas = document.querySelector<HTMLElement>('.viewer-canvas')

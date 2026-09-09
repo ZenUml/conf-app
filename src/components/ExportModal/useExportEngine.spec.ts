@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@/model/captureBlob', () => ({ captureBlob: vi.fn(), default: vi.fn() }));
+vi.mock('@/model/captureBlob', () => ({
+  captureBlob: vi.fn(),
+  default: vi.fn(),
+  filterExportCaptureNode: (node: Node) => (node as Element).hasAttribute?.('data-export-exclude') !== true,
+}));
 vi.mock('file-saver', () => ({ saveAs: vi.fn() }));
 
 import { captureBlob } from '@/model/captureBlob';
@@ -539,6 +543,21 @@ describe('useExportEngine', () => {
       const { exportDiagram } = useExportEngine();
       await exportDiagram(baseOptions(), 'Login flow', explicitEl);
       expect(captureBlob).toHaveBeenCalledWith(explicitEl, expect.any(Object));
+    });
+
+    it('excludes interactive controls from the captured PNG', async () => {
+      const node = document.createElement('div');
+      vi.mocked(captureBlob).mockResolvedValue(null);
+
+      const { exportDiagram } = useExportEngine();
+      await exportDiagram(baseOptions(), 'Login flow', node);
+
+      const options = vi.mocked(captureBlob).mock.calls[0][1];
+      const control = document.createElement('button');
+      control.dataset.exportExclude = '';
+      const diagram = document.createElement('svg');
+      expect(options?.filter?.(control)).toBe(false);
+      expect(options?.filter?.(diagram as unknown as HTMLElement)).toBe(true);
     });
 
     it('returns blob_null when the capture yields no blob, without saving', async () => {

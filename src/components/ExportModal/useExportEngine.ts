@@ -1,4 +1,4 @@
-import { captureBlob } from '@/model/captureBlob';
+import { captureBlob, filterExportCaptureNode } from '@/model/captureBlob';
 import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
 import { saveAs } from 'file-saver';
 import {
@@ -490,6 +490,7 @@ async function acquireBaseBlob(
   // throttled (offscreen) Forge iframe never services — see model/captureBlob.ts.
   const blob = await captureBlob(captureNode, {
     backgroundColor: effectiveBg ?? undefined,
+    filter: filterExportCaptureNode,
     skipFonts: true,
   });
   if (!blob) {

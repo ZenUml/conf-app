@@ -38,9 +38,15 @@ import * as htmlToImage from 'html-to-image';
 
 export interface CaptureBlobOptions {
   backgroundColor?: string;
+  filter?: (node: Node) => boolean;
   skipFonts?: boolean;
   /** Defaults to `window.devicePixelRatio`, matching html-to-image. */
   pixelRatio?: number;
+}
+
+/** Keep interactive UI chrome out of both export previews and downloaded PNGs. */
+export function filterExportCaptureNode(node: Node): boolean {
+  return (node as Element).hasAttribute?.('data-export-exclude') !== true;
 }
 
 /**

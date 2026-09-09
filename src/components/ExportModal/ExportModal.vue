@@ -36,7 +36,7 @@ import { readExportSession, writeExportSession } from './exportSession';
 import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
 import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 import { waitForCaptureAssets } from './captureReady';
-import { captureBlob } from '@/model/captureBlob';
+import { captureBlob, filterExportCaptureNode } from '@/model/captureBlob';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
@@ -293,6 +293,7 @@ export default defineComponent({
         // canvas. Capture at 2x so that display-only enlargement stays sharp;
         // the export path captures the source independently at native pixels.
         const previewBlob = await captureBlob(node, {
+          filter: filterExportCaptureNode,
           skipFonts: true,
           pixelRatio: 2,
           // Keep the cached base transparent. ExportWorkspace paints the

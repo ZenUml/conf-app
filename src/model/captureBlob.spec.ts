@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as htmlToImage from 'html-to-image';
-import { captureBlob, prepareSequenceCaptureSvg } from './captureBlob';
+import { captureBlob, filterExportCaptureNode, prepareSequenceCaptureSvg } from './captureBlob';
 
 // The defect these tests pin down: html-to-image's own toBlob() resolves ONLY
 // from inside a requestAnimationFrame callback, and Chrome runs no animation
@@ -136,6 +136,15 @@ describe('captureBlob', () => {
       img.onerror = reject; img.src = url;
     });
     expect(await settlesWithin(createImage(SVG_URL), 500)).toBe('timeout');
+  });
+});
+
+describe('filterExportCaptureNode', () => {
+  it('excludes marked controls and safely keeps non-element nodes', () => {
+    const control = document.createElement('button');
+    control.dataset.exportExclude = '';
+    expect(filterExportCaptureNode(control)).toBe(false);
+    expect(filterExportCaptureNode(document.createTextNode('diagram'))).toBe(true);
   });
 });
 

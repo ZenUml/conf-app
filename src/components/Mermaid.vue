@@ -29,9 +29,13 @@
         class="mermaid-viewport-toolbar"
         role="toolbar"
         aria-label="Mermaid zoom controls"
+        data-export-exclude
       >
         <button type="button" class="mermaid-viewport-button" aria-label="Zoom out" title="Zoom out" @click="zoomOut">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></svg>
+        </button>
+        <button type="button" class="mermaid-viewport-button" aria-label="Fit to screen" title="Fit to screen" @click="fitViewport">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
         </button>
         <button type="button" class="mermaid-viewport-button" aria-label="Zoom in" title="Zoom in" @click="zoomIn">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></svg>
@@ -241,6 +245,10 @@ export default {
     zoomIn() {
       this.panZoom?.zoomIn();
       this.trackViewportAction('zoom_in');
+    },
+    fitViewport() {
+      this.resetViewport();
+      this.trackViewportAction('fit');
     },
     zoomOut() {
       this.panZoom?.zoomOut();

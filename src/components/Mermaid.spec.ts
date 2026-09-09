@@ -274,6 +274,7 @@ describe('Mermaid fullscreen viewport controls', () => {
     await vi.waitFor(() => {
       expect(wrapper.find('[aria-label="Reset view"]').exists()).toBe(false);
       expect(wrapper.get('[aria-label="Zoom out"]').exists()).toBe(true);
+      expect(wrapper.get('[aria-label="Fit to screen"]').exists()).toBe(true);
       expect(wrapper.get('[aria-label="Zoom in"]').exists()).toBe(true);
       expect(svgPanZoomMock).toHaveBeenCalled();
     });
@@ -281,6 +282,7 @@ describe('Mermaid fullscreen viewport controls', () => {
     const zoomOutCalls = panZoomInstanceMock.zoomOut.mock.calls.length;
     const zoomInCalls = panZoomInstanceMock.zoomIn.mock.calls.length;
     await wrapper.get('[aria-label="Zoom out"]').trigger('click');
+    await wrapper.get('[aria-label="Fit to screen"]').trigger('click');
     await wrapper.get('[aria-label="Zoom in"]').trigger('click');
     expect(panZoomInstanceMock.zoomOut).toHaveBeenCalledTimes(zoomOutCalls + 1);
     expect(panZoomInstanceMock.zoomIn).toHaveBeenCalledTimes(zoomInCalls + 1);
@@ -290,6 +292,12 @@ describe('Mermaid fullscreen viewport controls', () => {
       surface: 'fullscreen',
       macro_type: 'mermaid',
       viewport_action: 'zoom_in',
+    });
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_viewport_control_used', {
+      feature_area: 'macro',
+      surface: 'fullscreen',
+      macro_type: 'mermaid',
+      viewport_action: 'fit',
     });
   });
 

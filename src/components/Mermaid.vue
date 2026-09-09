@@ -8,7 +8,30 @@
     Alice-&gt;&gt;John: Hello John!
     John--&gt;&gt;Alice: Hi Alice!</pre>
     </div>
-    <div v-else class="flex justify-center" v-html="svg"></div>
+    <div
+      v-else
+      ref="viewport"
+      class="mermaid-viewport"
+      :class="{
+        'mermaid-viewport--interactive': isInteractiveViewport,
+        'mermaid-viewport--fullscreen': isFullscreenMode,
+      }"
+    >
+      <div ref="diagram" class="mermaid-diagram flex justify-center" v-html="svg"></div>
+      <div
+        v-if="isInteractiveViewport"
+        class="mermaid-viewport-toolbar"
+        role="toolbar"
+        aria-label="Mermaid zoom controls"
+      >
+        <button type="button" class="mermaid-viewport-button" aria-label="Zoom out" title="Zoom out" @click="zoomOut">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></svg>
+        </button>
+        <button type="button" class="mermaid-viewport-button" aria-label="Zoom in" title="Zoom in" @click="zoomIn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></svg>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -21,15 +44,22 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { hasLayout, awaitLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import svgPanZoom from 'svg-pan-zoom';
+import Hammer from 'hammerjs';
 
 export default {
   name: "Mermaid",
   data() {
     return {
       svg: null,
-      renderId: null
+      renderId: null,
+      panZoom: null,
+      panZoomSvg: null,
+      panZoomDirty: false,
+      panZoomResizeObserver: null,
     }
   },
   computed: {
@@ -39,6 +69,17 @@ export default {
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
     },
+    isFullscreenMode() {
+      return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
+    },
+    isInteractiveViewport() {
+      const modal = window.forgeGlobal?.forgeContext?.extension?.modal;
+      return modal?.openExport !== true;
+    },
+    viewportSurface() {
+      if (this.isFullscreenMode) return 'fullscreen';
+      return this.isDisplayMode ? 'viewer' : 'editor';
+    },
   },
   async mounted() {
     if (!this.mermaidCode) return;
@@ -46,6 +87,7 @@ export default {
     // cache (Lever D) would skip. Only the initial mount render is timed
     // (renderPerf records once); the watch-driven re-render below is not.
     this.svg = await renderPerf.time('render', () => this.render(this.mermaidCode));
+    await this.initializeViewport();
     trackRenderTime('mermaid', this.isDisplayMode);
     // Type may have switched during the async render — the gated computed
     // would then be `false` and the store diagramType stale. Skip; the new
@@ -55,8 +97,8 @@ export default {
     }
     await globals.apWrapper.initializeContext();
   },
-  updated() {
-    // Don't use updated() to render, because it will cause infinite loop.
+  beforeUnmount() {
+    this.destroyViewport();
   },
   watch: {
     async mermaidCode(newVal) {
@@ -64,10 +106,109 @@ export default {
         this.svg = null;
       } else {
         this.svg = await this.render(this.mermaidCode);
+        await this.initializeViewport();
       }
     }
   },
   methods: {
+    async initializeViewport() {
+      await this.$nextTick();
+      if (!this.isInteractiveViewport) {
+        this.destroyViewport();
+        return;
+      }
+      const svgElement = this.$refs.diagram?.querySelector('svg');
+      if (!svgElement || svgElement === this.panZoomSvg) return;
+
+      this.destroyViewport();
+      let hammer;
+      this.panZoom = svgPanZoom(svgElement, {
+        center: true,
+        controlIconsEnabled: false,
+        customEventsHandler: {
+          haltEventListeners: ['touchstart', 'touchend', 'touchmove', 'touchleave', 'touchcancel'],
+          init: (options) => {
+            const instance = options.instance;
+            let initialScale = 1;
+            let pannedX = 0;
+            let pannedY = 0;
+            hammer = new Hammer(options.svgElement);
+            const resetPanned = () => {
+              pannedX = 0;
+              pannedY = 0;
+            };
+            const panByGesture = (event) => {
+              instance.panBy({ x: event.deltaX - pannedX, y: event.deltaY - pannedY });
+              pannedX = event.deltaX;
+              pannedY = event.deltaY;
+            };
+            hammer.get('pinch').set({ enable: true });
+            hammer.on('panstart panmove', (event) => {
+              if (event.type === 'panstart') resetPanned();
+              panByGesture(event);
+            });
+            hammer.on('pinchstart pinchmove', (event) => {
+              if (event.type === 'pinchstart') {
+                initialScale = instance.getZoom();
+                resetPanned();
+              }
+              instance.zoomAtPoint(initialScale * event.scale, event.center);
+              panByGesture(event);
+            });
+          },
+          destroy: () => hammer?.destroy(),
+        },
+        fit: true,
+        maxZoom: 12,
+        minZoom: 0.2,
+        onPan: () => { this.panZoomDirty = true; },
+        onZoom: () => { this.panZoomDirty = true; },
+        panEnabled: true,
+        zoomEnabled: true,
+      });
+      this.panZoomSvg = svgElement;
+      this.panZoom.disableDblClickZoom();
+      this.resetViewport();
+
+      if (typeof ResizeObserver !== 'undefined') {
+        this.panZoomResizeObserver = new ResizeObserver(() => {
+          this.panZoom?.resize();
+          if (!this.panZoomDirty) this.resetViewport();
+        });
+        this.panZoomResizeObserver.observe(this.$refs.viewport);
+      }
+    },
+    destroyViewport() {
+      this.panZoomResizeObserver?.disconnect();
+      this.panZoomResizeObserver = null;
+      this.panZoom?.destroy();
+      this.panZoom = null;
+      this.panZoomSvg = null;
+      this.panZoomDirty = false;
+    },
+    trackViewportAction(viewportAction) {
+      trackAnalyticsEvent('mermaid_viewport_control_used', {
+        feature_area: 'macro',
+        surface: this.viewportSurface,
+        macro_type: 'mermaid',
+        viewport_action: viewportAction,
+      });
+    },
+    resetViewport() {
+      if (!this.panZoom) return;
+      this.panZoom.reset();
+      // Match Mermaid Live: leave breathing room for the floating toolbar.
+      this.panZoom.zoom(0.875);
+      this.panZoomDirty = false;
+    },
+    zoomIn() {
+      this.panZoom?.zoomIn();
+      this.trackViewportAction('zoom_in');
+    },
+    zoomOut() {
+      this.panZoom?.zoomOut();
+      this.trackViewportAction('zoom_out');
+    },
     async runMermaid(code) {
       // Generate a unique ID to avoid conflicts
       this.renderId = `mermaid-${crypto.randomUUID()}`;
@@ -126,6 +267,7 @@ export default {
         // The diagram may have been edited or switched away during the wait.
         if (this.mermaidCode === code) {
           this.svg = svg;
+          await this.initializeViewport();
         }
       } catch (error) {
         this.reportCrash(error);
@@ -134,3 +276,89 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.mermaid-viewport {
+  position: relative;
+  width: 100%;
+}
+
+.mermaid-viewport--fullscreen {
+  height: max(280px, calc(100vh - 190px));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mermaid-viewport--interactive {
+  overflow: hidden;
+}
+
+.mermaid-viewport--fullscreen .mermaid-diagram {
+  width: 100%;
+  height: 100%;
+}
+
+.mermaid-viewport--interactive .mermaid-diagram :deep(svg) {
+  width: 100%;
+  max-width: none !important;
+  cursor: grab;
+  touch-action: none;
+}
+
+.mermaid-viewport--fullscreen .mermaid-diagram :deep(svg) {
+  height: 100%;
+}
+
+.mermaid-viewport--interactive .mermaid-diagram :deep(svg:active) {
+  cursor: grabbing;
+}
+
+.mermaid-viewport-toolbar {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid #d9d7d2;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(9, 30, 66, 0.18);
+}
+
+.mermaid-viewport-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  color: #44546f;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mermaid-viewport-button:hover {
+  color: #172b4d;
+  background: #f1f2f4;
+}
+
+.mermaid-viewport-button:focus-visible {
+  outline: 2px solid #0c66e4;
+  outline-offset: 1px;
+}
+
+.mermaid-viewport-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+</style>

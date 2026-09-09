@@ -1,4 +1,5 @@
 import { captureBlob } from '@/model/captureBlob';
+import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
 import { saveAs } from 'file-saver';
 import {
   VIEWBOX_REF_W,
@@ -13,9 +14,23 @@ import {
 import type { Annotation } from './useAnnotations';
 import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 
-export type RenderResult = { ok: true; blob: Blob } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
-export type ExportResult = { ok: true } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
-export type ClipboardExportResult = { ok: true } | { ok: false; reason: 'no_capture_node' | 'blob_null' | 'clipboard_denied' };
+export type CaptureFailureReason = 'no_capture_node' | 'blob_null' | 'plantuml_fetch_failed';
+export type RenderResult = { ok: true; blob: Blob } | { ok: false; reason: CaptureFailureReason };
+export type ExportResult = { ok: true } | { ok: false; reason: CaptureFailureReason };
+export type ClipboardExportResult = { ok: true } | { ok: false; reason: CaptureFailureReason | 'clipboard_denied' };
+
+/**
+ * What is being exported, when the caller knows. Only PlantUML changes the
+ * capture strategy today (see `acquireBaseBlob`); everything else falls through
+ * to the generic DOM capture, so the context is optional and callers that don't
+ * pass it keep the previous behaviour.
+ */
+export interface ExportContext {
+  /** `DiagramType` value, e.g. 'plantuml' / 'mermaid'. */
+  macroType?: string;
+  /** The diagram's text source (the PlantUML body for a PlantUML macro). */
+  source?: string;
+}
 
 const MAX_FILENAME_LENGTH = 60;
 const DEFAULT_FILENAME = 'zenuml-diagram-export.png';
@@ -416,14 +431,59 @@ function svgToImage(svgString: string): Promise<HTMLImageElement> {
   });
 }
 
-async function renderPngBlob(options: ExportOptions, node: HTMLElement | null | undefined): Promise<RenderResult> {
+/**
+ * The un-annotated diagram raster, before background and overlay compositing.
+ *
+ * PlantUML takes a different route. Its diagram is an SVG fetched from the
+ * remote PlantUML server and inlined with `v-html`; html-to-image cannot
+ * reliably rasterize that inlined remote SVG, which is what made the Export PNG
+ * button produce a blank, effectively zero-pixel image. The server publishes a
+ * ready raster at /plantuml/png/<encoded> — take it. (Attachment.ts has done
+ * this for the silent backup PNG since 2026-07; `utils/plantuml/fetchPng.ts` is
+ * the shared fetch.)
+ *
+ * Unlike the backup path, a failed server fetch here does NOT fall back to the
+ * DOM capture: that path is the broken one, and silently handing the user a
+ * blank download is worse than an error they can act on. The macro cannot have
+ * rendered at all without reaching the same host, so a failure here is a real
+ * fault worth surfacing as `plantuml_fetch_failed`.
+ */
+type BaseCapture =
+  | {
+      ok: true;
+      blob: Blob;
+      /**
+       * The node the raster was scraped from, and therefore the node whose
+       * layout the crop step must measure. `null` when the raster did not come
+       * from the DOM at all (PlantUML's server PNG), which is also the signal
+       * that no crop applies: the server renders the diagram at its own bounds,
+       * with none of the layout column the DOM capture has to trim away.
+       */
+      cropNode: HTMLElement | null;
+    }
+  | { ok: false; reason: CaptureFailureReason };
+
+async function acquireBaseBlob(
+  effectiveBg: string | undefined,
+  node: HTMLElement | null | undefined,
+  context?: ExportContext,
+): Promise<BaseCapture> {
+  if (context?.macroType === 'plantuml' && isPlantUmlSource(context.source)) {
+    try {
+      const blob = await fetchPlantUmlPngBlob(context.source!);
+      if (blob) return { ok: true, blob, cropNode: null };
+      console.warn('[useExportEngine] PlantUML server returned no PNG raster');
+    } catch (e) {
+      console.warn('[useExportEngine] PlantUML server PNG fetch failed:', e);
+    }
+    return { ok: false, reason: 'plantuml_fetch_failed' };
+  }
+
   const captureNode = node ?? (document.querySelector('.screen-capture-content') as HTMLElement | null);
   if (!captureNode) {
     console.warn('[useExportEngine] .screen-capture-content not found');
     return { ok: false, reason: 'no_capture_node' };
   }
-
-  const effectiveBg = resolveBgColor(options.background);
 
   // captureBlob, not htmlToImage.toBlob: the library's raster step resolves
   // only from inside a requestAnimationFrame callback, which a rendering-
@@ -436,8 +496,20 @@ async function renderPngBlob(options: ExportOptions, node: HTMLElement | null | 
     console.warn('[useExportEngine] capture returned null');
     return { ok: false, reason: 'blob_null' };
   }
+  return { ok: true, blob, cropNode: captureNode };
+}
 
-  const img = await createImageBitmap(blob);
+async function renderPngBlob(
+  options: ExportOptions,
+  node: HTMLElement | null | undefined,
+  context?: ExportContext,
+): Promise<RenderResult> {
+  const effectiveBg = resolveBgColor(options.background);
+
+  const base = await acquireBaseBlob(effectiveBg, node, context);
+  if (!base.ok) return base;
+
+  const img = await createImageBitmap(base.blob);
   const source = document.createElement('canvas');
   source.width = img.width;
   source.height = img.height;
@@ -451,9 +523,12 @@ async function renderPngBlob(options: ExportOptions, node: HTMLElement | null | 
 
   // Crop before the overlay is drawn: annotation coordinates are normalised
   // against the (equally cropped) preview, so they must scale to the final
-  // image rather than to the capture node's layout column.
-  const cropBox = measureCaptureCrop(captureNode);
-  const captureScale = captureNode.offsetWidth ? source.width / captureNode.offsetWidth : 1;
+  // image rather than to the capture node's layout column. A server-rendered
+  // raster (base.cropNode === null) is already at the diagram's own bounds and
+  // has no layout column to trim, so it skips the crop entirely.
+  const captureNode = base.cropNode;
+  const cropBox = captureNode && measureCaptureCrop(captureNode);
+  const captureScale = captureNode?.offsetWidth ? source.width / captureNode.offsetWidth : 1;
   const canvas = (cropBox && cropCanvasToBox(source, cropBox, captureScale)) ?? source;
   const ctx = canvas.getContext('2d')!;
 
@@ -477,8 +552,9 @@ export function useExportEngine() {
     options: ExportOptions,
     diagramTitle: string,
     node?: HTMLElement | null,
+    context?: ExportContext,
   ): Promise<ExportResult> {
-    const rendered = await renderPngBlob(options, node);
+    const rendered = await renderPngBlob(options, node, context);
     if (!rendered.ok) return rendered;
     saveAs(rendered.blob, slugifyFilename(diagramTitle));
     return { ok: true };
@@ -487,8 +563,9 @@ export function useExportEngine() {
   async function exportDiagramToClipboard(
     options: ExportOptions,
     node?: HTMLElement | null,
+    context?: ExportContext,
   ): Promise<ClipboardExportResult> {
-    const rendered = await renderPngBlob(options, node);
+    const rendered = await renderPngBlob(options, node, context);
     if (!rendered.ok) return rendered;
     try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': rendered.blob })]);

@@ -414,6 +414,7 @@
     :capture-ready="!isExportEntryModal || exportPreviewReady"
     :macro-type="diagramType"
     :capture-node-getter="getCaptureNode"
+    :diagram-source="viewSourceCode"
     :diagram-title="title"
     :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
     @close="onExportModalClose"

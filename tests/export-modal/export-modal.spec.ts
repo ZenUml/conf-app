@@ -1,6 +1,18 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Download, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 const TEST_URL = '/test-viewer.html';
+
+/**
+ * Below this, in either dimension, the "export" is a blank/degenerate canvas
+ * rather than a diagram. The seq-view fixture renders several hundred px wide
+ * (and the preview is captured at pixelRatio 2, so its decoded size is double
+ * that again); the PlantUML fixture's server raster is ~400x200. 100px is
+ * comfortably under all of those and comfortably over the failure mode this
+ * guards (a 1x1 / 0.5x0.5 image, which still serializes to a perfectly
+ * well-formed PNG).
+ */
+const MIN_EXPORT_DIMENSION_PX = 100;
 
 // The seq-view sandbox preset's fixture (custom-content-by-id-v1-diagram-sequence.json)
 // embeds title "20241006 Order Service (Demonstration only)" in its body.raw.value —
@@ -10,10 +22,51 @@ const EXPECTED_EXPORT_FILENAME = '20241006-order-service-demonstration-only.png'
 
 // ─── Shared Helpers ───
 
-async function waitForViewerReady(page: Page) {
-  await page.goto(TEST_URL, { waitUntil: 'networkidle' });
+async function waitForViewerReady(page: Page, sandbox = 'seq-view') {
+  // test-viewer.html defaults the param to seq-view when absent; pass it
+  // explicitly to reach any other preset in src/sandbox/presets.ts.
+  await page.goto(`${TEST_URL}?outputType=display&sandbox=${sandbox}`, { waitUntil: 'networkidle' });
   await page.waitForSelector('.screen-capture-content', { timeout: 15000 });
   await page.waitForTimeout(1000);
+}
+
+/**
+ * PNG IHDR width/height — bytes 16..23 of the file, after the 8-byte signature
+ * and the IHDR length/type. Deliberately NOT a data-URL prefix check: a blank,
+ * effectively zero-pixel canvas still serializes to a valid
+ * `data:image/png;base64,...`, which is exactly how a blank PlantUML export
+ * passed this suite unnoticed. Only real dimensions prove a real diagram.
+ */
+function readPngSize(bytes: Buffer | Uint8Array): { width: number; height: number } {
+  const buf = Buffer.from(bytes);
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!buf.subarray(0, 8).equals(signature)) {
+    throw new Error(`not a PNG: first bytes ${buf.subarray(0, 8).toString('hex')}`);
+  }
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
+/** Decoded dimensions of whatever the preview <img> is currently showing. */
+async function previewImageSize(page: Page): Promise<{ width: number; height: number }> {
+  const img = page.locator('.preview-real-diagram');
+  await expect(img).toBeVisible({ timeout: 10000 });
+  // naturalWidth stays 0 until the browser has decoded the src.
+  await expect
+    .poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 10000 })
+    .toBeGreaterThan(0);
+  return img.evaluate((el: HTMLImageElement) => ({ width: el.naturalWidth, height: el.naturalHeight }));
+}
+
+/** Read the bytes Playwright actually saved and decode their real size. */
+async function downloadedPngSize(download: Download): Promise<{ width: number; height: number }> {
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  return readPngSize(readFileSync(path!));
+}
+
+function expectRealDiagram(size: { width: number; height: number }, what: string) {
+  expect(size.width, `${what} width`).toBeGreaterThan(MIN_EXPORT_DIMENSION_PX);
+  expect(size.height, `${what} height`).toBeGreaterThan(MIN_EXPORT_DIMENSION_PX);
 }
 
 async function openExportModal(page: Page) {
@@ -125,7 +178,15 @@ test.describe('Modal Structure', () => {
     const img = page.locator('.preview-real-diagram');
     await expect(img).toBeVisible();
     const src = await img.getAttribute('src');
-    expect(src).toContain('data:image/png');
+    // A raster the browser can decode — either an inline data URL (DOM
+    // capture) or an object URL (PlantUML's server PNG).
+    expect(src).toMatch(/^(data:image\/png|blob:)/);
+
+    // The assertion that matters. Checking only the data-URL prefix let a
+    // blank, effectively zero-pixel capture pass this suite for two months
+    // (the PlantUML Export PNG bug): a degenerate canvas still produces a
+    // well-formed `data:image/png;base64,...`. Decode it and demand pixels.
+    expectRealDiagram(await previewImageSize(page), 'preview image');
   });
 
   test('close button dismisses modal', async ({ page }) => {
@@ -1030,6 +1091,8 @@ test.describe('Export Pipeline', () => {
 
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe(EXPECTED_EXPORT_FILENAME);
+    // Not just "a file arrived" — a file with a diagram in it.
+    expectRealDiagram(await downloadedPngSize(download), 'downloaded PNG');
   });
 
   test('copy image button is visible and does not crash on click', async ({ page }) => {
@@ -1062,7 +1125,96 @@ test.describe('Export Pipeline', () => {
 
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe(EXPECTED_EXPORT_FILENAME);
-    const path = await download.path();
-    expect(path).toBeTruthy();
+    // "valid PNG" now means the bytes decode AND carry real dimensions, not
+    // merely that download.path() is truthy.
+    expectRealDiagram(await downloadedPngSize(download), 'annotated export');
+  });
+});
+
+// ─── PlantUML (regression: blank Export PNG) ───
+//
+// Every other test in this file runs against the default `seq-view` preset, so
+// the whole suite only ever exercised the sequence renderer. PlantUML is the
+// one macro type whose diagram is an SVG fetched from the remote PlantUML
+// server and inlined with v-html — html-to-image cannot reliably rasterize
+// that, and the Export PNG button silently produced a blank, effectively
+// zero-pixel image for two months. The fix routes PlantUML to the server's own
+// raster (/plantuml/png/<encoded>); these tests are what would have caught it.
+//
+// NOTE: this describe block reaches plantuml.com, exactly as the macro itself
+// does at render time. A sandboxed network makes these fail, not flake quietly.
+//
+// HONEST LIMITATION — read before trusting these as a regression guard.
+// The production defect does NOT reproduce here. Measured 2026-09-09 against
+// pre-fix code in this exact harness: the preview and the download both came
+// out 1000x188 / 16.9 KB, i.e. a perfectly good DOM capture. html-to-image's
+// failure to rasterize PlantUML's inlined remote SVG is specific to the Forge
+// macro's sandboxed cross-origin iframe (CSP, font access, rendering
+// throttling) and is not reproducible in a plain headless page.
+//
+// So the dimension assertions below are healthy-path coverage, not a red->green
+// proof. The test that IS a real regression guard is
+// 'requests the raster from the PlantUML PNG server, not a DOM capture': it
+// asserts the mechanism the fix establishes — the raster comes from
+// /plantuml/png/, never from html-to-image — which holds in every environment
+// and does fail against pre-fix code.
+test.describe('PlantUML Export', () => {
+  // The plantuml fixture (custom-content-by-id-v1-diagram-plantuml.json) has
+  // title "Order Service (PlantUML)", which slugifyFilename turns into this.
+  const PLANTUML_EXPORT_FILENAME = 'order-service-plantuml.png';
+
+  test.beforeEach(async ({ page }) => {
+    await waitForViewerReady(page, 'plantuml-fullscreen');
+    await openExportModal(page);
+  });
+
+  test('preview shows the rendered PlantUML diagram, not a blank capture', async ({ page }) => {
+    expectRealDiagram(await previewImageSize(page), 'PlantUML preview');
+  });
+
+  // THE regression guard. Environment-independent: it asserts where the pixels
+  // came from, not how many survived. Pre-fix, the only plantuml.com traffic is
+  // the /svg/ render fetch and the export rasterizes the DOM; post-fix, opening
+  // the modal and exporting both pull /plantuml/png/<encoded>.
+  test('requests the raster from the PlantUML PNG server, not a DOM capture', async ({ page }) => {
+    const pngRequests: string[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/plantuml/png/')) pngRequests.push(req.url());
+    });
+
+    // The modal's own open-time capture already happened in beforeEach, before
+    // this listener existed — drive a fresh one through the Refresh button.
+    await page.locator('.preview-refresh').click();
+    await expect.poll(() => pngRequests.length, { timeout: 15000 }).toBeGreaterThan(0);
+
+    const before = pngRequests.length;
+    const downloadPromise = page.waitForEvent('download', { timeout: 20000 });
+    await page.locator('.btn-export').click();
+    await downloadPromise;
+
+    // Export asked the server too, rather than falling back to html-to-image.
+    await expect.poll(() => pngRequests.length, { timeout: 10000 }).toBeGreaterThan(before);
+  });
+
+  test('export downloads a PlantUML PNG with real pixel dimensions', async ({ page }) => {
+    const downloadPromise = page.waitForEvent('download', { timeout: 20000 });
+    await page.locator('.btn-export').click();
+
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(PLANTUML_EXPORT_FILENAME);
+    expectRealDiagram(await downloadedPngSize(download), 'PlantUML export');
+  });
+
+  test('export with annotations still produces a real PlantUML PNG', async ({ page }) => {
+    await drawArrow(page);
+    await placeNote(page);
+    await clickTool(page, 'Watermark');
+    await page.waitForTimeout(300);
+
+    const downloadPromise = page.waitForEvent('download', { timeout: 20000 });
+    await page.locator('.btn-export').click();
+
+    const download = await downloadPromise;
+    expectRealDiagram(await downloadedPngSize(download), 'annotated PlantUML export');
   });
 });

@@ -1325,6 +1325,8 @@ export default {
      */
     onExportModalClose() {
       this.showExportModal = false;
+      // Hand the diagram back to the reader at whatever level they choose next.
+      EventBus.$emit('diagramCaptureEnd');
       if (this.isExportEntryModal) {
         // A close before either readiness signal fired must permanently
         // cancel the auto-open, not just hide the dialog once — otherwise a
@@ -1342,6 +1344,14 @@ export default {
     },
     openExport() {
       if (this.isFullscreenMode) {
+        // The capture rasterises .screen-capture-content as it stands, so a
+        // reader who zoomed the mermaid diagram in would otherwise export the
+        // cropped fragment they were looking at rather than the diagram. The
+        // signal is generic (any viewer component that transforms its own
+        // content can honour it); today only Mermaid.vue listens. The inline
+        // Export button never reaches this branch — it opens the Fullscreen
+        // modal, a fresh app with no zoom state to reset.
+        EventBus.$emit('diagramCaptureStart');
         this.showExportModal = true;
         return;
       }

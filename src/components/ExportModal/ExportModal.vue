@@ -29,10 +29,11 @@
 import { defineComponent, watch, provide, onUnmounted, nextTick, ref, type PropType } from 'vue';
 import ExportWorkspace from './ExportWorkspace.vue';
 import { exportStateKey, useExportState } from './useExportState';
-import { useExportEngine, type ExportOptions } from './useExportEngine';
+import { useExportEngine, type ExportContext, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 import { readExportSession, writeExportSession } from './exportSession';
+import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
 import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 import { waitForCaptureAssets } from './captureReady';
 import { captureBlob } from '@/model/captureBlob';
@@ -58,6 +59,10 @@ export default defineComponent({
      */
     surface: { type: String as PropType<Surface>, default: 'modal' },
     captureReady: { type: Boolean, default: true },
+    // The diagram's text source. Only PlantUML needs it today: its raster is
+    // fetched from the PlantUML server rather than scraped off the DOM (see
+    // useExportEngine's acquireBaseBlob).
+    diagramSource: { type: String, default: '' },
   },
   emits: ['close', 'export', 'copy'],
 
@@ -166,6 +171,10 @@ export default defineComponent({
       return props.captureNodeGetter?.() ?? (document.querySelector('.screen-capture-content') as HTMLElement | null);
     }
 
+    function buildExportContext(): ExportContext {
+      return { macroType: props.macroType, source: props.diagramSource };
+    }
+
     function buildExportOptions(): ExportOptions {
       return {
         annotations: state.annotations.items.value,
@@ -243,14 +252,43 @@ export default defineComponent({
       });
     }
 
+    // The preview <img> src when it is an object URL we minted (PlantUML), so
+    // it can be revoked once replaced or the modal is torn down. The DOM
+    // capture path passes data URLs, which need no revocation.
+    let previewObjectUrl: string | null = null;
+    function setPreviewUrl(url: string, isObjectUrl: boolean) {
+      if (previewObjectUrl && previewObjectUrl !== url) URL.revokeObjectURL(previewObjectUrl);
+      previewObjectUrl = isObjectUrl ? url : null;
+      state.previewDataUrl.value = url;
+    }
+
     async function capturePreview() {
-      const node = resolveCaptureNode();
-      if (!node) return;
+      // PlantUML previews the same server-rendered raster the export will
+      // download: html-to-image cannot rasterize PlantUML's inlined remote SVG,
+      // so the DOM path below previewed a blank image — which then had the user
+      // distrusting a working export. It needs no capture node (like the export
+      // path) and the server raster is already at the diagram's own bounds, so
+      // it skips waitForCaptureAssets/cropDataUrl entirely.
+      //
+      // Resolved SYNCHRONOUSLY, before the first await: capturePreview must
+      // still bail out without touching isCapturing/exportError when there is
+      // no node, exactly as it did before. `isPlantUmlSource` is a string test;
+      // the pako-backed encoder stays lazy inside fetchPlantUmlPngBlob.
+      const usePlantUmlServer = props.macroType === 'plantuml' && isPlantUmlSource(props.diagramSource);
+      const node = usePlantUmlServer ? null : resolveCaptureNode();
+      if (!usePlantUmlServer && !node) return;
+
       const gen = ++captureGen;
       state.isCapturing.value = true;
       state.exportError.value = null;
       try {
-        await waitForCaptureAssets(node);
+        if (usePlantUmlServer) {
+          const blob = await fetchPlantUmlPngBlob(props.diagramSource);
+          if (blob && captureGen === gen) setPreviewUrl(URL.createObjectURL(blob), true);
+          return;
+        }
+
+        await waitForCaptureAssets(node!);
         // The preview is allowed to fit a small source up to the available
         // canvas. Capture at 2x so that display-only enlargement stays sharp;
         // the export path captures the source independently at native pixels.
@@ -268,7 +306,7 @@ export default defineComponent({
         // a small diagram stranded in viewport-wide whitespace — and every
         // annotation placed on it would be normalised against that column.
         const cropped = await cropDataUrl(dataUrl, node);
-        if (captureGen === gen) state.previewDataUrl.value = cropped ?? dataUrl;
+        if (captureGen === gen) setPreviewUrl(cropped ?? dataUrl, false);
       } catch (e) {
         console.warn('[ExportModal] preview capture failed:', e);
         if (captureGen === gen) state.exportError.value = EXPORT_ERROR_MESSAGE;
@@ -320,7 +358,12 @@ export default defineComponent({
       state.exportError.value = null;
       try {
         const { exportDiagram } = useExportEngine();
-        const result = await exportDiagram(buildExportOptions(), props.diagramTitle, resolveCaptureNode());
+        const result = await exportDiagram(
+          buildExportOptions(),
+          props.diagramTitle,
+          resolveCaptureNode(),
+          buildExportContext(),
+        );
         if (result.ok) {
           exportSucceeded = true;
           trackSucceeded('download');
@@ -344,7 +387,11 @@ export default defineComponent({
       state.exportError.value = null;
       try {
         const { exportDiagramToClipboard } = useExportEngine();
-        const result = await exportDiagramToClipboard(buildExportOptions(), resolveCaptureNode());
+        const result = await exportDiagramToClipboard(
+          buildExportOptions(),
+          resolveCaptureNode(),
+          buildExportContext(),
+        );
         if (result.ok) {
           // A successful clipboard copy is a successful export for this open
           // session — mark it so closing afterwards doesn't fire dismissed.
@@ -368,6 +415,10 @@ export default defineComponent({
 
     onUnmounted(() => {
       if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
+      if (previewObjectUrl) {
+        URL.revokeObjectURL(previewObjectUrl);
+        previewObjectUrl = null;
+      }
     });
 
     return { state, dialogEl, capturePreview, handleExport, handleCopy, onDialogKeydown };

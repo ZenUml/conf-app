@@ -242,8 +242,8 @@ export default defineConfig(({ command }) => ({
         exclude: ['fs', 'os'],
       })]
     : []),
-  // Dev-only: serve sandbox.html at "/" so engineers landing on
-  // http://127.0.0.1:8080/ get the test-case index instead of the Forge
+  // Dev-only: serve sandbox.html at "/" so engineers opening the URL printed
+  // by `pnpm dev:url` get the test-case index instead of the Forge
   // app entry (which only renders meaningfully inside a Confluence iframe).
   // index.html itself is unchanged — production build still uses it.
   {
@@ -432,34 +432,35 @@ export default defineConfig(({ command }) => ({
     ],
   },
   server: {
-    host: '0.0.0.0',
-    port: 8080,
+    host: process.env.HOST || '127.0.0.1',
+    port: Number.parseInt(process.env.PORT || '8080', 10),
+    strictPort: Boolean(process.env.PORT),
     proxy: {
       '/api/metrics/evaluation': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
       '/api/features': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
       '/api/analytics': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
       '/track': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true,
       },
       '/diagramly': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
       '/uninstalled': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       }
     },
-    allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app', 'poc-fullscreen-app.zenuml.com'],
+    allowedHosts: ['.localhost', 'yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app', 'poc-fullscreen-app.zenuml.com'],
   }
 }));

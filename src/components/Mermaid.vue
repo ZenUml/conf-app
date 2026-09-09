@@ -60,6 +60,8 @@ export default {
       panZoomSvg: null,
       panZoomDirty: false,
       panZoomResizeObserver: null,
+      inlineViewportAspectRatio: null,
+      inlineViewportMaxWidth: null,
     }
   },
   computed: {
@@ -121,6 +123,25 @@ export default {
       if (!svgElement || svgElement === this.panZoomSvg) return;
 
       this.destroyViewport();
+      if (this.isDisplayMode && !this.isFullscreenMode) {
+        const rect = svgElement.getBoundingClientRect();
+        const viewBox = svgElement.viewBox?.baseVal;
+        this.inlineViewportAspectRatio = viewBox?.width > 0 && viewBox?.height > 0
+          ? viewBox.width / viewBox.height
+          : rect.width > 0 && rect.height > 0
+            ? rect.width / rect.height
+            : null;
+        const computedMaxWidth = Number.parseFloat(getComputedStyle(svgElement).maxWidth);
+        this.inlineViewportMaxWidth = Number.isFinite(computedMaxWidth)
+          ? computedMaxWidth
+          : rect.width || null;
+        this.syncInlineViewportHeight();
+        this.$refs.diagram.style.height = '100%';
+        svgElement.style.height = '100%';
+      }
+      // Capture inline Mermaid's natural aspect-ratio height first, then let
+      // the pan/zoom viewport use the full width of its host surface.
+      svgElement.style.maxWidth = 'none';
       let hammer;
       this.panZoom = svgPanZoom(svgElement, {
         center: true,
@@ -172,6 +193,7 @@ export default {
 
       if (typeof ResizeObserver !== 'undefined') {
         this.panZoomResizeObserver = new ResizeObserver(() => {
+          this.syncInlineViewportHeight();
           this.panZoom?.resize();
           if (!this.panZoomDirty) this.resetViewport();
         });
@@ -185,6 +207,15 @@ export default {
       this.panZoom = null;
       this.panZoomSvg = null;
       this.panZoomDirty = false;
+      this.inlineViewportAspectRatio = null;
+      this.inlineViewportMaxWidth = null;
+      this.$refs.viewport?.style.removeProperty('height');
+      this.$refs.diagram?.style.removeProperty('height');
+    },
+    syncInlineViewportHeight() {
+      if (!this.inlineViewportAspectRatio || !this.inlineViewportMaxWidth || !this.$refs.viewport) return;
+      const width = Math.min(this.$refs.viewport.clientWidth, this.inlineViewportMaxWidth);
+      if (width > 0) this.$refs.viewport.style.height = `${width / this.inlineViewportAspectRatio}px`;
     },
     trackViewportAction(viewportAction) {
       trackAnalyticsEvent('mermaid_viewport_control_used', {
@@ -307,7 +338,6 @@ export default {
 
 .mermaid-viewport--interactive .mermaid-diagram :deep(svg) {
   width: 100%;
-  max-width: none !important;
   cursor: grab;
   touch-action: none;
 }

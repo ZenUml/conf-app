@@ -6,10 +6,12 @@ description: >
   composes delta-derived release notes (replacing the auto-draft placeholder), publishes it to
   production, verifies with PVT, then runs a spot check — targeted coverage for what shipped this
   iteration (not keyword→skill matching alone). Falls back to manually
-  triggering a fresh build only when no recent draft exists.
+  triggering a fresh build only when no recent draft exists. Supports a read-only `preflight`
+  mode that reports exactly what an existing candidate would release without changing GitHub,
+  deploying, or running production validation.
   Use when the user wants to release, deploy, ship, or push the lite, full, diagramly (or dia), or asyncapi (or async/api)
   Forge app to production. Triggers on "release lite", "release full", "release diagramly", "release dia", "release asyncapi", "release async", "release api", "deploy to prod",
-  "ship forge app", "push to production", "release forge app", "release app", or any request to
+  "ship forge app", "push to production", "release forge app", "release app", "release-app preflight", or any request to
   promote staging builds to production for the conf-app project.
 ---
 
@@ -19,7 +21,7 @@ End-to-end release pipeline for ZenUML Forge apps (lite, full, diagramly, and as
 
 ## Arguments
 
-Usage: `/release-app [lite] [full] [diagramly|dia] [asyncapi|async|api]`
+Usage: `/release-app [preflight] [lite] [full] [diagramly|dia] [asyncapi|async|api]`
 
 Aliases are officially supported: `dia` means `diagramly`, and `async` or `api`
 means `asyncapi`. Normalize aliases to their canonical variant names before
@@ -28,6 +30,42 @@ selecting drafts, checking prerequisites, composing notes, or publishing.
 - **If no variant is specified, STOP and ASK which variant(s) to release. Do NOT release anything by default.** There is no "release all" default — an unscoped invocation is a question to the user, never a command to ship.
 - The user must name one or more variants. Release **only** the named variant(s) — never a variant the user didn't name. `/release-app lite` releases lite and nothing else; do **not** continue to full (or any other tier) afterward. An explicit variant is not authorization for adjacent tiers.
 - `asyncapi` has **no canary ordering or timing constraint** — it can be released at any time, independently of the other three (see "Variants & gates").
+- `preflight` is a read-only mode, not a release. `/release-app preflight full` answers: "If we published today, exactly what would Full release to production?" It must name at least one variant and analyzes only the named variant(s).
+
+## Preflight mode (read-only)
+
+`preflight` means an evidence-backed production payload preview. It identifies the exact existing
+draft, commit, release delta, user-facing themes, release-notes body, and focused-check plan that
+would be used by a release **today**. It also reports whether the normal prerequisite gate is
+currently satisfied. A blocked gate is an outcome to report, not a reason to hide the delta.
+
+For each requested variant, preflight must:
+
+1. Select the newest matching draft that is within the normal 24-hour freshness window and verify
+   the source build's relevant deploy and draft jobs. If no usable draft exists, report that there
+   is no exact candidate; do not dispatch a workflow or invent a payload from local `HEAD`.
+2. Resolve the draft tag/version and pinned commit SHA, then find the previous published tag for
+   the same variant and compute the complete commit delta between them. Read diffs where the commit
+   subject is not enough to establish product intent.
+3. Run the normal prerequisite script and report its exact `OK` or `BLOCK` result. In preflight,
+   continue delta analysis after `BLOCK`; the gate remains blocking for an actual release.
+4. Categorize every delta commit using the 2.6 triage rules, including variant reachability, and
+   write the targeted spot-check assertions that would be executed after a real release.
+5. Render the release-notes preview from that same delta. Do not edit the draft or create a local
+   notes file as part of preflight; the draft's placeholder must remain untouched.
+
+The preflight report must clearly separate:
+
+- **Would ship:** the exact draft tag/version, target commit, previous tag, delta themes, and
+  release-notes preview.
+- **Gate:** whether publishing is currently allowed, including any remaining soak time.
+- **Would validate:** the focused assertions planned from the delta; these are **not executed** in
+  preflight. Do not open a browser, run PVT, run a spot check, publish, edit release metadata, or
+  trigger CI from preflight.
+
+Preflight is complete when the user can decide whether the identified candidate is the intended
+production payload. It does not require the gate to pass, but it must never be presented as an
+approval to publish when the gate is blocked.
 
 ## Variants & gates
 
@@ -81,7 +119,7 @@ The script first requires the draft's `targetCommitish` to be a full, resolvable
 
 ## Pipeline
 
-Three steps: **(1)** get a green build that produced fresh drafts, **(2)** release each named variant through its full publish→validate cycle, **(3)** report. Step 2 is a **per-variant loop** — complete 2.1–2.6 for one variant and confirm it passed before starting the next. Stop and report to the user if any step fails.
+In normal release mode, three steps are required: **(1)** get a green build that produced fresh drafts, **(2)** release each named variant through its full publish→validate cycle, **(3)** report. Step 2 is a **per-variant loop** — complete 2.1–2.6 for one variant and confirm it passed before starting the next. Stop and report to the user if any step fails. Preflight follows the read-only workflow above and does not enter the publish or validation steps.
 
 ### Step 1 — Get a green build
 
@@ -110,9 +148,9 @@ gh run list --repo ZenUml/conf-app --workflow=build-test-deploy.yml --branch=mai
 
 Use `gh run view <run-id> --json jobs` to inspect per-variant job conclusions when there's any doubt.
 
-#### 1.2 Fallback — manually trigger a fresh build
+#### 1.2 Fallback — manually trigger a fresh build (release mode only)
 
-Only do this if 1.1 found no usable draft. Trigger the workflow on `main` so
+Only do this in normal release mode if 1.1 found no usable draft. Trigger the workflow on `main` so
 the resulting drafts are created from the current production branch:
 
 ```bash
@@ -123,7 +161,7 @@ This dispatch starts the normal build, staging deploy, E2E, and draft-release
 jobs without changing `main`. Show the user that a fresh build is needed and
 obtain explicit confirmation before dispatching it, then proceed to 1.3.
 
-#### 1.3 Wait for the build workflow
+#### 1.3 Wait for the build workflow (release mode)
 
 Whether triggered by a real merge (1.1) or manual dispatch (1.2), wait for it to complete:
 
@@ -133,13 +171,16 @@ Whether triggered by a real merge (1.1) or manual dispatch (1.2), wait for it to
 
 The workflow runs: build + unit test → deploy variants to staging → E2E on staging → create draft releases (lite, full, diagramly, asyncapi). If only some variants succeeded (e.g. lite still deploying but full and diagramly done), you can publish the completed ones immediately — subject to the gates in "Variants & gates".
 
-### Step 2 — Release each variant
+### Step 2 — Release each variant (release mode)
 
 Run 2.1–2.6 **per variant**, in canary order, completing one variant's full cycle before starting the next. Release **only the variant(s) the user named** (see Arguments). diagramly and lite for the same commit may go in one session (diagramly fully validated, then lite); **full is never in the same session as lite** (≥ 1-week soak); asyncapi is always its own release. Each variant gets its **own** notes — the per-variant delta can differ.
 
 #### 2.1 Gate check
 
-Run the gate check from "Variants & gates" with the exact draft tag selected in Step 1. If it returns `BLOCK`, stop and report; proceed only on explicit user override.
+Run the gate check from "Variants & gates" with the exact draft tag selected in Step 1. In normal
+release mode, if it returns `BLOCK`, stop and report; proceed only on explicit user override. In
+preflight mode, record the `BLOCK` and continue through the delta, triage, and notes-preview work;
+never treat preflight as an override and never publish from it.
 
 #### 2.2 Establish the release delta
 
@@ -174,6 +215,9 @@ Turn the 2.2 commit log into **user-facing release notes**, not a raw commit dum
 - Group by theme/surface (paywall, fullscreen, DrawIO, OpenAPI, editor…), not one bullet per commit.
 - Note the variant and version. Keep it concise and concrete.
 
+In preflight, render this body as the release-notes preview and do not edit the draft. In normal
+release mode, write the body to a file and set it on the draft as described below.
+
 Write the body to a file, e.g. `release-notes-{variant}.md`:
 
 ```markdown
@@ -191,13 +235,16 @@ _Internal: <one line for infra/test/docs/instrumentation, or omit>_
 
 If 2.2 shows **no product commits** since the previous published tag (e.g. a re-trigger), say so (`- Maintenance release; no user-facing changes.`) rather than leaving the placeholder.
 
-Set the notes on the still-draft release, then show them to the user as part of the publish confirmation (always confirm before publishing):
+In normal release mode, set the notes on the still-draft release, then show them to the user as
+part of the publish confirmation (always confirm before publishing):
 
 ```bash
 gh release edit <new-draft-tag> --repo ZenUml/conf-app --notes-file release-notes-{variant}.md
 ```
 
 #### 2.4 Publish, then start PVT as soon as the deploy job is green
+
+This section is **release mode only**. Never publish or start a release workflow from preflight.
 
 ```bash
 gh release edit <new-draft-tag> --repo ZenUml/conf-app --draft=false
@@ -223,6 +270,8 @@ gh run view <run-id> --repo ZenUml/conf-app --json status,jobs \
 **Judge by job, not by run.** A run whose deploy jobs are green and whose only red is a prod-smoke shard **did deploy successfully** — report the shard failure as a separate line item, do not describe the release as failed. Read the failing shard's log before characterizing it (`gh api repos/ZenUml/conf-app/actions/jobs/<jobId>/logs`); a `page.waitForResponse` timeout in a smoke spec is a test-side failure, distinct from a broken deployment.
 
 #### 2.5 Validate — PVT (MANDATORY)
+
+This section is **release mode only**. Preflight does not run PVT because nothing has been deployed.
 
 **Not optional. Start it as soon as the 2.4 deploy job reports `success` — do not wait for the prod smoke shards, and do NOT ask the user whether to run it.**
 
@@ -250,6 +299,9 @@ Report PVT results to the user.
 #### 2.6 Validate — Spot check (targeted coverage for this release)
 
 **Runs automatically after PVT. Do not skip it.** General workflow, environment selection, and verification methods: **spot-check** skill.
+
+In preflight, stop after writing the triage table and assertions. Mark them as planned/not run;
+do not touch the browser or claim PASS/FAIL. A real release executes them after PVT.
 
 A spot check here is **not** "find a matching `/pvt-*` skill." It means: **understand what shipped in this iteration** for this variant, then **run the smallest set of checks that deliberately exercises that delta**. Always target **the same variant as this release**.
 
@@ -316,6 +368,26 @@ Optional keyword hints (secondary — not exhaustive or sufficient on their own)
 
 ### Step 3 — Report
 
+For `preflight`, report instead:
+
+```
+## Release Preflight: v{version}-{variant}
+- Candidate draft: <tag> — <fresh/stale/not found>
+- Target commit: <full SHA>
+- Source build: <relevant deploy and draft jobs>
+- Previous published tag: <tag>
+- Release delta: <themes / surfaces touched>
+- Gate: READY | BLOCKED — <exact result and remaining soak, if any>
+- Release notes preview:
+  <body that would replace the placeholder>
+- Focused checks planned (not run):
+  - <assertion>: NOT RUN
+- External changes: none
+```
+
+Do not call a preflight `PASS` when its gate is blocked. Use `READY` only when the exact candidate
+is identified and the normal gate returns `OK`.
+
 Summarize each released variant:
 
 ```
@@ -343,6 +415,7 @@ Summarize each released variant:
 - **Never release by default.** If no variant is named, ASK. Release only the variant(s) the user explicitly names; an explicit variant does NOT authorize any other tier (releasing lite does not license releasing full afterward).
 - **Never publish the placeholder body (2.3).** Always replace the auto-draft `"This is a draft release…"` body with delta-derived notes before `--draft=false`. Notes and spot check share the one delta from 2.2.
 - **Always check for a fresh draft first (1.1).** A merge to main that completed in the last 24 hours may already have produced the drafts you need — reuse them. A manual dispatch when fresh drafts exist wastes ~15 min of CI and gains nothing.
+- **Preflight is read-only.** It previews the exact candidate payload and derived notes/checks for today; it never dispatches CI, edits a draft, publishes, opens a browser, or runs PVT/spot checks.
 - The build workflow supports `workflow_dispatch`; use it on `main` only when no usable draft exists.
 - Draft releases are only created on `main` (not on PRs or other branches).
 - lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped, so the manual PVT in 2.5 is its only production check; the e2e account has had access since 2026-08-21).

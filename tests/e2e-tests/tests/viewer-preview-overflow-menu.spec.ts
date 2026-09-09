@@ -34,8 +34,9 @@
  */
 
 import { test, expect } from '@playwright/test'
+import { localDevUrl } from '../helpers/localDevUrl'
 
-const BASE = 'http://127.0.0.1:8080/viewer-preview.html'
+const BASE = localDevUrl('viewer-preview.html')
 
 test.describe('GenericViewer — OverflowMenu trigger + Download debug info', () => {
   test.use({ viewport: { width: 1100, height: 720 } })

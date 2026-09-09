@@ -157,7 +157,9 @@ On a published Confluence page, diagrams appear inline in the page body. Readers
 
 **Multi-page Graph diagrams:** If a DrawIO diagram has multiple pages, navigation arrows and a page counter appear in the bottom bar so readers can step through each page.
 
-**Auto-scaling (Sequence diagrams):** ZenUML sequence diagrams scale automatically to fit the available column width (the scale is capped at 1× — the diagram shrinks to fit but never magnifies). There is no interactive pan or zoom; use the Fullscreen button to see a wide diagram at a larger size.
+**Auto-scaling (Sequence diagrams):** ZenUML sequence diagrams scale automatically to fit the available column width (the scale is capped at 1× — the diagram shrinks to fit but never magnifies). There is no interactive pan or zoom for this type; use the Fullscreen button to see a wide diagram at a larger size.
+
+**Zoom and pan (Mermaid diagrams):** A Mermaid diagram wider than the page column is drawn shrunk to fit, which can leave the labels too small to read. Hover over the diagram and a small control appears in its bottom-right corner: **−** and **+** step the zoom, and the percentage between them shows the current size relative to the diagram's own — click it to go back to fit. You can also hold **Ctrl** (**Cmd** on a Mac) while scrolling, or pinch on a trackpad, to zoom around the pointer; scrolling without that key still scrolls the page as usual. Once zoomed in, drag the diagram to move around it, or use the arrow keys after clicking it. Keyboard: **+**, **−** and **0** (reset). The zoom is yours alone and is not saved — it affects neither the stored diagram nor what anyone else sees, and an exported PNG is always the whole diagram at its normal size.
 
 ---
 

@@ -13,7 +13,7 @@
     <div v-else-if="!zoomEnabled" class="flex justify-center" v-html="svg"></div>
     <div v-else class="mermaid-zoom" @keydown="onKeydown">
       <!-- The viewport clips ONLY while zoomed. At the fit level the canvas
-           carries the identity transform, nothing overflows, and this element
+           carries no transform at all, nothing overflows, and this element
            is a plain block wrapping the same `flex justify-center` div the
            viewer has always had — so an untouched diagram renders pixel for
            pixel as before, including its height, which the Forge iframe sizes

@@ -2320,6 +2320,34 @@ describe('GenericViewer — Export PNG routes through Fullscreen', () => {
     wrapper.unmount()
     delete window.forgeGlobal.forgeContext.extension.modal
   })
+
+  // The capture rasterises .screen-capture-content as it stands, so a viewer
+  // component that transforms its own content (Mermaid.vue's zoom) has to be
+  // told to drop back to its untransformed state first — otherwise the export
+  // is the cropped fragment the reader happened to be looking at.
+  it('signals the capture window around the in-place dialog', async () => {
+    window.forgeGlobal = {
+      ...(window.forgeGlobal || {}),
+      forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
+    }
+    const wrapper = mountViewer()
+    const signals: string[] = []
+    const onStart = () => signals.push('start')
+    const onEnd = () => signals.push('end')
+    EventBus.$on('diagramCaptureStart', onStart)
+    EventBus.$on('diagramCaptureEnd', onEnd)
+
+    await wrapper.vm.openExport()
+    expect(signals).toEqual(['start'])
+
+    await wrapper.vm.onExportModalClose()
+    expect(signals).toEqual(['start', 'end'])
+
+    EventBus.$off('diagramCaptureStart', onStart)
+    EventBus.$off('diagramCaptureEnd', onEnd)
+    wrapper.unmount()
+    delete window.forgeGlobal.forgeContext.extension.modal
+  })
 })
 
 describe('GenericViewer — auto-opening the export dialog in Fullscreen', () => {

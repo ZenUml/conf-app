@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="mermaid-root" :class="{ 'mermaid-root--editor': !isDisplayMode }">
     <div v-if="!mermaidCode" class="flex flex-col items-center justify-center py-16 px-8 text-center select-none">
       <div class="text-4xl mb-3">🌿</div>
       <div class="text-sm font-semibold text-emerald-700 mb-1">Start with Mermaid</div>
@@ -278,6 +278,13 @@ export default {
 </script>
 
 <style scoped>
+.mermaid-root--editor,
+.mermaid-root--editor .mermaid-viewport,
+.mermaid-root--editor .mermaid-diagram {
+  height: 100%;
+  min-height: 0;
+}
+
 .mermaid-viewport {
   position: relative;
   width: 100%;
@@ -306,6 +313,10 @@ export default {
 }
 
 .mermaid-viewport--fullscreen .mermaid-diagram :deep(svg) {
+  height: 100%;
+}
+
+.mermaid-root--editor .mermaid-diagram :deep(svg) {
   height: 100%;
 }
 

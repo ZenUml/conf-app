@@ -64,6 +64,15 @@ type Story = StoryObj<typeof GenericViewer>
 
 const SAMPLE_MERMAID =
   'sequenceDiagram\n  participant Client\n  participant Server\n  Client->>Server: POST /login\n  Server-->>Client: 200 OK'
+const SAMPLE_MERMAID_WIDE = `flowchart LR
+  Idea[Idea] --> Refine[Refine requirements]
+  Refine --> Design[Design]
+  Design --> Build[Build]
+  Build --> Review[Review]
+  Review --> Test[Test]
+  Test --> Ship[Ship]
+  Review -->|Changes requested| Build
+  Test -->|Failed| Build`
 const SAMPLE_SEQUENCE = 'Client->Server: POST /login\nServer-->Client: 200 OK'
 const SAMPLE_PAGE = {
   title: 'Login flow — architecture notes',
@@ -129,7 +138,8 @@ function stubFeatureFlags(architectureTokensEnabled: boolean) {
  * state, matching GenericViewer.spec.ts's "pending promise" technique for
  * that same assertion.
  */
-function stubApWrapper({ delayMs = 0 }: { delayMs?: number } = {}) {
+function stubApWrapper({ delayMs = 0, displayMode = true }: { delayMs?: number; displayMode?: boolean } = {}) {
+  globals.apWrapper.isDisplayMode = () => displayMode
   globals.apWrapper.canUserEdit = async () => true
   globals.apWrapper.initializeContext = async () => undefined
   globals.apWrapper.getCurrentPage = async () => {
@@ -247,6 +257,7 @@ function configureStory(options: {
   exportEntryMode?: boolean
   architectureTokensEnabled?: boolean
   customContentId?: string
+  displayMode?: boolean
 } = {}) {
   resetStubResponses()
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
@@ -265,7 +276,7 @@ function configureStory(options: {
       ...(options.exportEntryMode ? { openExport: true } : {}),
     }
   }
-  stubApWrapper({ delayMs: options.pageFetchDelayMs })
+  stubApWrapper({ delayMs: options.pageFetchDelayMs, displayMode: options.displayMode })
   stubMixpanel()
   installClipboardMock(options.clipboardWrites ?? true)
   setupStore(options)
@@ -326,6 +337,18 @@ function renderMermaidViewer(args: Args) {
       <GenericViewer v-bind="args">
         <Mermaid />
       </GenericViewer>
+    `,
+  }
+}
+
+/** Production Mermaid renderer in an editor-preview-sized pane. */
+function renderMermaidEditorPreview() {
+  return {
+    components: { Mermaid },
+    template: `
+      <div style="width: 100%; min-height: 440px; padding: 24px; background: #F8F7F4;">
+        <Mermaid />
+      </div>
     `,
   }
 }
@@ -461,6 +484,99 @@ export const ArchitectureTokensMermaidIntegration: Story = {
     )
     await expect(popover).not.toHaveTextContent('Authentication overview')
     await expect(canvas.queryByTestId('related-diagram-link')).toBeNull()
+  },
+}
+
+/** Fullscreen Mermaid with the production svg-pan-zoom viewport and toolbar. */
+export const MermaidFullscreenPanZoom: Story = {
+  name: 'Fullscreen — Mermaid pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Idea to Ship',
+        mermaidCode: SAMPLE_MERMAID_WIDE,
+        fullscreenMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('toolbar', { name: 'Mermaid zoom controls' })).toBeVisible()
+    await expect(canvas.queryByRole('button', { name: 'Reset view' })).toBeNull()
+    await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  },
+}
+
+/** Normal Confluence page viewer with the same two-button viewport controls. */
+export const MermaidInlinePanZoom: Story = {
+  name: 'Normal view — Mermaid pan and zoom',
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Idea to Ship',
+        mermaidCode: SAMPLE_MERMAID_WIDE,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  },
+}
+
+/** Mermaid's editor preview surface, without the read-only viewer chrome. */
+export const MermaidEditorPanZoom: Story = {
+  name: 'Editor preview — Mermaid pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Idea to Ship',
+        mermaidCode: SAMPLE_MERMAID_WIDE,
+        displayMode: false,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderMermaidEditorPreview(),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
   },
 }
 

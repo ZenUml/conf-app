@@ -72,7 +72,7 @@ describe('PNG Export feedback acceptance', () => {
     await wrapper.get('[data-testid="feedback-trigger"]').trigger('click')
 
     expect(wrapper.get('[role="dialog"][aria-labelledby="feedback-title"]').exists()).toBe(true)
-    expect(wrapper.get('details').text()).toContain('8 fields attached automatically')
+    expect(wrapper.get('.context-disclosure').text()).toContain('8 fields attached automatically')
   })
 
   it('places feedback UI outside the export capture subtree', async () => {

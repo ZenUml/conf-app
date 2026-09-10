@@ -10,7 +10,7 @@
     @focusout="revealed = false"
   >
     <button data-testid="feedback-trigger" class="edge-trigger" type="button" aria-label="Send feedback" @click="openFeedback">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.75h14v9.5H9.5L6 18.5v-3.25H5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <ChatBubbleOvalLeftEllipsisIcon aria-hidden="true" />
       <span>Feedback</span>
     </button>
   </div>
@@ -27,6 +27,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import ChatBubbleOvalLeftEllipsisIcon from '@heroicons/vue/24/outline/ChatBubbleOvalLeftEllipsisIcon'
 import { openModal } from '@/model/globals/forgeGlobal'
 import FeedbackDialog from './FeedbackDialog.vue'
 import { captureFeedbackSurface } from './feedbackCapture'
@@ -87,11 +88,11 @@ function closeDialog() { dialogOpen.value = false }
 
 <style scoped>
 .feedback-edge { position: fixed; z-index: 10002; right: 0; top: 50%; width: 100px; height: 152px; transform: translateY(-50%); overflow: visible; }
-.edge-trigger { position: absolute; right: 0; top: 0; width: 44px; height: 152px; padding: 14px 8px; border: 0; border-radius: 7px 0 0 7px; background: #44546f; color: #fff; font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; opacity: 0; pointer-events: none; transition: opacity 150ms ease; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; }
-.edge-trigger svg { width: 18px; height: 18px; flex: none; }.edge-trigger span { writing-mode: vertical-rl; }
+.edge-trigger { position: absolute; right: 0; top: 0; width: 44px; height: 152px; padding: 0; border: 0; border-radius: 6px 0 0 6px; background: #4b5563; color: #fff; font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; letter-spacing: .025em; opacity: 0; pointer-events: none; transition: opacity 150ms ease, transform 150ms ease; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; box-shadow: 0 2px 8px rgba(0,0,0,.20); }
+.edge-trigger svg { width: 18px; height: 18px; flex: none; }.edge-trigger span { writing-mode: vertical-rl; transform: rotate(180deg); }
 .feedback-edge:hover .edge-trigger, .feedback-edge.revealed .edge-trigger, .edge-trigger:focus-visible { opacity: 1; pointer-events: auto; }
-.edge-trigger:focus-visible { outline: 2px solid #0c66e4; outline-offset: -3px; }
-.feedback-overlay { position: fixed; z-index: 10001; inset: 0; display: flex; align-items: center; justify-content: flex-end; padding: 24px clamp(24px, 6vw, 80px); box-sizing: border-box; background: rgba(9, 30, 66, .38); }
+.edge-trigger:focus-visible { outline: 0; box-shadow: 0 2px 8px rgba(0,0,0,.20), inset 0 0 0 2px #fff, inset 0 0 0 4px #2563eb; }
+.feedback-overlay { position: fixed; z-index: 10001; inset: 0; display: flex; align-items: center; justify-content: flex-end; padding: 24px clamp(24px, 6vw, 80px); box-sizing: border-box; background: rgba(0,0,0,.5); }
 @media (max-width: 760px) { .feedback-overlay { justify-content: center; padding: 16px; } }
 @media (prefers-reduced-motion: reduce) { .edge-trigger { transition-duration: .01ms; } }
 </style>

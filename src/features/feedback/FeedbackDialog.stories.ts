@@ -5,12 +5,17 @@ import { storyBlockedHandoff, storyFeedbackContext, storySubmit } from './feedba
 
 type Story = StoryObj<typeof FeedbackDialog>
 const context = storyFeedbackContext('viewer')
+const captureCurrentView = async () => ({
+  dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjRmNWY3Ii8+PHJlY3QgeD0iMTIiIHk9IjU4IiB3aWR0aD0iMTA4IiBoZWlnaHQ9IjY0IiByeD0iOCIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzBjNjZlNCIvPjxyZWN0IHg9IjIwMCIgeT0iNTgiIHdpZHRoPSIxMDgiIGhlaWdodD0iNjQiIHJ4PSI4IiBmaWxsPSJ3aGl0ZSIgc3Ryb2tlPSIjMGM2NmU0Ii8+PHBhdGggZD0iTTEyMCA5MGg4MCIgc3Ryb2tlPSIjNDQ1NDZmIiBzdHJva2Utd2lkdGg9IjQiLz48L3N2Zz4=',
+  name: 'current-view.png',
+  method: 'current_view' as const,
+})
 
 const meta: Meta<typeof FeedbackDialog> = {
   title: 'View/Feedback',
   component: FeedbackDialog,
   parameters: { layout: 'centered' },
-  args: { context, submit: storySubmit, handoff: storyBlockedHandoff },
+  args: { context, submit: storySubmit, handoff: storyBlockedHandoff, captureCurrentView },
 }
 export default meta
 
@@ -28,11 +33,7 @@ export const TextEntered: Story = {
 
 export const CapturePreview: Story = {
   args: {
-    captureCurrentView: async () => ({
-      dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjRmNWY3Ii8+PHJlY3QgeD0iMTIiIHk9IjU4IiB3aWR0aD0iMTA4IiBoZWlnaHQ9IjY0IiByeD0iOCIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzBjNjZlNCIvPjxyZWN0IHg9IjIwMCIgeT0iNTgiIHdpZHRoPSIxMDgiIGhlaWdodD0iNjQiIHJ4PSI4IiBmaWxsPSJ3aGl0ZSIgc3Ryb2tlPSIjMGM2NmU0Ii8+PHBhdGggZD0iTTEyMCA5MGg4MCIgc3Ryb2tlPSIjNDQ1NDZmIiBzdHJva2Utd2lkdGg9IjQiLz48L3N2Zz4=',
-      name: 'current-view.png',
-      method: 'current_view',
-    }),
+    captureCurrentView,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

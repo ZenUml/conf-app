@@ -15,6 +15,7 @@ describe('FeedbackHost', () => {
     const wrapper = mount(FeedbackHost, { props: { context, openViewModal: vi.fn() } })
     const trigger = wrapper.get('[data-testid="feedback-trigger"]')
     expect(trigger.classes()).toContain('edge-trigger')
+    expect(trigger.get('svg path').attributes('d')).toContain('M8.625 12')
     expect(wrapper.get('[data-testid="feedback-edge"]').classes()).not.toContain('revealed')
     await trigger.trigger('focusin')
     expect(wrapper.get('[data-testid="feedback-edge"]').classes()).toContain('revealed')

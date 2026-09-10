@@ -163,7 +163,6 @@ const contextItems = computed(() => [
 ].map(item => ({ ...item, unavailable: /^(Not |—$)/.test(item.value) })))
 
 onMounted(async () => {
-  session.open()
   await nextTick()
   textareaElement.value?.focus()
 })

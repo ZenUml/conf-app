@@ -70,6 +70,22 @@ export default defineConfig({
     {
       name: 'insert',
       testMatch: 'insert/**/*.spec.ts',
+      // `--shard` splits by FILE unless a project is fullyParallel, in which
+      // case it splits by test. File-level splitting left this suite lopsided:
+      // typed-deeplink-autoconvert alone contributes five tests and cannot be
+      // divided, so one shard carried it whole while another carried a single
+      // test. Splitting by test lets the boundaries fall where the work is.
+      //
+      // This does NOT introduce concurrent execution. `workers` is 1 on CI (see
+      // above), so tests still run one at a time inside a shard; only the
+      // distribution across shards changes.
+      //
+      // Safe because every multi-test file here that shares state between its
+      // tests already declares `describe.serial`, and Playwright keeps a serial
+      // group intact on one shard. The two files that do get split —
+      // typed-deeplink-autoconvert and m1-first-seen-ping — hold no
+      // module-level state and each test builds its own page.
+      fullyParallel: true,
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       timeout: 300000,

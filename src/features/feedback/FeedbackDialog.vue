@@ -86,11 +86,11 @@
       </div>
 
         <div class="context-details">
-          <button class="context-disclosure" type="button" :aria-expanded="contextExpanded" @click="contextExpanded = !contextExpanded">
+          <button class="context-disclosure" type="button" :aria-expanded="contextExpanded" @click="toggleContextDetails">
             <svg aria-hidden="true" viewBox="0 0 12 12" :class="{ expanded: contextExpanded }"><path d="M2.5 4.5L6 8L9.5 4.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
             8 fields attached automatically
           </button>
-          <dl v-if="contextExpanded">
+          <dl v-if="contextExpanded" ref="fieldsPanel">
           <template v-for="item in contextItems" :key="item.label">
             <dt>{{ item.label }}</dt><dd :class="{ unavailable: item.unavailable }" :title="item.value">{{ item.value }}</dd>
           </template>
@@ -139,6 +139,7 @@ const captureBusy = ref(false)
 const imageError = ref('')
 const textareaElement = ref<HTMLTextAreaElement>()
 const contextExpanded = ref(false)
+const fieldsPanel = ref<HTMLElement>()
 const handoffCountdown = ref(0)
 const manualSupportUrl = ref('')
 let handoffTimer: ReturnType<typeof setInterval> | undefined
@@ -168,6 +169,13 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => clearInterval(handoffTimer))
+
+async function toggleContextDetails() {
+  contextExpanded.value = !contextExpanded.value
+  if (!contextExpanded.value) return
+  await nextTick()
+  fieldsPanel.value?.scrollIntoView?.({ block: 'nearest' })
+}
 
 async function captureView() {
   if (!props.captureCurrentView) return

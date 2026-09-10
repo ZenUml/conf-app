@@ -50,4 +50,31 @@ describe('feedback surface routing', () => {
       customContentId: 'not_applicable',
     })
   })
+
+  it('falls back to a human-readable Untitled diagram for a missing title on diagram-bearing surfaces, and never for global surfaces', () => {
+    const viewerContext = {
+      accountId: 'account-example',
+      siteUrl: 'https://example-tenant.atlassian.net',
+      moduleKey: 'zenuml-sequence-macro-lite',
+      localId: 'macro-example',
+      extension: { type: 'confluence:macro', space: { name: 'Example space' }, content: { id: 'content-example' } },
+    }
+
+    expect(deriveFeedbackContext(viewerContext, { id: 'custom-content-example', diagramType: 'mermaid', title: '' }).diagramTitle)
+      .toBe('Untitled diagram')
+
+    expect(deriveFeedbackContext(viewerContext, { id: 'custom-content-example', diagramType: 'mermaid', title: '   ' }).diagramTitle)
+      .toBe('Untitled diagram')
+
+    expect(deriveFeedbackContext(viewerContext, { id: 'custom-content-example', diagramType: 'mermaid', title: 'Checkout flow' }).diagramTitle)
+      .toBe('Checkout flow')
+
+    const global = deriveFeedbackContext({
+      accountId: 'account-example',
+      siteUrl: 'https://example-tenant.atlassian.net',
+      moduleKey: 'zenuml-dashboard-page',
+      extension: { type: 'confluence:globalPage' },
+    })
+    expect(global.diagramTitle).toBe('not_applicable')
+  })
 })

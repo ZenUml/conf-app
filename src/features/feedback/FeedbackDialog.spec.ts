@@ -61,6 +61,26 @@ describe('FeedbackDialog', () => {
     expect(submit).not.toHaveBeenCalled()
   })
 
+  it('scrolls the newly expanded auto-fields panel into view within the single dialog-body scroller', async () => {
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView
+
+    try {
+      const wrapper = mount(FeedbackDialog, { props: { context, submit: vi.fn() } })
+      const disclosure = wrapper.get('.context-disclosure')
+
+      await disclosure.trigger('click')
+      await vi.waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' }))
+
+      // The panel itself must not carry its own scroll region — .feedback-body is the
+      // only scroller; a computed max-height/overflow pair isn't assertable in jsdom anyway.
+      expect(wrapper.get('.context-details dl').classes()).toEqual([])
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
   it('continues and exits Markdown-style lists while keeping a plain textarea', async () => {
     const wrapper = mount(FeedbackDialog, { props: { context, submit: vi.fn() } })
     const textarea = wrapper.get('textarea')

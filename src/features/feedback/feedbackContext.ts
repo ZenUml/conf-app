@@ -6,6 +6,7 @@ type ForgeLikeContext = Record<string, any>
 
 const NA = 'not_applicable'
 const UNAVAILABLE = 'unavailable'
+const UNTITLED_DIAGRAM = 'Untitled diagram'
 
 export function feedbackSurfaceForContext(context: ForgeLikeContext): FeedbackSurface | null {
   const moduleKey = String(context?.moduleKey ?? '')
@@ -42,6 +43,11 @@ function clientDomain(context: ForgeLikeContext): string {
   }
 }
 
+function diagramTitleFor(title: unknown): string {
+  const raw = typeof title === 'string' ? title : ''
+  return raw.trim() ? raw : UNTITLED_DIAGRAM
+}
+
 function normalizeDiagramType(value: unknown): MacroTypeValue | 'unavailable' {
   const type = String(value ?? '').toLowerCase()
   if (type === 'openapi') return 'openapi'
@@ -62,7 +68,7 @@ export function deriveFeedbackContext(context: ForgeLikeContext, diagram?: Parti
     surface,
     hostModule: String(context?.moduleKey || UNAVAILABLE),
     diagramType: globalSurface ? NA : normalizeDiagramType(diagram?.diagramType ?? modal.diagramType),
-    diagramTitle: globalSurface ? NA : String(diagram?.title || UNAVAILABLE),
+    diagramTitle: globalSurface ? NA : diagramTitleFor(diagram?.title),
     userAccountId: String(context?.accountId || UNAVAILABLE),
     clientDomain: clientDomain(context),
     spaceName: globalSurface ? NA : String(space?.name || space?.key || UNAVAILABLE),

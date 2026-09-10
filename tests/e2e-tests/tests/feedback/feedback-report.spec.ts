@@ -191,7 +191,10 @@ test.describe('Feedback reporting', () => {
 
     await exportOverlay.getByRole('button', { name: 'Cancel' }).click();
     await expect(exportOverlay).toBeHidden();
-    await exportBackdrop.locator('.sidebar-close').click();
+    // main replaced ExportSidebar with ExportWorkspace, and with it the
+    // `.sidebar-close` handle this used to click. The close control is now the
+    // workspace header's button, addressed by its accessible name.
+    await exportBackdrop.getByRole('button', { name: 'Close export' }).click();
     await expect(exportBackdrop).toBeHidden();
 
     await clickHeaderClose(page, 'fullscreen-viewer');

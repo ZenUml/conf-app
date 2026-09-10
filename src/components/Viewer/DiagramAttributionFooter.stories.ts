@@ -38,7 +38,7 @@ function withStubs(users: Record<string, { displayName: string }>, audienceCount
 }
 
 const meta: Meta<typeof DiagramAttributionFooter> = {
-  title: 'View/DiagramAttributionFooter',
+  title: 'Viewer/DiagramAttributionFooter',
   component: DiagramAttributionFooter,
   parameters: { layout: 'centered' },
 }

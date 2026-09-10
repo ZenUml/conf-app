@@ -6,7 +6,7 @@ import OverflowMenu from './OverflowMenu.vue'
 type Story = StoryObj<typeof OverflowMenu>
 
 const meta: Meta<typeof OverflowMenu> = {
-  title: 'View/OverflowMenu',
+  title: 'Viewer/OverflowMenu',
   component: OverflowMenu,
   parameters: {
     layout: 'padded',

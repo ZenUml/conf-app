@@ -17,10 +17,13 @@
       <div class="success-mark" aria-hidden="true">✓</div>
       <h3>Your feedback has been saved.</h3>
       <p>Reference <strong>{{ session.reportReference }}</strong></p>
-      <p>We opened our support form so you can add your email if you want a reply. The support form is only for contact and replies; your feedback is already safe.</p>
+      <p v-if="handoffCountdown > 0">
+        You’ll be redirected to our ticket system in {{ handoffCountdown }} {{ handoffCountdown === 1 ? 'second' : 'seconds' }}.
+      </p>
+      <p v-if="handoffCountdown > 0">Submit the ticket if you'd like to receive replies.</p>
       <a
-        v-if="session.manualSupportUrl"
-        :href="session.manualSupportUrl"
+        v-if="manualSupportUrl"
+        :href="manualSupportUrl"
         target="_blank"
         rel="noopener noreferrer"
         data-testid="continue-support"
@@ -106,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import CameraIcon from '@heroicons/vue/24/outline/CameraIcon'
 import ArrowUpTrayIcon from '@heroicons/vue/24/outline/ArrowUpTrayIcon'
 import XMarkIcon from '@heroicons/vue/24/outline/XMarkIcon'
@@ -136,6 +139,9 @@ const captureBusy = ref(false)
 const imageError = ref('')
 const textareaElement = ref<HTMLTextAreaElement>()
 const contextExpanded = ref(false)
+const handoffCountdown = ref(0)
+const manualSupportUrl = ref('')
+let handoffTimer: ReturnType<typeof setInterval> | undefined
 
 const imageFormatLabel = computed(() => {
   const extension = screenshot.value?.name.match(/\.([a-z0-9]+)$/i)?.[1]?.toUpperCase()
@@ -160,6 +166,8 @@ onMounted(async () => {
   await nextTick()
   textareaElement.value?.focus()
 })
+
+onBeforeUnmount(() => clearInterval(handoffTimer))
 
 async function captureView() {
   if (!props.captureCurrentView) return
@@ -221,6 +229,19 @@ async function send() {
   const succeeded = await session.submit()
   state.value = session.submissionState
   if (!succeeded) state.value = 'failed'
+  else if (props.handoff) startHandoffCountdown()
+}
+
+function startHandoffCountdown() {
+  handoffCountdown.value = 5
+  clearInterval(handoffTimer)
+  handoffTimer = setInterval(async () => {
+    handoffCountdown.value -= 1
+    if (handoffCountdown.value > 0) return
+    clearInterval(handoffTimer)
+    await session.handoffToSupport()
+    manualSupportUrl.value = session.manualSupportUrl
+  }, 1_000)
 }
 </script>
 

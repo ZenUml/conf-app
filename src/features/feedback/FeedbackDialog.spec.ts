@@ -77,6 +77,7 @@ describe('FeedbackDialog', () => {
   })
 
   it('shows saved confirmation and a manual support fallback after blocked handoff', async () => {
+    vi.useFakeTimers()
     const submit = vi.fn().mockResolvedValue({ reportReference: 'FBR-EXAMPLE1234' })
     const handoff = vi.fn().mockResolvedValue({
       opened: false,
@@ -86,11 +87,24 @@ describe('FeedbackDialog', () => {
 
     await wrapper.get('textarea').setValue('The diagram is too small.')
     await wrapper.get('form').trigger('submit')
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Your feedback has been saved.'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(wrapper.text()).toContain('Your feedback has been saved.')
+    expect(wrapper.text()).toContain('redirected to our ticket system in 5 seconds')
+    expect(wrapper.text()).toContain("Submit the ticket if you'd like to receive replies.")
+    expect(handoff).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(wrapper.text()).toContain('in 1 second')
+    expect(handoff).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    await Promise.resolve()
 
     const manual = wrapper.get('[data-testid="continue-support"]')
     expect(manual.attributes('href')).toBe('https://support.example/?ref=FBR-EXAMPLE1234')
-    expect(wrapper.text()).toContain('support form is only for contact and replies')
+    vi.useRealTimers()
   })
 
   it('shows the support email when feedback submission fails', async () => {

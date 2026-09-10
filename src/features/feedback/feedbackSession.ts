@@ -135,22 +135,6 @@ export function createFeedbackSession({ context, submit, handoff, track }: {
         reportReference = saved.reportReference
         submissionState = 'succeeded'
         track('feedback_report_submit_succeeded', props)
-        if (handoff) {
-          track('feedback_report_handoff_requested', props)
-          try {
-            const transition = await handoff(reportReference)
-            manualSupportUrl = transition.opened ? '' : transition.manualUrl ?? ''
-            track(transition.opened ? 'feedback_report_handoff_opened' : 'feedback_report_handoff_blocked', {
-              ...props,
-              feedback_handoff_outcome: transition.opened ? 'opened' : 'blocked',
-            })
-          } catch {
-            track('feedback_report_handoff_blocked', {
-              ...props,
-              feedback_handoff_outcome: 'failed',
-            })
-          }
-        }
         return true
       } catch (error) {
         submissionState = 'failed'
@@ -160,6 +144,27 @@ export function createFeedbackSession({ context, submit, handoff, track }: {
           failure_reason: error instanceof Error ? error.name : 'unknown_error',
         })
         return false
+      }
+    },
+    async handoffToSupport() {
+      if (!handoff || submissionState !== 'succeeded' || !reportReference) return
+      const props = {
+        ...analyticsProps(),
+        feedback_has_screenshot: !!screenshot,
+      }
+      track('feedback_report_handoff_requested', props)
+      try {
+        const transition = await handoff(reportReference)
+        manualSupportUrl = transition.opened ? '' : transition.manualUrl ?? ''
+        track(transition.opened ? 'feedback_report_handoff_opened' : 'feedback_report_handoff_blocked', {
+          ...props,
+          feedback_handoff_outcome: transition.opened ? 'opened' : 'blocked',
+        })
+      } catch {
+        track('feedback_report_handoff_blocked', {
+          ...props,
+          feedback_handoff_outcome: 'failed',
+        })
       }
     },
   }

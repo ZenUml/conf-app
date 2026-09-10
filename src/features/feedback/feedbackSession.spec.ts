@@ -39,7 +39,7 @@ describe('feedback session privacy boundary', () => {
     }))
   })
 
-  it('automatically hands a successfully saved report to support without copying report content', async () => {
+  it('hands a successfully saved report to support only when requested without copying report content', async () => {
     const submit = vi.fn().mockResolvedValue({ reportReference: 'FBR-EXAMPLE1234' })
     const handoff = vi.fn().mockResolvedValue({ opened: true })
     const track = vi.fn()
@@ -49,6 +49,10 @@ describe('feedback session privacy boundary', () => {
     await expect(session.submit()).resolves.toBe(true)
 
     expect(session.submissionState).toBe('succeeded')
+    expect(handoff).not.toHaveBeenCalled()
+
+    await session.handoffToSupport()
+
     expect(handoff).toHaveBeenCalledWith('FBR-EXAMPLE1234')
     expect(session.manualSupportUrl).toBe('')
     expect(handoff.mock.calls[0][0]).not.toContain('Private report text')
@@ -66,6 +70,8 @@ describe('feedback session privacy boundary', () => {
     session.setDescription('Saved even when navigation is blocked')
 
     await session.submit()
+
+    await session.handoffToSupport()
 
     expect(session.submissionState).toBe('succeeded')
     expect(session.reportReference).toBe('FBR-EXAMPLE1234')

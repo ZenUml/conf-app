@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { setup } from '@storybook/vue3-vite'
-import { expect, waitFor } from 'storybook/test'
+import { expect } from 'storybook/test'
 import Mermaid from './Mermaid.vue'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
-import { loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
 import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
 import { defineComponent, h, onMounted, ref } from 'vue'
 
@@ -67,24 +67,67 @@ function loadDiagram(mermaidCode: string) {
  * content.
  */
 async function measureTopGap(): Promise<{ gap: number; svgHeight: number; contentHeight: number }> {
-  const svg = await waitFor(() => {
+  // Three states pass through this element, and only the last one is the shape
+  // a reader sees. Mermaid mounts the svg; svg-pan-zoom then re-wraps its
+  // contents in `g.svg-pan-zoom_viewport` and applies a fit transform. Waiting
+  // only for the element measures the first state (a 150px box around a
+  // zero-height drawing); waiting only for a non-zero height measures the
+  // second, which is smaller than the settled one and would make this story
+  // report a band it cannot actually see. So: measure repeatedly and take the
+  // geometry only once two readings a quarter-second apart agree.
+  const read = () => {
     const el = document.querySelector<SVGSVGElement>('svg[id^="mermaid-"]')
-    if (!el) throw new Error('mermaid svg not rendered yet')
-    return el
-  })
-  const content = svg.querySelector<SVGGElement>('g.root') ?? svg.querySelector('g')!
-  const svgBox = svg.getBoundingClientRect()
-  const contentBox = content.getBoundingClientRect()
-  return {
-    gap: Math.round(contentBox.top - svgBox.top),
-    svgHeight: Math.round(svgBox.height),
-    contentHeight: Math.round(contentBox.height),
+    if (!el) return null
+    const root = el.querySelector<SVGGElement>('g.root') ?? el.querySelector('g')
+    if (!root) return null
+    const svgBox = el.getBoundingClientRect()
+    const contentBox = root.getBoundingClientRect()
+    if (contentBox.height === 0) return null
+    return {
+      gap: Math.round(contentBox.top - svgBox.top),
+      svgHeight: Math.round(svgBox.height),
+      contentHeight: Math.round(contentBox.height),
+    }
   }
+
+  const settle = async () => {
+    let previous: ReturnType<typeof read> = null
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const current = read()
+      if (
+        current &&
+        previous &&
+        current.gap === previous.gap &&
+        current.svgHeight === previous.svgHeight &&
+        current.contentHeight === previous.contentHeight
+      ) {
+        return current
+      }
+      previous = current
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    throw new Error('mermaid geometry never settled')
+  }
+
+  return settle()
 }
 
 const meta: Meta<typeof Mermaid> = {
   title: 'Viewer/MermaidSizing',
   component: Mermaid,
+  // Mermaid is fetched at runtime from `vendor/mermaid/` (loadMermaid.ts), which
+  // vite.config.mjs copies into `dist/` for the app build. Storybook serves
+  // `public/`, which has no such directory, so the unprimed default import 404s.
+  // Hand the loader the bundled copy instead — the same priming every other
+  // story that renders real Mermaid does (see GenericViewer.stories.ts).
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
   parameters: {
     layout: 'fullscreen',
     docs: {

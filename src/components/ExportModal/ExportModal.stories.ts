@@ -1,6 +1,6 @@
 import type { Args, Meta, StoryObj } from '@storybook/vue3-vite'
 import { onMounted, ref } from 'vue'
-import { expect, userEvent, within } from 'storybook/test'
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 import ExportModal from './ExportModal.vue'
 
 type Story = StoryObj<typeof ExportModal>
@@ -227,7 +227,14 @@ export const NoteColorPalette: Story = {
     await userEvent.click(color)
     await userEvent.click(await canvas.findByRole('menuitem', { name: 'Blue' }))
     await expect(canvas.getByRole('button', { name: 'Annotation color' })).toHaveAttribute('aria-expanded', 'false')
-    await expect(document.querySelector('.rendered-annotations text[fill="#2563eb"]')).not.toBeNull()
+    // `.rendered-annotations` only exists once the html-to-image capture resolves
+    // (ExportWorkspace.vue gates it on `state.previewDataUrl`), while the colour
+    // control is live as soon as the note is selected. A bare query races that.
+    await waitFor(() => {
+      if (!document.querySelector('.rendered-annotations text[fill="#2563eb"]')) {
+        throw new Error('note text not recoloured in the rendered preview yet')
+      }
+    })
   },
 }
 

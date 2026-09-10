@@ -33,6 +33,10 @@ function configureProductionViewerFixture() {
       content: { id: 'content-example' },
       space: { key: 'DOCS', name: 'Example space' },
       config: { customContentId: 'custom-content-example', macroUuid: 'macro-example' },
+      // openExport() only mounts ExportModal inline when isFullscreenMode is true;
+      // otherwise it emits `fullscreen` and the sole listener lives in forgeIndex.ts,
+      // which no story mounts — so without this the dialog never opened at all.
+      modal: { macroMode: 'fullscreen' },
     },
   }
   globals.apWrapper.canUserEdit = async () => true
@@ -89,7 +93,9 @@ async function openRealExport(canvasElement: HTMLElement) {
 
   await userEvent.hover(canvasElement.querySelector('.viewer-surface') as HTMLElement)
   await userEvent.click(await canvas.findByRole('button', { name: 'Export PNG' }))
-  const exportDialog = await canvas.findByRole('dialog', { name: 'Export Settings' })
+  // 'Export Settings' is the heading of the retired ExportSidebar.vue. The dialog
+  // that actually renders is labelled 'Export image' (ExportModal.vue).
+  const exportDialog = await canvas.findByRole('dialog', { name: 'Export image' })
   await waitFor(() => expect(exportDialog).toBeVisible())
   return canvas
 }

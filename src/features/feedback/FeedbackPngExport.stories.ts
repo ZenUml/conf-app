@@ -79,6 +79,34 @@ const meta: Meta<typeof GenericViewer> = {
 
 export default meta
 
+async function openRealExport(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement)
+  await waitFor(() => {
+    if (!canvasElement.querySelector('.screen-capture-content svg')) {
+      throw new Error('Mermaid diagram has not rendered')
+    }
+  }, { timeout: 15_000 })
+
+  await userEvent.hover(canvasElement.querySelector('.viewer-surface') as HTMLElement)
+  await userEvent.click(await canvas.findByRole('button', { name: 'Export PNG' }))
+  const exportDialog = await canvas.findByRole('dialog', { name: 'Export Settings' })
+  await waitFor(() => expect(exportDialog).toBeVisible())
+  return canvas
+}
+
+export const CollapsedTrigger: Story = {
+  name: 'Collapsed trigger in real Export',
+  play: async ({ canvasElement }) => { await openRealExport(canvasElement) },
+}
+
+export const ExpandedTrigger: Story = {
+  name: 'Expanded trigger in real Export',
+  play: async ({ canvasElement }) => {
+    const canvas = await openRealExport(canvasElement)
+    await userEvent.hover(await canvas.findByTestId('feedback-edge'))
+  },
+}
+
 /**
  * Full integration evidence: real Viewer action opens its production
  * ExportModal, which captures the real Mermaid DOM, then exposes Feedback as
@@ -87,18 +115,7 @@ export default meta
 export const Open: Story = {
   name: 'Open from real Viewer',
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() => {
-      if (!canvasElement.querySelector('.screen-capture-content svg')) {
-        throw new Error('Mermaid diagram has not rendered')
-      }
-    }, { timeout: 15_000 })
-
-    await userEvent.hover(canvasElement.querySelector('.viewer-surface') as HTMLElement)
-    await userEvent.click(await canvas.findByRole('button', { name: 'Export PNG' }))
-    const exportDialog = await canvas.findByRole('dialog', { name: 'Export Settings' })
-    await waitFor(() => expect(exportDialog).toBeVisible())
-
+    const canvas = await openRealExport(canvasElement)
     const edge = await canvas.findByTestId('feedback-edge')
     await userEvent.hover(edge)
     await userEvent.click(await canvas.findByRole('button', { name: 'Send feedback' }))

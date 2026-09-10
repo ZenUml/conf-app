@@ -55,4 +55,12 @@ async function revealAndOpen(canvasElement: HTMLElement) {
   await userEvent.click(trigger)
 }
 
+export const Collapsed: Story = {}
+
+export const Expanded: Story = {
+  play: async ({ canvasElement }) => {
+    await userEvent.hover(within(canvasElement).getByTestId('feedback-edge'))
+  },
+}
+
 export const Open: Story = { play: async ({ canvasElement }) => revealAndOpen(canvasElement) }

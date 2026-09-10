@@ -46,8 +46,9 @@
             :disabled="captureBusy || !captureCurrentView"
             aria-describedby="capture-help"
             @click="captureView"
-          >{{ captureBusy ? 'Capturing…' : 'Capture current view' }}</button>
+          ><CameraIcon class="image-action-icon" aria-hidden="true" />{{ captureBusy ? 'Capturing…' : 'Capture current view' }}</button>
           <label class="secondary-button upload-button">
+            <ArrowUpTrayIcon class="image-action-icon" aria-hidden="true" />
             Upload image
             <input type="file" accept="image/png,image/jpeg,image/webp" class="sr-only" @change="uploadImage">
           </label>
@@ -88,6 +89,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import CameraIcon from '@heroicons/vue/24/outline/CameraIcon'
+import ArrowUpTrayIcon from '@heroicons/vue/24/outline/ArrowUpTrayIcon'
 import type { FeedbackDismissReason } from '@/utils/analytics/catalog'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { createFeedbackSession, type FeedbackContext, type FeedbackReportPayload, type FeedbackScreenshot } from './feedbackSession'
@@ -213,6 +216,8 @@ textarea:focus { outline: 0; }
 .secondary-button { border: 1px solid #b6c2cf; background: white; color: #172b4d; }
 .text-button { border: 0; background: transparent; color: #0c66e4; }
 .danger { color: #ae2a19; }
+.image-actions .secondary-button { display: inline-flex; align-items: center; gap: 6px; }
+.image-action-icon { width: 16px; height: 16px; flex: none; }
 .upload-button { display: inline-flex; }
 .context-details { border: 1px solid #dcdfe4; border-radius: 6px; background: #f7f8f9; padding: 8px 10px; }
 .context-details summary { cursor: pointer; font-weight: 600; }

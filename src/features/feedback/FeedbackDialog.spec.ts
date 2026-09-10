@@ -30,6 +30,12 @@ describe('FeedbackDialog', () => {
     expect(wrapper.get('details').text()).toContain('8 fields attached automatically')
     expect(wrapper.find('fieldset').exists()).toBe(false)
     expect(wrapper.get('textarea').attributes('placeholder')).toBe('What would you like us to know?')
+    const captureAction = wrapper.get('[data-testid="capture-current-view"]')
+    expect(captureAction.text()).toBe('Capture current view')
+    expect(captureAction.get('svg.image-action-icon').attributes('aria-hidden')).toBe('true')
+    const uploadAction = wrapper.get('.upload-button')
+    expect(uploadAction.text()).toContain('Upload image')
+    expect(uploadAction.get('svg.image-action-icon').attributes('aria-hidden')).toBe('true')
 
     await wrapper.get('form').trigger('submit')
     await vi.waitFor(() => expect(wrapper.text()).toContain('Describe what happened before sending.'))

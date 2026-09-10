@@ -351,11 +351,14 @@ jobs:
           ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
           ATLASSIAN_OTP: ${{ secrets.otp }}
       - name: Upload test results
+        # `blob` (see playwright.config.ts's CI reporter list) writes here
+        # instead of playwright-report/. Each shard's blob is merged into one
+        # browsable HTML report by the merge-reports job below.
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-report-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
-          path: ./tests/e2e-tests/playwright-report/
+          name: blob-report-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
+          path: ./tests/e2e-tests/blob-report/
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v6
@@ -365,3 +368,43 @@ jobs:
           # Tests only write screenshots on failure; suppress the "no files
           # found" warning that fires on every green run.
           if-no-files-found: ignore
+
+  # Combine the SHARD_COUNT blob reports into one browsable HTML report.
+  # Before this job, each shard uploaded its own playwright-report-<suffix>-
+  # shard-N artifact and there was no cross-shard view. `if: always()` so a
+  # partial run (some shards failed or were reaped) still produces a report
+  # covering whichever shards uploaded a blob — better than nothing on a red
+  # run, which is exactly when someone most wants per-test detail.
+  merge-reports:
+    name: merge shard reports
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Download every shard's blob report
+        # `merge-multiple: true` flattens all matching artifacts into one
+        # directory (each shard's report-*.zip lands side by side), which is
+        # what `playwright merge-reports` expects as its input directory.
+        uses: actions/download-artifact@v7
+        with:
+          pattern: blob-report-${{ inputs.artifact-suffix }}-shard-*
+          path: ./tests/e2e-tests/all-blob-reports
+          merge-multiple: true
+      - name: Merge into one HTML report
+        run: cd tests/e2e-tests && pnpm exec playwright merge-reports --reporter=html ./all-blob-reports
+      - name: Upload merged report
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-${{ inputs.artifact-suffix }}
+          path: ./tests/e2e-tests/playwright-report/

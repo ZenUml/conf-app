@@ -10,7 +10,15 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  // On CI a shard's log otherwise shows only one summary line (e.g.
+  // "6 passed (4.8m)") with no per-test names and no sign that a test was
+  // retried — and retries is 2 on CI above, so flakes are invisible without
+  // downloading the HTML artifact. `list` prints a line per test, `github`
+  // annotates failures on the PR diff, and `blob` produces a per-shard report
+  // that `playwright merge-reports` can combine into one browsable report
+  // (see the merge-reports job in e2e-test.yml). Locally, keep the single
+  // `html` report nobody has to configure or merge.
+  reporter: process.env.CI ? [['list'], ['github'], ['blob']] : 'html',
 
   use: {
     storageState: AUTH_STATE_PATH,

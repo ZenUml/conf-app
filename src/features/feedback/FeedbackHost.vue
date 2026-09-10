@@ -35,19 +35,21 @@ import { serveFeedbackCapture } from './feedbackBridge'
 import type { FeedbackContext } from './feedbackSession'
 import { createFeedbackTransport } from './feedbackTransport'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   context: FeedbackContext
   openViewModal?: typeof openModal
   captureCurrentView?: typeof captureFeedbackSurface
   suppressDuringExport?: boolean
-}>()
+}>(), {
+  suppressDuringExport: true,
+})
 
 const revealed = ref(false)
 const nudging = ref(false)
 const dialogOpen = ref(false)
 const exportOpen = ref(false)
 const transport = createFeedbackTransport()
-const shouldSuppressDuringExport = props.suppressDuringExport !== false
+const shouldSuppressDuringExport = props.suppressDuringExport
 let observer: MutationObserver | undefined
 let stopCaptureServer: (() => void) | undefined
 let nudgeOpenTimer: ReturnType<typeof setTimeout> | undefined

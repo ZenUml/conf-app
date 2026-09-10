@@ -11,9 +11,11 @@ function blobDataUrl(blob: Blob): Promise<string> {
 }
 
 export function feedbackCaptureTarget(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(
-    '.screen-capture-content, .workspace, .get-started-page, .asyncapi-dashboard, #app',
-  )
+  return document.querySelector<HTMLElement>('.screen-capture-content')
+    ?? document.querySelector<HTMLElement>('.workspace')
+    ?? document.querySelector<HTMLElement>('.get-started-page')
+    ?? document.querySelector<HTMLElement>('.asyncapi-dashboard')
+    ?? document.querySelector<HTMLElement>('#app')
 }
 
 export async function captureFeedbackSurface(): Promise<FeedbackScreenshot> {

@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FeedbackHost from './FeedbackHost.vue'
@@ -62,5 +62,21 @@ describe('FeedbackHost', () => {
       context: expect.objectContaining({ macroMode: 'feedback', feedbackContext: context }),
     }))
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('hides the default surface trigger while PNG Export provides its own trigger', async () => {
+    const wrapper = mount(FeedbackHost, {
+      props: { context, openViewModal: vi.fn() },
+      attachTo: document.body,
+    })
+    const exportBackdrop = document.createElement('div')
+    exportBackdrop.className = 'export-modal-backdrop'
+    document.body.appendChild(exportBackdrop)
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="feedback-edge"]').exists()).toBe(false)
+    wrapper.unmount()
+    exportBackdrop.remove()
   })
 })

@@ -54,7 +54,7 @@ function configureProductionViewerFixture() {
 type Story = StoryObj<typeof GenericViewer>
 
 const meta: Meta<typeof GenericViewer> = {
-  title: 'PNG Export/Feedback integration',
+  title: 'Modal/FeedbackPngExport',
   component: GenericViewer,
   parameters: { layout: 'fullscreen' },
   loaders: [

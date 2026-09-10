@@ -108,7 +108,7 @@ function installNavigationMock() {
 }
 
 const meta: Meta<typeof PaywallWarningBanner> = {
-  title: 'Paywall/PaywallWarningBanner',
+  title: 'Page banner/PaywallWarningBanner',
   component: PaywallWarningBanner,
   tags: ['autodocs'],
   parameters: {

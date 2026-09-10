@@ -12,7 +12,7 @@ const captureCurrentView = async () => ({
 })
 
 const meta: Meta<typeof FeedbackDialog> = {
-  title: 'View/Feedback',
+  title: 'Modal/FeedbackDialog',
   component: FeedbackDialog,
   parameters: { layout: 'centered' },
   args: { context, submit: storySubmit, handoff: storyBlockedHandoff, captureCurrentView },

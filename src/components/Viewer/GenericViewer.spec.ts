@@ -1534,12 +1534,23 @@ describe('GenericViewer (chrome-less)', () => {
       expect(labels).toEqual(['Export PNG', 'Versions', 'Copy page link', 'More'])
     })
 
-    it('opens the export modal when Export PNG is clicked', async () => {
+    // Behaviour change: on the inline macro the button no longer opens the
+    // dialog in place — the iframe is 564x256 on production page 2774138946 and
+    // the dialog cannot be operated at that size. It opens Fullscreen instead,
+    // where the dialog opens on arrival (see openExport / the routing suite).
+    it('routes Export PNG to Fullscreen rather than opening the dialog inline', async () => {
       const wrapper = mountViewer()
       const vm = wrapper.vm as any
+      const emitted: unknown[] = []
+      const handler = (payload: unknown) => emitted.push(payload)
+      EventBus.$on('fullscreen', handler)
+
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
-      expect(vm.showExportModal).toBe(true)
+
+      expect(vm.showExportModal).toBe(false)
+      expect(emitted).toEqual([{ openExport: true }])
+      EventBus.$off('fullscreen', handler)
     })
 
     // Export PNG (code review): ExportModal must receive the capture element
@@ -1931,6 +1942,82 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
     })
 
+    // The rail is 316px + a 16px gap of the fullscreen width. ConnectPanel has no
+    // `idle` branch, so before a session exists it renders nothing at all — and the
+    // only way to start one is the small-macro Connect button, which is hidden in
+    // fullscreen. A blank 332px column stayed reserved next to the diagram, which is
+    // why a wide PlantUML diagram started scrolling well before it ran out of window.
+    // The fullscreen column is capped at 1000px so the byline under the diagram stays
+    // a readable line length. A PlantUML diagram that overflows that column gains
+    // nothing from the cap — it just scrolls sooner while the window sits unused, so
+    // the capture box drops the cap for that case (the byline keeps it).
+    it('lets an overflowing PlantUML diagram use the full fullscreen width', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.PlantUml)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .toContain('screen-capture-content--uncapped')
+    })
+
+    it('lets a Graph diagram use the full fullscreen width too', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Graph)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .toContain('screen-capture-content--uncapped')
+    })
+
+    // ZEN-1207: mermaid was grouped with the text types and kept the 1000px cap, but it
+    // is a rendered picture that scales down into its column — in a 1920px window it drew
+    // into 1000px while PlantUML got 1864px, and no zoom control exists to recover the
+    // difference. It belongs with Graph, not with the line-by-line text types.
+    it('lets a Mermaid diagram use the full fullscreen width', async () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .toContain('screen-capture-content--uncapped')
+    })
+
+    it('keeps the 1000px column for the text-bearing diagram types', async () => {
+      setFullscreen(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.screen-capture-content').classes())
+        .not.toContain('screen-capture-content--uncapped')
+
+      for (const type of [DiagramType.OpenApi]) {
+        store.commit('updateDiagramType', type)
+        const w = mountViewer()
+        await flushPromises()
+        expect(w.find('.screen-capture-content').classes())
+          .not.toContain('screen-capture-content--uncapped')
+      }
+    })
+
+    it('collapses the Fullscreen rail while the panel is idle', async () => {
+      // readAnySession() scans every localStorage key, so a handoff left behind by
+      // another spec file hydrates this mount to `waiting` and there is no idle state
+      // left to assert. The suite's beforeEach only clears sessionStorage.
+      localStorage.clear()
+      setFullscreen(true)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const rail = wrapper.find('[data-testid="agent-link-fullscreen-rail"]')
+      expect(rail.exists()).toBe(true)
+      expect(rail.classes()).toContain('agent-link-rail--collapsed')
+      expect(wrapper.find('.viewer-body').classes()).not.toContain('viewer-body--with-agent-rail')
+    })
+
     // Amendment D: the composable's alreadyLinkedUntil (set from a mint 409's
     // lockExpiresAt) must reach ConnectPanel's already_linked SessionNotice for
     // an honest countdown instead of a blind "already linked" notice.
@@ -2036,6 +2123,25 @@ describe('GenericViewer (chrome-less)', () => {
       ;(forgeRuntime as any).isForge = originalIsForge
       ;(forgeRuntime as any).forgeContext = originalForgeContext
       localStorage.clear()
+    })
+
+    it('reserves the rail width once a session exists', async () => {
+      setFullscreenWithPageId('page-123')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-abc',
+        cloudId: 'cloud-1',
+        pageId: 'page-123',
+        contentId: 'content-123',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const rail = wrapper.find('[data-testid="agent-link-fullscreen-rail"]')
+      expect(rail.classes()).not.toContain('agent-link-rail--collapsed')
+      expect(wrapper.find('.viewer-body').classes()).toContain('viewer-body--with-agent-rail')
     })
 
     it('hydrates the rail to waiting via readSession(pageId) even when globals.apWrapper is absent', async () => {
@@ -2174,6 +2280,185 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+})
+
+describe('GenericViewer — Export PNG routes through Fullscreen', () => {
+  // The export dialog cannot be operated inside the inline macro: the iframe is
+  // 564x256 on production page 2774138946, and the annotation controls end up in
+  // a 24px scroller over 312px of form. Rendering it in flow instead grows the
+  // iframe but pushes the preview out of view while the controls are edited, so
+  // the export UI belongs on the surface that has room — the Fullscreen modal.
+  it('opens Fullscreen carrying openExport instead of the inline dialog', async () => {
+    const wrapper = mountViewer()
+    const emitted: unknown[] = []
+    const handler = (payload: unknown) => emitted.push(payload)
+    EventBus.$on('fullscreen', handler)
+
+    await wrapper.vm.openExport()
+
+    expect(emitted).toEqual([{ openExport: true }])
+    expect(wrapper.vm.showExportModal).toBe(false)
+    EventBus.$off('fullscreen', handler)
+    wrapper.unmount()
+  })
+
+  it('opens the dialog in place when already in Fullscreen', async () => {
+    window.forgeGlobal = {
+      ...(window.forgeGlobal || {}),
+      forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
+    }
+    const wrapper = mountViewer()
+    const emitted: unknown[] = []
+    const handler = (payload: unknown) => emitted.push(payload)
+    EventBus.$on('fullscreen', handler)
+
+    await wrapper.vm.openExport()
+
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(emitted).toEqual([])
+    EventBus.$off('fullscreen', handler)
+    wrapper.unmount()
+    delete window.forgeGlobal.forgeContext.extension.modal
+  })
+})
+
+describe('GenericViewer — auto-opening the export dialog in Fullscreen', () => {
+  function inFullscreen(openExport: boolean) {
+    window.forgeGlobal = {
+      ...(window.forgeGlobal || {}),
+      forgeContext: { extension: { modal: { macroMode: 'fullscreen', openExport } } },
+    }
+  }
+
+  afterEach(() => {
+    if (window.forgeGlobal?.forgeContext?.extension) {
+      delete window.forgeGlobal.forgeContext.extension.modal
+    }
+  })
+
+  it('covers the viewer immediately, then enables preview capture when the diagram is ready', async () => {
+    // The export-entry route intentionally skips the fullscreen paywall. Its
+    // opaque export surface must therefore cover viewer controls immediately;
+    // only the preview capture waits for the renderer readiness signal.
+    inFullscreen(true)
+    const wrapper = mountViewer()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(false)
+
+    EventBus.$emit('diagramLoaded', 'A->B: hi', DiagramType.Sequence)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('opens once, so closing it does not reopen on the next render', async () => {
+    inFullscreen(true)
+    const wrapper = mountViewer()
+    EventBus.$emit('diagramLoaded', 'A->B: hi', DiagramType.Sequence)
+    await wrapper.vm.$nextTick()
+    wrapper.vm.showExportModal = false
+
+    EventBus.$emit('diagramLoaded', 'A->B: hi', DiagramType.Sequence)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not reopen when dismissed before renderer readiness', async () => {
+    inFullscreen(true)
+    const wrapper = mountViewer()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.exportPreviewReady).toBe(false)
+
+    await wrapper.vm.onExportModalClose()
+    EventBus.$emit('diagramLoaded', 'A->B: hi', DiagramType.Sequence)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.showExportModal).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('opens on viewerRenderSettled, the readiness signal Graph and OpenAPI emit', async () => {
+    inFullscreen(true)
+    const wrapper = mountViewer()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(false)
+
+    EventBus.$emit('viewerRenderSettled', 'graph')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('opens on the last-resort floor when a renderer never reports at all', async () => {
+    // A crashed DrawIO boot or a SwaggerUI throw emits nothing; without the
+    // floor the user sits in Fullscreen with no dialog and no way to one.
+    vi.useFakeTimers()
+    inFullscreen(true)
+    const wrapper = mountViewer()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(false)
+
+    vi.advanceTimersByTime(15000)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(true)
+    vi.useRealTimers()
+    wrapper.unmount()
+  })
+
+  it('closes the whole Fullscreen modal when an export-entry dialog is dismissed', async () => {
+    // The export route skips the fullscreen-viewer paywall, so the fullscreen
+    // viewer behind the dialog must not become a way to read a saturated Lite
+    // space for free: dismissing the dialog leaves the modal, it does not
+    // reveal what the gate protects.
+    inFullscreen(true)
+    const wrapper = mountViewer()
+    const closes: unknown[] = []
+    const handler = () => closes.push(true)
+    EventBus.$on('closeFullscreen', handler)
+
+    EventBus.$emit('diagramLoaded', 'A->B: hi', DiagramType.Sequence)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(true)
+
+    await wrapper.vm.onExportModalClose()
+    expect(wrapper.vm.showExportModal).toBe(false)
+    expect(closes).toHaveLength(1)
+    EventBus.$off('closeFullscreen', handler)
+    wrapper.unmount()
+  })
+
+  it('keeps the Fullscreen viewer open when the dialog was opened by hand there', async () => {
+    inFullscreen(false)
+    const wrapper = mountViewer()
+    const closes: unknown[] = []
+    const handler = () => closes.push(true)
+    EventBus.$on('closeFullscreen', handler)
+
+    await wrapper.vm.openExport()
+    expect(wrapper.vm.showExportModal).toBe(true)
+    await wrapper.vm.onExportModalClose()
+
+    expect(wrapper.vm.showExportModal).toBe(false)
+    expect(closes).toHaveLength(0)
+    EventBus.$off('closeFullscreen', handler)
+    wrapper.unmount()
+  })
+
+  it('leaves the dialog closed for an ordinary Fullscreen open', async () => {
+    inFullscreen(false)
+    const wrapper = mountViewer()
+    EventBus.$emit('diagramLoaded', 'A->B: hi', DiagramType.Sequence)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.showExportModal).toBe(false)
+    wrapper.unmount()
+  })
 })
 
 describe('GenericViewer embed detection', () => {

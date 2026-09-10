@@ -46,7 +46,7 @@ function installNavigationMock() {
 }
 
 const meta: Meta<typeof UpgradePrompt> = {
-  title: 'Paywall/UpgradePrompt',
+  title: 'Shared/UpgradePrompt',
   component: UpgradePrompt,
   tags: ['ai-generated'],
   parameters: {

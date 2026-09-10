@@ -27,7 +27,7 @@ function installMocks() {
 }
 
 const meta: Meta<typeof GetStarted> = {
-  title: 'Get Started/Page',
+  title: 'Get started/GetStarted',
   component: GetStarted,
   tags: ['autodocs'],
   parameters: {

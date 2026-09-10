@@ -25,7 +25,7 @@ function configureEditor() {
 
 type Story = StoryObj<typeof FeedbackHost>
 const meta: Meta<typeof FeedbackHost> = {
-  title: 'Editor/Feedback',
+  title: 'Editor/Diagram/FeedbackEditor',
   component: FeedbackHost,
   parameters: { layout: 'fullscreen' },
   args: { context: storyFeedbackContext('editor') },

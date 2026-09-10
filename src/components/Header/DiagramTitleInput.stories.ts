@@ -54,7 +54,7 @@ function setupStore({
 }
 
 const meta: Meta<typeof DiagramTitleInput> = {
-  title: 'Header/DiagramTitleInput',
+  title: 'Editor/Diagram/DiagramTitleInput',
   component: DiagramTitleInput,
   parameters: {
     layout: 'padded',

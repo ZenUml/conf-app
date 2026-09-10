@@ -7,6 +7,7 @@ import { expect, userEvent, waitFor, within } from 'storybook/test'
 import mixpanel from 'mixpanel-browser'
 import { FeatureFlags } from '@forge/bridge'
 import GenericViewer from './GenericViewer.vue'
+import Sequence from '@/components/Sequence.vue'
 import Mermaid from '@/components/Mermaid.vue'
 import store from '@/model/store2'
 import globals from '@/model/globals'
@@ -63,6 +64,19 @@ type Story = StoryObj<typeof GenericViewer>
 
 const SAMPLE_MERMAID =
   'sequenceDiagram\n  participant Client\n  participant Server\n  Client->>Server: POST /login\n  Server-->>Client: 200 OK'
+const SAMPLE_MERMAID_WIDE = `flowchart LR
+  Idea[Idea] --> Refine[Refine requirements]
+  Refine --> Design[Design]
+  Design --> Build[Build]
+  Build --> Review[Review]
+  Review --> Test[Test]
+  Test --> Ship[Ship]
+  Review -->|Changes requested| Build
+  Test -->|Failed| Build`
+const SAMPLE_MERMAID_EDITOR_SEQUENCE = `sequenceDiagram
+  Alice->>John: Hello John, how are you?
+  John-->>Alice: Great!
+  Alice-)John: See you later!`
 const SAMPLE_SEQUENCE = 'Client->Server: POST /login\nServer-->Client: 200 OK'
 const SAMPLE_PAGE = {
   title: 'Login flow — architecture notes',
@@ -128,7 +142,8 @@ function stubFeatureFlags(architectureTokensEnabled: boolean) {
  * state, matching GenericViewer.spec.ts's "pending promise" technique for
  * that same assertion.
  */
-function stubApWrapper({ delayMs = 0 }: { delayMs?: number } = {}) {
+function stubApWrapper({ delayMs = 0, displayMode = true }: { delayMs?: number; displayMode?: boolean } = {}) {
+  globals.apWrapper.isDisplayMode = () => displayMode
   globals.apWrapper.canUserEdit = async () => true
   globals.apWrapper.initializeContext = async () => undefined
   globals.apWrapper.getCurrentPage = async () => {
@@ -243,8 +258,10 @@ function configureStory(options: {
   clipboardWrites?: boolean
   pageFetchDelayMs?: number
   fullscreenMode?: boolean
+  exportEntryMode?: boolean
   architectureTokensEnabled?: boolean
   customContentId?: string
+  displayMode?: boolean
 } = {}) {
   resetStubResponses()
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
@@ -258,9 +275,12 @@ function configureStory(options: {
   if (options.fullscreenMode) {
     // isFullscreenMode reads window.forgeGlobal.forgeContext.extension.modal
     // (same object as the imported forgeGlobal — forgeGlobal.ts:229).
-    ;(forgeGlobal.forgeContext as any).extension.modal = { macroMode: 'fullscreen' }
+    ;(forgeGlobal.forgeContext as any).extension.modal = {
+      macroMode: 'fullscreen',
+      ...(options.exportEntryMode ? { openExport: true } : {}),
+    }
   }
-  stubApWrapper({ delayMs: options.pageFetchDelayMs })
+  stubApWrapper({ delayMs: options.pageFetchDelayMs, displayMode: options.displayMode })
   stubMixpanel()
   installClipboardMock(options.clipboardWrites ?? true)
   setupStore(options)
@@ -325,12 +345,39 @@ function renderMermaidViewer(args: Args) {
   }
 }
 
+/** Production Mermaid renderer in an editor-preview-sized pane. */
+function renderMermaidEditorPreview() {
+  return {
+    components: { Mermaid },
+    template: `
+      <div style="width: 100%; height: 440px; padding: 24px; box-sizing: border-box; background: #F8F7F4;">
+        <Mermaid />
+      </div>
+    `,
+  }
+}
+
+/** Production integration: GenericViewer with the real ZenUML renderer. */
+function renderSequenceViewer(args: Args) {
+  return {
+    components: { GenericViewer, Sequence },
+    setup() {
+      return { args }
+    },
+    template: `
+      <GenericViewer v-bind="args">
+        <Sequence />
+      </GenericViewer>
+    `,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Meta
 // ---------------------------------------------------------------------------
 
 const meta: Meta<typeof GenericViewer> = {
-  title: 'Viewer/GenericViewer — macro header',
+  title: 'Viewer/GenericViewer',
   component: GenericViewer,
   parameters: {
     layout: 'padded',
@@ -441,6 +488,103 @@ export const ArchitectureTokensMermaidIntegration: Story = {
     )
     await expect(popover).not.toHaveTextContent('Authentication overview')
     await expect(canvas.queryByTestId('related-diagram-link')).toBeNull()
+  },
+}
+
+/** Fullscreen Mermaid with the production svg-pan-zoom viewport and toolbar. */
+export const MermaidFullscreenPanZoom: Story = {
+  name: 'Fullscreen — Mermaid pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Idea to Ship',
+        mermaidCode: SAMPLE_MERMAID_WIDE,
+        fullscreenMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('toolbar', { name: 'Mermaid zoom controls' })).toBeVisible()
+    await expect(canvas.queryByRole('button', { name: 'Reset view' })).toBeNull()
+    await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  },
+}
+
+/** Normal Confluence page viewer with the same two-button viewport controls. */
+export const MermaidInlinePanZoom: Story = {
+  name: 'Normal view — Mermaid pan and zoom',
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Alice Greets John',
+        mermaidCode: SAMPLE_MERMAID_EDITOR_SEQUENCE,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
+  },
+}
+
+/** Mermaid's editor preview surface, without the read-only viewer chrome. */
+export const MermaidEditorPanZoom: Story = {
+  name: 'Editor preview — Mermaid pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Alice Greets John',
+        mermaidCode: SAMPLE_MERMAID_EDITOR_SEQUENCE,
+        displayMode: false,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderMermaidEditorPreview(),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
   },
 }
 
@@ -731,6 +875,39 @@ export const SourcePanelFullscreen: Story = {
         throw new Error('fullscreen surface must get the fullscreen class')
       }
     })
+  },
+}
+
+/** Export entry keeps the natural inline Sequence card in its fullscreen host. */
+export const ExportEntrySequenceFraming: Story = {
+  name: 'Export entry — Sequence keeps inline card width',
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Sequence,
+        title: 'Login flow',
+        code: SAMPLE_SEQUENCE,
+        fullscreenMode: true,
+        exportEntryMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderSequenceViewer(args),
+  play: async () => {
+    const capture = await waitFor(() => {
+      const node = document.querySelector<HTMLElement>('.viewer-frame--export-entry .screen-capture-content')
+      if (!node) throw new Error('export-entry capture node not mounted')
+      return node
+    })
+    await expect(capture).toBeVisible()
+    const frame = document.querySelector<HTMLElement>('.viewer-frame--export-entry')
+    if (!frame) throw new Error('export-entry frame not mounted')
+    // Real browser layout assertion: export-entry must not stretch the card to
+    // the fullscreen column. Keep a generous ratio for font/viewport variance.
+    if (capture.getBoundingClientRect().width >= frame.getBoundingClientRect().width * 0.9) {
+      throw new Error('Sequence export-entry capture unexpectedly fills the fullscreen frame')
+    }
   },
 }
 

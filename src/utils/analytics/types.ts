@@ -56,6 +56,9 @@ export type AnalyticsProperties = {
   // customContentId, or the custom-content GET failed), recorded explicitly
   // rather than omitted.
   macro_type?: MacroTypeValue;
+  // Mermaid pan/zoom toolbar. This is the user's explicit control
+  // intent, not every intermediate wheel, drag, or pinch callback.
+  viewport_action?: "zoom_in" | "zoom_out";
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;
@@ -197,6 +200,10 @@ export type AnalyticsProperties = {
     | "adf_rewrite"
     | "page_update"
     | "report";
+  // PlantUML paste normalisation (conf-app#632)
+  diagrams_pasted?: number;
+  paste_truncated?: boolean;
+
   // AI
   prompt_length?: number;
   generation_source?: string;
@@ -551,6 +558,14 @@ export type AnalyticsProperties = {
   has_arrow?: boolean;
   has_callout?: boolean;
   has_watermark?: boolean;
+  has_rectangle?: boolean;
+  annotation_count?: number;
+  annotation_type?: 'note' | 'arrow' | 'callout' | 'rectangle' | 'watermark';
+  annotation_change?: 'move' | 'resize' | 'text' | 'style';
+  // export_annotation_tool_clicked (ExportPreview.vue). Which annotation tool
+  // the user reached for. Fired on activation only, not on turning a tool back
+  // off: the intent is already recorded by then.
+  tool?: 'arrow' | 'callout' | 'note' | 'rectangle' | 'watermark';
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.

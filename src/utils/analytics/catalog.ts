@@ -85,6 +85,10 @@ export type EntryPoint =
   | "route"
   | "forge_trigger"
   | "byline"
+  // fullscreen_opened fired by the Export PNG button rather than by a user who
+  // wanted Fullscreen. Without it these opens are indistinguishable from
+  // deliberate ones and inflate Fullscreen engagement by one per export.
+  | "export"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
@@ -260,6 +264,12 @@ export type AnalyticsEventName =
   // for existing type breakdowns. This is an action signal, not proof of a
   // successful render or publish.
   | "macro_type_changed"
+  // Fires when a PlantUML paste carried its own @startuml/@enduml markers and the
+  // editor rewrote it to fit the pinned scaffold (conf-app#632). `diagrams_pasted`
+  // counts the @startuml blocks found; `paste_truncated` is true when more than one
+  // was present and only the first was kept, because the macro renders a single
+  // diagram and merging them silently produced a picture the author never wrote.
+  | "plantuml_paste_normalized"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
@@ -322,13 +332,31 @@ export type AnalyticsEventName =
   // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
   // export attempt failed before delivery (`failure_reason`); dismissed =
   // modal closed with no successful export in that open session.
+  // Intent, as opposed to the outcome flags on export_png_succeeded: a user
+  // who picks a tool and exports without the annotation is otherwise
+  // indistinguishable from one who never wanted it. Needed to read whether
+  // annotation is unused because nobody wants it or because the dialog was
+  // too small to operate (see ExportModal.vue's inline variant).
+  | "export_annotation_tool_clicked"
+  // Export workspace: created after placement/nonempty text, changed after a
+  // completed move/resize/style/text edit (never pointer-move or each keystroke),
+  // deleted on explicit removal. No annotation text or coordinates are tracked.
+  | "export_annotation_created"
+  | "export_annotation_changed"
+  | "export_annotation_deleted"
+  // Restored when reopening the same diagram during the current page visit.
+  | "export_annotations_restored"
   | "export_png_opened"
   | "export_png_succeeded"
   | "export_png_failed"
   | "export_png_dismissed"
-  | "ai_generation_requested"
-  | "ai_generation_succeeded"
-  | "ai_generation_failed"
+  // Renamed 2026-09-08 from `ai_generation_*`: these three are the AI *title*
+  // generator in useAutoTitle.ts (97% fire automatically on editor init), not a
+  // text->diagram feature. Data before the first release carrying this commit
+  // lives under the old names — see the mixpanel skill's rename table.
+  | "ai_title_generation_requested"
+  | "ai_title_generation_succeeded"
+  | "ai_title_generation_failed"
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
@@ -359,6 +387,17 @@ export type AnalyticsEventName =
   | "ai_chat_version_restored"
   | "ai_chat_change_undone"
   | "ai_chat_version_restore_failed"
+  // AI Repair CTA impression. SEMANTICS CHANGED 2026-09-07: the button is now
+  // armed only after the store error has stood unchanged for
+  // AI_REPAIR_ARM_DELAY_MS (src/components/aiRepairArming.ts), on top of the
+  // editor's own validation debounce. So one event means "the author stopped
+  // typing and sat on a syntax error", i.e. a plausible stuck moment. Before
+  // that date the gate was a bare `!!error`, and because Editor.vue clears the
+  // error on every keystroke, the event fired once per typing pause — a single
+  // editing session could emit six of them in twenty seconds. Do not compare
+  // counts across the release that carries this change without accounting for
+  // it, and re-date this note if the arm delay is ever retuned.
+  | "ai_repair_button_shown"
   // AI Repair performance lifecycle. requested fires immediately before the
   // start request and carries poll_interval_ms + timeout_budget_ms plus the
   // requested ai_model / reasoning_disabled overrides when supplied. succeeded /
@@ -368,7 +407,6 @@ export type AnalyticsEventName =
   // backend_llm_duration_ms sums only its LLM calls across repair attempts.
   // failed additionally carries failure_phase; never attach diagram code,
   // error source text, or a job id to these events.
-  | "ai_repair_button_shown"
   | "ai_repair_requested"
   | "ai_repair_succeeded"
   | "ai_repair_failed"
@@ -471,6 +509,11 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // Mermaid viewport controls in fullscreen, normal viewer, and editor preview.
+  // Fires for the two discrete toolbar
+  // actions only; wheel/pan/pinch are deliberately not emitted because their
+  // high-frequency callbacks would create noisy, expensive event streams.
+  | "mermaid_viewport_control_used"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).
@@ -911,7 +954,7 @@ export type AnalyticsEventName =
   // (keyed by `template_id`) is the per-template pull signal the JTBD's
   // success metric needs ("editor_template_applied share of new creates").
   // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
-  // here (deferred 2026-08-03) — its ai_generation_* events already exist
+  // here (deferred 2026-08-03) — its ai_title_generation_* events already exist
   // above and are reused, not redefined, when that lands.
   | "editor_template_gallery_opened"
   | "editor_template_applied"

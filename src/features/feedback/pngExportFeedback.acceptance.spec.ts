@@ -3,12 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
 
-const { toPng, exportDiagram } = vi.hoisted(() => ({
-  toPng: vi.fn(async () => 'data:image/png;base64,cHJldmlldw=='),
+const { captureBlob, exportDiagram } = vi.hoisted(() => ({
+  // The preview used to rasterize through html-to-image directly; main reworked
+  // the capture pipeline and it goes through captureBlob now. What this file
+  // guards is unchanged: whatever rasterizes the preview must be handed the
+  // diagram capture node, never a tree containing the feedback UI.
+  captureBlob: vi.fn(async () => new Blob(['preview'], { type: 'image/png' })),
   exportDiagram: vi.fn(async () => ({ ok: true })),
 }))
 
-vi.mock('html-to-image', () => ({ toPng }))
+vi.mock('@/model/captureBlob', () => ({ captureBlob, default: captureBlob }))
 vi.mock('@/components/ExportModal/useExportEngine', async (original) => {
   const actual = await original<typeof import('@/components/ExportModal/useExportEngine')>()
   return {
@@ -48,7 +52,7 @@ describe('PNG Export feedback acceptance', () => {
   let warn: { mockRestore: () => void }
   beforeEach(() => {
     warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    toPng.mockClear()
+    captureBlob.mockClear()
     exportDiagram.mockClear()
   })
 
@@ -95,9 +99,17 @@ describe('PNG Export feedback acceptance', () => {
     await wrapper.setProps({ visible: true })
     await flushPromises()
 
-    expect(toPng).toHaveBeenCalledWith(target, expect.any(Object))
+    expect(captureBlob).toHaveBeenCalledWith(target, expect.any(Object))
     await (wrapper.vm as any).handleExport()
-    expect(exportDiagram).toHaveBeenCalledWith(expect.any(Object), 'Example diagram', target)
+    // main added a fourth argument (the export context) to exportDiagram; what
+    // matters here is still the third: the node handed to the export is the
+    // diagram capture node, not the dialog tree that hosts the feedback UI.
+    expect(exportDiagram).toHaveBeenCalledWith(
+      expect.any(Object),
+      'Example diagram',
+      target,
+      expect.any(Object),
+    )
     expect(target.querySelector('[data-testid="feedback-edge"]')).toBeNull()
     expect(target.querySelector('.feedback-overlay')).toBeNull()
   })

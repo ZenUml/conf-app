@@ -25,7 +25,7 @@ function configureFullscreen() {
 
 type Story = StoryObj<typeof FeedbackHost>
 const meta: Meta<typeof FeedbackHost> = {
-  title: 'Fullscreen/Feedback',
+  title: 'Viewer/FeedbackSurfaces',
   component: FeedbackHost,
   parameters: { layout: 'fullscreen' },
   args: { context: storyFeedbackContext('fullscreen') },

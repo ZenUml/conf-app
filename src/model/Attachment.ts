@@ -279,29 +279,25 @@ async function toPng(): Promise<Blob | null | undefined> {
   }
 }
 
-const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
-
 /**
  * PlantUML renders by fetching an SVG from the remote PlantUML server and
  * inlining it; html-to-image then has to rasterize that inlined remote SVG to
  * make the backup PNG — and fails ~81% of the time (the offscreen image can't
  * decode the server SVG, so html-to-image rejects with a DOM Event). The server
  * already serves a ready raster at /plantuml/png/<encoded>, so fetch THAT
- * directly for the backup and skip html-to-image entirely. Deterministic, and
- * it sidesteps the single biggest class of attachment-capture failures. Returns
- * undefined on any failure so the caller falls back to the DOM capture.
+ * directly for the backup and skip html-to-image entirely — see
+ * `utils/plantuml/fetchPng.ts`, shared with the interactive Export PNG modal.
+ *
+ * This wrapper adds the attachment-scoped telemetry and the PDF-export dpi
+ * upscale on top of that plain fetch. Returns undefined on any failure so the
+ * caller falls back to the DOM capture (the backup is silent, so a degraded
+ * capture beats no backup at all).
  */
 async function fetchPlantUmlPng(code: string): Promise<Blob | undefined> {
   try {
-    const { plantumlEncode } = await import('@/utils/plantuml/encode');
-    const resp = await fetch(`${PLANTUML_PNG_SERVER}${plantumlEncode(code)}`);
-    if (!resp.ok) return undefined;
-    const blob = await resp.blob();
-    // The server can answer 200 with a non-PNG body (e.g. an HTML/SVG error
-    // page from a proxy/CDN) — only accept a real raster PNG, else fall back.
-    // Content-Type is reliable for the PlantUML server (image/png for PNGs).
-    const type = (blob.type || '').toLowerCase().split(';')[0].trim();
-    if (type !== 'image/png') return undefined;
+    const { fetchPlantUmlPngBlob } = await import('@/utils/plantuml/fetchPng');
+    const blob = await fetchPlantUmlPngBlob(code);
+    if (!blob) return undefined;
     trackEvent('plantuml_server_png', 'convert_to_png', 'export');
     return (await upscalePlantUmlPng(blob, code)) ?? blob;
   } catch (e) {
@@ -340,6 +336,7 @@ async function upscalePlantUmlPng(naturalBlob: Blob, code: string): Promise<Blob
 
   try {
     const { plantumlEncode } = await import('@/utils/plantuml/encode');
+    const { PLANTUML_PNG_SERVER } = await import('@/utils/plantuml/fetchPng');
     const encoded = plantumlEncode(dpiCode);
     const resp = await fetch(`${PLANTUML_PNG_SERVER}${encoded}`);
     if (!resp.ok) {

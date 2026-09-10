@@ -63,7 +63,7 @@ const overlayShell = {
 }
 
 const meta: Meta<typeof DrawIoExtension> = {
-  title: 'Editors/DrawIoExtension',
+  title: 'Editor/Graph/DrawIoExtension',
   component: DrawIoExtension,
   parameters: {
     layout: 'padded',

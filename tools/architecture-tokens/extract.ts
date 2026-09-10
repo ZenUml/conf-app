@@ -46,7 +46,12 @@ export function extractParticipants(mermaidCode: string): ParticipantOccurrence[
       const created = Boolean(m[1]);
       const declKind = m[2] as DeclKind;
       const body = m[3];
-      const alias = /^(.+?)\s+as\s+(.+)$/.exec(body);
+      // Mermaid does not read `participant "Quoted Id" as Q` as an alias
+      // declaration: getActors() returns the whole string as both the id and
+      // the description. Splitting it here would index an actor that never
+      // renders under that name (verified against mermaid 11.13.0's own
+      // getActors() by the oracle case in extract.spec.ts).
+      const alias = body.startsWith('"') ? null : /^(.+?)\s+as\s+(.+)$/.exec(body);
       const actorId = alias ? alias[1].trim() : body;
       const rawLabel = alias ? alias[2].trim() : body;
       out.push({ actorId, rawLabel, declKind, created, boxName: currentBox(), lineNumber: index + 1 });

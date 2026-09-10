@@ -57,7 +57,7 @@ function setupStore({
 // ---------------------------------------------------------------------------
 
 const meta: Meta<typeof Header> = {
-  title: 'Layout/Header',
+  title: 'Editor/Diagram/Header',
   component: Header,
   parameters: {
     layout: 'fullscreen',

@@ -109,6 +109,25 @@ describe('ApWrapper2', () => {
       expect(trackEvent).toHaveBeenCalledWith('"123"', 'update_custom_content', 'info');
     });
 
+    it('normalises pasted non-breaking spaces in mermaidCode before persisting', async () => {
+      // U+00A0 arrives via rich-text paste and makes mermaid's Langium
+      // grammars unparseable, so the stored body must not carry it forward.
+      const content = buildContent(5);
+      const diagram = {
+        id: '123',
+        title: 'Pets',
+        diagramType: 'mermaid',
+        mermaidCode: `pie title Pets\n\u00A0\u00A0"Dogs" : 386`,
+      } as any;
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      const serializedBody = JSON.parse(payload.body.value);
+      expect(serializedBody.mermaidCode).toBe('pie title Pets\n  "Dogs" : 386');
+    });
+
     it('strips stale compressed flag when updating a graph body with plain XML', async () => {
       const content = buildContent(5);
       const diagram = {

@@ -7,7 +7,7 @@ import { storyFeedbackContext } from './feedbackStoryFixtures'
 
 type Story = StoryObj<typeof FeedbackHost>
 const meta: Meta<typeof FeedbackHost> = {
-  title: 'Dashboard/Feedback',
+  title: 'Shared/FeedbackDashboard',
   component: FeedbackHost,
   parameters: { layout: 'fullscreen' },
   args: { context: storyFeedbackContext('dashboard') },

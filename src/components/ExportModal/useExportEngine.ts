@@ -1,4 +1,5 @@
 import { captureBlob } from '@/model/captureBlob';
+import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
 import { saveAs } from 'file-saver';
 import {
   VIEWBOX_REF_W,
@@ -8,11 +9,28 @@ import {
   computeArrowheadPath,
   computeNotePosition,
   computeCalloutPath,
+  CALLOUT_MAX_TEXT_WIDTH,
 } from './overlayGeometry';
+import type { Annotation } from './useAnnotations';
+import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 
-export type RenderResult = { ok: true; blob: Blob } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
-export type ExportResult = { ok: true } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
-export type ClipboardExportResult = { ok: true } | { ok: false; reason: 'no_capture_node' | 'blob_null' | 'clipboard_denied' };
+export type CaptureFailureReason = 'no_capture_node' | 'blob_null' | 'plantuml_fetch_failed';
+export type RenderResult = { ok: true; blob: Blob } | { ok: false; reason: CaptureFailureReason };
+export type ExportResult = { ok: true } | { ok: false; reason: CaptureFailureReason };
+export type ClipboardExportResult = { ok: true } | { ok: false; reason: CaptureFailureReason | 'clipboard_denied' };
+
+/**
+ * What is being exported, when the caller knows. Only PlantUML changes the
+ * capture strategy today (see `acquireBaseBlob`); everything else falls through
+ * to the generic DOM capture, so the context is optional and callers that don't
+ * pass it keep the previous behaviour.
+ */
+export interface ExportContext {
+  /** `DiagramType` value, e.g. 'plantuml' / 'mermaid'. */
+  macroType?: string;
+  /** The diagram's text source (the PlantUML body for a PlantUML macro). */
+  source?: string;
+}
 
 const MAX_FILENAME_LENGTH = 60;
 const DEFAULT_FILENAME = 'zenuml-diagram-export.png';
@@ -63,6 +81,7 @@ export interface ExportOptions {
   } | null;
   arrowPoints?: { start: { x: number; y: number }; end: { x: number; y: number } } | null;
   notePoint?: { x: number; y: number } | null;
+  annotations?: Annotation[];
 }
 
 function resolveBgColor(background: string): string | undefined {
@@ -84,7 +103,11 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
   parts.push(`<feDropShadow dx="0" dy="${shadowDy}" stdDeviation="${shadowStd}" flood-color="rgba(0,0,0,0.3)" flood-opacity="1"/>`);
   parts.push(`</filter></defs>`);
 
-  if (options.note.text) {
+  if (options.annotations !== undefined) {
+    for (const annotation of options.annotations) {
+      appendAnnotation(parts, annotation, w, h, scale);
+    }
+  } else if (options.note.text) {
     let nx: number, ny: number, anchor: string;
     const fontSize = options.note.fontSize * scale;
     if (options.notePoint) {
@@ -97,66 +120,294 @@ export function buildOverlaySvg(w: number, h: number, options: ExportOptions): s
       ny = pos.y;
       anchor = pos.anchor;
     }
-    const escaped = escapeXml(options.note.text);
-    parts.push(`<text x="${nx}" y="${ny}" font-size="${fontSize}" fill="${options.note.color}" font-family='${SANS_FONT_FAMILY}' font-weight="500" text-anchor="${anchor}" dominant-baseline="central" filter="url(#ds)">${escaped}</text>`);
+    appendNote(parts, options.note.text, nx, ny, fontSize, options.note.color, anchor);
   }
 
-  if (options.arrowPoints) {
+  if (options.annotations === undefined && options.arrowPoints) {
     const pts = options.arrowPoints;
-    const sx = pts.start.x * w, sy = pts.start.y * h;
-    const ex = pts.end.x * w, ey = pts.end.y * h;
-    const angle = Math.atan2(ey - sy, ex - sx);
-    const t = options.arrow.thickness * scale;
-    const color = options.arrow.color;
-
-    parts.push(`<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="${color}" stroke-width="${t}" stroke-linejoin="round"/>`);
-
-    const isLeftOnly = options.arrow.type === '←';
-    const isDouble = options.arrow.type === '←→';
-    if (!isLeftOnly) {
-      parts.push(`<path d="${computeArrowheadPath(ex, ey, angle, t)}" fill="${color}" stroke="${color}" stroke-linejoin="round"/>`);
-    }
-    if (isDouble || isLeftOnly) {
-      parts.push(`<path d="${computeArrowheadPath(sx, sy, angle + Math.PI, t)}" fill="${color}" stroke="${color}" stroke-linejoin="round"/>`);
-    }
-
-    if (options.arrow.label) {
-      const midX = (sx + ex) / 2;
-      const midY = (sy + ey) / 2;
-      const labelOffset = 14 * scale;
-      const perpX = -Math.sin(angle) * labelOffset;
-      const perpY = Math.cos(angle) * labelOffset;
-      const labelFontSize = (12 + options.arrow.thickness) * scale;
-      parts.push(`<text x="${midX + perpX}" y="${midY + perpY}" font-size="${labelFontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(options.arrow.label)}</text>`);
-    }
+    appendArrow(parts, pts.start, pts.end, options.arrow.type, options.arrow.label, options.arrow.color, options.arrow.thickness, w, h, scale);
   }
 
-  if (options.callout?.position && options.callout.text) {
-    const cx = options.callout.position.x * w;
-    const cy = options.callout.position.y * h;
-    const tipPx = options.callout.tipPosition
-      ? { x: options.callout.tipPosition.x * w, y: options.callout.tipPosition.y * h }
-      : null;
-    const calloutPath = computeCalloutPath(cx, cy, scale, tipPx);
-    const strokeW = 1 * scale;
-    const fontSize = options.callout.fontSize * scale;
-    parts.push(`<path d="${calloutPath}" fill="${options.callout.bgColor}" stroke="#94a3b8" stroke-width="${strokeW}" stroke-linejoin="round"/>`);
-    parts.push(`<text x="${cx}" y="${cy}" font-size="${fontSize}" fill="${options.callout.color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(options.callout.text)}</text>`);
+  if (options.annotations === undefined && options.callout?.position && options.callout.text) {
+    appendCallout(
+      parts,
+      options.callout.position,
+      options.callout.tipPosition,
+      options.callout.text,
+      options.callout.fontSize,
+      options.callout.color,
+      options.callout.bgColor,
+      w,
+      h,
+      scale,
+    );
   }
 
   if (options.watermark?.text) {
     const escaped = escapeXml(options.watermark.text);
-    const fontSize = options.watermark.fontSize * scale;
     const padding = 16 * scale;
-    if (options.watermark.position === 'diagonal') {
-      parts.push(`<text x="${w / 2}" y="${h / 2}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="middle" dominant-baseline="central" transform="rotate(-45, ${w / 2}, ${h / 2})">${escaped}</text>`);
+    const diagonal = options.watermark.position === 'diagonal';
+    const { fontSize, fitAttributes, padding: effectivePadding } = watermarkGeometry(
+      options.watermark.text,
+      options.watermark.fontSize * scale,
+      diagonal,
+      w,
+      h,
+      padding,
+    );
+    if (diagonal) {
+      parts.push(`<text x="${w / 2}" y="${h / 2}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="middle" dominant-baseline="central" transform="rotate(-45, ${w / 2}, ${h / 2})"${fitAttributes}>${escaped}</text>`);
     } else {
-      parts.push(`<text x="${w - padding}" y="${h - padding}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="end">${escaped}</text>`);
+      parts.push(`<text x="${w - effectivePadding}" y="${h - effectivePadding}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="end"${fitAttributes}>${escaped}</text>`);
     }
   }
 
   parts.push('</svg>');
   return parts.join('');
+}
+
+/** Never shrink a watermark below this; past it, fit by compressing glyphs. */
+const MIN_WATERMARK_FONT_SIZE = 8;
+/** Cap height of a line, as a multiple of font size. */
+const WATERMARK_LINE_HEIGHT = 1.2;
+
+/**
+ * Size a watermark so it fits inside the image it is stamped on.
+ *
+ * The diagonal watermark is drawn centred and rotated -45°, so its footprint is
+ * not its text width: a string of length L and line height H occupies
+ * (L + H)/√2 in BOTH axes. On a shallow, wide diagram that overflowed the top
+ * and bottom edges, and the ends were silently cut off — "Internal review -
+ * Confidential" lost characters at both ends, while the shorter default
+ * "Confidential" happened to fit, which is why it went unnoticed.
+ *
+ * The fix keeps the whole string: shrink the font until the footprint fits, and
+ * only if that would take it below MIN_WATERMARK_FONT_SIZE fall back to
+ * compressing the glyphs via textLength. Nothing is ever clipped silently.
+ */
+export function fitWatermark(
+  text: string,
+  requestedFontSize: number,
+  diagonal: boolean,
+  w: number,
+  h: number,
+  padding: number,
+): { fontSize: number; fitAttributes: string } {
+  const { fontSize, fitAttributes } = watermarkGeometry(text, requestedFontSize, diagonal, w, h, padding);
+  return { fontSize, fitAttributes };
+}
+
+/** Fit data shared by SVG output and the workspace selection/hit geometry. */
+export function watermarkGeometry(
+  text: string,
+  requestedFontSize: number,
+  diagonal: boolean,
+  w: number,
+  h: number,
+  padding: number,
+): { fontSize: number; fitAttributes: string; renderedWidth: number; padding: number } {
+  // A regular canvas retains its requested inset. On a tiny canvas, use at
+  // most a quarter of its shortest edge so an inset cannot consume it.
+  const effectivePadding = Math.min(Math.max(0, padding), Math.max(0, Math.min(w, h) / 4));
+  const usableHeight = Math.max(0.5, h - 2 * effectivePadding);
+  // The font floor improves legibility on ordinary exports, but must never
+  // force a line taller than its physical canvas.
+  const heightLimitedRequest = Math.max(0.5, Math.min(requestedFontSize, usableHeight / WATERMARK_LINE_HEIGHT));
+  const available = diagonal
+    // (L + H)/√2 <= min(w, h)/2 - padding, per axis, for a -45° rotation about
+    // the centre; solved for L.
+    ? Math.SQRT2 * (Math.min(w, h) - 2 * effectivePadding) - heightLimitedRequest * WATERMARK_LINE_HEIGHT
+    : w - 2 * effectivePadding;
+  if (available <= 0) {
+    // A positive but tiny canvas still deserves a complete watermark. Reduce
+    // the effective inset and font size proportionally rather than emitting
+    // textLength="0" (which silently removes nonempty text).
+    const minDimension = Math.min(w, h);
+    const adaptivePadding = effectivePadding;
+    const usable = diagonal
+      ? Math.SQRT2 * Math.max(minDimension - 2 * adaptivePadding, 0)
+      : Math.max(w - 2 * adaptivePadding, 0);
+    const fontSize = Math.max(0.5, Math.min(heightLimitedRequest, usable / (WATERMARK_LINE_HEIGHT * 2 || 1)));
+    const renderedWidth = Math.max(0.5, usable - fontSize * WATERMARK_LINE_HEIGHT);
+    return {
+      fontSize: roundSvgNumber(fontSize),
+      fitAttributes: ` textLength="${roundSvgNumber(renderedWidth)}" lengthAdjust="spacingAndGlyphs"`,
+      renderedWidth: roundSvgNumber(renderedWidth),
+      padding: roundSvgNumber(effectivePadding),
+    };
+  }
+
+  const measured = measureTextWidth(text, heightLimitedRequest, MONO_FONT_FAMILY);
+  if (measured <= available) return { fontSize: roundSvgNumber(heightLimitedRequest), fitAttributes: '', renderedWidth: roundSvgNumber(measured), padding: roundSvgNumber(effectivePadding) };
+
+  const fontSize = Math.max(
+    Math.min(MIN_WATERMARK_FONT_SIZE, heightLimitedRequest),
+    heightLimitedRequest * (available / measured),
+  );
+  const refit = measureTextWidth(text, fontSize, MONO_FONT_FAMILY);
+  const fitAttributes = refit > available
+    ? ` textLength="${roundSvgNumber(available)}" lengthAdjust="spacingAndGlyphs"`
+    : '';
+  return { fontSize: roundSvgNumber(fontSize), fitAttributes, renderedWidth: roundSvgNumber(Math.min(refit, available)), padding: roundSvgNumber(effectivePadding) };
+}
+
+function appendAnnotation(
+  parts: string[],
+  annotation: Annotation,
+  w: number,
+  h: number,
+  scale: number,
+): void {
+  if (annotation.type === 'note') {
+    if (!annotation.text) return;
+    const x = annotation.position.x * w;
+    const y = annotation.position.y * h;
+    const fontSize = annotation.fontSize * scale;
+    appendNote(parts, annotation.text, x, y, fontSize, annotation.color, 'middle');
+    return;
+  }
+
+  if (annotation.type === 'arrow') {
+    appendArrow(parts, annotation.position, annotation.end, annotation.arrowType, annotation.text, annotation.color, annotation.thickness, w, h, scale);
+    return;
+  }
+
+  if (annotation.type === 'rectangle') {
+    const x = roundSvgNumber(Math.min(annotation.position.x, annotation.end.x) * w);
+    const y = roundSvgNumber(Math.min(annotation.position.y, annotation.end.y) * h);
+    const width = roundSvgNumber(Math.abs(annotation.end.x - annotation.position.x) * w);
+    const height = roundSvgNumber(Math.abs(annotation.end.y - annotation.position.y) * h);
+    const fill = annotation.bgColor || 'none';
+    const strokeWidth = annotation.thickness * scale;
+    parts.push(`<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" stroke="${annotation.color}" stroke-width="${strokeWidth}"/>`);
+    return;
+  }
+
+  if (annotation.type === 'callout') {
+    if (!annotation.text) return;
+    const hasTip = annotation.position.x !== annotation.end.x || annotation.position.y !== annotation.end.y;
+    const tip = hasTip ? annotation.end : null;
+    appendCallout(
+      parts,
+      annotation.position,
+      tip,
+      annotation.text,
+      annotation.fontSize,
+      annotation.color,
+      annotation.bgColor || 'none',
+      w,
+      h,
+      scale,
+    );
+  }
+}
+
+function appendNote(
+  parts: string[],
+  text: string,
+  x: number,
+  y: number,
+  fontSize: number,
+  color: string,
+  anchor: string,
+): void {
+  parts.push(`<text x="${x}" y="${y}" font-size="${fontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' font-weight="500" text-anchor="${anchor}" dominant-baseline="central" filter="url(#ds)">${escapeXml(text)}</text>`);
+}
+
+function appendArrow(
+  parts: string[],
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  type: string,
+  label: string,
+  color: string,
+  thickness: number,
+  w: number,
+  h: number,
+  scale: number,
+): void {
+  const sx = start.x * w;
+  const sy = start.y * h;
+  const ex = end.x * w;
+  const ey = end.y * h;
+  const angle = Math.atan2(ey - sy, ex - sx);
+  const t = thickness * scale;
+
+  parts.push(`<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="${color}" stroke-width="${t}" stroke-linejoin="round"/>`);
+
+  const isLeftOnly = type === '←';
+  const isDouble = type === '←→';
+  if (!isLeftOnly) {
+    parts.push(`<path d="${computeArrowheadPath(ex, ey, angle, t)}" fill="${color}" stroke="${color}" stroke-linejoin="round"/>`);
+  }
+  if (isDouble || isLeftOnly) {
+    parts.push(`<path d="${computeArrowheadPath(sx, sy, angle + Math.PI, t)}" fill="${color}" stroke="${color}" stroke-linejoin="round"/>`);
+  }
+
+  if (label) {
+    const midX = (sx + ex) / 2;
+    const midY = (sy + ey) / 2;
+    const labelOffset = 14 * scale;
+    const perpX = -Math.sin(angle) * labelOffset;
+    const perpY = Math.cos(angle) * labelOffset;
+    const labelFontSize = (12 + thickness) * scale;
+    parts.push(`<text x="${midX + perpX}" y="${midY + perpY}" font-size="${labelFontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(label)}</text>`);
+  }
+}
+
+function appendCallout(
+  parts: string[],
+  position: { x: number; y: number },
+  tip: { x: number; y: number } | null,
+  text: string,
+  fontSizeValue: number,
+  color: string,
+  bgColor: string,
+  w: number,
+  h: number,
+  scale: number,
+): void {
+  const cx = position.x * w;
+  const cy = position.y * h;
+  const tipPx = tip ? { x: tip.x * w, y: tip.y * h } : null;
+  const fontSize = fontSizeValue * scale;
+  const textWidth = measureTextWidth(text, fontSize, SANS_FONT_FAMILY);
+  const availableTextWidth = CALLOUT_MAX_TEXT_WIDTH * scale;
+  const fitAttributes = textWidth > availableTextWidth
+    ? ` textLength="${roundSvgNumber(availableTextWidth)}" lengthAdjust="spacingAndGlyphs"`
+    : '';
+  const calloutPath = computeCalloutPath(cx, cy, scale, tipPx, {
+    textWidth,
+    fontSize,
+  });
+  parts.push(`<path d="${calloutPath}" fill="${bgColor}" stroke="#94a3b8" stroke-width="${1 * scale}" stroke-linejoin="round"/>`);
+  parts.push(`<text x="${cx}" y="${cy}" font-size="${fontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central"${fitAttributes}>${escapeXml(text)}</text>`);
+}
+
+function roundSvgNumber(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+/**
+ * Width of the label as the exported SVG will draw it. A 2d canvas with the
+ * same font stack is the only measurement available before the SVG exists, and
+ * it is what keeps the exported callout box the same size as the one the user
+ * saw in the preview. Falls back to a per-character estimate where no canvas
+ * context is available (jsdom, a locked-down worker).
+ */
+export function measureTextWidth(text: string, fontSize: number, fontFamily: string): number {
+  if (!text) return 0;
+  try {
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (ctx) {
+      ctx.font = `${fontSize}px ${fontFamily}`;
+      const measured = ctx.measureText(text).width;
+      if (measured > 0) return measured;
+    }
+  } catch {
+    // fall through to the estimate
+  }
+  return text.length * fontSize * 0.55;
 }
 
 function escapeXml(str: string): string {
@@ -180,14 +431,59 @@ function svgToImage(svgString: string): Promise<HTMLImageElement> {
   });
 }
 
-async function renderPngBlob(options: ExportOptions, node: HTMLElement | null | undefined): Promise<RenderResult> {
+/**
+ * The un-annotated diagram raster, before background and overlay compositing.
+ *
+ * PlantUML takes a different route. Its diagram is an SVG fetched from the
+ * remote PlantUML server and inlined with `v-html`; html-to-image cannot
+ * reliably rasterize that inlined remote SVG, which is what made the Export PNG
+ * button produce a blank, effectively zero-pixel image. The server publishes a
+ * ready raster at /plantuml/png/<encoded> — take it. (Attachment.ts has done
+ * this for the silent backup PNG since 2026-07; `utils/plantuml/fetchPng.ts` is
+ * the shared fetch.)
+ *
+ * Unlike the backup path, a failed server fetch here does NOT fall back to the
+ * DOM capture: that path is the broken one, and silently handing the user a
+ * blank download is worse than an error they can act on. The macro cannot have
+ * rendered at all without reaching the same host, so a failure here is a real
+ * fault worth surfacing as `plantuml_fetch_failed`.
+ */
+type BaseCapture =
+  | {
+      ok: true;
+      blob: Blob;
+      /**
+       * The node the raster was scraped from, and therefore the node whose
+       * layout the crop step must measure. `null` when the raster did not come
+       * from the DOM at all (PlantUML's server PNG), which is also the signal
+       * that no crop applies: the server renders the diagram at its own bounds,
+       * with none of the layout column the DOM capture has to trim away.
+       */
+      cropNode: HTMLElement | null;
+    }
+  | { ok: false; reason: CaptureFailureReason };
+
+async function acquireBaseBlob(
+  effectiveBg: string | undefined,
+  node: HTMLElement | null | undefined,
+  context?: ExportContext,
+): Promise<BaseCapture> {
+  if (context?.macroType === 'plantuml' && isPlantUmlSource(context.source)) {
+    try {
+      const blob = await fetchPlantUmlPngBlob(context.source!);
+      if (blob) return { ok: true, blob, cropNode: null };
+      console.warn('[useExportEngine] PlantUML server returned no PNG raster');
+    } catch (e) {
+      console.warn('[useExportEngine] PlantUML server PNG fetch failed:', e);
+    }
+    return { ok: false, reason: 'plantuml_fetch_failed' };
+  }
+
   const captureNode = node ?? (document.querySelector('.screen-capture-content') as HTMLElement | null);
   if (!captureNode) {
     console.warn('[useExportEngine] .screen-capture-content not found');
     return { ok: false, reason: 'no_capture_node' };
   }
-
-  const effectiveBg = resolveBgColor(options.background);
 
   // captureBlob, not htmlToImage.toBlob: the library's raster step resolves
   // only from inside a requestAnimationFrame callback, which a rendering-
@@ -200,18 +496,41 @@ async function renderPngBlob(options: ExportOptions, node: HTMLElement | null | 
     console.warn('[useExportEngine] capture returned null');
     return { ok: false, reason: 'blob_null' };
   }
+  return { ok: true, blob, cropNode: captureNode };
+}
 
-  const img = await createImageBitmap(blob);
-  const canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  const ctx = canvas.getContext('2d')!;
+async function renderPngBlob(
+  options: ExportOptions,
+  node: HTMLElement | null | undefined,
+  context?: ExportContext,
+): Promise<RenderResult> {
+  const effectiveBg = resolveBgColor(options.background);
+
+  const base = await acquireBaseBlob(effectiveBg, node, context);
+  if (!base.ok) return base;
+
+  const img = await createImageBitmap(base.blob);
+  const source = document.createElement('canvas');
+  source.width = img.width;
+  source.height = img.height;
+  const sourceCtx = source.getContext('2d')!;
 
   if (effectiveBg) {
-    ctx.fillStyle = effectiveBg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    sourceCtx.fillStyle = effectiveBg;
+    sourceCtx.fillRect(0, 0, source.width, source.height);
   }
-  ctx.drawImage(img, 0, 0);
+  sourceCtx.drawImage(img, 0, 0);
+
+  // Crop before the overlay is drawn: annotation coordinates are normalised
+  // against the (equally cropped) preview, so they must scale to the final
+  // image rather than to the capture node's layout column. A server-rendered
+  // raster (base.cropNode === null) is already at the diagram's own bounds and
+  // has no layout column to trim, so it skips the crop entirely.
+  const captureNode = base.cropNode;
+  const cropBox = captureNode && measureCaptureCrop(captureNode);
+  const captureScale = captureNode?.offsetWidth ? source.width / captureNode.offsetWidth : 1;
+  const canvas = (cropBox && cropCanvasToBox(source, cropBox, captureScale)) ?? source;
+  const ctx = canvas.getContext('2d')!;
 
   const svgString = buildOverlaySvg(canvas.width, canvas.height, options);
   const svgImg = await svgToImage(svgString);
@@ -233,8 +552,9 @@ export function useExportEngine() {
     options: ExportOptions,
     diagramTitle: string,
     node?: HTMLElement | null,
+    context?: ExportContext,
   ): Promise<ExportResult> {
-    const rendered = await renderPngBlob(options, node);
+    const rendered = await renderPngBlob(options, node, context);
     if (!rendered.ok) return rendered;
     saveAs(rendered.blob, slugifyFilename(diagramTitle));
     return { ok: true };
@@ -243,8 +563,9 @@ export function useExportEngine() {
   async function exportDiagramToClipboard(
     options: ExportOptions,
     node?: HTMLElement | null,
+    context?: ExportContext,
   ): Promise<ClipboardExportResult> {
-    const rendered = await renderPngBlob(options, node);
+    const rendered = await renderPngBlob(options, node, context);
     if (!rendered.ok) return rendered;
     try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': rendered.blob })]);

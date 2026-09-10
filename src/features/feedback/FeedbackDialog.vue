@@ -1,5 +1,13 @@
 <template>
-  <section class="feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="feedback-title" tabindex="-1" @keydown.esc.stop.prevent="close('escape')">
+  <section
+    class="feedback-dialog"
+    :class="{ 'feedback-dialog--forge-modal': context.surface === 'viewer' }"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="feedback-title"
+    tabindex="-1"
+    @keydown.esc.stop.prevent="close('escape')"
+  >
     <header class="feedback-header">
       <h2 id="feedback-title">Send feedback</h2>
       <button class="icon-button" type="button" aria-label="Close feedback" @click="close('close_button')"><XMarkIcon aria-hidden="true" /></button>
@@ -214,6 +222,7 @@ async function send() {
 
 <style scoped>
 .feedback-dialog { width: min(600px, calc(100vw - 32px)); height: min(520px, calc(100vh - 32px)); box-sizing: border-box; display: flex; flex-direction: column; background: #fff; color: #172b4d; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 20px 25px -5px rgba(0,0,0,.10), 0 8px 10px -6px rgba(0,0,0,.10); font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; overflow: hidden; }
+.feedback-dialog--forge-modal { width: 100vw; height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
 .feedback-header { box-sizing: border-box; height: 48px; padding: 0 10px 0 20px; display: flex; align-items: center; gap: 10px; justify-content: space-between; border-bottom: 1px solid #e5e7eb; flex: 0 0 auto; }
 .feedback-header h2 { flex: 1; margin: 0; font-size: 14px; line-height: 1.4; font-weight: 600; letter-spacing: -.005em; }
 .icon-button { width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: transparent; cursor: pointer; color: #6b7280; transition: background 200ms ease, color 200ms ease; }
@@ -246,5 +255,5 @@ footer { box-sizing: border-box; flex: none; height: 52px; padding: 0 20px; bord
 .success-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 64px; gap: 10px; }
 .success-state h3,.success-state p { margin: 0; }.success-mark { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: #dffcf0; color: #216e4e; font-size: 24px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-@media (max-height: 560px) { .feedback-dialog { height: calc(100vh - 16px); } textarea { height: min(238px, 42vh); } .feedback-body { gap: 12px; padding: 16px 20px; } }
+@media (max-height: 560px) { .feedback-dialog:not(.feedback-dialog--forge-modal) { height: calc(100vh - 16px); } textarea { height: min(238px, 42vh); } .feedback-body { gap: 12px; padding: 16px 20px; } }
 </style>

@@ -20,6 +20,16 @@ const context: FeedbackContext = {
 }
 
 describe('FeedbackDialog', () => {
+  it('fills the Forge modal viewport only for the viewer surface', () => {
+    const viewer = mount(FeedbackDialog, { props: { context, submit: vi.fn() } })
+    const editor = mount(FeedbackDialog, {
+      props: { context: { ...context, surface: 'editor' }, submit: vi.fn() },
+    })
+
+    expect(viewer.get('.feedback-dialog').classes()).toContain('feedback-dialog--forge-modal')
+    expect(editor.get('.feedback-dialog').classes()).not.toContain('feedback-dialog--forge-modal')
+  })
+
   it('keeps context collapsed and requires a description', async () => {
     const submit = vi.fn()
     const wrapper = mount(FeedbackDialog, { props: { context, submit } })

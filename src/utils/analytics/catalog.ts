@@ -860,6 +860,8 @@ export type AnalyticsEventName =
   // editor; 'passed' = unique reference, modal opened; 'scan_failed' = the
   // ADF count scan errored, fail-open (modal opened; the editor-side backstop
   // below still guards Publish).
+  // Also produced by every inline title rename commit (utils/renameDiagramTitle.ts
+  // runs the same guardEditClick), so this is gate volume, not Edit-click volume.
   | "edit_dup_gate_evaluated"
   // The editor-side backstop caught what the click gate let through (its
   // fail-open path, the staleness-hint CTA on an inline page-editor render,

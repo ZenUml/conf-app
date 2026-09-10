@@ -561,7 +561,7 @@ describe('GenericViewer (chrome-less)', () => {
       }))
     })
 
-    it('disables the input while the write is in flight and ignores a blur during it', async () => {
+    it('disables the input AND the Edit button while the write is in flight, and ignores a blur during it', async () => {
       let resolve!: (v: unknown) => void
       renameMock.mockReturnValue(new Promise((r) => { resolve = r }) as any)
       const wrapper = await openRename()
@@ -570,12 +570,16 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.vm.$nextTick()
       expect(titleInput(wrapper).exists()).toBe(true)
       expect(titleInput(wrapper).attributes('disabled')).toBeDefined()
+      // The editor modal would boot on the pre-rename body and its later save
+      // would reinstate the old title — so Edit waits for the PUT.
+      expect(wrapper.find('button[aria-label="Edit"]').attributes('disabled')).toBeDefined()
       await titleInput(wrapper).trigger('blur')
       resolve({ ok: true, id: '987654321', durationMs: 5 })
       await flushPromises()
       expect(renameMock).toHaveBeenCalledTimes(1)
       expect(titleInput(wrapper).exists()).toBe(false)
       expect(store.state.diagram.title).toBe('Checkout flow')
+      expect(wrapper.find('button[aria-label="Edit"]').attributes('disabled')).toBeUndefined()
     })
 
     it('a failed write reverts to the previous title, toasts once and fires viewer_rename_failed with failure_reason', async () => {

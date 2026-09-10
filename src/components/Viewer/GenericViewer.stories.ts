@@ -485,7 +485,8 @@ export const TitleRename: Story = {
     await expect(input).toHaveValue('Login flow')
     await userEvent.clear(input)
     await userEvent.type(input, 'Checkout flow{Enter}')
-    await expect(input).toBeDisabled()
+    // The saving flag flips on Vue's next tick, not synchronously with Enter.
+    await waitFor(() => expect(input).toBeDisabled())
     await waitFor(async () => {
       await expect(canvas.getByTestId('viewer-title-rename')).toHaveTextContent('Checkout flow')
     })

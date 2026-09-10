@@ -126,7 +126,10 @@
               />
             </div>
             <div v-if="!isLoadFailed" class="viewer-top-actions">
-              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
+              <!-- Also disabled while a title rename PUT is in flight: the modal
+                   would boot on the pre-rename body and its later save would
+                   reinstate the old title. -->
+              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason || isSavingRename" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                 </svg>
@@ -516,10 +519,11 @@ import { renameDiagramTitle } from '@/utils/renameDiagramTitle'
 const DEFAULT_TITLE = 'Untitled diagram'
 // Inline title rename input sizing (see startRename / updateRenameWidth).
 // MAX mirrors .viewer-title's max-width; CHROME is the input's horizontal
-// padding (6px × 2) + border (1px × 2), added to the measured text width.
+// padding (6px × 2) + border (1px × 2) plus a few px so the caret has room
+// after the last glyph, added to the measured text width.
 const RENAME_INPUT_MIN_WIDTH_PX = 160
 const RENAME_INPUT_MAX_WIDTH_PX = 420
-const RENAME_INPUT_CHROME_PX = 14
+const RENAME_INPUT_CHROME_PX = 18
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
 
 function isMermaidSequenceSource(source) {
@@ -2214,9 +2218,11 @@ export default {
 .viewer-title-input {
   box-sizing: border-box;
   /* Width is set inline from the measured title (updateRenameWidth); this is
-     only the no-measurement fallback. */
+     only the no-measurement fallback. No max-width: 100% here — the negative
+     margins make the title-area 12px narrower than the input, so a percentage
+     cap resolved against it clipped the last glyph (measured live: style
+     333px, rendered 321px). The 420px cap lives in updateRenameWidth. */
   width: 160px;
-  max-width: 100%;
   margin: -3px -6px;
   padding: 3px 6px;
   background: #fff;

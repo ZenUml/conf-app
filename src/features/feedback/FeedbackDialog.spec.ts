@@ -93,6 +93,18 @@ describe('FeedbackDialog', () => {
     expect(wrapper.text()).toContain('support form is only for contact and replies')
   })
 
+  it('shows the support email when feedback submission fails', async () => {
+    const submit = vi.fn().mockRejectedValue(new Error('ServiceUnavailable'))
+    const wrapper = mount(FeedbackDialog, { props: { context, submit } })
+
+    await wrapper.get('textarea').setValue('The diagram is too small.')
+    await wrapper.get('form').trigger('submit')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Feedback could not be sent.'))
+
+    const supportEmail = wrapper.get('a[href="mailto:support@zenuml.com"]')
+    expect(supportEmail.text()).toBe('support@zenuml.com')
+  })
+
   it('captures only when explicitly requested and shows preview controls', async () => {
     const capture = vi.fn().mockResolvedValue({
       dataUrl: 'data:image/png;base64,iVBORw0KGgo=',

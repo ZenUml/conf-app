@@ -43,7 +43,11 @@
             @keydown.enter="onTextareaEnter"
           />
         </div>
-        <p v-if="session.errorMessage" class="error-message" role="alert">{{ session.errorMessage }}</p>
+        <p v-if="state === 'failed'" class="error-message" role="alert">
+          {{ session.errorMessage }} You can also email
+          <a href="mailto:support@zenuml.com">support@zenuml.com</a>.
+        </p>
+        <p v-else-if="session.errorMessage" class="error-message" role="alert">{{ session.errorMessage }}</p>
         <p v-else-if="imageError" class="error-message" role="alert">{{ imageError }}</p>
 
       <div class="image-actions">

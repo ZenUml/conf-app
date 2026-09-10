@@ -61,6 +61,7 @@ describe('renameDiagramTitle', () => {
     vi.clearAllMocks();
     _resetForTesting();
     guard.mockResolvedValue(true);
+    sync.mockResolvedValue(undefined);
     getById.mockResolvedValue(existing);
     update.mockResolvedValue({ ...existing, version: { number: 5 } });
   });

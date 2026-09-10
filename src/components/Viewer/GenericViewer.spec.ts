@@ -426,6 +426,11 @@ describe('GenericViewer (chrome-less)', () => {
       // The layout tests above keep reading the title through .viewer-title.
       expect(wrapper.find('.viewer-title').text()).toBe('Login flow')
       expect(titleInput(wrapper).exists()).toBe(false)
+      // Exactly one title on screen: the control REPLACES the plain span
+      // (caught live in Storybook — a stray v-if between the chain's
+      // branches rendered both).
+      expect(wrapper.find('span.viewer-title').exists()).toBe(false)
+      expect(wrapper.findAll('.viewer-title')).toHaveLength(1)
     })
 
     it.each([
@@ -458,6 +463,8 @@ describe('GenericViewer (chrome-less)', () => {
       expect((input.element as HTMLInputElement).value).toBe('Login flow')
       expect(input.attributes('maxlength')).toBe('255')
       expect(titleButton(wrapper).exists()).toBe(false)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(false)
+      expect(wrapper.findAll('.viewer-title')).toHaveLength(1)
       expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_started', expect.objectContaining({
         feature_area: 'macro',
         surface: 'viewer',

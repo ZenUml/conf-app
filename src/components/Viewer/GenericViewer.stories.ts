@@ -16,6 +16,7 @@ import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
 import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { __resetEditGateCache } from '@/utils/guardEditClick'
 
 // Header.stories.ts's `{ template: '<story/>', app: (app) => app.use(store) }`
 // decorator idiom does NOT install the plugin on @storybook/vue3-vite 10.4's
@@ -421,6 +422,96 @@ export const Default: Story = {
     const copyBtn = await canvas.findByTestId('copy-for-ai-btn')
     await expect(copyBtn).toHaveAttribute('data-copy-state', 'idle')
     await expect(canvas.getByRole('button', { name: 'Fullscreen' })).toBeVisible()
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 1b. TitleRename — click-to-rename title (no editor modal)
+// ---------------------------------------------------------------------------
+
+/**
+ * renameDiagramTitle (utils/renameDiagramTitle.ts) runs the real click-time
+ * duplicate guard, then a fresh GET + title-only PUT through
+ * globals.apWrapper. Storybook has no Confluence, so the three instance
+ * methods it reaches are shadowed here the same way stubApWrapper() shadows
+ * getCurrentPage: the GET hands back the store's current doc, the PUT waits
+ * long enough for the saving state to be visible, then "lands".
+ */
+function stubRenamePersistence({ failWith }: { failWith?: Error } = {}) {
+  __resetEditGateCache()
+  // The post-write D1 mirror sync (services/CustomContent.ts) POSTs to the
+  // backend; answer it so the story's console stays clean.
+  stubResponses.remote = [{ match: '/forge-custom-content', body: { ok: true } }]
+  ;(globals.apWrapper as any).countMacrosReferencing = async () => 1
+  ;(globals.apWrapper as any).getCustomContentByIdV2 = async (id: string) => ({
+    id,
+    type: 'zenuml-content-sequence',
+    status: 'current',
+    pageId: 'storybook-page',
+    title: (store.state as any).diagram.title,
+    version: { number: 1 },
+    body: { raw: { value: '' } },
+    value: { ...(store.state as any).diagram },
+  })
+  ;(globals.apWrapper as any).updateCustomContentV2 = async (existing: any) => {
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    if (failWith) throw failWith
+    return { ...existing, version: { number: 2 } }
+  }
+}
+
+/**
+ * The title is the rename affordance: hovering the surface hints a pencil,
+ * clicking swaps the title for an input, Enter/blur commits, Esc cancels,
+ * a blank title is refused inline. The play function renames the diagram end
+ * to end through the stubbed persistence above.
+ */
+export const TitleRename: Story = {
+  name: 'Title rename — click the title',
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
+      stubRenamePersistence()
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args, 'Sequence diagram preview'),
+  play: async () => {
+    const canvas = within(document.body)
+    const title = await canvas.findByTestId('viewer-title-rename')
+    await expect(title).toHaveTextContent('Login flow')
+    await userEvent.click(title)
+    const input = await canvas.findByTestId('viewer-title-input')
+    await expect(input).toHaveValue('Login flow')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Checkout flow{Enter}')
+    await expect(input).toBeDisabled()
+    await waitFor(async () => {
+      await expect(canvas.getByTestId('viewer-title-rename')).toHaveTextContent('Checkout flow')
+    })
+  },
+}
+
+/** The write fails (e.g. 403): the previous title comes back and a toast explains. */
+export const TitleRenameFailed: Story = {
+  name: 'Title rename — write fails',
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
+      stubRenamePersistence({ failWith: Object.assign(new Error('Forbidden'), { status: 403 }) })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args, 'Sequence diagram preview'),
+  play: async () => {
+    const canvas = within(document.body)
+    await userEvent.click(await canvas.findByTestId('viewer-title-rename'))
+    const input = await canvas.findByTestId('viewer-title-input')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Checkout flow{Enter}')
+    await waitFor(async () => {
+      await expect(canvas.getByTestId('viewer-title-rename')).toHaveTextContent('Login flow')
+    })
   },
 }
 

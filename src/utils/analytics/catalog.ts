@@ -499,7 +499,9 @@ export type AnalyticsEventName =
   // save_duration_ms, the fresh GET + PUT round-trip); failed = the guard
   // refused, the PUT threw, or the returned id did not match
   // (`failure_reason`); cancelled = edit mode left without a write
-  // (`rename_exit_reason`: escape / unchanged / empty).
+  // (`rename_exit_reason`: escape / unchanged / empty — a blank title on
+  // Enter is refused inline and keeps editing, so it fires nothing; `empty`
+  // is a blank title on blur, where the previous title simply stands).
   // A rename writes a new custom-content version but is deliberately NOT a
   // macro_save_succeeded: that event is the edit-volume signal for dashboards
   // and rides on saveToPlatform (snapshot upload, CSAT, surface: editor), none

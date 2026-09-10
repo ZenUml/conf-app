@@ -320,7 +320,10 @@ jobs:
               # sharing the existing auth/fullscreen projects. Do not silently
               # run the entire fullscreen suite. The spec runs in parallel mode
               # so the 5 shards below each get a share of its 8 tests — measured
-              # (2026-09-10) as 3/3/3/2/2 tests per shard 1-5, un-idle on every shard.
+              # (2026-09-10) as 2/2/2/1/1 tests per shard 1-5, un-idle on every
+              # shard. Count graph-edit lines from `--list`, not Playwright's
+              # `Total:` summary: that adds the auth.setup dependency test and
+              # reads one higher per shard.
               PROJECTS="--project=auth --project=fullscreen"
               TEST_TARGET="tests/fullscreen/graph-edit.spec.ts"
               ;;

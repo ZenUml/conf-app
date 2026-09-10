@@ -169,16 +169,17 @@ jobs:
       # graph-edit.spec.ts declares `test.describe.configure({ mode: 'parallel' })`,
       # so `--shard=N/M` splits its 8 tests across shards instead of stacking all
       # of them on shard 1 (which made this job an 8-minute critical path).
+      # Headroom for 2 tests x 3 attempts (retries: 2) plus job setup.
       # e2e-test.yml's SHARD_COUNT went 4 -> 5 (2026-09-10, to give the new
       # `feedback` project its own shard on the `insert` suite — unrelated to
-      # graph-publish, but SHARD_COUNT is shared config). At M=4 that was an even
-      # 2-per-shard; measured at M=5 (`pnpm exec playwright test --list
+      # graph-publish, but SHARD_COUNT is shared config). That does NOT change
+      # this budget: measured at M=5 (`CI=true pnpm exec playwright test --list
       # --project=auth --project=fullscreen tests/fullscreen/graph-edit.spec.ts
-      # --shard=N/5`) it's 3/3/3/2/2 — the heaviest shard now carries 3 tests, not
-      # 2. Scaled the budget proportionally (12min x 3/2, rounded up) rather than
-      # re-deriving from a live run; treat 18 as provisional until the first
-      # SHARD_COUNT=5 run gives a real number to tighten or loosen it against.
-      timeout-minutes: 18
+      # --shard=N/5`, counting only graph-edit lines) the split is 2/2/2/1/1, so
+      # the heaviest shard still carries 2 tests, exactly as it did at M=4.
+      # Count graph-edit lines, not Playwright's `Total:` summary — that includes
+      # the auth.setup dependency test and reads one higher per shard.
+      timeout-minutes: 12
       artifact-suffix: lite-stg-graph-publish
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

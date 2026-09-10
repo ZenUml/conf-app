@@ -36,7 +36,7 @@ const meta: Meta<typeof GetStarted> = {
       description: {
         component:
           'Full-page onboarding screen shown to admins after installing the Forge app. ' +
-          'Displays a hero section, a feature grid with all five diagram types, a quick-start tutorial, ' +
+          'Displays a hero section, a feature grid with the four diagram types (Sequence, Mermaid, Graph, OpenAPI), a quick-start tutorial, ' +
           'and a resources panel. Fires a get_started_page_view analytics event on mount.',
       },
     },

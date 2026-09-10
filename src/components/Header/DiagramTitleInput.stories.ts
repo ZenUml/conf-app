@@ -79,18 +79,8 @@ const meta: Meta<typeof DiagramTitleInput> = {
 
 export default meta
 
-/** Empty editor state. */
+/** Empty editor: no title, no code. The spark button is always available (the ai-title rollout flag is gone), but auto-generate does not fire without code. */
 export const Default: Story = {
-  decorators: [
-    () => {
-      setupStore()
-      return { template: '<story />' }
-    },
-  ],
-}
-
-/** No code yet — the spark button is visible but auto-generate will not fire. */
-export const AIEnabled: Story = {
   decorators: [
     () => {
       setupStore()
@@ -141,7 +131,7 @@ export const Suggested: Story = {
   },
 }
 
-/** flash-title-error event turns the border red (e.g. save attempted with empty title). */
+/** The flash-title-error event (a save attempted with an empty title) turns the field red — red border, red-tinted background and red text — until the next edit. */
 export const TitleError: Story = {
   decorators: [
     () => {

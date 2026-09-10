@@ -91,6 +91,12 @@ async function initializeCriticalPath() {
   const context = await initForgeContext();
   const isOpenedModal = !!context.extension?.modal?.macroMode;
 
+  if (context.extension?.modal?.macroMode === 'feedback') {
+    const { mountFeedbackModal } = await import('@/features/feedback/mountFeedback');
+    mountFeedbackModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
   // Check if this is a global settings route (get started page)
   if (!isOpenedModal && context.extension?.type === 'confluence:globalSettings') {
     if (context.moduleKey === 'diagramly-admin-create-demo-page') {
@@ -254,7 +260,8 @@ async function initializeCriticalPath() {
 }
 
 // Load heavy components asynchronously
-async function loadHeavyComponents(criticalData: { macroData: any }) {
+async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandled?: boolean }) {
+  if (criticalData.feedbackHandled) return;
   // Dynamically import heavy dependencies
   const [
     { mountRoot }
@@ -1157,9 +1164,16 @@ async function main() {
   const criticalData = await initializeCriticalPath();
 
   // Phase 2: Load heavy components
-  loadHeavyComponents(criticalData).catch(e =>
-    console.error('Failed to load heavy components:', e)
-  );
+  try {
+    await loadHeavyComponents(criticalData);
+    if (!criticalData.feedbackHandled) {
+      const context = await initForgeContext();
+      const { installFeedbackHost } = await import('@/features/feedback/mountFeedback');
+      installFeedbackHost(context);
+    }
+  } catch (e) {
+    console.error('Failed to load heavy components:', e);
+  }
 }
 
 export default main()

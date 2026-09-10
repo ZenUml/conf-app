@@ -49,6 +49,7 @@ export type Surface =
   | "modal"
   | "page_banner"
   | "dashboard"
+  | "get_started"
   | "route"
   // Byline activation nudge. MUST be passed explicitly on every activation_*/
   // byline_* event: the dialog runs in a contentBylineItem iframe where
@@ -65,6 +66,7 @@ export type Surface =
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
+  | "png_export"
   // The contentBylineItem modal. Confluence boots this iframe only when the
   // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
   // the variants that ship it), so every event carrying this surface is a
@@ -223,6 +225,15 @@ export type CreateNotFoundShape = "bare_not_found" | "container_not_found" | "ot
 
 /** Outcome of the operations probe behind save_failed_diagnosed. */
 export type SaveFailureProbeStatus = "ok" | "page_unreachable" | "failed";
+
+/** How an optional screenshot was added to an in-product support request. */
+export type FeedbackCaptureMethod = "current_view" | "upload";
+
+/** Why an opened feedback dialog closed without a successful submission. */
+export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
+
+/** Observable outcome when the saved report hands off to public support. */
+export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
 
 export type AnalyticsEventName =
   | "macro_viewed"
@@ -466,6 +477,22 @@ export type AnalyticsEventName =
   | "csat_submitted"
   | "csat_dismissed"
   | "feedback_link_clicked"
+  // In-product feedback funnel. Events before feedback_report_submit_requested
+  // contain interaction context only: never description, screenshot bytes,
+  // diagram source, or any other draft report content. The report payload is
+  // allowed to leave the iframe only after the user explicitly presses Send.
+  | "feedback_report_opened"
+  | "feedback_report_capture_requested"
+  | "feedback_report_capture_succeeded"
+  | "feedback_report_capture_failed"
+  | "feedback_report_capture_removed"
+  | "feedback_report_submit_requested"
+  | "feedback_report_submit_succeeded"
+  | "feedback_report_submit_failed"
+  | "feedback_report_handoff_requested"
+  | "feedback_report_handoff_opened"
+  | "feedback_report_handoff_blocked"
+  | "feedback_report_dismissed"
   | "graph_editor_init_empty"
   // Graph (DrawIO) Diagram/Board chrome switch. Same mxfile, two DrawIO
   // chromes: `diagram` is the existing Atlas/standard embed; `board` is

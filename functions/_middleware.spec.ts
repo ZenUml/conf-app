@@ -35,6 +35,18 @@ describe("_middleware", () => {
     expect(authenticate).toHaveBeenCalledTimes(2);
   });
 
+  it("authenticates the in-product feedback persistence endpoint", async () => {
+    const next = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    await authMiddleware({
+      request: new Request("https://example.test/api/feedback-report", { method: "POST" }),
+      next,
+      env: {},
+      data: {},
+    } as never);
+    expect(AUTHENTICATED_PATHS).toContain("/api/feedback-report");
+    expect(authenticate).toHaveBeenCalledOnce();
+  });
+
   it("redacts /d and /i request URLs before logging (client-privacy policy)", () => {
     expect(redactedRequestUrlForLogging("https://conf-lite.zenuml.com/d/bc8bb5b3-09d2-4932-b68c-9b56fab8e34a/425987?t=abc.def"))
       .toBe("https://conf-lite.zenuml.com/d [redacted]");

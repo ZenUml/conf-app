@@ -192,12 +192,14 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
+// `feedback` records the explicit start requested by the Feedback trigger.
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
   | "plan_usage_page"
   | "fullscreen"
+  | "feedback"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues
@@ -477,7 +479,10 @@ export type AnalyticsEventName =
   | "csat_submitted"
   | "csat_dismissed"
   | "feedback_link_clicked"
-  // In-product feedback funnel. Events before feedback_report_submit_requested
+  // In-product feedback funnel. feedback_report_opened fires from the surface
+  // whose trigger was clicked, after requesting Session Replay, and carries
+  // session_replay_source=feedback plus the synchronous SDK call outcome.
+  // Events before feedback_report_submit_requested
   // contain interaction context only: never description, screenshot bytes,
   // diagram source, or any other draft report content. The report payload is
   // allowed to leave the iframe only after the user explicitly presses Send.

@@ -74,9 +74,10 @@ export type AnalyticsProperties = {
   to_macro_type?: MacroTypeValue;
   type_requested?: boolean;
   // Session Replay policy. `macro_create_started` / `macro_edit_started` set
-  // source=authoring and percent=100 after the SDK start call returns. The call
-  // outcome is intentionally distinct from actual capture: only a later
-  // `$mp_replay_id` proves that the recorder became active.
+  // source=authoring; the Feedback trigger sets source=feedback. Both record
+  // the synchronous SDK start-call outcome. That outcome is intentionally
+  // distinct from actual capture: only a later `$mp_replay_id` proves that the
+  // recorder became active.
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;

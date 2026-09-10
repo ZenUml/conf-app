@@ -40,6 +40,10 @@ bucket_name = "atlassian-events"
 binding = "MACRO_COUNT_SNAPSHOT_BUCKET"
 bucket_name = "conf-macro-count-snapshots-stg"
 
+[[ env.production.r2_buckets ]]
+binding = "FEEDBACK_ATTACHMENT_BUCKET"
+bucket_name = "conf-feedback-attachments-stg"
+
 [[env.production.kv_namespaces]]
 binding = "confluence_plugin_features"
 id = "9531a58d3f5b47a6af77750240c09548"

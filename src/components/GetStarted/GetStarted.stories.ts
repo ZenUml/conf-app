@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
-import { expect, within } from 'storybook/test'
+import { expect, userEvent, within } from 'storybook/test'
 import GetStarted from './GetStarted.vue'
 import forgeGlobal from '@/model/globals/forgeGlobal'
+import FeedbackHost from '@/features/feedback/FeedbackHost.vue'
+import { storyFeedbackContext } from '@/features/feedback/feedbackStoryFixtures'
 
 type Story = StoryObj<typeof GetStarted>
 
@@ -25,7 +27,7 @@ function installMocks() {
 }
 
 const meta: Meta<typeof GetStarted> = {
-  title: 'Onboarding/GetStarted',
+  title: 'Get Started/Page',
   component: GetStarted,
   tags: ['autodocs'],
   parameters: {
@@ -149,5 +151,21 @@ export const ResourceLinks: Story = {
     await expect(canvas.getByRole('link', { name: /Watch Videos/ })).toBeVisible()
     await expect(canvas.getByRole('link', { name: /Join Community/ })).toBeVisible()
     await expect(canvas.getByRole('link', { name: /Report Issue/ })).toBeVisible()
+  },
+}
+
+/** The production entry point mounts Feedback beside this real page root. */
+export const FeedbackOpen: Story = {
+  name: 'Feedback — open',
+  render: () => ({
+    components: { GetStarted, FeedbackHost },
+    setup: () => ({ context: storyFeedbackContext('get_started') }),
+    template: '<GetStarted /><FeedbackHost :context="context" />',
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.hover(canvas.getByTestId('feedback-edge'))
+    await userEvent.click(canvas.getByRole('button', { name: 'Send feedback' }))
+    await expect(canvas.getByRole('dialog', { name: 'Send feedback' })).toBeVisible()
   },
 }

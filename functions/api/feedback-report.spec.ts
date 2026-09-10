@@ -64,6 +64,7 @@ describe('feedback-report', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('requires middleware-verified Forge identity and never writes without it', async () => {
@@ -84,7 +85,7 @@ describe('feedback-report', () => {
     expect(result.status).toBe(201);
     expect(body.ok).toBe(true);
     expect(body.reportReference).toMatch(/^FBR-[A-Z0-9]{12}$/);
-    expect(body.artifacts).toEqual({ screenshot: 'not_retained', diagramSource: 'not_retained' });
+    expect(body.artifacts).toEqual({ screenshot: 'not_provided' });
     expect(db.insertBind).toHaveBeenCalledOnce();
     const values = db.insertBind.mock.calls[0];
     expect(values).toContain('account-example');
@@ -104,19 +105,62 @@ describe('feedback-report', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('does not persist screenshot bytes until an attachment retention policy exists', async () => {
+  it('stores an explicitly attached screenshot privately and persists only its expiry metadata', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-10T00:00:00.000Z'));
     const db = dbWithDomain();
+    const bucket = { put: vi.fn(async () => undefined), delete: vi.fn(async () => undefined) };
     const result = await onRequestPost({
-      ...context({ DB: db }),
+      ...context({ DB: db, FEEDBACK_ATTACHMENT_BUCKET: bucket }),
       request: request({
         ...BASE_PAYLOAD,
-        screenshot: { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', name: 'capture.png', method: 'capture' },
+        screenshot: { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', name: 'capture.png', method: 'current_view' },
       } as any),
     } as any);
 
     expect(result.status).toBe(201);
+    const body = await result.json() as any;
+    expect(body.artifacts.screenshot).toBe('retained_30_days');
+    expect(bucket.put).toHaveBeenCalledWith(
+      expect.stringMatching(/^feedback\/FBR-[A-Z0-9]{12}\/image$/),
+      expect.any(Uint8Array),
+      expect.objectContaining({
+        httpMetadata: { contentType: 'image/png' },
+        customMetadata: expect.objectContaining({ expiresAt: '2026-10-10T00:00:00.000Z' }),
+      }),
+    );
     const serializedValues = JSON.stringify(db.insertBind.mock.calls[0]);
     expect(serializedValues).not.toContain('iVBORw0KGgo');
+    expect(db.insertBind.mock.calls[0]).toContain('2026-10-10T00:00:00.000Z');
+  });
+
+  it('does not accept an attachment when private storage is unavailable', async () => {
+    const result = await onRequestPost({
+      ...context(),
+      request: request({
+        ...BASE_PAYLOAD,
+        screenshot: { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', name: 'capture.png', method: 'current_view' },
+      } as any),
+    } as any);
+
+    expect(result.status).toBe(503);
+    expect((await result.json() as any).error).toBe('attachment_storage_unavailable');
+  });
+
+  it('rejects invalid image data before writing any customer content', async () => {
+    const db = dbWithDomain();
+    const bucket = { put: vi.fn(), delete: vi.fn() };
+    const result = await onRequestPost({
+      ...context({ DB: db, FEEDBACK_ATTACHMENT_BUCKET: bucket }),
+      request: request({
+        ...BASE_PAYLOAD,
+        screenshot: { dataUrl: 'data:text/html;base64,PGgxPk5vPC9oMT4=', name: 'capture.html', method: 'upload' },
+      } as any),
+    } as any);
+
+    expect(result.status).toBe(400);
+    expect(bucket.put).not.toHaveBeenCalled();
+    expect(db.insertBind).not.toHaveBeenCalled();
   });
 
   it('preserves multiline plain text and Markdown-style characters verbatim', async () => {

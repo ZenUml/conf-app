@@ -50,6 +50,7 @@ describe('feedback session privacy boundary', () => {
 
     expect(session.submissionState).toBe('succeeded')
     expect(handoff).toHaveBeenCalledWith('FBR-EXAMPLE1234')
+    expect(session.manualSupportUrl).toBe('')
     expect(handoff.mock.calls[0][0]).not.toContain('Private report text')
     expect(track).toHaveBeenCalledWith('feedback_report_handoff_requested', expect.any(Object))
     expect(track).toHaveBeenCalledWith('feedback_report_handoff_opened', expect.objectContaining({

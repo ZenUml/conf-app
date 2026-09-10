@@ -27,6 +27,10 @@ binding = "DB"
 database_name = "conf-zenuml-stg"
 database_id = "5894387c-08be-43d7-b8dc-0b7b8eb7c264"
 
+[[env.stg.r2_buckets]]
+binding = "FEEDBACK_ATTACHMENT_BUCKET"
+bucket_name = "conf-feedback-attachments-stg"
+
 # Production
 [env.production]
 name = "cron-aggregate-prod"
@@ -42,3 +46,7 @@ crons = ["0 2 * * *"]
 binding = "DB"
 database_name = "conf-zenuml-prod"
 database_id = "2e34f32e-5ddd-40dc-9e3d-019f9b1d431f"
+
+[[env.production.r2_buckets]]
+binding = "FEEDBACK_ATTACHMENT_BUCKET"
+bucket_name = "conf-feedback-attachments-prod"

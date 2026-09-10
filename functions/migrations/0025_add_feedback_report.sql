@@ -1,7 +1,7 @@
 -- In-product feedback submitted explicitly by an authenticated Forge user.
--- Screenshot bytes are deliberately excluded pending a separate
--- retention/access policy for that higher-sensitivity artifact. Diagram source
--- is never copied here; Confluence remains the system of record.
+-- Diagram source is never copied here; Confluence remains the system of
+-- record. User-authorized screenshot metadata is added separately in 0026;
+-- bytes are kept only in the private, retention-controlled R2 bucket.
 CREATE TABLE IF NOT EXISTS FeedbackReport (
   reportReference TEXT PRIMARY KEY,
   submissionId TEXT NOT NULL,

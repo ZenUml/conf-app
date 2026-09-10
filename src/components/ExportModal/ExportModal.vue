@@ -14,6 +14,12 @@
         <div class="export-divider"></div>
         <ExportSidebar :state="state" @close="$emit('close')" @export="handleExport" @copy="handleCopy" />
       </div>
+      <FeedbackHost
+        v-if="feedbackContext"
+        :context="feedbackContext"
+        :capture-current-view="captureExportWorkspace"
+        :suppress-during-export="false"
+      />
     </div>
   </Transition>
 </template>
@@ -26,6 +32,12 @@ import { exportStateKey, useExportState } from './useExportState';
 import { useExportEngine, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
+import FeedbackHost from '@/features/feedback/FeedbackHost.vue';
+import { captureFeedbackElement } from '@/features/feedback/feedbackCapture';
+import { deriveFeedbackContext } from '@/features/feedback/feedbackContext';
+import type { FeedbackContext } from '@/features/feedback/feedbackSession';
+import { getContext } from '@/model/globals/forgeGlobal';
+import store from '@/model/store2';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
@@ -33,7 +45,7 @@ const COPIED_FEEDBACK_MS = 1500;
 
 export default defineComponent({
   name: 'ExportModal',
-  components: { ExportPreview, ExportSidebar },
+  components: { ExportPreview, ExportSidebar, FeedbackHost },
 
   props: {
     visible: { type: Boolean, required: true },
@@ -47,6 +59,7 @@ export default defineComponent({
     const state = useExportState();
     provide(exportStateKey, state);
     const dialogEl = ref<HTMLElement | null>(null);
+    const feedbackContext = ref<FeedbackContext | null>(null);
     let captureGen = 0;
     let exportSucceeded = false;
     let copiedTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -185,6 +198,11 @@ export default defineComponent({
       }
     }
 
+    async function captureExportWorkspace() {
+      if (!dialogEl.value) throw new Error('FeedbackCaptureTargetUnavailable');
+      return captureFeedbackElement(dialogEl.value);
+    }
+
     watch(() => props.visible, async (val) => {
       if (val) {
         previouslyFocused = document.activeElement as HTMLElement | null;
@@ -198,6 +216,14 @@ export default defineComponent({
           macro_type: props.macroType,
         });
         await nextTick();
+        try {
+          feedbackContext.value = deriveFeedbackContext(
+            { ...(await getContext()), feedbackSurface: 'png_export' },
+            store.state.diagram,
+          );
+        } catch {
+          feedbackContext.value = null;
+        }
         dialogEl.value?.focus();
         capturePreview();
       } else {
@@ -210,7 +236,7 @@ export default defineComponent({
         }
         restoreFocus();
       }
-    });
+    }, { immediate: true });
 
     async function handleExport() {
       if (state.isExporting.value) return;
@@ -268,7 +294,7 @@ export default defineComponent({
       if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
     });
 
-    return { state, dialogEl, capturePreview, handleExport, handleCopy, onDialogKeydown };
+    return { state, dialogEl, feedbackContext, captureExportWorkspace, capturePreview, handleExport, handleCopy, onDialogKeydown };
   },
 });
 </script>

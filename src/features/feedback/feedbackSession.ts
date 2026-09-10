@@ -139,7 +139,7 @@ export function createFeedbackSession({ context, submit, handoff, track }: {
           track('feedback_report_handoff_requested', props)
           try {
             const transition = await handoff(reportReference)
-            manualSupportUrl = transition.manualUrl ?? ''
+            manualSupportUrl = transition.opened ? '' : transition.manualUrl ?? ''
             track(transition.opened ? 'feedback_report_handoff_opened' : 'feedback_report_handoff_blocked', {
               ...props,
               feedback_handoff_outcome: transition.opened ? 'opened' : 'blocked',

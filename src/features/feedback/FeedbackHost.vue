@@ -29,10 +29,11 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import ChatBubbleOvalLeftEllipsisIcon from '@heroicons/vue/24/outline/ChatBubbleOvalLeftEllipsisIcon'
 import { openModal } from '@/model/globals/forgeGlobal'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import FeedbackDialog from './FeedbackDialog.vue'
 import { captureFeedbackSurface } from './feedbackCapture'
 import { serveFeedbackCapture } from './feedbackBridge'
-import type { FeedbackContext } from './feedbackSession'
+import { feedbackAnalyticsProperties, type FeedbackContext } from './feedbackSession'
 import { createFeedbackTransport } from './feedbackTransport'
 
 const props = withDefaults(defineProps<{
@@ -87,6 +88,7 @@ onBeforeUnmount(() => {
 })
 
 async function openFeedback() {
+  trackAnalyticsEvent('feedback_report_opened', feedbackAnalyticsProperties(props.context))
   if (props.context.surface !== 'viewer') {
     dialogOpen.value = true
     return

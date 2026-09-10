@@ -479,8 +479,8 @@ export type AnalyticsEventName =
   | "csat_submitted"
   | "csat_dismissed"
   | "feedback_link_clicked"
-  // In-product feedback funnel. feedback_report_opened fires from the surface
-  // whose trigger was clicked, after requesting Session Replay, and carries
+  // In-product feedback funnel. feedback_report_opened fires as the surface
+  // trigger opens the dialog, after requesting Session Replay, and carries
   // session_replay_source=feedback plus the synchronous SDK call outcome.
   // Events before feedback_report_submit_requested
   // contain interaction context only: never description, screenshot bytes,

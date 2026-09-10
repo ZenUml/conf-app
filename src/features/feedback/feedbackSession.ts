@@ -40,6 +40,18 @@ type Handoff = (reportReference: string) => Promise<{ opened: boolean, manualUrl
 
 export type FeedbackSubmissionState = 'idle' | 'submitting' | 'succeeded' | 'failed'
 
+export function feedbackAnalyticsProperties(context: FeedbackContext): AnalyticsProperties {
+  return {
+    feature_area: 'feedback',
+    surface: context.surface,
+    host_module: context.hostModule,
+    macro_uuid: context.macroUuid,
+    macro_type: context.diagramType === 'not_applicable' || context.diagramType === 'unavailable'
+      ? 'none'
+      : context.diagramType,
+  }
+}
+
 export function createFeedbackSession({ context, submit, handoff, track }: {
   context: FeedbackContext
   submit: Submit
@@ -54,14 +66,7 @@ export function createFeedbackSession({ context, submit, handoff, track }: {
   let reportReference = ''
   let manualSupportUrl = ''
 
-  const analyticsProps = (): AnalyticsProperties => ({
-    feature_area: 'feedback',
-    surface: context.surface,
-    host_module: context.hostModule,
-    macro_type: context.diagramType === 'not_applicable' || context.diagramType === 'unavailable'
-      ? 'none'
-      : context.diagramType,
-  })
+  const analyticsProps = () => feedbackAnalyticsProperties(context)
 
   return {
     get description() { return description },
@@ -70,9 +75,6 @@ export function createFeedbackSession({ context, submit, handoff, track }: {
     get errorMessage() { return errorMessage },
     get reportReference() { return reportReference },
     get manualSupportUrl() { return manualSupportUrl },
-    open() {
-      track('feedback_report_opened', analyticsProps())
-    },
     setDescription(value: string) { description = value },
     async capture(method: FeedbackCaptureMethod, work: () => Promise<FeedbackScreenshot>) {
       track('feedback_report_capture_requested', {

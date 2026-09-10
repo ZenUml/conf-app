@@ -20,14 +20,10 @@ describe('feedback session privacy boundary', () => {
     const track = vi.fn()
     const session = createFeedbackSession({ context, submit, track })
 
-    session.open()
     session.setDescription('The diagram is difficult to read.')
 
     expect(submit).not.toHaveBeenCalled()
-    expect(track).toHaveBeenCalledWith('feedback_report_opened', expect.not.objectContaining({
-      description: expect.anything(),
-      diagramSource: expect.anything(),
-    }))
+    expect(track).not.toHaveBeenCalled()
 
     await session.submit()
 
@@ -37,6 +33,9 @@ describe('feedback session privacy boundary', () => {
       context,
       submissionId: expect.any(String),
     }))
+    expect(track.mock.calls.every(([, properties]) => (
+      !('description' in properties) && !('diagramSource' in properties)
+    ))).toBe(true)
   })
 
   it('hands a successfully saved report to support only when requested without copying report content', async () => {

@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FeedbackHost from './FeedbackHost.vue'
 import type { FeedbackContext } from './feedbackSession'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
 const context: FeedbackContext = {
   surface: 'viewer', hostModule: 'zenuml-macro', diagramType: 'mermaid', diagramTitle: 'Example',
@@ -13,6 +16,7 @@ const context: FeedbackContext = {
 describe('FeedbackHost', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.clearAllMocks()
     vi.useRealTimers()
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
   })
@@ -62,6 +66,35 @@ describe('FeedbackHost', () => {
       context: expect.objectContaining({ macroMode: 'feedback', feedbackContext: context }),
     }))
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('starts feedback replay from the surface trigger with its macro context', async () => {
+    const wrapper = mount(FeedbackHost, {
+      props: { context, openViewModal: vi.fn().mockResolvedValue(undefined) },
+    })
+
+    await wrapper.get('[data-testid="feedback-trigger"]').trigger('click')
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledOnce()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('feedback_report_opened', {
+      feature_area: 'feedback',
+      surface: 'viewer',
+      host_module: 'zenuml-macro',
+      macro_type: 'mermaid',
+      macro_uuid: 'macro-example',
+    })
+  })
+
+  it('tracks one feedback opening when an inline dialog mounts after the trigger click', async () => {
+    const wrapper = mount(FeedbackHost, {
+      props: { context: { ...context, surface: 'editor' } },
+    })
+
+    await wrapper.get('[data-testid="feedback-trigger"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
+    expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1)
   })
 
   it('hides the default surface trigger while PNG Export provides its own trigger', async () => {

@@ -64,7 +64,14 @@ test.describe('GenericViewer — OverflowMenu trigger + Download debug info', ()
     // Reveal the bottom-edge toolbar (hover-gated).
     await page.locator('.viewer-surface').hover()
 
-    const more = page.getByRole('button', { name: 'More' })
+    // Scoped to OverflowMenu's own trigger rather than by accessible name.
+    // `getByRole('button', { name: 'More' })` matches by SUBSTRING, so once
+    // CopyForAiMenu shipped a trigger titled "Copy for AI — more options" the
+    // name matched two buttons and this line failed on a strict-mode violation.
+    // It went unnoticed because this spec only ever ran by hand; its first CI
+    // run caught it. The class is the component's own contract and cannot be
+    // captured by a sibling's wording.
+    const more = page.locator('.overflow-menu-trigger')
     await expect(more).toBeVisible({ timeout: 10_000 })
 
     // Geometry assertion — the actual production failure mode.

@@ -307,6 +307,38 @@ describe('Mermaid fullscreen viewport controls', () => {
     expect(wrapper.get('.mermaid-viewport').classes()).not.toContain('mermaid-viewport--fullscreen');
   });
 
+  it('preserves the natural Mermaid height for the inline pan/zoom viewport', async () => {
+    window.forgeGlobal = { forgeContext: { extension: {} } } as any;
+    const rectSpy = vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 400,
+      height: 200,
+      top: 0,
+      right: 400,
+      bottom: 200,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const computedStyleSpy = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      maxWidth: '400px',
+    } as CSSStyleDeclaration);
+    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(svgPanZoomMock).toHaveBeenCalled());
+    expect(wrapper.get('.mermaid-viewport').attributes('style')).toContain('height: 200px');
+
+    clientWidthSpy.mockReturnValue(300);
+    wrapper.vm.syncInlineViewportHeight();
+    expect(wrapper.get('.mermaid-viewport').attributes('style')).toContain('height: 150px');
+
+    rectSpy.mockRestore();
+    computedStyleSpy.mockRestore();
+    clientWidthSpy.mockRestore();
+  });
+
   it('does not add viewport controls to the export-only render surface', async () => {
     window.forgeGlobal = {
       forgeContext: { extension: { modal: { macroMode: 'fullscreen', openExport: true } } },

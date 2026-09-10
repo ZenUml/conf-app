@@ -16,7 +16,6 @@
         'mermaid-viewport--interactive': isInteractiveViewport,
         'mermaid-viewport--fullscreen': isFullscreenMode,
       }"
-      :style="viewportStyle"
     >
       <div ref="diagram" class="mermaid-diagram flex justify-center" v-html="svg"></div>
       <div
@@ -51,15 +50,6 @@ import * as renderPerf from '@/utils/analytics/renderPerf';
 import svgPanZoom from 'svg-pan-zoom';
 import Hammer from 'hammerjs';
 
-/** The diagram's natural size from its viewBox, or null when it has none to read. */
-function readViewBox(svgElement) {
-  const viewBox = svgElement.getAttribute('viewBox');
-  if (!viewBox) return null;
-  const [, , width, height] = viewBox.split(/[\s,]+/).map(Number);
-  if (!(width > 0) || !(height > 0)) return null;
-  return { width, height };
-}
-
 export default {
   name: "Mermaid",
   data() {
@@ -70,7 +60,8 @@ export default {
       panZoomSvg: null,
       panZoomDirty: false,
       panZoomResizeObserver: null,
-      viewportBox: null,
+      inlineViewportAspectRatio: null,
+      inlineViewportMaxWidth: null,
     }
   },
   computed: {
@@ -86,19 +77,6 @@ export default {
     isInteractiveViewport() {
       const modal = window.forgeGlobal?.forgeContext?.extension?.modal;
       return modal?.openExport !== true;
-    },
-    // The page (inline) viewer has no parent height to inherit -- the Forge macro
-    // iframe is sized by its own content -- and svg-pan-zoom strips the viewBox
-    // that used to give the SVG its intrinsic ratio, so the box collapses to the
-    // browser's 150px default for a ratio-less replaced element. Carrying the
-    // diagram's own viewBox as the box's ratio AND its width cap reproduces the
-    // exact geometry the viewBox produced before the viewport existed: scaled
-    // down to fit a narrow column, never scaled up past its natural size.
-    // Fullscreen has an explicit height and the editor pane fills its parent.
-    viewportStyle() {
-      if (!this.viewportBox || this.isFullscreenMode || !this.isDisplayMode) return null;
-      const { width, height } = this.viewportBox;
-      return { aspectRatio: `${width} / ${height}`, maxWidth: `${width}px`, margin: '0 auto' };
     },
     viewportSurface() {
       if (this.isFullscreenMode) return 'fullscreen';
@@ -145,11 +123,25 @@ export default {
       if (!svgElement || svgElement === this.panZoomSvg) return;
 
       this.destroyViewport();
-      // svgPanZoom() removes the viewBox attribute (shadow-viewport.js), so read
-      // it here -- afterwards the ratio is gone. $nextTick lets the sized box lay
-      // out before the fit below measures it.
-      this.viewportBox = readViewBox(svgElement);
-      await this.$nextTick();
+      if (this.isDisplayMode && !this.isFullscreenMode) {
+        const rect = svgElement.getBoundingClientRect();
+        const viewBox = svgElement.viewBox?.baseVal;
+        this.inlineViewportAspectRatio = viewBox?.width > 0 && viewBox?.height > 0
+          ? viewBox.width / viewBox.height
+          : rect.width > 0 && rect.height > 0
+            ? rect.width / rect.height
+            : null;
+        const computedMaxWidth = Number.parseFloat(getComputedStyle(svgElement).maxWidth);
+        this.inlineViewportMaxWidth = Number.isFinite(computedMaxWidth)
+          ? computedMaxWidth
+          : rect.width || null;
+        this.syncInlineViewportHeight();
+        this.$refs.diagram.style.height = '100%';
+        svgElement.style.height = '100%';
+      }
+      // Capture inline Mermaid's natural aspect-ratio height first, then let
+      // the pan/zoom viewport use the full width of its host surface.
+      svgElement.style.maxWidth = 'none';
       let hammer;
       this.panZoom = svgPanZoom(svgElement, {
         center: true,
@@ -201,6 +193,7 @@ export default {
 
       if (typeof ResizeObserver !== 'undefined') {
         this.panZoomResizeObserver = new ResizeObserver(() => {
+          this.syncInlineViewportHeight();
           this.panZoom?.resize();
           if (!this.panZoomDirty) this.resetViewport();
         });
@@ -214,7 +207,15 @@ export default {
       this.panZoom = null;
       this.panZoomSvg = null;
       this.panZoomDirty = false;
-      this.viewportBox = null;
+      this.inlineViewportAspectRatio = null;
+      this.inlineViewportMaxWidth = null;
+      this.$refs.viewport?.style.removeProperty('height');
+      this.$refs.diagram?.style.removeProperty('height');
+    },
+    syncInlineViewportHeight() {
+      if (!this.inlineViewportAspectRatio || !this.inlineViewportMaxWidth || !this.$refs.viewport) return;
+      const width = Math.min(this.$refs.viewport.clientWidth, this.inlineViewportMaxWidth);
+      if (width > 0) this.$refs.viewport.style.height = `${width / this.inlineViewportAspectRatio}px`;
     },
     trackViewportAction(viewportAction) {
       trackAnalyticsEvent('mermaid_viewport_control_used', {
@@ -227,11 +228,8 @@ export default {
     resetViewport() {
       if (!this.panZoom) return;
       this.panZoom.reset();
-      // Match Mermaid Live: leave breathing room for the floating toolbar. Only
-      // where the box is bigger than the drawing -- fullscreen and the editor
-      // pane. The inline box is the diagram's own ratio, so shrinking there would
-      // render the page 12.5% smaller than it did before this viewport existed.
-      if (this.isFullscreenMode || !this.isDisplayMode) this.panZoom.zoom(0.875);
+      // Match Mermaid Live: leave breathing room for the floating toolbar.
+      this.panZoom.zoom(0.875);
       this.panZoomDirty = false;
     },
     zoomIn() {
@@ -338,19 +336,13 @@ export default {
   height: 100%;
 }
 
-/* The ratio lives on .mermaid-viewport; the diagram and its SVG fill it. */
-.mermaid-viewport--interactive .mermaid-diagram {
-  height: 100%;
-}
-
 .mermaid-viewport--interactive .mermaid-diagram :deep(svg) {
   width: 100%;
-  max-width: none !important;
   cursor: grab;
   touch-action: none;
 }
 
-.mermaid-viewport--interactive .mermaid-diagram :deep(svg) {
+.mermaid-viewport--fullscreen .mermaid-diagram :deep(svg) {
   height: 100%;
 }
 

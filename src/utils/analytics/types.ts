@@ -34,6 +34,9 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  FeedbackCaptureMethod,
+  FeedbackDismissReason,
+  FeedbackHandoffOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -217,6 +220,14 @@ export type AnalyticsProperties = {
   // Feedback
   feedback_score?: number;
   feedback_text?: string;
+  // In-product support request funnel. These properties describe interaction
+  // state only. Never add description text, screenshot bytes, diagram source,
+  // or other report content to analytics.
+  host_module?: string;
+  feedback_capture_method?: FeedbackCaptureMethod;
+  feedback_has_screenshot?: boolean;
+  feedback_dismiss_reason?: FeedbackDismissReason;
+  feedback_handoff_outcome?: FeedbackHandoffOutcome;
   // Content
   content_id?: string;
   content_type?: string;

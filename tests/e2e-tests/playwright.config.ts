@@ -70,6 +70,27 @@ export default defineConfig({
       timeout: 300000,
     },
     {
+      // The in-product "Send feedback" flow (edge trigger + dialog) across
+      // viewer/editor/fullscreen/export-modal surfaces. A dedicated project
+      // (own directory, own timeout) rather than folding into `insert` or
+      // `fullscreen`, but deliberately declared HERE — immediately after
+      // `insert` — because e2e-test.yml's `insert)` case runs it as
+      // `--project=auth --project=insert --project=feedback`: Playwright
+      // orders the collected test list by project declaration order first,
+      // so this project's one spec file sorts after every `insert/` file
+      // rather than interleaving alphabetically (`feedback` < `insert`) and
+      // reshuffling the shard boundaries documented in e2e-test.yml. `insert`
+      // is the suite actually gated per PR (staging-lite-e2e) and by the
+      // production release smoke, unlike `fullscreen`, which has no CI
+      // caller that runs the whole project today (only a
+      // graph-edit.spec.ts-restricted `graph-publish` run touches it).
+      name: 'feedback',
+      testMatch: 'feedback/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 300000,
+    },
+    {
       name: 'syntax-validation',
       testMatch: 'syntax-validation/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },

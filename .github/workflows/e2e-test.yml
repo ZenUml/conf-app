@@ -380,6 +380,15 @@ jobs:
     needs: test
     if: always()
     runs-on: ubuntu-latest
+    # This job REPORTS on the run; it must never decide it. A reusable
+    # workflow's conclusion is the worst of its jobs, and every E2E caller
+    # (build-test-deploy, smoke-test, release) gates downstream work on that
+    # conclusion — so without this, a pnpm-install hiccup or an artifact-service
+    # blip in report merging could redden an E2E run whose tests all passed, and
+    # block a staging deploy behind it. Per-shard HTML uploads never had that
+    # power. `continue-on-error` keeps the failure visible on the job while
+    # leaving the workflow's verdict to the tests.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm
@@ -396,15 +405,31 @@ jobs:
         # `merge-multiple: true` flattens all matching artifacts into one
         # directory (each shard's report-*.zip lands side by side), which is
         # what `playwright merge-reports` expects as its input directory.
+        # Zero matches is a REAL case, not a bug: if `auth` fails, `test` is
+        # skipped and no shard ever uploads a blob. Tolerate it here and let the
+        # merge step below decide there is nothing to do.
+        continue-on-error: true
         uses: actions/download-artifact@v7
         with:
           pattern: blob-report-${{ inputs.artifact-suffix }}-shard-*
           path: ./tests/e2e-tests/all-blob-reports
           merge-multiple: true
       - name: Merge into one HTML report
-        run: cd tests/e2e-tests && pnpm exec playwright merge-reports --reporter=html ./all-blob-reports
+        # `merge-reports` exits non-zero on an empty input directory. That is
+        # the auth-failed / every-shard-reaped case, where the run is already
+        # red for a reason a merge error would only obscure, so say so plainly
+        # and stop rather than adding a second, misleading failure.
+        run: |
+          cd tests/e2e-tests
+          if [ -z "$(ls -A ./all-blob-reports 2>/dev/null)" ]; then
+            echo "No blob reports to merge — every shard failed before uploading one, or the test job never ran."
+            exit 0
+          fi
+          pnpm exec playwright merge-reports --reporter=html ./all-blob-reports
       - name: Upload merged report
         uses: actions/upload-artifact@v6
         with:
           name: playwright-report-${{ inputs.artifact-suffix }}
           path: ./tests/e2e-tests/playwright-report/
+          # Nothing to upload when the merge was skipped for want of input.
+          if-no-files-found: ignore

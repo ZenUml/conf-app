@@ -137,7 +137,9 @@ const meta: Meta<typeof Mermaid> = {
           "flex item's width but never its height attribute, so a diagram rendered with " +
           '`useMaxWidth: false` — which carries hard pixel width AND height attributes — gets scaled ' +
           'down to the container width and then letterboxed dead centre in the leftover vertical ' +
-          'space. These stories put the two shapes side by side at the real 562px viewer width.',
+          'space. `UseMaxWidthFalse` and `UseMaxWidthTrue` each render one shape on its own canvas ' +
+          'at the real 562px viewer width; `BeforeAndAfter` is the side-by-side one, putting the ' +
+          'same `useMaxWidth: false` diagram unpatched next to normalizeSvgSizing()-patched.',
       },
     },
   },

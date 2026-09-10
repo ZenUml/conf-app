@@ -15,9 +15,13 @@ const meta: Meta<typeof ExportModal> = {
     docs: {
       description: {
         component:
-          'Full-screen export modal with a live preview pane (left) and a settings sidebar (right). ' +
-          'The modal captures the diagram via html-to-image when opened, lets the user adjust background ' +
-          'and annotations, then downloads a PNG. Use the `visible` prop to show/hide it.',
+          'Full-screen export modal. One column, not two: ExportModal.vue mounts only ExportWorkspace, ' +
+          'whose root is a flex column — a 56px toolbar carrying the background, annotation tools and ' +
+          'Copy / Download image actions, over a centred preview stage. Annotation properties appear in ' +
+          'a floating panel over the preview, shown only while something is selected, not in a standing ' +
+          'sidebar; the left-pane / right-sidebar split belonged to ExportPreview.vue and ' +
+          'ExportSidebar.vue, which nothing mounts any more. The modal captures the diagram via ' +
+          'html-to-image when opened, then downloads a PNG. Use the `visible` prop to show/hide it.',
       },
     },
   },
@@ -370,8 +374,9 @@ export const CloseAndReopen: Story = {
 }
 
 /**
- * Exporting in progress — the Download PNG button shows a spinner and
- * "Exporting…" label while the file is being generated and saved.
+ * Exporting in progress. The spinner and "Exporting…" text are a separate
+ * `role="status"` element in the toolbar, not a label on the button: the
+ * Download image button only goes disabled while `busy` is true.
  */
 export const Exporting: Story = {
   name: 'Exporting (in progress)',

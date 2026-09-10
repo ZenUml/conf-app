@@ -1,6 +1,9 @@
 import captureBlob from '@/model/captureBlob'
 import type { FeedbackScreenshot } from './feedbackSession'
 
+export const MAX_FEEDBACK_SCREENSHOT_BYTES = 1024 * 1024
+const CAPTURE_PIXEL_RATIOS = [1, 0.75, 0.5, 0.35] as const
+
 function blobDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -25,11 +28,16 @@ export async function captureFeedbackSurface(): Promise<FeedbackScreenshot> {
 }
 
 export async function captureFeedbackElement(target: HTMLElement): Promise<FeedbackScreenshot> {
-  const blob = await captureBlob(target, { backgroundColor: '#ffffff', pixelRatio: 1 })
-  if (!blob) throw new Error('FeedbackCaptureFailed')
-  return {
-    dataUrl: await blobDataUrl(blob),
-    name: 'zenuml-current-view.png',
-    method: 'current_view',
+  for (const pixelRatio of CAPTURE_PIXEL_RATIOS) {
+    const blob = await captureBlob(target, { backgroundColor: '#ffffff', pixelRatio })
+    if (!blob) throw new Error('FeedbackCaptureFailed')
+    if (blob.size <= MAX_FEEDBACK_SCREENSHOT_BYTES) {
+      return {
+        dataUrl: await blobDataUrl(blob),
+        name: 'zenuml-current-view.png',
+        method: 'current_view',
+      }
+    }
   }
+  throw new Error('FeedbackCaptureTooLarge')
 }

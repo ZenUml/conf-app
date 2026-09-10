@@ -46,10 +46,6 @@ bucket_name = "atlassian-events"
 binding = "MACRO_COUNT_SNAPSHOT_BUCKET"
 bucket_name = "conf-macro-count-snapshots-dev"
 
-[[ env.production.r2_buckets ]]
-binding = "FEEDBACK_ATTACHMENT_BUCKET"
-bucket_name = "conf-feedback-attachments-dev"
-
 # for local development
 [[r2_buckets]]
 binding = "EVENT_BUCKET"
@@ -58,10 +54,6 @@ bucket_name = "atlassian-events"
 [[r2_buckets]]
 binding = "MACRO_COUNT_SNAPSHOT_BUCKET"
 bucket_name = "conf-macro-count-snapshots-dev"
-
-[[r2_buckets]]
-binding = "FEEDBACK_ATTACHMENT_BUCKET"
-bucket_name = "conf-feedback-attachments-dev"
 
 # Feature flags KV namespace
 [[kv_namespaces]]

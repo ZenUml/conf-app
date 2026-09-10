@@ -272,6 +272,31 @@ jobs:
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
+  staging-lite-render-e2e:
+    # render was collected but never gated in CI. Same cadence as the other
+    # Lite E2E jobs: default branch, or a PR that's Ready for Review — not
+    # draft/branch iteration pushes.
+    if: |
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    needs: [staging-lite, build]
+    name: "E2E: Lite render"
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-lite@stg
+      suite: render
+      artifact-suffix: lite-stg-render
+      # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
+      # creates any fixture missing from config/render-fixtures.json, and
+      # running it on multiple shards at once would race them into creating
+      # the same missing fixture independently — see the shard-matrix input's
+      # description in e2e-test.yml.
+      shard-matrix: '[1]'
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
   staging-full:
     # Lite is representative for feature-branch validation. Full + Diagramly
     # only run on the default branch to catch variant-specific regressions before release;

@@ -1,4 +1,4 @@
-import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
+import type { D1Database } from '@cloudflare/workers-types';
 
 import type { ForgeRequestContext, ForgeRequestData } from '../utils/authenticate';
 import { getAtlassianInstanceClientDomain } from '../utils/dbUtils';
@@ -22,19 +22,18 @@ interface FeedbackReportInput {
   submissionId: string;
   description: string;
   context: FeedbackContextInput;
-  // Accepted for forward compatibility, but deliberately not stored yet.
+  // Optional user-approved screenshot, stored temporarily with the report.
   screenshot?: unknown;
 }
 
 interface Env {
   DB: D1Database;
-  FEEDBACK_ATTACHMENT_BUCKET?: R2Bucket;
 }
 
 const FEEDBACK_SURFACES = new Set<FeedbackSurface>(['viewer', 'editor', 'fullscreen', 'png_export', 'get_started', 'dashboard']);
 const SUBMISSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SCREENSHOT_PATTERN = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/;
-const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const MAX_SCREENSHOT_BYTES = 1024 * 1024;
 const SCREENSHOT_RETENTION_DAYS = 30;
 
 interface ParsedScreenshot {
@@ -160,33 +159,19 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
   if (input.screenshot !== undefined && !screenshot) {
     return json(400, { ok: false, error: 'invalid_screenshot' });
   }
-  if (screenshot && !env.FEEDBACK_ATTACHMENT_BUCKET) {
-    return json(503, { ok: false, error: 'attachment_storage_unavailable', retryable: true });
-  }
-
   const clientDomain = await getAtlassianInstanceClientDomain(env.DB, fit.cloudId);
   const reportReference = await reportReferenceFor(fit, accountId, input.submissionId);
-  const screenshotObjectKey = screenshot ? `feedback/${reportReference}/image` : null;
   const screenshotExpiresAt = screenshot
     ? new Date(Date.now() + SCREENSHOT_RETENTION_DAYS * 86_400_000).toISOString()
     : null;
 
   try {
-    if (screenshot && screenshotObjectKey && screenshotExpiresAt) {
-      await env.FEEDBACK_ATTACHMENT_BUCKET!.put(screenshotObjectKey, screenshot.bytes, {
-        httpMetadata: { contentType: screenshot.contentType },
-        customMetadata: {
-          reportReference,
-          expiresAt: screenshotExpiresAt,
-        },
-      });
-    }
     await env.DB.prepare(`
       INSERT OR IGNORE INTO FeedbackReport (
         reportReference, submissionId, installationId, cloudId, forgeAppId,
         accountId, clientDomain, description, surface,
         hostModule, diagramType, diagramTitle, spaceName, macroUuid, contentId, customContentId,
-        screenshotObjectKey, screenshotContentType, screenshotExpiresAt
+        screenshotData, screenshotContentType, screenshotExpiresAt
       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
     `).bind(
       reportReference,
@@ -205,16 +190,13 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
       input.context.macroUuid,
       input.context.contentId,
       input.context.customContentId,
-      screenshotObjectKey,
+      screenshot ? screenshot.bytes.buffer : null,
       screenshot?.contentType ?? null,
       screenshotExpiresAt,
     ).run();
   } catch (error) {
     // Do not log the report body or upstream database error: both may contain
     // customer content. The caller receives a stable retryable failure.
-    if (screenshotObjectKey && env.FEEDBACK_ATTACHMENT_BUCKET) {
-      try { await env.FEEDBACK_ATTACHMENT_BUCKET.delete(screenshotObjectKey); } catch { /* expiry remains a safety net */ }
-    }
     return json(503, { ok: false, error: 'storage_unavailable', retryable: true });
   }
 

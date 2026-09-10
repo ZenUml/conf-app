@@ -117,6 +117,7 @@ import type { FeedbackDismissReason } from '@/utils/analytics/catalog'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { createFeedbackSession, type FeedbackContext, type FeedbackReportPayload, type FeedbackScreenshot } from './feedbackSession'
 import { continueMarkdownList } from './markdownTextarea'
+import { MAX_FEEDBACK_SCREENSHOT_BYTES } from './feedbackCapture'
 
 const props = defineProps<{
   context: FeedbackContext
@@ -187,7 +188,7 @@ async function captureView() {
 }
 
 function readFile(file: File): Promise<FeedbackScreenshot> {
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > MAX_FEEDBACK_SCREENSHOT_BYTES) {
     return Promise.reject(new Error('InvalidFeedbackImage'))
   }
   return new Promise((resolve, reject) => {
@@ -204,7 +205,7 @@ async function uploadImage(event: Event) {
   imageError.value = ''
   const uploaded = await session.capture('upload', () => readFile(file))
   screenshot.value = session.screenshot
-  if (!uploaded) imageError.value = 'Choose a PNG, JPEG, or WebP image smaller than 5 MB.'
+  if (!uploaded) imageError.value = 'Choose a PNG, JPEG, or WebP image that is 1 MB or smaller.'
   ;(event.target as HTMLInputElement).value = ''
 }
 

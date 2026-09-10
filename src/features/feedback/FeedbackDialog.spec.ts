@@ -155,4 +155,15 @@ describe('FeedbackDialog', () => {
     await wrapper.get('[data-testid="remove-screenshot"]').trigger('click')
     expect(wrapper.find('img[alt="Captured view"]').exists()).toBe(false)
   })
+
+  it('rejects an uploaded image larger than the 1 MB storage limit', async () => {
+    const wrapper = mount(FeedbackDialog, { props: { context, submit: vi.fn() } })
+    const input = wrapper.get('input[type="file"]')
+    const file = new File([new Uint8Array(1024 * 1024 + 1)], 'too-large.png', { type: 'image/png' })
+    Object.defineProperty(input.element, 'files', { value: [file] })
+
+    await input.trigger('change')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('1 MB or smaller'))
+    expect(wrapper.find('img[alt="Captured view"]').exists()).toBe(false)
+  })
 })

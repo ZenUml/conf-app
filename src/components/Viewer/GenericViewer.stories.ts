@@ -404,10 +404,14 @@ const meta: Meta<typeof GenericViewer> = {
     docs: {
       description: {
         component:
-          'The macro viewer header (.viewer-edge-top row): the title area (title, EMBED chip, ' +
-          'READ-ONLY recovered chip) and the top-right action row — Edit, View Source, the ' +
-          '"Copy for AI ▾" split button (one-click generic copy + a chevron menu of five ' +
-          'job-framed entries, with inline Copying…/Copied/Copy failed feedback), and Fullscreen.',
+          'The macro viewer as a reader meets it on a Confluence page. The header row ' +
+          '(.viewer-edge-top): title, EMBED and READ-ONLY chips, and the hover-revealed actions — ' +
+          'Edit, View Source, the "Copy for AI ▾" split button (one-click copy plus a chevron menu ' +
+          'of five job-framed entries, with inline Copying…/Copied/Copy failed feedback) and ' +
+          'Fullscreen. Then the surfaces below it: the View Source sheet inline and fullscreen, ' +
+          'Mermaid pan and zoom across all three surfaces, the load-failed recovery panel, the ' +
+          'Architecture Tokens footer through the real Mermaid renderer, the export entry point, ' +
+          'and the fullscreen viewer mounted the way the Forge modal mounts it.',
       },
     },
   },
@@ -451,7 +455,7 @@ export const Default: Story = {
  * the overlay listens to. All fixture vocabulary is invented.
  */
 export const ArchitectureTokensMermaidIntegration: Story = {
-  name: 'Architecture tokens — real Mermaid integration',
+  name: 'Architecture Tokens — footer through the real Mermaid renderer',
   loaders: [
     async () => {
       __resetMermaidLoaderForTests()
@@ -620,7 +624,7 @@ export const MermaidEditorPanZoom: Story = {
 
 /** Idle — the split button before any interaction. */
 export const CopyStateIdle: Story = {
-  name: 'CopyStates — idle',
+  name: 'Copy for AI — idle',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
@@ -639,7 +643,7 @@ export const CopyStateIdle: Story = {
 
 /** Copying — the page-context fetch is deliberately held open. */
 export const CopyStateCopying: Story = {
-  name: 'CopyStates — copying',
+  name: 'Copy for AI — copying',
   decorators: [
     () => {
       // pageFetchDelayMs never resolves within the story's lifetime — holds
@@ -669,7 +673,7 @@ export const CopyStateCopying: Story = {
 
 /** Copied — clipboard write succeeds. */
 export const CopyStateCopied: Story = {
-  name: 'CopyStates — copied',
+  name: 'Copy for AI — copied',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
@@ -690,7 +694,7 @@ export const CopyStateCopied: Story = {
 
 /** Copy failed — clipboard.writeText rejects. */
 export const CopyStateFailed: Story = {
-  name: 'CopyStates — copy failed',
+  name: 'Copy for AI — copy failed',
   decorators: [
     () => {
       configureStory({
@@ -722,7 +726,7 @@ export const CopyStateFailed: Story = {
  * five job-framed entries with their description lines.
  */
 export const JobMenuOpen: Story = {
-  name: 'JobMenuOpen — five job entries',
+  name: 'Copy for AI — job menu, five entries',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
@@ -760,7 +764,7 @@ export const JobMenuOpen: Story = {
  * (showViewSource) so both are absent; Edit and Fullscreen stay present.
  */
 export const GraphType: Story = {
-  name: 'GraphType — no Source / Copy for AI',
+  name: 'Graph diagram — no View Source, no Copy for AI',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Graph, title: 'Deployment topology' })
@@ -788,7 +792,7 @@ export const GraphType: Story = {
  * changes, and Edit is disabled (title carries the steer-to-page-editor copy).
  */
 export const RecoveredReadOnly: Story = {
-  name: 'RecoveredReadOnly — READ-ONLY chip + banner',
+  name: 'Recovered from backup — READ-ONLY chip and banner',
   decorators: [
     () => {
       configureStory({

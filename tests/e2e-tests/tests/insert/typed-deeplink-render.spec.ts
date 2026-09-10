@@ -110,7 +110,7 @@ test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, (
       await editorPage.searchAndSelectMacro('graph', editorPage.getMacroName('Graph (DrawIO)'));
       await editorPage.interactWithGraphMacro(`Deeplink Source${variantLabel}`);
       return publishAndVerifyMacros(page, editorPage, 1, 'deeplink-source', async (macroPage) => {
-        await macroPage.assertMacroHasSvg(macroPage.getGraphMacroFrame());
+        await macroPage.assertMacroRendersDiagram(macroPage.getGraphMacroFrame());
       });
     });
     expect(sourcePageId, 'source page was not published').toBeTruthy();
@@ -130,10 +130,16 @@ test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, (
 
       // The assertion that would have caught the bug. Iframe visibility alone
       // is not enough — an empty canvas and the load-failed panel both render
-      // inside a perfectly visible Forge iframe. assertMacroHasSvg requires the
-      // DrawIO viewer to have drawn the retrieved diagram.
+      // inside a perfectly visible Forge iframe.
+      //
+      // This previously called assertMacroHasSvg and claimed it "requires the
+      // DrawIO viewer to have drawn the retrieved diagram". It did not: that
+      // helper matched the first SVG in the frame, which is a 16x16 toolbar
+      // icon, so it held on a blank canvas too. assertMacroRendersDiagram
+      // measures the largest SVG and requires a diagram-sized box, which is
+      // what the comment always meant.
       await publishAndVerifyMacros(page, editorPage, 1, 'deeplink-pasted', async (macroPage) => {
-        await macroPage.assertMacroHasSvg(macroPage.getGraphMacroFrame());
+        await macroPage.assertMacroRendersDiagram(macroPage.getGraphMacroFrame());
       });
     });
   });

@@ -50,22 +50,15 @@ export class MacroPage {
     await expect(frame.getByText(expectedText, { exact: false }).first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
-  // For DrawIO graphs the rendered output is pure SVG with no predictable text
-  // labels, so we assert the SVG canvas element is present instead.
-  async assertMacroHasSvg(frame: FrameLocator): Promise<void> {
-    await expect(frame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
-    await expect(frame.locator('svg').first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
-  }
-
   /**
    * Assert the macro rendered a real, undistorted diagram — not merely that an
    * `<svg>` element exists somewhere in the frame.
    *
    * Why "the largest SVG": the frame also contains the viewer toolbar, whose
    * icons are SVGs. `frame.locator('svg').first()` resolves to one of those —
-   * measured at 16x16 on lite-stg — which is why `assertMacroHasSvg` is far
-   * weaker than it reads: a visible toolbar icon satisfies it even when the
-   * diagram never rendered. Selecting by area instead identifies the diagram
+   * measured at 16x16 on lite-stg. An earlier presence-only assertion did
+   * exactly that and was therefore satisfied by a visible toolbar icon even
+   * when the diagram never rendered. Selecting by area instead identifies the diagram
    * without naming a container, which matters because the container markup is
    * not stable across builds: the PlantUML wrapper is `.plantuml-render` on
    * current main but a bare `.flex.justify-center` on what staging is serving

@@ -43,7 +43,7 @@ test.describe(`Smoke Test - plantuml`, () => {
     // non-visible <title> nodes as well as visible <text> nodes, causing
     // strict-mode violations — so the assertion is geometric instead.
     //
-    // assertMacroHasSvg (presence only) is not enough here: this is the exact
+    // A presence-only "an SVG is visible" check is not enough here: this is the exact
     // macro whose SVG arrives with preserveAspectRatio="none", and a squashed
     // render keeps a perfectly visible <svg> while the diagram is unreadable.
     // assertMacroRendersDiagram compares the rendered box against the viewBox,

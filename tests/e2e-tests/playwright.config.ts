@@ -62,9 +62,6 @@ export default defineConfig({
     {
       name: 'insert',
       testMatch: 'insert/**/*.spec.ts',
-      // spot-check-metrics-fix skips at runtime in CI. Excluding at collection
-      // time so `--shard` doesn't allocate idle slots to skipped tests.
-      testIgnore: process.env.CI ? ['insert/spot-check-metrics-fix.spec.ts'] : [],
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       timeout: 300000,

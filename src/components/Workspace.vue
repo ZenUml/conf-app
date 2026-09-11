@@ -107,6 +107,11 @@
         return this.$store.state.diagram.metadata?.aiChat?.diagramlyDiagramId || ''
       },
     },
+    watch: {
+      diagramType(type) {
+        if (type === DiagramType.Markdown && this.showAIChat) this.closeAIChat();
+      },
+    },
     methods: {
       toggleAIChat() {
         if (this.showAIChat) {

@@ -40,6 +40,10 @@ import type {
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  /** Markdown render outcomes; counts only, never document contents. */
+  markdown_mermaid_blocks?: number;
+  markdown_failed_blocks?: number;
+  source_length?: number;
   // Required at call site
   feature_area: FeatureArea;
   surface: Surface;

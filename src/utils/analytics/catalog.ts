@@ -30,6 +30,7 @@ export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
+  | "markdown"
   | "graph"
   | "openapi"
   | "asyncapi"
@@ -238,6 +239,16 @@ export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
 export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
 
 export type AnalyticsEventName =
+  // Markdown: debounced document render starts/completes in editor or viewer.
+  // Properties: feature_area=content, macro_type=markdown, source_length,
+  // markdown_mermaid_blocks, markdown_failed_blocks. Never include source.
+  | "markdown_render_requested"
+  | "markdown_render_succeeded"
+  | "markdown_render_failed"
+  // First transition from Mermaid seeds an untouched Markdown buffer.
+  // Existing macro_type_changed tracks every tab selection; normal macro
+  // create/edit/publish lifecycle events track persistence outcomes.
+  | "markdown_seeded_from_mermaid"
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
   // is sent. Editor entries must emit the event from the iframe that owns the

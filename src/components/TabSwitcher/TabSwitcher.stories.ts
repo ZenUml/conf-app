@@ -12,14 +12,14 @@ const meta: Meta<typeof TabSwitcher> = {
     docs: {
       description: {
         component:
-          'Diagram-type tab strip that sits in the editor Header\'s centre notch (Sequence / Mermaid / PlantUML). Each tab is a coloured dot plus a label, with an underline accent on the active tab; labels are visually hidden below the lg breakpoint (sr-only lg:not-sr-only), so at narrow widths only the dots show. Selecting a tab writes zenuml-preferred-diagram-type to localStorage.',
+          'Diagram-type tab strip in the editor Header (Sequence / Mermaid / PlantUML / Markdown). Each tab is a coloured dot plus a visible label, with an underline accent on the active tab. Labels remain visible at narrow widths. Selecting a tab writes zenuml-preferred-diagram-type to localStorage.',
       },
     },
   },
   argTypes: {
     modelValue: {
       control: 'select',
-      options: ['sequence', 'mermaid', 'plantuml'],
+      options: ['sequence', 'mermaid', 'plantuml', 'markdown'],
       description: 'The currently selected tab value (v-model)',
     },
     options: {
@@ -35,9 +35,10 @@ const ALL_OPTIONS = [
   { value: 'sequence', label: 'Sequence' },
   { value: 'mermaid',  label: 'Mermaid'  },
   { value: 'plantuml', label: 'PlantUML' },
+  { value: 'markdown', label: 'Markdown' },
 ]
 
-/** All three diagram-type tabs — Sequence selected. */
+/** All four diagram-type tabs — Sequence selected. */
 export const SequenceActive: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },
@@ -53,7 +54,7 @@ export const SequenceActive: Story = {
   },
 }
 
-/** All three diagram-type tabs — Mermaid selected. */
+/** All four diagram-type tabs — Mermaid selected. */
 export const MermaidActive: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },
@@ -69,7 +70,7 @@ export const MermaidActive: Story = {
   },
 }
 
-/** All three diagram-type tabs — PlantUML selected. */
+/** All four diagram-type tabs — PlantUML selected. */
 export const PlantUmlActive: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },
@@ -85,7 +86,7 @@ export const PlantUmlActive: Story = {
   },
 }
 
-/** Two options. Not a production configuration — getEditorDiagramOptions() always returns all three types — kept to show the strip's sizing with fewer tabs. */
+/** Two options. Not a production configuration — getEditorDiagramOptions() always returns all four types — kept to show the strip's sizing with fewer tabs. */
 export const TwoTabs: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },

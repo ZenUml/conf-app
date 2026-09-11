@@ -24,7 +24,7 @@
         <SparklesIcon class="w-4 h-4" />
         <span>AI Chat</span>
       </button>
-      <button class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+      <button v-if="diagramType !== DiagramType.Markdown" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="openTemplateGallery()">
         <LightBulbIcon class="w-4 h-4" />
         <span>Templates</span>
@@ -62,7 +62,7 @@ import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, saveDraft, isDraftNewerThanSaved } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getEditorDiagramOptions, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
@@ -158,7 +158,14 @@ export default {
             is_new_macro: isNewMacro,
           });
         }
+        const seededFromMermaid = value === DiagramType.Markdown
+          && fromMacroType === DiagramType.Mermaid
+          && this.$store.state.diagram.markdownCode === undefined
+          && !!this.$store.state.diagram.mermaidCode;
         this.updateDiagramType(value);
+        if (seededFromMermaid) trackAnalyticsEvent('markdown_seeded_from_mermaid', {
+          feature_area: 'content', surface: 'editor', macro_type: 'markdown',
+        });
         // Save user's tab preference to localStorage
         localStorage.setItem('zenuml-preferred-diagram-type', value);
       }
@@ -211,10 +218,27 @@ export default {
       return 'Add a diagram title to publish';
     },
     aiChatAvailable: function () {
-      return this.aiChatEnabled && this.diagramType !== DiagramType.Graph;
+      return this.aiChatEnabled && this.diagramType !== DiagramType.Graph && this.diagramType !== DiagramType.Markdown;
     },
   },
   methods: {
+    draftDiffers(draft) {
+      return draft.code !== this.currentCode
+        || draft.title !== this.$store.state.diagram.title
+        || (draft.diagramType && draft.diagramType !== this.diagramType)
+        || (typeof draft.buffers?.markdown === 'string' && this.$store.state.diagram.markdownCode === undefined)
+        || this.diagramOptions.some(option => typeof draft.buffers?.[option.value] === 'string'
+          && draft.buffers[option.value] !== getCodeFromDiagram(this.$store.state.diagram, option.value));
+    },
+    currentDraft() {
+      const buffers = {};
+      for (const option of this.diagramOptions) {
+        // Preserve an untouched Markdown tab as undefined so first-use seeding still works.
+        if (option.value === DiagramType.Markdown && this.$store.state.diagram.markdownCode === undefined) continue;
+        buffers[option.value] = getCodeFromDiagram(this.$store.state.diagram, option.value);
+      }
+      return { code: this.currentCode, title: this.$store.state.diagram.title || '', diagramType: this.diagramType, buffers };
+    },
     ...mapMutations(["updateDiagramType"]),
     startSaving() {
       this.isSaving = true;
@@ -340,13 +364,14 @@ export default {
     const typeWasRequested = !!this.$store.state.diagram.typeRequested;
     if (isNewDiagram && !typeWasRequested) {
       const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
-      if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid)) {
+      if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid || savedDiagramType === DiagramType.Markdown)) {
         this.updateDiagramType(savedDiagramType);
       }
     }
 
     // Store original code for change detection on exit
     this.originalCode = this.currentCode;
+    this._originalDraft = JSON.stringify(this.currentDraft());
 
     // Pre-resolve cloudId so the synchronous onClose path has it.
     await primeCloudId();
@@ -375,18 +400,26 @@ export default {
       }
     }
 
-    // Scope: distinguishes "draft for new diagram of this type" from
-    // "draft for editing this specific custom-content id".
+    // New diagrams share a scope so changing the preferred tab cannot hide
+    // an unsaved document; existing content remains scoped by its id.
     this._draftScope = this.$store.state.diagram.id
       ? `edit:${this.$store.state.diagram.id}`
-      : `new:${this.diagramType}`;
+      : 'new:diagram';
     this._draftSaver = makeDebouncedDraftSaver(this._draftScope, 500);
 
     // Restore if a newer draft exists than the loaded diagram.
-    const draft = await loadDraft(this._draftScope);
+    let draft = await loadDraft(this._draftScope);
+    if (!draft && !this.$store.state.diagram.id) {
+      const legacyScope = `new:${this.diagramType}`;
+      draft = await loadDraft(legacyScope);
+      if (draft) {
+        await saveDraft(this._draftScope, draft);
+        await clearDraft(legacyScope);
+      }
+    }
     if (draft) {
       const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store.state.diagram.updatedAt;
-      if (isDraftNewerThanSaved(draft, savedVersionUpdatedAt) && (draft.code !== this.originalCode || draft.title !== this.$store.state.diagram.title)) {
+      if (isDraftNewerThanSaved(draft, savedVersionUpdatedAt) && this.draftDiffers(draft)) {
         EventBus.$emit("draft-available", {
           scope: this._draftScope,
           draft,
@@ -399,10 +432,10 @@ export default {
 
     // Persist on every change (debounced).
     this._unwatchDraft = this.$watch(
-      () => ({ code: this.currentCode, title: this.$store.state.diagram.title }),
+      () => this.currentDraft(),
       (val) => {
-        if (val.code !== this.originalCode || val.title !== '') {
-          this._draftSaver?.save({ code: val.code, title: val.title || '' });
+        if (JSON.stringify(val) !== this._originalDraft) {
+          this._draftSaver?.save(val);
         }
       },
     );
@@ -411,13 +444,10 @@ export default {
     // sometimes destroyed before view.onClose finishes, so we keep the body
     // synchronous: flush the pending debounced write directly to localStorage.
     this._closeGuardOff = setupCloseGuard(() => {
-      if (this.currentCode === this.originalCode) return;
+      if (JSON.stringify(this.currentDraft()) === this._originalDraft) return;
       const cloudId = getCachedCloudId();
       if (cloudId) {
-        saveDraftSync(this._draftScope, cloudId, {
-          code: this.currentCode,
-          title: this.$store.state.diagram.title || '',
-        });
+        saveDraftSync(this._draftScope, cloudId, this.currentDraft());
       }
     });
 
@@ -442,6 +472,13 @@ export default {
     this._onRestore = (payload) => {
       if (payload?.scope !== this._draftScope || !payload?.draft) return;
       const draft = payload.draft;
+      for (const option of this.diagramOptions) {
+        const buffer = draft.buffers?.[option.value];
+        if (typeof buffer === 'string') this.$store.dispatch(getStoreUpdateAction(option.value), buffer);
+      }
+      if (draft.diagramType && this.diagramOptions.some(option => option.value === draft.diagramType)) {
+        this.updateDiagramType(draft.diagramType);
+      }
       const action = getStoreUpdateAction(this.diagramType);
       if (action) this.$store.dispatch(action, draft.code);
       if (draft.title) this.$store.dispatch("updateTitle", draft.title);
@@ -467,9 +504,8 @@ export default {
    concave shoulders cut into the divider — see Claude Design
    preview/toolbar-header-notch.html. */
 .notch {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  position: relative;
+  flex-shrink: 0;
   /* Hangs DOWN from the top of the header, 32px tall inside a 40px band so
      its bottom edge never reaches the work area below. border-top:0 keeps the
      top edge open; drawing one there leaves two floating stubs, because the
@@ -484,5 +520,22 @@ export default {
   border-radius: 0 0 12px 12px;
   padding: 0 6px;
   box-sizing: border-box;
+}
+
+@media (max-width: 1100px) {
+  .toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    height: auto;
+    min-height: 80px;
+    flex-shrink: 0;
+    gap: 4px 12px;
+    padding-top: 6px;
+  }
+  .notch {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: center;
+  }
 }
 </style>

@@ -63,7 +63,7 @@ const meta: Meta<typeof Header> = {
     docs: {
       description: {
         component:
-          'Top toolbar of the diagram editor (Workspace.vue): the diagram title input on the left, the Sequence / Mermaid / PlantUML tab strip in the centre notch, then AI Chat (when available), Templates (starter-template gallery), Help and Publish on the right. Publish is disabled until a title is provided; hovering the disabled button shows "Add a diagram title to publish".',
+          'Top toolbar of the diagram editor (Workspace.vue): the diagram title input on the left, the Sequence / Mermaid / PlantUML / Markdown tab strip, then AI Chat and Templates (when available), Help and Publish on the right. At narrow widths the tabs occupy a second row to preserve the title. Publish is disabled until a title is provided; hovering the disabled button shows "Add a diagram title to publish".',
       },
     },
   },

@@ -574,7 +574,7 @@ export const MermaidInlinePanZoom: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
-    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    const viewport = document.querySelector<HTMLElement>('.diagram-viewport')
     await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
   },
 }
@@ -607,7 +607,7 @@ export const MermaidEditorPanZoom: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
-    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    const viewport = document.querySelector<HTMLElement>('.diagram-viewport')
     await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
   },
 }

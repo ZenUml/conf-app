@@ -31,10 +31,21 @@ _Avoid_: "screen", "page", "context" — and do not organise UI by component typ
 **Cross-surface component**:
 A component whose surface is decided by its caller, not by where it lives — `UpgradePrompt` (its surface comes from `surfaceForActionType()`: `editor`, `viewer`, or `byline`), `PublishButton`, `TabSwitcher`, `DocumentList`. These have no single home in a surface-organised tree and are grouped under `Shared`.
 
+**Export annotation（导出标注）**:
+A text label, arrow, callout, or rectangle added to an image in the export workspace.
+
+**Export watermark（导出水印）**:
+A single text watermark applied to an image in the export workspace.
+
 ## Relationships
 
 - A **macro** (Diagram, Graph, OpenAPI, or Embed) appears in the Confluence macro browser and renders one or more **DiagramType**s.
 - The **Diagram macro** renders three DiagramTypes (Sequence/ZenUML, Mermaid, PlantUml); the others map 1:1.
+- An exported image may contain multiple **Export annotations**, including multiple annotations of the same type; each can be selected, moved, and deleted independently.
+- An exported image has at most one **Export watermark**.
+- The export workspace downloads PNG or copies a PNG image to the clipboard; PNG is a fixed format label, not a format selector.
+- **Export annotations** and the **Export watermark** affect only the exported image, never the source diagram.
+- Export annotations and watermark settings belong to the current diagram's page visit: closing and reopening export preserves them, including reopening its fullscreen window; refreshing or leaving the page discards them. They are not saved annotation drafts.
 
 ## Error taxonomy
 

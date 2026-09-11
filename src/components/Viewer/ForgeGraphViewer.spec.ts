@@ -103,4 +103,27 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
     });
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
+
+  it('publishes the rendered graph box for export framing', async () => {
+    // GraphViewer's canvas intentionally remains 100% wide in fullscreen;
+    // captureCrop uses these dimensions to retain the graph's own bounds.
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({
+      graph: {
+        getGraphBounds: () => ({ width: 200, height: 120 }),
+        // graphBounds are already view-scaled CSS pixels in mxGraphView.
+        view: { scale: 0.5 },
+        border: 10,
+      },
+      diagrams: [{}],
+      currentPage: 0,
+    }));
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(wrapper.find('.graph-viewer-canvas').attributes()).toMatchObject({
+      'data-diagram-capture-root': '',
+      'data-capture-box-width': '220',
+      'data-capture-box-height': '140',
+    }));
+  });
 });

@@ -1,5 +1,6 @@
 import type { Args, Meta, StoryObj } from '@storybook/vue3-vite'
 import { onMounted, ref } from 'vue'
+import { expect, userEvent, within } from 'storybook/test'
 import ExportModal from './ExportModal.vue'
 
 type Story = StoryObj<typeof ExportModal>
@@ -50,7 +51,62 @@ export default meta
 // — the same access pattern ExportModal.spec.ts already uses via
 // `wrapper.vm.state`. This runs the real html-to-image capture pipeline
 // instead of faking a preview data URL that the component would never see.
-function withCaptureStage(args: Args, configureState?: (state: ModalInstance['state']) => void) {
+const FAKE_DIAGRAM = `
+        <div style="height:0; overflow:hidden;">
+          <div
+            ref="diagramRef"
+            style="width:420px; padding:28px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;"
+          >
+            <div style="font-weight:700; margin-bottom:14px;">Login Flow</div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span>Client</span><span>&rarr;</span><span>Auth Service</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <span>Auth Service</span><span>&rarr;</span><span>Client: 200 OK</span>
+            </div>
+          </div>
+        </div>`
+
+/**
+ * The fullscreen shape of the bug: GenericViewer gives `.screen-capture-content`
+ * the layout column's width (`width:100%; max-width:1000px`), so a small diagram
+ * is captured inside a box many times its size. Both a ZenUML sequence diagram
+ * and a DrawIO graph land here.
+ */
+const WIDE_COLUMN_SEQUENCE = `
+        <div style="height:0; overflow:hidden;">
+          <div ref="diagramRef" style="width:1000px; padding:24px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;">
+            <div style="display:inline-block;">
+              <div style="font-weight:700; margin-bottom:12px;">Login Flow</div>
+              <div style="display:flex; gap:12px; margin-bottom:8px;"><span>Client</span><span>&rarr;</span><span>Auth</span></div>
+              <div style="display:flex; gap:12px;"><span>Auth</span><span>&rarr;</span><span>200 OK</span></div>
+            </div>
+          </div>
+        </div>`
+
+const WIDE_COLUMN_GRAPH = `
+        <div style="height:0; overflow:hidden;">
+          <div ref="diagramRef" style="width:1000px; padding:24px; background:#ffffff;">
+            <svg width="220" height="110" viewBox="0 0 220 110" xmlns="http://www.w3.org/2000/svg">
+              <rect x="4" y="30" width="80" height="40" rx="4" fill="#ffffff" stroke="#111827"/>
+              <text x="44" y="55" font-size="12" text-anchor="middle" font-family="sans-serif">Start</text>
+              <line x1="84" y1="50" x2="132" y2="50" stroke="#111827"/>
+              <rect x="132" y="30" width="84" height="40" rx="4" fill="#ffffff" stroke="#111827"/>
+              <text x="174" y="55" font-size="12" text-anchor="middle" font-family="sans-serif">Try it here</text>
+            </svg>
+          </div>
+        </div>`
+
+const SHALLOW_LONG_WATERMARK = `
+        <div style="height:0; overflow:hidden;">
+          <div ref="diagramRef" style="width:554px; height:70px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;"></div>
+        </div>`
+
+function withCaptureStage(
+  args: Args,
+  configureState?: (state: ModalInstance['state']) => void,
+  markup: string = FAKE_DIAGRAM,
+) {
   return {
     components: { ExportModal },
     setup() {
@@ -67,20 +123,7 @@ function withCaptureStage(args: Args, configureState?: (state: ModalInstance['st
     },
     template: `
       <div>
-        <div style="height:0; overflow:hidden;">
-          <div
-            ref="diagramRef"
-            style="width:420px; padding:28px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;"
-          >
-            <div style="font-weight:700; margin-bottom:14px;">Login Flow</div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-              <span>Client</span><span>&rarr;</span><span>Auth Service</span>
-            </div>
-            <div style="display:flex; justify-content:space-between;">
-              <span>Auth Service</span><span>&rarr;</span><span>Client: 200 OK</span>
-            </div>
-          </div>
-        </div>
+        ${markup}
         <ExportModal
           ref="modalRef"
           v-bind="args"
@@ -94,6 +137,26 @@ function withCaptureStage(args: Args, configureState?: (state: ModalInstance['st
 }
 
 /**
+ * Place one annotation the way the canvas does: `add` creates it at a point and
+ * selects it, `update` gives it its far end and text. Stories must go through
+ * this rather than writing `state.note` / `state.callout` — those legacy fields
+ * belong to the retired sidebar surface (ExportPreview/ExportSidebar), which
+ * ExportModal no longer renders, so setting them produces a story that shows
+ * nothing at all. Found in Codex acceptance of the note-placed story.
+ */
+function place(
+  state: ModalInstance['state'],
+  type: 'note' | 'arrow' | 'callout' | 'rectangle',
+  position: { x: number; y: number },
+  end: { x: number; y: number },
+  text = '',
+) {
+  const item = state.annotations.add(type, position)
+  state.annotations.update(item.id, { end, text })
+  return item
+}
+
+/**
  * Initial state — modal open, white background selected (the default),
  * preview captured from a real diagram via the actual html-to-image
  * pipeline, no annotations, export button idle. This matches what a user
@@ -102,6 +165,28 @@ function withCaptureStage(args: Args, configureState?: (state: ModalInstance['st
 export const Initial: Story = {
   name: 'Initial (white background)',
   render: (args: Args) => withCaptureStage(args),
+}
+
+/** Real toolbar interaction coverage for every background mode, including the
+ * app-owned custom palette used when native color wells are unavailable. */
+export const BackgroundChoices: Story = {
+  name: 'Background choices (real controls)',
+  render: (args: Args) => withCaptureStage(args),
+  play: async () => {
+    const canvas = within(document.body)
+    const background = await canvas.findByRole('combobox', { name: 'Image background' })
+    await userEvent.selectOptions(background, 'warm')
+    await expect(background).toHaveValue('warm')
+    await userEvent.selectOptions(background, 'cool')
+    await expect(background).toHaveValue('cool')
+    await userEvent.selectOptions(background, 'transparent')
+    await expect(background).toHaveValue('transparent')
+    await userEvent.selectOptions(background, 'custom')
+    await expect(background).toHaveValue('custom')
+    await userEvent.click(await canvas.findByRole('button', { name: 'Custom background color' }))
+    await userEvent.click(await canvas.findByRole('menuitem', { name: 'Warm' }))
+    await expect(canvas.getByRole('button', { name: 'Custom background color' })).toHaveAttribute('aria-expanded', 'false')
+  },
 }
 
 /**
@@ -116,15 +201,164 @@ export const CoolBackground: Story = {
 }
 
 /**
- * A note has been dragged onto the diagram and is selected, so the sidebar
- * shows the Note Properties panel.
+ * A text annotation sits on the diagram and is selected, so the contextual
+ * properties bar appears above it.
  */
 export const NotePlaced: Story = {
-  name: 'Note placed (Note Properties panel)',
+  name: 'Note placed (contextual properties)',
   render: (args: Args) => withCaptureStage(args, (state) => {
-    state.note.text = 'Confirm before shipping'
-    state.notePoint.value = { x: 0.5, y: 0.35 }
-    state.selectedAnnotation.value = 'note'
+    place(state, 'note', { x: 0.5, y: 0.35 }, { x: 0.5, y: 0.35 }, 'Confirm before shipping')
+  }),
+}
+
+/**
+ * Native color inputs are not a dependable interaction surface in the
+ * sandboxed export iframe. The contextual palette must be operable with a
+ * real click and update both the visible overlay and its serialized SVG.
+ */
+export const NoteColorPalette: Story = {
+  name: 'Note color palette (click updates rendered SVG)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    place(state, 'note', { x: 0.5, y: 0.35 }, { x: 0.5, y: 0.35 }, 'Colored note')
+  }),
+  play: async () => {
+    const canvas = within(document.body)
+    const color = await canvas.findByRole('button', { name: 'Annotation color' })
+    await userEvent.click(color)
+    await userEvent.click(await canvas.findByRole('menuitem', { name: 'Blue' }))
+    await expect(canvas.getByRole('button', { name: 'Annotation color' })).toHaveAttribute('aria-expanded', 'false')
+    await expect(document.querySelector('.rendered-annotations text[fill="#2563eb"]')).not.toBeNull()
+  },
+}
+
+/**
+ * Every annotation type at once — two independent texts, an arrow, a rectangle
+ * and a callout with its tail — which is the state a reviewer needs to judge
+ * z-order, colour defaults and whether the properties bar follows the selection.
+ */
+export const AnnotationsMixed: Story = {
+  name: 'All annotation types placed',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    place(state, 'note', { x: 0.22, y: 0.2 }, { x: 0.22, y: 0.2 }, 'Client starts here')
+    place(state, 'note', { x: 0.68, y: 0.86 }, { x: 0.68, y: 0.86 }, 'Latency budget: 200ms')
+    place(state, 'arrow', { x: 0.3, y: 0.34 }, { x: 0.62, y: 0.52 })
+    place(state, 'rectangle', { x: 0.16, y: 0.6 }, { x: 0.52, y: 0.78 })
+    const callout = place(state, 'callout', { x: 0.55, y: 0.24 }, { x: 0.66, y: 0.4 }, 'Retry happens here')
+    state.annotations.select(callout.id)
+  }),
+}
+
+/**
+ * Two labels of equal length and wildly different width. The dashed selection
+ * box and the click target must both track the rendered glyphs — a box derived
+ * from the character count is far too wide for `i`s and too narrow for `W`s.
+ */
+export const TextMetrics: Story = {
+  name: 'Text metrics (narrow vs wide glyphs)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    place(state, 'note', { x: 0.3, y: 0.25 }, { x: 0.3, y: 0.25 }, 'iiiiiiiiii')
+    const wide = place(state, 'note', { x: 0.5, y: 0.7 }, { x: 0.5, y: 0.7 }, 'WWWWWWWWWW')
+    state.annotations.select(wide.id)
+  }),
+}
+
+/**
+ * A short sequence diagram captured inside the 1000px fullscreen column. The
+ * preview must be the diagram's own size with even padding — not the column
+ * with the diagram pushed to its left edge.
+ */
+export const WideColumnSequence: Story = {
+  name: 'Fullscreen column, short sequence diagram',
+  render: (args: Args) => withCaptureStage(args, undefined, WIDE_COLUMN_SEQUENCE),
+}
+
+/** The same column holding a small DrawIO-style graph. */
+export const WideColumnGraph: Story = {
+  name: 'Fullscreen column, small graph',
+  render: (args: Args) => withCaptureStage(args, undefined, WIDE_COLUMN_GRAPH),
+}
+
+/**
+ * A watermark longer than the default on a shallow diagram: rotated -45° it
+ * used to overrun both edges and lose characters at each end.
+ */
+export const WatermarkLong: Story = {
+  name: 'Long watermark on a shallow diagram',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    state.watermark.text = 'Internal review - Confidential'
+    state.watermarkVisible.value = true
+  }),
+}
+
+/** A 554x70 canvas keeps the fitted diagonal watermark geometry honest. */
+export const WatermarkLongShallow: Story = {
+  name: 'Long watermark on a shallow canvas',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    state.watermark.text = 'Internal review - Confidential'
+    state.watermarkVisible.value = true
+  }, SHALLOW_LONG_WATERMARK),
+}
+
+/**
+ * A diagonal watermark on the canvas, nothing selected. Selection is the
+ * workspace's own state, so click the watermark to check the rest: its outline
+ * and hit target are drawn in the watermark's own rotated frame, so clicking
+ * the visible glyphs — including the lower half — selects it.
+ */
+export const WatermarkPlaced: Story = {
+  name: 'Watermark placed (rotated hit target)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    state.watermarkVisible.value = true
+  }),
+}
+
+/**
+ * Close and reopen. The dialog is `v-if`'d on `visible`, so closing unmounts it
+ * while ExportModal itself — and the export state it owns — stays alive; the
+ * reopen must therefore bring the annotations back and re-run the capture.
+ * Click the X (or the backdrop), then Reopen export, and check the annotations
+ * are still on the canvas.
+ */
+export const CloseAndReopen: Story = {
+  name: 'Close, then reopen (annotations survive)',
+  render: (args: Args) => ({
+    components: { ExportModal },
+    setup() {
+      const diagramRef = ref<HTMLElement | null>(null)
+      const modalRef = ref<ModalInstance | null>(null)
+      const getCaptureNode = () => diagramRef.value
+
+      onMounted(() => {
+        const state = modalRef.value!.state
+        place(state, 'note', { x: 0.28, y: 0.3 }, { x: 0.28, y: 0.3 }, 'Survives a reopen')
+        place(state, 'arrow', { x: 0.34, y: 0.44 }, { x: 0.66, y: 0.6 })
+        modalRef.value!.capturePreview()
+      })
+
+      return { args, diagramRef, modalRef, getCaptureNode }
+    },
+    template: `
+      <div>
+        ${FAKE_DIAGRAM}
+        <div style="padding:24px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+          <button
+            type="button"
+            @click="args.visible = true"
+            style="padding:8px 14px; border:1px solid #cbd5e1; border-radius:6px; background:#ffffff; font-size:13px; cursor:pointer;"
+          >Reopen export</button>
+          <p style="margin-top:12px; font-size:13px; color:#475569;">
+            Close the dialog with its X, then reopen it: the two annotations must still be there.
+          </p>
+        </div>
+        <ExportModal
+          ref="modalRef"
+          v-bind="args"
+          :capture-node-getter="getCaptureNode"
+          diagram-title="Login Flow"
+          @close="args.visible = false"
+        />
+      </div>
+    `,
   }),
 }
 
@@ -168,6 +402,7 @@ export const ExportFailed: Story = {
  * page's.
  */
 const MODAL_SIZES = {
+  narrow: { width: 880, height: 720 },
   laptop: { width: 1280, height: 563 },
   desktop: { width: 1920, height: 950 },
 } as const
@@ -175,6 +410,7 @@ const MODAL_SIZES = {
 const INNER_IDS = {
   plain: 'modal-exportmodal--fullscreen-inner',
   editing: 'modal-exportmodal--fullscreen-inner-editing',
+  overflow: 'modal-exportmodal--fullscreen-inner-overflow-editing',
 } as const
 
 function inFrame(size: { width: number; height: number }, innerId: string) {
@@ -210,13 +446,34 @@ export const FullscreenInner: Story = {
 export const FullscreenInnerEditing: Story = {
   name: 'Fullscreen (inner document, callout selected)',
   render: (args: Args) => withCaptureStage(args, (state) => {
-    // hasCallout is computed from position + text, so setting those two is
-    // what makes the callout real; selecting it opens its properties panel.
-    state.callout.text = 'Retry happens here'
-    state.callout.position = { x: 0.46, y: 0.4 }
-    state.callout.tipPosition = { x: 0.58, y: 0.55 }
-    state.selectedAnnotation.value = 'callout'
+    // `add` selects what it creates, so the contextual properties bar opens on
+    // the callout; `end` is the tail's tip.
+    place(state, 'callout', { x: 0.46, y: 0.4 }, { x: 0.58, y: 0.55 }, 'Retry happens here')
   }),
+}
+
+/** A deliberately dense selected state for checking the properties bar's fit. */
+export const FullscreenInnerOverflowEditing: Story = {
+  name: 'Fullscreen (inner document, overflowing note controls)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    place(
+      state,
+      'note',
+      { x: 0.5, y: 0.35 },
+      { x: 0.5, y: 0.35 },
+      'A long note whose properties must remain reachable while the preview stays visible',
+    )
+  }),
+}
+
+export const FullscreenNarrow: Story = {
+  name: 'Fullscreen at 880x720 (stacking breakpoint)',
+  render: () => inFrame(MODAL_SIZES.narrow, INNER_IDS.editing),
+}
+
+export const FullscreenOverflowEditing: Story = {
+  name: 'Fullscreen at 1280x420 (overflowing sidebar)',
+  render: () => inFrame({ width: 1280, height: 420 }, INNER_IDS.overflow),
 }
 
 export const FullscreenLaptop: Story = {

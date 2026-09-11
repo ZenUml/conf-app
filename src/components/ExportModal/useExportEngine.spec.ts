@@ -10,8 +10,13 @@ import {
   slugifyFilename,
   isClipboardExportSupported,
   buildOverlaySvg,
+  fitWatermark,
+  watermarkGeometry,
+  measureTextWidth,
   type ExportOptions,
 } from './useExportEngine';
+import { MONO_FONT_FAMILY } from './overlayGeometry';
+import type { Annotation } from './useAnnotations';
 
 function baseOptions(overrides: Partial<ExportOptions> = {}): ExportOptions {
   return {
@@ -25,6 +30,92 @@ function baseOptions(overrides: Partial<ExportOptions> = {}): ExportOptions {
     ...overrides,
   };
 }
+
+describe('fitWatermark', () => {
+  // A shallow, wide diagram — the shape that clipped "Internal review -
+  // Confidential" at both ends while the shorter default happened to fit.
+  const W = 840;
+  const H = 274;
+  const PADDING = 16;
+  const fits = (text: string, fontSize: number, diagonal = true) => {
+    const available = diagonal
+      ? Math.SQRT2 * (Math.min(W, H) - 2 * PADDING) - fontSize * 1.2
+      : W - 2 * PADDING;
+    return measureTextWidth(text, fontSize, MONO_FONT_FAMILY) <= available + 0.5;
+  };
+
+  it('leaves a watermark that already fits alone', () => {
+    const result = fitWatermark('Confidential', 24, true, W, H, PADDING);
+    expect(result).toEqual({ fontSize: 24, fitAttributes: '' });
+  });
+
+  it('shrinks a long diagonal watermark until it fits the rotated bounds', () => {
+    const result = fitWatermark('Internal review - Confidential', 24, true, W, H, PADDING);
+    expect(result.fontSize).toBeLessThan(24);
+    expect(result.fontSize).toBeGreaterThanOrEqual(8);
+    expect(fits('Internal review - Confidential', result.fontSize)).toBe(true);
+  });
+
+  it('compresses glyphs rather than clipping when the floor is reached', () => {
+    const result = fitWatermark('x'.repeat(400), 24, true, W, H, PADDING);
+    expect(result.fontSize).toBe(8);
+    expect(result.fitAttributes).toMatch(/textLength="[\d.]+" lengthAdjust="spacingAndGlyphs"/);
+  });
+
+  it('reports the post-textLength width used by the SVG renderer', () => {
+    const geometry = watermarkGeometry('Internal review - Confidential', 24, true, 600, 70, 16);
+    const svg = buildOverlaySvg(600, 70, baseOptions({
+      watermark: { text: 'Internal review - Confidential', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'diagonal' },
+    }));
+    expect(geometry.renderedWidth).toBeGreaterThan(0);
+    expect(svg).toContain(`textLength="${geometry.renderedWidth}"`);
+  });
+
+  it('keeps nonempty watermark text visible on a positive tiny canvas', () => {
+    const geometry = watermarkGeometry('Tiny canvas watermark', 24, true, 20, 10, 16);
+    const svg = buildOverlaySvg(20, 10, baseOptions({
+      watermark: { text: 'Tiny canvas watermark', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'diagonal' },
+    }));
+    expect(geometry.fontSize).toBeGreaterThan(0);
+    expect(geometry.renderedWidth).toBeGreaterThan(0);
+    expect(svg).toContain('>Tiny canvas watermark<');
+    expect(svg).not.toContain('textLength="0"');
+  });
+
+  it('keeps a tiny bottom-right watermark inside the actual SVG bounds', () => {
+    const svg = buildOverlaySvg(20, 10, baseOptions({
+      watermark: { text: 'Tiny canvas watermark', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'bottom-right' },
+    }));
+    const text = svg.match(/<text[^>]*>Tiny canvas watermark<\/text>/)?.[0];
+    expect(text).not.toBeNull();
+    const x = text!.match(/x="([\d.]+)"/)![1];
+    const y = text!.match(/y="([\d.]+)"/)![1];
+    const fontSize = text!.match(/font-size="([\d.]+)"/)![1];
+    const geometry = watermarkGeometry('Tiny canvas watermark', 24 * 20 / 600, false, 20, 10, 16 * 20 / 600);
+    // The 1.2 line-height is the watermark's documented vertical footprint.
+    expect(Number(x)).toBeGreaterThan(0);
+    expect(Number(x)).toBeLessThan(20);
+    expect(Number(y)).toBeGreaterThan(0);
+    expect(Number(y)).toBeLessThan(10);
+    expect(Number(fontSize) * 1.2).toBeLessThanOrEqual(10);
+    expect(geometry.renderedWidth).toBeGreaterThan(0);
+  });
+
+  it('fits a bottom-right watermark to the width it is anchored in', () => {
+    const result = fitWatermark('Internal review - Confidential', 48, false, 300, 200, PADDING);
+    expect(result.fontSize).toBeLessThan(48);
+    expect(measureTextWidth('Internal review - Confidential', result.fontSize, MONO_FONT_FAMILY))
+      .toBeLessThanOrEqual(300 - 2 * PADDING + 0.5);
+  });
+
+  it('is what buildOverlaySvg stamps with', () => {
+    const svg = buildOverlaySvg(W, H, baseOptions({
+      watermark: { text: 'Internal review - Confidential', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'diagonal' },
+    }));
+    const fontSize = Number(svg.match(/font-size="([\d.]+)"[^>]*transform="rotate\(-45/)?.[1]);
+    expect(fontSize).toBeLessThan(24);
+  });
+});
 
 describe('slugifyFilename', () => {
   it('lowercases, replaces unsafe/space runs with a single hyphen, and appends .png', () => {
@@ -84,11 +175,182 @@ describe('buildOverlaySvg', () => {
   const W = 600; // === VIEWBOX_REF_W, so scale === 1
   const H = 400;
 
+  function annotation(overrides: Partial<Annotation> = {}): Annotation {
+    return {
+      id: 'annotation-1',
+      type: 'note',
+      position: { x: 0.25, y: 0.25 },
+      end: { x: 0.25, y: 0.25 },
+      text: '',
+      color: '#374151',
+      bgColor: 'none',
+      fontSize: 14,
+      thickness: 2,
+      arrowType: '→',
+      ...overrides,
+    };
+  }
+
   it('emits no note/arrow/callout/watermark elements when nothing is configured', () => {
     const svg = buildOverlaySvg(W, H, baseOptions());
     expect(svg).not.toContain('<text');
     expect(svg).not.toContain('<line');
     expect(svg).not.toContain('<path');
+  });
+
+  it('renders multiple same-type text annotations in insertion order and ignores legacy singleton values', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        note: { text: 'legacy note', position: 'bottom-center', fontSize: 14, color: '#374151' },
+        annotations: [
+          annotation({ id: 'first', text: 'first note', position: { x: 0.2, y: 0.3 }, end: { x: 0.2, y: 0.3 } }),
+          annotation({ id: 'second', text: 'second note', position: { x: 0.7, y: 0.4 }, end: { x: 0.7, y: 0.4 } }),
+        ],
+      }),
+    );
+
+    expect(svg.indexOf('>first note<')).toBeGreaterThan(-1);
+    expect(svg.indexOf('>second note<')).toBeGreaterThan(svg.indexOf('>first note<'));
+    expect(svg).not.toContain('legacy note');
+    expect(svg.match(/<text/g)).toHaveLength(2);
+  });
+
+  it('renders multiple arrow annotations in insertion order and ignores the legacy arrow', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        arrow: { type: '→', label: 'legacy arrow', color: '#ef4444', thickness: 2 },
+        arrowPoints: { start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
+        annotations: [
+          annotation({
+            id: 'first-arrow',
+            type: 'arrow',
+            position: { x: 0.1, y: 0.2 },
+            end: { x: 0.4, y: 0.2 },
+            text: 'first arrow',
+            color: '#2563eb',
+            thickness: 3,
+          }),
+          annotation({
+            id: 'second-arrow',
+            type: 'arrow',
+            position: { x: 0.6, y: 0.7 },
+            end: { x: 0.9, y: 0.7 },
+            text: 'second arrow',
+            color: '#16a34a',
+            thickness: 4,
+          }),
+        ],
+      }),
+    );
+
+    expect(svg).not.toContain('legacy arrow');
+    expect(svg.match(/<line/g)).toHaveLength(2);
+    expect(svg.indexOf('>first arrow<')).toBeGreaterThan(-1);
+    expect(svg.indexOf('>second arrow<')).toBeGreaterThan(svg.indexOf('>first arrow<'));
+    expect(svg).toContain('x1="60" y1="80" x2="240" y2="80" stroke="#2563eb" stroke-width="3"');
+    expect(svg).toContain('x1="360" y1="280" x2="540" y2="280" stroke="#16a34a" stroke-width="4"');
+  });
+
+  it('renders a rectangle from normalized corners using the minimum position and a none fill by default', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        annotations: [annotation({
+          id: 'rectangle',
+          type: 'rectangle',
+          position: { x: 0.8, y: 0.7 },
+          end: { x: 0.2, y: 0.3 },
+          color: '#f97316',
+          bgColor: 'none',
+          thickness: 5,
+        })],
+      }),
+    );
+
+    expect(svg).toContain('<rect x="120" y="120" width="360" height="160" fill="none" stroke="#f97316" stroke-width="5"');
+  });
+
+  it('renders an annotation callout using end as its normalized tip and escapes its text', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        annotations: [annotation({
+          id: 'callout',
+          type: 'callout',
+          position: { x: 0.5, y: 0.5 },
+          end: { x: 0.5, y: 0.75 },
+          text: 'A & <B> "quoted"',
+          color: '#1e293b',
+          bgColor: '#fffde7',
+          fontSize: 14,
+        })],
+      }),
+    );
+
+    expect(svg).toContain('L 300 300 L');
+    expect(svg).toContain('A &amp; &lt;B&gt; &quot;quoted&quot;');
+    expect(svg).not.toContain('A & <B> "quoted"');
+    expect(svg).not.toContain('textLength=');
+  });
+
+  it('fits an overlong callout label to the capped box only when its measured width exceeds the available width', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        annotations: [annotation({
+          id: 'long-callout',
+          type: 'callout',
+          position: { x: 0.5, y: 0.5 },
+          end: { x: 0.5, y: 0.5 },
+          text: 'x'.repeat(200),
+          bgColor: '#fffde7',
+        })],
+      }),
+    );
+
+    expect(svg).toContain('textLength="512" lengthAdjust="spacingAndGlyphs"');
+  });
+
+  it('renders the watermark exactly once after all annotations', () => {
+    const svg = buildOverlaySvg(
+      W,
+      H,
+      baseOptions({
+        watermark: { text: 'Watermark', opacity: 20, fontSize: 24, color: '#9ca3af', position: 'diagonal' },
+        annotations: [
+          annotation({ id: 'first', text: 'first note' }),
+          annotation({ id: 'second', type: 'rectangle', end: { x: 0.5, y: 0.5 } }),
+        ],
+      }),
+    );
+
+    expect(svg.match(/>Watermark</g)).toHaveLength(1);
+    expect(svg.lastIndexOf('>Watermark<')).toBeGreaterThan(svg.lastIndexOf('<rect'));
+  });
+
+  it('scales normalized annotation coordinates, font sizes, and thickness from the capture width', () => {
+    const svg = buildOverlaySvg(
+      1200,
+      800,
+      baseOptions({
+        annotations: [
+          annotation({ id: 'note', text: 'scaled note', position: { x: 0.25, y: 0.5 }, end: { x: 0.25, y: 0.5 }, fontSize: 14 }),
+          annotation({ id: 'arrow', type: 'arrow', position: { x: 0.1, y: 0.25 }, end: { x: 0.4, y: 0.25 }, thickness: 3 }),
+          annotation({ id: 'rectangle', type: 'rectangle', position: { x: 0.2, y: 0.3 }, end: { x: 0.5, y: 0.6 }, thickness: 4 }),
+        ],
+      }),
+    );
+
+    expect(svg).toContain('<text x="300" y="400" font-size="28"');
+    expect(svg).toContain('x1="120" y1="200" x2="480" y2="200" stroke="#374151" stroke-width="6"');
+    expect(svg).toContain('<rect x="240" y="240" width="360" height="240" fill="none" stroke="#374151" stroke-width="8"');
   });
 
   it('escapes &, <, >, and " in note text', () => {

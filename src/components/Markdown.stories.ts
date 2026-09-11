@@ -58,7 +58,7 @@ function configure(source: string | undefined, type = DiagramType.Markdown) {
 }
 
 const meta: Meta<typeof Markdown> = {
-  title: 'Editor/Markdown',
+  title: 'Editor/Diagram/Markdown',
   component: Markdown,
   parameters: { layout: 'fullscreen' },
 }

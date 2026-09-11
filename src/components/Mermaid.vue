@@ -28,7 +28,6 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { hasLayout, awaitLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';

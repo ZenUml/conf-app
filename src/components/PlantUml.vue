@@ -1,19 +1,28 @@
 <template>
-  <div v-if="loading" class="flex justify-center items-center py-8">
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 animate-spin text-primary"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>
-    <span class="ml-2">Rendering PlantUML...</span>
-  </div>
-  <div v-else-if="error" class="text-red-600 py-4 px-2 text-sm">{{ error }}</div>
-  <div v-else-if="!plantUmlCode" class="flex flex-col items-center justify-center py-16 px-8 text-center select-none">
-    <div class="text-4xl mb-3">🌱</div>
-    <div class="text-sm font-semibold text-violet-700 mb-1">Start with PlantUML</div>
-    <div class="text-xs text-gray-400 mb-4">Type or paste PlantUML syntax in the editor</div>
-    <pre class="text-left text-xs font-mono bg-gray-900 text-violet-300 rounded-lg px-5 py-4 leading-relaxed">@startuml
+  <div class="plantuml-root" :class="{ 'plantuml-root--editor': !isDisplayMode }">
+    <div v-if="loading" class="flex justify-center items-center py-8">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 animate-spin text-primary"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>
+      <span class="ml-2">Rendering PlantUML...</span>
+    </div>
+    <div v-else-if="error" class="text-red-600 py-4 px-2 text-sm">{{ error }}</div>
+    <div v-else-if="!plantUmlCode" class="flex flex-col items-center justify-center py-16 px-8 text-center select-none">
+      <div class="text-4xl mb-3">🌱</div>
+      <div class="text-sm font-semibold text-violet-700 mb-1">Start with PlantUML</div>
+      <div class="text-xs text-gray-400 mb-4">Type or paste PlantUML syntax in the editor</div>
+      <pre class="text-left text-xs font-mono bg-gray-900 text-violet-300 rounded-lg px-5 py-4 leading-relaxed">@startuml
 Alice -&gt; Bob: Hello
-Bob --&gt; Alice: Hi there!
-@enduml</pre>
+Bob --&gt; Alice: Hi there!</pre>
+    </div>
+    <DiagramViewport
+      v-else
+      ref="viewport"
+      macro-type="plantuml"
+      label="PlantUML"
+      content-class="plantuml-render flex justify-center"
+      :html="svg"
+      :style="intrinsicSizeVars"
+    />
   </div>
-  <div v-else class="flex justify-center plantuml-render" :style="intrinsicSizeVars" v-html="svg"></div>
 </template>
 
 <script>
@@ -26,11 +35,13 @@ import EventBus from '@/EventBus';
 import { debounce } from 'lodash';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 
 const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml/svg/';
 
 export default {
   name: 'PlantUml',
+  components: { DiagramViewport },
   data() {
     return {
       svg: null,
@@ -47,10 +58,10 @@ export default {
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
     },
-    // Normalising drops the SVG's width/height, so fullscreen has no other way to
-    // render the diagram at 1:1 and scroll to it. Published as custom properties
-    // rather than inline width/height: only the fullscreen rule opts in, the
-    // inline viewer keeps the fit-to-width behaviour.
+    // Normalising drops the SVG's width/height, so the Export PNG host has no other
+    // way to render the diagram at 1:1 and scroll to it. Published as custom
+    // properties rather than inline width/height: only the export-entry rule in
+    // GenericViewer opts in. Live surfaces use DiagramViewport's zoom instead.
     intrinsicSizeVars() {
       const size = this.svg ? readPlantUmlSvgSize(this.svg) : null;
       if (!size) return null;
@@ -78,6 +89,12 @@ export default {
     }
   },
   watch: {
+    // Not inside fetchSvg: the viewport only exists once `loading` flips back to
+    // false in that method's `finally`, which runs after any `await` in the try.
+    // Watching the rendered markup means the attach always sees a mounted ref.
+    svg() {
+      this.initializeViewport();
+    },
     plantUmlCode(newVal) {
       if (!newVal) {
         this.svg = null;
@@ -89,6 +106,11 @@ export default {
     },
   },
   methods: {
+    /** Re-bind the pan/zoom viewport after a new server SVG lands. */
+    async initializeViewport() {
+      await this.$nextTick();
+      await this.$refs.viewport?.attach();
+    },
     async validateAndRender(code) {
       // Check if linter already validated and found an error
       // This avoids duplicate validation calls
@@ -149,10 +171,21 @@ export default {
 </script>
 
 <style scoped>
-/* The fit-to-width cap lives here rather than inline on the SVG, so the fullscreen
-   rule in GenericViewer.vue can raise it and render the diagram at 1:1 with a
-   scrollbar (conf-app#626). `:deep` because the SVG arrives through `v-html`. */
-.plantuml-render :deep(svg) {
+/* The fit-to-width cap lives here rather than inline on the SVG, so the
+   export-entry rule in GenericViewer.vue can raise it and render the diagram at
+   1:1 with a scrollbar (conf-app#626). On the live surfaces DiagramViewport
+   overrides it on the element the moment pan/zoom attaches.
+   The whole selector is inside `:deep()` because `.plantuml-render` now lives in
+   DiagramViewport's template, so only the component's root carries this file's
+   scope attribute. */
+:deep(.plantuml-render svg) {
   max-width: 100%;
+}
+
+/* First link of the chain that lets DiagramViewport fill the fixed-height editor
+   preview pane instead of collapsing to the diagram's height (see Mermaid.vue). */
+.plantuml-root--editor {
+  height: 100%;
+  min-height: 0;
 }
 </style>

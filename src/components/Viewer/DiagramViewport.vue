@@ -43,6 +43,12 @@ import svgPanZoom from 'svg-pan-zoom';
 import Hammer from 'hammerjs';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
+/** A CSS length in px, or null for `none`, a percentage, or anything else. */
+function readPxLength(value) {
+  const match = /^([\d.]+)px$/.exec(String(value).trim());
+  return match ? Number(match[1]) : null;
+}
+
 export default {
   name: 'DiagramViewport',
   props: {
@@ -210,15 +216,20 @@ export default {
         : rect.width > 0 && rect.height > 0
           ? rect.width / rect.height
           : null;
-      const computedMaxWidth = Number.parseFloat(getComputedStyle(svgElement).maxWidth);
-      this.inlineMaxWidth = Number.isFinite(computedMaxWidth) ? computedMaxWidth : rect.width || null;
+      // Only a px cap counts. Mermaid states its natural width as an inline
+      // `max-width: <n>px` and must not be upscaled past it; PlantUML's cap is a
+      // stylesheet `max-width: 100%`, i.e. no cap at all -- it has always stretched
+      // to the column, and parseFloat on "100%" would read 100 and squeeze a 322px
+      // diagram into a 100px box. `null` here means "no cap": take the full width.
+      this.inlineMaxWidth = readPxLength(getComputedStyle(svgElement).maxWidth);
       this.syncInlineHeight();
       this.$refs.content.style.height = '100%';
       svgElement.style.height = '100%';
     },
     syncInlineHeight() {
-      if (!this.inlineAspectRatio || !this.inlineMaxWidth || !this.$refs.viewport) return;
-      const width = Math.min(this.$refs.viewport.clientWidth, this.inlineMaxWidth);
+      if (!this.inlineAspectRatio || !this.$refs.viewport) return;
+      const available = this.$refs.viewport.clientWidth;
+      const width = this.inlineMaxWidth ? Math.min(available, this.inlineMaxWidth) : available;
       if (width > 0) this.$refs.viewport.style.height = `${width / this.inlineAspectRatio}px`;
     },
     reset() {

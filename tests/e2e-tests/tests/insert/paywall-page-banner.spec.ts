@@ -22,9 +22,6 @@ import {
   clearAllBannerState,
   readAppMarker,
   expectBannerAbsent,
-  expectCsatAbsent,
-  armCsatPending,
-  ageLastImpression,
 } from '../../helpers/pageBanner.js';
 
 // The Forge macro iframe. Its presence guarantees an app-origin
@@ -84,8 +81,17 @@ test.describe.serial('Paywall page banner', () => {
     await clearAllBannerState(page);
   });
 
-  // CI keeps a slim 3-test regression set so the spec doesn't dominate one E2E
-  // shard. The full granular matrix — per-CTA isolation, negative eligibility
+  // CI keeps only what a live Forge page can prove and a unit test cannot: that
+  // the pageBanner module mounts with the real count, that its CTA navigates,
+  // that Dismiss stamps the marker through the real iframe, and that the host
+  // then closes the iframe on the next load. The banner's STATE MACHINE — the
+  // 7-day snooze, the 24h/weekly impression taper, paywall outranking CSAT in
+  // the single slot — is pure localStorage logic and is pinned case by case in
+  // src/utils/paywall/warningBanner.spec.ts and src/routes/pageBanner.spec.ts.
+  // A third test here used to re-prove the taper and the CSAT ranking with two
+  // more reloads and two 6-second waits (ADR-0006, "equivalent lower-cost
+  // tests"): it was the longest shard of the Lite E2E and duplicated those
+  // specs. The full granular matrix — per-CTA isolation, negative eligibility
   // gates, and Mixpanel assertions — lives in the `pvt-paywall-banner` skill as
   // a production-verification recipe.
 
@@ -114,29 +120,5 @@ test.describe.serial('Paywall page banner', () => {
     await page.reload();
     await page.waitForTimeout(6_000);
     await expectBannerAbsent(page);
-  });
-
-  test('impression taper, then single host: paywall outranks CSAT (no stacking)', async ({ page }) => {
-    await showWarningBanner(page);
-
-    // Taper (2026-09-07): a 2nd impression inside 24h of the 1st is suppressed.
-    // Nothing else is armed yet, so the host closes its iframe outright — which is
-    // what expectBannerAbsent asserts. (Arming CSAT before this reload would make
-    // the survey take the slot and the iframe stay visible; CI 2026-09-06.)
-    await page.reload();
-    await page.waitForTimeout(6_000);
-    await expectBannerAbsent(page);
-
-    // Now arm CSAT and age the 1st impression past the 24h gap: paywall is
-    // eligible again, and the single host must render ONLY the paywall banner —
-    // the #202 consolidation.
-    await armCsatPending(page);
-    await ageLastImpression(page, 25);
-    await page.reload();
-    await page.waitForTimeout(6_000);
-    await expect((await pageBannerFrame(page)).getByTestId('paywall-warning-banner')).toBeVisible({
-      timeout: 20_000,
-    });
-    await expectCsatAbsent(page);
   });
 });

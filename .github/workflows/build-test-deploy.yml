@@ -191,6 +191,73 @@ jobs:
           path: ./tests/e2e-tests/blob-report/
           if-no-files-found: ignore
 
+  # ---------------------------------------------------------------------------
+  # Atlassian logins at t=0, one per staging site, so the E2E suites below start
+  # the moment their deploy is live instead of queueing for a bootstrap behind it.
+  # Measured on main run 34602804979 (2026-09-11): Deploy: Lite finished at
+  # 5m20s, but E2E: Lite's first shard only started at 7m18s — the bootstrap
+  # waited 78s on the repo-wide `e2e-auth` group (behind render's and DrawIO
+  # Publish's) and then ran for 36s. The session does not depend on which build
+  # is on the site, so the login can run under the deploy instead of after it.
+  # Each suite passes its site's artifact as `auth-artifact`, which makes
+  # e2e-test.yml skip its own bootstrap.
+  #
+  # One job per site rather than one matrix job: a `needs` on a matrix job
+  # aggregates its legs, so an asyncapi-stg login flake would have skipped every
+  # Lite shard. Per-site jobs keep the blast radius to the site that failed.
+  # Gated exactly like the suites that consume them, so a draft PR (which runs
+  # no E2E) logs in to nothing.
+  e2e-auth-lite:
+    if: |
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    name: "E2E auth: Lite"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: zenuml-lite@stg
+      artifact-name: auth-state-pre-lite-stg
+    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  e2e-auth-full:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: "E2E auth: Full"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: zenuml-full@stg
+      artifact-name: auth-state-pre-full-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  e2e-auth-diagramly:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: "E2E auth: Diagramly"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: diagramly@stg
+      artifact-name: auth-state-pre-diagramly-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  e2e-auth-asyncapi:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: "E2E auth: AsyncAPI"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: asyncapi@stg
+      artifact-name: auth-state-pre-asyncapi-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
   staging-lite:
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
@@ -210,12 +277,37 @@ jobs:
     if: |
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    needs: [staging-lite, build]
+    # Not `build`: the unit tests gate the DRAFT (see draft-release-lite), not the
+    # E2E. Waiting for them here bought nothing on a green run and, once the
+    # Studio cache brought Deploy: Lite under the 3m30s the build job takes,
+    # would have put the unit tests on the critical path — see ADR-0006.
+    needs: [staging-lite, e2e-auth-lite]
     name: "E2E: Lite"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
       suite: insert
+      auth-artifact: auth-state-pre-lite-stg
+      # 8 shards, not the default 5. `--shard` splits the test list
+      # contiguously and keeps a `describe.serial` group on one shard, and under
+      # 5 the first shard carried byline-asyncapi (x2) AND byline-create (x2)
+      # together — 5m12s on run 34602804979, the longest shard of the run by
+      # 50s and the tail of the whole main build. Measured with
+      # `CI=true APP=zenuml-lite@stg pnpm exec playwright test --list
+      # --project=auth --project=insert --project=feedback --shard=N/8`
+      # (2026-09-11, after typed-deeplink-autoconvert went from five cases to
+      # one and paywall-page-banner from three tests to two — ADR-0006):
+      #   1: byline-activation, byline-asyncapi (x2)  5: openapi, paywall-page-banner (x2)
+      #   2: byline-create (x2), byline-paywall       6: plantuml, sequence
+      #   3: edit-graph, embed-deeplink-autoconvert,  7: typed-deeplink-autoconvert,
+      #      graph                                       typed-deeplink-render
+      #   4: m1-first-seen-ping (x2), mermaid         8: feedback-report (x2)
+      # No shard carries more than three tests; the two byline serial groups are
+      # apart. 10 shards only shaved the heaviest shard by one test at the cost
+      # of two more runners on a peak that already overlaps Full and Diagramly.
+      # Re-measure with `--list` after adding or renaming a spec; do not reason
+      # about placement by hand.
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
       # Above the 8-minute default because shard 1 carries every `byline-*` spec
       # (`--shard` splits contiguously by file name — see the note in
       # e2e-test.yml). Measured on this job: 3m36s at 6 tests, 5m35s at 8 after
@@ -225,12 +317,9 @@ jobs:
       # 11 leaves room for one retry; a second growth spurt should move a spec
       # off shard 1 instead of raising this again.
       #
-      # Unaffected by e2e-test.yml's SHARD_COUNT going 4 -> 5 (2026-09-10, to
-      # give the new `feedback` project its own shard): shard 1's composition
-      # (byline-activation + byline-asyncapi + byline-create + byline-paywall)
-      # is unchanged under the 5-way split — `feedback` was declared after
-      # `insert` in playwright.config.ts precisely so the added shard grows the
-      # TAIL of the list (see e2e-test.yml) rather than shifting shard 1.
+      # Kept at 11 after the move to 8 shards (above) even though no shard now
+      # carries more than three tests: the ceiling only ever matters for a
+      # wedged test, and a reaped shard costs a whole re-run.
       timeout-minutes: 11
       artifact-suffix: lite-stg
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
@@ -246,12 +335,13 @@ jobs:
     if: |
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    needs: [staging-lite, build]
+    needs: [staging-lite, e2e-auth-lite]
     name: "E2E: Lite DrawIO Publish"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
       suite: graph-publish
+      auth-artifact: auth-state-pre-lite-stg
       # graph-edit.spec.ts declares `test.describe.configure({ mode: 'parallel' })`,
       # so `--shard=N/M` splits its 8 tests across shards instead of stacking all
       # of them on shard 1 (which made this job an 8-minute critical path).
@@ -279,12 +369,13 @@ jobs:
     if: |
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    needs: [staging-lite, build]
+    needs: [staging-lite, e2e-auth-lite]
     name: "E2E: Lite render"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
       suite: render
+      auth-artifact: auth-state-pre-lite-stg
       artifact-suffix: lite-stg-render
       # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
       # creates any fixture missing from config/render-fixtures.json, and
@@ -313,12 +404,13 @@ jobs:
 
   staging-full-e2e:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    needs: [staging-full, build]
+    needs: [staging-full, e2e-auth-full]
     name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-full@stg
       suite: insert
+      auth-artifact: auth-state-pre-full-stg
       # Shard 5 (the tail shard under e2e-test.yml's SHARD_COUNT=5, see its
       # SHARD_COUNT comment block) now holds typed-deeplink-render plus BOTH
       # feedback-report.spec.ts tests — unlike the prod smoke, this is not
@@ -370,12 +462,20 @@ jobs:
     if: |
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
       && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)
-    needs: [staging-asyncapi, build]
+    needs: [staging-asyncapi, e2e-auth-asyncapi]
     name: "E2E: AsyncAPI"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: asyncapi@stg
       suite: asyncapi
+      auth-artifact: auth-state-pre-asyncapi-stg
+      # Three shards for three spec files: the suite's two multi-test files are
+      # `describe.configure({ mode: 'serial' })`, so `--list --shard=N/5`
+      # (2026-09-11) put them on shards 1, 3 and 4 and left 2 and 5 EMPTY —
+      # two runners spent on checkout + install to run nothing. Under N=3 the
+      # split is create-edit (x3) / dashboard-loads / macro-create-edit (x2),
+      # every shard busy, same critical path.
+      shard-matrix: '[1, 2, 3]'
       artifact-suffix: asyncapi-stg
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
@@ -384,12 +484,13 @@ jobs:
 
   staging-diagramly-e2e:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    needs: [staging-diagramly, build]
+    needs: [staging-diagramly, e2e-auth-diagramly]
     name: "E2E: Diagramly"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: diagramly@stg
       suite: insert
+      auth-artifact: auth-state-pre-diagramly-stg
       # See the matching comment on staging-full-e2e: shard 5 now carries
       # typed-deeplink-render plus both feedback-report.spec.ts tests
       # (including the real-backend-write one — this app is not
@@ -406,7 +507,10 @@ jobs:
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the default branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e]
+    # `build` (unit tests + the asyncapi build check) gates the drafts here
+    # rather than the E2E jobs — a draft is never cut from a commit whose unit
+    # tests failed, but the E2E no longer waits for them. See ADR-0006.
+    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -444,7 +548,7 @@ jobs:
   draft-release-full:
     name: "Draft: Full"
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-full-e2e]
+    needs: [staging-full-e2e, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -479,7 +583,7 @@ jobs:
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the default branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-diagramly-e2e]
+    needs: [staging-diagramly-e2e, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -519,7 +623,7 @@ jobs:
     # Until then the draft is a no-op artifact (intentional: keeps the
     # release cadence aligned across variants).
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-asyncapi-e2e]
+    needs: [staging-asyncapi-e2e, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

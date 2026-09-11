@@ -37,6 +37,31 @@ A text label, arrow, callout, or rectangle added to an image in the export works
 **Export watermark（导出水印）**:
 A single text watermark applied to an image in the export workspace.
 
+### Release pipeline
+
+**Main build**:
+The `Build, Test and Draft Release` run that a merge to `main` triggers: deploys every variant to staging, runs the staging E2E suites, and cuts one draft release per variant. Its end is the earliest a release can be published.
+_Avoid_: "CI" (ambiguous with the PR run and the release run).
+
+**Draft**:
+The per-variant GitHub draft release the main build cuts, pinned to the commit it tested. Publishing a draft is the release; nothing else deploys to production.
+
+**Release run**:
+The `Release` workflow a published draft triggers: production Cloudflare publish, Forge production deploy, then the release smoke. Its *deploy job* going green is the deploy gate — the moment the new version is live and PVT may start.
+
+**Smoke tier**:
+The E2E tests tagged `@smoke`: one insert-and-render per macro type, one edit, one embed paste. The smallest set a release must not ship without.
+
+**Release smoke**:
+The production E2E the release run executes after the deploy job — the smoke tier only (ADR-0006). Nothing waits on it except the release report.
+_Avoid_: "prod smoke" without saying which — the nightly is also a prod smoke.
+
+**Nightly smoke**:
+The scheduled `Smoke Test in Production` run: the whole insert suite, on every variant's production site, once a day. Where the coverage the release smoke leaves out is still exercised on production.
+
+**Auth bootstrap**:
+The single Atlassian login per site that produces the Playwright storage state every E2E shard reuses. Runs at the start of the main build, before any deploy has finished.
+
 ## Relationships
 
 - A **macro** (Diagram, Graph, OpenAPI, or Embed) appears in the Confluence macro browser and renders one or more **DiagramType**s.

@@ -253,7 +253,7 @@ gh release edit <new-draft-tag> --repo ZenUml/conf-app --draft=false
 This triggers the Release workflow (`release.yml`), which runs two distinct phases in one run:
 
 1. **Deploy** — `Deploy Cron Worker to Production` and `v{tag} to production` (Cloudflare production publish + Forge production deploy). **This is the gate for PVT.**
-2. **Prod smoke** — `Smoke Test (Prod) — {variant} / auth bootstrap` and four `shard N/4` jobs, which take several more minutes.
+2. **Prod smoke** — `Smoke Test (Prod) — {variant} / auth / auth bootstrap` and five `shard N/5` jobs. Since ADR-0006 this runs only the `@smoke` tier (one insert-and-render per macro type, one edit, one embed paste — 7 tests on Lite, fewer where a macro is stripped); the paywall, byline and deeplink specs it leaves out ran on staging in the same commit's build, and the nightly `smoke-test.yml` still runs the whole suite on production.
 
 **Do not wait for the whole run before starting 2.5.** The new code is live the moment the deploy job reports `success`; the smoke shards afterwards test that same live deployment, so blocking PVT on them only delays validation of a build that is already serving users.
 
@@ -395,7 +395,7 @@ Summarize each released variant:
 - Release notes set (replaced placeholder): ✓
 - Draft published: ✓
 - Release workflow — deploy jobs: ✓
-- Release workflow — prod smoke shards: ✓ | <N/4 failed: shard + one-line cause>
+- Release workflow — prod smoke shards (`@smoke` tier): ✓ | <N/5 failed: shard + one-line cause>
 - PVT (Mermaid smoke): PASS | FAIL
 - Release delta (one line): <themes / surfaces touched>
 - Focused tests (targeted coverage for this delta):

@@ -9,19 +9,13 @@
     }"
   >
     <div ref="content" class="diagram-viewport-content" :class="contentClass" v-html="html"></div>
-    <div
+    <DiagramViewportToolbar
       v-if="isInteractive"
-      class="diagram-viewport-toolbar"
-      role="toolbar"
-      :aria-label="`${label} zoom controls`"
-    >
-      <button type="button" class="diagram-viewport-button" aria-label="Zoom out" title="Zoom out" @click="zoomOut">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></svg>
-      </button>
-      <button type="button" class="diagram-viewport-button" aria-label="Zoom in" title="Zoom in" @click="zoomIn">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></svg>
-      </button>
-    </div>
+      :macro-type="macroType"
+      :label="label"
+      @zoom-in="zoomIn"
+      @zoom-out="zoomOut"
+    />
   </div>
 </template>
 
@@ -34,14 +28,14 @@
  * toolbar, the surface rules, the analytics — lives here.
  *
  * Only for renderers that produce ONE inline `<svg>`: Mermaid and PlantUML.
- * Graph (DrawIO) must NOT use it — mxGraph's GraphViewer owns its own layout and
- * ships `graph.zoomIn/zoomOut/zoomTo` plus `setPanning`, so it needs a different
- * controller behind the same toolbar. Sequence (ZenUML) renders HTML, not SVG,
- * and needs a CSS-transform controller.
+ * Graph (DrawIO) does NOT use it — mxGraph's GraphViewer owns its own layout and
+ * ships `graph.zoomIn/zoomOut` plus `setPanning`, so ForgeGraphViewer drives those
+ * directly behind the same DiagramViewportToolbar. Sequence (ZenUML) renders HTML,
+ * not SVG, and would need a CSS-transform controller.
  */
 import svgPanZoom from 'svg-pan-zoom';
 import Hammer from 'hammerjs';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
 
 /** A CSS length in px, or null for `none`, a percentage, or anything else. */
 function readPxLength(value) {
@@ -51,6 +45,7 @@ function readPxLength(value) {
 
 export default {
   name: 'DiagramViewport',
+  components: { DiagramViewportToolbar },
   props: {
     /** The renderer's SVG markup, injected verbatim (both callers produce a string). */
     html: {
@@ -100,10 +95,6 @@ export default {
     isInteractive() {
       const modal = window.forgeGlobal?.forgeContext?.extension?.modal;
       return modal?.openExport !== true;
-    },
-    surface() {
-      if (this.isFullscreenMode) return 'fullscreen';
-      return this.isDisplayMode ? 'viewer' : 'editor';
     },
   },
   beforeUnmount() {
@@ -244,19 +235,9 @@ export default {
     },
     zoomIn() {
       this.panZoom?.zoomIn();
-      this.trackAction('zoom_in');
     },
     zoomOut() {
       this.panZoom?.zoomOut();
-      this.trackAction('zoom_out');
-    },
-    trackAction(viewportAction) {
-      trackAnalyticsEvent('viewport_control_used', {
-        feature_area: 'macro',
-        surface: this.surface,
-        macro_type: this.macroType,
-        viewport_action: viewportAction,
-      });
     },
   },
 };
@@ -307,51 +288,4 @@ export default {
   cursor: grabbing;
 }
 
-.diagram-viewport-toolbar {
-  position: absolute;
-  z-index: 2;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px;
-  border: 1px solid #d9d7d2;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 2px 8px rgba(9, 30, 66, 0.18);
-}
-
-.diagram-viewport-button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 6px;
-  color: #44546f;
-  background: transparent;
-  cursor: pointer;
-}
-
-.diagram-viewport-button:hover {
-  color: #172b4d;
-  background: #f1f2f4;
-}
-
-.diagram-viewport-button:focus-visible {
-  outline: 2px solid #0c66e4;
-  outline-offset: 1px;
-}
-
-.diagram-viewport-button svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 </style>

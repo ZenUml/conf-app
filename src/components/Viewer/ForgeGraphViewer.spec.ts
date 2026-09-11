@@ -126,4 +126,86 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       'data-capture-box-height': '140',
     }));
   });
+
+  describe('pan and zoom controls', () => {
+    const graphStub = () => ({
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+      setPanning: vi.fn(),
+      panningHandler: { useLeftButtonForPanning: false, ignoreCell: false },
+      getGraphBounds: () => ({ width: 200, height: 120 }),
+      view: { scale: 1 },
+      border: 10,
+    });
+
+    afterEach(() => {
+      delete (window as { forgeGlobal?: unknown }).forgeGlobal;
+    });
+
+    it('drives mxGraph\'s own zoom from the shared toolbar', async () => {
+      const graph = graphStub();
+      // @ts-ignore
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => {
+        expect(wrapper.find('[aria-label="Zoom in"]').exists()).toBe(true);
+      });
+      expect(wrapper.get('[role="toolbar"]').attributes('aria-label')).toBe('Graph zoom controls');
+
+      await wrapper.get('[aria-label="Zoom in"]').trigger('click');
+      await wrapper.get('[aria-label="Zoom out"]').trigger('click');
+
+      // Not svg-pan-zoom: GraphViewer owns its layout, so zooming goes through
+      // the same mxGraph calls DrawIO's own toolbar makes.
+      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+      expect(graph.zoomOut).toHaveBeenCalledTimes(1);
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'graph',
+        viewport_action: 'zoom_in',
+      });
+    });
+
+    it('turns on drag-to-pan once the graph is rendered', async () => {
+      const graph = graphStub();
+      // @ts-ignore
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+      await vi.waitFor(() => {
+        expect(graph.setPanning).toHaveBeenCalledWith(true);
+      });
+      expect(graph.panningHandler.useLeftButtonForPanning).toBe(true);
+    });
+
+    it('keeps the controls off the Export PNG surface', async () => {
+      (window as { forgeGlobal?: unknown }).forgeGlobal = {
+        forgeContext: { extension: { modal: { macroMode: 'fullscreen', openExport: true } } },
+      };
+      // @ts-ignore
+      window.GraphViewer = vi.fn(() => ({ graph: graphStub(), diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+      await vi.waitFor(() => expect(macroViewedCalls()).toHaveLength(1));
+      // A zoom would change the bounds updateCaptureBox reports to the capture.
+      expect(wrapper.find('[role="toolbar"]').exists()).toBe(false);
+    });
+
+    it('hides the controls when the render crashed', async () => {
+      // @ts-ignore
+      window.GraphViewer = vi.fn(() => {
+        throw new Error('drawio init boom');
+      });
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+      await vi.waitFor(() => expect(viewerLoadFailedCalls()).toHaveLength(1));
+      expect(wrapper.find('[role="toolbar"]').exists()).toBe(false);
+    });
+  });
+
 });

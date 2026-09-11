@@ -9,7 +9,16 @@
            is empty (widthIsEmpty=true). Setting it inline keeps the container
            at parent width and lets GraphViewer's positionGraph fitGraph()
            scale wide diagrams down to fit. See ZEN-1168. -->
-      <div ref="graphContainer" class="graph-viewer-canvas" data-diagram-capture-root style="width:100%"></div>
+      <div class="graph-viewport">
+        <div ref="graphContainer" class="graph-viewer-canvas" data-diagram-capture-root style="width:100%"></div>
+        <DiagramViewportToolbar
+          v-if="showZoomControls"
+          macro-type="graph"
+          label="Graph"
+          @zoom-in="zoomIn"
+          @zoom-out="zoomOut"
+        />
+      </div>
       <template v-if="pageCount > 1" #pill-prefix>
         <button
           @click="goToPage(currentPage - 1)"
@@ -44,6 +53,7 @@
 
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
+import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
@@ -58,7 +68,8 @@ import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadO
 export default {
   name: "ForgeGraphViewer",
   components: {
-    GenericViewer
+    GenericViewer,
+    DiagramViewportToolbar
   },
   props: {
     graphXml: String,
@@ -73,6 +84,7 @@ export default {
       captureResizeObserver: null,
       currentPage: 0,
       pageCount: 0,
+      graphRendered: false,
     };
   },
   mounted() {
@@ -83,6 +95,12 @@ export default {
     this.captureResizeObserver = null;
   },
   computed: {
+    // Same rule as DiagramViewport: the Export PNG host renders the diagram only
+    // to photograph it, and a zoom would change what `updateCaptureBox` reports.
+    showZoomControls() {
+      return this.graphRendered
+        && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport !== true;
+    },
     isBoardMode() {
       return resolveGraphEditorMode(this.$store.state.diagram, this.graphEditorMode) === 'board';
     },
@@ -123,6 +141,7 @@ export default {
       }
     },
     renderViewer() {
+      this.graphRendered = false;
       const container = this.$refs.graphContainer;
       const diagram = this.$store.state.diagram;
       if (container) {
@@ -170,6 +189,8 @@ export default {
           this.captureResizeObserver = new ResizeObserver(() => this.updateCaptureBox());
           this.captureResizeObserver.observe(container);
         }
+        this.enablePanning();
+        this.graphRendered = true;
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
         trackRenderTime('graph', this.$store.getters.isDisplayMode);
@@ -179,6 +200,7 @@ export default {
         // painted diagram rather than an empty container.
         EventBus.$emit('viewerRenderSettled', 'graph');
       } catch (e) {
+        this.graphRendered = false;
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
         if (this.isBoardMode) {
           this.failBoardLoad('board_document_malformed', e);
@@ -190,6 +212,35 @@ export default {
         // failure side; it must fire even though macro_viewed above did not.
         trackViewerRenderCrash('graph', this.$store.getters.isDisplayMode, e);
       }
+    },
+    // GraphViewer's built-in 'zoom' toolbar item does exactly this
+    // (viewer-static.min.js, addToolbar). We drive the same mxGraph calls from our
+    // own chip instead of enabling that toolbar, because `zoomEnabled` is derived
+    // from the toolbar config and flips GraphViewer into `resizeContainer = true`
+    // — the container would grow with every zoom step and push the page around,
+    // and the auto-refit that keeps a wide diagram fitted (ZEN-1168) is only
+    // installed while zoom is disabled.
+    zoomIn() {
+      this.graphViewer?.graph?.zoomIn();
+      this.updateCaptureBox();
+    },
+    zoomOut() {
+      this.graphViewer?.graph?.zoomOut();
+      this.updateCaptureBox();
+    },
+    /**
+     * Drag to pan. The graph is clipped by the container, so without this the only
+     * way to reach an off-screen corner of a zoomed-in diagram is the scrollbar
+     * GraphViewer's own size handler puts there.
+     */
+    enablePanning() {
+      const graph = this.graphViewer?.graph;
+      if (!graph?.panningHandler) return;
+      graph.setPanning(true);
+      graph.panningHandler.useLeftButtonForPanning = true;
+      // Panning starts only past mxGraph's drag tolerance, so a click still lands
+      // on the cell underneath and GraphViewer's link handling is unaffected.
+      graph.panningHandler.ignoreCell = true;
     },
     goToPage(index) {
       if (!this.graphViewer || index < 0 || index >= this.pageCount) return;
@@ -217,6 +268,12 @@ export default {
 </script>
 
 <style scoped>
+/* Positioning context for the floating zoom chip. No width/height of its own: the
+   canvas inside keeps sizing itself, which is what GraphViewer expects. */
+.graph-viewport {
+  position: relative;
+  width: 100%;
+}
 .graph-viewer-canvas {
   width: 100%;
   min-height: 0;

@@ -213,3 +213,99 @@ describe('reloadHostPage', () => {
     debug.mockRestore()
   })
 })
+
+describe('why it failed', () => {
+  // `result` is what the UI branches on; `reason` is what a spike in the
+  // readout can actually be acted on. One bucket over six causes is not.
+  beforeEach(() => {
+    requestConfluence.mockReset()
+    ;(forgeGlobal as any).forgeContext = { localId: LOCAL_ID, environmentId: ENV }
+  })
+
+  it('refuses without a resolvable macro key, and says so', async () => {
+    ;(forgeGlobal as any).forgeContext = { localId: 'not-an-ari' }
+    expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({
+      result: 'failed',
+      reason: 'unresolved_macro_key',
+    })
+    // No request was made, so there is no status to report.
+    expect(requestConfluence).not.toHaveBeenCalled()
+  })
+
+  it('separates a refused READ from a refused WRITE', async () => {
+    // A reader who cannot EDIT is the expected case the UI handles. A reader
+    // who cannot READ a page they are looking at is a different animal.
+    requestConfluence.mockResolvedValueOnce(res(403))
+    expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({
+      result: 'forbidden',
+      reason: 'read_forbidden',
+      status: 403,
+    })
+
+    requestConfluence.mockReset()
+    requestConfluence
+      .mockResolvedValueOnce(pageWith([]))
+      .mockResolvedValueOnce(res(403))
+    expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({
+      result: 'forbidden',
+      reason: 'write_forbidden',
+      status: 403,
+    })
+  })
+
+  it('carries the response code when the read or the write failed', async () => {
+    requestConfluence.mockResolvedValueOnce(res(502))
+    expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({
+      result: 'failed',
+      reason: 'page_read_failed',
+      status: 502,
+    })
+
+    requestConfluence.mockReset()
+    requestConfluence
+      .mockResolvedValueOnce(pageWith([]))
+      .mockResolvedValueOnce(res(500))
+    expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({
+      result: 'failed',
+      reason: 'page_write_failed',
+      status: 500,
+    })
+  })
+
+  it('tells a missing body apart from an unparsable one', async () => {
+    requestConfluence.mockResolvedValueOnce(res(200, { version: { number: 3 } }))
+    expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({
+      result: 'failed',
+      reason: 'page_body_missing',
+    })
+
+    requestConfluence.mockReset()
+    requestConfluence.mockResolvedValueOnce(
+      res(200, { version: { number: 3 }, body: { atlas_doc_format: { value: '{"type":"doc"}' } } }),
+    )
+    expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({
+      result: 'failed',
+      reason: 'page_body_unparsable',
+    })
+  })
+
+  it('reports an exception as its own reason', async () => {
+    requestConfluence.mockRejectedValueOnce(new Error('bridge down'))
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({
+      result: 'failed',
+      reason: 'threw',
+    })
+    err.mockRestore()
+  })
+
+  it('says nothing about a reason when nothing went wrong', async () => {
+    requestConfluence
+      .mockResolvedValueOnce(pageWith([]))
+      .mockResolvedValueOnce(res(200))
+    const ok = await addDiagramToPage('page-1', DIAGRAM)
+    expect(ok.result).toBe('added')
+    expect(ok.reason).toBeUndefined()
+    expect(ok.status).toBeUndefined()
+  })
+})

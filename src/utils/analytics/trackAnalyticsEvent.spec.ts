@@ -618,6 +618,64 @@ describe("trackAnalyticsEvent", () => {
     expect(properties).not.toHaveProperty("session_replay_start_call_outcome");
   });
 
+  it("starts replay before tracking an opened feedback report even when baseline replay is off", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-feedback",
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("feedback_report_opened", {
+      feature_area: "feedback",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(mixpanel.start_session_recording).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(mixpanel.track).mock.invocationCallOrder[0]);
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "feedback_report_opened",
+      expect.objectContaining({
+        macro_uuid: "macro-feedback",
+        session_replay_source: "feedback",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      })
+    );
+  });
+
+  it("still tracks feedback opening when replay startup throws", async () => {
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+    vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => {
+      throw new Error("recorder unavailable");
+    });
+
+    await _awaitableTrackAnalyticsEvent("feedback_report_opened", {
+      feature_area: "feedback",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "feedback_report_opened",
+      expect.objectContaining({
+        session_replay_start_call_outcome: "threw",
+      })
+    );
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "feedback");
+    expect(properties).not.toHaveProperty("session_replay_percent", 100);
+  });
+
   it("forces replay when macro creation starts", async () => {
     // Authoring replay is sampled; pin the draw inside the rate so this test
     // asserts the recording path rather than the coin flip.

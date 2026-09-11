@@ -30,6 +30,7 @@ export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
+  | "markdown"
   | "graph"
   | "openapi"
   | "asyncapi"
@@ -49,6 +50,7 @@ export type Surface =
   | "modal"
   | "page_banner"
   | "dashboard"
+  | "get_started"
   | "route"
   // Byline activation nudge. MUST be passed explicitly on every activation_*/
   // byline_* event: the dialog runs in a contentBylineItem iframe where
@@ -65,6 +67,7 @@ export type Surface =
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
+  | "png_export"
   // The contentBylineItem modal. Confluence boots this iframe only when the
   // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
   // the variants that ship it), so every event carrying this surface is a
@@ -190,12 +193,14 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
+// `feedback` records the explicit start requested by the Feedback trigger.
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
   | "plan_usage_page"
   | "fullscreen"
+  | "feedback"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues
@@ -224,7 +229,26 @@ export type CreateNotFoundShape = "bare_not_found" | "container_not_found" | "ot
 /** Outcome of the operations probe behind save_failed_diagnosed. */
 export type SaveFailureProbeStatus = "ok" | "page_unreachable" | "failed";
 
+/** How an optional screenshot was added to an in-product support request. */
+export type FeedbackCaptureMethod = "current_view" | "upload";
+
+/** Why an opened feedback dialog closed without a successful submission. */
+export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
+
+/** Observable outcome when the saved report hands off to public support. */
+export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
+
 export type AnalyticsEventName =
+  // Markdown: debounced document render starts/completes in editor or viewer.
+  // Properties: feature_area=content, macro_type=markdown, source_length,
+  // markdown_mermaid_blocks, markdown_failed_blocks. Never include source.
+  | "markdown_render_requested"
+  | "markdown_render_succeeded"
+  | "markdown_render_failed"
+  // First transition from Mermaid seeds an untouched Markdown buffer.
+  // Existing macro_type_changed tracks every tab selection; normal macro
+  // create/edit/publish lifecycle events track persistence outcomes.
+  | "markdown_seeded_from_mermaid"
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
   // is sent. Editor entries must emit the event from the iframe that owns the
@@ -466,6 +490,25 @@ export type AnalyticsEventName =
   | "csat_submitted"
   | "csat_dismissed"
   | "feedback_link_clicked"
+  // In-product feedback funnel. feedback_report_opened fires as the surface
+  // trigger opens the dialog, after requesting Session Replay, and carries
+  // session_replay_source=feedback plus the synchronous SDK call outcome.
+  // Events before feedback_report_submit_requested
+  // contain interaction context only: never description, screenshot bytes,
+  // diagram source, or any other draft report content. The report payload is
+  // allowed to leave the iframe only after the user explicitly presses Send.
+  | "feedback_report_opened"
+  | "feedback_report_capture_requested"
+  | "feedback_report_capture_succeeded"
+  | "feedback_report_capture_failed"
+  | "feedback_report_capture_removed"
+  | "feedback_report_submit_requested"
+  | "feedback_report_submit_succeeded"
+  | "feedback_report_submit_failed"
+  | "feedback_report_handoff_requested"
+  | "feedback_report_handoff_opened"
+  | "feedback_report_handoff_blocked"
+  | "feedback_report_dismissed"
   | "graph_editor_init_empty"
   // Graph (DrawIO) Diagram/Board chrome switch. Same mxfile, two DrawIO
   // chromes: `diagram` is the existing Atlas/standard embed; `board` is
@@ -706,7 +749,30 @@ export type AnalyticsEventName =
   //                       the notice reaches every reader, and a reader is not
   //                       always an author. The UI falls back to the link.
   //   'conflict'        — the page changed under us twice; we do not force.
-  //   'failed'          — anything else, including an unreadable page body.
+  //   'failed'          — anything else. `failure_reason` says which, because
+  //                       one bucket covering six causes cannot be acted on:
+  //                       a Confluence 5xx, a page shape we cannot parse and a
+  //                       macro key we refused to guess need different fixes.
+  //
+  // `failure_reason` narrows 'forbidden' and 'failed' to the step that produced
+  // them. `http_status` carries the response code where there was one.
+  //   'read_forbidden'        — the page GET was refused. Rarer and stranger
+  //                             than the write case: this user cannot even READ
+  //                             a page they are looking at.
+  //   'write_forbidden'       — the page PUT was refused. The expected refusal:
+  //                             the notice reaches every reader, and a reader is
+  //                             not always an author.
+  //   'unresolved_macro_key'  — appId/envId or the macro key could not be
+  //                             resolved, so no safe extensionKey exists. We
+  //                             refuse rather than render an unknown extension
+  //                             on a customer's page. Any volume here is a
+  //                             platform change and this feature is dead until
+  //                             it is fixed.
+  //   'page_read_failed'      — the GET was not ok, with `http_status`.
+  //   'page_body_missing'     — no ADF body or no usable version number.
+  //   'page_body_unparsable'  — the body did not parse as a doc with content.
+  //   'page_write_failed'     — the PUT was not ok, with `http_status`.
+  //   'threw'                 — an exception, already logged to the console.
   //
   // A material 'forbidden' share means the banner is reaching the wrong
   // audience and the button should be gated rather than offered-then-refused.

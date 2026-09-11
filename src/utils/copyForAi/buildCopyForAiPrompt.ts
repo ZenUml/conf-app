@@ -18,8 +18,8 @@
 // properties (src/utils/analytics/types.ts) — UTF-8 byte length, not JS
 // string .length, so multibyte content (e.g. CJK) isn't undercounted.
 
-export type CopyForAiDslLabel = 'ZenUML' | 'Mermaid' | 'PlantUML'
-export type CopyForAiFenceLang = 'zenuml' | 'mermaid' | 'plantuml'
+export type CopyForAiDslLabel = 'ZenUML' | 'Mermaid' | 'PlantUML' | 'Markdown'
+export type CopyForAiFenceLang = 'zenuml' | 'mermaid' | 'plantuml' | 'markdown'
 
 // The split button's five job-framed menu entries, plus 'generic' — the
 // original one-click primary segment's wording. Only the preamble (the

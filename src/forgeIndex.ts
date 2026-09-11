@@ -1,3 +1,4 @@
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
@@ -90,6 +91,12 @@ async function initializeCriticalPath() {
   // extension.modal (when there isn't a real modal) doesn't have it.
   const context = await initForgeContext();
   const isOpenedModal = !!context.extension?.modal?.macroMode;
+
+  if (context.extension?.modal?.macroMode === 'feedback') {
+    const { mountFeedbackModal } = await import('@/features/feedback/mountFeedback');
+    mountFeedbackModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
 
   // Check if this is a global settings route (get started page)
   if (!isOpenedModal && context.extension?.type === 'confluence:globalSettings') {
@@ -254,7 +261,8 @@ async function initializeCriticalPath() {
 }
 
 // Load heavy components asynchronously
-async function loadHeavyComponents(criticalData: { macroData: any }) {
+async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandled?: boolean }) {
+  if (criticalData.feedbackHandled) return;
   // Dynamically import heavy dependencies
   const [
     { mountRoot }
@@ -675,7 +683,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // (Sequence is the dominant legacy shape), then mermaidCode,
         // then plantUmlCode. Default to Sequence for empty objects.
         const VALID_DIAGRAM_TYPES: ReadonlyArray<DiagramType> = [
-          DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+          DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown,
         ];
         const storedTypeIsValid = restored.diagramType
           && VALID_DIAGRAM_TYPES.includes(restored.diagramType);
@@ -1157,9 +1165,16 @@ async function main() {
   const criticalData = await initializeCriticalPath();
 
   // Phase 2: Load heavy components
-  loadHeavyComponents(criticalData).catch(e =>
-    console.error('Failed to load heavy components:', e)
-  );
+  try {
+    await loadHeavyComponents(criticalData);
+    if (!criticalData.feedbackHandled) {
+      const context = await initForgeContext();
+      const { installFeedbackHost } = await import('@/features/feedback/mountFeedback');
+      installFeedbackHost(context);
+    }
+  } catch (e) {
+    console.error('Failed to load heavy components:', e);
+  }
 }
 
 export default main()
@@ -1381,7 +1396,7 @@ EventBus.$on('save', async () => {
   // attachment_not_found. At save the user has write permission (no 403) and the
   // content is known, so we can write it directly.
   //
-  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml) only —
+  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml/markdown) only —
   // it's the one editor with a capturable preview (.screen-capture-content).
   // graph/openapi editors have no diagram to snapshot here (tracked separately).
   //
@@ -1390,11 +1405,11 @@ EventBus.$on('save', async () => {
   // exceeds the cap or throws, we proceed to submit anyway — the view-time path
   // remains as a backfill.
   const savedDiagramType = store.state.diagram.diagramType;
-  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml')) {
+  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml' || savedDiagramType === 'markdown')) {
     try {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await Promise.race([
-        createAttachmentIfContentChanged(store.state.diagram.code ?? '', savedDiagramType, {
+        createAttachmentIfContentChanged(getDiagramData(store.state.diagram), savedDiagramType, {
           customContentId: String(id),
           fromSave: true,
         }),

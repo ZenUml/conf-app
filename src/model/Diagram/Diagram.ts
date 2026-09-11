@@ -10,6 +10,7 @@ export enum DataSource {
 export enum DiagramType {
   Sequence = 'sequence',
   Mermaid = 'mermaid',
+  Markdown = 'markdown',
   PlantUml = 'plantuml',
   Graph = 'graph',
   OpenApi = 'OpenAPI',
@@ -51,6 +52,8 @@ export class Diagram {
   title?: string = '';
   styles?: object = {};
   mermaidCode?: string = '';
+  // Undefined means the Markdown tab has never been opened; empty is intentional.
+  markdownCode?: string;
   plantUmlCode?: string = '';
   graphXml?: string = '';
   /**

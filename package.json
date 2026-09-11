@@ -94,6 +94,7 @@
     "@heroicons/vue": "^2.2.0",
     "@lezer/highlight": "^1.2.1",
     "@lezer/lr": "^1.4.2",
+    "@mermaid-js/mermaid-zenuml": "1.0.0",
     "@sentry/cloudflare": "^9.5.0",
     "@sindresorhus/slugify": "3.0.0",
     "@vitejs/plugin-vue": "^6.0.2",

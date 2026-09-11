@@ -34,9 +34,16 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  FeedbackCaptureMethod,
+  FeedbackDismissReason,
+  FeedbackHandoffOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  /** Markdown render outcomes; counts only, never document contents. */
+  markdown_mermaid_blocks?: number;
+  markdown_failed_blocks?: number;
+  source_length?: number;
   // Required at call site
   feature_area: FeatureArea;
   surface: Surface;
@@ -71,9 +78,10 @@ export type AnalyticsProperties = {
   to_macro_type?: MacroTypeValue;
   type_requested?: boolean;
   // Session Replay policy. `macro_create_started` / `macro_edit_started` set
-  // source=authoring and percent=100 after the SDK start call returns. The call
-  // outcome is intentionally distinct from actual capture: only a later
-  // `$mp_replay_id` proves that the recorder became active.
+  // source=authoring; the Feedback trigger sets source=feedback. Both record
+  // the synchronous SDK start-call outcome. That outcome is intentionally
+  // distinct from actual capture: only a later `$mp_replay_id` proves that the
+  // recorder became active.
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
@@ -224,6 +232,14 @@ export type AnalyticsProperties = {
   // Feedback
   feedback_score?: number;
   feedback_text?: string;
+  // In-product support request funnel. These properties describe interaction
+  // state only. Never add description text, screenshot bytes, diagram source,
+  // or other report content to analytics.
+  host_module?: string;
+  feedback_capture_method?: FeedbackCaptureMethod;
+  feedback_has_screenshot?: boolean;
+  feedback_dismiss_reason?: FeedbackDismissReason;
+  feedback_handoff_outcome?: FeedbackHandoffOutcome;
   // Content
   content_id?: string;
   content_type?: string;
@@ -417,6 +433,15 @@ export type AnalyticsProperties = {
   // Confluence page load, so it is a page-weight number as much as ours — read
   // against REVEAL_TTL_MS, which is what a slower page would have exceeded.
   reveal_age_ms?: number;
+  // diagram_added_to_page: which step produced a 'forbidden' or 'failed'
+  // result. `result` alone is a bucket — 'failed' covers a Confluence 5xx, an
+  // unparsable page body and a macro key we refused to guess, which need
+  // different fixes and would otherwise be indistinguishable in the readout.
+  failure_reason?: string;
+  // The response code behind a failure_reason that came from an HTTP call
+  // ('page_read_failed', 'page_write_failed'). Absent for the others, which
+  // never made a request that returned one.
+  http_status?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser

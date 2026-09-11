@@ -1,6 +1,6 @@
 import type { Args, Meta, StoryObj } from '@storybook/vue3-vite'
 import { onMounted, ref } from 'vue'
-import { expect, userEvent, within } from 'storybook/test'
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 import ExportModal from './ExportModal.vue'
 
 type Story = StoryObj<typeof ExportModal>
@@ -15,9 +15,13 @@ const meta: Meta<typeof ExportModal> = {
     docs: {
       description: {
         component:
-          'Full-screen export modal with a live preview pane (left) and a settings sidebar (right). ' +
-          'The modal captures the diagram via html-to-image when opened, lets the user adjust background ' +
-          'and annotations, then downloads a PNG. Use the `visible` prop to show/hide it.',
+          'Full-screen export modal. One column, not two: ExportModal.vue mounts only ExportWorkspace, ' +
+          'whose root is a flex column — a 56px toolbar carrying the background, annotation tools and ' +
+          'Copy / Download image actions, over a centred preview stage. Annotation properties appear in ' +
+          'a floating panel over the preview, shown only while something is selected, not in a standing ' +
+          'sidebar; the left-pane / right-sidebar split belonged to ExportPreview.vue and ' +
+          'ExportSidebar.vue, which nothing mounts any more. The modal captures the diagram via ' +
+          'html-to-image when opened, then downloads a PNG. Use the `visible` prop to show/hide it.',
       },
     },
   },
@@ -227,7 +231,14 @@ export const NoteColorPalette: Story = {
     await userEvent.click(color)
     await userEvent.click(await canvas.findByRole('menuitem', { name: 'Blue' }))
     await expect(canvas.getByRole('button', { name: 'Annotation color' })).toHaveAttribute('aria-expanded', 'false')
-    await expect(document.querySelector('.rendered-annotations text[fill="#2563eb"]')).not.toBeNull()
+    // `.rendered-annotations` only exists once the html-to-image capture resolves
+    // (ExportWorkspace.vue gates it on `state.previewDataUrl`), while the colour
+    // control is live as soon as the note is selected. A bare query races that.
+    await waitFor(() => {
+      if (!document.querySelector('.rendered-annotations text[fill="#2563eb"]')) {
+        throw new Error('note text not recoloured in the rendered preview yet')
+      }
+    })
   },
 }
 
@@ -363,8 +374,9 @@ export const CloseAndReopen: Story = {
 }
 
 /**
- * Exporting in progress — the Download PNG button shows a spinner and
- * "Exporting…" label while the file is being generated and saved.
+ * Exporting in progress. The spinner and "Exporting…" text are a separate
+ * `role="status"` element in the toolbar, not a label on the button: the
+ * Download image button only goes disabled while `busy` is true.
  */
 export const Exporting: Story = {
   name: 'Exporting (in progress)',

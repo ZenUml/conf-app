@@ -198,7 +198,7 @@ export function startEditorMutationSession(
   activeSession = null;
   if (
     config.operationMode !== 'edit'
-    || !['sequence', 'mermaid', 'plantuml'].includes(config.macroType)
+    || !['sequence', 'mermaid', 'plantuml', 'markdown'].includes(config.macroType)
   ) return;
 
   activeSession = {

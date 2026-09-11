@@ -19,6 +19,7 @@ Bob --&gt; Alice: Hi there!
 <script>
 import { plantumlEncode } from '@/utils/plantuml/encode';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
+import { normalizePlantUmlSvg } from '@/utils/plantuml/normalizeSvg';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import globals from '@/model/globals';
 import EventBus from '@/EventBus';
@@ -115,7 +116,7 @@ export default {
           if (!response.ok) {
             throw new Error(`PlantUML server returned ${response.status}`);
           }
-          return await response.text();
+          return normalizePlantUmlSvg(await response.text());
         });
         if (!this.initialRenderTracked) {
           this.initialRenderTracked = true;

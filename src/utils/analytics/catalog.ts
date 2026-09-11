@@ -525,11 +525,16 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
-  // Mermaid viewport controls in fullscreen, normal viewer, and editor preview.
-  // Fires for the two discrete toolbar
-  // actions only; wheel/pan/pinch are deliberately not emitted because their
-  // high-frequency callbacks would create noisy, expensive event streams.
-  | "mermaid_viewport_control_used"
+  // Diagram viewport (pan/zoom) controls in fullscreen, normal viewer, and editor
+  // preview. `macro_type` says which renderer the toolbar was driving. Fires for
+  // the two discrete toolbar actions only; wheel/pan/pinch are deliberately not
+  // emitted because their high-frequency callbacks would create noisy, expensive
+  // event streams.
+  //
+  // Renamed 2026-09-11 from `mermaid_viewport_control_used`, which shipped with
+  // the mermaid-only viewport and carries ~2 days of data. The property shape is
+  // unchanged, so a report spanning the rename has to union both names.
+  | "viewport_control_used"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).

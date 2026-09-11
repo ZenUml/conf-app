@@ -218,7 +218,7 @@ export default {
       if (width > 0) this.$refs.viewport.style.height = `${width / this.inlineViewportAspectRatio}px`;
     },
     trackViewportAction(viewportAction) {
-      trackAnalyticsEvent('mermaid_viewport_control_used', {
+      trackAnalyticsEvent('viewport_control_used', {
         feature_area: 'macro',
         surface: this.viewportSurface,
         macro_type: 'mermaid',

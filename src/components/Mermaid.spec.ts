@@ -285,7 +285,7 @@ describe('Mermaid fullscreen viewport controls', () => {
     expect(panZoomInstanceMock.zoomOut).toHaveBeenCalledTimes(zoomOutCalls + 1);
     expect(panZoomInstanceMock.zoomIn).toHaveBeenCalledTimes(zoomInCalls + 1);
     expect(panZoomInstanceMock.reset).toHaveBeenCalled();
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_viewport_control_used', {
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', {
       feature_area: 'macro',
       surface: 'fullscreen',
       macro_type: 'mermaid',

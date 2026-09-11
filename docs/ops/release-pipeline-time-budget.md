@@ -42,7 +42,7 @@ Release run, [34594289094](https://github.com/ZenUml/conf-app/actions/runs/34594
 
 | Change | Where | Expected saving | Evidence |
 |---|---|---|---|
-| Studio build cache in the deploy jobs (lite, asyncapi) | `staging-deploy.yml`, `release.yml` | ~2m off Deploy: Lite and off the release deploy gate | Lite vs Full Cloudflare step: 198s vs 80s |
+| Studio build cache in the deploy jobs (lite, asyncapi) | `staging-deploy.yml`, `release.yml` | **measured −1m29s**: Deploy: Lite 5m20s → 3m51s on branch run [34645121026](https://github.com/ZenUml/conf-app/actions/runs/34645121026) (Cloudflare step 198s → 101s, cache hit); the release deploy gate pays the same step | Lite vs Full Cloudflare step before: 198s vs 80s |
 | Auth bootstrap at t=0 per site, handed to suites as `auth-artifact` | `e2e-auth.yml` (new), `build-test-deploy.yml`, `e2e-test.yml` | ~1m50s (78s queue + 36s job) | job timings above |
 | E2E no longer `needs: build`; drafts do | `build-test-deploy.yml` | keeps the 3m30s build job off the path once Deploy: Lite is under it | |
 | Lite insert suite 8 shards instead of 5 | `build-test-deploy.yml` | shard 1 5m12s → heaviest shard ~3m (est.) | `--list --shard=N/8`, layout in the job comment |
@@ -53,8 +53,10 @@ Release run, [34594289094](https://github.com/ZenUml/conf-app/actions/runs/34594
 | AsyncAPI suite 3 shards, not 5 | `build-test-deploy.yml` | none on the path; two empty runners gone | `--list --shard=N/5` gave 4/0/2/3/0 |
 
 Expected main build after all of the above, if the estimates hold: Deploy:
-Lite ~3m20s → shards start at once → heaviest shard ~3m → draft ≈ **7
-min**, from 13m26s. Release deploy gate ≈ **3m30s**, from 5m24s. Confirm on the
+Lite 3m51s (measured) → shards start at once → heaviest shard ~3m → draft ≈
+**7–7.5 min**, from 13m26s. Note the build job took 3m19s on the same run:
+with Deploy: Lite at 3m51s the two are now within 30s of each other, which is
+why the E2E no longer waits on `build`. Release deploy gate ≈ **3m30s**, from 5m24s. Confirm on the
 first green main run after merge and replace the estimates above with the
 measured figures.
 

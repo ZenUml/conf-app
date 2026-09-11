@@ -78,6 +78,18 @@ place (Update-Dashboard cell update keeps the bookmark id). Rebuilt 30d totals f
 4,761 → 4,419 (**93%**). Any saved report that still names `macro_edit_opened` reads flat, not
 broken — check the step names before proposing a product mechanism.
 
+Two more facts from the same investigation. **The default 7-day conversion window hides the
+loss:** with totals counting, a user who reopens and saves days later converts the stale entry.
+Customers-only, 1-hour window, 30d to 2026-09-11: 3,866 → 3,209 (**83%**); graph **64%**, openapi
+**67%**, plantuml 86%, mermaid 87%, sequence 92%. Internal domains convert at 100% and, on graph,
+outnumber customer edits ~2:1, so an unfiltered graph funnel is mostly E2E traffic. And **the
+drop-off had no explaining event**: `macro_edit_cancelled` fired 0 times in the 12 weeks to
+2026-09-11 (it was reachable only from a discard dialog behind a removed exit button), while
+`paywall_blocked_edit` accounts for ~7% of Lite customer edit sessions. From the build carrying
+`src/utils/analytics/editorCloseOutcome.ts`, `macro_edit_cancelled` / `macro_create_cancelled`
+fire on the Atlassian modal X (`close_source`, `had_changes`, `editor_open_duration_ms`); before
+it, treat the event as absent, not as zero cancellations.
+
 ## The 2026-09 AI-title event rename
 
 `ai_generation_requested` / `ai_generation_succeeded` / `ai_generation_failed` were renamed to

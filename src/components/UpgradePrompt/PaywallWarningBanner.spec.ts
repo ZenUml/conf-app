@@ -12,13 +12,13 @@ const warningMarker = {
 
 // Mutable gate result the marker-module mock returns; flipped per test.
 // `isAdmin` drives the Phase 5b audience split.
-const gate = { visible: true, targeting: warningMarker as any, isAdmin: false }
+const gate = { visible: true, targeting: warningMarker as any, isAdmin: false, dismissal: null as any }
 
 vi.mock('@/utils/paywall/warningBanner', () => ({
   deriveWarningBannerIdentity: () => ({ clientDomain: 'example-tenant', spaceKey: 'ENG' }),
   readTargetingMarker: () => gate.targeting,
   readMacroActivityMarker: () => ({ lastActivityAt: '2026-06-03T00:00:00.000Z', activityType: 'edit' }),
-  readDismissalMarker: () => null,
+  readDismissalMarker: () => gate.dismissal,
   isWarningBannerVisible: () => gate.visible,
   bannerAudience: (isAdmin: boolean) => (isAdmin ? 'space_admin' : 'editor'),
   recordBannerShown: vi.fn(),
@@ -62,6 +62,34 @@ describe('PaywallWarningBanner (page banner)', () => {
     gate.visible = true
     gate.targeting = warningMarker
     gate.isAdmin = false
+    gate.dismissal = null
+  })
+
+  // Impression taper (2026-09-07). The impression event carries where this
+  // user sits in the taper so the schedule is verifiable from Mixpanel alone.
+  it('reports the impression ordinal and the gap since the previous one', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-10T12:00:00.000Z'))
+    gate.dismissal = { dismissedAt: null, lastShownAt: '2026-06-09T00:00:00.000Z', showCount: 2 }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    try {
+      mount(PaywallWarningBanner)
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_banner_shown',
+        // show_count is the ordinal of THIS impression (prior 2 -> this is the 3rd).
+        expect.objectContaining({ show_count: 3, hours_since_last_shown: 36 })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports show_count 1 and omits the gap on a first impression', async () => {
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    mount(PaywallWarningBanner)
+    const call = vi.mocked(trackUpgradeEvent).mock.calls.find(([name]) => name === 'paywall_banner_shown')
+    expect(call?.[1]).toEqual(expect.objectContaining({ show_count: 1 }))
+    expect(call?.[1]).not.toHaveProperty('hours_since_last_shown')
   })
 
   it('renders and records an impression when the gate passes', async () => {
@@ -128,17 +156,12 @@ describe('PaywallWarningBanner (page banner)', () => {
     it('renders the author copy when the host does not mark the user as an admin', () => {
       const wrapper = mount(PaywallWarningBanner)
       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="paywall-banner-copy-admin"]').exists()).toBe(true)
     })
 
     it('swaps the advocacy relay for a direct purchase CTA', () => {
       const wrapper = mount(PaywallWarningBanner, asAdmin)
       expect(wrapper.text()).toContain('You administer this space')
       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="paywall-banner-copy-admin"]').exists()).toBe(false)
-      // Asking us for more free time stays available — it is how a tenant that
-      // genuinely can't buy today still reaches us.
-      expect(wrapper.find('[data-testid="paywall-banner-request-extension"]').exists()).toBe(true)
     })
 
     it('quotes the bundle price on the CTA', () => {

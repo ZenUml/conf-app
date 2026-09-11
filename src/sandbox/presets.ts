@@ -3,7 +3,14 @@ export interface SandboxPreset {
   label: string;
   group: 'Sequence' | 'Graph' | 'OpenAPI' | 'Embed' | 'Paywall';
   moduleKey: string;
-  macroMode: 'editor' | 'viewer';
+  /**
+   * 'fullscreen' is the Forge fullscreen modal — a viewer surface, not an
+   * authoring one (ApWrapper2.isDisplayMode() returns true for it). It needs
+   * its own value because the standalone context shape matches neither of the
+   * other two: 'viewer' has no extension.modal at all, and 'editor' sets
+   * macro.isConfiguring.
+   */
+  macroMode: 'editor' | 'viewer' | 'fullscreen';
   diagramType: string;
   customContentId?: string;
   /**
@@ -22,6 +29,18 @@ export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
     group: 'Sequence',
     moduleKey: 'zenuml-sequence-macro',
     macroMode: 'viewer',
+    diagramType: 'sequence',
+    customContentId: 'fake-content-id-diagram-sequence',
+  },
+  // The fullscreen modal had no local repro until the Fullscreen Viewer v2
+  // redesign needed one: its chrome, canvas and byline placement all differ
+  // from the inline macro's, and none of that is reachable from 'seq-view'.
+  'seq-fullscreen': {
+    id: 'seq-fullscreen',
+    label: 'Sequence – Fullscreen viewer',
+    group: 'Sequence',
+    moduleKey: 'zenuml-sequence-macro',
+    macroMode: 'fullscreen',
     diagramType: 'sequence',
     customContentId: 'fake-content-id-diagram-sequence',
   },
@@ -51,6 +70,15 @@ export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
     diagramType: 'mermaid',
     customContentId: 'fake-content-id-diagram-mermaid',
   },
+  'mermaid-fullscreen': {
+    id: 'mermaid-fullscreen',
+    label: 'Mermaid – Fullscreen viewer',
+    group: 'Sequence',
+    moduleKey: 'zenuml-sequence-macro',
+    macroMode: 'fullscreen',
+    diagramType: 'mermaid',
+    customContentId: 'fake-content-id-diagram-mermaid',
+  },
   'mermaid-edit': {
     id: 'mermaid-edit',
     label: 'Mermaid – Editor',
@@ -60,12 +88,34 @@ export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
     diagramType: 'mermaid',
     customContentId: 'fake-content-id-diagram-mermaid',
   },
+  'plantuml-fullscreen': {
+    id: 'plantuml-fullscreen',
+    label: 'PlantUML – Fullscreen viewer',
+    group: 'Sequence',
+    moduleKey: 'zenuml-sequence-macro',
+    macroMode: 'fullscreen',
+    diagramType: 'plantuml',
+    customContentId: 'fake-content-id-diagram-plantuml',
+  },
   'graph-view': {
     id: 'graph-view',
     label: 'Graph – Viewer',
     group: 'Graph',
     moduleKey: 'zenuml-graph-macro',
     macroMode: 'viewer',
+    diagramType: 'graph',
+    customContentId: 'fake-content-id-diagram-graph',
+  },
+  // Fullscreen counterparts of the two viewers that reach GenericViewer
+  // through a wrapper (ForgeGraphViewer.vue / OpenApiViewer.vue). Their
+  // fullscreen chrome — the diagram-type chip in particular — has no other
+  // local repro, for the same reason 'seq-fullscreen' exists.
+  'graph-fullscreen': {
+    id: 'graph-fullscreen',
+    label: 'Graph – Fullscreen viewer',
+    group: 'Graph',
+    moduleKey: 'zenuml-graph-macro',
+    macroMode: 'fullscreen',
     diagramType: 'graph',
     customContentId: 'fake-content-id-diagram-graph',
   },
@@ -84,6 +134,15 @@ export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
     group: 'OpenAPI',
     moduleKey: 'zenuml-openapi-macro',
     macroMode: 'viewer',
+    diagramType: 'openapi',
+    customContentId: 'fake-content-id-diagram-openapi',
+  },
+  'openapi-fullscreen': {
+    id: 'openapi-fullscreen',
+    label: 'OpenAPI – Fullscreen viewer',
+    group: 'OpenAPI',
+    moduleKey: 'zenuml-openapi-macro',
+    macroMode: 'fullscreen',
     diagramType: 'openapi',
     customContentId: 'fake-content-id-diagram-openapi',
   },

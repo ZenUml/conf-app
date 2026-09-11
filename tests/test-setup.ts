@@ -1,6 +1,11 @@
 // Global mocks for tests
 import { vi } from 'vitest';
 
+// React 18's concurrent root APIs require test environments to declare that
+// updates are wrapped in act(). The React-specific specs do that explicitly.
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
+  .IS_REACT_ACT_ENVIRONMENT = true;
+
 // @forge/bridge bootstraps a connection to the Atlassian custom UI bridge at
 // module-load time. In jsdom that throws "Unable to establish a connection",
 // which fails any spec that transitively imports from it (Header.vue,

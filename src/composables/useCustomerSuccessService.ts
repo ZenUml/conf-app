@@ -49,17 +49,13 @@ export function useCustomerSuccessService() {
     return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
   })
 
-  const shouldBlockActions = computed(() => {
-    if (spacePaidStatus.value) {
-      // READ BY docs/reference/paid-space-detection.md:31,103
-      console.log('✅ Space is paid - bypassing all restrictions')
-      return false
-    }
-
-    const isLite = globals.apWrapper.isLite()
-    const shouldBlock = macrosCreated.value >= MACROS_LIMIT && customerSuccessServiceEnabled.value && isLite
-    return shouldBlock
-  })
+  // Retired 2026-09: the paywall no longer blocks editing at any macro count.
+  // Over-limit spaces are nudged via PaywallWarningBanner (non-blocking,
+  // dismiss-for-7-days) instead of the PaywallGate modal. Kept as a computed
+  // (rather than deleting the predicate/mount plumbing) because the
+  // replacement Plan-and-usage / Request-Full flow may reintroduce a gate
+  // here later — see the paywall redesign spec, item 1.
+  const shouldBlockActions = computed(() => false)
 
   const severity = computed(() => {
     if (macrosCreated.value >= MACROS_LIMIT) return 'critical'

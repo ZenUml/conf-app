@@ -27,7 +27,7 @@ app:
     key: ${CONNECT_KEY}
     remote: connect
   runtime:
-    name: nodejs22.x
+    name: nodejs24.x
   # Licensing: Enabled for Full and Diagramly (paid apps)
   # CI/CD removes this block for Lite only via: yq eval 'del(.app.licensing)' -i manifest.yml
   licensing:
@@ -485,6 +485,17 @@ modules:
       route: zenuml-dashboard
       resolver:
         endpoint: remote-connect
+    # Lite paywall redesign phase 2: site-level usage + Request-Full entry
+    # point (spec: banner -> "Plan and usage"). Shares `resource: main` /
+    # `resolver: remote-connect` with zenuml-dashboard-page above — discriminated
+    # client-side by moduleKey (same pattern as the three contentBylineItem
+    # entries below). Lite-only for now, same as the paywall itself.
+    - key: zenuml-plan-usage-page
+      resource: main
+      title: Plan and usage
+      route: zenuml-plan-usage
+      resolver:
+        endpoint: remote-connect
   confluence:pageBanner:
     - key: zenuml-page-banner
       resource: main
@@ -495,6 +506,30 @@ modules:
       # because every macro module already declares this same binding.
       resolver:
         endpoint: remote-connect
+    # The unplaced-diagram notice: a diagram saved on this page that no macro on
+    # it renders. Its own module rather than a fourth branch of the host above,
+    # because THIS one can be gated server-side.
+    #
+    # `entityPropertyExists` is evaluated by Confluence BEFORE the module
+    # renders, so on a page with no unplaced diagram the iframe is never
+    # created — no boot, no request, no reserved slot to collapse. The host
+    # above cannot do that: paywall and CSAT targeting live in localStorage,
+    # which Confluence cannot see, so it must boot to decide.
+    #
+    # The property is written by the byline (src/utils/byline/
+    # unplacedProperty.ts) and deleted by it — or by this banner — once the
+    # diagrams are placed. Key templated like every other per-variant key:
+    # content properties are site-global across apps, so an unsuffixed key
+    # would let Full's banner boot on a property Lite wrote. Keep it in
+    # lockstep with UNPLACED_PROPERTY_KEY.
+    - key: zenuml-unplaced-banner
+      resource: main
+      resolver:
+        endpoint: remote-connect
+      displayConditions:
+        entityPropertyExists:
+          entity: content
+          propertyKey: zenuml-unplaced-diagrams${LITE_KEY_SUFFIX}
   # End-user entry point on the Confluence Home page (right side panel). The
   # confluence:globalSettings "Get Started" page above is admin-only — end
   # users never open global settings — so this is the only onboarding surface

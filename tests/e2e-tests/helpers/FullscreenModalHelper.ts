@@ -87,26 +87,46 @@ export async function expectFullscreenLayout(
   const viewport = page.viewportSize();
   if (!viewport) throw new Error('expectFullscreenLayout: viewport size is unknown');
 
-  const modalRect = await modal.evaluate(el => {
+  const readRect = async (locator: Locator) => locator.evaluate(el => {
     const r = el.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height, top: r.top, left: r.left, right: r.right, bottom: r.bottom } as DOMRect;
   });
-  const iframeRect = await iframe.evaluate(el => {
-    const r = el.getBoundingClientRect();
-    return { x: r.x, y: r.y, width: r.width, height: r.height, top: r.top, left: r.left, right: r.right, bottom: r.bottom } as DOMRect;
-  });
+
+  // The bridge modal fades/scales in on open (Atlassian's own dialog chrome).
+  // toBeVisible() above only requires non-zero size — it returns mid-transition,
+  // where getBoundingClientRect() briefly reports a shrunk-and-offset rect (e.g.
+  // x=17..21 instead of 0, observed on lite-stg 2026-09-03). Poll for the rect
+  // to settle at the final viewport-covering geometry instead of measuring once.
+  await expect.poll(async () => {
+    const r = await readRect(modal);
+    return Math.abs(Math.round(r.x)) <= 1;
+  }, { timeout: 5_000 }).toBe(true);
+
+  const modalRect = await readRect(modal);
+  const iframeRect = await readRect(iframe);
+
+  // ±1px tolerance: sub-pixel layout (fractional devicePixelRatio scaling,
+  // font-hinting-driven rounding) can genuinely put getBoundingClientRect()
+  // one px off an exact integer between otherwise-identical runs — observed
+  // on lite-stg 2026-09-03 (modalRect.width 1279 vs viewport.width 1280 on
+  // one run, 1280 on the next, same test, same machine). A ±1px window
+  // still catches a real layout regression (which is off by double digits
+  // or more) while not flaking on browser sub-pixel rounding.
+  const near = (actual: number, expected: number) => Math.abs(Math.round(actual) - expected) <= 1;
+  const msg = (label: string) =>
+    `${label}: modalRect=${JSON.stringify(modalRect)} iframeRect=${JSON.stringify(iframeRect)} viewport=${JSON.stringify(viewport)} headerPx=${headerPx}`;
 
   // Modal occupies entire viewport.
-  expect(Math.round(modalRect.x)).toBe(0);
-  expect(Math.round(modalRect.y)).toBe(0);
-  expect(Math.round(modalRect.width)).toBe(viewport.width);
-  expect(Math.round(modalRect.height)).toBe(viewport.height);
+  expect(near(modalRect.x, 0), msg('modalRect.x')).toBe(true);
+  expect(near(modalRect.y, 0), msg('modalRect.y')).toBe(true);
+  expect(near(modalRect.width, viewport.width), msg('modalRect.width')).toBe(true);
+  expect(near(modalRect.height, viewport.height), msg('modalRect.height')).toBe(true);
 
   // Iframe sits below header, full viewport width, fills the rest vertically.
-  expect(Math.round(iframeRect.x)).toBe(0);
-  expect(Math.round(iframeRect.y)).toBe(headerPx);
-  expect(Math.round(iframeRect.width)).toBe(viewport.width);
-  expect(Math.round(iframeRect.height)).toBe(viewport.height - headerPx);
+  expect(near(iframeRect.x, 0), msg('iframeRect.x')).toBe(true);
+  expect(near(iframeRect.y, headerPx), msg('iframeRect.y')).toBe(true);
+  expect(near(iframeRect.width, viewport.width), msg('iframeRect.width')).toBe(true);
+  expect(near(iframeRect.height, viewport.height - headerPx), msg('iframeRect.height')).toBe(true);
 
   return { modalRect, iframeRect, viewport };
 }
@@ -216,8 +236,16 @@ export async function readCodeMirrorContent(page: Page): Promise<string> {
 export async function expectPublishButtonState(
   page: Page,
   expected: 'enabled' | 'disabled',
+  options: { nested?: 'drawio' } = {},
 ): Promise<void> {
-  const frame = modalContentFrame(page, 'edit');
+  // CAVEAT (graph/DrawIO only): the Publish button lives in DrawIO's OWN
+  // nested iframe, not the outer Forge editor iframe — same nesting
+  // clickEditorPublish() already accounts for via { nested: 'drawio' }.
+  // Looking for it in the outer frame (the pre-existing default) finds
+  // nothing at all for graph, which is why graph-create:3/:4 failed with
+  // "toBeVisible failed" rather than a real enabled/disabled mismatch.
+  const outerFrame = modalContentFrame(page, 'edit');
+  const frame = options.nested === 'drawio' ? outerFrame.locator('iframe').contentFrame() : outerFrame;
   const btn = frame.locator('button:has-text("Publish")').first();
   await expect(btn).toBeVisible();
   if (expected === 'enabled') {

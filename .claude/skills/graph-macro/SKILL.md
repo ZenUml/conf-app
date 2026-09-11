@@ -138,6 +138,11 @@ Runs after **any** of A / E1 / E2 / E3 leaves `[data-testid="custom-ui-modal-dia
 
 The paywall fires at editor **entry**, not at Publish. Handle it before drilling.
 
+> **Retired 2026-09:** the Lite paywall block described below no longer fires (`shouldBlockActions`
+> is hardcoded `false` — see the `paywall` skill's retirement notice). Step 3 ("If absent") is now
+> the only reachable outcome; keep this step for regression coverage, but do not spend time chasing
+> `paywall_triggered` if it is missing — it no longer emits.
+
 1. Inside the Forge iframe, check for `[data-testid="continue-editing-btn"]` with a short timeout (~2 s — the overlay mounts synchronously with the editor).
 2. **If present** (`paywall_observed = yes`):
    - Capture the most recent `paywall_triggered` event from `api.mixpanel.com` to record `action_type` (`page_editor` for edit-blocked, `page_editor_create` for create-blocked). The skill only drives the editor surface, so `fullscreen_viewer` should never appear here — if it does, flag it as an anomaly in the report.

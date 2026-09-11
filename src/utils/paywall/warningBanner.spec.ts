@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   RECENT_MACRO_ACTIVITY_WINDOW_MS,
   WARNING_BANNER_SUPPRESSION_MS,
+  BANNER_TAPER_DAILY_GAP_MS,
+  BANNER_TAPER_WEEKLY_GAP_MS,
   targetingMarkerKey,
   dismissalMarkerKey,
   macroActivityMarkerKey,
@@ -142,6 +144,66 @@ describe('visibility gate', () => {
   it('returns after the snooze window elapses (problem still unsolved)', () => {
     const dismissedAt = new Date(now - (WARNING_BANNER_SUPPRESSION_MS + 1000)).toISOString()
     expect(isWarningBannerVisible(warning, { dismissedAt, lastShownAt: null, showCount: 1 }, recentActivity, now)).toBe(true)
+  })
+})
+
+// Impression taper (2026-09-07). Before this, the only suppression was the
+// 7-day snooze after an explicit dismiss; a user who never clicked × saw the
+// banner on every page load (median 16, p90 121 impressions per user in 30d).
+// Now the gap between impressions grows with showCount: 1st immediately, 2nd
+// and 3rd at least 24h apart, 4th onwards at least 7 days apart.
+describe('visibility gate — impression taper', () => {
+  const now = Date.parse('2026-06-10T00:00:00.000Z')
+  const shownAgo = (ms: number, showCount: number) => ({
+    dismissedAt: null,
+    lastShownAt: new Date(now - ms).toISOString(),
+    showCount,
+  })
+
+  it('shows the 1st impression immediately (no dismissal marker at all)', () => {
+    expect(isWarningBannerVisible(warning, null, recentActivity, now)).toBe(true)
+  })
+
+  it('hides the 2nd impression when the 1st was less than 24h ago', () => {
+    expect(isWarningBannerVisible(warning, shownAgo(BANNER_TAPER_DAILY_GAP_MS - 1000, 1), recentActivity, now)).toBe(false)
+  })
+
+  it('shows the 2nd impression once 24h have passed', () => {
+    expect(isWarningBannerVisible(warning, shownAgo(BANNER_TAPER_DAILY_GAP_MS, 1), recentActivity, now)).toBe(true)
+  })
+
+  it('shows the 3rd impression once 24h have passed since the 2nd', () => {
+    expect(isWarningBannerVisible(warning, shownAgo(BANNER_TAPER_DAILY_GAP_MS, 2), recentActivity, now)).toBe(true)
+  })
+
+  it('hides the 4th impression when the 3rd was only 2 days ago', () => {
+    expect(isWarningBannerVisible(warning, shownAgo(2 * BANNER_TAPER_DAILY_GAP_MS, 3), recentActivity, now)).toBe(false)
+  })
+
+  it('shows the 4th impression once 7 days have passed', () => {
+    expect(isWarningBannerVisible(warning, shownAgo(BANNER_TAPER_WEEKLY_GAP_MS, 3), recentActivity, now)).toBe(true)
+  })
+
+  it('keeps the weekly gap for every later impression (e.g. the 50th)', () => {
+    expect(isWarningBannerVisible(warning, shownAgo(6 * BANNER_TAPER_DAILY_GAP_MS, 49), recentActivity, now)).toBe(false)
+    expect(isWarningBannerVisible(warning, shownAgo(BANNER_TAPER_WEEKLY_GAP_MS, 49), recentActivity, now)).toBe(true)
+  })
+
+  it('fails open when a legacy marker has a showCount but no lastShownAt', () => {
+    expect(isWarningBannerVisible(warning, { dismissedAt: null, lastShownAt: null, showCount: 5 }, recentActivity, now)).toBe(true)
+  })
+
+  it('applies the same taper to the space-admin audience', () => {
+    expect(isWarningBannerVisible(warning, shownAgo(2 * BANNER_TAPER_DAILY_GAP_MS, 3), null, now, true)).toBe(false)
+    expect(isWarningBannerVisible(warning, shownAgo(BANNER_TAPER_WEEKLY_GAP_MS, 3), null, now, true)).toBe(true)
+  })
+
+  it('after the 7-day snooze elapses, the weekly taper (not the snooze) governs', () => {
+    // Dismissed 8 days ago, last shown 8 days ago, 3 prior impressions:
+    // snooze is over AND the weekly gap is met -> shows.
+    const eightDays = WARNING_BANNER_SUPPRESSION_MS + BANNER_TAPER_DAILY_GAP_MS
+    const marker = { ...shownAgo(eightDays, 3), dismissedAt: new Date(now - eightDays).toISOString() }
+    expect(isWarningBannerVisible(warning, marker, recentActivity, now)).toBe(true)
   })
 })
 

@@ -37,6 +37,21 @@ import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextP
 
 /** Snooze window for a dismissed warning banner. */
 export const WARNING_BANNER_SUPPRESSION_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * Impression taper (2026-09-07). Until this landed the only suppression was the
+ * snooze above, so anyone who never clicked × saw the banner on every page load
+ * of the space — median 16, p90 121 impressions per user in the 30 days to
+ * 2026-09-07. The gap between impressions now grows with `showCount`:
+ *   1st            — immediately
+ *   2nd, 3rd       — at least BANNER_TAPER_DAILY_GAP_MS after the previous one
+ *   4th onwards    — at least BANNER_TAPER_WEEKLY_GAP_MS after the previous one
+ * i.e. at most ~7 impressions per person per month. Dismissal still applies its
+ * own 7-day snooze on top; once that elapses the weekly gap governs.
+ */
+export const BANNER_TAPER_DAILY_GAP_MS = 24 * 60 * 60 * 1000
+export const BANNER_TAPER_WEEKLY_GAP_MS = 7 * 24 * 60 * 60 * 1000
+/** Impressions (inclusive) that only need the daily gap; the next one needs weekly. */
+export const BANNER_TAPER_DAILY_SHOWS = 3
 export const RECENT_MACRO_ACTIVITY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 export const PAYWALL_BANNER_MIN_MACRO_COUNT = 100
 
@@ -268,7 +283,22 @@ export function isWarningBannerVisible(
       return false
     }
   }
-  return true
+  return isTaperGapMet(dismissal, now)
+}
+
+/**
+ * Impression-taper check (see BANNER_TAPER_* above). Fails OPEN when the marker
+ * has no usable `lastShownAt` — a legacy marker written before the taper, or a
+ * corrupt timestamp — because a missing record of the last impression is not
+ * evidence the user was just shown the banner.
+ */
+export function isTaperGapMet(dismissal: DismissalMarker | null, now: number = Date.now()): boolean {
+  if (!dismissal || dismissal.showCount <= 0 || !dismissal.lastShownAt) return true
+  const lastShownMs = Date.parse(dismissal.lastShownAt)
+  if (!Number.isFinite(lastShownMs)) return true
+  const requiredGap =
+    dismissal.showCount < BANNER_TAPER_DAILY_SHOWS ? BANNER_TAPER_DAILY_GAP_MS : BANNER_TAPER_WEEKLY_GAP_MS
+  return now - lastShownMs >= requiredGap
 }
 
 /** localStorage-backed gate used by the forgeIndex fast-exit and the CSAT defer

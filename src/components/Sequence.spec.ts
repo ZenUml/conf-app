@@ -124,3 +124,34 @@ describe('Sequence render-failure telemetry', () => {
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
 });
+
+// 2026-09-01 replay (v2026.08.310610-lite): the user picked a Mermaid starter
+// template while the ZenUML core chunk was still loading. Sequence.vue then
+// ran `new ZenUml(this.$refs.zenuml)` against an unmounted component — the
+// ref is null, React's createRoot throws #299, and viewer_load_failed fires
+// for a macro that was never going to be a sequence diagram (36 events / 22
+// users in the 30 days to 2026-09-08). Unmounting during the chunk load must
+// be a silent no-op.
+describe('Sequence unmounted while ZenUML core is still loading', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    zenumlInstance.render.mockReset().mockResolvedValue(undefined);
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Sequence,
+      code: 'A.method()',
+    };
+  });
+
+  it('neither constructs ZenUML nor fires viewer_load_failed when unmounted before the chunk resolves', async () => {
+    const wrapper = mount(Sequence, { global: { plugins: [store] } });
+    // Unmount synchronously: `await loadZenUml()` has not resolved yet.
+    wrapper.unmount();
+    // Let the dynamic import and any follow-up microtasks settle.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(ZenUmlCtor).not.toHaveBeenCalled();
+    expect(zenumlInstance.render).not.toHaveBeenCalled();
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+});

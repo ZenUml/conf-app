@@ -1,6 +1,6 @@
-import React from "react";
-import ReactDOM from "react-dom";
-import { act, Simulate } from "react-dom/test-utils";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AIChatPanel from "./AIChatPanel";
 import { runAIChatSession } from "@/services/AIChatSessionService";
@@ -34,10 +34,12 @@ const initialVersion = {
 
 describe("React AIChatPanel core flow", () => {
   let container: HTMLDivElement;
+  let root: Root | null;
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
+    root = createRoot(container);
     vi.mocked(trackAnalyticsEvent).mockClear();
     vi.mocked(runAIChatSession).mockReset();
     vi.mocked(getDiagramlyVersions).mockReset();
@@ -49,7 +51,9 @@ describe("React AIChatPanel core flow", () => {
   });
 
   afterEach(() => {
-    ReactDOM.unmountComponentAtNode(container);
+    if (root) {
+      act(() => root?.unmount());
+    }
     container.remove();
   });
 
@@ -65,7 +69,7 @@ describe("React AIChatPanel core flow", () => {
       ...overrides,
     };
     act(() => {
-      ReactDOM.render(<AIChatPanel {...props} />, container);
+      root!.render(<AIChatPanel {...props} />);
     });
     return props;
   }
@@ -676,8 +680,9 @@ describe("React AIChatPanel core flow", () => {
 
     submit("Update twice");
     act(() => {
-      ReactDOM.unmountComponentAtNode(container);
+      root!.unmount();
     });
+    root = null;
     expect(signals[1].aborted).toBe(true);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_prompt_cancelled",

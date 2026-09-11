@@ -35,9 +35,16 @@ import type {
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
   AuthoringOutcome,
+  FeedbackCaptureMethod,
+  FeedbackDismissReason,
+  FeedbackHandoffOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  /** Markdown render outcomes; counts only, never document contents. */
+  markdown_mermaid_blocks?: number;
+  markdown_failed_blocks?: number;
+  source_length?: number;
   // Required at call site
   feature_area: FeatureArea;
   surface: Surface;
@@ -54,6 +61,9 @@ export type AnalyticsProperties = {
   // customContentId, or the custom-content GET failed), recorded explicitly
   // rather than omitted.
   macro_type?: MacroTypeValue;
+  // Mermaid pan/zoom toolbar. This is the user's explicit control
+  // intent, not every intermediate wheel, drag, or pinch callback.
+  viewport_action?: "zoom_in" | "zoom_out";
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;
@@ -69,9 +79,10 @@ export type AnalyticsProperties = {
   to_macro_type?: MacroTypeValue;
   type_requested?: boolean;
   // Session Replay policy. `macro_create_started` / `macro_edit_started` set
-  // source=authoring and percent=100 after the SDK start call returns. The call
-  // outcome is intentionally distinct from actual capture: only a later
-  // `$mp_replay_id` proves that the recorder became active.
+  // source=authoring; the Feedback trigger sets source=feedback. Both record
+  // the synchronous SDK start-call outcome. That outcome is intentionally
+  // distinct from actual capture: only a later `$mp_replay_id` proves that the
+  // recorder became active.
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
@@ -195,6 +206,10 @@ export type AnalyticsProperties = {
     | "adf_rewrite"
     | "page_update"
     | "report";
+  // PlantUML paste normalisation (conf-app#632)
+  diagrams_pasted?: number;
+  paste_truncated?: boolean;
+
   // AI
   prompt_length?: number;
   generation_source?: string;
@@ -218,6 +233,14 @@ export type AnalyticsProperties = {
   // Feedback
   feedback_score?: number;
   feedback_text?: string;
+  // In-product support request funnel. These properties describe interaction
+  // state only. Never add description text, screenshot bytes, diagram source,
+  // or other report content to analytics.
+  host_module?: string;
+  feedback_capture_method?: FeedbackCaptureMethod;
+  feedback_has_screenshot?: boolean;
+  feedback_dismiss_reason?: FeedbackDismissReason;
+  feedback_handoff_outcome?: FeedbackHandoffOutcome;
   // Content
   content_id?: string;
   content_type?: string;
@@ -297,6 +320,13 @@ export type AnalyticsProperties = {
   // users reached on the 'editor' gate across 19 CSS tenants, against 5,021
   // unique space admins already loading the banner iframe unreached.
   banner_audience?: 'editor' | 'space_admin';
+  // Impression taper (2026-09-07), on every page-banner event. `show_count` is
+  // the 1-based ordinal of the CURRENT impression for this browser+tenant+space
+  // (prior showCount + 1); `hours_since_last_shown` is the whole-hour gap since
+  // the previous impression and is absent on a first impression. Together they
+  // verify the 1 / 24h / 24h / 7d schedule from Mixpanel alone.
+  show_count?: number;
+  hours_since_last_shown?: number;
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
@@ -386,7 +416,53 @@ export type AnalyticsProperties = {
   // pasted. Read against `diagram_count` from the same event. Deliberately
   // absent rather than 0 when the ADF could not be read: "scanned, found none"
   // and "could not scan" must not collapse into the same number.
+  // Also carried by unplaced_banner_evaluated / _shown, where it is the
+  // VERIFIED count from that load's own ADF scan — not the marker's stored
+  // one, which may name diagrams the user has since pasted.
   unplaced_count?: number;
+  // unplaced_banner_evaluated. Date.now() − the updatedAt of whichever RECORD
+  // admitted the load — the content property on the gated path, the localStorage
+  // marker on the fallback (`unplaced_source` says which). Named for the marker
+  // because that store came first; it measures the same thing either way: how
+  // long ago the byline last observed these diagrams unplaced. Read against
+  // `result`, it says how quickly a stale record is discovered — a large age on
+  // an 'all_placed' result means we kept paying for the verification scan long
+  // after the user fixed the page.
+  unplaced_marker_age_ms?: number;
+  // diagram_revealed: how long between the surface requesting the reveal (just
+  // before it reloaded the page) and the macro claiming it. Spans a full
+  // Confluence page load, so it is a page-weight number as much as ours — read
+  // against REVEAL_TTL_MS, which is what a slower page would have exceeded.
+  reveal_age_ms?: number;
+  // diagram_added_to_page: which step produced a 'forbidden' or 'failed'
+  // result. `result` alone is a bucket — 'failed' covers a Confluence 5xx, an
+  // unparsable page body and a macro key we refused to guess, which need
+  // different fixes and would otherwise be indistinguishable in the readout.
+  failure_reason?: string;
+  // The response code behind a failure_reason that came from an HTTP call
+  // ('page_read_failed', 'page_write_failed'). Absent for the others, which
+  // never made a request that returned one.
+  http_status?: number;
+  // Which store armed the unplaced banner. 'property' is the Confluence content
+  // property — cross-user, and gated server-side by displayConditions, so the
+  // iframe only boots on pages that have it. 'marker' is the per-browser
+  // localStorage fallback, used when the property write was denied.
+  //
+  // Read as a ratio this is the health of the whole cross-user path: a rising
+  // 'marker' share means property writes are failing in the field and the
+  // banner has quietly degraded to creator-only reach.
+  unplaced_source?: 'property' | 'marker';
+  // unplaced_banner_evaluated, result 'yielded'. Which higher-priority banner
+  // took the page instead. Two Confluence modules render two iframes, so this
+  // notice stands down rather than stack — and the count says how often the
+  // page's one banner slot was already spoken for, which is the only way to
+  // tell "nobody sees this" apart from "nobody has unplaced diagrams".
+  suppressed_by?: 'paywall' | 'paywall-admin' | 'csat';
+  // diagram_added_to_page. How many macros the page already carried when the
+  // one-click place ran. Read with `result`: a page at the Lite limit is the
+  // case where placing a diagram and hitting the paywall collide, and this is
+  // the only number that would show it.
+  page_macro_count?: number;
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).
@@ -517,6 +593,14 @@ export type AnalyticsProperties = {
   has_arrow?: boolean;
   has_callout?: boolean;
   has_watermark?: boolean;
+  has_rectangle?: boolean;
+  annotation_count?: number;
+  annotation_type?: 'note' | 'arrow' | 'callout' | 'rectangle' | 'watermark';
+  annotation_change?: 'move' | 'resize' | 'text' | 'style';
+  // export_annotation_tool_clicked (ExportPreview.vue). Which annotation tool
+  // the user reached for. Fired on activation only, not on turning a tool back
+  // off: the intent is already recorded by then.
+  tool?: 'arrow' | 'callout' | 'note' | 'rectangle' | 'watermark';
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.

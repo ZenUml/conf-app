@@ -24,6 +24,7 @@ import {
   expectBannerAbsent,
   expectCsatAbsent,
   armCsatPending,
+  ageLastImpression,
 } from '../../helpers/pageBanner.js';
 
 // The Forge macro iframe. Its presence guarantees an app-origin
@@ -88,21 +89,17 @@ test.describe.serial('Paywall page banner', () => {
   // gates, and Mixpanel assertions — lives in the `pvt-paywall-banner` skill as
   // a production-verification recipe.
 
-  test('hard limit: banner renders with the count and both CTAs work', async ({ page, context }) => {
+  test('hard limit: banner renders with the count and the primary CTA opens Plan and usage', async ({ page }) => {
     await showWarningBanner(page);
     const frame = await pageBannerFrame(page);
     await expect(frame.getByTestId('paywall-warning-banner')).toContainText('101 of 100');
-    await expect(frame.getByTestId('paywall-banner-request-extension')).toBeVisible();
+    await expect(frame.getByTestId('paywall-banner-plan-usage')).toBeVisible();
 
-    // Copy admin message → button swaps its testid to paywall-banner-copied ("✓ Copied").
-    await frame.getByTestId('paywall-banner-copy-admin').click();
-    await expect(frame.getByTestId('paywall-banner-copied')).toBeVisible({ timeout: 5_000 });
-
-    // Request extension → openUrl()/router.open() opens the Service Desk in a new tab.
-    const popupPromise = context.waitForEvent('page', { timeout: 15_000 });
-    await frame.getByTestId('paywall-banner-request-extension').click();
-    const popup = await popupPromise;
-    await expect.poll(() => popup.url()).toMatch(/servicedesk|customer\/portal/i);
+    // navigateToAppPage() uses router.navigate(), which reloads the top-level
+    // Confluence page in place (no new tab) — unlike the retired
+    // Request-extension/Copy-admin-message CTAs, which opened a popup/clipboard.
+    await frame.getByTestId('paywall-banner-plan-usage').click();
+    await page.waitForURL(/zenuml-plan-usage/, { timeout: 15_000 });
   });
 
   test('dismiss snoozes — banner gone after reload despite the warning marker', async ({ page }) => {
@@ -119,11 +116,22 @@ test.describe.serial('Paywall page banner', () => {
     await expectBannerAbsent(page);
   });
 
-  test('single host: paywall outranks CSAT (no stacking)', async ({ page }) => {
-    // Hard-limit state makes paywall eligible; arm a fresh CSAT trigger too. The single
-    // host must render ONLY the paywall banner — proving the #202 consolidation.
+  test('impression taper, then single host: paywall outranks CSAT (no stacking)', async ({ page }) => {
     await showWarningBanner(page);
+
+    // Taper (2026-09-07): a 2nd impression inside 24h of the 1st is suppressed.
+    // Nothing else is armed yet, so the host closes its iframe outright — which is
+    // what expectBannerAbsent asserts. (Arming CSAT before this reload would make
+    // the survey take the slot and the iframe stay visible; CI 2026-09-06.)
+    await page.reload();
+    await page.waitForTimeout(6_000);
+    await expectBannerAbsent(page);
+
+    // Now arm CSAT and age the 1st impression past the 24h gap: paywall is
+    // eligible again, and the single host must render ONLY the paywall banner —
+    // the #202 consolidation.
     await armCsatPending(page);
+    await ageLastImpression(page, 25);
     await page.reload();
     await page.waitForTimeout(6_000);
     await expect((await pageBannerFrame(page)).getByTestId('paywall-warning-banner')).toBeVisible({

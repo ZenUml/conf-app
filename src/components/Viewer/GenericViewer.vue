@@ -10,22 +10,35 @@
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
     <template v-if="!isDisplayMode || hideHeader">
-      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
+      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
         <slot></slot>
       </div>
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
-        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': showAgentLinkPanel}">
+        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
           <div class="viewer-edge-top">
             <div class="viewer-title-area">
+              <!-- Fullscreen diagram-type chip (Fullscreen Viewer v2). Read-only
+                   type indicator, NOT the editor's TabSwitcher: this surface has
+                   no type to switch to, and TabSwitcher.vue writes the user's
+                   preferred type to localStorage on click. Renders the same
+                   pixels the design system's TabSwitcher produces when handed a
+                   single active tab (tray + accent-tinted pill). Inline macros
+                   keep their current title row untouched. -->
+              <span v-if="fullscreenTypeChip" class="viewer-type-chip-tray" data-testid="viewer-type-chip">
+                <span class="viewer-type-chip" :class="`viewer-type-chip--${fullscreenTypeChip.id}`">
+                  <span class="viewer-type-chip-dot" aria-hidden="true"></span>
+                  {{ fullscreenTypeChip.label }}
+                </span>
+              </span>
               <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
               <LiveBadge
                 v-if="showAgentLinkBadge"
@@ -79,7 +92,8 @@
                 aria-label="Source"
                 title="View source"
                 data-testid="view-source-btn"
-                @click="openViewSource"
+                :aria-expanded="showSourcePanel ? 'true' : 'false'"
+                @click="toggleViewSource"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
@@ -161,7 +175,7 @@
                     </span>
                   </span>
                 </button>
-                <CopyForAiMenu @select="copyForAi" @opened="onCopyForAiMenuOpened" />
+                <CopyForAiMenu ref="copyForAiMenu" @select="copyForAi" @opened="onCopyForAiMenuOpened" />
                 <!-- Mintlify-style inline feedback: the button's own label already
                      shows Copying…/Copied/Copy failed/Nothing to copy visibly, but a
                      visually-hidden live region also announces the terminal states
@@ -256,7 +270,7 @@
                 </button>
               </div>
             </div>
-            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
+            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
               <slot></slot>
             </div>
             <div
@@ -316,7 +330,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.933 2.185 2.25 2.25 0 0 0-3.933-2.185Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
                 </svg>
               </button>
-              <button @click="showExportModal = true" title="Export PNG" aria-label="Export PNG" class="viewer-pill-btn">
+              <button @click="openExport" title="Export PNG" aria-label="Export PNG" class="viewer-pill-btn">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                 </svg>
@@ -361,7 +375,12 @@
              in the Fullscreen modal. See connectToAgent()'s comment: this
              panel is driven by ITS OWN useAgentLinkSession() instance
              (a fresh Vue app boot inside the Fullscreen modal's iframe). -->
-        <aside v-if="showAgentLinkPanel" class="agent-link-rail" data-testid="agent-link-fullscreen-rail">
+        <aside
+          v-if="showAgentLinkPanel"
+          class="agent-link-rail"
+          :class="{'agent-link-rail--collapsed': !agentLinkRailReserved}"
+          data-testid="agent-link-fullscreen-rail"
+        >
           <ConnectPanel
             :state="agentLinkState"
             :token="agentLinkToken"
@@ -390,11 +409,15 @@
     </template>
 
   <ExportModal
+    ref="exportModal"
     :visible="showExportModal"
+    :capture-ready="!isExportEntryModal || exportPreviewReady"
     :macro-type="diagramType"
     :capture-node-getter="getCaptureNode"
+    :diagram-source="viewSourceCode"
     :diagram-title="title"
-    @close="showExportModal = false"
+    :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+    @close="onExportModalClose"
   />
 </div>
 </template>
@@ -447,6 +470,16 @@ function isMermaidSequenceSource(source) {
   return /^\s*\uFEFF?\s*(?:---(?:\r?\n)[\s\S]*?(?:\r?\n)---\s*)?(?:(?:%%[^\r\n]*)(?:\r?\n|$)\s*)*sequenceDiagram(?:\s|$)/.test(source ?? '')
 }
 
+/**
+ * Last-resort floor for an export-entry Fullscreen open. Every renderer now
+ * reports readiness — 'diagramLoaded' from the text-DSL viewers,
+ * 'viewerRenderSettled' from Graph and OpenAPI — so this fires only when a
+ * renderer never reports at all (a crashed DrawIO boot, a SwaggerUI throw).
+ * Long enough that a slow-but-working render reports first: DrawIO's own boot
+ * measured ~6s on production (MEMORY reference_graph_macro_load_anatomy).
+ */
+const EXPORT_AUTO_OPEN_FALLBACK_MS = 15000;
+
 export default {
   name: "GenericViewer",
   // hideEdit: callers that render a reference to content they shouldn't edit
@@ -458,6 +491,10 @@ export default {
     canUserEdit: true,
     isHovering: false,
     showExportModal: false,
+    // Export-entry auto-open bookkeeping (see mounted / openExportOnce).
+    exportAutoOpened: false,
+    exportAutoOpenTimer: null,
+    exportPreviewReady: false,
     showSourcePanel: false,
     isDownloadingDebug: false,
     // Copy for AI inline feedback state machine (Mintlify-style — replaces the
@@ -542,6 +579,12 @@ export default {
     isFullscreenMode() {
       return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
     },
+    // This modal was opened BY Export PNG (forgeIndex's fullscreen handler puts
+    // the flag in the modal context), not by someone asking for Fullscreen.
+    isExportEntryModal() {
+      return this.isFullscreenMode
+        && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport === true;
+    },
     // Mermaid-only fullscreen fix. In the fullscreen modal `wide` is false (it's
     // wired to autoResize), so the frame is .viewer-frame--auto (width: fit-content).
     // ONLY mermaid breaks there: its SVG is width:100% with no intrinsic px, so in a
@@ -550,7 +593,7 @@ export default {
     // centered via fit-content — forcing THEM wide would left-align them. So only widen
     // the frame for mermaid; everything else keeps its centered fit-content behavior.
     isWide() {
-      return this.wide || (this.isFullscreenMode && this.diagramType === DiagramType.Mermaid);
+      return this.diagramType === DiagramType.Markdown || this.wide || (this.isFullscreenMode && this.diagramType === DiagramType.Mermaid);
     },
     isEmbedded() {
       const moduleKey = window.forgeGlobal?.forgeContext?.moduleKey || ''
@@ -625,7 +668,7 @@ export default {
     // View Source (#333): text-DSL types only. NOT gated on canUserEdit — the
     // audience includes readers without edit permission.
     showViewSource() {
-      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
     },
     copyForAiImpressionEligible() {
       return this.copyForAiPermissionResolved
@@ -634,11 +677,36 @@ export default {
         && !this.isLoadFailed
         && this.showViewSource;
     },
+    // Fullscreen-only diagram-type indicator (Fullscreen Viewer v2). Fullscreen
+    // drops Edit and Fullscreen from the action row and the Confluence modal
+    // owns the close button, so the header has room the inline macro doesn't —
+    // and unlike the inline macro, whose Confluence context surrounds it, the
+    // fullscreen modal is the whole screen with nothing else naming the type.
+    // Only the five types the accent system defines (colors_and_type.css's
+    // --accent-<sequence|mermaid|plantuml|drawio|openapi>-* ramps, which the
+    // design's TABS map names one-for-one). Graph and OpenAPI reach this
+    // component through ForgeGraphViewer.vue / OpenApiViewer.vue, which wrap
+    // GenericViewer for their own chrome, so the chip names them on the same
+    // fullscreen surface. AsyncAPI and Embed have no accent and get no chip
+    // rather than an invented one.
+    fullscreenTypeChip() {
+      if (!this.isFullscreenMode) return null;
+      switch (this.diagramType) {
+        case DiagramType.Sequence: return { id: 'sequence', label: 'Sequence' };
+        case DiagramType.Markdown: return { id: 'markdown', label: 'Markdown' };
+        case DiagramType.Mermaid: return { id: 'mermaid', label: 'Mermaid' };
+        case DiagramType.PlantUml: return { id: 'plantuml', label: 'PlantUML' };
+        case DiagramType.Graph: return { id: 'graph', label: 'Graph' };
+        case DiagramType.OpenApi: return { id: 'openapi', label: 'OpenAPI' };
+        default: return null;
+      }
+    },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
     },
     viewSourceDslLabel() {
       switch (this.diagramType) {
+        case DiagramType.Markdown: return 'Markdown';
         case DiagramType.Mermaid: return 'Mermaid';
         case DiagramType.PlantUml: return 'PlantUML';
         case DiagramType.Sequence:
@@ -651,6 +719,7 @@ export default {
     // non-text-DSL diagramType in practice.
     copyForAiFenceLang() {
       switch (this.diagramType) {
+        case DiagramType.Markdown: return 'markdown';
         case DiagramType.Mermaid: return 'mermaid';
         case DiagramType.PlantUml: return 'plantuml';
         case DiagramType.Sequence:
@@ -686,6 +755,39 @@ export default {
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+    },
+    // The fullscreen column is capped at 1000px so the byline under the diagram keeps a
+    // readable line length. That reasoning is about TEXT, so it holds for the types whose
+    // content is text the reader tracks line by line (sequence, openapi) and not for the
+    // rendered-picture types. Measured on lite-stg in a 1280px window:
+    // PlantUML hands back a fixed-size image (6228px on the #626 repro) that overflows
+    // the column and scrolls, so capping only makes it scroll sooner; Graph scales to its
+    // container (a 1008px board drawn into exactly 1000px), so capping only makes it
+    // smaller. Both spend the window's remaining ~230px on nothing. .viewer-footer-row
+    // keeps the cap, so the byline stays readable — it just no longer shares the
+    // diagram's right edge, which an overflowing diagram does not have on screen anyway.
+    //
+    // Mermaid was grouped with the text types here and left capped. That was a misread:
+    // a mermaid flowchart is a rendered picture, not lines of text a reader tracks, and
+    // it behaves exactly like Graph — normalizeSvgSizing hands it width:100% with
+    // max-width at the diagram's natural width, so it scales DOWN into whatever column
+    // it is given, and the viewer has no zoom control to win that size back. Measured in
+    // a 1920px window: the mermaid column was 1000px where PlantUML got 1864px, so a
+    // diagram wider than 1000px was shrunk while 920px of the window sat empty
+    // (ZEN-1207). Uncapped it draws at its natural width and stops there.
+    fullscreenUncappedDiagram() {
+      if (!this.isFullscreenMode) return false;
+      return [DiagramType.PlantUml, DiagramType.Graph, DiagramType.Mermaid].includes(this.diagramType);
+    },
+    // Whether the rail actually takes its 316px of the fullscreen width. ConnectPanel
+    // has no `idle` branch — before a session exists it renders nothing — and the only
+    // way to start one is the small-macro Connect button, which is hidden in
+    // fullscreen. Reserving the column anyway left a blank 332px strip beside the
+    // diagram, so a wide PlantUML diagram began scrolling long before it ran out of
+    // window. The aside stays mounted (it owns the session composable that hydrates
+    // an existing session on load); only its width collapses.
+    agentLinkRailReserved() {
+      return this.showAgentLinkPanel && this.agentLinkState !== 'idle';
     },
     // Fullscreen toolbar link-status chip (Track H). Same gating as the rail,
     // but only once a session actually exists (connected/suspended/closed/
@@ -818,6 +920,39 @@ export default {
     }));
   },
   async mounted() {
+    // Escape dismisses one layer at a time: the Copy-for-AI menu first, then
+    // the Source panel (Fullscreen Viewer v2). CopyForAiMenu.vue has its own
+    // document-level Escape handler and calls stopPropagation(), which does
+    // NOT stop a second listener on that same node — and because a child's
+    // mounted() runs before its parent's, the menu would already have set
+    // itself closed by the time this ran, so reading its state in the bubble
+    // phase can't distinguish "menu was open" from "menu was never open".
+    // Capture runs before either bubble listener, so the state read here is
+    // the state at keypress.
+    document.addEventListener('keydown', this.onEscapeKeydown, true);
+    // Export entry (see openExport): the modal was opened BY the Export PNG
+    // button, so the dialog opens here on arrival. On 'diagramLoaded', not on
+    // mount — the dialog captures its preview off the `visible` watcher, and
+    // at mount the renderer has not painted yet, so the user would land on a
+    // blank preview and a Refresh click. Graph and OpenAPI emit no such event;
+    // they keep the button.
+    if (this.isExportEntryModal) {
+      // Cover the ungated Fullscreen viewer immediately. Preview capture waits
+      // for the readiness signals below, but viewer-only controls must never be
+      // exposed during that wait.
+      this.showExportModal = true;
+      // Two readiness signals, one per renderer family: the text-DSL viewers
+      // emit 'diagramLoaded', Graph and OpenAPI emit 'viewerRenderSettled'
+      // once their own output has painted. The dialog captures its preview the
+      // moment it becomes visible, so opening before either would capture an
+      // empty container.
+      EventBus.$on('diagramLoaded', this.onDiagramLoadedOpenExport);
+      EventBus.$on('viewerRenderSettled', this.onDiagramLoadedOpenExport);
+      // Last resort, not the normal path: a renderer that never reports (a
+      // crashed DrawIO boot, a SwaggerUI that throws) would otherwise leave the
+      // user in Fullscreen with no dialog and no way to reach one.
+      this.exportAutoOpenTimer = setTimeout(this.openExportOnce, EXPORT_AUTO_OPEN_FALLBACK_MS);
+    }
     try {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
@@ -944,6 +1079,13 @@ export default {
     }
   },
   beforeUnmount() {
+    document.removeEventListener('keydown', this.onEscapeKeydown, true);
+    EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
+    EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
+    if (this.exportAutoOpenTimer) {
+      clearTimeout(this.exportAutoOpenTimer);
+      this.exportAutoOpenTimer = null;
+    }
     // Cleans up the storage-event listener + poll interval started by
     // watchForHandoff() above (no-op if it was never set up, e.g. flag-off
     // or non-fullscreen).
@@ -955,6 +1097,15 @@ export default {
     }
   },
   methods: {
+    // See the addEventListener comment in mounted() for why this is a
+    // capture-phase listener. Yields to the Copy-for-AI menu while it is open
+    // so one Escape dismisses one layer.
+    onEscapeKeydown(e) {
+      if (e.key !== 'Escape') return;
+      if (this.$refs.copyForAiMenu?.open) return;
+      if (!this.showSourcePanel) return;
+      this.showSourcePanel = false;
+    },
     // Export PNG (code review): give ExportModal the actual DOM node instead
     // of a global document.querySelector('.screen-capture-content'), which
     // only worked by the accident of exactly one copy ever being mounted at
@@ -1048,6 +1199,17 @@ export default {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
     },
+    // The Source button is a toggle: a second click closes the panel it opened
+    // (Fullscreen Viewer v2). Only the opening half is tracked —
+    // `viewer_source_opened` still counts one event per open, so the toggle
+    // does not change what the funnel measures.
+    toggleViewSource() {
+      if (this.showSourcePanel) {
+        this.showSourcePanel = false;
+        return;
+      }
+      this.openViewSource();
+    },
     // View Source panel (#333). Uses in-memory diagram DSL — no refetch.
     // Available to all viewers; do not gate on canUserEdit.
     openViewSource() {
@@ -1129,15 +1291,81 @@ export default {
       // screen — never before — and measures a real view-layer render_ms.
       this.$nextTick(() => this.agentLinkSession?.notifyRenderSettled());
     },
-    fullscreen() {
+    /**
+     * Export PNG's entry point. The dialog needs room the inline macro does not
+     * have: the iframe is 564x256 on production page 2774138946, which leaves
+     * the annotation controls in a 24px scroller over 312px of form. Rendering
+     * it in flow grows the iframe but then pushes the preview out of the
+     * viewport while those controls are edited, so the dialog opens on the
+     * surface that has room. In Fullscreen it is already there — open it in
+     * place rather than nesting another modal.
+     */
+    // Once. A later re-render (or the fallback timer firing after the event)
+    // must not reopen a dialog the user has closed.
+    openExportOnce() {
+      if (this.exportAutoOpened) return;
+      this.exportAutoOpened = true;
+      this.exportPreviewReady = true;
+      EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
+      EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
+      if (this.exportAutoOpenTimer) {
+        clearTimeout(this.exportAutoOpenTimer);
+        this.exportAutoOpenTimer = null;
+      }
+      this.showExportModal = true;
+    },
+    onDiagramLoadedOpenExport() {
+      this.openExportOnce();
+    },
+    /**
+     * An export-entry modal exists only to host the dialog. The route skips the
+     * fullscreen-viewer paywall (the user pressed Export PNG, which is ungated
+     * inline), so leaving the fullscreen viewer standing behind a dismissed
+     * dialog would hand a saturated Lite space a free read-only fullscreen
+     * viewer — exactly what that gate protects. Dismissing the dialog therefore
+     * leaves the modal. A dialog the user opened by hand inside Fullscreen just
+     * closes.
+     */
+    onExportModalClose() {
+      this.showExportModal = false;
+      if (this.isExportEntryModal) {
+        // A close before either readiness signal fired must permanently
+        // cancel the auto-open, not just hide the dialog once — otherwise a
+        // 'diagramLoaded'/'viewerRenderSettled' event still in flight (or the
+        // fallback timer) reopens the dialog the user just dismissed.
+        this.exportAutoOpened = true;
+        EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
+        EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
+        if (this.exportAutoOpenTimer) {
+          clearTimeout(this.exportAutoOpenTimer);
+          this.exportAutoOpenTimer = null;
+        }
+        EventBus.$emit('closeFullscreen');
+      }
+    },
+    openExport() {
+      if (this.isFullscreenMode) {
+        this.showExportModal = true;
+        return;
+      }
+      this.fullscreen({ openExport: true });
+    },
+    fullscreen(options = {}) {
+      const openExport = options.openExport === true;
       trackEvent('fullscreen', 'click', 'viewing');
       trackAnalyticsEvent('fullscreen_opened', {
         feature_area: 'macro',
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
-        entry_point: 'page_view',
+        entry_point: openExport ? 'export' : 'page_view',
       });
-      EventBus.$emit('fullscreen');
+      // Single-argument emit on the ordinary path: every existing listener and
+      // test treats `fullscreen` as a bare signal.
+      if (openExport) {
+        EventBus.$emit('fullscreen', { openExport: true });
+      } else {
+        EventBus.$emit('fullscreen');
+      }
     },
     showContentVersions() {
       trackEvent('show_content_versions', 'click', 'viewing');
@@ -1481,6 +1709,183 @@ export default {
 .viewer-frame--fullscreen .viewer-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .viewer-frame--fullscreen .viewer-surface { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .viewer-frame--fullscreen .viewer-canvas { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+
+/* ----- Fullscreen Viewer v2 ---------------------------------------------
+   Fullscreen is the surface where the diagram is the whole point, so its
+   chrome is designed rather than borrowed from the inline macro: a solid
+   56px header that always shows its actions, and the design system's cream
+   dot-grid canvas (--canvas-bg / --canvas-dot in colors_and_type.css; the
+   same pair Workspace.vue already paints in the editor) instead of the flat
+   white that made the diagram look like it had failed to load.
+
+   The ZenUML embed itself is deliberately untouched: @zenuml/core renders
+   the frame, its own bottom toolbar and the watermark as one unit, and this
+   redesign only changes what surrounds it and how much room it gets.
+
+   Everything here is scoped to --fullscreen. The inline macro's hover-quiet
+   chrome (transparent border, actions at opacity 0) is correct in a
+   Confluence page and is not changed. */
+.viewer-frame--fullscreen .viewer-edge-top {
+  flex-shrink: 0;
+  height: 56px;
+  padding: 0 20px;
+  border-bottom-color: #E5E7EB;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  /* Above the canvas, so the header's shadow falls onto the dot grid. */
+  position: relative;
+  z-index: 2;
+}
+/* Hover-to-reveal is an inline-macro affordance — it keeps a page of macros
+   quiet. In fullscreen the user opened this surface to act on the diagram,
+   and there is no page to keep quiet, so the actions are always present. */
+.viewer-frame--fullscreen .viewer-top-actions {
+  opacity: 1;
+  gap: 4px;
+}
+.viewer-frame--fullscreen .viewer-title {
+  font-size: 16px;
+}
+/* The design's header row is 12px-gapped; the inline macro's tighter 10px is
+   tuned for a row with no chip in it. */
+.viewer-frame--fullscreen .viewer-title-area {
+  gap: 12px;
+}
+
+/* Read-only diagram-type indicator. Reproduces what the design system's
+   TabSwitcher renders for a single active tab — tray plus accent-tinted
+   pill — without the editor TabSwitcher's click-to-switch behaviour, which
+   this surface has no use for. Accents are the shared five from DESIGN.md §2
+   (--accent-<type>-50 / -500 / -800). */
+.viewer-type-chip-tray {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 3px;
+  background: #F4F5F7;
+  border-radius: 6px;
+}
+.viewer-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.viewer-type-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.viewer-type-chip--sequence { background: #E8F6FD; color: #054E76; }
+.viewer-type-chip--sequence .viewer-type-chip-dot { background: #0094D9; }
+.viewer-type-chip--mermaid { background: #FFF0F4; color: #8E0F33; }
+.viewer-type-chip--mermaid .viewer-type-chip-dot { background: #FF3670; }
+.viewer-type-chip--plantuml { background: #FDF1E9; color: #6B2900; }
+.viewer-type-chip--plantuml .viewer-type-chip-dot { background: #B84800; }
+.viewer-type-chip--graph { background: #FFF7E8; color: #8A4B00; }
+.viewer-type-chip--graph .viewer-type-chip-dot { background: #F08705; }
+.viewer-type-chip--openapi { background: #F1F8EA; color: #3A5C1D; }
+.viewer-type-chip--openapi .viewer-type-chip-dot { background: #6BA539; }
+
+/* .viewer-frame--auto sizes the frame to fit-content, which in fullscreen made
+   it as wide as the diagram — leaving the rest of the window bare (the
+   min-height rule above fixed the same thing vertically). That was survivable
+   while the frame was white on white; a canvas has to reach the edges or it
+   reads as a stripe down the middle. The diagram keeps its centered position
+   below, now against a canvas that owns the whole surface. */
+.viewer-frame--fullscreen { width: 100%; }
+
+/* Export PNG opens a separate fullscreen host so the annotation workspace has
+   room. Preserve the natural text-diagram card from the preceding inline view
+   in that host; Graph uses its own rendered-box metadata and is unaffected. */
+.viewer-frame--export-entry:not(.viewer-frame--wide) {
+  width: fit-content;
+}
+.viewer-frame--export-entry:not(.viewer-frame--wide) .screen-capture-content {
+  width: fit-content;
+  max-width: none;
+}
+.viewer-frame--export-entry:not(.viewer-frame--wide) :deep(.zenuml > div) {
+  min-width: 0;
+}
+.viewer-frame--export-entry:not(.viewer-frame--wide) :deep(.plantuml-render > svg) {
+  min-width: 0;
+}
+
+.viewer-frame--fullscreen .viewer-canvas {
+  padding: 24px;
+  align-items: center;
+  background-color: #F8F7F4;
+  background-image: radial-gradient(circle, #D0CEC7 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+/* One column, one width: the diagram and the byline under it share this box,
+   which is what puts the byline's right edge on the diagram's right edge.
+   1000px is the design's number — the diagram stops growing before the text
+   under it becomes a long, hard-to-track line on a wide monitor. */
+.viewer-frame--fullscreen .screen-capture-content,
+.viewer-frame--fullscreen .viewer-footer-row {
+  width: 100%;
+  max-width: 1000px;
+}
+/* See fullscreenUncappedDiagram(). Only the diagram box opts out; .viewer-footer-row
+   above keeps the 1000px so the byline stays a readable line. */
+.viewer-frame--fullscreen .screen-capture-content--uncapped {
+  max-width: none;
+}
+/* @zenuml/core's root is `inline-block`, so the frame shrink-wraps the diagram.
+   Inline that is right — the macro should not claim a page's width it isn't
+   using. In fullscreen it left a two-participant diagram as a ~330px card
+   pinned to the left of a 1000px column, with the byline's right edge 660px
+   away from the diagram's: the column alignment this redesign is built on only
+   holds if the frame actually fills the column. Width only — a stretched
+   HEIGHT is measurably worse, because @zenuml/core's bottom toolbar does not
+   follow the taller frame and a short diagram gets an empty white slab under
+   it. Vertical fill belongs in @zenuml/core, not in an override here. */
+/* :deep() because these nodes are rendered by @zenuml/core, not by this
+   template, so a scoped selector alone never matches them.
+
+   `max-content` rather than `100%`: a diagram wider than the column has to
+   stay reachable. @zenuml/core's own wrapper is `overflow: hidden`, so pinning
+   its root to the column's width silently cut the right-hand participants off
+   with nothing to scroll — the frame is allowed to be as wide as its content,
+   and the column scrolls to it. `min-width: 100%` is what makes the narrow
+   case fill rather than shrink-wrap. */
+.viewer-frame--fullscreen :deep(.zenuml) {
+  overflow-x: auto;
+}
+.viewer-frame--fullscreen :deep(.zenuml > div) {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
+/* PlantUML gets the same treatment as .zenuml above, for the same reason
+   (conf-app#626). Normalising the server SVG makes it scale proportionally, but a
+   6228px diagram fitted into the column is a correct picture nobody can read. In
+   fullscreen the wrapper is allowed to be as wide as the drawing and scrolls to it;
+   `min-width: 100%` keeps a narrow diagram centered rather than shrink-wrapped. The
+   intrinsic width comes from PlantUml.vue, which reads it off the viewBox before the
+   width attribute is dropped — without it the SVG would fall back to the 300px CSS
+   default here. `justify-content` is reset because a scrolled flex row would otherwise
+   center the overflow and make the left edge unreachable. */
+.viewer-frame--fullscreen :deep(.plantuml-render) {
+  overflow-x: auto;
+  justify-content: flex-start;
+}
+.viewer-frame--fullscreen :deep(.plantuml-render > svg) {
+  /* `flex: 0 0 auto` is the part that matters: as a shrinkable flex item the SVG
+     would collapse back to the column width and there would be nothing to scroll. */
+  flex: 0 0 auto;
+  max-width: none;
+  width: var(--plantuml-intrinsic-width, 100%);
+  min-width: 100%;
+  height: auto;
+}
 /* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
    .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
    back into a column. */
@@ -1524,6 +1929,13 @@ export default {
   border-left: 1px solid #E5E7EB;
   display: flex;
   min-height: 0;
+}
+/* Idle: mounted but taking no width — see agentLinkRailReserved(). */
+.agent-link-rail--collapsed {
+  flex: 0 0 0;
+  width: 0;
+  border-left: none;
+  overflow: hidden;
 }
 
 .viewer-edge-top {
@@ -1805,13 +2217,17 @@ export default {
   width: 100%;
 }
 .viewer-footer-row :deep(.diagram-attribution) { margin-left: auto; }
+/* Fullscreen Viewer v2: the byline belongs to the diagram, not to the window.
+   It used to be a full-width white bar pinned to the bottom of the viewport,
+   which read as a status bar and left it stranded far below a short diagram.
+   In flow at the end of the canvas column it sits directly under the unit and
+   shares its right edge, because both fill the same 24px-padded content box. */
 .viewer-frame--fullscreen .viewer-footer-row {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  border-top: 1px solid #E5E7EB;
-  background: #fff;
-  z-index: 1;
+  position: static;
+  flex: 0 0 auto;
+}
+.viewer-frame--fullscreen .viewer-footer-row :deep(.diagram-attribution) {
+  padding: 10px 0 0;
 }
 .viewer-footer-row:not(:empty) ~ .viewer-edge-bottom-pill { bottom: 44px; }
 

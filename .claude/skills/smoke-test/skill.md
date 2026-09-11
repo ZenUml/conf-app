@@ -306,9 +306,15 @@ minute-level timestamp; use seconds only on collision.
 **For Diagram macros (Sequence / Mermaid / PlantUML):**
 
 ```bash
-# 1. Activate the editor and open the slash menu — keystrokes, not fill
+# 1. Move focus from the title into the body, then open the slash menu.
+#    `A press Enter` from the title is what MOUNTS the body editor — until it
+#    runs there is no [contenteditable] in the DOM at all, so clicking the
+#    content area does nothing and the "/" lands in the title field. Verified
+#    on production 2026-09-07: without the Enter, "View more" never appears and
+#    the wait below times out at 25 s.
+A press Enter
 A batch --bail \
-  "click [data-testid=\"ak-editor-fp-content-area\"]" \
+  "wait 2000" \
   "keyboard type /" \
   "wait --text \"View more\"" \
   "find text \"View more\" click" \
@@ -344,6 +350,15 @@ A batch --bail \
 > the dialog open with nothing inserted.
 
 ```bash
+# 3b. Dismiss the Starter-templates gallery, which opens over the macro editor
+#     on a fresh macro and swallows the first tab click. Its close control is
+#     aria-label="Close template gallery" — NOT the generic "Close", which
+#     matches nothing here.
+A frame "[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]"
+A eval "(() => { const c=[...document.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')==='Close template gallery'); if(!c) return 'none'; c.setAttribute('data-ab-cg','1'); return 'gallery'; })()"
+# if it returned 'gallery':
+A click "[data-ab-cg]"
+
 # 4. Enter the Forge modal frame and clear any draft banner / paywall
 A frame "[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]"
 A eval "location.host"     # must be the cdn.prod.atlassian-dev.net host
@@ -409,26 +424,27 @@ A frame "@<inner-ref>"
 A eval "typeof window.mxClient"   # must return "object"
 ```
 
-> **REQUIRED: draw a shape, else the graph publishes EMPTY.** The default DrawIO canvas has no
+> **REQUIRED: give the graph content, else it publishes EMPTY.** The default DrawIO canvas has no
 > cells, so the macro renders blank and does not exercise the graph renderer.
 
+**Use the postMessage protocol, not the shape picker.** The editor loads with `embed=1`, DrawIO's
+official embed mode, which exposes *only* the JSON postMessage protocol — the same one the app
+itself uses (`ForgeGraphEditor.vue:82` `sendToFrame`). Send a `load` action with the XML you want:
+
 ```bash
-A dblclick ".geDiagramContainer"           # opens DrawIO's shape picker
-A wait 1500
-A find first ".geShapePicker .geItem" click   # real CDP click — required, see note
-A wait 1200
-A keyboard type "Test Graph"               # label the new shape
-A press Escape                             # commit the label
-A wait 800
+# from the OUTER Forge modal frame, addressing the inner DrawIO iframe
+A eval "document.querySelector('iframe').contentWindow.postMessage(JSON.stringify({action:'load', xml:'<mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/><mxCell id=\"2\" value=\"Test Graph\" style=\"rounded=0;\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"120\" y=\"120\" width=\"160\" height=\"60\" as=\"geometry\"/></mxCell></root></mxGraphModel>', autosave:1}), '*'); 'sent'"
 ```
 
-> Synthetic dispatched `MouseEvent`s do NOT register with DrawIO's handlers — only a real CDP mouse
-> click inserts the shape (verified 2026-06-05 on zenuml prod). `A click` / `A dblclick` /
-> `A find … click` all issue real CDP clicks; an `eval`-driven `el.click()` does not.
->
-> `A dblclick` targets the element centre. The Playwright version of this step used an explicit
-> `(500, 350)` offset. Centre works on an empty canvas; if the canvas already has content there,
-> position the cursor first with `A mouse move <x> <y>` and issue `mouse down`/`up` twice.
+See the **graph-macro** skill for the full protocol (actions `load` / `export`, events `init` /
+`autosave` / `save` / `export`) and for why `window.editorUi` does not exist.
+
+> **The shape-picker route below is DEAD — do not use it.** An older version of this file told you
+> to `A dblclick ".geDiagramContainer"` then click `.geShapePicker .geItem`. On production
+> 2026-09-07 all four variations failed: the double-click opened no picker, `.geShapePicker .geItem`
+> matched nothing, the `Extras` menu opened with no items, and `.geDiagramContainer` itself was not
+> in the DOM. That cost a full PVT round and the Graph screenshot had to be taken locally instead.
+> The postMessage route above is the supported interface and the one the app itself uses.
 
 ```bash
 # Re-read the title before publishing — the shape-label typing can land in the title field
@@ -578,7 +594,9 @@ Summarize:
 
 | Symptom | Fix |
 |---------|-----|
-| Slash menu does not open | `A fill` bypasses ProseMirror's `input` events — use `A keyboard type "/"` |
+| Slash menu does not open | Two causes. (a) `A fill` bypasses ProseMirror's `input` events — use `A keyboard type "/"`. (b) The body editor is not mounted yet: after setting the title, `A press Enter` — until then `document.querySelector('[contenteditable]')` is null and the keystroke goes to the title textarea (hit on production 2026-09-07) |
+| First tab click in the macro editor does nothing | The Starter-templates gallery is open over it. Close it with `aria-label="Close template gallery"`; the generic `Close` selector does not match. It also re-opens on a later mount, so re-check rather than assuming one dismissal holds |
+| The macro editor opens on the wrong diagram tab | `TabSwitcher` persists the last-used type to localStorage, so a fresh macro opens on whatever the previous run selected. Always click the tab you want and assert `aria-selected === 'true'` before publishing |
 | "/" appears as plain text in the editor | Caret is not in a text position; click `[data-testid="ak-editor-fp-content-area"]` first, then re-snapshot |
 | Refs are stale (wrong element clicked) | Re-snapshot after any DOM change, any navigation, and any `frame` switch |
 | `A wait --text "Sequence"` times out | "Sequence" is inside the Forge iframe — enter the frame first, or use `A wait <ms>` + `A screenshot` |

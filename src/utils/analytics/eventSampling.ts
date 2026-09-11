@@ -46,6 +46,27 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // attribution byline is seen, and with which of its two optional fields — is
   // a rate, not a census, so 5% plus `sample_rate` extrapolation answers it.
   diagram_attribution_shown: 0.05,
+
+  // --- Quota reduction 2026-09-07 -------------------------------------------
+  // Fires once per eligible viewer INSTANCE, so a page of macros produces one
+  // per macro: 80,912 occurrences from 4,414 unique users in the 30 days to
+  // 2026-09-07 — 18.3 each, and 19.4% of all billable event volume, which is
+  // most of the month's projected overage on its own.
+  //
+  // Its only consumer is the Copy for AI discovery rate (clicks ÷ impressions),
+  // a rate rather than a census, and the click side stays at full fidelity.
+  // The rate this event was built to produce is 3.76% (166 ÷ 4,414), first
+  // computed on 2026-09-07 — after the demand test it was meant to inform had
+  // already concluded on its own denominator.
+  //
+  // Caveat for whoever reads it next: `sample_rate` extrapolates EVENT counts,
+  // not UNIQUE-USER counts. At 10% a user averaging 18.3 impressions still has
+  // an ~86% chance of keeping at least one, so the unique-user denominator
+  // shrinks by roughly a seventh rather than by nine tenths — but the loss
+  // falls hardest on users with a single impression, which biases the
+  // denominator toward heavier viewers and makes the measured discovery rate a
+  // slight UNDER-estimate. Take the pre-sampling 3.76% as the reference point.
+  copy_for_ai_impression: 0.1,
 };
 
 // Prefix rules apply when no exact match is found. `create_attachment` is

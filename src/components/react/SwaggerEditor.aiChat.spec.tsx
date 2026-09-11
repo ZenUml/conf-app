@@ -1,6 +1,6 @@
-import React from "react";
-import ReactDOM from "react-dom";
-import { act, Simulate } from "react-dom/test-utils";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/react/Header", async () => {
@@ -69,10 +69,12 @@ import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 describe("SwaggerEditor AI Chat integration", () => {
   let container: HTMLDivElement;
+  let root: Root;
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
+    root = createRoot(container);
     vi.mocked(trackAnalyticsEvent).mockClear();
     store.state.diagram = {
       id: "macro-1",
@@ -86,15 +88,14 @@ describe("SwaggerEditor AI Chat integration", () => {
     } as any;
     store.state.error = null;
     act(() => {
-      ReactDOM.render(
+      root.render(
         <SwaggerEditor saveAndExit={vi.fn()} exit={vi.fn()} />,
-        container,
       );
     });
   });
 
   afterEach(() => {
-    ReactDOM.unmountComponentAtNode(container);
+    act(() => root.unmount());
     container.remove();
   });
 

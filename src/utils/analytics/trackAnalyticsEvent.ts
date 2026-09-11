@@ -21,7 +21,7 @@ import { normalizeProductType } from "./productType";
 let _initPromise: Promise<void> | null = null;
 let _identified = false;
 
-type AuthoringReplayProperties = Pick<
+type ExplicitReplayProperties = Pick<
   AnalyticsProperties,
   | "session_replay_source"
   | "session_replay_percent"
@@ -35,9 +35,63 @@ type AuthoringReplayProperties = Pick<
 const DEMO_PAGE_TELEMETRY_TIMEOUT_MS = 750;
 const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
 
-function _startAuthoringReplay(
+// Share of authoring sessions that record. Authoring replay used to be forced
+// on every create/edit; measured over the 30 days to 2026-09-07 that was 13,905
+// of 17,743 distinct replays — 78% of a 20,000/month quota consumed by one
+// policy, which exhausted the quota before month end and left the last week of
+// each month with no recordings at all.
+//
+// The rate is derived, not picked: the flag-driven viewer baseline is ~3,838
+// replays/month and the fullscreen surface adds ~4,108, so ~7,946 are spoken
+// for. Half of authoring (~6,950) brings the month to ~14,900 — about 500/day
+// against a 667/day ceiling, leaving a quarter of the quota as headroom for
+// growth and for targeted inspections.
+//
+// Not a Forge flag: Lite is at its 10-flag cap, and the cohort system buckets
+// by install/account rather than by session, which is the wrong axis for this.
+// Re-derive from the same two numbers if the quota or the fullscreen volume
+// changes.
+const AUTHORING_REPLAY_RATE = 0.5;
+
+// Drawn once per iframe, not per event. A user who creates one macro and then
+// edits another in the same session must get one whole recording or none —
+// re-drawing per event would start the recorder partway through a session,
+// which is worse than not recording it at all for the save-failure
+// investigations this policy exists to serve.
+let _authoringReplayDecision: boolean | null = null;
+
+function _shouldRecordAuthoring(): boolean {
+  if (_authoringReplayDecision === null) {
+    _authoringReplayDecision = Math.random() < AUTHORING_REPLAY_RATE;
+  }
+  return _authoringReplayDecision;
+}
+
+function _startExplicitReplay(
   eventName: AnalyticsEventName
-): Partial<AuthoringReplayProperties> {
+): Partial<ExplicitReplayProperties> {
+  if (eventName === "feedback_report_opened") {
+    try {
+      mixpanel.start_session_recording();
+      const replayProperties: ExplicitReplayProperties = {
+        session_replay_source: "feedback",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      };
+      mixpanel.register({
+        session_replay_percent: replayProperties.session_replay_percent,
+        session_replay_source: replayProperties.session_replay_source,
+      });
+      return replayProperties;
+    } catch (error) {
+      console.error(
+        "[session-replay] feedback start call threw",
+        error instanceof Error ? error.name : "unknown"
+      );
+      return { session_replay_start_call_outcome: "threw" };
+    }
+  }
+
   if (
     eventName !== "macro_create_started" &&
     eventName !== "macro_edit_started"
@@ -45,12 +99,20 @@ function _startAuthoringReplay(
     return {};
   }
 
+  // Outside the sample: leave the Forge-flag cohort's decision untouched. Not
+  // re-registering matters as much as not starting — stamping `authoring` here
+  // would misattribute a flag-driven recording to this policy and corrupt the
+  // measurement the rate is tuned from.
+  if (!_shouldRecordAuthoring()) {
+    return { session_replay_start_call_outcome: "skipped_sampled" };
+  }
+
   try {
     // Authoring replay is an explicit product policy, independent of the
     // baseline Forge-flag cohort resolved by _initMixpanel. The SDK call is
     // idempotent when baseline sampling already started a recording.
     mixpanel.start_session_recording();
-    const replayProperties: AuthoringReplayProperties = {
+    const replayProperties: ExplicitReplayProperties = {
       session_replay_source: "authoring",
       session_replay_percent: 100,
       session_replay_start_call_outcome: "returned",
@@ -77,10 +139,42 @@ function _initMixpanel(): Promise<void> {
       // the flag fetch entirely. Every other iframe's sampling rate is set live
       // from the Forge Developer Console (see sessionReplayFlags.ts) — there is
       // deliberately no hardcoded percentage here.
-      const isPageBanner =
-        (forgeGlobal.forgeContext as any)?.moduleKey === "zenuml-page-banner";
+      //
+      // The Plan-and-usage page is the opposite override: it's a brand-new,
+      // low-traffic funnel (paywall banner -> usage -> Request Full) we want
+      // fully observed while it's new, and per-page targeting isn't something
+      // the Forge-flag cohort system supports (it buckets by install/account,
+      // not by moduleKey) — so this is hardcoded here rather than attempted as
+      // a flag. Revisit (drop back to the flag-driven rate) once the funnel has
+      // enough real traffic that 100% capture stops being worth the review cost.
+      //
+      // The fullscreen modal is the third override, and the only one that is
+      // not a moduleKey: it loads the same macro resource as the inline
+      // viewer, and is told apart by the modal context forgeIndex.ts passes to
+      // openModal. It records at 100% because it is the deliberate-intent
+      // viewer surface — a user who opened fullscreen is working on ONE
+      // diagram, so the session is worth watching end to end, where an inline
+      // render is usually incidental to reading a page. Like the plan-usage
+      // page, per-surface targeting is not something the Forge-flag cohort
+      // system can express (it buckets by install/account), so this is
+      // hardcoded rather than attempted as a flag.
+      //
+      // Cost, measured 2026-09-07: ~4.1k fullscreen opens/month across all
+      // variants (3.4k of them Lite), against ~17.7k distinct replays in the
+      // trailing 30 days — roughly a 23% increase in recorded sessions.
+      // Revisit if the replay quota becomes the binding constraint.
+      const forgeContext = forgeGlobal.forgeContext as any;
+      const moduleKey = forgeContext?.moduleKey;
+      const isPageBanner = moduleKey === "zenuml-page-banner";
+      const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
+      const isFullscreen =
+        forgeContext?.extension?.modal?.macroMode === "fullscreen";
       const { percent, source } = isPageBanner
         ? { percent: 0, source: "off" as const }
+        : isPlanUsagePage
+        ? { percent: 100, source: "plan_usage_page" as const }
+        : isFullscreen
+        ? { percent: 100, source: "fullscreen" as const }
         : await getSessionReplayConfig();
 
       mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
@@ -295,7 +389,7 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
-    const authoringReplayProperties = _startAuthoringReplay(eventName);
+    const explicitReplayProperties = _startExplicitReplay(eventName);
 
     const contentIds = _getContentIdentifiers();
 
@@ -325,7 +419,7 @@ export async function _awaitableTrackAnalyticsEvent(
       attachment_name: callerProps.attachment_name ?? contentIds.attachment_name,
       ...(await _getSpaceAdminTelemetry(eventName)),
       ...(await _getDemoPageTelemetry(eventName)),
-      ...authoringReplayProperties,
+      ...explicitReplayProperties,
     };
 
     if (options) {
@@ -369,4 +463,5 @@ export async function trackAnalyticsEventBeforeUnload(
 export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
+  _authoringReplayDecision = null;
 }

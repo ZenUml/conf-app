@@ -7,6 +7,19 @@ description: Manage the ZenUML Lite paywall rollout (Lite variant only — Full 
 
 This skill covers the Lite variant only. Full and Diagramly have no in-app restrictions.
 
+## ⚠️ Block retired 2026-09 — most of this doc is now historical
+
+`shouldBlockActions` in `useCustomerSuccessService.ts` is hardcoded `false`: editing is **never
+blocked** at any macro count, on any space. `PaywallGate`/`UpgradePrompt` no longer mount, and
+`paywall_triggered`, `paywall_blocked_edit`, and `paywall_blocked_create` **stop firing entirely**
+going forward — do not read a drop in those events as tenants falling under the limit. The
+non-blocking `PaywallWarningBanner` (`paywall_banner_shown`/`paywall_banner_dismissed`,
+`extension_request_clicked`, `paywall_bundle_cta_clicked`) is the only surviving in-app signal.
+Everything below this notice that reasons about block/trigger events, Continue-attempts, or
+Group A/B block-rate comparisons describes the retired behavior — treat it as historical unless a
+future Plan-and-usage/Request-Full redesign reinstates a gate. CSS/`PAYWALL_EXEMPT` enrollment
+state (Steps 1–5) is unaffected and still governs whether the warning banner is eligible to show.
+
 ## Default-on semantics (2026-08-07, lite-paywall-default-on)
 
 The Lite paywall is now **on by default for every Lite tenant**. `CUSTOMER_SUCCESS_SERVICE`
@@ -125,6 +138,10 @@ Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centra
 > **CORRUPTION GUARD — empty `__unique` maps mean the WHOLE run is bad.** Observed 2026-06-03, 2026-06-04, 2026-06-10: `daily` returned `{}` for every `__unique` key while totals were silently undercounted 10–30× (e.g. `example-tenant-a` triggered 3 vs actual 91 — real name: see private/ client profiles). Root cause (found 2026-06-10): `date_range()` used local-time `dt.date.today()` — in an AEST morning that date hasn't started in the Mixpanel project timezone, so the script queried a near-future day. Fixed in the script (project-tz-safe window), but keep the tripwire: **if any `__unique` map comes back empty, discard ALL script output from that run (`daily` AND `per-space-all`) and re-pull via MCP Insights.** `ab-metrics --window-days 7` usually only loses a leading sliver, but see the 2026-07-10 update to Guard #2 below — it is not immune either.
 >
 > **CORRUPTION GUARD #2 — `__unique` > total is impossible; the `__unique` map is the bad one (NOT the totals).** Observed 2026-06-22: `daily` totals were correct (paywall_triggered `example-tenant-a`=3, `example-tenant-b`=2, MCP-confirmed) but the `__unique` maps were **inflated** — reported `paywall_triggered__unique` `example-tenant-a`=17, `example-tenant-c`=6, `example-tenant-b`=5, etc. (32 "unique users" against 5 total events; real names: see private/ client profiles). The JQL `__unique` sub-query appears to span a wider-than-today window in this failure mode (opposite of guard #1, where totals undercount and uniques empty). **Tripwire: for any event, if a domain's `__unique` value exceeds its total, the whole `__unique` set is untrustworthy this run — keep the totals, but re-pull the unique counts via MCP Insights** (math:`unique`, breakdown `client_domain`, last 1 day, global `is_internal_client_domain = "false"` filter). Totals + per-space (which carry no unique) stay usable. **2026-07-10 update: this also hit `ab-metrics --window-days 7`** — 3 low-volume domains showed `macro_save_succeeded__unique` of 1-2 against a total of 0 (unique > total, same signature). Small magnitude (immaterial for high-volume tenants) but the earlier "has stayed reliable" claim for `ab-metrics` was too strong — apply the same tripwire to it, not just `daily`/`per-space-all`.
+>
+> **CORRUPTION GUARD #3 — a `client_domain` breakdown that comes back with EXACTLY 60 buckets is truncated, not complete.** Observed 2026-09-06: `daily --window-days 30` and `ab-metrics --window-days 30` both returned exactly 60 domains for `macro_save_succeeded` AND exactly 60 for `macro_viewed`. The same window via MCP Insights returned 209 / 245 / 467 / 77 buckets (saves / creates / views / triggered). Cause: `call_segmentation()` passed no `limit`, so Mixpanel's segmentation API returned only its default top-N segments by volume. Every domain outside the top 60 was silently ABSENT and read as zero — a fleet-wide "which tenants are inactive" pass built on this output over-counted inactive tenants 79 → 35 (true value). **Fixed 2026-09-07: every `on` breakdown now sends `limit=SEGMENTATION_BUCKET_LIMIT` (5000; covered by `scripts/test_paywall_queries.py`, run it directly with `python3`). Keep the tripwire anyway: if any breakdown map has exactly 60 keys, the limit is not reaching the API — treat every missing domain as UNKNOWN, not zero, and re-pull via MCP Insights (`Run-Query`, `breakdowns` on `client_domain`, one report can carry all four events).** The per-domain `where` path (`per-space`, `per-space-all`) is not affected (a single tenant never has 60 spaces), but see the quota trap below before looping it over many domains.
+>
+> **QUOTA TRAP — the raw Query API has an hourly cap that a per-domain loop exhausts in minutes.** 2026-09-06: `per-space-all` over 123 domains (×4 events) plus a parallel 123-call `macro_viewed` loop hit HTTP 429 within ~10 min and stayed 429 past the top of the next UTC hour — the window is ROLLING (~60 min from the burst), not calendar-hour, despite what the script's error text says. Do not fan `call_event(where_domain=…)` out over more than a handful of domains; for fleet-wide questions use one Insights breakdown (Guard #3). The MCP path uses a different auth/quota bucket and kept working while the script was locked out.
 
 ```bash
 # Q1 + Q3–Q4 in one call (paywall_triggered, advocacy_message_copied,

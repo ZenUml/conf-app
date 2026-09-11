@@ -205,8 +205,8 @@ export function startEditorMutationSession(
   // macro_edit_cancelled never fired once on a create path and why the create
   // funnel had no authoring-intent signal at all. The macro-type restriction
   // stays: this module reads CodeMirror transactions, which only the
-  // sequence/mermaid/plantuml editor produces.
-  if (!['sequence', 'mermaid', 'plantuml'].includes(config.macroType)) return;
+  // sequence/mermaid/plantuml/markdown editor produces.
+  if (!['sequence', 'mermaid', 'plantuml', 'markdown'].includes(config.macroType)) return;
 
   activeSession = {
     ...config,

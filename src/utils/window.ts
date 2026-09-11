@@ -174,6 +174,8 @@ export function addonKeyForProductType(productType: string | undefined): string 
       return "com.zenuml.confluence-addon-lite";
     case "diagramly":
       return "gptdock-confluence";
+    case "asyncapi":
+      return "my-api";
     case "full":
     default:
       return "com.zenuml.confluence-addon";

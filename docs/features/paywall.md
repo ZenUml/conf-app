@@ -14,14 +14,14 @@ Lite monetization runs on **two complementary upgrade funnels**, picked by *who*
 
 ## ✅ Shipped (brief)
 
-The **friction funnel is fully shipped and instrumented**: per-space 100-macro soft-block on edit + create (modal over a mounted editor, dismissable), an 85-macro inline warning, a viewer "Upgrade" badge, persistence-layer save block, an **advocacy-only** modal (`Copy upgrade request` → `advocacy_message_copied`), a 3-attempt continue gate (15 before 2026-08-16), a **Forge page-banner** warning that reaches editors *while browsing* (85–99 band, 7-day snooze, defers CSAT), space-license + Stripe-webhook bypass, and CSS-flag enrollment.
+The **friction funnel is fully shipped and instrumented**: per-space 100-macro soft-block on edit + create (modal over a mounted editor, dismissable), an 85-macro inline warning, a viewer "Upgrade" badge, persistence-layer save block, an **advocacy-only** modal (`Copy upgrade request` → `advocacy_message_copied`), a 3-attempt continue gate (15 before 2026-08-16), a **Forge page-banner** warning that reaches editors *while browsing* (over-limit spaces only — strictly `> 100` macros, there is no 85–99 banner band; 7-day snooze on dismiss plus a 1 / 24h / 24h / 7d impression taper since 2026-09-07; defers CSAT), space-license + Stripe-webhook bypass, and CSS-flag enrollment.
 
 | Shipped surface | Event | Ref |
 |---|---|---|
 | Edit / create soft-block modal | `paywall_blocked_edit` / `paywall_blocked_create` + `paywall_triggered` | PR #89 (create path) |
 | Advocacy CTA (marketplace/sales CTAs removed — were 0% click) | `advocacy_message_copied` | — |
 | 3 continue-attempts gate (localStorage, per `clientDomain:spaceKey:userAccountId`) | `paywall_continue_used`, `paywall_attempts_exhausted` | `src/utils/paywall/continueAttempts.ts` |
-| Page-banner warning (85–99 band, 7-day snooze, CSAT defer) | `paywall_banner_shown` / `_dismissed`, `surface: page_banner` | PRs #201–#210 |
+| Page-banner warning (over-limit `> 100` only, 7-day snooze, impression taper, CSAT defer) | `paywall_banner_shown` / `_dismissed` (+ `show_count`, `hours_since_last_shown`), `surface: page_banner` | PRs #201–#210; taper 2026-09-07 |
 | Space-admin activity probe (Phase 5a; Lite, 30d throttle) | `space_admin_active` (`is_space_admin: true`, `surface: page_banner`) | `src/utils/paywall/spaceAdminProbe.ts` |
 | Export Phase-1 telemetry | `macro_export_requested` / `_succeeded` / `_failed` | `src/export.js` |
 
@@ -68,7 +68,7 @@ The gating decision below blocks all nudge-funnel code.
 
 ### B. Friction funnel — banner fatigue, personalization, rollout
 
-5. **[Phase 4] Banner fatigue & full priority order** — 100+ band gets a shorter **24h** suppression window; taper repeats via `showCount`/`lastShownAt`; finalize priority `restore/recovery > paywall warning > CSAT`. Keep windows data-tunable.
+5. **[Phase 4] Banner fatigue** ✅ *shipped 2026-09-07.* Before: the only suppression was the 7-day snooze after ×, so non-dismissers saw the banner on every page load (30d to 2026-09-07: 366 users, median 16 impressions, p90 121, 109 users ≥ 40). Now `isTaperGapMet` in `src/utils/paywall/warningBanner.ts` reads the `showCount` / `lastShownAt` the dismissal marker already recorded: 1st impression immediately, 2nd and 3rd ≥ 24h apart, 4th onwards ≥ 7 days apart (≈ 7/person/month max). Snooze still applies on top. Legacy markers with no `lastShownAt` fail open. Every banner event carries `show_count` (ordinal of this impression) and `hours_since_last_shown`. Priority order `paywall > CSAT > unplaced` is already implemented in `src/routes/pageBanner.ts` / `src/utils/banners/priority.ts`. **Sequencing decision:** the taper shipped *before* the Phase 5b admin audience is switched on, so the buyer cohort is never nagged uncapped.
 6. **[Phase 5a] Space-admin activity measurement** ✅ *shipped; **read back 2026-07-28**.* `space_admin_active` probe on the page-banner load (`src/utils/paywall/spaceAdminProbe.ts`): Lite-only, throttled once/30d per `domain:space`, fires only when the current user is a space admin.
    **Go/no-go answer — decisive GO on reach.** 60d (2026-05-29 → 07-28), Mixpanel 3373228:
    - **24,388** unique space admins observed across **709** external Lite tenants; **5,021** within the 19 CSS-enrolled tenants — against **358** unique users the banner's author-only gate actually reached, and **642** who hit the paywall.

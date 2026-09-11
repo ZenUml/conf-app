@@ -61,11 +61,27 @@ function csatBannerFrame(page: Page) {
 /**
  * Clear CSAT state so the banner is eligible to show.
  *
- * NOTE: csatPending and csat_state live in the Forge iframe's localStorage
- * (cdn.prod.atlassian-dev.net origin), not Confluence's. This function clears
- * the Confluence-frame localStorage as a best-effort guard; the Forge-frame
- * localStorage is cleared by navigating to the base page between tests which
- * resets the iframe context.
+ * csatPending (src/utils/csat.ts) and csat_state (src/hooks/useCSATState.ts,
+ * via getLocalStorageKey -> `<key>-<clientDomain>`) both live in the Forge
+ * Custom UI iframe's localStorage (cdn.prod.atlassian-dev.net origin), NOT
+ * Confluence's — a same-origin top-page localStorage clear never reaches
+ * them. useCSATState().markSuppressed() writes a 7-day suppression
+ * (`csat_state-<domain>`) on Send; that write PERSISTS ACROSS TEST RUNS
+ * (and across whole sessions weeks apart) because it lives on the real
+ * cdn.prod.atlassian-dev.net origin, not anything Playwright resets between
+ * runs. A prior run's suppression silently makes the banner never show on
+ * the next run within that 7-day window — this is why "Dismiss without
+ * score" (which needs the banner visible) and "Send…suppresses" (whose own
+ * assertion reads this same key) failed together: a leftover
+ * `csat_state-<domain>` entry from an earlier run/session suppressed both.
+ *
+ * The confluence:pageBanner module (zenuml-page-banner) mounts on every
+ * page load regardless of csatPending — it just calls view.close() when
+ * nothing is pending — so its iframe (same Forge origin as csatPending/
+ * csat_state) is reliably present shortly after navigating to any page.
+ * Clear the real, tenant-scoped state directly on that iframe's origin, the
+ * same way the app itself reads/writes it, rather than only the (different-
+ * origin, ineffective) top-page localStorage.
  */
 async function clearCsatState(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -73,6 +89,26 @@ async function clearCsatState(page: Page): Promise<void> {
     const keys = Object.keys(localStorage).filter(k => k.includes('csat_state'));
     keys.forEach(k => localStorage.removeItem(k));
   });
+
+  const bannerFrame = await page
+    .waitForEvent('frameattached', {
+      predicate: f => f.url().includes('cdn.prod.atlassian-dev.net'),
+      timeout: 10_000,
+    })
+    .catch(() => page.frames().find(f => f.url().includes('cdn.prod.atlassian-dev.net')));
+  if (!bannerFrame) return;
+  await bannerFrame
+    .evaluate(() => {
+      const keys = Object.keys(localStorage).filter(
+        k => k.includes('csat_state') || k.includes('csatPending'),
+      );
+      keys.forEach(k => localStorage.removeItem(k));
+    })
+    .catch(() => {
+      // Best-effort: a cross-origin frame mid-navigation can throw on evaluate.
+      // The banner iframe re-checked per test below still catches a leftover
+      // suppression via its own visible/absent assertions.
+    });
 }
 
 /**
@@ -184,9 +220,19 @@ test.describe('CSAT pageBanner', () => {
     await expectBannerAbsent(page);
 
     // Suppression state is written to the Forge iframe's localStorage (different
-    // origin from Confluence). Read it from the banner frame context.
-    const bannerFrame = page.frames().find(f => f.url().includes('cdn.prod.atlassian-dev.net') && f.url().includes('csat'));
-    const suppressed = await (bannerFrame ?? page.frames()[0]).evaluate(() => {
+    // origin from Confluence, shared by every Custom UI iframe on the page —
+    // Web Storage partitions by origin only, not by path). Read it from ANY
+    // still-attached Forge iframe rather than specifically the banner's: by
+    // this point expectBannerAbsent() has already closed (and possibly
+    // detached) the banner iframe itself, so filtering the frame list on
+    // `.includes('csat')` can miss it and silently fall back to
+    // page.frames()[0] — the top Confluence frame, which never has the key
+    // and always reads suppressed=false regardless of what actually
+    // happened. The sequence macro's own iframe (still rendered on the page)
+    // is the same origin and is guaranteed to still be attached.
+    const forgeFrame = page.frames().find(f => f.url().includes('cdn.prod.atlassian-dev.net'));
+    if (!forgeFrame) throw new Error('No Forge Custom UI iframe found to read csat_state from');
+    const suppressed = await forgeFrame.evaluate(() => {
       const key = Object.keys(localStorage).find(k => k.startsWith('csat_state-'));
       if (!key) return false;
       const state = JSON.parse(localStorage.getItem(key) ?? '{}');

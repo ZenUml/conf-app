@@ -5,12 +5,20 @@ import { AUTH_STATE_PATH } from './config/auth-state.js';
 export default defineConfig({
   testDir: './tests',
   timeout: 120000,
-  testIgnore: ['**/node_modules/**', '../../**', '**/ai-repair/**'],
+  testIgnore: ['**/node_modules/**', '../../**'],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  // On CI a shard's log otherwise shows only one summary line (e.g.
+  // "6 passed (4.8m)") with no per-test names and no sign that a test was
+  // retried — and retries is 2 on CI above, so flakes are invisible without
+  // downloading the HTML artifact. `list` prints a line per test, `github`
+  // annotates failures on the PR diff, and `blob` produces a per-shard report
+  // that `playwright merge-reports` can combine into one browsable report
+  // (see the merge-reports job in e2e-test.yml). Locally, keep the single
+  // `html` report nobody has to configure or merge.
+  reporter: process.env.CI ? [['list'], ['github'], ['blob']] : 'html',
 
   use: {
     storageState: AUTH_STATE_PATH,
@@ -62,10 +70,43 @@ export default defineConfig({
     {
       name: 'insert',
       testMatch: 'insert/**/*.spec.ts',
-      // upgrade-prompt suite is gated on the unreleased space-licensing Forge
-      // build and skips at runtime in CI. Excluding at collection time so
-      // `--shard` doesn't allocate idle slots to skipped tests.
-      testIgnore: process.env.CI ? ['insert/upgrade-prompt.spec.ts', 'insert/spot-check-metrics-fix.spec.ts'] : [],
+      // `--shard` splits by FILE unless a project is fullyParallel, in which
+      // case it splits by test. File-level splitting left this suite lopsided:
+      // typed-deeplink-autoconvert alone contributes five tests and cannot be
+      // divided, so one shard carried it whole while another carried a single
+      // test. Splitting by test lets the boundaries fall where the work is.
+      //
+      // This does NOT introduce concurrent execution. `workers` is 1 on CI (see
+      // above), so tests still run one at a time inside a shard; only the
+      // distribution across shards changes.
+      //
+      // Safe because every multi-test file here that shares state between its
+      // tests already declares `describe.serial`, and Playwright keeps a serial
+      // group intact on one shard. The two files that do get split —
+      // typed-deeplink-autoconvert and m1-first-seen-ping — hold no
+      // module-level state and each test builds its own page.
+      fullyParallel: true,
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 300000,
+    },
+    {
+      // The in-product "Send feedback" flow (edge trigger + dialog) across
+      // viewer/editor/fullscreen/export-modal surfaces. A dedicated project
+      // (own directory, own timeout) rather than folding into `insert` or
+      // `fullscreen`, but deliberately declared HERE — immediately after
+      // `insert` — because e2e-test.yml's `insert)` case runs it as
+      // `--project=auth --project=insert --project=feedback`: Playwright
+      // orders the collected test list by project declaration order first,
+      // so this project's one spec file sorts after every `insert/` file
+      // rather than interleaving alphabetically (`feedback` < `insert`) and
+      // reshuffling the shard boundaries documented in e2e-test.yml. `insert`
+      // is the suite actually gated per PR (staging-lite-e2e) and by the
+      // production release smoke, unlike `fullscreen`, which has no CI
+      // caller that runs the whole project today (only a
+      // graph-edit.spec.ts-restricted `graph-publish` run touches it).
+      name: 'feedback',
+      testMatch: 'feedback/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       timeout: 300000,
@@ -94,13 +135,6 @@ export default defineConfig({
       // when /agent-link/mcp isn't routed on conf-stg-lite, so it's safe in CI.
       name: 'agent-link',
       testMatch: 'agent-link/**/*.spec.ts',
-      use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
-      timeout: 300000,
-    },
-    {
-      name: 'ai-repair',
-      testMatch: 'ai-repair/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       timeout: 300000,

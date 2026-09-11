@@ -30,6 +30,7 @@ export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
+  | "markdown"
   | "graph"
   | "openapi"
   | "asyncapi"
@@ -49,6 +50,7 @@ export type Surface =
   | "modal"
   | "page_banner"
   | "dashboard"
+  | "get_started"
   | "route"
   // Byline activation nudge. MUST be passed explicitly on every activation_*/
   // byline_* event: the dialog runs in a contentBylineItem iframe where
@@ -65,6 +67,7 @@ export type Surface =
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
+  | "png_export"
   // The contentBylineItem modal. Confluence boots this iframe only when the
   // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
   // the variants that ship it), so every event carrying this surface is a
@@ -83,6 +86,10 @@ export type EntryPoint =
   | "route"
   | "forge_trigger"
   | "byline"
+  // fullscreen_opened fired by the Export PNG button rather than by a user who
+  // wanted Fullscreen. Without it these opens are indistinguishable from
+  // deliberate ones and inflate Fullscreen engagement by one per export.
+  | "export"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
@@ -188,17 +195,32 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a macro create/edit start forced recording independently of the Forge
 // flag cohort. See macro_create_started / macro_edit_started below.
+// `plan_usage_page` is the same kind of hardcoded override, in the opposite
+// direction from the page-banner's hardcoded 0% — see _initMixpanel in
+// trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
+// the deliberate-intent viewer surface, and it cannot be expressed as a Forge
+// flag because the cohort system buckets by install/account, not by surface.
+// `feedback` records the explicit start requested by the Feedback trigger.
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
+  | "plan_usage_page"
+  | "fullscreen"
+  | "feedback"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues
 // asynchronously. `returned` records only that the call did not synchronously
 // throw; it is not proof that a replay was uploaded. `$mp_replay_id` on a later
-// event is the outcome evidence.
-export type SessionReplayStartCallOutcome = "returned" | "threw";
+// event is the outcome evidence. `skipped_sampled` means the call was never
+// made: authoring replay is sampled, and this session was outside the sample,
+// so whatever the Forge-flag cohort decided stands. Its share of authoring
+// events is the live measurement of the sampling rate.
+export type SessionReplayStartCallOutcome =
+  | "returned"
+  | "threw"
+  | "skipped_sampled";
 
 /**
  * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.
@@ -214,7 +236,26 @@ export type CreateNotFoundShape = "bare_not_found" | "container_not_found" | "ot
 /** Outcome of the operations probe behind save_failed_diagnosed. */
 export type SaveFailureProbeStatus = "ok" | "page_unreachable" | "failed";
 
+/** How an optional screenshot was added to an in-product support request. */
+export type FeedbackCaptureMethod = "current_view" | "upload";
+
+/** Why an opened feedback dialog closed without a successful submission. */
+export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
+
+/** Observable outcome when the saved report hands off to public support. */
+export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
+
 export type AnalyticsEventName =
+  // Markdown: debounced document render starts/completes in editor or viewer.
+  // Properties: feature_area=content, macro_type=markdown, source_length,
+  // markdown_mermaid_blocks, markdown_failed_blocks. Never include source.
+  | "markdown_render_requested"
+  | "markdown_render_succeeded"
+  | "markdown_render_failed"
+  // First transition from Mermaid seeds an untouched Markdown buffer.
+  // Existing macro_type_changed tracks every tab selection; normal macro
+  // create/edit/publish lifecycle events track persistence outcomes.
+  | "markdown_seeded_from_mermaid"
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
   // is sent. Editor entries must emit the event from the iframe that owns the
@@ -267,6 +308,12 @@ export type AnalyticsEventName =
   // for existing type breakdowns. This is an action signal, not proof of a
   // successful render or publish.
   | "macro_type_changed"
+  // Fires when a PlantUML paste carried its own @startuml/@enduml markers and the
+  // editor rewrote it to fit the pinned scaffold (conf-app#632). `diagrams_pasted`
+  // counts the @startuml blocks found; `paste_truncated` is true when more than one
+  // was present and only the first was kept, because the macro renders a single
+  // diagram and merging them silently produced a picture the author never wrote.
+  | "plantuml_paste_normalized"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
@@ -329,13 +376,31 @@ export type AnalyticsEventName =
   // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
   // export attempt failed before delivery (`failure_reason`); dismissed =
   // modal closed with no successful export in that open session.
+  // Intent, as opposed to the outcome flags on export_png_succeeded: a user
+  // who picks a tool and exports without the annotation is otherwise
+  // indistinguishable from one who never wanted it. Needed to read whether
+  // annotation is unused because nobody wants it or because the dialog was
+  // too small to operate (see ExportModal.vue's inline variant).
+  | "export_annotation_tool_clicked"
+  // Export workspace: created after placement/nonempty text, changed after a
+  // completed move/resize/style/text edit (never pointer-move or each keystroke),
+  // deleted on explicit removal. No annotation text or coordinates are tracked.
+  | "export_annotation_created"
+  | "export_annotation_changed"
+  | "export_annotation_deleted"
+  // Restored when reopening the same diagram during the current page visit.
+  | "export_annotations_restored"
   | "export_png_opened"
   | "export_png_succeeded"
   | "export_png_failed"
   | "export_png_dismissed"
-  | "ai_generation_requested"
-  | "ai_generation_succeeded"
-  | "ai_generation_failed"
+  // Renamed 2026-09-08 from `ai_generation_*`: these three are the AI *title*
+  // generator in useAutoTitle.ts (97% fire automatically on editor init), not a
+  // text->diagram feature. Data before the first release carrying this commit
+  // lives under the old names — see the mixpanel skill's rename table.
+  | "ai_title_generation_requested"
+  | "ai_title_generation_succeeded"
+  | "ai_title_generation_failed"
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
@@ -366,6 +431,17 @@ export type AnalyticsEventName =
   | "ai_chat_version_restored"
   | "ai_chat_change_undone"
   | "ai_chat_version_restore_failed"
+  // AI Repair CTA impression. SEMANTICS CHANGED 2026-09-07: the button is now
+  // armed only after the store error has stood unchanged for
+  // AI_REPAIR_ARM_DELAY_MS (src/components/aiRepairArming.ts), on top of the
+  // editor's own validation debounce. So one event means "the author stopped
+  // typing and sat on a syntax error", i.e. a plausible stuck moment. Before
+  // that date the gate was a bare `!!error`, and because Editor.vue clears the
+  // error on every keystroke, the event fired once per typing pause — a single
+  // editing session could emit six of them in twenty seconds. Do not compare
+  // counts across the release that carries this change without accounting for
+  // it, and re-date this note if the arm delay is ever retuned.
+  | "ai_repair_button_shown"
   // AI Repair performance lifecycle. requested fires immediately before the
   // start request and carries poll_interval_ms + timeout_budget_ms plus the
   // requested ai_model / reasoning_disabled overrides when supplied. succeeded /
@@ -375,7 +451,6 @@ export type AnalyticsEventName =
   // backend_llm_duration_ms sums only its LLM calls across repair attempts.
   // failed additionally carries failure_phase; never attach diagram code,
   // error source text, or a job id to these events.
-  | "ai_repair_button_shown"
   | "ai_repair_requested"
   | "ai_repair_succeeded"
   | "ai_repair_failed"
@@ -446,6 +521,25 @@ export type AnalyticsEventName =
   | "csat_submitted"
   | "csat_dismissed"
   | "feedback_link_clicked"
+  // In-product feedback funnel. feedback_report_opened fires as the surface
+  // trigger opens the dialog, after requesting Session Replay, and carries
+  // session_replay_source=feedback plus the synchronous SDK call outcome.
+  // Events before feedback_report_submit_requested
+  // contain interaction context only: never description, screenshot bytes,
+  // diagram source, or any other draft report content. The report payload is
+  // allowed to leave the iframe only after the user explicitly presses Send.
+  | "feedback_report_opened"
+  | "feedback_report_capture_requested"
+  | "feedback_report_capture_succeeded"
+  | "feedback_report_capture_failed"
+  | "feedback_report_capture_removed"
+  | "feedback_report_submit_requested"
+  | "feedback_report_submit_succeeded"
+  | "feedback_report_submit_failed"
+  | "feedback_report_handoff_requested"
+  | "feedback_report_handoff_opened"
+  | "feedback_report_handoff_blocked"
+  | "feedback_report_dismissed"
   | "graph_editor_init_empty"
   // Graph (DrawIO) Diagram/Board chrome switch. Same mxfile, two DrawIO
   // chromes: `diagram` is the existing Atlas/standard embed; `board` is
@@ -462,6 +556,11 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // Mermaid viewport controls in fullscreen, normal viewer, and editor preview.
+  // Fires for the two discrete toolbar
+  // actions only; wheel/pan/pinch are deliberately not emitted because their
+  // high-frequency callbacks would create noisy, expensive event streams.
+  | "mermaid_viewport_control_used"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).
@@ -579,6 +678,149 @@ export type AnalyticsEventName =
   // ('closed' | 'unsupported' | 'failed') is how we find out whether a byline
   // item can dismiss itself, rather than assuming it.
   | "byline_view_close_requested"
+  // ---- Unplaced-diagram page banner (byline surface, page_banner surface) ----
+  //
+  // The byline already labels a diagram "not on this page" (BylineDiagrams.vue,
+  // `isUnplaced`), but Confluence boots the byline iframe only on CLICK — 5
+  // opens against 39,197 macro views — so the label reaches almost nobody. The
+  // page banner mounts on every page load, which is where the fact has to be
+  // said. Fired from UnplacedDiagramsBanner.vue.
+  //
+  // Two gates admit a load. The dedicated `zenuml-unplaced-banner` module is
+  // gated by Confluence itself on a content property, so its iframe is never
+  // created on a page with nothing to say; the shared page-banner host gates
+  // its fallback synchronously off the localStorage marker. Either way the
+  // ~99.9% of page loads with no record pay nothing.
+  //
+  // `unplaced_banner_evaluated` fires on every load past those gates, and it is
+  // the denominator that makes their cost measurable. `result` covers every
+  // path out, so that claim actually holds:
+  //   'unplaced'          — the banner shows.
+  //   'all_placed'        — the record was stale (the user pasted the link
+  //                         since), so we paid one ADF read and showed nothing.
+  //   'scan_failed'       — the page ADF could not be read; we show nothing
+  //                         rather than claim what we cannot prove.
+  //   'record_unreadable' — the gate fired but the record did not read back
+  //                         (forbidden, malformed, already emptied).
+  //   'property_covers_page' — FALLBACK path only: a content property exists (or
+  //                         could not be ruled out), so the gated module is
+  //                         carrying this page's notice and the fallback stood
+  //                         down rather than stack a second banner. Distinct
+  //                         from 'record_unreadable', which means we had
+  //                         nothing to say; here we had something and someone
+  //                         else is saying it.
+  //   'expired'           — nobody has re-confirmed the record in 30 days, so
+  //                         we stop buying an ADF read for it.
+  //   'shows_exhausted'   — this browser has been told about this record the
+  //                         maximum number of times.
+  //   'page_mismatch'     — the fallback record names a different page than the
+  //                         one it was read on, so it says nothing. Any hit
+  //                         here is a bug: the record reached the wrong page.
+  //   'dismissed_quiet'   — this user dismissed the notice within the quiet
+  //                         window, so the load stood down before reading the
+  //                         record at all.
+  //   'dismissed_version' — this user dismissed the notice for exactly this
+  //                         record version; a new diagram re-arms it.
+  //   'yielded'           — a higher-priority banner has the page's one banner
+  //                         slot; `suppressed_by` names it. Two Confluence
+  //                         modules mean two iframes, so this notice stands
+  //                         down rather than stack (utils/banners/priority.ts).
+  //
+  // The two 'dismissed_*' results are what separates "the gate never fires" from
+  // "it fires and everyone has already said no" — the question that otherwise
+  // needs a browser and the user's own localStorage to answer.
+  //
+  // A rising 'all_placed' share is the signal that the record's write/retire
+  // cycle is leaking, not that users are ignoring the banner. A rising
+  // 'record_unreadable' share means the gate and the reader disagree — most
+  // likely a permission the writer holds and the reader does not. A high
+  // 'yielded' share is how we tell "nobody sees this notice" apart from
+  // "nobody has unplaced diagrams".
+  | "unplaced_banner_evaluated"
+  // The banner is committed to displaying. Split from _evaluated because only
+  // this one is an impression: it is the denominator for the copy and dismiss
+  // rates, and `unplaced_count` on it is the verified count (post-scan), not
+  // the marker's possibly-stale one.
+  | "unplaced_banner_shown"
+  // The user dismissed the banner. Dismissal is scoped to the marker version it
+  // was shown for, so a NEW unplaced diagram re-arms the banner rather than
+  // being silenced by an old dismissal — which means this event counts
+  // "not now, for these diagrams", never "never again".
+  | "unplaced_banner_dismissed"
+  // The byline recorded (or cleared) the page's unplaced set as a Confluence
+  // CONTENT PROPERTY — the shared, cross-user store the banner's
+  // `displayConditions` gate reads server-side.
+  //
+  // This event exists to measure the one assumption the property design rests
+  // on: that the byline user can actually write a page property. The write runs
+  // as the USER (requestConfluence), and a user who can create custom content
+  // on a page cannot be assumed to hold edit permission on the page itself.
+  // `result` = 'written' | 'deleted' | 'unchanged' | 'forbidden' | 'failed'.
+  // Also emitted by the BANNER when it retires a record it proved stale, so a
+  // reader who lacks delete permission is visible instead of leaving every
+  // later reader to pay the same ADF read forever.
+  // A material 'forbidden' share means the cross-user path is not reaching the
+  // people who need it and the localStorage fallback is carrying the feature —
+  // which is exactly what `unplaced_source` on the banner events reports from
+  // the other end.
+  | "unplaced_property_write"
+  // One-click place: the app writes the macro into the page ADF itself, instead
+  // of handing over a link for the user to paste. THE conversion event for this
+  // whole feature — every other event here measures noticing, and this one
+  // measures the thing actually getting fixed. Read against
+  // `advocacy_message_copied` (ui_component 'byline_unplaced_link' /
+  // 'page_banner_unplaced_link'), which is the same intent taking the four-step
+  // route: copy, open the editor, paste, publish.
+  //
+  // `result`:
+  //   'added'           — a new page version carries the macro.
+  //   'already_present' — the page already referenced it (someone else placed
+  //                       it, or a double click); nothing was written.
+  //   'forbidden'       — the user cannot edit this page. Expected, not a bug:
+  //                       the notice reaches every reader, and a reader is not
+  //                       always an author. The UI falls back to the link.
+  //   'conflict'        — the page changed under us twice; we do not force.
+  //   'failed'          — anything else. `failure_reason` says which, because
+  //                       one bucket covering six causes cannot be acted on:
+  //                       a Confluence 5xx, a page shape we cannot parse and a
+  //                       macro key we refused to guess need different fixes.
+  //
+  // `failure_reason` narrows 'forbidden' and 'failed' to the step that produced
+  // them. `http_status` carries the response code where there was one.
+  //   'read_forbidden'        — the page GET was refused. Rarer and stranger
+  //                             than the write case: this user cannot even READ
+  //                             a page they are looking at.
+  //   'write_forbidden'       — the page PUT was refused. The expected refusal:
+  //                             the notice reaches every reader, and a reader is
+  //                             not always an author.
+  //   'unresolved_macro_key'  — appId/envId or the macro key could not be
+  //                             resolved, so no safe extensionKey exists. We
+  //                             refuse rather than render an unknown extension
+  //                             on a customer's page. Any volume here is a
+  //                             platform change and this feature is dead until
+  //                             it is fixed.
+  //   'page_read_failed'      — the GET was not ok, with `http_status`.
+  //   'page_body_missing'     — no ADF body or no usable version number.
+  //   'page_body_unparsable'  — the body did not parse as a doc with content.
+  //   'page_write_failed'     — the PUT was not ok, with `http_status`.
+  //   'threw'                 — an exception, already logged to the console.
+  //
+  // A material 'forbidden' share means the banner is reaching the wrong
+  // audience and the button should be gated rather than offered-then-refused.
+  | "diagram_added_to_page"
+  // The macro that was just placed pulled the reloaded page to itself and
+  // flashed a ring around the diagram. Fired by the MACRO, not by the surface
+  // that placed it: the two are different iframes and only the macro knows it
+  // rendered.
+  //
+  // It is the second half of `diagram_added_to_page` (result 'added') and only
+  // means anything read against it. A gap between the two is the reveal being
+  // requested and never claimed — the macro never booted, the reload never
+  // happened, or the request went stale — which is invisible from the placing
+  // side, because that iframe is gone by then. `reveal_age_ms` says how long
+  // the round trip took; a value near the TTL is a page slow enough that the
+  // next one would have missed it.
+  | "diagram_revealed"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-
@@ -782,7 +1024,7 @@ export type AnalyticsEventName =
   // (keyed by `template_id`) is the per-template pull signal the JTBD's
   // success metric needs ("editor_template_applied share of new creates").
   // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
-  // here (deferred 2026-08-03) — its ai_generation_* events already exist
+  // here (deferred 2026-08-03) — its ai_title_generation_* events already exist
   // above and are reused, not redefined, when that lands.
   | "editor_template_gallery_opened"
   | "editor_template_applied"
@@ -834,7 +1076,30 @@ export type AnalyticsEventName =
   | "homepage_feed_viewed"
   | "homepage_feed_action_clicked"
   | "homepage_feed_diagram_opened"
-  | "homepage_feed_example_expanded";
+  | "homepage_feed_example_expanded"
+  // Plan and usage (site-level, Lite paywall redesign phase 2). `plan_usage_viewed`
+  // fires once per mount, carrying `is_site_admin` so the funnel splits by
+  // whether the viewer sees the admin pricing/purchase block or the
+  // usage-only view. `plan_usage_request_full_clicked` fires when either
+  // audience opens the Request-Full guidance page from here (the entry point
+  // named in the spec: banner -> Plan and usage -> "申请 Full").
+  | "plan_usage_viewed"
+  | "plan_usage_request_full_clicked"
+  // Admin's direct purchase entry point on the Plan and usage page itself
+  // (distinct from the Request-Full flow, which is the non-admin/ask-someone
+  // path). Reuses the same upgradeUrl as the existing paywall CTAs.
+  | "plan_usage_purchase_clicked"
+  // Request-Full guidance page funnel (spec: 展示 / 复制 / 跳转 — a jump does
+  // NOT mean the native Atlassian request was actually submitted; there is no
+  // public API to read that result back, so `request_full_atlassian_clicked`
+  // is the funnel's last measurable step, not a submission event).
+  // `request_full_reason_copied` fires on the user-facing reason-text copy
+  // action (the text a REQUESTER pastes into Atlassian's native flow — never
+  // the admin-facing purchase-reference text, which is a separate copy
+  // action already covered by `advocacy_message_copied`).
+  | "request_full_guide_shown"
+  | "request_full_reason_copied"
+  | "request_full_atlassian_clicked";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

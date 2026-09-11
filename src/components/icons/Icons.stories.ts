@@ -16,12 +16,12 @@ const ALL_ICONS: { name: string; component: object }[] = [
 ]
 
 const meta: Meta<typeof IconCloud> = {
-  title: 'Atoms/Icons',
+  title: 'Shared/Icons',
   parameters: {
     layout: 'padded',
     docs: {
       description: {
-        component: 'All SVG icon components available in the conf-app icon library.',
+        component: 'The five SVG icon components in src/components/icons — the set was pruned to the icons product code actually uses.',
       },
     },
   },

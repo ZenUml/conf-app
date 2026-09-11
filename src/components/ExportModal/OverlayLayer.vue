@@ -155,6 +155,7 @@
         stroke-linejoin="round"
       />
       <text
+        ref="calloutTextEl"
         :x="calloutTextX"
         :y="calloutTextY"
         :font-size="state.callout.fontSize"
@@ -220,7 +221,21 @@ export default defineComponent({
       draggingCalloutTip: false,
       draggingCalloutBody: false,
       calloutBodyDragStart: null as Point | null,
+      // Width of the rendered callout label, measured from the SVG text node.
+      // Starts at 0 so the box falls back to its minimum until the first
+      // measurement lands (one tick after the text paints).
+      calloutTextWidth: 0,
     };
+  },
+
+  watch: {
+    'state.callout.text': { handler() { this.measureCalloutText(); }, immediate: true },
+    'state.callout.fontSize': { handler() { this.measureCalloutText(); } },
+    'state.hasCallout.value': { handler() { this.measureCalloutText(); } },
+  },
+
+  mounted() {
+    this.measureCalloutText();
   },
 
   computed: {
@@ -339,7 +354,13 @@ export default defineComponent({
       const cy = this.state.callout.position.y * this.viewBoxH;
       const tip = this.state.callout.tipPosition;
       const tipPx = tip ? { x: tip.x * this.viewBoxW, y: tip.y * this.viewBoxH } : null;
-      return computeCalloutPath(cx, cy, 1, tipPx);
+      return computeCalloutPath(cx, cy, 1, tipPx, {
+        // Measured off the rendered <text> node, so the box tracks the actual
+        // glyphs — the previous fixed 120x40 box let a longer label or a larger
+        // font spill onto the diagram it was labelling.
+        textWidth: this.calloutTextWidth,
+        fontSize: this.state.callout.fontSize,
+      });
     },
 
     sansFontFamily(): string {
@@ -352,6 +373,27 @@ export default defineComponent({
   },
 
   methods: {
+    /**
+     * getComputedTextLength() is the only honest width here: the label's glyphs
+     * and the resolved font are known to the browser, not to the geometry
+     * helper. Measured after the DOM updates so the value reflects the text
+     * that is actually on screen.
+     */
+    measureCalloutText() {
+      this.$nextTick(() => {
+        const el = this.$refs.calloutTextEl as SVGTextElement | undefined;
+        if (!el || typeof el.getComputedTextLength !== 'function') {
+          this.calloutTextWidth = 0;
+          return;
+        }
+        try {
+          this.calloutTextWidth = el.getComputedTextLength();
+        } catch {
+          this.calloutTextWidth = 0;
+        }
+      });
+    },
+
     getSvgCoords(event: PointerEvent): Point {
       const svg = this.$refs.overlayEl as SVGSVGElement;
       if (!svg) return { x: 0, y: 0 };

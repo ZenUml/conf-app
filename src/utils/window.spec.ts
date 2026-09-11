@@ -131,6 +131,7 @@ describe('window utils', async () => {
       ['lite', 'com.zenuml.confluence-addon-lite'],
       ['full', 'com.zenuml.confluence-addon'],
       ['diagramly', 'gptdock-confluence'],
+      ['asyncapi', 'my-api'],
       [undefined, 'com.zenuml.confluence-addon'],
       ['unknown', 'com.zenuml.confluence-addon'],
     ])('maps product type %s to addon key %s', (productType, expected) => {

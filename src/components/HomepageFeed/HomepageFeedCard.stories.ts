@@ -5,7 +5,7 @@ import HomepageFeedCard from './HomepageFeedCard.vue'
 type Story = StoryObj<typeof HomepageFeedCard>
 
 const meta: Meta<typeof HomepageFeedCard> = {
-  title: 'HomepageFeed/HomepageFeedCard',
+  title: 'Homepage feed/HomepageFeedCard',
   component: HomepageFeedCard,
   tags: ['autodocs'],
   parameters: {

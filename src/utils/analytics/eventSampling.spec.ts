@@ -45,6 +45,21 @@ describe("eventSampling", () => {
       expect(sampleRateFor("create_attachmentsequence")).toBe(0.1);
     });
 
+    // copy_for_ai_impression is an instance-level event: 80,912 occurrences from
+    // 4,414 users in the 30 days to 2026-09-07, 19.4% of all billable volume.
+    // Its only consumer is a rate (clicks / impressions), so a sample answers it.
+    it("samples the Copy for AI impression to 10%", () => {
+      expect(sampleRateFor("copy_for_ai_impression")).toBe(0.1);
+    });
+
+    // The click side of the same rate must stay whole — it is ~166 users a
+    // month, contributes nothing to the bill, and sampling both sides would
+    // multiply the estimator's error for no saving.
+    it("leaves the Copy for AI click and menu events at full fidelity", () => {
+      expect(sampleRateFor("copy_for_ai_clicked")).toBe(1);
+      expect(sampleRateFor("copy_for_ai_menu_opened")).toBe(1);
+    });
+
     it("leaves error / funnel events at full fidelity", () => {
       // not in the map → full rate, so incident detection & funnels stay intact
       expect(sampleRateFor("attachment_upload_failed")).toBe(1);

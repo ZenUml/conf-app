@@ -35,8 +35,9 @@
  */
 import { test, expect } from '@playwright/test'
 import { clearPrefetchState, runPrefetchInPage, probeUrls } from '../helpers/rendererPrefetch'
+import { localDevUrl } from '../helpers/localDevUrl'
 
-const BASE = 'http://127.0.0.1:8080/viewer-preview.html'
+const BASE = localDevUrl('viewer-preview.html')
 
 test.describe('renderer prefetch — browser mechanics', () => {
   test.beforeEach(async ({ page }) => {

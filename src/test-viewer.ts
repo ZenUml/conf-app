@@ -1,6 +1,7 @@
 /**
  * Local test entry point for the Viewer page.
- * Opens at http://localhost:8080/test-viewer.html?outputType=display
+ * Start with `pnpm start:local`, then append
+ * `/test-viewer.html?outputType=display` to the URL from `pnpm dev:url`.
  *
  * Uses MockAp automatically (no Confluence connection needed).
  * MockAp returns a sample ZenUML sequence diagram from:

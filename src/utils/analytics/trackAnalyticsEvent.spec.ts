@@ -474,6 +474,96 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
+  it("always records the plan-usage page at 100% and skips the flag fetch", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-plan-usage-page",
+      environmentType: "production",
+    } as any;
+    // Even if the flag would say off, the plan-usage page short-circuits to 100.
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("plan_usage_viewed", {
+      feature_area: "upgrade",
+      surface: "dashboard",
+    });
+
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 100 })
+    );
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "plan_usage_page",
+    });
+  });
+
+  // Fullscreen is the deliberate-intent surface: a user who opened it is
+  // working on one diagram, so its sessions are worth watching in full. It is
+  // NOT distinguishable by moduleKey — the modal loads the same macro resource
+  // as the inline viewer — so the override keys on the modal context Forge
+  // passes through openModal (forgeIndex.ts's 'fullscreen' handler).
+  it("always records the fullscreen modal at 100% and skips the flag fetch", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+      extension: { modal: { macroMode: "fullscreen" } },
+    } as any;
+    // Even if the flag would say off, fullscreen short-circuits to 100.
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 100 })
+    );
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "fullscreen",
+    });
+  });
+
+  // The inline viewer is the same module with no modal context. It must stay on
+  // the Forge-flag rate — the override must not leak to every macro render.
+  it("leaves the inline viewer on the Forge flag rate", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+      extension: {},
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(getSessionReplayConfig).toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 0 })
+    );
+  });
+
   it("takes record_sessions_percent from the Forge flag config in a macro context", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: undefined,
@@ -528,7 +618,68 @@ describe("trackAnalyticsEvent", () => {
     expect(properties).not.toHaveProperty("session_replay_start_call_outcome");
   });
 
+  it("starts replay before tracking an opened feedback report even when baseline replay is off", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-feedback",
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("feedback_report_opened", {
+      feature_area: "feedback",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(mixpanel.start_session_recording).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(mixpanel.track).mock.invocationCallOrder[0]);
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "feedback_report_opened",
+      expect.objectContaining({
+        macro_uuid: "macro-feedback",
+        session_replay_source: "feedback",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      })
+    );
+  });
+
+  it("still tracks feedback opening when replay startup throws", async () => {
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+    vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => {
+      throw new Error("recorder unavailable");
+    });
+
+    await _awaitableTrackAnalyticsEvent("feedback_report_opened", {
+      feature_area: "feedback",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "feedback_report_opened",
+      expect.objectContaining({
+        session_replay_start_call_outcome: "threw",
+      })
+    );
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "feedback");
+    expect(properties).not.toHaveProperty("session_replay_percent", 100);
+  });
+
   it("forces replay when macro creation starts", async () => {
+    // Authoring replay is sampled; pin the draw inside the rate so this test
+    // asserts the recording path rather than the coin flip.
+    vi.spyOn(Math, "random").mockReturnValue(0);
     trackAnalyticsEvent("macro_create_started", {
       feature_area: "macro",
       surface: "editor",
@@ -557,6 +708,7 @@ describe("trackAnalyticsEvent", () => {
   });
 
   it("forces replay when macro editing starts", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     trackAnalyticsEvent("macro_edit_started", {
       feature_area: "macro",
       surface: "editor",
@@ -581,7 +733,79 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
+  // Authoring replay is the dominant consumer of the 20k/month replay quota
+  // (13,905 of 17,743 distinct replays in the 30 days to 2026-09-07), so it is
+  // sampled rather than forced on every session. A session outside the sample
+  // must leave the Forge-flag cohort's decision alone — not merely skip the
+  // start call, but also avoid re-registering itself as `authoring`, which
+  // would misattribute a flag-driven recording.
+  it("leaves replay to the flag cohort when authoring is sampled out", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "sequence",
+      entry_point: "page_editor",
+    });
+
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_create_started",
+        expect.objectContaining({
+          session_replay_start_call_outcome: "skipped_sampled",
+        })
+      );
+    });
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+    expect(mixpanel.register).not.toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "authoring",
+    });
+  });
+
+  // One decision per iframe. A user who creates a macro and then edits another
+  // in the same session must get one whole recording or none — re-drawing per
+  // event would start the recorder partway through, which is worse than not
+  // recording at all for the save-failure investigations this exists for.
+  it("draws the authoring sample once per session, not per event", async () => {
+    const random = vi.spyOn(Math, "random");
+    // A second draw, if one happened, would fall outside the rate.
+    random.mockReturnValueOnce(0).mockReturnValue(0.99);
+
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "sequence",
+      entry_point: "page_editor",
+    });
+    await vi.waitFor(() => {
+      expect(mixpanel.start_session_recording).toHaveBeenCalled();
+    });
+
+    trackAnalyticsEvent("macro_edit_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "mermaid",
+      entry_point: "macro_toolbar",
+    });
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_edit_started",
+        expect.objectContaining({ session_replay_source: "authoring" })
+      );
+    });
+
+    expect(random).toHaveBeenCalledOnce();
+  });
+
   it("sends an authoring start event when optional demo-page enrichment stalls", async () => {
+    // Pin the authoring sample so this asserts the stall handling, not the draw.
+    vi.spyOn(Math, "random").mockReturnValue(0);
     vi.useFakeTimers();
     try {
       vi.mocked(forgeGlobal).forgeContext = {
@@ -618,6 +842,8 @@ describe("trackAnalyticsEvent", () => {
   });
 
   it("still sends the authoring event when replay startup throws", async () => {
+    // The throw path only exists inside the sample.
+    vi.spyOn(Math, "random").mockReturnValue(0);
     vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => {
       throw new Error("recorder unavailable");
     });

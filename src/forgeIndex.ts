@@ -1,5 +1,6 @@
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
-import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
@@ -51,6 +52,12 @@ import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderC
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
+import {
+  EXPORT_SESSION_EVENT,
+  readExportSession,
+  receiveExportSession,
+} from '@/components/ExportModal/exportSession';
+import { openWithExportSessionHandoff } from '@/components/ExportModal/exportSessionHandoff';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -85,6 +92,12 @@ async function initializeCriticalPath() {
   const context = await initForgeContext();
   const isOpenedModal = !!context.extension?.modal?.macroMode;
 
+  if (context.extension?.modal?.macroMode === 'feedback') {
+    const { mountFeedbackModal } = await import('@/features/feedback/mountFeedback');
+    mountFeedbackModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
   // Check if this is a global settings route (get started page)
   if (!isOpenedModal && context.extension?.type === 'confluence:globalSettings') {
     if (context.moduleKey === 'diagramly-admin-create-demo-page') {
@@ -96,9 +109,15 @@ async function initializeCriticalPath() {
   }
 
   // Check if this is a global page route (dashboard). The ZenUML variants
-  // route this to the existing getStarted UI.
+  // route this to the existing getStarted UI, except the new Plan-and-usage
+  // entry (moduleKey-discriminated, same pattern as the byline entries below).
   if (!isOpenedModal && context.extension?.type === 'confluence:globalPage') {
-    await handleGetStartedRoute();
+    if (context.moduleKey === 'zenuml-plan-usage-page') {
+      const { handlePlanUsageRoute } = await import('./routes/planUsage');
+      await handlePlanUsageRoute();
+    } else {
+      await handleGetStartedRoute();
+    }
     return { macroData: null };
   }
 
@@ -165,6 +184,26 @@ async function initializeCriticalPath() {
   // stays a true fast-exit.
   // (Routed by moduleKey, not extension.type, because the pageBanner extension
   // carries no macro config to discriminate on.)
+  // The unplaced-diagram banner. A SEPARATE pageBanner module from the host
+  // below because Confluence gates it server-side on a content property
+  // (`entityPropertyExists`, see manifest.yml): reaching this line at all
+  // means the page HAS unplaced diagrams recorded, so there is no cheap
+  // local gate to run and nothing to fast-exit. The component verifies the
+  // record against the live page and closes itself if it does not hold.
+  if ((context as any).moduleKey === 'zenuml-unplaced-banner') {
+    // Awaited for the same reason the shared host awaits it, and this module
+    // needs it MORE: its component asks higherPriorityBannerPending(), which
+    // reads the space-admin verdict this probe writes. Without it, on the one
+    // load per 30 days where the probe first resolves, an admin on an
+    // over-limit unpaid Lite space gets no verdict here, does not yield, and
+    // the unplaced notice renders stacked under the paywall banner — the exact
+    // stacking that priority cascade exists to prevent. Lite-only and throttled
+    // inside, so every other load exits synchronously. Never throws.
+    await maybeProbeSpaceAdmin();
+    await handlePageBannerRoute('unplaced-property');
+    return { macroData: null };
+  }
+
   if ((context as any).moduleKey === 'zenuml-page-banner') {
     // Phase 5a measurement: detect whether the current user is a space admin
     // and, when so, fire `space_admin_active`. Runs on EVERY page-banner load
@@ -222,7 +261,8 @@ async function initializeCriticalPath() {
 }
 
 // Load heavy components asynchronously
-async function loadHeavyComponents(criticalData: { macroData: any }) {
+async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandled?: boolean }) {
+  if (criticalData.feedbackHandled) return;
   // Dynamically import heavy dependencies
   const [
     { mountRoot }
@@ -247,7 +287,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   if (
     (!isOpenedModal &&
       ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage', 'confluence:homepageFeed'].includes(context.extension?.type)) ||
-    (context as any).moduleKey === 'zenuml-page-banner'
+    (context as any).moduleKey === 'zenuml-page-banner' ||
+    (context as any).moduleKey === 'zenuml-unplaced-banner'
   ) {
     console.log('Skipping heavy components load for global context');
     return;
@@ -642,7 +683,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // (Sequence is the dominant legacy shape), then mermaidCode,
         // then plantUmlCode. Default to Sequence for empty objects.
         const VALID_DIAGRAM_TYPES: ReadonlyArray<DiagramType> = [
-          DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+          DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown,
         ];
         const storedTypeIsValid = restored.diagramType
           && VALID_DIAGRAM_TYPES.includes(restored.diagramType);
@@ -939,6 +980,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   if(isSequence) {
     const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
     const fullscreenMode = await isFullscreenMode();
+    const exportEntry = fullscreenMode && (await isExportEntry());
     const trackPageEditorAuthoringStarted = () => {
       const isNew = !customContentId;
       const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
@@ -981,7 +1023,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     // Fullscreen viewer paywall: blocking modal over the read-only diagram.
     // Fires only when the user clicked Fullscreen on a saturated Lite space.
-    if (!editable && fullscreenMode) {
+    // Not for an export-entry open: the user pressed Export PNG, which is
+    // ungated on the inline surface, and this modal is only where the dialog
+    // has room to be operated.
+    if (!editable && fullscreenMode && !exportEntry) {
       const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
       if (await tryFullscreenViewerPaywall({
         // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
@@ -1054,6 +1099,64 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   } else {
     await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
   }
+
+  // Last, and for every macro kind: if THIS macro is the one the user just
+  // placed from the byline or the banner, pull the reloaded page down to it and
+  // ring it. Placed here rather than in each viewer because the note is keyed
+  // by customContentId, which is the same fact whatever renders it. Never
+  // awaited and never throws — the diagram is on the page either way.
+  if (!editable) void maybeRevealPlacedMacro(recoveryPageId, customContentId, doc?.diagramType);
+}
+
+/**
+ * The receiving half of the one-click place (see utils/byline/revealDiagram.ts
+ * for why a focus is what scrolls Confluence).
+ *
+ * Waits for the macro to stop growing first. The iframe is sized by its
+ * content, so focusing while the diagram is still rendering would scroll to a
+ * box that is about to move — the scroll has to be the last thing that happens.
+ */
+async function maybeRevealPlacedMacro(
+  pageId: string | undefined,
+  customContentId: string | undefined,
+  diagramType: string | undefined,
+) {
+  try {
+    const { claimReveal, revealThisMacro } = await import('@/utils/byline/revealDiagram');
+    const ageMs = claimReveal(pageId, customContentId);
+    if (ageMs === null) return;
+
+    await settled();
+    revealThisMacro();
+
+    const [{ trackAnalyticsEvent }, { toMacroType }] = await Promise.all([
+      import('@/utils/analytics/trackAnalyticsEvent'),
+      import('@/utils/byline/pageDiagrams'),
+    ]);
+    trackAnalyticsEvent('diagram_revealed', {
+      feature_area: 'byline',
+      surface: 'macro',
+      ...(diagramType ? { macro_type: toMacroType(diagramType) } : {}),
+      reveal_age_ms: ageMs,
+    });
+  } catch (e) {
+    console.debug('[reveal] skipped', e);
+  }
+}
+
+/** Resolve once the document has held the same height twice in a row, or at the deadline. */
+function settled(deadlineMs = 4000, quietMs = 250): Promise<void> {
+  return new Promise(resolve => {
+    const started = Date.now();
+    let last = -1;
+    const tick = () => {
+      const h = document.documentElement.scrollHeight;
+      if (h === last || Date.now() - started > deadlineMs) return resolve();
+      last = h;
+      window.setTimeout(tick, quietMs);
+    };
+    window.setTimeout(tick, quietMs);
+  });
 }
 
 // Main function to orchestrate the two-phase loading
@@ -1062,9 +1165,16 @@ async function main() {
   const criticalData = await initializeCriticalPath();
 
   // Phase 2: Load heavy components
-  loadHeavyComponents(criticalData).catch(e =>
-    console.error('Failed to load heavy components:', e)
-  );
+  try {
+    await loadHeavyComponents(criticalData);
+    if (!criticalData.feedbackHandled) {
+      const context = await initForgeContext();
+      const { installFeedbackHost } = await import('@/features/feedback/mountFeedback');
+      installFeedbackHost(context);
+    }
+  } catch (e) {
+    console.error('Failed to load heavy components:', e);
+  }
 }
 
 export default main()
@@ -1286,7 +1396,7 @@ EventBus.$on('save', async () => {
   // attachment_not_found. At save the user has write permission (no 403) and the
   // content is known, so we can write it directly.
   //
-  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml) only —
+  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml/markdown) only —
   // it's the one editor with a capturable preview (.screen-capture-content).
   // graph/openapi editors have no diagram to snapshot here (tracked separately).
   //
@@ -1295,11 +1405,11 @@ EventBus.$on('save', async () => {
   // exceeds the cap or throws, we proceed to submit anyway — the view-time path
   // remains as a backfill.
   const savedDiagramType = store.state.diagram.diagramType;
-  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml')) {
+  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml' || savedDiagramType === 'markdown')) {
     try {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await Promise.race([
-        createAttachmentIfContentChanged(store.state.diagram.code ?? '', savedDiagramType, {
+        createAttachmentIfContentChanged(getDiagramData(store.state.diagram), savedDiagramType, {
           customContentId: String(id),
           fromSave: true,
         }),
@@ -1472,25 +1582,66 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 
 
 
-EventBus.$on('fullscreen', async () => {
-  const context = await initForgeContext();
-  const macroUuid =
-    forgeGlobal.forgeContext?.localId
-    || context.extension?.config?.uuid
-    || uuidv4();
+// One open at a time. openModal() is an async bridge round trip with no
+// built-in guard, so a second click before it resolves issues a second modal.
+let fullscreenOpenInFlight = false;
 
-  await openModal({
-    resource: 'main',
-    onClose: () => {
-      location.reload();
-    },
-    size: 'fullscreen',
-    context: {
-      macroMode: 'fullscreen',
-      macro_uuid: macroUuid,
-      session_id: getOrCreateSession(),
-    },
-  });
+EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
+  if (fullscreenOpenInFlight) return;
+  fullscreenOpenInFlight = true;
+  try {
+    const context = await initForgeContext();
+    const macroUuid =
+      forgeGlobal.forgeContext?.localId
+      || context.extension?.config?.uuid
+      || uuidv4();
+
+    const exportSession = readExportSession();
+
+    // The listener's lifetime lives in openWithExportSessionHandoff, which is
+    // unit-tested: the bridge resolves openModal() when the modal has OPENED,
+    // so unsubscribing on that resolve loses every annotation the child makes.
+    await openWithExportSessionHandoff({
+      macroUuid,
+      subscribe: async (handler) => {
+        const { events } = await import('@forge/bridge');
+        return events.on(EXPORT_SESSION_EVENT, handler);
+      },
+      onSnapshot: receiveExportSession,
+      open: (onClose) => openModal({
+        resource: 'main',
+        onClose,
+        size: 'fullscreen',
+        context: {
+          macroMode: 'fullscreen',
+          macro_uuid: macroUuid,
+          session_id: getOrCreateSession(),
+          ...(exportSession ? { exportSession } : {}),
+          // Export PNG entry: the modal opens the export dialog on arrival, and
+          // the fullscreen-viewer paywall is skipped for it — inline export has
+          // never been gated, and gating it here would both block the action and
+          // report a paywall_triggered the user never asked for.
+          ...(options?.openExport ? { openExport: true } : {}),
+        },
+      }),
+      onClosed: () => {
+        // Export-entry close must only dismiss the temporary modal. A normal
+        // fullscreen close keeps the page visit alive when export state exists.
+        if (options?.openExport || readExportSession() !== null) return;
+        location.reload();
+      },
+    });
+  } finally {
+    fullscreenOpenInFlight = false;
+  }
+});
+
+// Dismissing an export-entry dialog leaves the modal entirely: that modal was
+// opened by Export PNG and skipped the fullscreen-viewer paywall, so the viewer
+// behind it must not stay reachable. See GenericViewer.onExportModalClose.
+EventBus.$on('closeFullscreen', async () => {
+  const exportSession = readExportSession();
+  await (await getView()).close({ exportSession });
 });
 
 EventBus.$on('updateContent', async (diagram: Diagram) => {

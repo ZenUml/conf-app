@@ -116,14 +116,19 @@ function getStandaloneContext(): any {
     if (preset) {
       if (preset.paywall) applyPaywallSandboxMocks();
       const isEditor = preset.macroMode === 'editor';
+      // Fullscreen is the other bridge-opened modal. It carries extension.modal
+      // like the editor does, but is a display surface — isDisplayMode() reads
+      // macroMode === 'fullscreen' as true, and macro.isConfiguring stays false.
+      const isModal = isEditor || preset.macroMode === 'fullscreen';
       return {
         extension: {
           type: 'standalone',
           content: { id: 'local-dev-page' },
           config: { uuid: 'local-dev-uuid', customContentId: preset.customContentId },
           // In a real Forge page macro, extension.modal is only set when the app is opened
-          // as a dialog (editor). Viewer mode has no modal — isDisplayMode() checks for this.
-          modal: isEditor ? { macroMode: preset.macroMode, diagramType: preset.diagramType } : undefined,
+          // as a dialog (editor or fullscreen). Inline viewer mode has no modal —
+          // isDisplayMode() checks for this.
+          modal: isModal ? { macroMode: preset.macroMode, diagramType: preset.diagramType } : undefined,
           macro: { isConfiguring: isEditor, isInserting: false },
         },
         moduleKey: preset.moduleKey,
@@ -217,12 +222,26 @@ export async function isFullscreenMode() {
   return context.extension.modal?.macroMode === 'fullscreen';
 }
 
+/**
+ * True when this fullscreen modal was opened by the Export PNG button rather
+ * than by someone asking for Fullscreen. Set in the `fullscreen` EventBus
+ * handler's modal context (forgeIndex.ts).
+ */
+export async function isExportEntry() {
+  const context = await getContext();
+  return context.extension.modal?.openExport === true;
+}
+
 // Pass `size: 'fullscreen'` to fill the viewport (100vw × 100vh, no Confluence chrome).
 // GA'd Apr 28 2026 (FRGE-557 / CHANGE-3163). Atlassian-enforced header (~50px, app icon + title + X) is unavoidable.
 export async function openModal(_options: any) {
   const { Modal } = await import("@forge/bridge");
   const modal = new Modal(_options);
-  modal.open();
+  // Return the open() result. It is a promise in the bridge, and dropping it
+  // detached both its rejection and its completion — a caller that awaits
+  // openModal() to guard against a double open was released before the bridge
+  // had opened anything (conf-app export-in-fullscreen review, round 1).
+  return modal.open();
 }
 
 export async function isInserting() {
@@ -258,6 +277,39 @@ export async function navigateToPage(spaceKey: string, pageId: string) {
   } else {
     window.open(path, '_blank', 'noopener,noreferrer');
   }
+}
+
+// In-product navigation to one of OUR OWN app's other confluence:globalPage
+// routes (e.g. the page banner linking to the Plan-and-usage page). Forge
+// exposes no bridge API to resolve "my own app's URL" from inside a running
+// Custom UI iframe, but every such iframe's own `location.pathname` already
+// starts with `/<appId>/<environmentId>/...` (verified against a live
+// zenuml-dashboard globalPage load: the browser-visible URL is
+// `/wiki/apps/<appId>/<environmentId>/<route>` — same two IDs, same order).
+// Deriving them from the running iframe's own address avoids hardcoding an
+// environment-specific app/environment id pair that would break across
+// dev/staging/prod.
+export function buildAppPageUrl(route: string): string | undefined {
+  try {
+    const segments = window.location.pathname.split('/').filter(Boolean);
+    const [appId, environmentId] = segments;
+    if (!appId || !environmentId) return undefined;
+    return `/wiki/apps/${appId}/${environmentId}/${route}`;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function navigateToAppPage(route: string): Promise<boolean> {
+  const path = buildAppPageUrl(route);
+  if (!path) return false;
+  if (global.isForge) {
+    const { router } = await import("@forge/bridge");
+    await router.navigate(path);
+  } else {
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+  return true;
 }
 
 // @ts-ignore

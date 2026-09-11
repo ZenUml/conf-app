@@ -159,6 +159,22 @@ Two further traps when reading this event:
   `ai_repair_requested` says someone clicked it. Post-change the two are much closer in meaning
   than they were, which will look like a conversion-rate jump that is entirely definitional.
 
+## Session replay: what a replay can and cannot show
+
+- **The MCP (`Get-User-Replays-Data`) returns a DOM-interaction transcript** (Navigated / Scrolled /
+  Clicked / Focused / Set input, with epoch timestamps) plus the analytics events in the replay. It
+  does **not** return console output or network requests; those are only in the replay player UI
+  (mixpanel-agent-browser skill, needs the persistent Mixpanel profile — absent in the remote agent
+  container, which also has no Mixpanel UI credentials).
+- **Console** has been recorded since the SDK's `record_console` default (kept explicit since
+  2026-09-11). **Network** telemetry exists only in `mixpanel-browser` >= 2.76.0; this repo shipped
+  2.73.0 until the 2026-09-11 bump to 2.83.0 with `record_network: true`, so **every replay recorded
+  before that release has an empty Network tab** — that is missing capture, not "no requests". The
+  plugin records URL, method, status and timing only (no headers or bodies by default).
+- Replay coverage of authoring is partial: over 14d to 2026-09-11, `macro_edit_started` split
+  `returned` 2,060 / `skipped_sampled` 624 / undefined 409 on `session_replay_start_call_outcome`,
+  so ~1 in 5 edit sessions has no replay to inspect.
+
 ## Event sampling — a raw count is NOT the volume
 
 **Since 2026-08-26 (`e572eb7b`, quota reduction) some events emit only a fraction of the

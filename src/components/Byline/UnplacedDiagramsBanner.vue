@@ -475,6 +475,10 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
     macro_type: toMacroType(entry.diagramType) as MacroTypeValue,
     result: outcome.result,
     ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
+    // Which step failed, and the code behind it. 'failed' alone is one bucket
+    // over six causes that need different fixes.
+    ...(outcome.reason === undefined ? {} : { failure_reason: outcome.reason }),
+    ...(outcome.status === undefined ? {} : { http_status: outcome.status }),
   })
 
   // Only a refusal is durable enough to withdraw the action; a transient

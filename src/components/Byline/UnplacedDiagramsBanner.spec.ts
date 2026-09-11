@@ -590,6 +590,25 @@ describe('UnplacedDiagramsBanner', () => {
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(true);
     });
 
+    it('reports WHICH step failed, not just that something did', async () => {
+      placeDiagram.mockResolvedValue({
+        result: 'failed', placed: false, refused: false,
+        reason: 'page_write_failed', status: 502,
+        message: "Couldn't add it to the page. Try again, or copy the link and paste it into the editor.",
+      });
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(events('diagram_added_to_page')[0][1]).toMatchObject({
+        result: 'failed',
+        failure_reason: 'page_write_failed',
+        http_status: 502,
+      });
+    });
+
     it('keeps the button after a transient failure — that is not a permission answer', async () => {
       // One 500 used to take "Add to page" off every remaining row for the life
       // of the iframe. The fix for a blip is to try again.

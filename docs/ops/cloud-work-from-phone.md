@@ -85,7 +85,43 @@ every REST path in the table below is laptop-only; only the **connectors** and *
 - Codex / codexloom / seedmux / Cursor workflows: local daemons, none in the cloud.
 - Any task whose credential lives only in `.env.forge.local` or the macOS keychain.
 
-## 5. How to start from the phone
+## 5. Environment layout — one per secrets profile, not per repo
+
+An environment holds only a network policy, env vars / API credentials and a setup script;
+the repository is picked separately in the composer. Repos that share secrets share one
+environment, so a token is entered once and rotated in one place.
+
+```
+ secrets profile                  repos                               environment
+ ─────────────────────────────    ──────────────────────────────────  ───────────────────────
+ Atlassian: FORGE_*, JSM_*,       conf-app, conf-mini-sites,          "Conf App" (rename to
+   CLOUDFLARE_*, Mixpanel JQL     aws-widgets                          "Atlassian apps")
+ Diagramly: CHARGEBEE_*, Neon,    diagramly.ai                        "Diagramly.ai"
+   AGENT_LINK_*, App Insights
+ none (Trusted network is fine)   mmd-zenuml-core, web-sequence,      one env; fold "ZenUML",
+                                  docs sites                           "ZenUML CORE", "Web sequence"
+ —                                —                                   "Conf app 2": empty, archive
+```
+
+Evidence (2026-09-12, names only): conf-app `.env*` carries `FORGE_*`, `JSM_*`,
+`CLOUDFLARE_ACCOUNT_ID`; diagramly.ai carries `CHARGEBEE_*`, `AGENT_LINK_*`,
+`APPLICATIONINSIGHTS_*`, no overlap. mini-sites and aws-widgets keep no `.env` on disk and
+are Forge apps under the same Atlassian owner, so the same `FORGE_*` token serves them.
+
+Routines bind an environment by id (`env_018cHo8XMcQftZBkNS3atV6c`), so renaming "Conf App"
+breaks nothing; archiving it would.
+
+Shared setup script, since the repos differ in package manager (conf-app and mini-sites
+pnpm, aws-widgets npm/yarn, core bun):
+
+```bash
+#!/bin/bash
+if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile
+elif [ -f bun.lock ]; then bun install --frozen-lockfile
+elif [ -f package-lock.json ]; then npm ci; fi
+```
+
+## 6. How to start from the phone
 
 1. claude.ai app → Code → new session on **ZenUml/conf-app**, environment **"Conf App"** (`env_018cHo8XMcQftZBkNS3atV6c`; "Conf app 2" is empty — archive or ignore).
 2. First message names the skill (`/health-check 1d`, `/support-queue`, `/tenant <domain>`), so the session loads the right reference before touching credentials.

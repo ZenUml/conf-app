@@ -116,6 +116,7 @@ export function applyNewDiagramLink<T extends { diagramType?: string }>(
 /** Modal `diagramType` (the routing vocabulary forgeIndex compares against) →
  *  the storage type a seeded doc needs. */
 const DIAGRAM_TYPE_BY_MODAL_TYPE: Record<string, DiagramType> = {
+  markdown: DiagramType.Markdown,
   sequence: DiagramType.Sequence,
   mermaid: DiagramType.Mermaid,
   plantuml: DiagramType.PlantUml,

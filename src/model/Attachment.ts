@@ -397,7 +397,14 @@ export async function capturePng(diagramType?: string, content?: string): Promis
       // fall through to the DOM capture if the server fetch failed
     }
   }
-  return toPng();
+  // Never label an old document image with the newest source hash. A skipped
+  // save-time capture is repaired by diagramLoaded after the viewer renders.
+  const markdownMatches = () => document.querySelector('.screen-capture-content .markdown-document')
+    ?.getAttribute('data-markdown-source-hash') === md5(content ?? '');
+  if (diagramType === 'markdown' && !markdownMatches()) throw new Error('Markdown preview is still rendering');
+  const png = await toPng();
+  if (diagramType === 'markdown' && !markdownMatches()) throw new Error('Markdown preview changed during capture');
+  return png;
 }
 
 /**

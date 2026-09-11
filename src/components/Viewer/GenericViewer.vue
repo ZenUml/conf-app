@@ -564,7 +564,7 @@ export default {
     // centered via fit-content — forcing THEM wide would left-align them. So only widen
     // the frame for mermaid; everything else keeps its centered fit-content behavior.
     isWide() {
-      return this.wide || (this.isFullscreenMode && this.diagramType === DiagramType.Mermaid);
+      return this.diagramType === DiagramType.Markdown || this.wide || (this.isFullscreenMode && this.diagramType === DiagramType.Mermaid);
     },
     isEmbedded() {
       const moduleKey = window.forgeGlobal?.forgeContext?.moduleKey || ''
@@ -639,7 +639,7 @@ export default {
     // View Source (#333): text-DSL types only. NOT gated on canUserEdit — the
     // audience includes readers without edit permission.
     showViewSource() {
-      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
     },
     copyForAiImpressionEligible() {
       return this.copyForAiPermissionResolved
@@ -664,6 +664,7 @@ export default {
       if (!this.isFullscreenMode) return null;
       switch (this.diagramType) {
         case DiagramType.Sequence: return { id: 'sequence', label: 'Sequence' };
+        case DiagramType.Markdown: return { id: 'markdown', label: 'Markdown' };
         case DiagramType.Mermaid: return { id: 'mermaid', label: 'Mermaid' };
         case DiagramType.PlantUml: return { id: 'plantuml', label: 'PlantUML' };
         case DiagramType.Graph: return { id: 'graph', label: 'Graph' };
@@ -676,6 +677,7 @@ export default {
     },
     viewSourceDslLabel() {
       switch (this.diagramType) {
+        case DiagramType.Markdown: return 'Markdown';
         case DiagramType.Mermaid: return 'Mermaid';
         case DiagramType.PlantUml: return 'PlantUML';
         case DiagramType.Sequence:
@@ -688,6 +690,7 @@ export default {
     // non-text-DSL diagramType in practice.
     copyForAiFenceLang() {
       switch (this.diagramType) {
+        case DiagramType.Markdown: return 'markdown';
         case DiagramType.Mermaid: return 'mermaid';
         case DiagramType.PlantUml: return 'plantuml';
         case DiagramType.Sequence:

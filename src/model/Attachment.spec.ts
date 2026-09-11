@@ -66,13 +66,37 @@ vi.mock('@forge/bridge', () => ({
   requestConfluence: (...args: any[]) => mockRequestConfluence(...args)
 }));
 
-import createAttachmentIfContentChanged from './Attachment';
+import createAttachmentIfContentChanged, { capturePng } from './Attachment';
 
 import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
 describe('Attachment', () => {
+  describe('Markdown preview capture', () => {
+    it('rejects a preview that has not rendered the source being saved', async () => {
+      document.body.innerHTML = '<div class="screen-capture-content"><div class="markdown-document" data-markdown-source-hash="hash-old"></div></div>';
+      await expect(capturePng('markdown', 'new')).rejects.toThrow('still rendering');
+      expect(captureBlob).not.toHaveBeenCalled();
+    });
+
+    it('captures the matching document', async () => {
+      document.body.innerHTML = '<div class="screen-capture-content"><div class="markdown-document" data-markdown-source-hash="hash-new"></div></div>';
+      const png = new Blob(['png'], { type: 'image/png' });
+      vi.mocked(captureBlob).mockResolvedValue(png);
+      await expect(capturePng('markdown', 'new')).resolves.toBe(png);
+    });
+
+    it('rejects a capture when the document changes during conversion', async () => {
+      document.body.innerHTML = '<div class="screen-capture-content"><div class="markdown-document" data-markdown-source-hash="hash-new"></div></div>';
+      vi.mocked(captureBlob).mockImplementation(async () => {
+        document.querySelector('.markdown-document')!.setAttribute('data-markdown-source-hash', '');
+        return new Blob(['png'], { type: 'image/png' });
+      });
+      await expect(capturePng('markdown', 'new')).rejects.toThrow('changed during capture');
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset window state

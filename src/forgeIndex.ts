@@ -1,3 +1,4 @@
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
@@ -669,7 +670,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // (Sequence is the dominant legacy shape), then mermaidCode,
         // then plantUmlCode. Default to Sequence for empty objects.
         const VALID_DIAGRAM_TYPES: ReadonlyArray<DiagramType> = [
-          DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+          DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown,
         ];
         const storedTypeIsValid = restored.diagramType
           && VALID_DIAGRAM_TYPES.includes(restored.diagramType);
@@ -1371,7 +1372,7 @@ EventBus.$on('save', async () => {
   // attachment_not_found. At save the user has write permission (no 403) and the
   // content is known, so we can write it directly.
   //
-  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml) only —
+  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml/markdown) only —
   // it's the one editor with a capturable preview (.screen-capture-content).
   // graph/openapi editors have no diagram to snapshot here (tracked separately).
   //
@@ -1380,11 +1381,11 @@ EventBus.$on('save', async () => {
   // exceeds the cap or throws, we proceed to submit anyway — the view-time path
   // remains as a backfill.
   const savedDiagramType = store.state.diagram.diagramType;
-  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml')) {
+  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml' || savedDiagramType === 'markdown')) {
     try {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await Promise.race([
-        createAttachmentIfContentChanged(store.state.diagram.code ?? '', savedDiagramType, {
+        createAttachmentIfContentChanged(getDiagramData(store.state.diagram), savedDiagramType, {
           customContentId: String(id),
           fromSave: true,
         }),

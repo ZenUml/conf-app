@@ -12,14 +12,14 @@ const meta: Meta<typeof TabSwitcher> = {
     docs: {
       description: {
         component:
-          'A pill-style tab switcher used to switch between diagram types (Sequence, Mermaid, PlantUML). Each tab has a coloured indicator dot and text label. The active tab is highlighted with a type-specific colour. Persists the user\'s selection to localStorage under `zenuml-preferred-diagram-type`.',
+          'A pill-style tab switcher used to switch between diagram types (Sequence, Mermaid, PlantUML, Markdown). Each tab has a coloured indicator dot and text label. The active tab is highlighted with a type-specific colour. Persists the user\'s selection to localStorage under `zenuml-preferred-diagram-type`.',
       },
     },
   },
   argTypes: {
     modelValue: {
       control: 'select',
-      options: ['sequence', 'mermaid', 'plantuml'],
+      options: ['sequence', 'mermaid', 'plantuml', 'markdown'],
       description: 'The currently selected tab value (v-model)',
     },
     options: {
@@ -35,9 +35,10 @@ const ALL_OPTIONS = [
   { value: 'sequence', label: 'Sequence' },
   { value: 'mermaid',  label: 'Mermaid'  },
   { value: 'plantuml', label: 'PlantUML' },
+  { value: 'markdown', label: 'Markdown' },
 ]
 
-/** All three diagram-type tabs — Sequence selected. */
+/** All four diagram-type tabs — Sequence selected. */
 export const SequenceActive: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },
@@ -53,7 +54,7 @@ export const SequenceActive: Story = {
   },
 }
 
-/** All three diagram-type tabs — Mermaid selected. */
+/** All four diagram-type tabs — Mermaid selected. */
 export const MermaidActive: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },
@@ -69,7 +70,7 @@ export const MermaidActive: Story = {
   },
 }
 
-/** All three diagram-type tabs — PlantUML selected. */
+/** All four diagram-type tabs — PlantUML selected. */
 export const PlantUmlActive: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },

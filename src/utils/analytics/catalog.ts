@@ -261,17 +261,19 @@ export type AnalyticsEventName =
   | "macro_save_failed"
   // Fired once per failed CREATE whose Confluence answer was a 404 NOT_FOUND
   // envelope, AFTER a read-only probe of the caller's own operations on the
-  // host page (`GET /rest/api/content/{pageId}?expand=operations`). The bare
+  // host page (`GET /api/v2/pages/{pageId}?include-operations=true`; the v1
+  // `?expand=operations` route answers 410 Gone through Forge's
+  // requestConfluence proxy, which is why every probe before 2026-09-11
+  // reported page_unreachable). The bare
   // `"title":"Not Found"` shape is a permission-masked refusal: on 2026-08-30
   // (lite-stg, four permission sets) a user holding "Add pages" but not "Add
   // attachments" got exactly that shape on POST /api/v2/custom-content while
   // PUT still succeeded, and the `operations` list carried
   // `create/<our custom-content type>` only alongside `create/attachment`.
   // A page that exists only as a never-published draft answers the plain GET
-  // with 404 (`status [current, archived]`) although POST /api/v2/custom-content
-  // under it succeeds (lite-stg 2026-09-11), so a 404 is retried once with
-  // `?status=draft` before the page is called unreachable; `page_status` then
-  // reads `draft`. The legacy `save_failed` event keeps the raw error; this
+  // with 404 although POST /api/v2/custom-content under it succeeds (lite-stg
+  // 2026-09-11), so a 404 is retried once with `get-draft=true` before the
+  // page is called unreachable; `page_status` then reads `draft`. The legacy `save_failed` event keeps the raw error; this
   // event records WHY (`error_shape`, `can_create_cc_type`,
   // `can_create_attachment`, `can_create_page`, `page_reachable`,
   // `probe_http_status`) so the cause is read off the event instead of

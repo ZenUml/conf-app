@@ -1413,15 +1413,15 @@ describe('ApWrapper2', () => {
     it('probes the host page operations and reports what the caller may create', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({
         id: '456', status: 'current',
-        operations: [
+        operations: { results: [
           { operation: 'read', targetType: 'page' },
           { operation: 'create', targetType: 'page' },
-        ],
+        ] },
       });
 
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
-      expect(forgeRequest).toHaveBeenCalledWith('/wiki/rest/api/content/456?expand=operations', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
       expect(diagnosis).toEqual({
         probe_status: 'ok',
         page_reachable: true,
@@ -1892,33 +1892,61 @@ describe('ApWrapper2', () => {
   });
 
   describe('diagnoseCreateNotFound', () => {
-    // Verbatim v1 shape for a page that exists only as a never-published draft
-    // (lite-stg 2026-09-11, page 275611711): the plain GET answers this 404
-    // envelope, `?status=draft` answers 200 with the caller's operations, and
-    // POST /api/v2/custom-content under that page answers 201.
-    const draftOnly404 = {
-      statusCode: 404,
-      data: { authorized: true, valid: true, errors: [], successful: true },
-      message: 'com.atlassian.confluence.api.service.exceptions.api.NotFoundException: No content found with id : 275611711 and status [current, archived]',
+    // Verbatim v2 shapes from lite-stg, 2026-09-11, read as robot1yanhui:
+    // - page 999999999999 (no such page): the v2 404 envelope
+    // - page 275349583 in an "Add pages"-only space: create/page listed,
+    //   create/attachment and our type absent — the population that gets the
+    //   bare 404 on POST /api/v2/custom-content
+    // - page 275415139, a never-published draft: 404 without get-draft=true,
+    //   200 with it, and the draft lists the same create operations
+    const notFound = {
+      errors: [{ status: 404, code: 'NOT_FOUND', title: 'Cannot find a page with id [456]', detail: null }],
+    };
+    const pageOnlyBody = {
+      id: '456', status: 'current', spaceId: '241762739',
+      operations: { results: [
+        { operation: 'read', targetType: 'page' },
+        { operation: 'update', targetType: 'page' },
+        { operation: 'create', targetType: 'page' },
+        { operation: 'create', targetType: 'whiteboard' },
+      ] },
     };
     const draftBody = {
       id: '456', status: 'draft',
-      operations: [
+      operations: { results: [
         { operation: 'read', targetType: 'page' },
+        { operation: 'update', targetType: 'page' },
         { operation: 'create', targetType: 'attachment' },
         { operation: 'create', targetType: 'ac:test-addon:zenuml-content-sequence' },
-      ],
+      ] },
     };
 
-    it('retries with status=draft when the plain probe 404s, and reads the draft operations', async () => {
+    it('probes the v2 page operations and reads the Add-pages-only verdict', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(pageOnlyBody);
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(1);
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
+      expect(diagnosis).toMatchObject({
+        probe_status: 'ok',
+        page_reachable: true,
+        page_status: 'current',
+        can_create_cc_type: false,
+        can_create_attachment: false,
+        can_create_page: true,
+      });
+    });
+
+    it('retries with get-draft=true when the plain probe 404s, and reads the draft operations', async () => {
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce(draftOnly404)
+        .mockResolvedValueOnce(notFound)
         .mockResolvedValueOnce(draftBody);
 
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
-      expect(forgeRequest).toHaveBeenNthCalledWith(1, '/wiki/rest/api/content/456?expand=operations', 'GET', undefined);
-      expect(forgeRequest).toHaveBeenNthCalledWith(2, '/wiki/rest/api/content/456?status=draft&expand=operations', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenNthCalledWith(1, '/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenNthCalledWith(2, '/wiki/api/v2/pages/456?include-operations=true&get-draft=true', 'GET', undefined);
       expect(diagnosis).toMatchObject({
         probe_status: 'ok',
         page_reachable: true,
@@ -1929,8 +1957,8 @@ describe('ApWrapper2', () => {
 
     it('reports page_unreachable with the HTTP status only when the draft probe 404s too', async () => {
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce(draftOnly404)
-        .mockResolvedValueOnce({ statusCode: 404, message: 'No content found with id : 456 and status [draft]' });
+        .mockResolvedValueOnce(notFound)
+        .mockResolvedValueOnce(notFound);
 
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
@@ -1938,13 +1966,13 @@ describe('ApWrapper2', () => {
       expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 404 });
     });
 
-    it('does not retry on a non-404 error envelope', async () => {
-      vi.mocked(forgeRequest).mockResolvedValueOnce({ statusCode: 403, message: 'forbidden' });
+    it('does not retry on a non-404 error envelope and keeps its status (the v1 route answered 410 Gone)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ statusCode: 410, message: 'Gone' });
 
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
       expect(forgeRequest).toHaveBeenCalledTimes(1);
-      expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 403 });
+      expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 410 });
     });
   });
 });

@@ -54,26 +54,35 @@ export function classifyCreateNotFound(error: any): CreateNotFoundShape | undefi
 }
 
 /**
- * Read the caller's own operations on the host page out of a v1
- * `GET /rest/api/content/{id}?expand=operations` body. `ccType` is the fully
- * qualified custom-content type the failed POST used
+ * Read the caller's own operations on the host page out of a
+ * `GET /api/v2/pages/{id}?include-operations=true` body (`operations.results`),
+ * or the older v1 `?expand=operations` body (`operations` array). `ccType` is
+ * the fully qualified custom-content type the failed POST used
  * (ApWrapper2.getCustomContentType()).
  */
 export function parseContentOperations(body: any, ccType: string): SaveFailureDiagnosis {
   if (!body || typeof body !== 'object') return { probe_status: 'failed' };
-  // forgeRequest returns the parsed body regardless of HTTP status; a v1 error
-  // arrives as `{ statusCode, message, … }` with no content fields.
-  if (typeof body.statusCode === 'number' && body.statusCode >= 400) {
-    return { probe_status: 'page_unreachable', page_reachable: false, probe_http_status: body.statusCode };
+  // forgeRequest returns the parsed body regardless of HTTP status. A v1
+  // error arrives as `{ statusCode, message, … }`; a v2 error as
+  // `{ errors: [{ status, code, title }] }`. Neither carries content fields.
+  const httpStatus: number | undefined =
+    typeof body.statusCode === 'number' ? body.statusCode
+    : Array.isArray(body.errors) && typeof body.errors[0]?.status === 'number' ? body.errors[0].status
+    : undefined;
+  if (httpStatus !== undefined && httpStatus >= 400) {
+    return { probe_status: 'page_unreachable', page_reachable: false, probe_http_status: httpStatus };
   }
   const base: SaveFailureDiagnosis = {
     probe_status: 'failed',
     page_reachable: true,
     page_status: typeof body.status === 'string' ? body.status : undefined,
   };
-  if (!Array.isArray(body.operations)) return base;
+  const operations: any[] | undefined = Array.isArray(body.operations)
+    ? body.operations
+    : Array.isArray(body.operations?.results) ? body.operations.results : undefined;
+  if (!operations) return base;
   const has = (operation: string, targetType: string) =>
-    body.operations.some((op: any) => op?.operation === operation && op?.targetType === targetType);
+    operations.some((op: any) => op?.operation === operation && op?.targetType === targetType);
   return {
     ...base,
     probe_status: 'ok',

@@ -114,6 +114,22 @@ describe('parseContentOperations', () => {
     });
   });
 
+  it('reads the v2 shape: operations nested under results, error status under errors[0]', () => {
+    const v2 = { id: '275349583', status: 'current', operations: { results: pageOnly.operations } };
+    expect(parseContentOperations(v2, CC_TYPE)).toMatchObject({
+      probe_status: 'ok',
+      page_status: 'current',
+      can_create_cc_type: false,
+      can_create_page: true,
+    });
+    const v2NotFound = { errors: [{ status: 404, code: 'NOT_FOUND', title: 'Cannot find a page with id [1]', detail: null }] };
+    expect(parseContentOperations(v2NotFound, CC_TYPE)).toEqual({
+      probe_status: 'page_unreachable',
+      page_reachable: false,
+      probe_http_status: 404,
+    });
+  });
+
   it('marks the probe failed when the body has no operations array', () => {
     expect(parseContentOperations({ id: '1', status: 'current' }, CC_TYPE)).toEqual({
       probe_status: 'failed',

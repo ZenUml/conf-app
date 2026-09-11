@@ -8,6 +8,7 @@ import {IUser} from "@/model/IUser";
 import {ILicense} from "@/model/ILicense";
 import {DataSource, Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import {getCodeFromDiagram} from "@/model/Diagram/DiagramTypeConfig";
+import {normalizeMermaidWhitespace} from "@/utils/mermaid/normalizeWhitespace";
 import {
   ICustomContentResponseBodyV2
 } from "@/model/ICustomContentResponseBody";
@@ -419,6 +420,14 @@ export default class ApWrapper2 {
     // it into the stored body would put a permanent flag on customer content to
     // record a decision made once, seconds earlier.
     delete body.typeRequested;
+
+    // Pasted rich text carries U+00A0 into mermaidCode, which mermaid's newer
+    // grammars reject on every later render. Normalise at the persistence
+    // boundary so a save always stores parseable source; the renderer repeats
+    // the normalisation for bodies written before this existed.
+    if (typeof body.mermaidCode === 'string') {
+      body.mermaidCode = normalizeMermaidWhitespace(body.mermaidCode);
+    }
 
     // Legacy graph records used `compressed: true` with an LZUTF8 graphXml
     // body. DrawIO saves now emit plain XML, so persisting a stale true flag

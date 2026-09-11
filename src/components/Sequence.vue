@@ -65,6 +65,16 @@ export default {
     try {
       // Load ZenUml dynamically
       const ZenUml = await loadZenUml();
+      // 2026-09-01 replay (v2026.08.310610-lite): the user picked a Mermaid
+      // starter template while this chunk was still loading, unmounting
+      // Sequence before `await loadZenUml()` resolved. `new ZenUml(...)` then
+      // ran against a null $refs.zenuml, React's createRoot threw error #299
+      // ("Target container is not a DOM element"), and viewer_load_failed
+      // fired for a macro the user had already switched away from. Bail out
+      // silently instead of constructing/rendering/tracking anything.
+      if (this._unmountedDuringLoad || !this.$refs["zenuml"]) {
+        return;
+      }
       zenuml = new ZenUml(this.$refs["zenuml"]);
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
@@ -88,6 +98,12 @@ export default {
       // produced a blank macro with zero Mixpanel signal on either side.
       trackViewerRenderCrash('sequence', this.isDisplayMode, error);
     }
+  },
+  beforeUnmount() {
+    // Flip a flag rather than relying solely on `this.$refs["zenuml"]` being
+    // null after unmount — belt-and-braces for the guard in `mounted()`
+    // above (see the 2026-09-01 replay comment there).
+    this._unmountedDuringLoad = true;
   },
   methods: {
     async render() {

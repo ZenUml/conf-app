@@ -54,7 +54,7 @@ const errorMessages: AIChatMessage[] = [
 ]
 
 const meta: Meta<typeof AIChatPanel> = {
-  title: 'AI Chat/AIChatPanel',
+  title: 'Editor/Diagram/AIChatPanel',
   component: AIChatPanel,
   tags: ['autodocs'],
   args: {

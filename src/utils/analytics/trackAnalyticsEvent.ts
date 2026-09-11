@@ -21,7 +21,7 @@ import { normalizeProductType } from "./productType";
 let _initPromise: Promise<void> | null = null;
 let _identified = false;
 
-type AuthoringReplayProperties = Pick<
+type ExplicitReplayProperties = Pick<
   AnalyticsProperties,
   | "session_replay_source"
   | "session_replay_percent"
@@ -67,9 +67,31 @@ function _shouldRecordAuthoring(): boolean {
   return _authoringReplayDecision;
 }
 
-function _startAuthoringReplay(
+function _startExplicitReplay(
   eventName: AnalyticsEventName
-): Partial<AuthoringReplayProperties> {
+): Partial<ExplicitReplayProperties> {
+  if (eventName === "feedback_report_opened") {
+    try {
+      mixpanel.start_session_recording();
+      const replayProperties: ExplicitReplayProperties = {
+        session_replay_source: "feedback",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      };
+      mixpanel.register({
+        session_replay_percent: replayProperties.session_replay_percent,
+        session_replay_source: replayProperties.session_replay_source,
+      });
+      return replayProperties;
+    } catch (error) {
+      console.error(
+        "[session-replay] feedback start call threw",
+        error instanceof Error ? error.name : "unknown"
+      );
+      return { session_replay_start_call_outcome: "threw" };
+    }
+  }
+
   if (
     eventName !== "macro_create_started" &&
     eventName !== "macro_edit_started"
@@ -90,7 +112,7 @@ function _startAuthoringReplay(
     // baseline Forge-flag cohort resolved by _initMixpanel. The SDK call is
     // idempotent when baseline sampling already started a recording.
     mixpanel.start_session_recording();
-    const replayProperties: AuthoringReplayProperties = {
+    const replayProperties: ExplicitReplayProperties = {
       session_replay_source: "authoring",
       session_replay_percent: 100,
       session_replay_start_call_outcome: "returned",
@@ -367,7 +389,7 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
-    const authoringReplayProperties = _startAuthoringReplay(eventName);
+    const explicitReplayProperties = _startExplicitReplay(eventName);
 
     const contentIds = _getContentIdentifiers();
 
@@ -397,7 +419,7 @@ export async function _awaitableTrackAnalyticsEvent(
       attachment_name: callerProps.attachment_name ?? contentIds.attachment_name,
       ...(await _getSpaceAdminTelemetry(eventName)),
       ...(await _getDemoPageTelemetry(eventName)),
-      ...authoringReplayProperties,
+      ...explicitReplayProperties,
     };
 
     if (options) {

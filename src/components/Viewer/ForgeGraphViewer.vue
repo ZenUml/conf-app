@@ -9,7 +9,7 @@
            is empty (widthIsEmpty=true). Setting it inline keeps the container
            at parent width and lets GraphViewer's positionGraph fitGraph()
            scale wide diagrams down to fit. See ZEN-1168. -->
-      <div ref="graphContainer" class="graph-viewer-canvas" style="width:100%"></div>
+      <div ref="graphContainer" class="graph-viewer-canvas" data-diagram-capture-root style="width:100%"></div>
       <template v-if="pageCount > 1" #pill-prefix>
         <button
           @click="goToPage(currentPage - 1)"
@@ -45,6 +45,7 @@
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import {
   isLegacyBoardDocument,
@@ -69,12 +70,17 @@ export default {
   data() {
     return {
       graphViewer: null,
+      captureResizeObserver: null,
       currentPage: 0,
       pageCount: 0,
     };
   },
   mounted() {
     this.renderViewer();
+  },
+  beforeUnmount() {
+    this.captureResizeObserver?.disconnect();
+    this.captureResizeObserver = null;
   },
   computed: {
     isBoardMode() {
@@ -119,6 +125,10 @@ export default {
     renderViewer() {
       const container = this.$refs.graphContainer;
       const diagram = this.$store.state.diagram;
+      if (container) {
+        delete container.dataset.captureBoxWidth;
+        delete container.dataset.captureBoxHeight;
+      }
       if (this.isBoardMode && !isLegacyBoardDocument(diagram)) {
         const boardXml = diagram?.boardGraphXml;
         // bootstrapForgeViewer mounts NULL_DIAGRAM while the authoritative
@@ -150,9 +160,24 @@ export default {
           'auto-fit': true,
           'border': 10,
         });
+        // GraphViewer intentionally keeps this canvas at 100% width. Export
+        // needs the rendered graph box, not that fullscreen layout column.
+        // mxGraphView.graphBounds are already in view-scaled CSS coordinates;
+        // multiply by neither graph.view.scale nor any device pixel ratio.
+        this.updateCaptureBox();
+        this.captureResizeObserver?.disconnect();
+        if (typeof ResizeObserver !== 'undefined') {
+          this.captureResizeObserver = new ResizeObserver(() => this.updateCaptureBox());
+          this.captureResizeObserver.observe(container);
+        }
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
         trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        // Graph emits no 'diagramLoaded' (that event belongs to the text-DSL
+        // renderers). An export-entry Fullscreen open waits for this before it
+        // opens the export dialog, so the dialog's first capture is of a
+        // painted diagram rather than an empty container.
+        EventBus.$emit('viewerRenderSettled', 'graph');
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
         if (this.isBoardMode) {
@@ -170,6 +195,22 @@ export default {
       if (!this.graphViewer || index < 0 || index >= this.pageCount) return;
       this.graphViewer.selectPage(index);
       this.currentPage = index;
+      this.updateCaptureBox();
+    },
+    updateCaptureBox() {
+      const container = this.$refs.graphContainer;
+      const graph = this.graphViewer?.graph;
+      const bounds = graph?.getGraphBounds?.();
+      const border = graph?.border || 0;
+      if (!container || !bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {
+        if (container) {
+          delete container.dataset.captureBoxWidth;
+          delete container.dataset.captureBoxHeight;
+        }
+        return;
+      }
+      container.dataset.captureBoxWidth = String(bounds.width + 2 * border);
+      container.dataset.captureBoxHeight = String(bounds.height + 2 * border);
     }
   }
 }

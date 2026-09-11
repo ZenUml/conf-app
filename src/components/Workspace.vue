@@ -234,6 +234,20 @@
   padding: 24px;
 }
 
+/* The editor preview is a fixed-height flex pane. Keep the chrome-less viewer
+   in that pane so svg-pan-zoom receives a real viewport height instead of the
+   browser's 150px default for an SVG whose viewBox has been removed. */
+#workspace-right > .generic {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#workspace-right > .generic > .screen-capture-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .gutter {
   background-color: #eee;
   background-repeat: no-repeat;

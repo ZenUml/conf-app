@@ -1,6 +1,6 @@
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
-import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
@@ -52,6 +52,12 @@ import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderC
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
+import {
+  EXPORT_SESSION_EVENT,
+  readExportSession,
+  receiveExportSession,
+} from '@/components/ExportModal/exportSession';
+import { openWithExportSessionHandoff } from '@/components/ExportModal/exportSessionHandoff';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -85,6 +91,12 @@ async function initializeCriticalPath() {
   // extension.modal (when there isn't a real modal) doesn't have it.
   const context = await initForgeContext();
   const isOpenedModal = !!context.extension?.modal?.macroMode;
+
+  if (context.extension?.modal?.macroMode === 'feedback') {
+    const { mountFeedbackModal } = await import('@/features/feedback/mountFeedback');
+    mountFeedbackModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
 
   // Check if this is a global settings route (get started page)
   if (!isOpenedModal && context.extension?.type === 'confluence:globalSettings') {
@@ -249,7 +261,8 @@ async function initializeCriticalPath() {
 }
 
 // Load heavy components asynchronously
-async function loadHeavyComponents(criticalData: { macroData: any }) {
+async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandled?: boolean }) {
+  if (criticalData.feedbackHandled) return;
   // Dynamically import heavy dependencies
   const [
     { mountRoot }
@@ -967,6 +980,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   if(isSequence) {
     const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
     const fullscreenMode = await isFullscreenMode();
+    const exportEntry = fullscreenMode && (await isExportEntry());
     const trackPageEditorAuthoringStarted = () => {
       const isNew = !customContentId;
       const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
@@ -1009,7 +1023,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     // Fullscreen viewer paywall: blocking modal over the read-only diagram.
     // Fires only when the user clicked Fullscreen on a saturated Lite space.
-    if (!editable && fullscreenMode) {
+    // Not for an export-entry open: the user pressed Export PNG, which is
+    // ungated on the inline surface, and this modal is only where the dialog
+    // has room to be operated.
+    if (!editable && fullscreenMode && !exportEntry) {
       const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
       if (await tryFullscreenViewerPaywall({
         // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
@@ -1148,9 +1165,16 @@ async function main() {
   const criticalData = await initializeCriticalPath();
 
   // Phase 2: Load heavy components
-  loadHeavyComponents(criticalData).catch(e =>
-    console.error('Failed to load heavy components:', e)
-  );
+  try {
+    await loadHeavyComponents(criticalData);
+    if (!criticalData.feedbackHandled) {
+      const context = await initForgeContext();
+      const { installFeedbackHost } = await import('@/features/feedback/mountFeedback');
+      installFeedbackHost(context);
+    }
+  } catch (e) {
+    console.error('Failed to load heavy components:', e);
+  }
 }
 
 export default main()
@@ -1558,25 +1582,66 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 
 
 
-EventBus.$on('fullscreen', async () => {
-  const context = await initForgeContext();
-  const macroUuid =
-    forgeGlobal.forgeContext?.localId
-    || context.extension?.config?.uuid
-    || uuidv4();
+// One open at a time. openModal() is an async bridge round trip with no
+// built-in guard, so a second click before it resolves issues a second modal.
+let fullscreenOpenInFlight = false;
 
-  await openModal({
-    resource: 'main',
-    onClose: () => {
-      location.reload();
-    },
-    size: 'fullscreen',
-    context: {
-      macroMode: 'fullscreen',
-      macro_uuid: macroUuid,
-      session_id: getOrCreateSession(),
-    },
-  });
+EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
+  if (fullscreenOpenInFlight) return;
+  fullscreenOpenInFlight = true;
+  try {
+    const context = await initForgeContext();
+    const macroUuid =
+      forgeGlobal.forgeContext?.localId
+      || context.extension?.config?.uuid
+      || uuidv4();
+
+    const exportSession = readExportSession();
+
+    // The listener's lifetime lives in openWithExportSessionHandoff, which is
+    // unit-tested: the bridge resolves openModal() when the modal has OPENED,
+    // so unsubscribing on that resolve loses every annotation the child makes.
+    await openWithExportSessionHandoff({
+      macroUuid,
+      subscribe: async (handler) => {
+        const { events } = await import('@forge/bridge');
+        return events.on(EXPORT_SESSION_EVENT, handler);
+      },
+      onSnapshot: receiveExportSession,
+      open: (onClose) => openModal({
+        resource: 'main',
+        onClose,
+        size: 'fullscreen',
+        context: {
+          macroMode: 'fullscreen',
+          macro_uuid: macroUuid,
+          session_id: getOrCreateSession(),
+          ...(exportSession ? { exportSession } : {}),
+          // Export PNG entry: the modal opens the export dialog on arrival, and
+          // the fullscreen-viewer paywall is skipped for it — inline export has
+          // never been gated, and gating it here would both block the action and
+          // report a paywall_triggered the user never asked for.
+          ...(options?.openExport ? { openExport: true } : {}),
+        },
+      }),
+      onClosed: () => {
+        // Export-entry close must only dismiss the temporary modal. A normal
+        // fullscreen close keeps the page visit alive when export state exists.
+        if (options?.openExport || readExportSession() !== null) return;
+        location.reload();
+      },
+    });
+  } finally {
+    fullscreenOpenInFlight = false;
+  }
+});
+
+// Dismissing an export-entry dialog leaves the modal entirely: that modal was
+// opened by Export PNG and skipped the fullscreen-viewer paywall, so the viewer
+// behind it must not stay reachable. See GenericViewer.onExportModalClose.
+EventBus.$on('closeFullscreen', async () => {
+  const exportSession = readExportSession();
+  await (await getView()).close({ exportSession });
 });
 
 EventBus.$on('updateContent', async (diagram: Diagram) => {

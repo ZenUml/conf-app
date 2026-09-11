@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as htmlToImage from 'html-to-image';
-import { captureBlob } from './captureBlob';
+import { captureBlob, prepareSequenceCaptureSvg } from './captureBlob';
 
 // The defect these tests pin down: html-to-image's own toBlob() resolves ONLY
 // from inside a requestAnimationFrame callback, and Chrome runs no animation
@@ -21,11 +21,6 @@ type ImageStub = {
   src: string;
 };
 
-/**
- * Replace `Image` with a stub that fires `load` on the next microtask, so the
- * test exercises the post-load chain (decode -> raster) rather than jsdom's
- * no-op image loading.
- */
 function stubImage(decodeBehaviour: 'ok' | 'reject' | 'absent') {
   const created: ImageStub[] = [];
   class FakeImage {
@@ -46,16 +41,12 @@ function stubImage(decodeBehaviour: 'ok' | 'reject' | 'absent') {
       created.push(this as unknown as ImageStub);
     }
     get src() { return this.#src; }
-    set src(v: string) {
-      this.#src = v;
-      queueMicrotask(() => this.onload?.());
-    }
+    set src(v: string) { this.#src = v; queueMicrotask(() => this.onload?.()); }
   }
   vi.stubGlobal('Image', FakeImage as unknown as typeof Image);
   return created;
 }
 
-/** A capture node with a real measurable box. */
 function makeNode(): HTMLElement {
   const el = document.createElement('div');
   Object.defineProperty(el, 'clientWidth', { value: 300, configurable: true });
@@ -66,42 +57,26 @@ function makeNode(): HTMLElement {
 
 function stubCanvas() {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-    fillStyle: '',
-    fillRect: vi.fn(),
-    drawImage: vi.fn(),
+    fillStyle: '', fillRect: vi.fn(), drawImage: vi.fn(),
   } as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
-    this: HTMLCanvasElement,
-    cb: BlobCallback,
-  ) {
-    cb(new Blob(['png'], { type: 'image/png' }));
-  } as HTMLCanvasElement['toBlob']);
+    this: HTMLCanvasElement, cb: BlobCallback,
+  ) { cb(new Blob(['png'], { type: 'image/png' })); } as HTMLCanvasElement['toBlob']);
 }
 
-/** Resolves to 'timeout' if `p` has not settled within `ms` of fake time. */
 function settlesWithin<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
-  return Promise.race([
-    p,
-    new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), ms)),
-  ]);
+  return Promise.race([p, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), ms))]);
 }
 
 describe('captureBlob', () => {
   let node: HTMLElement;
-
   beforeEach(() => {
     node = makeNode();
     stubCanvas();
     vi.spyOn(htmlToImage, 'toSvg').mockResolvedValue(SVG_URL);
-    // The offscreen-iframe condition: animation frames are never serviced.
     vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
   });
-
-  afterEach(() => {
-    node.remove();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
+  afterEach(() => { node.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
   it('produces a PNG blob when requestAnimationFrame never fires (offscreen Forge iframe)', async () => {
     stubImage('ok');
@@ -142,53 +117,41 @@ describe('captureBlob', () => {
     expect(htmlToImage.toSvg).toHaveBeenCalledWith(node, { backgroundColor: 'white', skipFonts: true });
   });
 
-  // The regression guard, stated as the library's own code shape. The real
-  // html-to-image pipeline cannot run under jsdom (it needs SVGImageElement and
-  // real computed styles), so this reproduces `createImage` from
-  // node_modules/html-to-image/es/util.js verbatim and shows that its ONLY
-  // resolve path is gated on an animation frame. `captureBlob` deliberately has
-  // no such gate; the first test above is the paired assertion.
   it('DOCUMENTS THE DEFECT: html-to-image createImage() never settles without animation frames', async () => {
     stubImage('ok');
-    // verbatim from html-to-image 1.11.13 es/util.js
-    const createImage = (url: string) =>
-      new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-          img.decode().then(() => {
-            requestAnimationFrame(() => resolve(img));
-          });
-        };
-        img.onerror = reject;
-        img.crossOrigin = 'anonymous';
-        img.decoding = 'async';
-        img.src = url;
-      });
+    const createImage = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => { img.decode!().then(() => { requestAnimationFrame(() => resolve(img)); }); };
+      img.onerror = reject; img.crossOrigin = 'anonymous'; img.decoding = 'async'; img.src = url;
+    });
     expect(await settlesWithin(createImage(SVG_URL), 500)).toBe('timeout');
   });
 
   it('DOCUMENTS THE DEFECT: html-to-image createImage() never settles when decode() rejects', async () => {
     stubImage('reject');
-    // Animation frames DO fire here — the hang is the missing rejection handler.
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      queueMicrotask(() => cb(0));
-      return 1;
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { queueMicrotask(() => cb(0)); return 1; });
+    const createImage = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => { const derived = img.decode!().then(() => { requestAnimationFrame(() => resolve(img)); }); derived.catch(() => undefined); };
+      img.onerror = reject; img.src = url;
     });
-    const createImage = (url: string) =>
-      new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-          const derived = img.decode().then(() => {
-            requestAnimationFrame(() => resolve(img));
-          });
-          // Only to keep the runner quiet: the derived promise is what the
-          // library leaves unhandled. `resolve` is still never called, which is
-          // the point being asserted.
-          derived.catch(() => undefined);
-        };
-        img.onerror = reject;
-        img.src = url;
-      });
     expect(await settlesWithin(createImage(SVG_URL), 500)).toBe('timeout');
+  });
+});
+
+describe('prepareSequenceCaptureSvg', () => {
+  it('clears only ZenUML canvas/frame surfaces in the serialized clone', () => {
+    const source = document.createElement('div');
+    source.innerHTML = '<div class="zenuml"><div /></div>';
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div class="bg-skin-canvas" style="background-color: rgb(255, 255, 255);"><div class="bg-skin-frame" style="background-color: rgb(255, 255, 255);"><div class="participant" style="background-color: rgb(238, 238, 238);" /></div></div></foreignObject></svg>';
+    const prepared = prepareSequenceCaptureSvg(svg, source);
+    expect(prepared).toContain('class="bg-skin-canvas" style="background-color: transparent;"');
+    expect(prepared).toContain('class="bg-skin-frame" style="background-color: transparent;"');
+    expect(prepared).toContain('class="participant" style="background-color: rgb(238, 238, 238);"');
+  });
+  it('leaves non-Sequence captures unchanged', () => {
+    const source = document.createElement('div');
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="white" /></svg>';
+    expect(prepareSequenceCaptureSvg(svg, source)).toBe(svg);
   });
 });

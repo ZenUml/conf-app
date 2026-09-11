@@ -42,6 +42,17 @@ const FAILED_STATUS = {
   error: 'Unknown error',
 }
 
+const TIMEOUT_STATUS = {
+  ...FAILED_STATUS,
+  output: {
+    ...FAILED_STATUS.output,
+    durationMs: 100_000,
+    llmDurationMs: 88_000,
+    timedOut: true,
+  },
+  error: 'Repair time budget exhausted',
+}
+
 const ORIGINAL_CODE = 'A->B: hello'
 
 const mountRepair = (props: Record<string, unknown> = {}) =>
@@ -89,7 +100,7 @@ describe('AIRepair analytics', () => {
       macro_type: 'sequence',
       prompt_length: ORIGINAL_CODE.length,
       poll_interval_ms: 1000,
-      timeout_budget_ms: 60_000,
+      timeout_budget_ms: 120_000,
     }))
     wrapper.unmount()
   })
@@ -218,6 +229,48 @@ describe('AIRepair analytics', () => {
     wrapper.unmount()
   })
 
+  it('shows a retry state after a timeout without treating the error as repaired code', async () => {
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-timeout' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(TIMEOUT_STATUS)
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+
+    expect(wrapper.get('[data-testid="ai-repair-error"]').text()).toContain('ran out of time')
+    expect(wrapper.get('[data-testid="ai-repair-retry"]').text()).toBe('Try again')
+    expect(wrapper.findAll('button').find(button => button.text().includes('Apply Code'))?.attributes('disabled')).toBeDefined()
+
+    const closeBtn = wrapper.find('[data-testid="ai-repair-dialog-content"] button')
+    await closeBtn.trigger('click')
+    const eventNames = vi.mocked(trackAnalyticsEvent).mock.calls.map(call => call[0])
+    expect(eventNames).not.toContain('ai_repair_dismissed')
+    wrapper.unmount()
+  })
+
+  it('starts a fresh repair job when the user retries a timeout', async () => {
+    vi.mocked(startFixDiagram as any)
+      .mockResolvedValueOnce({ jobId: 'j-timeout' })
+      .mockResolvedValueOnce({ jobId: 'j-retry' })
+    vi.mocked(getFixDiagramStatus as any)
+      .mockResolvedValueOnce(TIMEOUT_STATUS)
+      .mockResolvedValueOnce(COMPLETED_STATUS)
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+    await wrapper.get('[data-testid="ai-repair-retry"]').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(startFixDiagram).toHaveBeenCalledTimes(2)
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="ai-repair-error"]').exists()).toBe(false)
+    expect(wrapper.findAll('button').find(button => button.text().includes('Apply Code'))?.attributes('disabled')).toBeUndefined()
+    expect(
+      vi.mocked(trackAnalyticsEvent).mock.calls.filter(call => call[0] === 'ai_repair_requested'),
+    ).toHaveLength(2)
+    wrapper.unmount()
+  })
+
   it('fires ai_repair_failed when startFixDiagram throws', async () => {
     vi.mocked(startFixDiagram as any).mockRejectedValue(new Error('network error'))
 
@@ -320,17 +373,17 @@ describe('AIRepair analytics', () => {
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
-    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(120_000)
     await flushPromises()
 
-    expect(getFixDiagramStatus).toHaveBeenCalledTimes(60)
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(120)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_repair_failed',
       expect.objectContaining({
         failure_reason: 'client_timeout',
         failure_phase: 'timeout',
-        duration_ms: 60_000,
-        timeout_budget_ms: 60_000,
+        duration_ms: 120_000,
+        timeout_budget_ms: 120_000,
         ai_model: 'openai/gpt-5.6-luna',
       }),
     )

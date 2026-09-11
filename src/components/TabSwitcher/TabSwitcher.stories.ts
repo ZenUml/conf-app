@@ -5,14 +5,14 @@ import TabSwitcher from './TabSwitcher.vue'
 type Story = StoryObj<typeof TabSwitcher>
 
 const meta: Meta<typeof TabSwitcher> = {
-  title: 'Navigation/TabSwitcher',
+  title: 'Shared/TabSwitcher',
   component: TabSwitcher,
   parameters: {
     layout: 'padded',
     docs: {
       description: {
         component:
-          'A pill-style tab switcher used to switch between diagram types (Sequence, Mermaid, PlantUML, Markdown). Each tab has a coloured indicator dot and text label. The active tab is highlighted with a type-specific colour. Persists the user\'s selection to localStorage under `zenuml-preferred-diagram-type`.',
+          'Diagram-type tab strip in the editor Header (Sequence / Mermaid / PlantUML / Markdown). Each tab is a coloured dot plus a visible label, with an underline accent on the active tab. Labels remain visible at narrow widths. Selecting a tab writes zenuml-preferred-diagram-type to localStorage.',
       },
     },
   },
@@ -86,7 +86,7 @@ export const PlantUmlActive: Story = {
   },
 }
 
-/** Two-tab configuration — useful when PlantUML is disabled or not yet available. */
+/** Two options. Not a production configuration — getEditorDiagramOptions() always returns all four types — kept to show the strip's sizing with fewer tabs. */
 export const TwoTabs: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },
@@ -105,7 +105,7 @@ export const TwoTabs: Story = {
   },
 }
 
-/** Single-tab degenerate case — still renders, tab is always active. */
+/** One option, always active. Not a production configuration either; the viewer's fullscreen type chip imitates this single-active-tab look without the switching behaviour (see GenericViewer.vue). */
 export const SingleTab: Story = {
   render: (args: Args) => ({
     components: { TabSwitcher },
@@ -135,23 +135,6 @@ export const Interactive: Story = {
         <p style="font-size: 13px; color: #6b7280; margin: 0;">
           Selected: <strong>{{ current }}</strong>
         </p>
-      </div>
-    `,
-  }),
-}
-
-/** Embedded in a realistic header toolbar context. */
-export const InHeaderToolbar: Story = {
-  render: () => ({
-    components: { TabSwitcher },
-    setup() {
-      const current = ref('sequence')
-      return { current, options: ALL_OPTIONS }
-    },
-    template: `
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; width: 480px;">
-        <span style="font-size: 14px; font-weight: 600; color: #172b4d;">Diagram Editor</span>
-        <TabSwitcher :options="options" v-model="current" />
       </div>
     `,
   }),

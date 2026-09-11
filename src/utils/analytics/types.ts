@@ -34,6 +34,9 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  FeedbackCaptureMethod,
+  FeedbackDismissReason,
+  FeedbackHandoffOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -57,6 +60,9 @@ export type AnalyticsProperties = {
   // customContentId, or the custom-content GET failed), recorded explicitly
   // rather than omitted.
   macro_type?: MacroTypeValue;
+  // Mermaid pan/zoom toolbar. This is the user's explicit control
+  // intent, not every intermediate wheel, drag, or pinch callback.
+  viewport_action?: "zoom_in" | "zoom_out";
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;
@@ -72,9 +78,10 @@ export type AnalyticsProperties = {
   to_macro_type?: MacroTypeValue;
   type_requested?: boolean;
   // Session Replay policy. `macro_create_started` / `macro_edit_started` set
-  // source=authoring and percent=100 after the SDK start call returns. The call
-  // outcome is intentionally distinct from actual capture: only a later
-  // `$mp_replay_id` proves that the recorder became active.
+  // source=authoring; the Feedback trigger sets source=feedback. Both record
+  // the synchronous SDK start-call outcome. That outcome is intentionally
+  // distinct from actual capture: only a later `$mp_replay_id` proves that the
+  // recorder became active.
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
@@ -198,6 +205,10 @@ export type AnalyticsProperties = {
     | "adf_rewrite"
     | "page_update"
     | "report";
+  // PlantUML paste normalisation (conf-app#632)
+  diagrams_pasted?: number;
+  paste_truncated?: boolean;
+
   // AI
   prompt_length?: number;
   generation_source?: string;
@@ -221,6 +232,14 @@ export type AnalyticsProperties = {
   // Feedback
   feedback_score?: number;
   feedback_text?: string;
+  // In-product support request funnel. These properties describe interaction
+  // state only. Never add description text, screenshot bytes, diagram source,
+  // or other report content to analytics.
+  host_module?: string;
+  feedback_capture_method?: FeedbackCaptureMethod;
+  feedback_has_screenshot?: boolean;
+  feedback_dismiss_reason?: FeedbackDismissReason;
+  feedback_handoff_outcome?: FeedbackHandoffOutcome;
   // Content
   content_id?: string;
   content_type?: string;
@@ -544,6 +563,14 @@ export type AnalyticsProperties = {
   has_arrow?: boolean;
   has_callout?: boolean;
   has_watermark?: boolean;
+  has_rectangle?: boolean;
+  annotation_count?: number;
+  annotation_type?: 'note' | 'arrow' | 'callout' | 'rectangle' | 'watermark';
+  annotation_change?: 'move' | 'resize' | 'text' | 'style';
+  // export_annotation_tool_clicked (ExportPreview.vue). Which annotation tool
+  // the user reached for. Fired on activation only, not on turning a tool back
+  // off: the intent is already recorded by then.
+  tool?: 'arrow' | 'callout' | 'note' | 'rectangle' | 'watermark';
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.

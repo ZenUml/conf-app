@@ -29,6 +29,7 @@ export const AUTHENTICATED_PATHS = [
   '/activation-prepared',
   '/api/diagram-impact',
   '/api/architecture-tokens',
+  '/api/feedback-report',
   // Conversion queue endpoints re-verify the FIT themselves, but the claim
   // response's app identity (environmentId for the ADF extensionKey rewrite)
   // is read from the middleware-populated forgeContext — without this entry

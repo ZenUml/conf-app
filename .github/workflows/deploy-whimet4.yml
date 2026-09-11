@@ -159,13 +159,6 @@ jobs:
           path: manifest.yml
           retention-days: 7
 
-      # Same workaround as staging-deploy.yml: the Forge CLI's node-fetch throws
-      # "Premature close" on newer Node.
-      - name: Use Node 20 for Forge CLI
-        uses: actions/setup-node@v5
-        with:
-          node-version: '20.x'
-
       - name: Deploy to Forge (${{ env.FORGE_ENV }})
         env:
           MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}

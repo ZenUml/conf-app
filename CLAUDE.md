@@ -109,6 +109,15 @@ Confluence is the system of record for diagram content; D1/backend data may supp
 See `package.json` scripts — `build:full`, `build:lite`, `test:unit`, `test:e2e`,
 `start:local` (frontend only), `start:sit` (frontend + backend proxy), `wrangler:serve`.
 
+Local servers use Portless rather than fixed public ports. After starting one,
+run `pnpm dev:url` for the frontend URL, `pnpm dev:api:url` for the backend URL,
+or `pnpm dev:routes` to inspect active routes. Agents must query these commands;
+do not guess a port or parse the server log. Linked git worktrees automatically
+receive a branch-derived hostname prefix, so the same commands remain valid when
+multiple worktrees run concurrently. The shared Portless proxy uses plain HTTP on
+the non-privileged port 1355 so agents can start it without sudo or certificate
+prompts; application processes still receive independent random internal ports.
+
 ### Database setup
 
 ```bash

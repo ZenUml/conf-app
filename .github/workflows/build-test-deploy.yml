@@ -138,6 +138,13 @@ jobs:
       # post-create panel on top of page setup), which 8 minutes cannot absorb.
       # 11 leaves room for one retry; a second growth spurt should move a spec
       # off shard 1 instead of raising this again.
+      #
+      # Unaffected by e2e-test.yml's SHARD_COUNT going 4 -> 5 (2026-09-10, to
+      # give the new `feedback` project its own shard): shard 1's composition
+      # (byline-activation + byline-asyncapi + byline-create + byline-paywall)
+      # is unchanged under the 5-way split — `feedback` was declared after
+      # `insert` in playwright.config.ts precisely so the added shard grows the
+      # TAIL of the list (see e2e-test.yml) rather than shifting shard 1.
       timeout-minutes: 11
       artifact-suffix: lite-stg
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
@@ -160,9 +167,18 @@ jobs:
       app: zenuml-lite@stg
       suite: graph-publish
       # graph-edit.spec.ts declares `test.describe.configure({ mode: 'parallel' })`,
-      # so `--shard=N/4` splits its 8 tests 2-per-shard instead of stacking all
+      # so `--shard=N/M` splits its 8 tests across shards instead of stacking all
       # of them on shard 1 (which made this job an 8-minute critical path).
       # Headroom for 2 tests x 3 attempts (retries: 2) plus job setup.
+      # e2e-test.yml's SHARD_COUNT went 4 -> 5 (2026-09-10, to give the new
+      # `feedback` project its own shard on the `insert` suite — unrelated to
+      # graph-publish, but SHARD_COUNT is shared config). That does NOT change
+      # this budget: measured at M=5 (`CI=true pnpm exec playwright test --list
+      # --project=auth --project=fullscreen tests/fullscreen/graph-edit.spec.ts
+      # --shard=N/5`, counting only graph-edit lines) the split is 2/2/2/1/1, so
+      # the heaviest shard still carries 2 tests, exactly as it did at M=4.
+      # Count graph-edit lines, not Playwright's `Total:` summary — that includes
+      # the auth.setup dependency test and reads one higher per shard.
       timeout-minutes: 12
       artifact-suffix: lite-stg-graph-publish
     secrets:
@@ -192,6 +208,12 @@ jobs:
     with:
       app: zenuml-full@stg
       suite: insert
+      # Shard 5 (the tail shard under e2e-test.yml's SHARD_COUNT=5, see its
+      # SHARD_COUNT comment block) now holds typed-deeplink-render plus BOTH
+      # feedback-report.spec.ts tests — unlike the prod smoke, this is not
+      # `testConfig.isProd`, so the real-backend-write test runs here too.
+      # Same headroom as the Lite job's shard-1 override, for the same reason.
+      timeout-minutes: 11
       artifact-suffix: full-stg
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
@@ -257,6 +279,11 @@ jobs:
     with:
       app: diagramly@stg
       suite: insert
+      # See the matching comment on staging-full-e2e: shard 5 now carries
+      # typed-deeplink-render plus both feedback-report.spec.ts tests
+      # (including the real-backend-write one — this app is not
+      # `testConfig.isProd`).
+      timeout-minutes: 11
       artifact-suffix: diagramly-stg
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

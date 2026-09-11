@@ -169,7 +169,7 @@ on:
 #                                 the same way shard 1 was under SHARD_COUNT=4.
 #
 # The Lite staging caller (`E2E: Lite` in build-test-deploy.yml) has since moved
-# to a 10-way split — its 10-shard layout, measured the same way, is listed on
+# to an 8-way split — its 8-shard layout, measured the same way, is listed on
 # that job. Everything below still describes the 5-way default the Full,
 # Diagramly and production callers use.
 #

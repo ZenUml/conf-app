@@ -40,11 +40,27 @@ mistake without this context:
    shard was a three-test `describe.serial` group that no shard count can
    split.
 
+4. **A live-Confluence test is replaced by a cheaper equivalent wherever the
+   assertion is not about Confluence.** Two specs on the Lite critical path
+   were re-proving pure logic through page creations and reloads:
+   `typed-deeplink-autoconvert` pasted one link per type to assert which
+   macro claims which URL shape — a fact of `autoConvert.matchers` in
+   `manifest.yml`, now pinned for every type by
+   `tests/unit/typedDeeplinkRouting.spec.ts`, with one live case kept as the
+   canary for Confluence's matcher semantics; `paywall-page-banner` re-ran
+   the snooze, the impression taper and the paywall-over-CSAT ranking with
+   6-second waits between reloads, all of which `warningBanner.spec.ts` and
+   `pageBanner.spec.ts` already pin case by case, so it keeps only what a
+   real Forge page proves (the module mounts with the count, the CTA
+   navigates, Dismiss reaches the marker, the host closes the iframe). The
+   rule going forward: before a new E2E test, ask what in it only Confluence
+   can prove; everything else belongs in vitest or the Vite preview harness.
+
 Also accepted, less surprising: the merged Playwright HTML report is only
 built when a shard did not pass (a `needs` on a reusable workflow waits for its
 last job, and this one delayed every draft by ~30s for a report nobody opens on
-green), and the Lite insert suite is split 10 ways because at 5 and 8 the
-contiguous split left the two two-test byline serial groups on one shard.
+green), and the Lite insert suite is split 8 ways because at 5 the contiguous
+split left the two two-test byline serial groups on one shard.
 
 Not decided here, deliberately: the diagramly → lite → full canary order and
 the one-week Full soak (release-app skill), and running the Forge production

@@ -45,13 +45,15 @@ Release run, [34594289094](https://github.com/ZenUml/conf-app/actions/runs/34594
 | Studio build cache in the deploy jobs (lite, asyncapi) | `staging-deploy.yml`, `release.yml` | ~2m off Deploy: Lite and off the release deploy gate | Lite vs Full Cloudflare step: 198s vs 80s |
 | Auth bootstrap at t=0 per site, handed to suites as `auth-artifact` | `e2e-auth.yml` (new), `build-test-deploy.yml`, `e2e-test.yml` | ~1m50s (78s queue + 36s job) | job timings above |
 | E2E no longer `needs: build`; drafts do | `build-test-deploy.yml` | keeps the 3m30s build job off the path once Deploy: Lite is under it | |
-| Lite insert suite 10 shards instead of 5 | `build-test-deploy.yml` | shard 1 5m12s → heaviest shard ~3m30s (est.) | `--list --shard=N/10`, layout in the job comment |
+| Lite insert suite 8 shards instead of 5 | `build-test-deploy.yml` | shard 1 5m12s → heaviest shard ~3m (est.) | `--list --shard=N/8`, layout in the job comment |
+| typed-deeplink-autoconvert: 5 live cases → 1 + a manifest unit spec | `tests/unit/typedDeeplinkRouting.spec.ts`, the E2E spec | 4 page creations gone (~4 test-minutes across two shards) | the E2E's own header: every assertion is a manifest-matcher fact |
+| paywall-page-banner: 3 tests → 2 | the E2E spec | ~1 test-minute plus two 6s waits off the tail shard | taper/snooze/CSAT ranking already in `warningBanner.spec.ts`, `pageBanner.spec.ts` |
 | Merged HTML report only when a shard did not pass | `e2e-test.yml` | ~30s | merge 12.7→13.2 above |
 | Release smoke runs `@smoke` only (7 tests) | `release.yml`, `tests/insert/*.spec.ts` | release tail 3m25s → ~2m (est.) | shard 3 above |
 | AsyncAPI suite 3 shards, not 5 | `build-test-deploy.yml` | none on the path; two empty runners gone | `--list --shard=N/5` gave 4/0/2/3/0 |
 
 Expected main build after all of the above, if the estimates hold: Deploy:
-Lite ~3m20s → shards start at once → heaviest shard ~3m30s → draft ≈ **7–8
+Lite ~3m20s → shards start at once → heaviest shard ~3m → draft ≈ **7
 min**, from 13m26s. Release deploy gate ≈ **3m30s**, from 5m24s. Confirm on the
 first green main run after merge and replace the estimates above with the
 measured figures.
@@ -71,8 +73,24 @@ first sign that more shards would stop paying.
 ```bash
 # Shard layout for a suite, before and after changing spec files:
 cd tests/e2e-tests && CI=true APP=zenuml-lite@stg ATLASSIAN_OTP=x pnpm exec playwright test --list \
-  --project=auth --project=insert --project=feedback --shard=1/10
+  --project=auth --project=insert --project=feedback --shard=1/8
 ```
+
+## Equivalent lower-cost tests: what was moved and what must stay live
+
+The question for each E2E test on the critical path was: *what in this test
+can only a real Confluence page prove?* Anything else has a cheaper home —
+vitest for logic, the `preview` Playwright project (viewer-preview.html /
+editor-preview.html against a local Vite dev server, no Confluence, no auth)
+for UI behaviour.
+
+| Spec | Only Confluence can prove | Moved to a cheaper equivalent |
+|---|---|---|
+| typed-deeplink-autoconvert | a matcher's `*` is one segment; a matching paste becomes an extension node — kept as **one** case | which macro claims which URL, exclusivity, minted host/shape, embed 3- vs 4-segment split → `tests/unit/typedDeeplinkRouting.spec.ts` |
+| paywall-page-banner | pageBanner module mounts with the count; CTA navigates; Dismiss reaches the marker; host closes the iframe — kept as **two** tests | snooze window, impression taper, paywall > CSAT → already in `src/utils/paywall/warningBanner.spec.ts`, `src/routes/pageBanner.spec.ts` |
+| byline-asyncapi, byline-create, byline-paywall | the Forge byline module, a real save, the id diffed out of the page | nothing — the spec headers say why the component tests cannot supply `extension.location` truthfully |
+| graph-edit (DrawIO Publish) | the nested Forge → DrawIO iframe chain and the real autosave/publish | nothing today; a preview harness for the fullscreen bridge would be the next candidate |
+| feedback-report | a real page for each surface, a real backend write | nothing today; off the critical path (its own shard) |
 
 ## Open questions (not decided by ADR-0006)
 

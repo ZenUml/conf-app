@@ -288,24 +288,26 @@ jobs:
       app: zenuml-lite@stg
       suite: insert
       auth-artifact: auth-state-pre-lite-stg
-      # 10 shards, not the default 5. `--shard` splits the test list
+      # 8 shards, not the default 5. `--shard` splits the test list
       # contiguously and keeps a `describe.serial` group on one shard, and under
-      # 5 (and 8) the first shard carried byline-asyncapi (x2) AND byline-create
-      # (x2) together — 5m12s on run 34602804979, the longest shard of the run
-      # by 50s and the tail of the whole main build. Measured with
+      # 5 the first shard carried byline-asyncapi (x2) AND byline-create (x2)
+      # together — 5m12s on run 34602804979, the longest shard of the run by
+      # 50s and the tail of the whole main build. Measured with
       # `CI=true APP=zenuml-lite@stg pnpm exec playwright test --list
-      # --project=auth --project=insert --project=feedback --shard=N/10`
-      # (2026-09-11):
-      #   1: byline-activation, byline-asyncapi (x2)     6: plantuml, sequence
-      #   2: byline-create (x2), byline-paywall          7: typed-deeplink-autoconvert (x2)
-      #   3: edit-graph, embed-deeplink-autoconvert,     8: typed-deeplink-autoconvert (x2)
-      #      graph                                       9: typed-deeplink-autoconvert,
-      #   4: m1-first-seen-ping (x2), mermaid               typed-deeplink-render
-      #   5: openapi, paywall-page-banner (x3)          10: feedback-report (x2)
-      # The heaviest shard is now 5 (four tests, three of them the paywall
-      # banner serial group) at an expected ~3m30s. Re-measure with `--list`
-      # after adding or renaming a spec; do not reason about placement by hand.
-      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
+      # --project=auth --project=insert --project=feedback --shard=N/8`
+      # (2026-09-11, after typed-deeplink-autoconvert went from five cases to
+      # one and paywall-page-banner from three tests to two — ADR-0006):
+      #   1: byline-activation, byline-asyncapi (x2)  5: openapi, paywall-page-banner (x2)
+      #   2: byline-create (x2), byline-paywall       6: plantuml, sequence
+      #   3: edit-graph, embed-deeplink-autoconvert,  7: typed-deeplink-autoconvert,
+      #      graph                                       typed-deeplink-render
+      #   4: m1-first-seen-ping (x2), mermaid         8: feedback-report (x2)
+      # No shard carries more than three tests; the two byline serial groups are
+      # apart. 10 shards only shaved the heaviest shard by one test at the cost
+      # of two more runners on a peak that already overlaps Full and Diagramly.
+      # Re-measure with `--list` after adding or renaming a spec; do not reason
+      # about placement by hand.
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
       # Above the 8-minute default because shard 1 carries every `byline-*` spec
       # (`--shard` splits contiguously by file name — see the note in
       # e2e-test.yml). Measured on this job: 3m36s at 6 tests, 5m35s at 8 after
@@ -315,8 +317,8 @@ jobs:
       # 11 leaves room for one retry; a second growth spurt should move a spec
       # off shard 1 instead of raising this again.
       #
-      # Kept at 11 after the move to 10 shards (above) even though no shard now
-      # carries more than four tests: the ceiling only ever matters for a
+      # Kept at 11 after the move to 8 shards (above) even though no shard now
+      # carries more than three tests: the ceiling only ever matters for a
       # wedged test, and a reaped shard costs a whole re-run.
       timeout-minutes: 11
       artifact-suffix: lite-stg

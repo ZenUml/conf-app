@@ -30,6 +30,23 @@ on:
           a cold-render content-verify wedge cannot pass on retry (the render is
           cold on every attempt), so the config default (2 on CI) just burns the
           shard's 8-min budget toward a reap. Empty = keep the config default.
+      shard-matrix:
+        type: string
+        default: '[1, 2, 3, 4, 5]'
+        required: false
+        description: >-
+          JSON array driving strategy.matrix.shard in the `test` job below.
+          Default keeps every existing caller at the current 5-way split with
+          no change to their call sites. Pass '[1]' for a single, UNSHARDED
+          run — required for any suite whose setup project is not safe to run
+          concurrently N times (e.g. `render`: tests/render/pages.setup.ts
+          creates permanent Confluence fixture pages, and running it on N
+          shards at once would create up to Nx the pages a genuinely-missing
+          fixture needs — N being whatever this array's length is, 5 by
+          default). `--shard=N/M` below reads M from
+          `strategy.job-total`, which GitHub computes from this array's
+          length — not from a separately-tracked count — so the two can never
+          drift out of sync.
     # Credentials are SECRETS, not inputs. A reusable workflow's `inputs` are
     # echoed verbatim in the run logs (GitHub does not mask them), so the
     # Atlassian username/password and the TOTP seed leaked into every E2E log
@@ -132,10 +149,18 @@ on:
 # production callers in smoke-test.yml and release.yml; feedback-report.spec.ts's
 # backend-write test (assertion 6 in its header) is gated on `testConfig.isProd`
 # and skips immediately there, but its other test (surfaces 1-5, one page
-# creation) does run on every `insert`-suite call, prod included. Keep
-# strategy.matrix.shard in sync with SHARD_COUNT.
-env:
-  SHARD_COUNT: 5
+# creation) does run on every `insert`-suite call, prod included.
+#
+# The default 5-way split below (and everything measured above at
+# "SHARD_COUNT=5") comes from the `shard-matrix` input's default
+# ('[1, 2, 3, 4, 5]'), not a separately-tracked constant — there used to be a
+# top-level `env.SHARD_COUNT` here that `strategy.matrix.shard` had to be kept
+# in sync with by hand. That's gone: `strategy.matrix.shard` is now built
+# directly from `fromJSON(inputs.shard-matrix)`, and the `test` job reads its
+# own shard total from GitHub's `strategy.job-total` rather than from a second
+# number, so the two literally cannot drift apart. A caller that needs an
+# unsharded run (e.g. `render` — see the `shard-matrix` input's description)
+# passes '[1]' instead.
 
 jobs:
   # Log in ONCE per run and publish the storageState so every shard reuses it
@@ -255,7 +280,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        # Driven by the `shard-matrix` input (JSON array) rather than a
+        # literal list, so a single caller can opt out of sharding entirely
+        # (pass '[1]') without touching this job or any other caller — see
+        # the input's description and the note above `jobs:`.
+        shard: ${{ fromJSON(inputs.shard-matrix) }}
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm
@@ -302,12 +331,20 @@ jobs:
           TEST_TARGET=""
           case "${{ inputs.suite }}" in
             insert)
-              # `feedback` rides along here (see the SHARD_COUNT comment block
-              # above `env:` for why it's declared after `insert` in
+              # `feedback` rides along here (see the shard-layout comment block
+              # above `jobs:` for why it's declared after `insert` in
               # playwright.config.ts and where it lands under the 5-shard split).
               PROJECTS="--project=auth --project=insert --project=feedback"
               ;;
             render)
+              # `pages` (tests/render/pages.setup.ts) creates any render
+              # fixture that config/render-fixtures.json doesn't already cover
+              # for this profile. Callers of THIS suite must pass
+              # shard-matrix: '[1]' — running `pages` on more than one shard
+              # concurrently would race multiple shards into creating the same
+              # missing fixture independently, defeating the reuse this exists
+              # for (and, per project policy, none of those extra pages could
+              # ever be deleted afterward).
               PROJECTS="--project=auth --project=pages --project=render"
               ;;
             fullscreen)
@@ -342,8 +379,13 @@ jobs:
           # Optional --retries override (empty input → keep playwright.config default).
           RETRY_FLAG=""
           [ -n "${{ inputs.retries }}" ] && RETRY_FLAG="--retries=${{ inputs.retries }}"
+          # M comes from strategy.job-total (GitHub's own count of the current
+          # matrix), not a second hand-tracked number — see the note above
+          # `jobs:`. With shard-matrix='[1]' this is `--shard=1/1`, i.e. one
+          # shard running the whole suite: Playwright's normal, supported way
+          # to run unsharded.
           pnpm exec playwright test --ignore-snapshots $PROJECTS \
-            --shard=${{ matrix.shard }}/${{ env.SHARD_COUNT }} $RETRY_FLAG $TEST_TARGET
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} $RETRY_FLAG $TEST_TARGET
         env:
           APP: ${{ inputs.app }}
           CI: true
@@ -351,11 +393,14 @@ jobs:
           ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
           ATLASSIAN_OTP: ${{ secrets.otp }}
       - name: Upload test results
+        # `blob` (see playwright.config.ts's CI reporter list) writes here
+        # instead of playwright-report/. Each shard's blob is merged into one
+        # browsable HTML report by the merge-reports job below.
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-report-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
-          path: ./tests/e2e-tests/playwright-report/
+          name: blob-report-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
+          path: ./tests/e2e-tests/blob-report/
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v6
@@ -364,4 +409,69 @@ jobs:
           path: ./tests/e2e-tests/screenshots/
           # Tests only write screenshots on failure; suppress the "no files
           # found" warning that fires on every green run.
+          if-no-files-found: ignore
+
+  # Combine the `test` job's per-shard blob reports into one browsable HTML report.
+  # Before this job, each shard uploaded its own playwright-report-<suffix>-
+  # shard-N artifact and there was no cross-shard view. `if: always()` so a
+  # partial run (some shards failed or were reaped) still produces a report
+  # covering whichever shards uploaded a blob — better than nothing on a red
+  # run, which is exactly when someone most wants per-test detail.
+  merge-reports:
+    name: merge shard reports
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    # This job REPORTS on the run; it must never decide it. A reusable
+    # workflow's conclusion is the worst of its jobs, and every E2E caller
+    # (build-test-deploy, smoke-test, release) gates downstream work on that
+    # conclusion — so without this, a pnpm-install hiccup or an artifact-service
+    # blip in report merging could redden an E2E run whose tests all passed, and
+    # block a staging deploy behind it. Per-shard HTML uploads never had that
+    # power. `continue-on-error` keeps the failure visible on the job while
+    # leaving the workflow's verdict to the tests.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Download every shard's blob report
+        # `merge-multiple: true` flattens all matching artifacts into one
+        # directory (each shard's report-*.zip lands side by side), which is
+        # what `playwright merge-reports` expects as its input directory.
+        # Zero matches is a REAL case, not a bug: if `auth` fails, `test` is
+        # skipped and no shard ever uploads a blob. Tolerate it here and let the
+        # merge step below decide there is nothing to do.
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: blob-report-${{ inputs.artifact-suffix }}-shard-*
+          path: ./tests/e2e-tests/all-blob-reports
+          merge-multiple: true
+      - name: Merge into one HTML report
+        # `merge-reports` exits non-zero on an empty input directory. That is
+        # the auth-failed / every-shard-reaped case, where the run is already
+        # red for a reason a merge error would only obscure, so say so plainly
+        # and stop rather than adding a second, misleading failure.
+        run: |
+          cd tests/e2e-tests
+          if [ -z "$(ls -A ./all-blob-reports 2>/dev/null)" ]; then
+            echo "No blob reports to merge — every shard failed before uploading one, or the test job never ran."
+            exit 0
+          fi
+          pnpm exec playwright merge-reports --reporter=html ./all-blob-reports
+      - name: Upload merged report
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-${{ inputs.artifact-suffix }}
+          path: ./tests/e2e-tests/playwright-report/
+          # Nothing to upload when the merge was skipped for want of input.
           if-no-files-found: ignore

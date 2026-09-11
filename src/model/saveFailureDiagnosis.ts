@@ -80,7 +80,10 @@ export function parseContentOperations(body: any, ccType: string): SaveFailureDi
   const operations: any[] | undefined = Array.isArray(body.operations)
     ? body.operations
     : Array.isArray(body.operations?.results) ? body.operations.results : undefined;
-  if (!operations) return base;
+  // An empty list proves nothing — every reachable page lists at least
+  // `read/page` — and `ok` + all-false would name a permission the probe never
+  // saw. Keep it inconclusive so the generic copy is shown.
+  if (!operations || operations.length === 0) return base;
   const has = (operation: string, targetType: string) =>
     operations.some((op: any) => op?.operation === operation && op?.targetType === targetType);
   return {

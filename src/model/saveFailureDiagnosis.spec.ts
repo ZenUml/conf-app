@@ -130,6 +130,14 @@ describe('parseContentOperations', () => {
     });
   });
 
+  it('keeps an empty operations list inconclusive instead of naming a permission it never saw', () => {
+    expect(parseContentOperations({ id: '1', status: 'current', operations: { results: [] } }, CC_TYPE)).toEqual({
+      probe_status: 'failed',
+      page_reachable: true,
+      page_status: 'current',
+    });
+  });
+
   it('marks the probe failed when the body has no operations array', () => {
     expect(parseContentOperations({ id: '1', status: 'current' }, CC_TYPE)).toEqual({
       probe_status: 'failed',

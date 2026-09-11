@@ -26,6 +26,8 @@
  *   diagnosable from the event alone.
  */
 
+import zenuml from '@mermaid-js/mermaid-zenuml';
+
 // Bundle-relative path; resolved at runtime against `document.baseURI`.
 const MERMAID_PATH = 'vendor/mermaid/mermaid.esm.min.mjs';
 
@@ -78,6 +80,9 @@ export async function loadMermaid(deps: LoadMermaidDeps = {}): Promise<any> {
           startOnLoad: true,
           theme: 'neutral',
         });
+        // Register before sharing the instance with renderers and validators.
+        // The extension's SVG renderer loads only when a ZenUML diagram is used.
+        await instance.registerExternalDiagrams([zenuml], { lazyLoad: true });
         cached = instance;
         return cached;
       } catch (error) {

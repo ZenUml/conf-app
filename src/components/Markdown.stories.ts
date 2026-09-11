@@ -76,6 +76,13 @@ export const BrokenDiagram: Story = {
   }],
 }
 
+export const ZenUmlExtension: Story = {
+  decorators: [() => {
+    configure(document + '\n## ZenUML sequence\n\n```mermaid\nzenuml\n  Client->API: Request\n  API->Database: Query\n```\n\nText after the ZenUML diagram.\n')
+    return { template: '<story />' }
+  }],
+}
+
 export const Empty: Story = {
   decorators: [() => { configure(''); return { template: '<story />' } }],
 }

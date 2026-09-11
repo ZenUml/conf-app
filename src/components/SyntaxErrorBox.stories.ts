@@ -1,7 +1,17 @@
-import type { Meta, StoryObj } from '@storybook/vue3-vite'
+import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import { within, expect } from 'storybook/test'
 import SyntaxErrorBox from './SyntaxErrorBox.vue'
 import store from '@/model/store2'
+
+// SyntaxErrorBox.vue reads the store through useStore(), so the Vuex plugin has to
+// be installed on Storybook's root Vue app. setup() is the framework's extension
+// point (see GenericViewer.stories.ts). The previous `context.app?.use(store)`
+// decorator never ran on @storybook/vue3-vite 10.4: these three stories threw
+// "Cannot read properties of undefined (reading 'state')" unless another story
+// file happened to have installed the store first.
+setup((app: { use(plugin: typeof store): unknown }) => {
+  app.use(store)
+})
 
 type Story = StoryObj<typeof SyntaxErrorBox>
 
@@ -22,13 +32,9 @@ const meta: Meta<typeof SyntaxErrorBox> = {
     },
   },
   decorators: [
-    (_story: unknown, context: { app?: { use: (plugin: unknown) => void } }) => {
-      // Install the Vuex store plugin so useStore() resolves inside the component.
-      context.app?.use(store)
-      return {
-        template: '<div class="relative h-64 bg-slate-50 flex flex-col"><div class="flex-1" /><story /></div>',
-      }
-    },
+    () => ({
+      template: '<div class="relative h-64 bg-slate-50 flex flex-col"><div class="flex-1" /><story /></div>',
+    }),
   ],
 }
 

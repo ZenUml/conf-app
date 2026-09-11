@@ -20,7 +20,8 @@ setup((app: App) => {
  * rather than the footer in isolation (`Viewer/DiagramAttributionFooter`).
  *
  * The footer is not a prop of GenericViewer. It renders from Vuex state:
- * `v-if="!isLoadFailed && diagramAttribution"` (GenericViewer.vue:263), fed by
+ * GenericViewer.vue mounts `<DiagramAttributionFooter v-if="diagramAttribution" …>`
+ * inside a footer row that itself requires `!isLoadFailed`, fed by
  * `state.diagramAttribution`. So each story commits `setDiagramAttribution` and
  * lets the real component decide — which is what makes `WithoutAttribution`
  * below an honest reproduction rather than a mock-up.
@@ -29,8 +30,8 @@ setup((app: App) => {
  * `src/stubs/forge-bridge.ts` (see `.storybook/main.ts`); the stub's
  * `stubResponses` supplies per-story data. Note these lookups only work inside
  * the full Storybook UI, not `iframe.html` opened directly: `forgeRequest`
- * branches on `window.self === window.top` (requestUtil.ts:41) and takes its
- * MockAp path when the story is the top frame, leaving the names blank.
+ * (src/utils/requestUtil.ts) branches on `window.self === window.top` and takes
+ * its MockAp path when the story is the top frame, leaving the names blank.
  */
 const CREATOR = 'acct-creator'
 const UPDATER = 'acct-updater'

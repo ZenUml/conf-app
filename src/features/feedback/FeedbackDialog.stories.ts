@@ -56,7 +56,13 @@ export const SavedAndSupportBlocked: Story = {
     await userEvent.type(canvas.getByLabelText('Describe your feedback'), 'The diagram is too small.')
     await userEvent.click(canvas.getByRole('button', { name: 'Send feedback' }))
     await waitFor(() => expect(canvas.getByText('Your feedback has been saved.')).toBeVisible())
-    await expect(canvas.getByRole('link', { name: 'Continue to support' })).toBeVisible()
+    // The link is gated on `manualSupportUrl`, which startHandoffCountdown() only
+    // sets after its five one-second ticks (FeedbackDialog.vue). Wait the countdown
+    // out rather than assert on the frame after the save.
+    await waitFor(
+      () => expect(canvas.getByRole('link', { name: 'Continue to support' })).toBeVisible(),
+      { timeout: 8000 },
+    )
   },
 }
 

@@ -123,7 +123,7 @@ Each row lands as its own PR and gets its measurement added here.
 | Decision | Status | Expected |
 |---|---|---|
 | Full's E2E runs after Lite's by default (`[full-first]` / `FULL_DRAFT_LANE=now` for the parallel lane); Full/Diagramly 4 shards; byline-create tests independent; env-gated byline-activation spec not collected in CI | landed | peak 21 jobs instead of 27; Lite tail ~3m30s → ~3m |
-| `main` reuses a green PR run's E2E when the merge tree is identical | next | Lite draft ~8m → ~4m on a hit |
+| `main` reuses a green PR run's E2E when the merge tree is identical (`reuse-check` job); Lite 10 shards (the 8-way split after unpinning byline-create measured 4m06s on its tail shard, PR run 34658978233) | landed | Lite draft ~8m → ~4m on a hit |
 | `main` attaches production bundles to drafts; `release.yml` only deploys; Forge/Pages parallel on staging | after | release deploy gate ~3.5m → <2m |
 | Failed E2E shard re-run once; weekly flake ranking | after | fewer red re-runs |
 | Tag taxonomy + path→tag map; deterministic PR test selection; AI pass logs only | last | PR E2E runs related specs only |

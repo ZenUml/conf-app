@@ -205,7 +205,7 @@ Read the log **as product intent**, not keyword soup: group commits into themes 
 
 #### 2.3 Compose notes from the delta, set on the draft
 
-The draft was auto-created with a **generic placeholder body** (`"This is a draft release for the Lite version of the plugin."`). You **MUST replace it with real, delta-derived notes before publishing** — never ship the placeholder. This is not optional.
+The draft was auto-created with a **generic placeholder body** (`"This is a draft release for the Lite version of the plugin."`), followed on Lite by an `E2E:` provenance line — either `ran in this build` or `reused from a PR run on the identical tree — <run url>` (ADR-0007 §2: `main` skips the Lite E2E when a green PR run already tested the byte-identical tree). You **MUST replace the placeholder with real, delta-derived notes before publishing** — never ship the placeholder. This is not optional. **Keep the `E2E:` line** as the last line of the notes: it is the record of which run's tests the release rests on.
 
 Turn the 2.2 commit log into **user-facing release notes**, not a raw commit dump:
 
@@ -231,6 +231,8 @@ Write the body to a file, e.g. `release-notes-{variant}.md`:
 - <bug fix>
 
 _Internal: <one line for infra/test/docs/instrumentation, or omit>_
+
+E2E: <the provenance line the draft was created with, verbatim>
 ```
 
 If 2.2 shows **no product commits** since the previous published tag (e.g. a re-trigger), say so (`- Maintenance release; no user-facing changes.`) rather than leaving the placeholder.

@@ -39,7 +39,14 @@ const UNDER_LIMIT_MOCKS = {
  *  pastes as a read-only embed, so the segment count is the assertion. */
 const TYPED_SEQUENCE_LINK = /^https:\/\/[^/]+\/d\/sequence\/[^/]+\/\d+$/;
 
-test.describe.serial(`Byline create path - ${testConfig.productType}`, () => {
+// NOT `describe.serial` (ADR-0007): each test builds its own published page in
+// beforeEach, so the two are independent and Playwright's `--shard` (which keeps
+// a serial group on one shard) may place them apart. Sharing one page via
+// beforeAll saved a page creation but pinned both tests — the two longest in
+// the insert suite — to the same shard, which was the Lite E2E's tail (shard 2/8
+// at 3m30s on main run 34655187796). One extra page creation is cheaper than
+// that.
+test.describe(`Byline create path - ${testConfig.productType}`, () => {
   test.skip(!testConfig.isForge, 'byline is Forge-only');
   test.skip(!testConfig.isLite, 'the Diagrams byline entry ships on Lite only');
   test.skip(
@@ -50,9 +57,9 @@ test.describe.serial(`Byline create path - ${testConfig.productType}`, () => {
 
   let pageId: string;
 
-  test.beforeAll(async ({ browser }) => {
-    // One published macro: gives the byline something to list, and guarantees an
-    // app-origin frame exists to seed the mocks into.
+  test.beforeEach(async ({ browser }) => {
+    // One published macro per test: gives the byline something to list, and
+    // guarantees an app-origin frame exists to seed the mocks into.
     const variantLabel = testConfig.isLite ? ' Lite' : '';
     const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
     const setupPage = await context.newPage();
@@ -67,7 +74,7 @@ test.describe.serial(`Byline create path - ${testConfig.productType}`, () => {
     } finally {
       await context.close();
     }
-    expect(pageId, 'beforeAll must publish a macro page').toBeTruthy();
+    expect(pageId, 'beforeEach must publish a macro page').toBeTruthy();
   });
 
   test('lists the page\'s diagrams, then hands back an editable typed deeplink', async ({ page }) => {

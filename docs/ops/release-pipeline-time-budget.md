@@ -115,6 +115,21 @@ for UI behaviour.
 | graph-edit (DrawIO Publish) | the nested Forge → DrawIO iframe chain and the real autosave/publish | nothing today; a preview harness for the fullscreen bridge would be the next candidate |
 | feedback-report | a real page for each surface, a real backend write | nothing today; off the critical path (its own shard) |
 
+## Decided next steps (ADR-0007, 2026-09-11)
+
+Answers to the open questions below and to the design review that followed.
+Each row lands as its own PR and gets its measurement added here.
+
+| Decision | Status | Expected |
+|---|---|---|
+| Full's E2E runs after Lite's by default (`[full-first]` / `FULL_DRAFT_LANE=now` for the parallel lane); Full/Diagramly 4 shards; byline-create tests independent; env-gated byline-activation spec not collected in CI | landed | peak 21 jobs instead of 27; Lite tail ~3m30s → ~3m |
+| `main` reuses a green PR run's E2E when the merge tree is identical | next | Lite draft ~8m → ~4m on a hit |
+| `main` attaches production bundles to drafts; `release.yml` only deploys; Forge/Pages parallel on staging | after | release deploy gate ~3.5m → <2m |
+| Failed E2E shard re-run once; weekly flake ranking | after | fewer red re-runs |
+| Tag taxonomy + path→tag map; deterministic PR test selection; AI pass logs only | last | PR E2E runs related specs only |
+| Release `@smoke` counts as PVT (release-app skill) | landed | one browser session fewer per release |
+| 7-day Full soak | unchanged | revisit with data |
+
 ## Open questions (not decided by ADR-0006)
 
 Each was raised while working the design tree; the recommendation is what the
@@ -141,7 +156,8 @@ pipeline would do next, not what it does now.
 4. **Unit tests: 254 spec files in 115s.** Off the critical path now. Sharding
    vitest across two jobs would take it to ~60s if it ever comes back onto the
    path. Recommendation: nothing until it does.
-5. **Runner concurrency — answered, not yet acted on.** The cap is 20 (see
+5. **Runner concurrency — answered; acted on in ADR-0007** (Full sequenced,
+   Full/Diagramly 4 shards). Original note kept for the reasoning: The cap is 20 (see
    *Where the minutes go now*), and the first main run hit it: five shards
    queued ~95s and one of them became the tail. Next lever, in order of
    evidence: Full and Diagramly run the same `insert` list as Lite but skip

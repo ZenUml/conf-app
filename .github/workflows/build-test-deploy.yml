@@ -291,22 +291,20 @@ jobs:
       # 8 shards, not the default 5. `--shard` splits the test list
       # contiguously and keeps a `describe.serial` group on one shard, and under
       # 5 the first shard carried byline-asyncapi (x2) AND byline-create (x2)
-      # together — 5m12s on run 34602804979, the longest shard of the run by
-      # 50s and the tail of the whole main build. Measured with
-      # `CI=true APP=zenuml-lite@stg pnpm exec playwright test --list
-      # --project=auth --project=insert --project=feedback --shard=N/8`
-      # (2026-09-11, after typed-deeplink-autoconvert went from five cases to
-      # one and paywall-page-banner from three tests to two — ADR-0006):
-      #   1: byline-activation, byline-asyncapi (x2)  5: openapi, paywall-page-banner (x2)
-      #   2: byline-create (x2), byline-paywall       6: plantuml, sequence
-      #   3: edit-graph, embed-deeplink-autoconvert,  7: typed-deeplink-autoconvert,
-      #      graph                                       typed-deeplink-render
-      #   4: m1-first-seen-ping (x2), mermaid         8: feedback-report (x2)
-      # No shard carries more than three tests; the two byline serial groups are
-      # apart. 10 shards only shaved the heaviest shard by one test at the cost
-      # of two more runners on a peak that already overlaps Full and Diagramly.
-      # Re-measure with `--list` after adding or renaming a spec; do not reason
-      # about placement by hand.
+      # together — 5m12s on run 34602804979, the tail of the whole main build.
+      # Measured with `CI=true APP=zenuml-lite@stg pnpm exec playwright test
+      # --list --project=auth --project=insert --project=feedback --shard=N/8`
+      # (2026-09-11, after byline-create stopped being serial and the env-gated
+      # byline-activation spec stopped being collected — ADR-0007):
+      #   1: byline-asyncapi (x2), byline-create #1   5: paywall-page-banner (x2)
+      #   2: byline-create #2, byline-paywall,        6: plantuml, sequence
+      #      edit-graph                               7: typed-deeplink-autoconvert,
+      #   3: embed-deeplink-autoconvert, graph,          typed-deeplink-render
+      #      m1-first-seen-ping #1                    8: feedback-report (x2)
+      #   4: m1-first-seen-ping #2, mermaid, openapi
+      # The two byline-create tests are now apart (they were shard 2/8's 3m30s
+      # tail on run 34655187796). Re-measure with `--list` after adding or
+      # renaming a spec; do not reason about placement by hand.
       shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
       # Above the 8-minute default because shard 1 carries every `byline-*` spec
       # (`--shard` splits contiguously by file name — see the note in
@@ -402,20 +400,63 @@ jobs:
       environment: staging-full
     secrets: inherit
 
+  # Full's E2E runs in one of two LANES (ADR-0007). Full is never the first
+  # variant released — diagramly or lite always goes first and Full follows a
+  # week later — so its draft is never what a person is waiting for. The
+  # default `after-lite` lane therefore starts Full's shards only once Lite's
+  # E2E has finished, which keeps the run's fan-out under the account's
+  # 20-concurrent-job cap (main run 34655187796 peaked at exactly 20 and five
+  # shards queued ~95s for a runner; Lite 14 + Diagramly 4 + AsyncAPI 3 = 21
+  # without Full). The deploy itself is NOT sequenced: it is one runner that
+  # finishes before any shard starts. The `now` lane runs Full alongside the
+  # others for the times Full has to ship first (a Full-only hotfix); it is
+  # selected per merge by `[full-first]` anywhere in the merge commit message
+  # (the PR title carries into a merge commit) or standing, by the repo
+  # variable FULL_DRAFT_LANE=now (`gh variable set FULL_DRAFT_LANE --body now`;
+  # unset it or set anything else to return to the default). Exactly one lane
+  # runs; `Draft: Full` accepts either. The two jobs are call sites only —
+  # every input is identical, so a change to one must be made to both.
   staging-full-e2e:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    needs: [staging-full, e2e-auth-full]
+    if: |
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      && !(contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')
+      && !cancelled()
+      && needs.staging-full.result == 'success'
+      && needs.e2e-auth-full.result == 'success'
+    # staging-lite-e2e is a WAIT, not a gate: any terminal result of Lite's E2E
+    # (including failure) releases this lane — the point is runner pressure,
+    # not Lite's verdict, which Full's own shards do not depend on. That is why
+    # the `if` names the two real prerequisites and `!cancelled()` rather than
+    # relying on the default all-succeeded semantics of `needs`.
+    needs: [staging-full, e2e-auth-full, staging-lite-e2e]
     name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-full@stg
       suite: insert
       auth-artifact: auth-state-pre-full-stg
-      # Shard 5 (the tail shard under e2e-test.yml's SHARD_COUNT=5, see its
-      # SHARD_COUNT comment block) now holds typed-deeplink-render plus BOTH
-      # feedback-report.spec.ts tests — unlike the prod smoke, this is not
-      # `testConfig.isProd`, so the real-backend-write test runs here too.
-      # Same headroom as the Lite job's shard-1 override, for the same reason.
+      # 4 shards (see the Diagramly job for the measured layout — Full runs the
+      # same list with the same runtime skips).
+      shard-matrix: '[1, 2, 3, 4]'
+      timeout-minutes: 11
+      artifact-suffix: full-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  staging-full-e2e-now:
+    if: |
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      && (contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')
+    needs: [staging-full, e2e-auth-full]
+    name: "E2E: Full (now)"
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-full@stg
+      suite: insert
+      auth-artifact: auth-state-pre-full-stg
+      shard-matrix: '[1, 2, 3, 4]'
       timeout-minutes: 11
       artifact-suffix: full-stg
     secrets:
@@ -491,10 +532,21 @@ jobs:
       app: diagramly@stg
       suite: insert
       auth-artifact: auth-state-pre-diagramly-stg
-      # See the matching comment on staging-full-e2e: shard 5 now carries
-      # typed-deeplink-render plus both feedback-report.spec.ts tests
-      # (including the real-backend-write one — this app is not
-      # `testConfig.isProd`).
+      # 4 shards, not the default 5. Full and Diagramly run the same insert list
+      # as Lite but skip the byline, paywall-banner and typed-deeplink specs at
+      # runtime, so a count-based split leaves whole shards near-empty. Measured
+      # 2026-09-11 (`CI=true APP=diagramly@stg pnpm exec playwright test --list
+      # --project=auth --project=insert --project=feedback --shard=N/4`, live
+      # tests only):
+      #   1: (byline-* — all skip here)         3: mermaid, openapi, plantuml
+      #   2: edit-graph, embed-deeplink-         4: feedback-report (x2), sequence
+      #      autoconvert, graph, m1 (x2)
+      # 3 shards would put six live tests on one shard (~3m30s+, longer than
+      # Lite's heaviest); 4 keeps the heaviest at five (~3m) and the run's peak at
+      # Lite 14 + 4 + AsyncAPI 3 = 21, one over the cap for the ~40s shard 1
+      # takes to skip everything and free its runner. Re-measure after adding or
+      # renaming a spec.
+      shard-matrix: '[1, 2, 3, 4]'
       timeout-minutes: 11
       artifact-suffix: diagramly-stg
     secrets:
@@ -547,8 +599,16 @@ jobs:
 
   draft-release-full:
     name: "Draft: Full"
-    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-full-e2e, build]
+    # Either Full E2E lane (see staging-full-e2e) may have run; the other is
+    # skipped, which a plain `needs` would propagate. Require `build` and
+    # whichever lane ran.
+    if: |
+      !cancelled()
+      && github.event_name != 'pull_request'
+      && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      && needs.build.result == 'success'
+      && (needs.staging-full-e2e.result == 'success' || needs.staging-full-e2e-now.result == 'success')
+    needs: [staging-full-e2e, staging-full-e2e-now, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

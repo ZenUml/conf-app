@@ -7,7 +7,7 @@ plus a live probe of the claude.ai cloud environment (routine
 
 ```
             LAPTOP (off for 14 days)                 CLOUD "Conf App", probed 2026-09-11
- ┌───────────────────────────────────┐     ┌──────────────────────────────────────────┐
+ ┌───────────────────────────────────┐     ┌───────────────────────────────────────────┐
  │ real Chrome (eagle.xiao, Profile 8│     │ env_018cHo8XMcQftZBkNS3atV6c              │
  │  → Marketplace UI, dev console,   │     │ network: Trusted                          │
  │    admin.atlassian.com, Figma web │     │   *.atlassian.net, api.cloudflare.com,    │
@@ -19,7 +19,7 @@ plus a live probe of the claude.ai cloud environment (routine
  │ codexloom :4870, seedmux, Codex   │     │ connectors (verified in routines):        │
  │ desktop scheduled tasks (none)    │     │   Mixpanel, Gmail, Slack, Figma, HubSpot  │
  └───────────────────────────────────┘     │ GitHub Actions: staging deploy, release   │
-                                            └──────────────────────────────────────────┘
+                                            └───────────────────────────────────────────┘
 ```
 
 **The 2026-08-07 baseline in `docs/reference/agent-container-credentials.md` no longer

@@ -105,11 +105,12 @@ describe('parseContentOperations', () => {
     expect(parseContentOperations(body, CC_TYPE).can_update_page).toBe(true);
   });
 
-  it('marks the page unreachable when the probe returns an error envelope', () => {
+  it('marks the page unreachable and keeps the HTTP status when the probe returns an error envelope', () => {
     const body = { statusCode: 404, message: 'com.atlassian.confluence.api.service.exceptions.NotFoundException' };
     expect(parseContentOperations(body, CC_TYPE)).toEqual({
       probe_status: 'page_unreachable',
       page_reachable: false,
+      probe_http_status: 404,
     });
   });
 

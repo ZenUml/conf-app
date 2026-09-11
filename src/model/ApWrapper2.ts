@@ -320,16 +320,27 @@ export default class ApWrapper2 {
    * on the host page, per Confluence itself. One v1 GET with
    * `expand=operations`; the list carries `create / <our custom-content type>`
    * only when the space grants the caller "Add attachments" (verified 2026-08-30
-   * on lite-stg). Never throws — a failed probe is reported as
-   * `probe_status: 'failed'` so the save error path can never be made worse by
-   * its own diagnostics.
+   * on lite-stg). A page the author has not published yet exists only with
+   * `status=draft`, and the plain GET answers 404 ("status [current,
+   * archived]") even though the custom-content POST under that page works
+   * (lite-stg 2026-09-11, page 275611711) — so a 404 is retried once with
+   * `status=draft` before the page is called unreachable. Never throws — a
+   * failed probe is reported as `probe_status: 'failed'` so the save error
+   * path can never be made worse by its own diagnostics.
    */
   async diagnoseCreateNotFound(): Promise<SaveFailureDiagnosis> {
     try {
       const pageId = await this._getCurrentPageId();
       if (!pageId) return { probe_status: 'failed' };
-      const body = await this.makeRequest(`/rest/api/content/${encodeURIComponent(pageId)}?expand=operations`);
-      return parseContentOperations(body, this.getCustomContentType());
+      const ccType = this.getCustomContentType();
+      const encodedPageId = encodeURIComponent(pageId);
+      const body = await this.makeRequest(`/rest/api/content/${encodedPageId}?expand=operations`);
+      const diagnosis = parseContentOperations(body, ccType);
+      if (diagnosis.probe_status !== 'page_unreachable' || diagnosis.probe_http_status !== 404) {
+        return diagnosis;
+      }
+      const draftBody = await this.makeRequest(`/rest/api/content/${encodedPageId}?status=draft&expand=operations`);
+      return parseContentOperations(draftBody, ccType);
     } catch (e) {
       console.warn('diagnoseCreateNotFound: probe failed', (e as Error)?.message ?? e);
       return { probe_status: 'failed' };

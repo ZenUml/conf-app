@@ -1890,4 +1890,61 @@ describe('ApWrapper2', () => {
       );
     });
   });
+
+  describe('diagnoseCreateNotFound', () => {
+    // Verbatim v1 shape for a page that exists only as a never-published draft
+    // (lite-stg 2026-09-11, page 275611711): the plain GET answers this 404
+    // envelope, `?status=draft` answers 200 with the caller's operations, and
+    // POST /api/v2/custom-content under that page answers 201.
+    const draftOnly404 = {
+      statusCode: 404,
+      data: { authorized: true, valid: true, errors: [], successful: true },
+      message: 'com.atlassian.confluence.api.service.exceptions.api.NotFoundException: No content found with id : 275611711 and status [current, archived]',
+    };
+    const draftBody = {
+      id: '456', status: 'draft',
+      operations: [
+        { operation: 'read', targetType: 'page' },
+        { operation: 'create', targetType: 'attachment' },
+        { operation: 'create', targetType: 'ac:test-addon:zenuml-content-sequence' },
+      ],
+    };
+
+    it('retries with status=draft when the plain probe 404s, and reads the draft operations', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(draftOnly404)
+        .mockResolvedValueOnce(draftBody);
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenNthCalledWith(1, '/wiki/rest/api/content/456?expand=operations', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenNthCalledWith(2, '/wiki/rest/api/content/456?status=draft&expand=operations', 'GET', undefined);
+      expect(diagnosis).toMatchObject({
+        probe_status: 'ok',
+        page_reachable: true,
+        page_status: 'draft',
+        can_create_attachment: true,
+      });
+    });
+
+    it('reports page_unreachable with the HTTP status only when the draft probe 404s too', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(draftOnly404)
+        .mockResolvedValueOnce({ statusCode: 404, message: 'No content found with id : 456 and status [draft]' });
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(2);
+      expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 404 });
+    });
+
+    it('does not retry on a non-404 error envelope', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ statusCode: 403, message: 'forbidden' });
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(1);
+      expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 403 });
+    });
+  });
 });

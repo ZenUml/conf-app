@@ -27,6 +27,7 @@ export interface SaveFailureDiagnosis {
   probe_status: SaveFailureProbeStatus;
   page_reachable?: boolean;
   page_status?: string;
+  probe_http_status?: number;
   can_create_cc_type?: boolean;
   can_create_attachment?: boolean;
   can_create_page?: boolean;
@@ -63,7 +64,7 @@ export function parseContentOperations(body: any, ccType: string): SaveFailureDi
   // forgeRequest returns the parsed body regardless of HTTP status; a v1 error
   // arrives as `{ statusCode, message, … }` with no content fields.
   if (typeof body.statusCode === 'number' && body.statusCode >= 400) {
-    return { probe_status: 'page_unreachable', page_reachable: false };
+    return { probe_status: 'page_unreachable', page_reachable: false, probe_http_status: body.statusCode };
   }
   const base: SaveFailureDiagnosis = {
     probe_status: 'failed',

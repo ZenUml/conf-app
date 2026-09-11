@@ -63,6 +63,21 @@ Both names coexist **only in April 2026**; fully switched by May. **Window ≤ A
 
 Other events were renamed in the same wave; **`src/utils/analytics/catalog.ts` is authoritative** for current names — read it, don't trust a stale copy here.
 
+## The 2026-08-18 `macro_edit_opened` → `macro_edit_started` rename (evidence-verified)
+
+`macro_edit_opened` was replaced by **`macro_edit_started`** on 2026-08-18 (per
+`docs/analytics/events-catalog.md`; the old name is in no code and never was in `catalog.ts`
+git history). Weekly totals, fleet-wide: old name 873 in the week of 2026-08-17 then **0**
+from 2026-08-24; new name 435 that same crossover week, then ~2,000/week. **Sum both for any
+window touching 2026-08-17..23; use only the new name after that.**
+
+The trap this records (hit 2026-09-11): the "Edit Macro Completion" funnel (report
+`89660488`, board `11129697`) still had `macro_edit_opened` as step 1, so its 30-day view
+silently decayed towards a zero-entry funnel. It was re-pointed to `macro_edit_started` in
+place (Update-Dashboard cell update keeps the bookmark id). Rebuilt 30d totals funnel:
+4,761 → 4,419 (**93%**). Any saved report that still names `macro_edit_opened` reads flat, not
+broken — check the step names before proposing a product mechanism.
+
 ## The 2026-09 AI-title event rename
 
 `ai_generation_requested` / `ai_generation_succeeded` / `ai_generation_failed` were renamed to

@@ -39,10 +39,32 @@ export type AddToPageResult =
   | 'conflict'
   | 'failed'
 
+/**
+ * Which step produced a 'forbidden' or 'failed'.
+ *
+ * `result` is what the UI branches on; this is what the readout needs. Without
+ * it 'failed' is one bucket over six unrelated causes — a Confluence 5xx, a page
+ * shape we cannot parse, a macro key we refused to guess — which need different
+ * fixes and cannot be told apart after the fact.
+ */
+export type AddToPageFailure =
+  | 'read_forbidden'
+  | 'write_forbidden'
+  | 'unresolved_macro_key'
+  | 'page_read_failed'
+  | 'page_body_missing'
+  | 'page_body_unparsable'
+  | 'page_write_failed'
+  | 'threw'
+
 export interface AddToPageOutcome {
   result: AddToPageResult
   /** Macros the page already carried, for the paywall/limit read. */
   pageMacroCount?: number
+  /** Set on 'forbidden' and 'failed'; absent on every other result. */
+  reason?: AddToPageFailure
+  /** The response code, where the reason came from an HTTP call. */
+  status?: number
 }
 
 /**
@@ -211,19 +233,19 @@ export async function addDiagramToPage(
   // Refuse rather than write a key we are not sure of: a malformed extensionKey
   // renders as an unknown extension, which is worse on a customer's page than
   // the link we would otherwise offer.
-  if (!identity || !macroKey) return { result: 'failed' }
+  if (!identity || !macroKey) return { result: 'failed', reason: 'unresolved_macro_key' }
 
   try {
     const read = await request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}?body-format=atlas_doc_format`, 'GET')
-    if (read.status === 403) return { result: 'forbidden' }
-    if (!read.ok) return { result: 'failed' }
+    if (read.status === 403) return { result: 'forbidden', reason: 'read_forbidden', status: 403 }
+    if (!read.ok) return { result: 'failed', reason: 'page_read_failed', status: read.status }
     const page = await read.json()
     const raw = page?.body?.atlas_doc_format?.value
     const version = Number(page?.version?.number)
-    if (!raw || !Number.isFinite(version)) return { result: 'failed' }
+    if (!raw || !Number.isFinite(version)) return { result: 'failed', reason: 'page_body_missing' }
 
     const adf = JSON.parse(raw)
-    if (!Array.isArray(adf?.content)) return { result: 'failed' }
+    if (!Array.isArray(adf?.content)) return { result: 'failed', reason: 'page_body_unparsable' }
     const pageMacroCount = countExtensions(adf)
     // Someone else placed it, or this is a second click on the same button.
     if (referencesCustomContent(adf, diagram.id)) {
@@ -239,18 +261,22 @@ export async function addDiagramToPage(
       version: { number: version + 1, message: 'Added a ZenUML diagram from the byline' },
       body: { representation: 'atlas_doc_format', value: JSON.stringify(adf) },
     })
-    if (write.status === 403) return { result: 'forbidden', pageMacroCount }
+    if (write.status === 403) {
+      return { result: 'forbidden', pageMacroCount, reason: 'write_forbidden', status: 403 }
+    }
     // The page moved under us. Re-read and try once — never force, because the
     // version we would overwrite is somebody's edit.
     if (write.status === 409) {
       if (attempt > 0) return { result: 'conflict', pageMacroCount }
       return addDiagramToPage(pageId, diagram, attempt + 1)
     }
-    if (!write.ok) return { result: 'failed', pageMacroCount }
+    if (!write.ok) {
+      return { result: 'failed', pageMacroCount, reason: 'page_write_failed', status: write.status }
+    }
     return { result: 'added', pageMacroCount }
   } catch (e) {
     console.error('[add-to-page] failed', e)
-    return { result: 'failed' }
+    return { result: 'failed', reason: 'threw' }
   }
 }
 

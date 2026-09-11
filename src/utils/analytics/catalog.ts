@@ -738,7 +738,30 @@ export type AnalyticsEventName =
   //                       the notice reaches every reader, and a reader is not
   //                       always an author. The UI falls back to the link.
   //   'conflict'        — the page changed under us twice; we do not force.
-  //   'failed'          — anything else, including an unreadable page body.
+  //   'failed'          — anything else. `failure_reason` says which, because
+  //                       one bucket covering six causes cannot be acted on:
+  //                       a Confluence 5xx, a page shape we cannot parse and a
+  //                       macro key we refused to guess need different fixes.
+  //
+  // `failure_reason` narrows 'forbidden' and 'failed' to the step that produced
+  // them. `http_status` carries the response code where there was one.
+  //   'read_forbidden'        — the page GET was refused. Rarer and stranger
+  //                             than the write case: this user cannot even READ
+  //                             a page they are looking at.
+  //   'write_forbidden'       — the page PUT was refused. The expected refusal:
+  //                             the notice reaches every reader, and a reader is
+  //                             not always an author.
+  //   'unresolved_macro_key'  — appId/envId or the macro key could not be
+  //                             resolved, so no safe extensionKey exists. We
+  //                             refuse rather than render an unknown extension
+  //                             on a customer's page. Any volume here is a
+  //                             platform change and this feature is dead until
+  //                             it is fixed.
+  //   'page_read_failed'      — the GET was not ok, with `http_status`.
+  //   'page_body_missing'     — no ADF body or no usable version number.
+  //   'page_body_unparsable'  — the body did not parse as a doc with content.
+  //   'page_write_failed'     — the PUT was not ok, with `http_status`.
+  //   'threw'                 — an exception, already logged to the console.
   //
   // A material 'forbidden' share means the banner is reaching the wrong
   // audience and the button should be gated rather than offered-then-refused.

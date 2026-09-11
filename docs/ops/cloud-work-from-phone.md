@@ -19,7 +19,7 @@ plus a live probe of the claude.ai cloud environment (routine
  │ codexloom :4870, seedmux, Codex   │     │ connectors (verified in routines):        │
  │ desktop scheduled tasks (none)    │     │   Mixpanel, Gmail, Slack, Figma, HubSpot  │
  └───────────────────────────────────┘     │ GitHub Actions: staging deploy, release   │
-                                            └───────────────────────────────────────────┘
+                                           └───────────────────────────────────────────┘
 ```
 
 **The 2026-08-07 baseline in `docs/reference/agent-container-credentials.md` no longer

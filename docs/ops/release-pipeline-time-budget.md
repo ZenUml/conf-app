@@ -43,23 +43,44 @@ Release run, [34594289094](https://github.com/ZenUml/conf-app/actions/runs/34594
 | Change | Where | Expected saving | Evidence |
 |---|---|---|---|
 | Studio build cache in the deploy jobs (lite, asyncapi) | `staging-deploy.yml`, `release.yml` | **measured −1m29s**: Deploy: Lite 5m20s → 3m51s on branch run [34645121026](https://github.com/ZenUml/conf-app/actions/runs/34645121026) (Cloudflare step 198s → 101s, cache hit); the release deploy gate pays the same step | Lite vs Full Cloudflare step before: 198s vs 80s |
-| Auth bootstrap at t=0 per site, handed to suites as `auth-artifact` | `e2e-auth.yml` (new), `build-test-deploy.yml`, `e2e-test.yml` | ~1m50s (78s queue + 36s job) | job timings above |
+| Auth bootstrap at t=0 per site, handed to suites as `auth-artifact` | `e2e-auth.yml` (new), `build-test-deploy.yml`, `e2e-test.yml` | **measured**: all four site logins done by 3m30s, before the first deploy finished (3m12s); Lite shards started 5s after Deploy: Lite | run 34655187796 |
 | E2E no longer `needs: build`; drafts do | `build-test-deploy.yml` | keeps the 3m30s build job off the path once Deploy: Lite is under it | |
-| Lite insert suite 8 shards instead of 5 | `build-test-deploy.yml` | shard 1 5m12s → heaviest shard ~3m (est.) | `--list --shard=N/8`, layout in the job comment |
+| Lite insert suite 8 shards instead of 5 | `build-test-deploy.yml` | **measured**: heaviest shard 3m30s (shard 2/8: byline-create ×2 + byline-paywall), from 5m12s | run 34655187796; layout in the job comment |
 | typed-deeplink-autoconvert: 5 live cases → 1 + a manifest unit spec | `tests/unit/typedDeeplinkRouting.spec.ts`, the E2E spec | 4 page creations gone (~4 test-minutes across two shards) | the E2E's own header: every assertion is a manifest-matcher fact |
 | paywall-page-banner: 3 tests → 2 | the E2E spec | ~1 test-minute plus two 6s waits off the tail shard | taper/snooze/CSAT ranking already in `warningBanner.spec.ts`, `pageBanner.spec.ts` |
-| Merged HTML report only when a shard did not pass | `e2e-test.yml` | ~30s | merge 12.7→13.2 above |
+| Merged HTML report only when a shard did not pass | `e2e-test.yml` | **measured**: Draft: Lite started 6s after the last E2E shard finished, from 42s | run 34655187796 |
 | Release smoke runs `@smoke` only (7 tests) | `release.yml`, `tests/insert/*.spec.ts` | release tail 3m25s → ~2m (est.) | shard 3 above |
 | AsyncAPI suite 3 shards, not 5 | `build-test-deploy.yml` | none on the path; two empty runners gone | `--list --shard=N/5` gave 4/0/2/3/0 |
 
-Expected main build after all of the above, if the estimates hold: Deploy:
-Lite 3m51s (measured) → shards start at once → heaviest shard ~3m → draft ≈
-**7–7.5 min**, from 13m26s. Note the build job took 3m19s on the same run:
-with Deploy: Lite at 3m51s the two are now within 30s of each other, which is
-why the E2E no longer waits on `build`. Release deploy gate ≈ **3m30s**, from 5m24s. Confirm on the
-first green main run after merge and replace the estimates above with the
-measured figures.
+## Where the minutes go now (after)
 
+Main build, run [34655187796](https://github.com/ZenUml/conf-app/actions/runs/34655187796) (main, the merge of #667, 2026-09-11, green, **7m58s** — from 13m26s):
+
+| t (min) | Job | Note |
+|---|---|---|
+| 0.0 → 3.6 | Build and Unit Test | unit 119s; no longer on the path (E2E does not wait for it) |
+| 0.1 → 3.8 | Deploy: Lite | Cloudflare build+publish **94s** (was 198s), Forge deploy 86s |
+| 0.1 → 3.8 | Deploy: AsyncAPI | Cloudflare step 100s (was ~3m) |
+| 0.6 → 3.5 | E2E auth: AsyncAPI, Diagramly, Full, Lite | the four logins, serialised on the `e2e-auth` group, all finished before any deploy did |
+| 3.8 → 7.3 | E2E: Lite / shard 2/8 | byline-create ×2 + byline-paywall — the heaviest Lite shard, 3m30s |
+| 5.3 → 7.8 | E2E: Lite DrawIO Publish / shard 3/5 | **queued 96s for a runner**, then 2m30s of work — the actual tail of the run |
+| 7.8 → 7.9 | Draft: Lite | 6s after the last shard |
+
+Critical path: **Deploy: Lite → DrawIO Publish shard 3 (runner queue) → draft**.
+Diagramly's draft was cut at 6m06s, Full's at 6m18s, AsyncAPI's at 7m00s.
+
+The PR's own `pull_request` run ([34654501459](https://github.com/ZenUml/conf-app/actions/runs/34654501459), Lite only) took 7m20s with no runner queueing at all.
+
+**Runner concurrency is now the binding constraint.** The run peaked at exactly
+20 concurrent jobs, and the five shards created last — DrawIO Publish 3/5 and
+4/5 and all three AsyncAPI shards — waited 92–96s to start (every other
+job's `started_at − created_at` was under 30s). Twenty is GitHub's concurrent-job
+limit for the Free and Pro plans, so treat it as the account's cap unless the
+plan changes. The full-fan-out moment (27 shards: Lite 8, DrawIO 5, render 1,
+Full 5, Diagramly 5, AsyncAPI 3) exceeds it by 7. Without that queue the tail
+would have been Lite shard 2/8 at 7m18s.
+
+## How to re-measure
 ## How to re-measure
 
 ```bash
@@ -120,7 +141,14 @@ pipeline would do next, not what it does now.
 4. **Unit tests: 254 spec files in 115s.** Off the critical path now. Sharding
    vitest across two jobs would take it to ~60s if it ever comes back onto the
    path. Recommendation: nothing until it does.
-5. **Runner concurrency.** The plan's cap is unknown from inside the repo. The
-   main run now peaks at roughly 30 jobs when Full, Diagramly and Lite E2E
-   overlap. If shards start showing runner queue delay (see *How to
-   re-measure*), drop Full and Diagramly to 4 shards before touching Lite.
+5. **Runner concurrency — answered, not yet acted on.** The cap is 20 (see
+   *Where the minutes go now*), and the first main run hit it: five shards
+   queued ~95s and one of them became the tail. Next lever, in order of
+   evidence: Full and Diagramly run the same `insert` list as Lite but skip
+   the byline, paywall and typed-deeplink specs at runtime, so under 5 shards
+   their shard 1 finishes in ~40s having run nothing — 3 shards each would
+   free four runners at the peak (27 → 23) while their heaviest shard stays
+   under Lite's 3m30s. Measure with `--list --shard=N/3` and the Full/Diagramly
+   job timings before changing the matrices; the gain is bounded at ~30s
+   because the queue only delayed the DrawIO tail by that much past Lite
+   shard 2/8.

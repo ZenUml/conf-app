@@ -242,7 +242,7 @@ part of the publish confirmation (always confirm before publishing):
 gh release edit <new-draft-tag> --repo ZenUml/conf-app --notes-file release-notes-{variant}.md
 ```
 
-#### 2.4 Publish, then start PVT as soon as the deploy job is green
+#### 2.4 Publish, then start the spot check as soon as the deploy job is green
 
 This section is **release mode only**. Never publish or start a release workflow from preflight.
 
@@ -252,33 +252,36 @@ gh release edit <new-draft-tag> --repo ZenUml/conf-app --draft=false
 
 This triggers the Release workflow (`release.yml`), which runs two distinct phases in one run:
 
-1. **Deploy** — `Deploy Cron Worker to Production` and `v{tag} to production` (Cloudflare production publish + Forge production deploy). **This is the gate for PVT.**
+1. **Deploy** — `Deploy Cron Worker to Production` and `v{tag} to production` (Cloudflare production publish + Forge production deploy). **This is the gate for the spot check (2.6).**
 2. **Prod smoke** — `Smoke Test (Prod) — {variant} / auth / auth bootstrap` and five `shard N/5` jobs. Since ADR-0006 this runs only the `@smoke` tier (one insert-and-render per macro type, one edit, one embed paste — 7 tests on Lite, fewer where a macro is stripped); the paywall, byline and deeplink specs it leaves out ran on staging in the same commit's build, and the nightly `smoke-test.yml` still runs the whole suite on production.
 
-**Do not wait for the whole run before starting 2.5.** The new code is live the moment the deploy job reports `success`; the smoke shards afterwards test that same live deployment, so blocking PVT on them only delays validation of a build that is already serving users.
+**Do not wait for the whole run before starting 2.6.** The new code is live the moment the deploy job reports `success`; the smoke shards afterwards test that same live deployment and ARE the PVT (2.5), so the delta spot check runs while they finish rather than after.
 
 ```bash
-# Poll job-level state, not run-level. Start PVT when the "to production" job is success.
+# Poll job-level state, not run-level. Start the spot check when the "to production" job is success.
 gh run view <run-id> --repo ZenUml/conf-app --json status,jobs \
   -q '"run=\(.status)", (.jobs[] | "\(.conclusion // .status)\t\(.name)")'
 ```
 
-- **Deploy job `success`** → **go straight to 2.5** and run PVT while the smoke shards continue.
-- **Deploy job `failure`** → report and stop. Nothing was deployed; PVT would test the previous version.
-- In parallel, keep watching the run to completion (`gh run watch <run-id> --exit-status` in the background) and fold the smoke result into the Step 3 report.
+- **Deploy job `success`** → **go straight to 2.6** (spot check) while the smoke shards continue; 2.5 resolves itself from the smoke result.
+- **Deploy job `failure`** → report and stop. Nothing was deployed; a spot check would test the previous version.
+- In parallel, keep watching the run to completion (`gh run watch <run-id> --exit-status` in the background); its smoke verdict is the PVT line of the Step 3 report.
 
 **Judge by job, not by run.** A run whose deploy jobs are green and whose only red is a prod-smoke shard **did deploy successfully** — report the shard failure as a separate line item, do not describe the release as failed. Read the failing shard's log before characterizing it (`gh api repos/ZenUml/conf-app/actions/jobs/<jobId>/logs`); a `page.waitForResponse` timeout in a smoke spec is a test-side failure, distinct from a broken deployment.
 
-#### 2.5 Validate — PVT (MANDATORY)
+#### 2.5 Validate — PVT (MANDATORY; the release smoke IS the PVT for lite/full/diagramly)
 
 This section is **release mode only**. Preflight does not run PVT because nothing has been deployed.
 
-**Not optional. Start it as soon as the 2.4 deploy job reports `success` — do not wait for the prod smoke shards, and do NOT ask the user whether to run it.**
+**Not optional, and for lite/full/diagramly not manual either (ADR-0007).** The release run's `Smoke Test (Prod) — {variant}` jobs run the `@smoke` tier against the tag just deployed — one insert-and-render per macro type, Mermaid included, which is exactly what `/pvt` used to drive by hand. Its verdict is the PVT:
 
-- **Lite**: `/pvt lite`
-- **Full**: `/pvt full`
-- **Diagramly**: `/pvt diagramly`
-- **AsyncAPI**: run against the prod tenant **`async-prd.atlassian.net`**. Minimal checks: (a) the "My API Documents" dashboard or an asyncapi macro renders; (b) when the delta touches AI features, the `/diagramly/*` request origin is `https://zenapi.zenuml.com`.
+- **All smoke shards `success`** → `PVT: PASS`. Do not also run `/pvt`; it would re-prove the same render on the same tag.
+- **A smoke shard `failure`** → read that shard's log before deciding (`gh api repos/ZenUml/conf-app/actions/jobs/<jobId>/logs`). A test-side failure (a `waitForResponse` timeout, a selector miss) is not a broken deployment — run the manual `/pvt {variant}` **once** to disambiguate, and record both results. A render failure on the live tag is `PVT: FAIL`; report and stop.
+- **Shards reaped or never ran** (auth bootstrap failed, run cancelled) → fall back to the manual `/pvt {variant}`.
+
+`/pvt lite` / `/pvt full` / `/pvt diagramly` therefore remain the fallback and the disambiguator, not the routine step.
+
+- **AsyncAPI**: the release smoke still skips this variant, so its PVT stays manual — run against the prod tenant **`async-prd.atlassian.net`**. Minimal checks: (a) the "My API Documents" dashboard or an asyncapi macro renders; (b) when the delta touches AI features, the `/diagramly/*` request origin is `https://zenapi.zenuml.com`.
 
   **Access works — do NOT record this as blocked.** robot1yanhui holds Confluence User on `async-prd` (granted 2026-08-21), and `agent-browser --session conf-app --restore=stg` reaches the tenant directly. An earlier version of this file said the account had none and told you to record `PVT: BLOCKED`; that was true on 2026-07-12 and is stale. Verified again 2026-08-26 on the `v2026.08.260408-asyncapi` release.
 
@@ -298,7 +301,7 @@ Report PVT results to the user.
 
 #### 2.6 Validate — Spot check (targeted coverage for this release)
 
-**Runs automatically after PVT. Do not skip it.** General workflow, environment selection, and verification methods: **spot-check** skill.
+**Runs as soon as the deploy job is green — in parallel with the smoke (2.5), not after it. Do not skip it.** General workflow, environment selection, and verification methods: **spot-check** skill.
 
 In preflight, stop after writing the triage table and assertions. Mark them as planned/not run;
 do not touch the browser or claim PASS/FAIL. A real release executes them after PVT.
@@ -396,7 +399,7 @@ Summarize each released variant:
 - Draft published: ✓
 - Release workflow — deploy jobs: ✓
 - Release workflow — prod smoke shards (`@smoke` tier): ✓ | <N/5 failed: shard + one-line cause>
-- PVT (Mermaid smoke): PASS | FAIL
+- PVT (release `@smoke` on the tag; manual `/pvt` only for asyncapi or to disambiguate a red shard): PASS | FAIL
 - Release delta (one line): <themes / surfaces touched>
 - Focused tests (targeted coverage for this delta):
   - <check 1 — skill or custom>: PASS | FAIL | SKIPPED — <note>

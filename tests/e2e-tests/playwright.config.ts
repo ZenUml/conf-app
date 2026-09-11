@@ -5,7 +5,18 @@ import { AUTH_STATE_PATH } from './config/auth-state.js';
 export default defineConfig({
   testDir: './tests',
   timeout: 120000,
-  testIgnore: ['**/node_modules/**', '../../**'],
+  testIgnore: [
+    '**/node_modules/**',
+    '../../**',
+    // byline-activation.spec.ts is an ad hoc, env-gated spec: it skips itself
+    // unless BYLINE_ACTIVATION_LIVE=1 and BYLINE_PAGE_ID are set, which CI never
+    // sets. Left in the collection it still counts as a test when `--shard`
+    // splits the list, and being first alphabetically it shifted every shard
+    // boundary by one — measured 2026-09-11, that is what kept both
+    // byline-create tests on one shard after they stopped being serial. Not
+    // collected unless the run is actually live.
+    ...(process.env.BYLINE_ACTIVATION_LIVE ? [] : ['**/byline-activation.spec.ts']),
+  ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

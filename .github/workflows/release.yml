@@ -370,6 +370,16 @@ jobs:
     with:
       app: ${{ needs.release.outputs.license == 'lite' && 'zenuml-lite@prod' || needs.release.outputs.license == 'full' && 'zenuml-full@prod' || 'diagramly@prod' }}
       suite: insert
+      # Smoke tier only (ADR-0006): one insert-and-render per shipped macro type
+      # plus one edit and one embed paste — 7 tests, tagged `@smoke` in
+      # tests/e2e-tests/tests/insert/. The Lite-only paywall-banner, byline and
+      # typed-deeplink flows this leaves out were run on lite-stg by the
+      # build-test-deploy.yml run of this very commit, and the nightly
+      # smoke-test.yml still runs the whole insert suite on production. Without
+      # the filter the Lite release smoke's slowest shard was the 3-test paywall
+      # banner serial group (3m25s on run 34594289094, 2026-09-11), and the
+      # release report waits on the last shard.
+      grep: '@smoke'
       artifact-suffix: ${{ needs.release.outputs.license }}-prod-smoke
       # Post-deploy smoke: a cold-render wedge can't pass on retry, so retries
       # just burn the shard's 8-min budget. Fail fast (with trace) instead.

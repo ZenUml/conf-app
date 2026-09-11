@@ -6,7 +6,15 @@ const macroType = 'sequence' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Smoke Test - ${macroType}`, () => {
+// `@smoke` marks the SMOKE TIER (ADR-0006): one insert-and-render per shipped
+// macro type (sequence, mermaid, plantuml, openapi, graph), one edit
+// (edit-graph) and one embed paste (embed-deeplink-autoconvert). The production
+// release smoke in release.yml runs `--grep @smoke` and nothing else; staging
+// and the nightly smoke-test.yml run the whole suite. A new spec joins the tier
+// only if a release must not go out without it — every tagged test runs against
+// production on every release of every variant, so the tier's total runtime is
+// the release's tail.
+test.describe(`Smoke Test - ${macroType}`, { tag: '@smoke' }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {

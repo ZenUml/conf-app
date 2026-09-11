@@ -172,6 +172,11 @@ type ActiveEditorMutationSession = EditorMutationSessionConfig & {
   lastReplacementCode: string | null;
   replaceCount: number;
   postReplaceLocalEditCount: number;
+  // Authoring-intent signal (see getEditorInputSummary). Counts every
+  // doc-changing transaction, not just whole-document replacements, because
+  // the question these answer is "did the user author anything at all".
+  inputCount: number;
+  firstInputAt: number | null;
   lastAttribution: CopyAttributionMarker | null;
   dependencies: EditorMutationSessionDependencies;
 };
@@ -196,10 +201,12 @@ export function startEditorMutationSession(
   dependencies: Partial<EditorMutationSessionDependencies> = {},
 ): void {
   activeSession = null;
-  if (
-    config.operationMode !== 'edit'
-    || !['sequence', 'mermaid', 'plantuml'].includes(config.macroType)
-  ) return;
+  // Creates used to be excluded here, which is why macro_save_failed and
+  // macro_edit_cancelled never fired once on a create path and why the create
+  // funnel had no authoring-intent signal at all. The macro-type restriction
+  // stays: this module reads CodeMirror transactions, which only the
+  // sequence/mermaid/plantuml editor produces.
+  if (!['sequence', 'mermaid', 'plantuml'].includes(config.macroType)) return;
 
   activeSession = {
     ...config,
@@ -208,6 +215,8 @@ export function startEditorMutationSession(
     lastReplacementCode: null,
     replaceCount: 0,
     postReplaceLocalEditCount: 0,
+    inputCount: 0,
+    firstInputAt: null,
     lastAttribution: null,
     dependencies: {
       now: dependencies.now ?? Date.now,
@@ -221,6 +230,10 @@ export function recordEditorTransaction(transaction: Transaction): void {
   if (!activeSession || !transaction.docChanged) return;
 
   activeSession.latestCode = transaction.newDoc.toString();
+  activeSession.inputCount += 1;
+  if (activeSession.firstInputAt === null) {
+    activeSession.firstInputAt = activeSession.dependencies.now();
+  }
   const analysis = analyzeEditorTransaction(transaction, activeSession.macroType);
   if (!analysis) return;
   if (analysis.kind === 'local_edit') {
@@ -244,7 +257,7 @@ export function recordEditorTransaction(transaction: Transaction): void {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: activeSession.macroType,
-    operation_mode: 'edit',
+    operation_mode: activeSession.operationMode,
     journey_id: activeSession.journeyId,
     session_id: activeSession.sessionId,
     replace_index: activeSession.replaceCount,
@@ -298,11 +311,36 @@ export function trackEditorMutationLifecycleEvent(
     feature_area: 'macro',
     surface: 'editor',
     macro_type: activeSession.macroType,
-    operation_mode: 'edit',
+    operation_mode: activeSession.operationMode,
     ...getEditorMutationSummary(),
     ...(failureReason ? { failure_reason: failureReason.substring(0, 200) } : {}),
   });
   return true;
+}
+
+/**
+ * Authoring-intent signal for macro_authoring_ended.
+ *
+ * Returns `{}` when no mutation session is active — which is the normal case
+ * for graph / openapi / embed, since this module reads CodeMirror transactions
+ * and those editors produce none. An ABSENT `had_input` therefore means "not
+ * instrumented on this surface", never "the user typed nothing". Any funnel
+ * built on it must segment by macro_type rather than treating absence as false.
+ */
+export function getEditorInputSummary(): Partial<AnalyticsProperties> {
+  if (!activeSession) return {};
+  return {
+    had_input: activeSession.inputCount > 0,
+    input_event_count: activeSession.inputCount,
+    ...(activeSession.firstInputAt !== null
+      ? {
+          time_to_first_input_ms: Math.max(
+            0,
+            activeSession.firstInputAt - activeSession.openedAt,
+          ),
+        }
+      : {}),
+  };
 }
 
 export function resetEditorMutationSession(): void {

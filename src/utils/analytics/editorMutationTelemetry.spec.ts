@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   analyzeEditorTransaction,
   getEditorMutationSummary,
+  getEditorInputSummary,
   recordEditorTransaction,
   resetEditorMutationSession,
   startEditorMutationSession,
@@ -131,7 +132,10 @@ describe('analyzeEditorTransaction', () => {
 });
 
 describe('editor mutation session', () => {
-  it('does not start telemetry for create flows', () => {
+  it('runs telemetry for create flows and stamps operation_mode create', () => {
+    // Creates used to be excluded here. That guard is why macro_save_failed and
+    // macro_edit_cancelled never fired once on a create path, and why the
+    // create funnel had no authoring-intent signal.
     const tracked: Array<[string, Record<string, unknown>]> = [];
     const oldDoc = 'A -> B: hello';
     startEditorMutationSession({
@@ -143,6 +147,7 @@ describe('editor mutation session', () => {
       sessionId: 'session-create',
       openedAt: 1_000,
     }, {
+      now: () => 3_500,
       track: (event, properties) => tracked.push([event, properties]),
     });
 
@@ -150,8 +155,49 @@ describe('editor mutation session', () => {
       userTransaction(oldDoc, 0, oldDoc.length, 'A -> B: goodbye', 'input.paste'),
     );
 
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0][0]).toBe('editor_global_replace_observed');
+    expect(tracked[0][1]).toMatchObject({ operation_mode: 'create' });
+    expect(getEditorMutationSummary()).toMatchObject({ journey_id: 'journey-create' });
+    expect(getEditorInputSummary()).toEqual({
+      had_input: true,
+      input_event_count: 1,
+      time_to_first_input_ms: 2_500,
+    });
+  });
+
+  it('still skips macro types with no CodeMirror editor', () => {
+    const tracked: Array<[string, Record<string, unknown>]> = [];
+    startEditorMutationSession({
+      initialCode: '<mxGraphModel/>',
+      macroType: 'graph',
+      operationMode: 'create',
+      customContentId: null,
+      journeyId: 'journey-graph',
+      sessionId: 'session-graph',
+      openedAt: 1_000,
+    }, {
+      track: (event, properties) => tracked.push([event, properties]),
+    });
+
     expect(tracked).toEqual([]);
     expect(getEditorMutationSummary()).toEqual({});
+    // Absent, not false — the caller must not read this as "no input".
+    expect(getEditorInputSummary()).toEqual({});
+  });
+
+  it('reports had_input false when the editor opened but nothing was typed', () => {
+    startEditorMutationSession({
+      initialCode: 'A -> B: hello',
+      macroType: 'sequence',
+      operationMode: 'create',
+      customContentId: null,
+      journeyId: 'journey-idle',
+      sessionId: 'session-idle',
+      openedAt: 1_000,
+    }, { track: () => {} });
+
+    expect(getEditorInputSummary()).toEqual({ had_input: false, input_event_count: 0 });
   });
 
   it('emits every global replacement immediately with sequence and copy attribution', () => {

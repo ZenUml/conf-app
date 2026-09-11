@@ -429,6 +429,15 @@ export type AnalyticsProperties = {
   // Confluence page load, so it is a page-weight number as much as ours — read
   // against REVEAL_TTL_MS, which is what a slower page would have exceeded.
   reveal_age_ms?: number;
+  // diagram_added_to_page: which step produced a 'forbidden' or 'failed'
+  // result. `result` alone is a bucket — 'failed' covers a Confluence 5xx, an
+  // unparsable page body and a macro key we refused to guess, which need
+  // different fixes and would otherwise be indistinguishable in the readout.
+  failure_reason?: string;
+  // The response code behind a failure_reason that came from an HTTP call
+  // ('page_read_failed', 'page_write_failed'). Absent for the others, which
+  // never made a request that returned one.
+  http_status?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser

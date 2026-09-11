@@ -122,6 +122,15 @@ describe('Header', () => {
 
     afterEach(() => localStorage.removeItem('zenuml-preferred-diagram-type'));
 
+    it('applies the preference before waiting for the AI Chat feature flag', () => {
+      vi.mocked(isAiChatEnabled).mockImplementation(() => new Promise(() => {}));
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
+
+      mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
     it('still applies to a new diagram nobody asked a type for', async () => {
       localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
       const w = mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });

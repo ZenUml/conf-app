@@ -326,8 +326,6 @@ export default {
     },
   },
   async mounted() {
-    this.aiChatEnabled = await isAiChatEnabled();
-
     // Load user's preferred diagram type from localStorage for new diagrams.
     //
     // Skipped when the type was explicitly ASKED for — the byline's type picker
@@ -344,6 +342,12 @@ export default {
         this.updateDiagramType(savedDiagramType);
       }
     }
+
+    // Keep preference restoration above the first await. forgeIndex emits
+    // macro_create_started immediately after mounting and reads the same
+    // diagram object, so yielding first would report the Sequence fallback
+    // even when this new macro is already defaulting to Mermaid.
+    this.aiChatEnabled = await isAiChatEnabled();
 
     // Store original code for change detection on exit
     this.originalCode = this.currentCode;

@@ -265,6 +265,9 @@ describe('Mermaid fullscreen viewport controls', () => {
   });
 
   it('shows zoom controls in the fullscreen viewer', async () => {
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 400, height: 200,
+    } as DOMRect);
     window.forgeGlobal = {
       forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
     } as any;
@@ -294,6 +297,9 @@ describe('Mermaid fullscreen viewport controls', () => {
   });
 
   it('adds viewport controls to an inline diagram without fullscreen sizing', async () => {
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 400, height: 200,
+    } as DOMRect);
     window.forgeGlobal = { forgeContext: { extension: {} } } as any;
 
     const wrapper = mount(Mermaid, { global: { plugins: [store] } });

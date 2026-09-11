@@ -64,7 +64,56 @@
                 </svg>
                 READ-ONLY
               </span>
-              <span class="viewer-title" :title="title">{{ title }}</span>
+              <!-- Inline title rename: the title itself is the affordance.
+                   Click swaps it for a plain input (Enter / blur commit, Esc
+                   cancels, blank refused). Same gate as the Edit button
+                   (canRename) — the editor stays the place for everything
+                   else, this just spares a modal round-trip for a one-word
+                   change. Persistence: utils/renameDiagramTitle.ts. -->
+              <!-- Off-screen twin of the draft, measured so the input keeps
+                   the title's own footprint and grows with the text instead of
+                   sitting in a fixed box — the frame is fit-content, so a
+                   fixed-width input would widen the whole macro on click.
+                   Placed BEFORE the button/input/span chain: its own v-if
+                   must not sit between that chain's v-else-if and v-else. -->
+              <span v-if="isRenaming" ref="renameMeasure" class="viewer-title-measure" aria-hidden="true">{{ renameDraft || 'Untitled diagram' }}</span>
+              <button
+                v-if="canRename && !isRenaming"
+                type="button"
+                class="viewer-title viewer-title--editable"
+                :title="`${title} — click to rename`"
+                :aria-label="`Rename diagram: ${title}`"
+                data-testid="viewer-title-rename"
+                ref="titleButton"
+                @click="startRename"
+              >
+                <span class="viewer-title-text">{{ title }}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-title-pencil" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                </svg>
+              </button>
+              <input
+                v-else-if="isRenaming"
+                ref="renameInput"
+                type="text"
+                class="viewer-title viewer-title-input"
+                :class="{ 'viewer-title-input--error': renameError, 'viewer-title-input--saving': isSavingRename }"
+                aria-label="Diagram title"
+                :aria-invalid="renameError ? 'true' : undefined"
+                data-testid="viewer-title-input"
+                maxlength="255"
+                placeholder="Untitled diagram"
+                autocomplete="off"
+                spellcheck="false"
+                :value="renameDraft"
+                :disabled="isSavingRename"
+                :style="renameInputWidth ? { width: renameInputWidth + 'px' } : undefined"
+                @input="onRenameInput"
+                @keydown.enter.prevent="commitRename"
+                @keydown.esc.prevent="cancelRename"
+                @blur="onRenameBlur"
+              />
+              <span v-else class="viewer-title" :title="title">{{ title }}</span>
               <!-- Live Agent Link — Fullscreen toolbar link-status chip (Track H
                    design contract): names the bound diagram + token TTL. Shown
                    only in Fullscreen once a session exists; the inline collapsed
@@ -77,7 +126,10 @@
               />
             </div>
             <div v-if="!isLoadFailed" class="viewer-top-actions">
-              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
+              <!-- Also disabled while a title rename PUT is in flight: the modal
+                   would boot on the pre-rename body and its later save would
+                   reinstate the old title. -->
+              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason || isSavingRename" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                 </svg>
@@ -462,8 +514,16 @@ import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
 import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
+import { renameDiagramTitle } from '@/utils/renameDiagramTitle'
 
 const DEFAULT_TITLE = 'Untitled diagram'
+// Inline title rename input sizing (see startRename / updateRenameWidth).
+// MAX mirrors .viewer-title's max-width; CHROME is the input's horizontal
+// padding (6px × 2) + border (1px × 2) plus a few px so the caret has room
+// after the last glyph, added to the measured text width.
+const RENAME_INPUT_MIN_WIDTH_PX = 160
+const RENAME_INPUT_MAX_WIDTH_PX = 420
+const RENAME_INPUT_CHROME_PX = 18
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
 
 function isMermaidSequenceSource(source) {
@@ -522,6 +582,15 @@ export default {
     // fails closed (no accountId, no match, no render).
     currentAccountId: null,
     retryOutcomeEmitted: false,
+    // Inline title rename (see the title control in the template). The draft
+    // lives here, not in the store, so a cancelled or failed rename never
+    // touches diagram.title — the store only changes once the PUT has landed.
+    isRenaming: false,
+    renameDraft: '',
+    isSavingRename: false,
+    renameError: false,
+    renameInputWidth: 0,
+    renameMinWidth: 0,
   }),
   components: {
     Debug,
@@ -659,6 +728,18 @@ export default {
         // macro config (#170), silently stranding the edit — so steer to the
         // page editor, the one surface where the fork can be linked.
         : 'This is one of several copies of this diagram on this page. To edit it, open the page in edit mode and edit this macro there — it will become an independent diagram.';
+    },
+    // Inline title rename gate. Deliberately the Edit button's predicate
+    // spelled out (not `showEdit`, whose DEV shortcut would offer a rename
+    // that has no custom content to write to): a permitted user, a live
+    // custom content id, and none of the states that already disable Edit
+    // (copy / duplicate / recovery / cached fallback). Fullscreen and embed
+    // surfaces are excluded the same way Edit is — fullscreen drops the
+    // action row, and an embed is a reference whose origin owns the title.
+    canRename() {
+      if (this.hideEdit || this.isFullscreenMode || this.isEmbedded || this.isLoadFailed) return false;
+      if (!this.canUserEdit || !this.isCustomContent || !this.diagram?.id) return false;
+      return !this.editDisabledReason;
     },
     // Live Agent Link MVP scope (design §11/§12): agent-native DSL types only.
     // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.
@@ -1102,6 +1183,9 @@ export default {
     // so one Escape dismisses one layer.
     onEscapeKeydown(e) {
       if (e.key !== 'Escape') return;
+      // The rename input's own keydown.esc handler owns Escape while it is
+      // open — cancelling the rename must not also close the source panel.
+      if (this.isRenaming) return;
       if (this.$refs.copyForAiMenu?.open) return;
       if (!this.showSourcePanel) return;
       this.showSourcePanel = false;
@@ -1198,6 +1282,123 @@ export default {
     edit() {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
+    },
+    // ---- Inline title rename ------------------------------------------------
+    // State machine: idle -> (click) renaming -> (Enter/blur) saving -> idle.
+    // Esc, an unchanged title, or a blank blur go straight back to idle with a
+    // viewer_rename_cancelled; a blank Enter stays put with the error state so
+    // the user sees why nothing happened. The store's title changes only on a
+    // landed write; every other exit leaves it exactly as it was.
+    startRename() {
+      if (!this.canRename || this.isRenaming) return;
+      this.renameDraft = this.diagram?.title?.trim?.() || '';
+      this.renameError = false;
+      // The input opens at exactly the title's rendered width (never
+      // narrower), so the header — and the fit-content frame around it —
+      // does not move on click.
+      this.renameMinWidth = this.$refs.titleButton?.offsetWidth || RENAME_INPUT_MIN_WIDTH_PX;
+      this.renameInputWidth = this.renameMinWidth;
+      this.isRenaming = true;
+      this.trackRename('viewer_rename_started');
+      this.$nextTick(() => {
+        this.updateRenameWidth();
+        const el = this.$refs.renameInput;
+        if (el) {
+          el.focus();
+          el.select();
+        }
+      });
+    },
+    onRenameInput(e) {
+      this.renameDraft = e.target.value;
+      if (this.renameError && this.renameDraft.trim()) this.renameError = false;
+      this.$nextTick(this.updateRenameWidth);
+    },
+    updateRenameWidth() {
+      const measure = this.$refs.renameMeasure;
+      if (!measure) return;
+      // Text width + the input's own horizontal padding and border.
+      const measured = measure.scrollWidth + RENAME_INPUT_CHROME_PX;
+      this.renameInputWidth = Math.min(RENAME_INPUT_MAX_WIDTH_PX, Math.max(this.renameMinWidth, measured));
+    },
+    onRenameBlur() {
+      // A commit and an Escape both flip these flags before the input leaves
+      // the DOM, so the blur that removal fires in some browsers is a no-op.
+      if (!this.isRenaming || this.isSavingRename) return;
+      if (!this.renameDraft.trim()) {
+        this.exitRename('empty');
+        return;
+      }
+      this.commitRename();
+    },
+    cancelRename() {
+      if (!this.isRenaming || this.isSavingRename) return;
+      this.exitRename('escape');
+    },
+    exitRename(reason) {
+      this.isRenaming = false;
+      this.renameError = false;
+      this.renameDraft = '';
+      this.trackRename('viewer_rename_cancelled', { rename_exit_reason: reason });
+    },
+    async commitRename() {
+      if (!this.isRenaming || this.isSavingRename) return;
+      const next = this.renameDraft.trim();
+      const prev = this.diagram?.title?.trim?.() || '';
+      if (!next) {
+        // Same rule as the editor's Publish button: a diagram needs a title.
+        this.renameError = true;
+        this.$refs.renameInput?.focus?.();
+        return;
+      }
+      if (next === prev) {
+        this.exitRename('unchanged');
+        return;
+      }
+      this.isSavingRename = true;
+      this.renameError = false;
+      const customContentId = String(this.diagram?.id ?? '');
+      let result;
+      try {
+        result = await renameDiagramTitle({
+          customContentId,
+          title: next,
+          macroType: this.diagramType ?? 'none',
+          attribution: this.diagramAttribution,
+        });
+      } catch (error) {
+        result = { ok: false, reason: 'save_error', durationMs: 0, error };
+      }
+      this.isSavingRename = false;
+      this.isRenaming = false;
+      this.renameDraft = '';
+      if (result.ok) {
+        this.$store.dispatch('updateTitle', next);
+        this.trackRename('viewer_rename_succeeded', { save_duration_ms: result.durationMs });
+        return;
+      }
+      // gate_blocked: guardEditClick already toasted the duplicate explanation
+      // and flipped the viewer into the disabled-Edit state (which also hides
+      // this control via canRename) — a second toast would just repeat it.
+      if (result.reason !== 'gate_blocked') {
+        console.error('rename failed', result.reason, result.error);
+        toast({ message: "Couldn't rename the diagram. Try again, or open the editor.", duration: 5000 });
+      }
+      this.trackRename('viewer_rename_failed', {
+        failure_reason: result.reason,
+        save_duration_ms: result.durationMs,
+      });
+    },
+    trackRename(eventName, extra = {}) {
+      const id = String(this.diagram?.id ?? '');
+      trackAnalyticsEvent(eventName, {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        custom_content_id: id,
+        content_id: id,
+        ...extra,
+      });
     },
     // The Source button is a toggle: a second click closes the panel it opened
     // (Fullscreen Viewer v2). Only the opening half is tracked —
@@ -1965,6 +2166,100 @@ export default {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 420px;
+}
+/* Inline title rename. At rest the control is indistinguishable from the
+   plain title (same type, same position — negative margins cancel its own
+   padding); hover/focus reveal a soft field and the pencil, the same
+   #F3F4F6 the ghost action buttons use so the row reads as one system.
+   The pencil is faintly visible whenever the surface is hovered (the edges
+   are already revealed then) so the affordance is discoverable without
+   shouting. */
+.viewer-title--editable {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: -3px -6px;
+  padding: 3px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #172B4D;
+  text-align: left;
+  cursor: text;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+.viewer-title--editable:hover,
+.viewer-title--editable:focus-visible {
+  background: #F3F4F6;
+}
+.viewer-title--editable:focus-visible {
+  outline: 2px solid #0094D9;
+  outline-offset: 1px;
+}
+.viewer-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.viewer-title-pencil {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: #6B7280;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.viewer-surface--hover .viewer-title-pencil { opacity: 0.45; }
+.viewer-title--editable:hover .viewer-title-pencil,
+.viewer-title--editable:focus-visible .viewer-title-pencil { opacity: 1; }
+
+.viewer-title-input {
+  box-sizing: border-box;
+  /* Width is set inline from the measured title (updateRenameWidth); this is
+     only the no-measurement fallback. No max-width: 100% here — the negative
+     margins make the title-area 12px narrower than the input, so a percentage
+     cap resolved against it clipped the last glyph (measured live: style
+     333px, rendered 321px). The 420px cap lives in updateRenameWidth. */
+  width: 160px;
+  margin: -3px -6px;
+  padding: 3px 6px;
+  background: #fff;
+  border: 1px solid #0094D9;
+  border-radius: 6px;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #172B4D;
+  /* An input clips rather than ellipsises; drop the inherited ellipsis so
+     the caret and the text scroll normally while editing. */
+  text-overflow: clip;
+}
+.viewer-title-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre;
+  font-size: 14px;
+  font-weight: 600;
+}
+.viewer-title-input::placeholder {
+  color: #9CA3AF;
+  font-style: italic;
+  font-weight: 500;
+}
+.viewer-title-input--error {
+  border-color: #DE350B;
+  background: #FFF5F3;
+}
+.viewer-title-input--saving {
+  opacity: 0.6;
+  cursor: progress;
 }
 .viewer-embed-chip {
   flex-shrink: 0;

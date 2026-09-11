@@ -18,6 +18,7 @@ import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readCopyAttribution } from '@/utils/analytics/copyAttribution'
 import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFailedRetry'
+import { renameDiagramTitle } from '@/utils/renameDiagramTitle'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -91,6 +92,13 @@ vi.mock('@/utils/window', () => ({
 
 vi.mock('@/utils/toast', () => ({
   toast: vi.fn(),
+}))
+
+// The persistence half of inline rename has its own spec
+// (utils/renameDiagramTitle.spec.ts); here it is a seam so the component tests
+// cover only the UI state machine + the events it fires.
+vi.mock('@/utils/renameDiagramTitle', () => ({
+  renameDiagramTitle: vi.fn(),
 }))
 
 vi.mock('@/model/globals/forgeGlobal', async (importOriginal) => {
@@ -388,6 +396,236 @@ describe('GenericViewer (chrome-less)', () => {
         macro_type: 'mermaid',
         entry_point: 'page_view',
       })
+    })
+  })
+
+  // Inline title rename: rename a diagram from the viewer's top edge without
+  // opening the editor modal. Same gate as the Edit button; persistence is
+  // renameDiagramTitle (mocked above).
+  describe('inline title rename', () => {
+    const renameMock = vi.mocked(renameDiagramTitle)
+    const titleButton = (w: ReturnType<typeof mountViewer>) => w.find('[data-testid="viewer-title-rename"]')
+    const titleInput = (w: ReturnType<typeof mountViewer>) => w.find('[data-testid="viewer-title-input"]')
+    const openRename = async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      await titleButton(wrapper).trigger('click')
+      return wrapper
+    }
+
+    beforeEach(() => {
+      renameMock.mockReset()
+      renameMock.mockResolvedValue({ ok: true, id: '987654321', durationMs: 42 } as any)
+    })
+
+    it('renders the title as a rename control when the diagram is editable custom content', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(titleButton(wrapper).exists()).toBe(true)
+      expect(titleButton(wrapper).text()).toBe('Login flow')
+      // The layout tests above keep reading the title through .viewer-title.
+      expect(wrapper.find('.viewer-title').text()).toBe('Login flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      // Exactly one title on screen: the control REPLACES the plain span
+      // (caught live in Storybook — a stray v-if between the chain's
+      // branches rendered both).
+      expect(wrapper.find('span.viewer-title').exists()).toBe(false)
+      expect(wrapper.findAll('.viewer-title')).toHaveLength(1)
+    })
+
+    it.each([
+      ['a read-only user', () => { vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false) }],
+      ['a cross-page copy', () => { store.state.diagram.isCopy = true; store.state.diagram.copyReason = 'cross-page' }],
+      ['a snapshot fallback', () => { store.state.diagram.snapshotFallback = true }],
+      ['a non custom-content source', () => { store.state.diagram.source = DataSource.ContentProperty }],
+      ['the fullscreen modal', () => { (window as any).forgeGlobal.forgeContext.extension.modal = { macroMode: 'fullscreen' } }],
+      ['an embed macro', () => { (window as any).forgeGlobal.forgeContext.moduleKey = 'zenuml-embed-macro' }],
+      ['a failed load', () => { store.state.viewerLoadState = 'failed_with_source' }],
+    ])('renders a plain title with no rename control for %s', async (_label, arrange) => {
+      arrange()
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(titleButton(wrapper).exists()).toBe(false)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(true)
+    })
+
+    it('hides the rename control when hideEdit is set', async () => {
+      const wrapper = mount(GenericViewer, { global: { plugins: [store] }, props: { hideEdit: true } })
+      await flushPromises()
+      expect(titleButton(wrapper).exists()).toBe(false)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(true)
+    })
+
+    it('opens an input prefilled with the current title and fires viewer_rename_started', async () => {
+      const wrapper = await openRename()
+      const input = titleInput(wrapper)
+      expect(input.exists()).toBe(true)
+      expect((input.element as HTMLInputElement).value).toBe('Login flow')
+      expect(input.attributes('maxlength')).toBe('255')
+      expect(titleButton(wrapper).exists()).toBe(false)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(false)
+      expect(wrapper.findAll('.viewer-title')).toHaveLength(1)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_started', expect.objectContaining({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'sequence',
+        custom_content_id: '987654321',
+      }))
+      expect(renameMock).not.toHaveBeenCalled()
+    })
+
+    it('Enter with a new title persists it, updates the store, closes the input and fires viewer_rename_succeeded', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('  Checkout flow  ')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+
+      expect(renameMock).toHaveBeenCalledTimes(1)
+      expect(renameMock).toHaveBeenCalledWith(expect.objectContaining({
+        customContentId: '987654321',
+        title: 'Checkout flow',
+        macroType: 'sequence',
+      }))
+      expect(store.state.diagram.title).toBe('Checkout flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(wrapper.find('.viewer-title').text()).toBe('Checkout flow')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_succeeded', expect.objectContaining({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'sequence',
+        custom_content_id: '987654321',
+        content_id: '987654321',
+        save_duration_ms: 42,
+      }))
+    })
+
+    it('blur commits the draft the same way Enter does', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Checkout flow')
+      await titleInput(wrapper).trigger('blur')
+      await flushPromises()
+      expect(renameMock).toHaveBeenCalledTimes(1)
+      expect(store.state.diagram.title).toBe('Checkout flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+    })
+
+    it('Escape leaves edit mode without a write, keeps the old title and fires viewer_rename_cancelled (escape)', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Half typed')
+      await titleInput(wrapper).trigger('keydown', { key: 'Escape' })
+      await flushPromises()
+      expect(renameMock).not.toHaveBeenCalled()
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(titleButton(wrapper).text()).toBe('Login flow')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_cancelled', expect.objectContaining({
+        surface: 'viewer',
+        rename_exit_reason: 'escape',
+      }))
+    })
+
+    it('committing the unchanged title does not write and fires viewer_rename_cancelled (unchanged)', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue(' Login flow ')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(renameMock).not.toHaveBeenCalled()
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_cancelled', expect.objectContaining({
+        rename_exit_reason: 'unchanged',
+      }))
+    })
+
+    it('Enter with a blank title shows the error state and stays in edit mode without writing', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('   ')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(renameMock).not.toHaveBeenCalled()
+      expect(titleInput(wrapper).exists()).toBe(true)
+      expect(titleInput(wrapper).classes()).toContain('viewer-title-input--error')
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('viewer_rename_cancelled', expect.anything())
+    })
+
+    it('blur with a blank title leaves edit mode, keeps the previous title and fires viewer_rename_cancelled (empty)', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('')
+      await titleInput(wrapper).trigger('blur')
+      await flushPromises()
+      expect(renameMock).not.toHaveBeenCalled()
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_cancelled', expect.objectContaining({
+        rename_exit_reason: 'empty',
+      }))
+    })
+
+    it('disables the input AND the Edit button while the write is in flight, and ignores a blur during it', async () => {
+      let resolve!: (v: unknown) => void
+      renameMock.mockReturnValue(new Promise((r) => { resolve = r }) as any)
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Checkout flow')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await wrapper.vm.$nextTick()
+      expect(titleInput(wrapper).exists()).toBe(true)
+      expect(titleInput(wrapper).attributes('disabled')).toBeDefined()
+      // The editor modal would boot on the pre-rename body and its later save
+      // would reinstate the old title — so Edit waits for the PUT.
+      expect(wrapper.find('button[aria-label="Edit"]').attributes('disabled')).toBeDefined()
+      await titleInput(wrapper).trigger('blur')
+      resolve({ ok: true, id: '987654321', durationMs: 5 })
+      await flushPromises()
+      expect(renameMock).toHaveBeenCalledTimes(1)
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(store.state.diagram.title).toBe('Checkout flow')
+      expect(wrapper.find('button[aria-label="Edit"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('a failed write reverts to the previous title, toasts once and fires viewer_rename_failed with failure_reason', async () => {
+      renameMock.mockResolvedValue({ ok: false, reason: 'save_error', durationMs: 7, error: new Error('403') } as any)
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Checkout flow')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(titleButton(wrapper).text()).toBe('Login flow')
+      expect(toast).toHaveBeenCalledTimes(1)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_failed', expect.objectContaining({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'sequence',
+        custom_content_id: '987654321',
+        failure_reason: 'save_error',
+        save_duration_ms: 7,
+      }))
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('viewer_rename_succeeded', expect.anything())
+    })
+
+    it('a guard-blocked rename fires viewer_rename_failed but does not toast again (the guard already explained)', async () => {
+      renameMock.mockResolvedValue({ ok: false, reason: 'gate_blocked', durationMs: 3 } as any)
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Checkout flow')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(toast).not.toHaveBeenCalled()
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_failed', expect.objectContaining({
+        failure_reason: 'gate_blocked',
+      }))
+    })
+
+    it('a document-level Escape while renaming leaves the open source panel alone', async () => {
+      store.commit('updateCode2', 'A->B: hi')
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      expect((wrapper.vm as any).showSourcePanel).toBe(true)
+      await titleButton(wrapper).trigger('click')
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect((wrapper.vm as any).showSourcePanel).toBe(true)
     })
   })
 

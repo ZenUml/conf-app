@@ -479,6 +479,11 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // Inline title rename from the viewer (viewer_rename_cancelled): why edit
+  // mode was left without a write. 'escape' = Esc pressed; 'unchanged' =
+  // committed the same title; 'empty' = committed a blank title (refused,
+  // the previous title stands).
+  rename_exit_reason?: 'escape' | 'unchanged' | 'empty';
   // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts) AND the
   // "Copy diagram link" pill action (deeplink_copied — catalog.ts) share this
   // one `outcome` axis. For copy_for_ai_clicked: 'copied' = full page+diagram

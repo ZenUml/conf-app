@@ -65,6 +65,29 @@ jobs:
       - name: Init asyncapi-studio submodule
         if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' }}
         run: git submodule update --init --depth 1 vendor/asyncapi-studio
+      # Same Studio cache as build-test-deploy.yml / staging-deploy.yml (same key,
+      # one shared entry — the main build of the released commit already saved
+      # it). On a hit scripts/build-studio.sh fast-paths out and the lite/asyncapi
+      # production build skips the Next.js build of Studio. That build was ~2 of
+      # the 3.5 minutes of "Build and publish to Cloudflare" on the Lite release
+      # run 34594289094 (2026-09-11), and this job is the gate PVT waits on.
+      - name: Resolve asyncapi-studio submodule SHA
+        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' }}
+        id: studio-sha
+        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cache asyncapi Studio build
+        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' }}
+        uses: actions/cache@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
       - name: Build and publish to Cloudflare
         uses: ./.github/actions/wrangler-publish
         with:

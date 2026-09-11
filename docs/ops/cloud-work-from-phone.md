@@ -6,19 +6,20 @@ plus a live probe of the claude.ai cloud environment (routine
 `trig_01MxhqxzhsfzERc7QQ2yJLTX`, run `cse_01R3iCgaMNXfdd63S3YnyPGT`).
 
 ```
-            LAPTOP (off for 14 days)                 CLOUD, as probed 2026-09-11
- ┌──────────────────────────────────┐      ┌────────────────────────────────────────┐
- │ real Chrome (eagle.xiao, Profile 8│      │ env "Conf App" = env_018cHo8XMcQftZBkNS3atV6c
- │ → Marketplace UI, dev console,    │      │  network: Trusted → atlassian.net,      │
- │   admin.atlassian.com, Figma web) │      │   api.cloudflare.com, mixpanel.com all  │
- │ agent-browser sessions (robot1)   │      │   CONNECT 403; api.github.com 200       │
- │ Playwright MCP extension          │      │  env vars: GITHUB_TOKEN only            │
- │ forge tunnel / Storybook / Vite   │      │  API credentials: none                  │
- │ .env.forge.local (FORGE_*, JSM_*) │      │  setup script: none (no node_modules)   │
- │ codexloom :4870, seedmux, Codex   │      │ connectors (routines verified): Mixpanel│
- │ desktop scheduled tasks (none)    │      │  Gmail, Slack, Figma, HubSpot, Drive    │
- └──────────────────────────────────┘      │ GitHub Actions: staging deploy, release │
-                                           └────────────────────────────────────────┘
+            LAPTOP (off for 14 days)                 CLOUD "Conf App", probed 2026-09-11
+ ┌───────────────────────────────────┐     ┌──────────────────────────────────────────┐
+ │ real Chrome (eagle.xiao, Profile 8│     │ env_018cHo8XMcQftZBkNS3atV6c              │
+ │  → Marketplace UI, dev console,   │     │ network: Trusted                          │
+ │    admin.atlassian.com, Figma web │     │   *.atlassian.net, api.cloudflare.com,    │
+ │ agent-browser sessions (robot1)   │     │   mixpanel.com → CONNECT 403              │
+ │ Playwright MCP extension          │     │   api.github.com → 200                    │
+ │ forge tunnel / Storybook / Vite   │     │ env vars: GITHUB_TOKEN only               │
+ │ .env.forge.local (FORGE_*, JSM_*) │     │ API credentials: none                     │
+ │ .env.mixpanel, e2e-tests/.env     │     │ setup script: none (no node_modules)      │
+ │ codexloom :4870, seedmux, Codex   │     │ connectors (verified in routines):        │
+ │ desktop scheduled tasks (none)    │     │   Mixpanel, Gmail, Slack, Figma, HubSpot  │
+ └───────────────────────────────────┘     │ GitHub Actions: staging deploy, release   │
+                                            └──────────────────────────────────────────┘
 ```
 
 **The 2026-08-07 baseline in `docs/reference/agent-container-credentials.md` no longer
@@ -34,11 +35,11 @@ every REST path in the table below is laptop-only; only the **connectors** and *
 
 | Activity (sessions, last 7 days) | Needs from laptop | Cloud substitute |
 |---|---|---|
-| Mixpanel analysis, session replay reading (26 + 12) | none | **Mixpanel connector works today.** JQL via `MIXPANEL_SA_*` needs an API credential added |
-| D1 / KV / paywall state (19 + 13) | `wrangler` + local `wrangler.toml` | Cloudflare REST — **blocked today** (no credential, egress 403); needs `api.cloudflare.com` credential |
-| JSM ticket reading / reply drafting (7) | `JSM_API_TOKEN` in `.env.forge.local` | **blocked today**; needs a `zenuml.atlassian.net` credential with the JSM token |
+| Mixpanel analysis, session replay reading (26 + 12) | none | **Mixpanel connector works today.** JQL needs step 2 |
+| D1 / KV / paywall state (19 + 13) | `wrangler` + local `wrangler.toml` | Cloudflare REST — **blocked today** (no credential, egress 403); needs step 2 |
+| JSM ticket reading / reply drafting (7) | `JSM_API_TOKEN` in `.env.forge.local` | **blocked today**; needs step 2 (JSM token) |
 | Gmail read + draft (9) | none | **Gmail connector works today** |
-| Marketplace evaluations / licences (2) | `eagle.xiao` Chrome session for the manage UI | REST `/reporting/*/export` — **blocked today**; needs `marketplace.atlassian.com` credential |
+| Marketplace evaluations / licences (2) | `eagle.xiao` Chrome session for the manage UI | REST `/reporting/*/export` — **blocked today**; needs step 2 |
 | Storybook / local dev / Vite (21) | local process, Portless | none. Unit tests (`pnpm test:unit`) run in cloud; visual review does not |
 | agent-browser spot checks / PVT (14) | `~/.agent-browser/sessions/*.json`, `cloud.session.token` expires **2026-09-15** | Playwright + robot TOTP (`tests/e2e-tests`) — needs `ATLASSIAN_*` vars **and** `*.atlassian.net` egress; blocked today |
 | forge tunnel (8) | laptop + `eagle.xiao` identity | none |

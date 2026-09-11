@@ -267,10 +267,15 @@ export type AnalyticsEventName =
   // attachments" got exactly that shape on POST /api/v2/custom-content while
   // PUT still succeeded, and the `operations` list carried
   // `create/<our custom-content type>` only alongside `create/attachment`.
-  // The legacy `save_failed` event keeps the raw error; this event records
-  // WHY (`error_shape`, `can_create_cc_type`, `can_create_attachment`,
-  // `can_create_page`, `page_reachable`) so the cause is read off the event
-  // instead of inferred. One probe per failure; never fired on success.
+  // A page that exists only as a never-published draft answers the plain GET
+  // with 404 (`status [current, archived]`) although POST /api/v2/custom-content
+  // under it succeeds (lite-stg 2026-09-11), so a 404 is retried once with
+  // `?status=draft` before the page is called unreachable; `page_status` then
+  // reads `draft`. The legacy `save_failed` event keeps the raw error; this
+  // event records WHY (`error_shape`, `can_create_cc_type`,
+  // `can_create_attachment`, `can_create_page`, `page_reachable`,
+  // `probe_http_status`) so the cause is read off the event instead of
+  // inferred. One probe per failure; never fired on success.
   | "save_failed_diagnosed"
   // Fires when the shared DSL editor's selected type tab changes. `from` and
   // `to` capture the observed UI action; `macro_type` repeats the destination

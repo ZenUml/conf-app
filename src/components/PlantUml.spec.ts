@@ -67,6 +67,11 @@ describe('PlantUml pan/zoom viewport', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // jsdom lays nothing out, and DiagramViewport refuses to attach to a 0 x 0
+    // SVG (svg-pan-zoom would throw InvalidStateError on the singular matrix).
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 322, height: 243,
+    } as DOMRect);
     window.fetch = vi.fn(() => Promise.resolve(new Response(SERVER_SVG, { status: 200 }))) as typeof fetch;
     store.state.diagram = {
       ...NULL_DIAGRAM,
@@ -76,6 +81,7 @@ describe('PlantUml pan/zoom viewport', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     delete (window as { forgeGlobal?: unknown }).forgeGlobal;
   });
 
@@ -137,5 +143,19 @@ describe('PlantUml pan/zoom viewport', () => {
     expect(svg.attributes('viewBox') ?? svg.attributes('viewbox')).toBe('0 0 322 243');
     expect(svg.attributes('width')).toBeUndefined();
     expect(svg.attributes('height')).toBeUndefined();
+  });
+
+  it('waits for layout instead of attaching to a 0 x 0 SVG', async () => {
+    (window as { forgeGlobal?: unknown }).forgeGlobal = { forgeContext: { extension: {} } };
+    // A Forge iframe can still be unlaid-out when the render lands; attaching
+    // there inverts a singular screen matrix and throws InvalidStateError.
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 0, height: 0,
+    } as DOMRect);
+
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(wrapper.find('.plantuml-render svg').exists()).toBe(true));
+
+    expect(svgPanZoomMock).not.toHaveBeenCalled();
   });
 });

@@ -36,6 +36,7 @@
 import svgPanZoom from 'svg-pan-zoom';
 import Hammer from 'hammerjs';
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
+import { hasSvgLayout } from '@/utils/mermaid/viewportLayout';
 
 /** A CSS length in px, or null for `none`, a percentage, or anything else. */
 function readPxLength(value) {
@@ -115,7 +116,16 @@ export default {
       if (!svgElement || svgElement === this.panZoomSvg) return;
 
       this.detach();
-      this.captureInlineSize(svgElement);
+      // svg-pan-zoom inverts the SVG's screen matrix during setup. A renderer can
+      // finish before its Forge iframe has layout, leaving that matrix singular
+      // (a 0 x 0 SVG) and throwing InvalidStateError. Wait for layout rather than
+      // turning a transient host state into a render crash.
+      const svgRect = svgElement.getBoundingClientRect();
+      if (!hasSvgLayout(svgRect)) {
+        this.observeLayout(svgElement);
+        return;
+      }
+      this.captureInlineSize(svgElement, svgRect);
       // svg-pan-zoom removes the viewBox attribute (shadow-viewport.js), which is
       // what gave the SVG its intrinsic ratio. Without the height captured above,
       // an inline box with no height of its own collapses to the browser's 150px
@@ -180,6 +190,17 @@ export default {
         this.panZoomResizeObserver.observe(this.$refs.viewport);
       }
     },
+    /** Re-try the attach once the host gives the SVG a box to measure. */
+    observeLayout(svgElement) {
+      if (typeof ResizeObserver === 'undefined' || !this.$refs.viewport) return;
+      this.panZoomResizeObserver = new ResizeObserver(() => {
+        if (!hasSvgLayout(svgElement.getBoundingClientRect())) return;
+        this.panZoomResizeObserver?.disconnect();
+        this.panZoomResizeObserver = null;
+        void this.attach();
+      });
+      this.panZoomResizeObserver.observe(this.$refs.viewport);
+    },
     detach() {
       this.panZoomResizeObserver?.disconnect();
       this.panZoomResizeObserver = null;
@@ -198,15 +219,13 @@ export default {
      * Forge macro iframe is sized by its own content — so the box has to carry the
      * diagram's own ratio, read here while the viewBox still exists.
      */
-    captureInlineSize(svgElement) {
+    captureInlineSize(svgElement, svgRect) {
       if (!this.isDisplayMode || this.isFullscreenMode) return;
-      const rect = svgElement.getBoundingClientRect();
       const viewBox = svgElement.viewBox?.baseVal;
+      // svgRect is known to have layout: attach() returns early otherwise.
       this.inlineAspectRatio = viewBox?.width > 0 && viewBox?.height > 0
         ? viewBox.width / viewBox.height
-        : rect.width > 0 && rect.height > 0
-          ? rect.width / rect.height
-          : null;
+        : svgRect.width / svgRect.height;
       // Only a px cap counts. Mermaid states its natural width as an inline
       // `max-width: <n>px` and must not be upscaled past it; PlantUML's cap is a
       // stylesheet `max-width: 100%`, i.e. no cap at all -- it has always stretched

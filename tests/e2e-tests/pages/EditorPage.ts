@@ -417,7 +417,9 @@ export class ConfluenceEditorPage {
    * @param tab - Optional tab to switch to (e.g., 'PlantUML')
    */
   async interactWithDiagramMacro(title: string, tab?: string): Promise<void> {
-    await this.page.waitForTimeout(5000); // Wait for macro iframe to load
+    // Wait for the macro editor iframe to actually mount, instead of a fixed
+    // sleep — getMacroEditorFrame() already branches Forge vs Connect.
+    await expect(this.getMacroEditorFrame().locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
 
     if (testConfig.isForge || testConfig.isLite) {
       await this.interactWithForgeDiagramMacro(title, tab);
@@ -434,36 +436,46 @@ export class ConfluenceEditorPage {
     await dismissStarterGalleryIfPresent(this.page, frame);
 
     if (tab) {
-      await frame.getByRole('tab', { name: tab }).click();
-      await this.page.waitForTimeout(1000);
+      const tabLocator = frame.getByRole('tab', { name: tab });
+      await tabLocator.click();
+      // aria-selected="true" is the app's own signal that the tab switch
+      // landed (see tests/fullscreen/sequence-create.spec.ts) — that's the
+      // real state a fixed sleep here was standing in for.
+      await expect(tabLocator).toHaveAttribute('aria-selected', 'true', { timeout: TIMEOUTS.BUTTON_VISIBLE });
     }
 
-    // Fill title
+    // Fill title. No sleep afterward: the Publish click below already
+    // auto-waits (Playwright actionability) for the button to become
+    // enabled — do not re-add a sleep for "Publish button to enable".
     const titleInput = frame.locator('input[type="text"]').first();
     await titleInput.fill(title);
-    await this.page.waitForTimeout(500); // Wait for Publish button to enable
 
-    // Click Publish
+    // Click Publish, then wait for the editor modal to actually go away —
+    // the real signal that Publish was accepted and the macro finished
+    // inserting, not a fixed delay.
     await frame.locator('button:has-text("Publish")').click();
-    await this.page.waitForTimeout(2000); // Wait for dialog to close and macro to insert
+    await expect(modal).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
   private async interactWithConnectDiagramMacro(title: string, tab?: string): Promise<void> {
-    const frame = this.page.locator('[role="dialog"] iframe').contentFrame();
+    const dialog = this.page.locator('[role="dialog"]');
+    const frame = dialog.locator('iframe').contentFrame();
 
     await dismissStarterGalleryIfPresent(this.page, frame);
 
     if (tab) {
-      await frame.getByRole('tab', { name: tab }).click();
-      await this.page.waitForTimeout(1000);
+      const tabLocator = frame.getByRole('tab', { name: tab });
+      await tabLocator.click();
+      await expect(tabLocator).toHaveAttribute('aria-selected', 'true', { timeout: TIMEOUTS.BUTTON_VISIBLE });
     }
 
+    // No sleep after fill: the Publish click's own actionability wait covers
+    // "Publish button to enable" (see interactWithForgeDiagramMacro above).
     const titleInput = frame.locator('input[type="text"]').first();
     await titleInput.fill(title);
-    await this.page.waitForTimeout(500);
 
     await frame.locator('button:has-text("Publish")').click();
-    await this.page.waitForTimeout(2000);
+    await expect(dialog).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
   // ── Graph (DrawIO) Macro ──
@@ -477,7 +489,9 @@ export class ConfluenceEditorPage {
    * 3. Click "Publish" (in nested iframe)
    */
   async interactWithGraphMacro(title: string): Promise<void> {
-    await this.page.waitForTimeout(5000);
+    // Wait for the macro editor iframe to actually mount, instead of a fixed
+    // sleep — getMacroEditorFrame() already branches Forge vs Connect.
+    await expect(this.getMacroEditorFrame().locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
 
     if (testConfig.isForge || testConfig.isLite) {
       await this.interactWithForgeGraphMacro(title);
@@ -594,21 +608,26 @@ export class ConfluenceEditorPage {
 
     const innerFrame = outerFrame.locator('iframe').contentFrame();
     await innerFrame.locator('button:has-text("Publish")').click();
-    await this.page.waitForTimeout(2000);
+    // Wait for the editor modal to actually close — the real signal that
+    // Publish was accepted and the macro finished inserting.
+    await expect(modal).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
   private async clickDrawioPublishConnect(): Promise<void> {
     // Publish button is in the inner DrawIO frame (same nesting as Forge)
-    const outerFrame = this.page.locator('[role="dialog"] iframe').contentFrame();
+    const dialog = this.page.locator('[role="dialog"]');
+    const outerFrame = dialog.locator('iframe').contentFrame();
     const innerFrame = outerFrame.locator('iframe').contentFrame();
     await innerFrame.locator('button:has-text("Publish")').click();
-    await this.page.waitForTimeout(2000);
+    await expect(dialog).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
   // ── OpenAPI / Swagger Macro ──
 
   async interactWithOpenApiMacro(title: string): Promise<void> {
-    await this.page.waitForTimeout(5000);
+    // Wait for the macro editor iframe to actually mount, instead of a fixed
+    // sleep — getMacroEditorFrame() already branches Forge vs Connect.
+    await expect(this.getMacroEditorFrame().locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
 
     if (testConfig.isForge || testConfig.isLite) {
       const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
@@ -621,15 +640,19 @@ export class ConfluenceEditorPage {
       await titleInput.fill(title);
       await this.page.waitForTimeout(500);
       await frame.locator('button:has-text("Publish")').click();
+      // Wait for the editor modal to actually close — the real signal that
+      // Publish was accepted and the macro finished inserting.
+      await expect(modal).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
     } else {
-      const frame = this.page.locator('[role="dialog"] iframe').contentFrame();
+      const dialog = this.page.locator('[role="dialog"]');
+      const frame = dialog.locator('iframe').contentFrame();
       const titleInput = frame.locator('input[type="text"]').first();
       await titleInput.clear();
       await titleInput.fill(title);
       await this.page.waitForTimeout(500);
       await frame.locator('button:has-text("Publish")').click();
+      await expect(dialog).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
     }
-    await this.page.waitForTimeout(2000);
   }
 
   // ── Page Publishing ──
@@ -642,16 +665,19 @@ export class ConfluenceEditorPage {
    * 2. Click "Publish" in the publish dialog
    */
   async publishPage(): Promise<void> {
-    // First, escape any macro iframe by clicking the page title
+    // Escape any macro iframe by clicking the page title. No sleep needed
+    // afterward: the "Publish..." click below already waits, as part of
+    // Playwright's actionability checks, for the button to stop being
+    // obscured by any lingering iframe overlay before it clicks — the same
+    // state the fixed 500ms sleep here used to guard.
     await this.titleInput.click().catch(() => {});
-    await this.page.waitForTimeout(500);
 
     // Click "Publish..." button in editor toolbar
     const publishButton = this.page.locator('button:has-text("Publish...")');
     await publishButton.first().click();
-    await this.page.waitForTimeout(1000);
 
-    // Wait for the "Publish page" dialog heading to appear
+    // Wait for the "Publish page" dialog heading to appear. The 1000ms sleep
+    // that used to sit here was redundant with this wait.
     await this.page.getByRole('heading', { name: 'Publish page' }).waitFor({ timeout: 5000 });
 
     // Click the "Publish" button inside the dialog.

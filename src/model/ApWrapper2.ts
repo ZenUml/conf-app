@@ -317,19 +317,37 @@ export default class ApWrapper2 {
 
   /**
    * Read-only probe behind `save_failed_diagnosed`: what may the CALLER create
-   * on the host page, per Confluence itself. One v1 GET with
-   * `expand=operations`; the list carries `create / <our custom-content type>`
-   * only when the space grants the caller "Add attachments" (verified 2026-08-30
-   * on lite-stg). Never throws — a failed probe is reported as
-   * `probe_status: 'failed'` so the save error path can never be made worse by
-   * its own diagnostics.
+   * on the host page, per Confluence itself. One v2 GET with
+   * `include-operations=true`; `operations.results` carries
+   * `create / <our custom-content type>` only when the space grants the caller
+   * "Add attachments" (verified 2026-08-30 on lite-stg with v1, 2026-09-11 with
+   * v2: a user holding "Add pages" only lists create/page but neither
+   * create/attachment nor our type).
+   *
+   * Not v1: `/rest/api/content/{id}?expand=operations` answers **410 Gone**
+   * through Forge's requestConfluence proxy (lite-stg 2026-09-11,
+   * `probe_http_status: 410`, same as the content-property endpoint noted in
+   * loadLegacyContentProperty), which is why every save_failed_diagnosed
+   * fired before this change said page_unreachable. A page the author has
+   * not published yet is a draft; v2 answers its id with 404 unless
+   * `get-draft=true` is passed, so a 404 is retried once that way before the
+   * page is called unreachable (the draft lists the same create operations).
+   * Never throws — a failed probe is reported as `probe_status: 'failed'` so
+   * the save error path can never be made worse by its own diagnostics.
    */
   async diagnoseCreateNotFound(): Promise<SaveFailureDiagnosis> {
     try {
       const pageId = await this._getCurrentPageId();
       if (!pageId) return { probe_status: 'failed' };
-      const body = await this.makeRequest(`/rest/api/content/${encodeURIComponent(pageId)}?expand=operations`);
-      return parseContentOperations(body, this.getCustomContentType());
+      const ccType = this.getCustomContentType();
+      const encodedPageId = encodeURIComponent(pageId);
+      const body = await this.makeRequest(`/api/v2/pages/${encodedPageId}?include-operations=true`);
+      const diagnosis = parseContentOperations(body, ccType);
+      if (diagnosis.probe_status !== 'page_unreachable' || diagnosis.probe_http_status !== 404) {
+        return diagnosis;
+      }
+      const draftBody = await this.makeRequest(`/api/v2/pages/${encodedPageId}?include-operations=true&get-draft=true`);
+      return parseContentOperations(draftBody, ccType);
     } catch (e) {
       console.warn('diagnoseCreateNotFound: probe failed', (e as Error)?.message ?? e);
       return { probe_status: 'failed' };

@@ -105,6 +105,92 @@ jobs:
           # build doesn't need it).
           PUPPETEER_SKIP_DOWNLOAD: "true"
   
+  preview-e2e:
+    # The one E2E project that needs no Confluence site, no Forge app and no
+    # OTP: the viewer/editor preview specs drive a local Vite dev server, so
+    # they cost a runner and nothing else. That makes this the cheapest real
+    # gate in the pipeline, which is why — unlike the staging suites below — it
+    # runs on EVERY push, drafts included. Before this job the `preview` project
+    # was collected but never gated: it only ran when someone remembered to
+    # start Vite and run it by hand.
+    name: "E2E: Viewer preview"
+    runs-on: ubuntu-latest
+    # Generous next to a ~2 min expectation: the whole point of this job is to
+    # be cheap and quiet, so give a cold pnpm store room rather than reap it.
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      # Deliberately NO asyncapi-studio submodule init. vite.config only copies
+      # the Studio when `command === 'build'`, and mermaid is served in dev by
+      # an in-config middleware straight out of node_modules, so `vite dev`
+      # needs neither. Skipping it is most of what keeps this job cheap.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Run preview specs against a local Vite dev server
+        # Server and tests share ONE step so the server cannot outlive or
+        # predecease them: a background process started in an earlier step is
+        # not guaranteed to survive into the next one, and a dead server turns
+        # into six confusing connection failures rather than one clear error.
+        #
+        # `pnpm start:local` is not used here because it wraps vite in portless,
+        # which allocates a dynamic hostname CI has no route for. Calling vite
+        # directly with PORT set also flips vite's `strictPort`, so a busy port
+        # fails loudly instead of quietly serving the specs a different app.
+        #
+        # LOCAL_DEV_URL short-circuits helpers/localDevUrl.ts, which otherwise
+        # shells out to `pnpm dev:url` (portless again) to discover the base URL.
+        run: |
+          PORT=8080 HOST=127.0.0.1 VERSION=latest PRODUCT_TYPE=lite \
+            pnpm exec vite dev > /tmp/vite-dev.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill $VITE_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:8080/viewer-preview.html && break
+            if [ "$i" -eq 60 ]; then
+              echo "Vite dev server never became reachable. Its log:"
+              cat /tmp/vite-dev.log
+              exit 1
+            fi
+            sleep 2
+          done
+          cd tests/e2e-tests && pnpm exec playwright test --project=preview
+        env:
+          CI: true
+          LOCAL_DEV_URL: http://127.0.0.1:8080
+      - name: Upload the dev server log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: preview-vite-dev-log
+          path: /tmp/vite-dev.log
+          if-no-files-found: ignore
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: blob-report-preview
+          path: ./tests/e2e-tests/blob-report/
+          if-no-files-found: ignore
+
   staging-lite:
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
@@ -181,6 +267,31 @@ jobs:
       # the auth.setup dependency test and reads one higher per shard.
       timeout-minutes: 12
       artifact-suffix: lite-stg-graph-publish
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  staging-lite-render-e2e:
+    # render was collected but never gated in CI. Same cadence as the other
+    # Lite E2E jobs: default branch, or a PR that's Ready for Review — not
+    # draft/branch iteration pushes.
+    if: |
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    needs: [staging-lite, build]
+    name: "E2E: Lite render"
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-lite@stg
+      suite: render
+      artifact-suffix: lite-stg-render
+      # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
+      # creates any fixture missing from config/render-fixtures.json, and
+      # running it on multiple shards at once would race them into creating
+      # the same missing fixture independently — see the shard-matrix input's
+      # description in e2e-test.yml.
+      shard-matrix: '[1]'
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}

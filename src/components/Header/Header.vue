@@ -1,5 +1,5 @@
 <template>
-  <header class="toolbar header bg-[#F1F3F4] px-6 flex items-center gap-3 relative z-10 h-10">
+  <header class="toolbar header bg-[#F1F3F4] px-6 grid items-center gap-3 relative z-10 h-10">
     <div class="flex items-center gap-3 flex-1 min-w-0">
       <DiagramTitleInput />
     </div>
@@ -503,6 +503,11 @@ export default {
 /* Diagram-type tabs raised into a notch straddling the header's top edge,
    concave shoulders cut into the divider — see Claude Design
    preview/toolbar-header-notch.html. */
+.toolbar {
+  /* Equal side tracks keep the tabs centered as titles and actions change. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
 .notch {
   position: relative;
   flex-shrink: 0;
@@ -522,7 +527,7 @@ export default {
   box-sizing: border-box;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

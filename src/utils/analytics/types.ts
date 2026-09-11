@@ -763,11 +763,18 @@ export type AnalyticsProperties = {
   // `operations` list on the host page, so `can_create_cc_type=false` is
   // Confluence's statement, not our inference. `page_reachable=false` means the
   // probe itself 404'd (unpublished draft owned by someone else, or a page the
-  // caller cannot view) and every `can_*` field is then absent.
+  // caller cannot view) and every `can_*` field is then absent;
+  // `probe_http_status` then carries the HTTP status so a scope/permission
+  // refusal (403), a retired route (410) and a missing page (404) are
+  // distinguishable. Every one of the 96 probes fired in production before
+  // 2026-09-11 reported page_unreachable and nothing else; the staging
+  // spot check on 2026-09-11 read 410 off the v1 route, which is why the
+  // probe moved to v2.
   error_shape?: CreateNotFoundShape;
   probe_status?: SaveFailureProbeStatus;
   page_reachable?: boolean;
   page_status?: string;
+  probe_http_status?: number;
   can_create_cc_type?: boolean;
   can_create_attachment?: boolean;
   can_create_page?: boolean;

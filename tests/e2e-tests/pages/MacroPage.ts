@@ -50,11 +50,92 @@ export class MacroPage {
     await expect(frame.getByText(expectedText, { exact: false }).first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
-  // For DrawIO graphs the rendered output is pure SVG with no predictable text
-  // labels, so we assert the SVG canvas element is present instead.
-  async assertMacroHasSvg(frame: FrameLocator): Promise<void> {
+  /**
+   * Assert the macro rendered a real, undistorted diagram — not merely that an
+   * `<svg>` element exists somewhere in the frame.
+   *
+   * Why "the largest SVG": the frame also contains the viewer toolbar, whose
+   * icons are SVGs. `frame.locator('svg').first()` resolves to one of those —
+   * measured at 16x16 on lite-stg. An earlier presence-only assertion did
+   * exactly that and was therefore satisfied by a visible toolbar icon even
+   * when the diagram never rendered. Selecting by area instead identifies the diagram
+   * without naming a container, which matters because the container markup is
+   * not stable across builds: the PlantUML wrapper is `.plantuml-render` on
+   * current main but a bare `.flex.justify-center` on what staging is serving
+   * today. Area is a property of the thing itself, so this works on both.
+   *
+   * Two checks:
+   *  1. Non-degenerate box. If nothing rendered, the largest SVG IS a toolbar
+   *     icon, and a 16px height fails here — which is the whole point.
+   *  2. Rendered aspect ratio tracks the viewBox's intrinsic ratio. This is the
+   *     defect this product shipped twice: plantuml.com sends
+   *     `preserveAspectRatio="none"`, the SVG is a flex item, so the container
+   *     crushes one axis while the other keeps its intrinsic size. A customer's
+   *     6228x2564 diagram rendered at 758x2564 — an 8.2x squash that reads as a
+   *     blank page — while `macro_viewed` still reported success. The fix was
+   *     verified in production by exactly this ratio comparison (4560x86
+   *     rendering at ratio 53.05 against an intrinsic 53.02). Skew is symmetric,
+   *     so a squash on either axis fails identically, and the check is skipped
+   *     when the SVG carries no usable viewBox since no intrinsic ratio exists.
+   */
+  async assertMacroRendersDiagram(
+    frame: FrameLocator,
+    { minWidth = 50, minHeight = 20, maxSkew = 1.15 }: {
+      minWidth?: number;
+      minHeight?: number;
+      maxSkew?: number;
+    } = {},
+  ): Promise<void> {
     await expect(frame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
     await expect(frame.locator('svg').first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+
+    const readLargestSvg = () =>
+      frame.locator('svg').evaluateAll((els) => {
+        const measured = (els as SVGSVGElement[]).map((el) => {
+          const rect = el.getBoundingClientRect();
+          const box = el.viewBox?.baseVal;
+          return {
+            width: rect.width,
+            height: rect.height,
+            viewBoxWidth: box?.width ?? 0,
+            viewBoxHeight: box?.height ?? 0,
+            preserveAspectRatio: el.getAttribute('preserveAspectRatio'),
+          };
+        });
+        measured.sort((a, b) => b.width * b.height - a.width * a.height);
+        return measured[0] ?? null;
+      });
+
+    // An SVG can be attached and "visible" a frame before layout settles on its
+    // final box, so poll rather than reading once and calling a transient
+    // 0-height a failure.
+    await expect
+      .poll(async () => (await readLargestSvg())?.height ?? 0, {
+        timeout: TIMEOUTS.FRAME_LOAD,
+        message:
+          'the largest SVG in the macro frame never reached a diagram-sized height — ' +
+          'if it stays at ~16px, the only SVGs present are toolbar icons and no diagram rendered',
+      })
+      .toBeGreaterThan(minHeight);
+
+    const geometry = await readLargestSvg();
+    if (!geometry) throw new Error('no SVG found in the macro frame');
+    const describe = JSON.stringify(geometry);
+
+    expect(geometry.width, `rendered diagram width is degenerate: ${describe}`).toBeGreaterThan(minWidth);
+
+    if (geometry.viewBoxWidth > 0 && geometry.viewBoxHeight > 0) {
+      const intrinsic = geometry.viewBoxWidth / geometry.viewBoxHeight;
+      const rendered = geometry.width / geometry.height;
+      const skew = Math.max(intrinsic / rendered, rendered / intrinsic);
+      expect(
+        skew,
+        `diagram is distorted ${skew.toFixed(2)}x: rendered ` +
+          `${geometry.width.toFixed(0)}x${geometry.height.toFixed(0)} (ratio ${rendered.toFixed(2)}) ` +
+          `against viewBox ${geometry.viewBoxWidth}x${geometry.viewBoxHeight} ` +
+          `(ratio ${intrinsic.toFixed(2)}), preserveAspectRatio=${geometry.preserveAspectRatio}`,
+      ).toBeLessThan(maxSkew);
+    }
   }
 
   async openFullscreen(macroFrame: FrameLocator): Promise<void> {

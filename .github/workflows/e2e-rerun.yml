@@ -1,21 +1,47 @@
-name: E2E shard re-run
+name: Run recovery
 
-# One automatic re-run of failed E2E shards (ADR-0007 §6).
+# Two automatic recoveries for the Build, Test and Draft Release run, both
+# driven by `workflow_run`, which fires after the whole run has finished.
 #
-# Playwright already retries a failing TEST twice inside its shard
-# (playwright.config.ts: retries 2 on CI), so a shard that fails did so three
-# times over — or never got to run its tests at all: an auth bootstrap that
-# lost the TOTP race, a runner reaped at the job timeout, a checkout or
-# install hiccup. Those are the cases a human used to fix by pressing
-# "Re-run failed jobs" and losing 10-20 minutes to noticing. This workflow
-# presses it once, and only when EVERY failed job in the run is an E2E job
-# (shard, auth bootstrap or report merge): a failed build, unit test, deploy
-# or draft is never re-run, and a run already on its second attempt is left
-# red — a second failure is real.
+# 1. One re-run of failed E2E shards (ADR-0007 §6).
 #
-# `workflow_run` fires after the whole Build, Test and Draft Release run has
-# finished; re-running the failed jobs also re-runs everything downstream of
-# them (the drafts), so a green second attempt still cuts the drafts.
+#    Playwright already retries a failing TEST twice inside its shard
+#    (playwright.config.ts: retries 2 on CI), so a shard that fails did so
+#    three times over — or never got to run its tests at all: an auth
+#    bootstrap that lost the TOTP race, a runner reaped at the job timeout, a
+#    checkout or install hiccup. Those are the cases a human used to fix by
+#    pressing "Re-run failed jobs" and losing 10-20 minutes to noticing. This
+#    workflow presses it once, and only when EVERY failed job in the run is an
+#    E2E job (shard, auth bootstrap or report merge): a failed build, unit
+#    test, deploy or draft is never re-run, and a run already on its second
+#    attempt is left red — a second failure is real. Re-running the failed
+#    jobs also re-runs everything downstream of them (the drafts), so a green
+#    second attempt still cuts the drafts.
+#
+# 2. Resurrection of a `main` run cancelled while it was still pending.
+#
+#    build-test-deploy.yml serialises its runs per branch on one concurrency
+#    group (a staging deploy and the E2E on it must not interleave with
+#    another commit's). GitHub keeps at most ONE pending run per group: a
+#    third entry cancels the pending one and takes its place. On a burst of
+#    merges that is what we want — the newest tree covers the older ones. But
+#    the third entry can be a RE-RUN of an OLDER run (a human pressing
+#    "Re-run failed jobs", or recovery 1 above), and then the run that dies is
+#    the one for the newest commit, whose staging deploy and drafts never
+#    happen. Observed 2026-09-12: the merge of #673 (run 34662255935) was
+#    pending behind #672's run when #671's run was re-run by hand; #673's run
+#    was cancelled with zero jobs started and main sat without drafts for its
+#    tip. `queue: max` would stop the cancellation but is not allowed next to
+#    `cancel-in-progress: true`, which the same block needs on PR branches.
+#
+#    So: when a push run on the default branch ends `cancelled` having started
+#    NO job (the signature of a queue cancellation — a human cancelling a run
+#    that is under way leaves started jobs behind), and its commit is STILL
+#    the tip of the branch, and no other run for that commit is queued, in
+#    progress or already green, re-run it. Re-entering the group may cancel
+#    an older pending run, which is the right outcome and, for the same
+#    reason, will not be resurrected (its commit is not the tip). Attempts are
+#    capped so two runs can never ping-pong.
 
 on:
   workflow_run:
@@ -28,6 +54,7 @@ permissions:
 
 jobs:
   rerun:
+    name: Re-run failed E2E jobs once
     if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -55,3 +82,47 @@ jobs:
           echo "::notice::re-running $COUNT failed E2E job(s) of $RUN_URL once (attempt 2)"
           gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY" --failed
           echo "### Re-ran $COUNT failed E2E job(s) of [run $RUN_ID]($RUN_URL) — attempt 2 is the last automatic one" >> "$GITHUB_STEP_SUMMARY"
+
+  resurrect:
+    name: Resurrect a main run cancelled while pending
+    if: |
+      github.event.workflow_run.conclusion == 'cancelled'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == github.event.repository.default_branch
+      && github.event.workflow_run.run_attempt < 4
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Re-run the cancelled run if it never started and its commit is still the tip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          STARTED=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.started_at != null)] | length')
+          if [ "$STARTED" != "0" ]; then
+            echo "$STARTED job(s) had started — cancelled by a human or a timeout, not by the concurrency queue; leaving it"
+            exit 0
+          fi
+          TIP=$(gh api "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)
+          if [ "$TIP" != "$HEAD_SHA" ]; then
+            echo "$BRANCH has moved on to $TIP — a newer run covers this tree; leaving it"
+            exit 0
+          fi
+          # Another run for this exact commit that is queued, waiting, running
+          # or already green (a human re-ran it first, or a workflow_dispatch)
+          # makes ours redundant — and re-entering the group would cancel it.
+          OTHERS=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-test-deploy.yml/runs?branch=$BRANCH&head_sha=$HEAD_SHA&per_page=20" \
+            --jq "[.workflow_runs[] | select(.id != $RUN_ID) | select(.status != \"completed\" or .conclusion == \"success\")] | length")
+          if [ "$OTHERS" != "0" ]; then
+            echo "$OTHERS other run(s) for $HEAD_SHA are pending, running or green — leaving it"
+            exit 0
+          fi
+          echo "::notice::$RUN_URL was cancelled by the concurrency queue before any job started and $HEAD_SHA is still the tip of $BRANCH — re-running it (attempt $((ATTEMPT + 1)))"
+          gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY"
+          echo "### Resurrected [run $RUN_ID]($RUN_URL): cancelled while pending, commit still the tip of \`$BRANCH\` — attempt $((ATTEMPT + 1))" >> "$GITHUB_STEP_SUMMARY"

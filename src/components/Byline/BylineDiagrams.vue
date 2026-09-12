@@ -154,11 +154,8 @@
          lost the signal the picker exists to capture and dropped the user into a
          default sequence editor they had not asked for. -->
     <div v-else-if="diagrams.length" class="byline__body byline__body--list" data-testid="byline-list">
-      <!-- The row is a real <button>, and Copy source is its SIBLING rather than
-           a button nested inside it (which is invalid HTML, and is what shipped).
-           Copy source is a power-user affordance on a minority of types, so it
-           stays out of the way until the row is hovered or focused — the open,
-           which is what the whole row does, is the labelled action. -->
+      <!-- Open and copy/place are sibling buttons. Keep each available action
+           visible, including for touch users who cannot hover a row. -->
       <div
         v-for="d in orderedDiagrams"
         :key="d.id"
@@ -174,7 +171,10 @@
           <span class="row__text">
             <span class="row__title" :title="d.title">{{ d.title }}</span>
             <span class="row__type">
-              {{ label(d.diagramType) }}<template v-if="isUnplaced(d)"> · not on this page</template>
+              {{ label(d.diagramType) }}<template v-if="isUnplaced(d)"> · not on the published page</template>
+            </span>
+            <span v-if="isUnplaced(d)" class="row__placement-hint">
+              {{ canEdit ? 'Add to page makes this diagram visible here.' : 'Copy URL, then ask a page editor to paste it into the page.' }}
             </span>
           </span>
           <span class="row__cta">Open</span>
@@ -201,7 +201,7 @@
           type="button"
           class="row__copy row__copy--url"
           :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-url'"
-          title="Copy a link that places this diagram on the page"
+          title="Copy a link for a page editor to paste into the page"
           @click="onCopyUrl(d)"
         >{{ copiedId === d.id ? '✓ Copied' : 'Copy URL' }}</button>
         <!-- Copy URL takes the slot when it applies: on a diagram that is not on
@@ -1600,15 +1600,17 @@ async function onLearnMore() {
   font-size: 12px;
   color: #5e6c84;
 }
+.row__placement-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #5e6c84;
+}
 .row__cta {
   font-size: 13px;
   color: #0052cc;
   font-weight: 500;
   flex: none;
 }
-/* Kept in the layout at all times so revealing it never shifts the row, and
-   faded rather than hidden so it stays reachable by keyboard — :focus-within
-   brings it up when the user tabs onto it. */
 /* Fixed width, right-aligned: the slot holds "Copy source", "Copy URL" or a
    hidden placeholder, and "Open" sits immediately before it. Sizing the slot to
    its content moved Open on whichever rows had the longer label.
@@ -1628,12 +1630,6 @@ async function onLearnMore() {
   color: #5e6c84;
   cursor: pointer;
   font-family: inherit;
-  opacity: 0;
-  transition: opacity 0.12s ease-in;
-}
-.row:hover .row__copy,
-.row:focus-within .row__copy {
-  opacity: 1;
 }
 /* Holds the slot open, never appears and never takes focus. */
 .row__copy--slot {
@@ -1684,11 +1680,8 @@ async function onLearnMore() {
   font-weight: 400;
 }
 
-/* Always visible, unlike Copy source. An unplaced diagram is invisible on the
-   page it belongs to, so its one route back must not be behind a hover. Placed
-   after the base rule deliberately — same specificity, later wins. */
+/* Emphasize the placement fallback while source-copy stays secondary. */
 .row__copy--url {
-  opacity: 1;
   color: #0052cc;
 }
 .row__copy:hover {

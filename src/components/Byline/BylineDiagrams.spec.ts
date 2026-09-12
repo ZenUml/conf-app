@@ -856,7 +856,7 @@ describe('BylineDiagrams', () => {
       const rows = wrapper.findAll('[data-testid="byline-item"]');
       expect(rows[0].find('[data-testid="byline-add-to-page"]').exists()).toBe(false);
       expect(rows[1].find('[data-testid="byline-add-to-page"]').exists()).toBe(true);
-      expect(rows[1].text()).toContain('not on this page');
+      expect(rows[1].text()).toContain('not on the published page');
     });
 
     it('places the diagram in one click and drops the label', async () => {
@@ -871,7 +871,7 @@ describe('BylineDiagrams', () => {
       await flushPromises();
 
       expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: '2' }), expect.any(Function));
-      expect(wrapper.text()).not.toContain('not on this page');
+      expect(wrapper.text()).not.toContain('not on the published page');
       expect(events('diagram_added_to_page')[0][1]).toMatchObject({
         result: 'added',
         macro_type: 'sequence',
@@ -902,7 +902,7 @@ describe('BylineDiagrams', () => {
 
       expect(wrapper.find('[data-testid="byline-add-to-page"]').exists()).toBe(false);
       expect(wrapper.find('[data-testid="byline-copy-url"]').exists()).toBe(true);
-      expect(wrapper.text()).toContain('not on this page');
+      expect(wrapper.text()).toContain('not on the published page');
       expect(events('diagram_added_to_page')[0][1]).toMatchObject({ result: 'forbidden' });
     });
 
@@ -931,7 +931,7 @@ describe('BylineDiagrams', () => {
       const wrapper = await mountByline();
 
       expect(wrapper.findAll('[data-testid="byline-copy-url"]')).toHaveLength(0);
-      expect(wrapper.text()).not.toContain('not on this page');
+      expect(wrapper.text()).not.toContain('not on the published page');
       expect(events('byline_unplaced_scanned')).toHaveLength(0);
     });
 

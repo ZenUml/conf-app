@@ -24,10 +24,11 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { localDevUrl } from '../helpers/localDevUrl';
 
-const URL = 'http://127.0.0.1:8080/index.html?sandbox=graph-view&outputType=display';
+const URL = localDevUrl('index.html?sandbox=graph-view&outputType=display');
 
-test.describe('Graph viewer — AWS icon stencils', () => {
+test.describe('Graph viewer — AWS icon stencils', { tag: ['@viewer', '@graph'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } });
 
   test('AWS shapes render via stencil paths, not as fallback rectangles', async ({ page }) => {

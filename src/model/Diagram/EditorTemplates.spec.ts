@@ -25,8 +25,8 @@ async function zenumlParses(dsl: string): Promise<boolean> {
 }
 
 describe('EditorTemplates — data integrity', () => {
-  it('every editor-reachable diagram type (getEditorDiagramOptions) has 6-10 templates', () => {
-    const options = getEditorDiagramOptions();
+  it('each diagram tab with a template gallery has 6-10 templates', () => {
+    const options = getEditorDiagramOptions().filter(({ value }) => value !== DiagramType.Markdown);
     expect(options.length).toBeGreaterThan(0);
     for (const { value } of options) {
       const templates = getTemplatesForType(value);

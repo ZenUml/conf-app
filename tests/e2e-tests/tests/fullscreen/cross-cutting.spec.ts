@@ -24,7 +24,7 @@ import {
   dirtyEditor,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Forge bridge fullscreen modal — cross-cutting chrome', () => {
+test.describe('Forge bridge fullscreen modal — cross-cutting chrome', { tag: ['@fullscreen', '@modal', '@sequence'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only; Connect uses different chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required to mount the modal');
 

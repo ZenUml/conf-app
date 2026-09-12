@@ -7,6 +7,8 @@ import { expect, userEvent, waitFor, within } from 'storybook/test'
 import mixpanel from 'mixpanel-browser'
 import { FeatureFlags } from '@forge/bridge'
 import GenericViewer from './GenericViewer.vue'
+import DiagramPortal from '@/components/DiagramPortal.vue'
+import Sequence from '@/components/Sequence.vue'
 import Mermaid from '@/components/Mermaid.vue'
 import store from '@/model/store2'
 import globals from '@/model/globals'
@@ -63,12 +65,27 @@ type Story = StoryObj<typeof GenericViewer>
 
 const SAMPLE_MERMAID =
   'sequenceDiagram\n  participant Client\n  participant Server\n  Client->>Server: POST /login\n  Server-->>Client: 200 OK'
+const SAMPLE_MERMAID_WIDE = `flowchart LR
+  Idea[Idea] --> Refine[Refine requirements]
+  Refine --> Design[Design]
+  Design --> Build[Build]
+  Build --> Review[Review]
+  Review --> Test[Test]
+  Test --> Ship[Ship]
+  Review -->|Changes requested| Build
+  Test -->|Failed| Build`
+const SAMPLE_MERMAID_EDITOR_SEQUENCE = `sequenceDiagram
+  Alice->>John: Hello John, how are you?
+  John-->>Alice: Great!
+  Alice-)John: See you later!`
 const SAMPLE_SEQUENCE = 'Client->Server: POST /login\nServer-->Client: 200 OK'
 const SAMPLE_PAGE = {
   title: 'Login flow — architecture notes',
   body: { export_view: { value: '<p>Context for the AI: this page documents the login handshake.</p>' } },
   _links: { base: 'https://example-tenant.atlassian.net/wiki', webui: '/spaces/DOCS/pages/123456' },
 }
+// relatedTotal is part of the API contract (RelatedParticipant in
+// services/ArchitectureTokens.ts): the count pill over an actor renders it.
 const ARCHITECTURE_TOKENS_RESPONSE = {
   indexedAt: '2026-08-27T00:00:00.000Z',
   contentVersion: 3,
@@ -76,6 +93,7 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
     {
       actorId: 'Client',
       rawLabel: 'Client',
+      relatedTotal: 1,
       related: [
         {
           contentId: 'related-101',
@@ -86,7 +104,7 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
         },
       ],
     },
-    { actorId: 'Server', rawLabel: 'Server', related: [] },
+    { actorId: 'Server', rawLabel: 'Server', relatedTotal: 0, related: [] },
   ],
 }
 
@@ -128,7 +146,8 @@ function stubFeatureFlags(architectureTokensEnabled: boolean) {
  * state, matching GenericViewer.spec.ts's "pending promise" technique for
  * that same assertion.
  */
-function stubApWrapper({ delayMs = 0 }: { delayMs?: number } = {}) {
+function stubApWrapper({ delayMs = 0, displayMode = true }: { delayMs?: number; displayMode?: boolean } = {}) {
+  globals.apWrapper.isDisplayMode = () => displayMode
   globals.apWrapper.canUserEdit = async () => true
   globals.apWrapper.initializeContext = async () => undefined
   globals.apWrapper.getCurrentPage = async () => {
@@ -243,8 +262,10 @@ function configureStory(options: {
   clipboardWrites?: boolean
   pageFetchDelayMs?: number
   fullscreenMode?: boolean
+  exportEntryMode?: boolean
   architectureTokensEnabled?: boolean
   customContentId?: string
+  displayMode?: boolean
 } = {}) {
   resetStubResponses()
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
@@ -258,9 +279,12 @@ function configureStory(options: {
   if (options.fullscreenMode) {
     // isFullscreenMode reads window.forgeGlobal.forgeContext.extension.modal
     // (same object as the imported forgeGlobal — forgeGlobal.ts:229).
-    ;(forgeGlobal.forgeContext as any).extension.modal = { macroMode: 'fullscreen' }
+    ;(forgeGlobal.forgeContext as any).extension.modal = {
+      macroMode: 'fullscreen',
+      ...(options.exportEntryMode ? { openExport: true } : {}),
+    }
   }
-  stubApWrapper({ delayMs: options.pageFetchDelayMs })
+  stubApWrapper({ delayMs: options.pageFetchDelayMs, displayMode: options.displayMode })
   stubMixpanel()
   installClipboardMock(options.clipboardWrites ?? true)
   setupStore(options)
@@ -293,16 +317,21 @@ async function revealHeader() {
   })
 }
 
-/** Renders GenericViewer with a lightweight placeholder in the diagram slot. */
-function renderViewer(args: Args, placeholderLabel = 'Diagram preview') {
+/**
+ * Renders GenericViewer with a lightweight placeholder in the diagram slot.
+ * `minHeight` exists because the frame is only as tall as its content: the
+ * Copy for AI job menu and the View Source sheet are each ~300px and would
+ * otherwise be clipped by a frame sized to a one-line placeholder.
+ */
+function renderViewer(args: Args, placeholderLabel = 'Diagram preview', minHeight = 0) {
   return {
     components: { GenericViewer },
     setup() {
-      return { args, placeholderLabel }
+      return { args, placeholderLabel, minHeight }
     },
     template: `
       <GenericViewer v-bind="args">
-        <div style="padding: 64px 24px; text-align: center; color: #6B7280; font-size: 13px;">
+        <div :style="{ padding: '64px 24px', minHeight: minHeight + 'px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }">
           {{ placeholderLabel }}
         </div>
       </GenericViewer>
@@ -325,22 +354,64 @@ function renderMermaidViewer(args: Args) {
   }
 }
 
+/** Production Mermaid renderer in an editor-preview-sized pane. */
+function renderMermaidEditorPreview() {
+  return {
+    components: { Mermaid },
+    template: `
+      <div style="width: 100%; height: 440px; padding: 24px; box-sizing: border-box; background: #F8F7F4;">
+        <Mermaid />
+      </div>
+    `,
+  }
+}
+
+/**
+ * The fullscreen surface as the Forge modal actually mounts it: DiagramPortal
+ * with autoResize=false, not GenericViewer directly (forgeIndex.ts).
+ */
+function renderZenUmlFullscreenViewer() {
+  return {
+    components: { DiagramPortal },
+    template: `<DiagramPortal :autoResize="false" />`,
+  }
+}
+
+/** Production integration: GenericViewer with the real ZenUML renderer. */
+function renderSequenceViewer(args: Args) {
+  return {
+    components: { GenericViewer, Sequence },
+    setup() {
+      return { args }
+    },
+    template: `
+      <GenericViewer v-bind="args">
+        <Sequence />
+      </GenericViewer>
+    `,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Meta
 // ---------------------------------------------------------------------------
 
 const meta: Meta<typeof GenericViewer> = {
-  title: 'Viewer/GenericViewer — macro header',
+  title: 'Viewer/GenericViewer',
   component: GenericViewer,
   parameters: {
     layout: 'padded',
     docs: {
       description: {
         component:
-          'The macro viewer header (.viewer-edge-top row): the title area (title, EMBED chip, ' +
-          'READ-ONLY recovered chip) and the top-right action row — Edit, View Source, the ' +
-          '"Copy for AI ▾" split button (one-click generic copy + a chevron menu of five ' +
-          'job-framed entries, with inline Copying…/Copied/Copy failed feedback), and Fullscreen.',
+          'The macro viewer as a reader meets it on a Confluence page. The header row ' +
+          '(.viewer-edge-top): title, EMBED and READ-ONLY chips, and the hover-revealed actions — ' +
+          'Edit, View Source, the "Copy for AI ▾" split button (one-click copy plus a chevron menu ' +
+          'of five job-framed entries, with inline Copying…/Copied/Copy failed feedback) and ' +
+          'Fullscreen. Then the surfaces below it: the View Source sheet inline and fullscreen, ' +
+          'Mermaid pan and zoom across all three surfaces, the load-failed recovery panel, the ' +
+          'Architecture Tokens footer through the real Mermaid renderer, the export entry point, ' +
+          'and the fullscreen viewer mounted the way the Forge modal mounts it.',
       },
     },
   },
@@ -384,7 +455,7 @@ export const Default: Story = {
  * the overlay listens to. All fixture vocabulary is invented.
  */
 export const ArchitectureTokensMermaidIntegration: Story = {
-  name: 'Architecture tokens — real Mermaid integration',
+  name: 'Architecture Tokens — footer through the real Mermaid renderer',
   loaders: [
     async () => {
       __resetMermaidLoaderForTests()
@@ -444,6 +515,103 @@ export const ArchitectureTokensMermaidIntegration: Story = {
   },
 }
 
+/** Fullscreen Mermaid with the production svg-pan-zoom viewport and toolbar. */
+export const MermaidFullscreenPanZoom: Story = {
+  name: 'Fullscreen — Mermaid pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Idea to Ship',
+        mermaidCode: SAMPLE_MERMAID_WIDE,
+        fullscreenMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('toolbar', { name: 'Mermaid zoom controls' })).toBeVisible()
+    await expect(canvas.queryByRole('button', { name: 'Reset view' })).toBeNull()
+    await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  },
+}
+
+/** Normal Confluence page viewer with the same two-button viewport controls. */
+export const MermaidInlinePanZoom: Story = {
+  name: 'Normal view — Mermaid pan and zoom',
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Alice Greets John',
+        mermaidCode: SAMPLE_MERMAID_EDITOR_SEQUENCE,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
+  },
+}
+
+/** Mermaid's editor preview surface, without the read-only viewer chrome. */
+export const MermaidEditorPanZoom: Story = {
+  name: 'Editor preview — Mermaid pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Alice Greets John',
+        mermaidCode: SAMPLE_MERMAID_EDITOR_SEQUENCE,
+        displayMode: false,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderMermaidEditorPreview(),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
+  },
+}
+
 // ---------------------------------------------------------------------------
 // 2. CopyStates — the four inline states of the Copy for AI primary segment
 // ---------------------------------------------------------------------------
@@ -456,7 +624,7 @@ export const ArchitectureTokensMermaidIntegration: Story = {
 
 /** Idle — the split button before any interaction. */
 export const CopyStateIdle: Story = {
-  name: 'CopyStates — idle',
+  name: 'Copy for AI — idle',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
@@ -475,7 +643,7 @@ export const CopyStateIdle: Story = {
 
 /** Copying — the page-context fetch is deliberately held open. */
 export const CopyStateCopying: Story = {
-  name: 'CopyStates — copying',
+  name: 'Copy for AI — copying',
   decorators: [
     () => {
       // pageFetchDelayMs never resolves within the story's lifetime — holds
@@ -505,7 +673,7 @@ export const CopyStateCopying: Story = {
 
 /** Copied — clipboard write succeeds. */
 export const CopyStateCopied: Story = {
-  name: 'CopyStates — copied',
+  name: 'Copy for AI — copied',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
@@ -526,7 +694,7 @@ export const CopyStateCopied: Story = {
 
 /** Copy failed — clipboard.writeText rejects. */
 export const CopyStateFailed: Story = {
-  name: 'CopyStates — copy failed',
+  name: 'Copy for AI — copy failed',
   decorators: [
     () => {
       configureStory({
@@ -558,14 +726,16 @@ export const CopyStateFailed: Story = {
  * five job-framed entries with their description lines.
  */
 export const JobMenuOpen: Story = {
-  name: 'JobMenuOpen — five job entries',
+  name: 'Copy for AI — job menu, five entries',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
       return { template: '<story />' }
     },
   ],
-  render: (args: Args) => renderViewer(args),
+  // The popover is ~300px tall and the frame hugs its content, so a normal
+  // placeholder clips three of the five entries the story is named for.
+  render: (args: Args) => renderViewer(args, 'Diagram preview', 300),
   play: async () => {
     await revealHeader()
     const canvas = within(document.body)
@@ -594,7 +764,7 @@ export const JobMenuOpen: Story = {
  * (showViewSource) so both are absent; Edit and Fullscreen stay present.
  */
 export const GraphType: Story = {
-  name: 'GraphType — no Source / Copy for AI',
+  name: 'Graph diagram — no View Source, no Copy for AI',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Graph, title: 'Deployment topology' })
@@ -622,7 +792,7 @@ export const GraphType: Story = {
  * changes, and Edit is disabled (title carries the steer-to-page-editor copy).
  */
 export const RecoveredReadOnly: Story = {
-  name: 'RecoveredReadOnly — READ-ONLY chip + banner',
+  name: 'Recovered from backup — READ-ONLY chip and banner',
   decorators: [
     () => {
       configureStory({
@@ -682,7 +852,11 @@ export const Embedded: Story = {
 // 7. View Source panel — inline vs fullscreen (fix/viewsource-fullscreen-fit)
 // ---------------------------------------------------------------------------
 
-/** Inline surface: panel keeps the original 300px right-sheet layout. */
+/**
+ * Inline surface: the panel opens as a ~300px right-hand sheet inside the macro
+ * frame (no --fullscreen class). The slot is given a matching height so the
+ * sheet's last lines are not clipped by a frame sized to the placeholder.
+ */
 export const SourcePanelInline: Story = {
   name: 'Source panel — inline',
   decorators: [
@@ -691,7 +865,7 @@ export const SourcePanelInline: Story = {
       return { template: '<story />' }
     },
   ],
-  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview', 300),
   play: async () => {
     await revealHeader()
     const canvas = within(document.body)
@@ -706,7 +880,7 @@ export const SourcePanelInline: Story = {
   },
 }
 
-/** Fullscreen surface: panel is viewport-anchored and widened (the fix). */
+/** Fullscreen surface: the panel is viewport-anchored and widened to min(560px, 45vw). */
 export const SourcePanelFullscreen: Story = {
   name: 'Source panel — fullscreen',
   decorators: [
@@ -720,7 +894,7 @@ export const SourcePanelFullscreen: Story = {
       return { template: '<story />' }
     },
   ],
-  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview', 300),
   play: async () => {
     await revealHeader()
     const canvas = within(document.body)
@@ -731,6 +905,39 @@ export const SourcePanelFullscreen: Story = {
         throw new Error('fullscreen surface must get the fullscreen class')
       }
     })
+  },
+}
+
+/** Export entry keeps the natural inline Sequence card in its fullscreen host. */
+export const ExportEntrySequenceFraming: Story = {
+  name: 'Export entry — Sequence keeps inline card width',
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Sequence,
+        title: 'Login flow',
+        code: SAMPLE_SEQUENCE,
+        fullscreenMode: true,
+        exportEntryMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderSequenceViewer(args),
+  play: async () => {
+    const capture = await waitFor(() => {
+      const node = document.querySelector<HTMLElement>('.viewer-frame--export-entry .screen-capture-content')
+      if (!node) throw new Error('export-entry capture node not mounted')
+      return node
+    })
+    await expect(capture).toBeVisible()
+    const frame = document.querySelector<HTMLElement>('.viewer-frame--export-entry')
+    if (!frame) throw new Error('export-entry frame not mounted')
+    // Real browser layout assertion: export-entry must not stretch the card to
+    // the fullscreen column. Keep a generous ratio for font/viewport variance.
+    if (capture.getBoundingClientRect().width >= frame.getBoundingClientRect().width * 0.9) {
+      throw new Error('Sequence export-entry capture unexpectedly fills the fullscreen frame')
+    }
   },
 }
 
@@ -775,5 +982,47 @@ export const LoadFailedWithoutSource: Story = {
     await expect(await canvas.findByText('The diagram data is no longer available')).toBeVisible()
     await expect(canvas.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
     await expect(canvas.getByRole('button', { name: 'Contact support' })).toBeVisible()
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Fullscreen surface — mounted through DiagramPortal, as the Forge modal does
+// ---------------------------------------------------------------------------
+
+/**
+ * The fullscreen viewer for a ZenUML sequence diagram, entered the production
+ * way: forgeIndex.ts mounts DiagramPortal with autoResize=false inside a modal
+ * whose macroMode is 'fullscreen'. The chrome differs from the inline surface —
+ * a diagram-type chip replaces the hover-revealed row's Edit and Fullscreen
+ * buttons — so mounting GenericViewer directly would not show it.
+ */
+export const ZenUmlFullscreen: Story = {
+  name: 'Fullscreen — ZenUML sequence via DiagramPortal',
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Sequence,
+        title: 'Login flow',
+        code: SAMPLE_SEQUENCE,
+        fullscreenMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderZenUmlFullscreenViewer(),
+  play: async () => {
+    await waitFor(
+      () => {
+        if (!document.querySelector('.zenuml')) {
+          throw new Error('ZenUML sequence diagram not rendered')
+        }
+      },
+      { timeout: 15000 },
+    )
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('viewer-type-chip')).toHaveTextContent('Sequence')
+    await expect(canvas.queryByRole('button', { name: 'Fullscreen' })).not.toBeInTheDocument()
+    await expect(canvas.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
   },
 }

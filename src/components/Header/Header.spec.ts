@@ -1,3 +1,4 @@
+import EventBus from '@/EventBus';
 import {mount, flushPromises, enableAutoUnmount} from '@vue/test-utils'
 import {afterEach, vi} from 'vitest'
 import Header from '@/components/Header/Header.vue'
@@ -34,7 +35,7 @@ describe('Header', () => {
 
     // Find tab buttons through TabSwitcher component
     const tabButtons = headerWrapper.findAll('.tab-switcher button');
-    expect(tabButtons).toHaveLength(3);
+    expect(tabButtons).toHaveLength(4);
 
     const sequenceButton = tabButtons[0];
     const mermaidButton = tabButtons[1];
@@ -504,3 +505,40 @@ describe('Header — starter-template gallery auto-open (onboarding funnel)', ()
     expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
   })
 })
+
+
+describe('Markdown tab discovery and draft restore', () => {
+  it('offers recovery for intentionally empty Markdown when the saved tab was untouched', async () => {
+    store.state.diagram = { id: 'empty-md', diagramType: DiagramType.Mermaid, mermaidCode: 'flowchart LR\nA-->B', title: 'Doc', isNew: false } as any;
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    await flushPromises();
+    const draft = (wrapper.vm as any).currentDraft();
+    draft.buffers.markdown = '';
+    expect((wrapper.vm as any).draftDiffers(draft)).toBe(true);
+    wrapper.unmount();
+  });
+  it('shows a labelled Markdown tab, seeds Mermaid once, and restores into the correct type', async () => {
+    store.state.diagram = { id: 'md-edit', diagramType: DiagramType.Mermaid, mermaidCode: 'flowchart TD\nA-->B', title: 'Doc', isNew: false } as any;
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    await flushPromises();
+    const tab = wrapper.get('[role="tab"][aria-label="Markdown"]');
+    await tab.trigger('click');
+    expect(store.state.diagram.markdownCode).toContain('```mermaid');
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('markdown_seeded_from_mermaid', expect.objectContaining({ macro_type: 'markdown' }));
+    store.commit('updateDiagramType', DiagramType.Mermaid);
+    await wrapper.vm.$nextTick();
+    EventBus.$emit('draft-restore', { scope: 'edit:md-edit', draft: { code: '# Recovered', title: 'Recovered', diagramType: 'markdown', buffers: { mermaid: 'flowchart TD\nA-->B', markdown: '# Recovered', sequence: 'Saved sequence buffer' } } });
+    await wrapper.vm.$nextTick();
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Markdown);
+    expect(store.state.diagram.markdownCode).toBe('# Recovered');
+    expect(store.state.diagram.code).toBe('Saved sequence buffer');
+    expect((wrapper.vm as any).currentDraft().buffers.markdown).toBe('# Recovered');
+    const draft = (wrapper.vm as any).currentDraft();
+    expect((wrapper.vm as any).draftDiffers(draft)).toBe(false);
+    draft.buffers.mermaid = 'Unpublished inactive buffer';
+    expect((wrapper.vm as any).draftDiffers(draft)).toBe(true);
+    expect(store.state.diagram.mermaidCode).toBe('flowchart TD\nA-->B');
+    expect(wrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});

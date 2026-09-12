@@ -15,9 +15,23 @@ describe('loadMermaid', () => {
     __resetMermaidLoaderForTests();
   });
 
+  it('registers the lazy ZenUML extension once before exposing the shared renderer', async () => {
+    const registerExternalDiagrams = vi.fn().mockResolvedValue(undefined);
+    const instance = { initialize: vi.fn(), registerExternalDiagrams };
+    const importer = vi.fn().mockResolvedValue({ default: instance });
+    await Promise.all([loadMermaid({ importer }), loadMermaid({ importer })]);
+    expect(registerExternalDiagrams).toHaveBeenCalledTimes(1);
+    const [extensions, options] = registerExternalDiagrams.mock.calls[0];
+    expect(options).toEqual({ lazyLoad: true });
+    expect(extensions[0].id).toBe('zenuml');
+    expect(extensions[0].detector('zenuml\nAlice->Bob: Hello')).toBe(true);
+    expect(extensions[0].detector('flowchart LR\nA-->B')).toBe(false);
+  });
+
   it('caches the instance across calls so the import runs once', async () => {
     const initialize = vi.fn();
-    const importer = vi.fn(() => Promise.resolve({ default: { initialize } }));
+    const registerExternalDiagrams = vi.fn().mockResolvedValue(undefined);
+    const importer = vi.fn(() => Promise.resolve({ default: { initialize, registerExternalDiagrams } }));
 
     const first = await loadMermaid({ importer });
     const second = await loadMermaid({ importer });
@@ -27,8 +41,19 @@ describe('loadMermaid', () => {
     expect(initialize).toHaveBeenCalledTimes(1);
   });
 
+  it('does not cache an instance when extension registration fails', async () => {
+    const registerExternalDiagrams = vi.fn()
+      .mockRejectedValueOnce(new Error('extension registration failed'))
+      .mockResolvedValueOnce(undefined);
+    const instance = { initialize: vi.fn(), registerExternalDiagrams };
+    const importer = vi.fn().mockResolvedValue({ default: instance });
+    await expect(loadMermaid({ importer, retries: 0 })).rejects.toThrow('extension registration failed');
+    await expect(loadMermaid({ importer, retries: 0 })).resolves.toBe(instance);
+    expect(registerExternalDiagrams).toHaveBeenCalledTimes(2);
+  });
+
   it('shares one in-flight import between concurrent callers', async () => {
-    const importer = vi.fn(() => Promise.resolve({ default: { initialize: vi.fn() } }));
+    const importer = vi.fn(() => Promise.resolve({ default: { initialize: vi.fn(), registerExternalDiagrams: vi.fn().mockResolvedValue(undefined) } }));
 
     const [a, b] = await Promise.all([loadMermaid({ importer }), loadMermaid({ importer })]);
 
@@ -38,28 +63,30 @@ describe('loadMermaid', () => {
 
   it('retries a failed import on the next call instead of replaying the rejection', async () => {
     const initialize = vi.fn();
+    const registerExternalDiagrams = vi.fn().mockResolvedValue(undefined);
     const importer = vi
       .fn()
       .mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module'))
-      .mockResolvedValueOnce({ default: { initialize } });
+      .mockResolvedValueOnce({ default: { initialize, registerExternalDiagrams } });
 
     await expect(loadMermaid({ importer, retries: 0 })).rejects.toThrow('Failed to fetch');
     // The second macro on the same page must get a real attempt, not the
     // cached rejection from the first.
-    await expect(loadMermaid({ importer, retries: 0 })).resolves.toEqual({ initialize });
+    await expect(loadMermaid({ importer, retries: 0 })).resolves.toEqual({ initialize, registerExternalDiagrams });
     expect(importer).toHaveBeenCalledTimes(2);
   });
 
   it('retries within a single call before giving up', async () => {
     const initialize = vi.fn();
+    const registerExternalDiagrams = vi.fn().mockResolvedValue(undefined);
     const importer = vi
       .fn()
       .mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module'))
-      .mockResolvedValueOnce({ default: { initialize } });
+      .mockResolvedValueOnce({ default: { initialize, registerExternalDiagrams } });
 
     await expect(
       loadMermaid({ importer, retries: 1, retryDelayMs: 0 }),
-    ).resolves.toEqual({ initialize });
+    ).resolves.toEqual({ initialize, registerExternalDiagrams });
     expect(importer).toHaveBeenCalledTimes(2);
   });
 

@@ -11,7 +11,7 @@ import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
  * - Validates error detection and error clearing for Mermaid diagrams
  */
 
-test.describe('Mermaid Syntax Error Detection', () => {
+test.describe('Mermaid Syntax Error Detection', { tag: ['@editor', '@mermaid'] }, () => {
   // Disable retries for this test suite
   //test.describe.configure({ retries: 0 });
 

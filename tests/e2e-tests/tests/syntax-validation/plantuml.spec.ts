@@ -11,7 +11,7 @@ import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
  * - Validates error detection and error clearing for PlantUML diagrams
  */
 
-test.describe('PlantUML Syntax Error Detection', () => {
+test.describe('PlantUML Syntax Error Detection', { tag: ['@editor', '@plantuml'] }, () => {
   // Disable retries for this test suite
   //test.describe.configure({ retries: 0 });
 

@@ -21,7 +21,7 @@ import { normalizeProductType } from "./productType";
 let _initPromise: Promise<void> | null = null;
 let _identified = false;
 
-type AuthoringReplayProperties = Pick<
+type ExplicitReplayProperties = Pick<
   AnalyticsProperties,
   | "session_replay_source"
   | "session_replay_percent"
@@ -67,9 +67,31 @@ function _shouldRecordAuthoring(): boolean {
   return _authoringReplayDecision;
 }
 
-function _startAuthoringReplay(
+function _startExplicitReplay(
   eventName: AnalyticsEventName
-): Partial<AuthoringReplayProperties> {
+): Partial<ExplicitReplayProperties> {
+  if (eventName === "feedback_report_opened") {
+    try {
+      mixpanel.start_session_recording();
+      const replayProperties: ExplicitReplayProperties = {
+        session_replay_source: "feedback",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      };
+      mixpanel.register({
+        session_replay_percent: replayProperties.session_replay_percent,
+        session_replay_source: replayProperties.session_replay_source,
+      });
+      return replayProperties;
+    } catch (error) {
+      console.error(
+        "[session-replay] feedback start call threw",
+        error instanceof Error ? error.name : "unknown"
+      );
+      return { session_replay_start_call_outcome: "threw" };
+    }
+  }
+
   if (
     eventName !== "macro_create_started" &&
     eventName !== "macro_edit_started"
@@ -90,7 +112,7 @@ function _startAuthoringReplay(
     // baseline Forge-flag cohort resolved by _initMixpanel. The SDK call is
     // idempotent when baseline sampling already started a recording.
     mixpanel.start_session_recording();
-    const replayProperties: AuthoringReplayProperties = {
+    const replayProperties: ExplicitReplayProperties = {
       session_replay_source: "authoring",
       session_replay_percent: 100,
       session_replay_start_call_outcome: "returned",
@@ -162,6 +184,15 @@ function _initMixpanel(): Promise<void> {
         persistence: "localStorage",
         ignore_dnt: true,
         record_sessions_percent: percent,
+        // Replay console + network telemetry. Console is the SDK default (kept
+        // explicit; see docs/superpowers/specs/2026-08-21-authoring-session-replay-design.md
+        // for the accepted trade-off). Network capture needs mixpanel-browser
+        // >= 2.76 (added 2026-03-18; this repo was on 2.73 until 2026-09-11), so
+        // replays recorded before that upgrade have an empty Network tab. The
+        // plugin defaults record URL, method, status and timing only — no
+        // headers, no bodies — so diagram content never enters the recording.
+        record_console: true,
+        record_network: true,
       });
       // Stamp every event with the resolved rate + why, so the throttle and
       // targeting can be confirmed live in Mixpanel.
@@ -367,7 +398,7 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
-    const authoringReplayProperties = _startAuthoringReplay(eventName);
+    const explicitReplayProperties = _startExplicitReplay(eventName);
 
     const contentIds = _getContentIdentifiers();
 
@@ -397,7 +428,7 @@ export async function _awaitableTrackAnalyticsEvent(
       attachment_name: callerProps.attachment_name ?? contentIds.attachment_name,
       ...(await _getSpaceAdminTelemetry(eventName)),
       ...(await _getDemoPageTelemetry(eventName)),
-      ...authoringReplayProperties,
+      ...explicitReplayProperties,
     };
 
     if (options) {

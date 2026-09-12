@@ -42,6 +42,7 @@ import DrawIoExtension from "@/components/DrawIoExtension/DrawIoExtension.vue";
 import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import { setupCloseGuard } from "@/utils/closeGuard";
+import { registerEditorCloseTracking } from "@/utils/analytics/editorCloseOutcome";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -246,6 +247,7 @@ export default {
       drawioModified: false,
       publishing: false,
       closeGuardOff: null,
+      closeOutcomeOff: null,
       diagramXml: this.graphXml || '',
       // A macro published in Board mode before boardGraphXml existed stored
       // its body in graphXml. Seeding Board from '' opened those macros on a
@@ -360,6 +362,7 @@ export default {
     this.isUnmounted = true;
     this.mountTimers.forEach((id) => clearTimeout(id));
     this.closeGuardOff?.();
+    this.closeOutcomeOff?.();
     this.draftSaver?.flush();
     if (this.savedListener) EventBus.$off('saved', this.savedListener);
     if (this.restoreListener) EventBus.$off('draft-restore', this.restoreListener);
@@ -398,6 +401,15 @@ export default {
           graphEditorMode: this.editorMode,
         });
       }
+    });
+
+    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled):
+    // the Atlassian X is the only close control (noExitBtn=1 above), so this is
+    // the only place a graph edit abandonment can be observed.
+    this.closeOutcomeOff = registerEditorCloseTracking({
+      getMacroType: () => 'graph',
+      operationMode: this.$store?.state?.diagram?.id ? 'edit' : 'create',
+      hadChanges: () => !!this.drawioModified,
     });
 
     // Clear draft after successful publish.

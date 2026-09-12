@@ -177,7 +177,7 @@ async function renderedText(page: Page): Promise<string> {
   return texts.join('\n');
 }
 
-test.describe('Live Agent Link — multi-page cross-talk isolation', () => {
+test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@viewer', '@fullscreen', '@ai'] }, () => {
   test('two concurrent sessions on two different pages never leak edits across each other', async ({
     browser,
   }: {

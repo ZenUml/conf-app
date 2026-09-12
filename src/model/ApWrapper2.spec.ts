@@ -109,6 +109,25 @@ describe('ApWrapper2', () => {
       expect(trackEvent).toHaveBeenCalledWith('"123"', 'update_custom_content', 'info');
     });
 
+    it('normalises pasted non-breaking spaces in mermaidCode before persisting', async () => {
+      // U+00A0 arrives via rich-text paste and makes mermaid's Langium
+      // grammars unparseable, so the stored body must not carry it forward.
+      const content = buildContent(5);
+      const diagram = {
+        id: '123',
+        title: 'Pets',
+        diagramType: 'mermaid',
+        mermaidCode: `pie title Pets\n\u00A0\u00A0"Dogs" : 386`,
+      } as any;
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      const serializedBody = JSON.parse(payload.body.value);
+      expect(serializedBody.mermaidCode).toBe('pie title Pets\n  "Dogs" : 386');
+    });
+
     it('strips stale compressed flag when updating a graph body with plain XML', async () => {
       const content = buildContent(5);
       const diagram = {
@@ -1394,15 +1413,15 @@ describe('ApWrapper2', () => {
     it('probes the host page operations and reports what the caller may create', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({
         id: '456', status: 'current',
-        operations: [
+        operations: { results: [
           { operation: 'read', targetType: 'page' },
           { operation: 'create', targetType: 'page' },
-        ],
+        ] },
       });
 
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
-      expect(forgeRequest).toHaveBeenCalledWith('/wiki/rest/api/content/456?expand=operations', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
       expect(diagnosis).toEqual({
         probe_status: 'ok',
         page_reachable: true,
@@ -1869,6 +1888,91 @@ describe('ApWrapper2', () => {
           expect(wrapper.isDisplayMode()).toBe(true);
         },
       );
+    });
+  });
+
+  describe('diagnoseCreateNotFound', () => {
+    // Verbatim v2 shapes from lite-stg, 2026-09-11, read as robot1yanhui:
+    // - page 999999999999 (no such page): the v2 404 envelope
+    // - page 275349583 in an "Add pages"-only space: create/page listed,
+    //   create/attachment and our type absent — the population that gets the
+    //   bare 404 on POST /api/v2/custom-content
+    // - page 275415139, a never-published draft: 404 without get-draft=true,
+    //   200 with it, and the draft lists the same create operations
+    const notFound = {
+      errors: [{ status: 404, code: 'NOT_FOUND', title: 'Cannot find a page with id [456]', detail: null }],
+    };
+    const pageOnlyBody = {
+      id: '456', status: 'current', spaceId: '241762739',
+      operations: { results: [
+        { operation: 'read', targetType: 'page' },
+        { operation: 'update', targetType: 'page' },
+        { operation: 'create', targetType: 'page' },
+        { operation: 'create', targetType: 'whiteboard' },
+      ] },
+    };
+    const draftBody = {
+      id: '456', status: 'draft',
+      operations: { results: [
+        { operation: 'read', targetType: 'page' },
+        { operation: 'update', targetType: 'page' },
+        { operation: 'create', targetType: 'attachment' },
+        { operation: 'create', targetType: 'ac:test-addon:zenuml-content-sequence' },
+      ] },
+    };
+
+    it('probes the v2 page operations and reads the Add-pages-only verdict', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(pageOnlyBody);
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(1);
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
+      expect(diagnosis).toMatchObject({
+        probe_status: 'ok',
+        page_reachable: true,
+        page_status: 'current',
+        can_create_cc_type: false,
+        can_create_attachment: false,
+        can_create_page: true,
+      });
+    });
+
+    it('retries with get-draft=true when the plain probe 404s, and reads the draft operations', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(notFound)
+        .mockResolvedValueOnce(draftBody);
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenNthCalledWith(1, '/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenNthCalledWith(2, '/wiki/api/v2/pages/456?include-operations=true&get-draft=true', 'GET', undefined);
+      expect(diagnosis).toMatchObject({
+        probe_status: 'ok',
+        page_reachable: true,
+        page_status: 'draft',
+        can_create_attachment: true,
+      });
+    });
+
+    it('reports page_unreachable with the HTTP status only when the draft probe 404s too', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(notFound)
+        .mockResolvedValueOnce(notFound);
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(2);
+      expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 404 });
+    });
+
+    it('does not retry on a non-404 error envelope and keeps its status (the v1 route answered 410 Gone)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ statusCode: 410, message: 'Gone' });
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(1);
+      expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 410 });
     });
   });
 });

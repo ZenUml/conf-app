@@ -27,7 +27,7 @@
           <p>Syntax error</p>
         </div>
         <button
-          v-if="shouldShowAiRepair"
+          v-if="shouldShowAiRepair && aiRepairArmed"
           type="button"
           data-testid="ai-repair-button"
           @click="requestRepair"
@@ -65,6 +65,8 @@
 import { computed, ref, onMounted, watch } from "vue";
 import { useStore } from "vuex";
 import AIRepair from "@/components/AIRepair.vue";
+import { useSustainedFlag } from "@/composables/useSustainedFlag";
+import { AI_REPAIR_ARM_DELAY_MS } from "@/components/aiRepairArming";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import {
@@ -108,7 +110,10 @@ const useAiChatRepair = computed(() => (
 const shouldShowAiRepair = computed(() => (
   (aiRepairFeatureEnabled.value || useAiChatRepair.value) && isSupportedDiagramType.value
 ));
-const aiRepairVisible = computed(() => !!error.value && shouldShowAiRepair.value);
+// Offer the CTA only once the error has stood still — see aiRepairArming.ts
+// for why, and useSustainedFlag.ts for how.
+const aiRepairArmed = useSustainedFlag(error, AI_REPAIR_ARM_DELAY_MS);
+const aiRepairVisible = computed(() => aiRepairArmed.value && shouldShowAiRepair.value);
 const useLegacyAiRepair = computed(() => (
   shouldShowAiRepair.value && !useAiChatRepair.value
 ));

@@ -19,7 +19,7 @@ import {
   GRAPH_DIRTY_MARKER,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Graph (DrawIO) — Edit flow', () => {
+test.describe('Graph (DrawIO) — Edit flow', { tag: ['@fullscreen', '@graph'] }, () => {
   // Every test seeds its own page (`seed()` publishes a fresh macro) and reads
   // only that page's state, so there is nothing to share between them. Without
   // this, the root config's `fullyParallel: false` makes the whole file ONE

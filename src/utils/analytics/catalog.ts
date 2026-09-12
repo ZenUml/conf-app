@@ -30,6 +30,7 @@ export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
+  | "markdown"
   | "graph"
   | "openapi"
   | "asyncapi"
@@ -49,6 +50,7 @@ export type Surface =
   | "modal"
   | "page_banner"
   | "dashboard"
+  | "get_started"
   | "route"
   // Byline activation nudge. MUST be passed explicitly on every activation_*/
   // byline_* event: the dialog runs in a contentBylineItem iframe where
@@ -65,6 +67,7 @@ export type Surface =
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
+  | "png_export"
   // The contentBylineItem modal. Confluence boots this iframe only when the
   // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
   // the variants that ship it), so every event carrying this surface is a
@@ -83,6 +86,10 @@ export type EntryPoint =
   | "route"
   | "forge_trigger"
   | "byline"
+  // fullscreen_opened fired by the Export PNG button rather than by a user who
+  // wanted Fullscreen. Without it these opens are indistinguishable from
+  // deliberate ones and inflate Fullscreen engagement by one per export.
+  | "export"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
@@ -186,12 +193,14 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
+// `feedback` records the explicit start requested by the Feedback trigger.
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
   | "plan_usage_page"
   | "fullscreen"
+  | "feedback"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues
@@ -220,7 +229,26 @@ export type CreateNotFoundShape = "bare_not_found" | "container_not_found" | "ot
 /** Outcome of the operations probe behind save_failed_diagnosed. */
 export type SaveFailureProbeStatus = "ok" | "page_unreachable" | "failed";
 
+/** How an optional screenshot was added to an in-product support request. */
+export type FeedbackCaptureMethod = "current_view" | "upload";
+
+/** Why an opened feedback dialog closed without a successful submission. */
+export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
+
+/** Observable outcome when the saved report hands off to public support. */
+export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
+
 export type AnalyticsEventName =
+  // Markdown: debounced document render starts/completes in editor or viewer.
+  // Properties: feature_area=content, macro_type=markdown, source_length,
+  // markdown_mermaid_blocks, markdown_failed_blocks. Never include source.
+  | "markdown_render_requested"
+  | "markdown_render_succeeded"
+  | "markdown_render_failed"
+  // First transition from Mermaid seeds an untouched Markdown buffer.
+  // Existing macro_type_changed tracks every tab selection; normal macro
+  // create/edit/publish lifecycle events track persistence outcomes.
+  | "markdown_seeded_from_mermaid"
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
   // is sent. Editor entries must emit the event from the iframe that owns the
@@ -228,27 +256,50 @@ export type AnalyticsEventName =
   | "macro_create_started"
   | "macro_create_succeeded"
   | "macro_edit_started"
+  // Editor iframe closed without a successful save, for the create and the
+  // edit lifecycle respectively. Emitted from utils/analytics/editorCloseOutcome
+  // on `view.onClose` (the Atlassian modal X — the only close control the
+  // Forge editors have; the in-app exit button no longer exists) and from the
+  // explicit discard dialog where one remains. `close_source` says which.
+  // Before 2026-09-11 macro_edit_cancelled fired only from the discard dialog
+  // of the text editors, which no control reaches, so it recorded 0 events
+  // for 12 weeks while ~17% of customer edit sessions never saved.
+  // Idempotent per iframe; markEditorSaved() suppresses it after a save.
+  | "macro_create_cancelled"
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
   // Fired once per failed CREATE whose Confluence answer was a 404 NOT_FOUND
   // envelope, AFTER a read-only probe of the caller's own operations on the
-  // host page (`GET /rest/api/content/{pageId}?expand=operations`). The bare
+  // host page (`GET /api/v2/pages/{pageId}?include-operations=true`; the v1
+  // `?expand=operations` route answers 410 Gone through Forge's
+  // requestConfluence proxy, which is why every probe before 2026-09-11
+  // reported page_unreachable). The bare
   // `"title":"Not Found"` shape is a permission-masked refusal: on 2026-08-30
   // (lite-stg, four permission sets) a user holding "Add pages" but not "Add
   // attachments" got exactly that shape on POST /api/v2/custom-content while
   // PUT still succeeded, and the `operations` list carried
   // `create/<our custom-content type>` only alongside `create/attachment`.
-  // The legacy `save_failed` event keeps the raw error; this event records
-  // WHY (`error_shape`, `can_create_cc_type`, `can_create_attachment`,
-  // `can_create_page`, `page_reachable`) so the cause is read off the event
-  // instead of inferred. One probe per failure; never fired on success.
+  // A page that exists only as a never-published draft answers the plain GET
+  // with 404 although POST /api/v2/custom-content under it succeeds (lite-stg
+  // 2026-09-11), so a 404 is retried once with `get-draft=true` before the
+  // page is called unreachable; `page_status` then reads `draft`. The legacy `save_failed` event keeps the raw error; this
+  // event records WHY (`error_shape`, `can_create_cc_type`,
+  // `can_create_attachment`, `can_create_page`, `page_reachable`,
+  // `probe_http_status`) so the cause is read off the event instead of
+  // inferred. One probe per failure; never fired on success.
   | "save_failed_diagnosed"
   // Fires when the shared DSL editor's selected type tab changes. `from` and
   // `to` capture the observed UI action; `macro_type` repeats the destination
   // for existing type breakdowns. This is an action signal, not proof of a
   // successful render or publish.
   | "macro_type_changed"
+  // Fires when a PlantUML paste carried its own @startuml/@enduml markers and the
+  // editor rewrote it to fit the pinned scaffold (conf-app#632). `diagrams_pasted`
+  // counts the @startuml blocks found; `paste_truncated` is true when more than one
+  // was present and only the first was kept, because the macro renders a single
+  // diagram and merging them silently produced a picture the author never wrote.
+  | "plantuml_paste_normalized"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
@@ -311,13 +362,31 @@ export type AnalyticsEventName =
   // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
   // export attempt failed before delivery (`failure_reason`); dismissed =
   // modal closed with no successful export in that open session.
+  // Intent, as opposed to the outcome flags on export_png_succeeded: a user
+  // who picks a tool and exports without the annotation is otherwise
+  // indistinguishable from one who never wanted it. Needed to read whether
+  // annotation is unused because nobody wants it or because the dialog was
+  // too small to operate (see ExportModal.vue's inline variant).
+  | "export_annotation_tool_clicked"
+  // Export workspace: created after placement/nonempty text, changed after a
+  // completed move/resize/style/text edit (never pointer-move or each keystroke),
+  // deleted on explicit removal. No annotation text or coordinates are tracked.
+  | "export_annotation_created"
+  | "export_annotation_changed"
+  | "export_annotation_deleted"
+  // Restored when reopening the same diagram during the current page visit.
+  | "export_annotations_restored"
   | "export_png_opened"
   | "export_png_succeeded"
   | "export_png_failed"
   | "export_png_dismissed"
-  | "ai_generation_requested"
-  | "ai_generation_succeeded"
-  | "ai_generation_failed"
+  // Renamed 2026-09-08 from `ai_generation_*`: these three are the AI *title*
+  // generator in useAutoTitle.ts (97% fire automatically on editor init), not a
+  // text->diagram feature. Data before the first release carrying this commit
+  // lives under the old names — see the mixpanel skill's rename table.
+  | "ai_title_generation_requested"
+  | "ai_title_generation_succeeded"
+  | "ai_title_generation_failed"
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
@@ -348,6 +417,17 @@ export type AnalyticsEventName =
   | "ai_chat_version_restored"
   | "ai_chat_change_undone"
   | "ai_chat_version_restore_failed"
+  // AI Repair CTA impression. SEMANTICS CHANGED 2026-09-07: the button is now
+  // armed only after the store error has stood unchanged for
+  // AI_REPAIR_ARM_DELAY_MS (src/components/aiRepairArming.ts), on top of the
+  // editor's own validation debounce. So one event means "the author stopped
+  // typing and sat on a syntax error", i.e. a plausible stuck moment. Before
+  // that date the gate was a bare `!!error`, and because Editor.vue clears the
+  // error on every keystroke, the event fired once per typing pause — a single
+  // editing session could emit six of them in twenty seconds. Do not compare
+  // counts across the release that carries this change without accounting for
+  // it, and re-date this note if the arm delay is ever retuned.
+  | "ai_repair_button_shown"
   // AI Repair performance lifecycle. requested fires immediately before the
   // start request and carries poll_interval_ms + timeout_budget_ms plus the
   // requested ai_model / reasoning_disabled overrides when supplied. succeeded /
@@ -357,7 +437,6 @@ export type AnalyticsEventName =
   // backend_llm_duration_ms sums only its LLM calls across repair attempts.
   // failed additionally carries failure_phase; never attach diagram code,
   // error source text, or a job id to these events.
-  | "ai_repair_button_shown"
   | "ai_repair_requested"
   | "ai_repair_succeeded"
   | "ai_repair_failed"
@@ -428,6 +507,25 @@ export type AnalyticsEventName =
   | "csat_submitted"
   | "csat_dismissed"
   | "feedback_link_clicked"
+  // In-product feedback funnel. feedback_report_opened fires as the surface
+  // trigger opens the dialog, after requesting Session Replay, and carries
+  // session_replay_source=feedback plus the synchronous SDK call outcome.
+  // Events before feedback_report_submit_requested
+  // contain interaction context only: never description, screenshot bytes,
+  // diagram source, or any other draft report content. The report payload is
+  // allowed to leave the iframe only after the user explicitly presses Send.
+  | "feedback_report_opened"
+  | "feedback_report_capture_requested"
+  | "feedback_report_capture_succeeded"
+  | "feedback_report_capture_failed"
+  | "feedback_report_capture_removed"
+  | "feedback_report_submit_requested"
+  | "feedback_report_submit_succeeded"
+  | "feedback_report_submit_failed"
+  | "feedback_report_handoff_requested"
+  | "feedback_report_handoff_opened"
+  | "feedback_report_handoff_blocked"
+  | "feedback_report_dismissed"
   | "graph_editor_init_empty"
   // Graph (DrawIO) Diagram/Board chrome switch. Same mxfile, two DrawIO
   // chromes: `diagram` is the existing Atlas/standard embed; `board` is
@@ -444,6 +542,11 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // Mermaid viewport controls in fullscreen, normal viewer, and editor preview.
+  // Fires for the two discrete toolbar
+  // actions only; wheel/pan/pinch are deliberately not emitted because their
+  // high-frequency callbacks would create noisy, expensive event streams.
+  | "mermaid_viewport_control_used"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).
@@ -663,7 +766,30 @@ export type AnalyticsEventName =
   //                       the notice reaches every reader, and a reader is not
   //                       always an author. The UI falls back to the link.
   //   'conflict'        — the page changed under us twice; we do not force.
-  //   'failed'          — anything else, including an unreadable page body.
+  //   'failed'          — anything else. `failure_reason` says which, because
+  //                       one bucket covering six causes cannot be acted on:
+  //                       a Confluence 5xx, a page shape we cannot parse and a
+  //                       macro key we refused to guess need different fixes.
+  //
+  // `failure_reason` narrows 'forbidden' and 'failed' to the step that produced
+  // them. `http_status` carries the response code where there was one.
+  //   'read_forbidden'        — the page GET was refused. Rarer and stranger
+  //                             than the write case: this user cannot even READ
+  //                             a page they are looking at.
+  //   'write_forbidden'       — the page PUT was refused. The expected refusal:
+  //                             the notice reaches every reader, and a reader is
+  //                             not always an author.
+  //   'unresolved_macro_key'  — appId/envId or the macro key could not be
+  //                             resolved, so no safe extensionKey exists. We
+  //                             refuse rather than render an unknown extension
+  //                             on a customer's page. Any volume here is a
+  //                             platform change and this feature is dead until
+  //                             it is fixed.
+  //   'page_read_failed'      — the GET was not ok, with `http_status`.
+  //   'page_body_missing'     — no ADF body or no usable version number.
+  //   'page_body_unparsable'  — the body did not parse as a doc with content.
+  //   'page_write_failed'     — the PUT was not ok, with `http_status`.
+  //   'threw'                 — an exception, already logged to the console.
   //
   // A material 'forbidden' share means the banner is reaching the wrong
   // audience and the button should be gated rather than offered-then-refused.
@@ -884,7 +1010,7 @@ export type AnalyticsEventName =
   // (keyed by `template_id`) is the per-template pull signal the JTBD's
   // success metric needs ("editor_template_applied share of new creates").
   // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
-  // here (deferred 2026-08-03) — its ai_generation_* events already exist
+  // here (deferred 2026-08-03) — its ai_title_generation_* events already exist
   // above and are reused, not redefined, when that lands.
   | "editor_template_gallery_opened"
   | "editor_template_applied"

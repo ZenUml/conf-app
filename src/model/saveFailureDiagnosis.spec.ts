@@ -105,11 +105,36 @@ describe('parseContentOperations', () => {
     expect(parseContentOperations(body, CC_TYPE).can_update_page).toBe(true);
   });
 
-  it('marks the page unreachable when the probe returns an error envelope', () => {
+  it('marks the page unreachable and keeps the HTTP status when the probe returns an error envelope', () => {
     const body = { statusCode: 404, message: 'com.atlassian.confluence.api.service.exceptions.NotFoundException' };
     expect(parseContentOperations(body, CC_TYPE)).toEqual({
       probe_status: 'page_unreachable',
       page_reachable: false,
+      probe_http_status: 404,
+    });
+  });
+
+  it('reads the v2 shape: operations nested under results, error status under errors[0]', () => {
+    const v2 = { id: '275349583', status: 'current', operations: { results: pageOnly.operations } };
+    expect(parseContentOperations(v2, CC_TYPE)).toMatchObject({
+      probe_status: 'ok',
+      page_status: 'current',
+      can_create_cc_type: false,
+      can_create_page: true,
+    });
+    const v2NotFound = { errors: [{ status: 404, code: 'NOT_FOUND', title: 'Cannot find a page with id [1]', detail: null }] };
+    expect(parseContentOperations(v2NotFound, CC_TYPE)).toEqual({
+      probe_status: 'page_unreachable',
+      page_reachable: false,
+      probe_http_status: 404,
+    });
+  });
+
+  it('keeps an empty operations list inconclusive instead of naming a permission it never saw', () => {
+    expect(parseContentOperations({ id: '1', status: 'current', operations: { results: [] } }, CC_TYPE)).toEqual({
+      probe_status: 'failed',
+      page_reachable: true,
+      page_status: 'current',
     });
   });
 

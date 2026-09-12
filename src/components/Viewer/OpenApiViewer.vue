@@ -14,6 +14,7 @@ import "swagger-ui/dist/swagger-ui.css";
 import SpecListener from '@/utils/spec-listener';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import EventBus from '@/EventBus';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 
 export default {
@@ -100,6 +101,9 @@ export default {
       // time-to-content, not time-to-full-paint. Best approximation available
       // without a render callback.
       trackRenderTime('openapi', this.$store.getters.isDisplayMode);
+      // See ForgeGraphViewer: OpenAPI emits no 'diagramLoaded' either, and an
+      // export-entry Fullscreen open needs a readiness signal to capture from.
+      EventBus.$emit('viewerRenderSettled', 'openapi');
     },
     // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): this file had
     // no error handling at all — a SwaggerUIBundle/updateSpec exception threw

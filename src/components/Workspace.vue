@@ -107,6 +107,11 @@
         return this.$store.state.diagram.metadata?.aiChat?.diagramlyDiagramId || ''
       },
     },
+    watch: {
+      diagramType(type) {
+        if (type === DiagramType.Markdown && this.showAIChat) this.closeAIChat();
+      },
+    },
     methods: {
       toggleAIChat() {
         if (this.showAIChat) {
@@ -227,6 +232,20 @@
   background-image: radial-gradient(circle, #d0cec7 1px, transparent 1px);
   background-size: 20px 20px;
   padding: 24px;
+}
+
+/* The editor preview is a fixed-height flex pane. Keep the chrome-less viewer
+   in that pane so svg-pan-zoom receives a real viewport height instead of the
+   browser's 150px default for an SVG whose viewBox has been removed. */
+#workspace-right > .generic {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#workspace-right > .generic > .screen-capture-content {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .gutter {

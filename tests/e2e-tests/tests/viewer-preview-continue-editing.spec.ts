@@ -24,10 +24,11 @@
  */
 
 import { test, expect } from '@playwright/test'
+import { localDevUrl } from '../helpers/localDevUrl'
 
-const BASE = 'http://127.0.0.1:8080/editor-preview.html'
+const BASE = localDevUrl('editor-preview.html')
 
-test.describe('Editor-modal paywall gate — retired block', () => {
+test.describe('Editor-modal paywall gate — retired block', { tag: ['@editor', '@paywall'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } })
 
   test('Over-limit space still mounts the editor directly; no paywall gate appears', async ({ page }) => {

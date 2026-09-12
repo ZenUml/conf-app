@@ -41,7 +41,7 @@ function runCommand(cmd: string): { exitCode: number; output: string } {
   }
 }
 
-test.describe('Regression baseline', () => {
+test.describe('Regression baseline', { tag: ['@fullscreen', '@viewer', '@sequence'] }, () => {
   test.skip(
     process.env.RUN_REGRESSION !== 'true',
     'Skipped unless RUN_REGRESSION=true (regression cases shell out to other suites — slow)',
@@ -58,18 +58,6 @@ test.describe('Regression baseline', () => {
     expect(result.exitCode).toBe(0);
     // Manual run baseline: 301 tests, 54 files. Match the "passed" line.
     expect(result.output).toMatch(/Test Files\s+\d+\s+passed|Tests\s+\d+\s+passed/i);
-  });
-
-  // regression:1 — pnpm test:e2e -- tests/insert/close-guard.spec.ts
-  // Requires APP env var (e.g. APP=zenuml-lite@stg). Skip if missing.
-  test('regression:1 — close-guard.spec.ts passes', async () => {
-    test.skip(!process.env.APP, 'Requires APP env var (e.g. APP=zenuml-lite@stg)');
-    test.setTimeout(15 * 60_000);
-    const result = runCommand('pnpm test:e2e -- tests/insert/close-guard.spec.ts');
-    if (result.exitCode !== 0) {
-      console.error(result.output.slice(-4_000));
-    }
-    expect(result.exitCode).toBe(0);
   });
 
   // regression:2 — pnpm test:lite:stg insert specs

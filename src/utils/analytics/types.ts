@@ -34,9 +34,16 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  FeedbackCaptureMethod,
+  FeedbackDismissReason,
+  FeedbackHandoffOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  /** Markdown render outcomes; counts only, never document contents. */
+  markdown_mermaid_blocks?: number;
+  markdown_failed_blocks?: number;
+  source_length?: number;
   // Required at call site
   feature_area: FeatureArea;
   surface: Surface;
@@ -53,11 +60,24 @@ export type AnalyticsProperties = {
   // customContentId, or the custom-content GET failed), recorded explicitly
   // rather than omitted.
   macro_type?: MacroTypeValue;
+  // Mermaid pan/zoom toolbar. This is the user's explicit control
+  // intent, not every intermediate wheel, drag, or pinch callback.
+  viewport_action?: "zoom_in" | "zoom_out";
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;
   // Lifecycle
   operation_mode?: OperationMode;
+  // macro_create_cancelled / macro_edit_cancelled: which close control ended
+  // the editor session. `host_close` is the Atlassian modal X (view.onClose);
+  // `discard_dialog` is the in-app "close without saving" confirmation;
+  // `exit_button` is an editor's own cancel control (AsyncAPI Studio).
+  close_source?: "host_close" | "discard_dialog" | "exit_button";
+  // Whether the editor content differed from what was loaded when it closed.
+  // Omitted when the editor cannot tell (AsyncAPI Studio, embed picker).
+  had_changes?: boolean;
+  // Wall time from editor mount to the close-without-save, in ms.
+  editor_open_duration_ms?: number;
   // Shared DSL editor type-tab changes (#562). `from_macro_type` and
   // `to_macro_type` describe the observed UI transition; `macro_type` on the
   // same event is the destination for compatibility with existing breakdowns.
@@ -68,9 +88,10 @@ export type AnalyticsProperties = {
   to_macro_type?: MacroTypeValue;
   type_requested?: boolean;
   // Session Replay policy. `macro_create_started` / `macro_edit_started` set
-  // source=authoring and percent=100 after the SDK start call returns. The call
-  // outcome is intentionally distinct from actual capture: only a later
-  // `$mp_replay_id` proves that the recorder became active.
+  // source=authoring; the Feedback trigger sets source=feedback. Both record
+  // the synchronous SDK start-call outcome. That outcome is intentionally
+  // distinct from actual capture: only a later `$mp_replay_id` proves that the
+  // recorder became active.
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
@@ -194,6 +215,10 @@ export type AnalyticsProperties = {
     | "adf_rewrite"
     | "page_update"
     | "report";
+  // PlantUML paste normalisation (conf-app#632)
+  diagrams_pasted?: number;
+  paste_truncated?: boolean;
+
   // AI
   prompt_length?: number;
   generation_source?: string;
@@ -217,6 +242,14 @@ export type AnalyticsProperties = {
   // Feedback
   feedback_score?: number;
   feedback_text?: string;
+  // In-product support request funnel. These properties describe interaction
+  // state only. Never add description text, screenshot bytes, diagram source,
+  // or other report content to analytics.
+  host_module?: string;
+  feedback_capture_method?: FeedbackCaptureMethod;
+  feedback_has_screenshot?: boolean;
+  feedback_dismiss_reason?: FeedbackDismissReason;
+  feedback_handoff_outcome?: FeedbackHandoffOutcome;
   // Content
   content_id?: string;
   content_type?: string;
@@ -410,6 +443,15 @@ export type AnalyticsProperties = {
   // Confluence page load, so it is a page-weight number as much as ours — read
   // against REVEAL_TTL_MS, which is what a slower page would have exceeded.
   reveal_age_ms?: number;
+  // diagram_added_to_page: which step produced a 'forbidden' or 'failed'
+  // result. `result` alone is a bucket — 'failed' covers a Confluence 5xx, an
+  // unparsable page body and a macro key we refused to guess, which need
+  // different fixes and would otherwise be indistinguishable in the readout.
+  failure_reason?: string;
+  // The response code behind a failure_reason that came from an HTTP call
+  // ('page_read_failed', 'page_write_failed'). Absent for the others, which
+  // never made a request that returned one.
+  http_status?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser
@@ -540,6 +582,14 @@ export type AnalyticsProperties = {
   has_arrow?: boolean;
   has_callout?: boolean;
   has_watermark?: boolean;
+  has_rectangle?: boolean;
+  annotation_count?: number;
+  annotation_type?: 'note' | 'arrow' | 'callout' | 'rectangle' | 'watermark';
+  annotation_change?: 'move' | 'resize' | 'text' | 'style';
+  // export_annotation_tool_clicked (ExportPreview.vue). Which annotation tool
+  // the user reached for. Fired on activation only, not on turning a tool back
+  // off: the intent is already recorded by then.
+  tool?: 'arrow' | 'callout' | 'note' | 'rectangle' | 'watermark';
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.
@@ -723,11 +773,18 @@ export type AnalyticsProperties = {
   // `operations` list on the host page, so `can_create_cc_type=false` is
   // Confluence's statement, not our inference. `page_reachable=false` means the
   // probe itself 404'd (unpublished draft owned by someone else, or a page the
-  // caller cannot view) and every `can_*` field is then absent.
+  // caller cannot view) and every `can_*` field is then absent;
+  // `probe_http_status` then carries the HTTP status so a scope/permission
+  // refusal (403), a retired route (410) and a missing page (404) are
+  // distinguishable. Every one of the 96 probes fired in production before
+  // 2026-09-11 reported page_unreachable and nothing else; the staging
+  // spot check on 2026-09-11 read 410 off the v1 route, which is why the
+  // probe moved to v2.
   error_shape?: CreateNotFoundShape;
   probe_status?: SaveFailureProbeStatus;
   page_reachable?: boolean;
   page_status?: string;
+  probe_http_status?: number;
   can_create_cc_type?: boolean;
   can_create_attachment?: boolean;
   can_create_page?: boolean;

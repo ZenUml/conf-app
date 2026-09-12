@@ -24,10 +24,53 @@ _Avoid_: engine, kind.
 **Variant**:
 A build flavour of the add-on: **lite** (free, paywalled), **full** (paid), **diagramly** (Diagramly-branded). All three are pure Forge.
 
+**Surface**:
+Where a piece of UI is mounted inside Confluence — the closed union in `src/utils/analytics/catalog.ts` (`Surface`). UI-bearing values: `viewer`, `editor`, `modal`, `page_banner`, `dashboard`, `route`, `byline`, `byline_modal`, `fullscreen`. Non-UI values (`forge_trigger`, `scheduled_job`, `support_automation`) exist only to label backend events. Surface is the organising axis for the Storybook sidebar, so one word names the same thing in Mixpanel, in `CONTEXT.md`, and in the component tree. The sidebar groups are *derived* from the union rather than equal to it: `editor` is subdivided into the two independent editor shells (`Workspace.vue`, `DrawIoExtension.vue`), and the `route` catch-all is split into the real pages behind it. Enforced by `src/components/storyTitles.spec.ts`.
+_Avoid_: "screen", "page", "context" — and do not organise UI by component type (atom/molecule/layout), which cuts across this axis.
+
+**Cross-surface component**:
+A component whose surface is decided by its caller, not by where it lives — `UpgradePrompt` (its surface comes from `surfaceForActionType()`: `editor`, `viewer`, or `byline`), `PublishButton`, `TabSwitcher`, `DocumentList`. These have no single home in a surface-organised tree and are grouped under `Shared`.
+
+**Export annotation（导出标注）**:
+A text label, arrow, callout, or rectangle added to an image in the export workspace.
+
+**Export watermark（导出水印）**:
+A single text watermark applied to an image in the export workspace.
+
+### Release pipeline
+
+**Main build**:
+The `Build, Test and Draft Release` run that a merge to `main` triggers: deploys every variant to staging, runs the staging E2E suites, and cuts one draft release per variant. Its end is the earliest a release can be published.
+_Avoid_: "CI" (ambiguous with the PR run and the release run).
+
+**Draft**:
+The per-variant GitHub draft release the main build cuts, pinned to the commit it tested. Publishing a draft is the release; nothing else deploys to production.
+
+**Release run**:
+The `Release` workflow a published draft triggers: production Cloudflare publish, Forge production deploy, then the release smoke. Its *deploy job* going green is the deploy gate — the moment the new version is live and PVT may start.
+
+**Smoke tier**:
+The E2E tests tagged `@smoke`: one insert-and-render per macro type, one edit, one embed paste. The smallest set a release must not ship without.
+
+**Release smoke**:
+The production E2E the release run executes after the deploy job — the smoke tier only (ADR-0006). Nothing waits on it except the release report.
+_Avoid_: "prod smoke" without saying which — the nightly is also a prod smoke.
+
+**Nightly smoke**:
+The scheduled `Smoke Test in Production` run: the whole insert suite, on every variant's production site, once a day. Where the coverage the release smoke leaves out is still exercised on production.
+
+**Auth bootstrap**:
+The single Atlassian login per site that produces the Playwright storage state every E2E shard reuses. Runs at the start of the main build, before any deploy has finished.
+
 ## Relationships
 
 - A **macro** (Diagram, Graph, OpenAPI, or Embed) appears in the Confluence macro browser and renders one or more **DiagramType**s.
 - The **Diagram macro** renders three DiagramTypes (Sequence/ZenUML, Mermaid, PlantUml); the others map 1:1.
+- An exported image may contain multiple **Export annotations**, including multiple annotations of the same type; each can be selected, moved, and deleted independently.
+- An exported image has at most one **Export watermark**.
+- The export workspace downloads PNG or copies a PNG image to the clipboard; PNG is a fixed format label, not a format selector.
+- **Export annotations** and the **Export watermark** affect only the exported image, never the source diagram.
+- Export annotations and watermark settings belong to the current diagram's page visit: closing and reopening export preserves them, including reopening its fullscreen window; refreshing or leaving the page discards them. They are not saved annotation drafts.
 
 ## Error taxonomy
 
@@ -41,8 +84,9 @@ Errors are grouped by the phase of the macro lifecycle where they occur. All emi
 | **Orphan errors** | `customcontent_orphan_observed`, `load_custom_content_v2_missing` | Load: CC ID no longer resolves | Track orphan total, `recovery_used=false`, and `v2_missing` separately; `v2_missing` spike without matching orphan spike = gap in orphan detection |
 | **Export errors** | `attachment_upload_failed` | Export/PNG write | Any spike means export broken |
 
-_Avoid_: calling all `*_failed` events "errors" without grouping — they have different severities and owners. AI generation failures (`ai_generation_failed`) and feature-flag fetch failures (`feature_flags_fetch_failed`) are soft degradations, not core errors.
+_Avoid_: calling all `*_failed` events "errors" without grouping — they have different severities and owners. AI generation failures (`ai_title_generation_failed`) and feature-flag fetch failures (`feature_flags_fetch_failed`) are soft degradations, not core errors.
 
 ## Flagged ambiguities
 
 - `Sequence` (DiagramType enum value) and "ZenUML" (user-facing brand) refer to the same rendering engine — resolved: prefer "ZenUML" in user-facing text; keep `Sequence` only in code that references the enum.
+- **Is the paywall gate dead code?** The [[Paywall banner]] is described as the only in-app paywall surface, with editing never blocked, but `utils/paywall/mountPaywallGate.ts:258` still evaluates `editBlocked` / `createBlocked` and fires `PAYWALL_BLOCKED_EDIT` / `_CREATE`, mounting `PaywallGate.vue` → `UpgradePrompt.vue` from 8 entry points. Unresolved — settle it by reading `paywall_blocked_*` volume in Mixpanel, not from code. If the volume is zero, the description is right and the gate should be deleted; if not, that description is stale.

@@ -76,8 +76,8 @@ async function mountHeader(store: ReturnType<typeof makeStore>) {
   return wrapper;
 }
 
-/** The draft key used by draftStore for a new:sequence scope with cloudId test-cloud. */
-const DRAFT_KEY = 'zenuml.draft.test-cloud.new:sequence';
+/** The draft key used by draftStore for a new:diagram scope with cloudId test-cloud. */
+const DRAFT_KEY = 'zenuml.draft.test-cloud.new:diagram';
 
 beforeEach(() => {
   localStorage.clear();
@@ -166,7 +166,7 @@ describe('Test 3 — re-mount surfaces banner via draft-available event', () => 
     EventBus.$off('draft-available');
 
     expect(emitted).toHaveLength(1);
-    expect(emitted[0].scope).toBe('new:sequence');
+    expect(emitted[0].scope).toBe('new:diagram');
     expect(emitted[0].draft.code).toBe('A->B: restored code');
   });
 
@@ -228,7 +228,7 @@ describe('Test 4 — draft-restore dispatches updateCode2 + updateTitle and clea
 
     // Simulate user clicking "Restore" — EventBus carries scope+draft.
     EventBus.$emit('draft-restore', {
-      scope: 'new:sequence',
+      scope: 'new:diagram',
       draft: { code: 'A->B: draft code', title: 'Draft Title', savedAt },
     });
 

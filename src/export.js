@@ -34,6 +34,7 @@ import { decideExportSample } from './lib/exportSampling.js';
 const DIAGRAM_TYPE_TO_MACRO_TYPE = {
   sequence: 'sequence',
   mermaid: 'mermaid',
+  markdown: 'markdown',
   plantuml: 'plantuml',
   graph: 'graph',
   OpenAPI: 'openapi',

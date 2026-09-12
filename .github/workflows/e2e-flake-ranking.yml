@@ -1,0 +1,99 @@
+name: E2E flake ranking
+
+# Weekly ranking of the E2E specs that passed only on retry or failed
+# (ADR-0007 §6). Every shard uploads its Playwright blob report whether or
+# not the run was green, so the week's flakes are all on disk already; this
+# job merges them and counts, per test, how often it was `flaky` (passed on a
+# retry) or `failed`/`timedOut`. The ranking goes to the job summary; the
+# point is to give the next fix a target, not to gate anything.
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # Mondays 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'How many days back to look'
+        default: '7'
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  rank:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: pnpm
+      - name: Install E2E test dependencies (for playwright merge-reports)
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+      - name: Download every blob report of the period
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DAYS: ${{ inputs.days || '7' }}
+        run: |
+          set -euo pipefail
+          SINCE=$(date -u -d "$DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)
+          echo "runs of build-test-deploy.yml, release.yml and smoke-test.yml since $SINCE"
+          mkdir -p blobs
+          for WF in build-test-deploy.yml release.yml smoke-test.yml; do
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/$WF/runs?created=>=$SINCE&per_page=100" \
+              --jq '.workflow_runs[] | select(.status == "completed") | .id'
+          done | sort -u > run-ids.txt
+          echo "$(wc -l < run-ids.txt) runs"
+          while read -r RUN; do
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/artifacts?per_page=100" \
+              --jq '.artifacts[] | select(.name | startswith("blob-report-")) | select(.expired | not) | "\(.id) \(.name)"' \
+            | while read -r ID NAME; do
+                gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ID/zip" > "blobs/$RUN-$NAME.zip" || echo "::warning::could not download artifact $ID ($NAME) of run $RUN"
+              done
+          done < run-ids.txt
+          echo "$(ls blobs | wc -l) blob reports"
+          # Each artifact zip holds one report-*.zip; merge-reports wants them side by side.
+          mkdir -p merged-input
+          for Z in blobs/*.zip; do unzip -q -o "$Z" -d merged-input/ || true; done
+          ls merged-input | head
+      - name: Merge and rank
+        run: |
+          set -euo pipefail
+          cd tests/e2e-tests
+          if [ -z "$(ls -A ../../merged-input 2>/dev/null)" ]; then
+            echo "no blob reports in the period" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          pnpm exec playwright merge-reports --reporter=json ../../merged-input > ../../merged.json
+          # Walk suites recursively; each spec's tests carry per-project results
+          # with a status of expected | flaky | unexpected | skipped.
+          jq -r '
+            def walk_suites: .suites[]? | ( ( .specs[]? | {file: .file, title: .title, tests: .tests} ), walk_suites );
+            [ walk_suites | . as $s | .tests[] | {file: $s.file, title: $s.title, status: .status} ]
+            | group_by(.file + " › " + .title)
+            | map({ name: (.[0].file + " › " + .[0].title),
+                    runs: length,
+                    flaky: (map(select(.status == "flaky")) | length),
+                    failed: (map(select(.status == "unexpected")) | length) })
+            | map(select(.flaky + .failed > 0))
+            | sort_by(-(.flaky + .failed))
+            | (["| test | runs | passed on retry | failed |","|---|---|---|---|"] + map("| \(.name) | \(.runs) | \(.flaky) | \(.failed) |"))
+            | .[]' ../../merged.json > ../../ranking.md || true
+          {
+            echo "## E2E flake ranking (last ${DAYS:-7} days)"
+            echo
+            if [ "$(wc -l < ../../ranking.md)" -le 2 ]; then echo "No test passed on retry or failed in the period."; else cat ../../ranking.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat ../../ranking.md
+        env:
+          DAYS: ${{ inputs.days || '7' }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: e2e-flake-ranking
+          path: |
+            ranking.md
+            merged.json
+          if-no-files-found: ignore

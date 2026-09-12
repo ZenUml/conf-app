@@ -96,14 +96,31 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 ---
 
-### `macro_edit_cancelled`
+### `macro_create_cancelled` / `macro_edit_cancelled`
 
-**Trigger:** An existing Sequence / Mermaid / PlantUML editor has unsaved changes and the user
-confirms **Discard** in the close-without-saving dialog. Merely opening that dialog and choosing to
-keep editing does not fire it.
+**Trigger:** The editor iframe closed without a successful save. Fired from
+`src/utils/analytics/editorCloseOutcome.ts`, which every editor entry (sequence / mermaid /
+plantuml / markdown, graph, openapi, asyncapi, embed) registers on mount. The trigger is
+`view.onClose` — the Atlassian modal X, which is the only close control the Forge editors expose —
+plus the explicit discard dialog where one still exists. `markEditorSaved()` is called by the
+persistence layer at the moment a save is known to have succeeded, so a close that follows a save
+never fires it. At most one event per iframe.
 
-Carries `journey_id`, `session_id`, `had_global_replace`, `global_replace_count`,
-`post_replace_local_edit_count`, and final delta buckets from the active text-editor session.
+| Property | Notes |
+|---|---|
+| `macro_type` | Diagram type in the editor at close time |
+| `operation_mode` | `"create"` / `"edit"` — picks the event name |
+| `close_source` | `host_close` (modal X), `discard_dialog`, `exit_button` |
+| `had_changes` | Content differed from what was loaded; omitted when unknown |
+| `editor_open_duration_ms` | Mount → close |
+| mutation summary | On text-editor edits, the same `had_global_replace` / delta buckets as `macro_save_succeeded` |
+
+**History:** Until 2026-09-11 `macro_edit_cancelled` fired only when a user confirmed **Discard** in
+the text editors' close-without-saving dialog. That dialog is reached only from an exit button the
+header no longer renders, so the event recorded 0 occurrences in the 12 weeks to 2026-09-11 while
+the customer edit funnel (`macro_edit_started` → `macro_save_succeeded`, 1-hour window) lost ~17%
+of sessions. `macro_create_cancelled` did not exist before this date. Sent with the `sendBeacon`
+transport because the host destroys the iframe right after `view.onClose`.
 
 ---
 

@@ -263,21 +263,38 @@ export type AnalyticsEventName =
   | "macro_create_started"
   | "macro_create_succeeded"
   | "macro_edit_started"
+  // Editor iframe closed without a successful save, for the create and the
+  // edit lifecycle respectively. Emitted from utils/analytics/editorCloseOutcome
+  // on `view.onClose` (the Atlassian modal X — the only close control the
+  // Forge editors have; the in-app exit button no longer exists) and from the
+  // explicit discard dialog where one remains. `close_source` says which.
+  // Before 2026-09-11 macro_edit_cancelled fired only from the discard dialog
+  // of the text editors, which no control reaches, so it recorded 0 events
+  // for 12 weeks while ~17% of customer edit sessions never saved.
+  // Idempotent per iframe; markEditorSaved() suppresses it after a save.
+  | "macro_create_cancelled"
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
   // Fired once per failed CREATE whose Confluence answer was a 404 NOT_FOUND
   // envelope, AFTER a read-only probe of the caller's own operations on the
-  // host page (`GET /rest/api/content/{pageId}?expand=operations`). The bare
+  // host page (`GET /api/v2/pages/{pageId}?include-operations=true`; the v1
+  // `?expand=operations` route answers 410 Gone through Forge's
+  // requestConfluence proxy, which is why every probe before 2026-09-11
+  // reported page_unreachable). The bare
   // `"title":"Not Found"` shape is a permission-masked refusal: on 2026-08-30
   // (lite-stg, four permission sets) a user holding "Add pages" but not "Add
   // attachments" got exactly that shape on POST /api/v2/custom-content while
   // PUT still succeeded, and the `operations` list carried
   // `create/<our custom-content type>` only alongside `create/attachment`.
-  // The legacy `save_failed` event keeps the raw error; this event records
-  // WHY (`error_shape`, `can_create_cc_type`, `can_create_attachment`,
-  // `can_create_page`, `page_reachable`) so the cause is read off the event
-  // instead of inferred. One probe per failure; never fired on success.
+  // A page that exists only as a never-published draft answers the plain GET
+  // with 404 although POST /api/v2/custom-content under it succeeds (lite-stg
+  // 2026-09-11), so a 404 is retried once with `get-draft=true` before the
+  // page is called unreachable; `page_status` then reads `draft`. The legacy `save_failed` event keeps the raw error; this
+  // event records WHY (`error_shape`, `can_create_cc_type`,
+  // `can_create_attachment`, `can_create_page`, `page_reachable`,
+  // `probe_http_status`) so the cause is read off the event instead of
+  // inferred. One probe per failure; never fired on success.
   | "save_failed_diagnosed"
   // Terminal event for ONE authoring session, emitted exactly once per
   // startEditJourney. This is the event the create funnel was missing: before

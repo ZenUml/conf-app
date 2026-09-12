@@ -18,6 +18,7 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { markEditorAuthoringStarted, markEditorSaved, registerEditorCloseTracking } from '@/utils/analytics/editorCloseOutcome';
 import { toast } from '@/utils/toast';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
@@ -50,6 +51,9 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
     custom_content_id: selectedCustomContentId,
     attachment_name: `zenuml-${selectedCustomContentId}.png`,
   };
+
+  // Embed bypasses Persistence.ts, so mark the save here (see editorCloseOutcome).
+  markEditorSaved();
 
   if (isNew) {
     trackAnalyticsEvent("macro_create_succeeded", {
@@ -234,11 +238,18 @@ async function initializeMacro() {
   // Was MacroUtil.isCreateNew(), which reads only extension.config — see the
   // matching note in forge-graph-editor.ts.
   const isNew = !resolvedCustomContentId;
+  markEditorAuthoringStarted();
   trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'embed',
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+  });
+  // The picker cannot tell whether the selection changed, so had_changes is
+  // left off; the close-without-save itself is what the funnel needs.
+  registerEditorCloseTracking({
+    getMacroType: () => 'embed',
+    operationMode: isNew ? 'create' : 'edit',
   });
 }
 

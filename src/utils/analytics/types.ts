@@ -69,6 +69,16 @@ export type AnalyticsProperties = {
   macro_uuid?: string;
   // Lifecycle
   operation_mode?: OperationMode;
+  // macro_create_cancelled / macro_edit_cancelled: which close control ended
+  // the editor session. `host_close` is the Atlassian modal X (view.onClose);
+  // `discard_dialog` is the in-app "close without saving" confirmation;
+  // `exit_button` is an editor's own cancel control (AsyncAPI Studio).
+  close_source?: "host_close" | "discard_dialog" | "exit_button";
+  // Whether the editor content differed from what was loaded when it closed.
+  // Omitted when the editor cannot tell (AsyncAPI Studio, embed picker).
+  had_changes?: boolean;
+  // Wall time from editor mount to the close-without-save, in ms.
+  editor_open_duration_ms?: number;
   // Shared DSL editor type-tab changes (#562). `from_macro_type` and
   // `to_macro_type` describe the observed UI transition; `macro_type` on the
   // same event is the destination for compatibility with existing breakdowns.
@@ -784,11 +794,18 @@ export type AnalyticsProperties = {
   // `operations` list on the host page, so `can_create_cc_type=false` is
   // Confluence's statement, not our inference. `page_reachable=false` means the
   // probe itself 404'd (unpublished draft owned by someone else, or a page the
-  // caller cannot view) and every `can_*` field is then absent.
+  // caller cannot view) and every `can_*` field is then absent;
+  // `probe_http_status` then carries the HTTP status so a scope/permission
+  // refusal (403), a retired route (410) and a missing page (404) are
+  // distinguishable. Every one of the 96 probes fired in production before
+  // 2026-09-11 reported page_unreachable and nothing else; the staging
+  // spot check on 2026-09-11 read 410 off the v1 route, which is why the
+  // probe moved to v2.
   error_shape?: CreateNotFoundShape;
   probe_status?: SaveFailureProbeStatus;
   page_reachable?: boolean;
   page_status?: string;
+  probe_http_status?: number;
   can_create_cc_type?: boolean;
   can_create_attachment?: boolean;
   can_create_page?: boolean;

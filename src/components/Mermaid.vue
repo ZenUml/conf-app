@@ -39,6 +39,7 @@
 import { loadMermaid } from '@/utils/mermaid/loadMermaid'
 import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
+import { hasSvgLayout } from '@/utils/mermaid/viewportLayout'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
@@ -123,18 +124,25 @@ export default {
       if (!svgElement || svgElement === this.panZoomSvg) return;
 
       this.destroyViewport();
+      // svg-pan-zoom inverts the SVG's screen matrix during setup. Mermaid can
+      // finish rendering before its Forge iframe has layout, leaving that
+      // matrix singular (a 0 x 0 SVG) and causing an InvalidStateError. Wait
+      // for layout rather than turning a transient host state into a render
+      // crash.
+      const svgRect = svgElement.getBoundingClientRect();
+      if (!hasSvgLayout(svgRect)) {
+        this.observeViewportLayout(svgElement);
+        return;
+      }
       if (this.isDisplayMode && !this.isFullscreenMode) {
-        const rect = svgElement.getBoundingClientRect();
         const viewBox = svgElement.viewBox?.baseVal;
         this.inlineViewportAspectRatio = viewBox?.width > 0 && viewBox?.height > 0
           ? viewBox.width / viewBox.height
-          : rect.width > 0 && rect.height > 0
-            ? rect.width / rect.height
-            : null;
+          : svgRect.width / svgRect.height;
         const computedMaxWidth = Number.parseFloat(getComputedStyle(svgElement).maxWidth);
         this.inlineViewportMaxWidth = Number.isFinite(computedMaxWidth)
           ? computedMaxWidth
-          : rect.width || null;
+          : svgRect.width || null;
         this.syncInlineViewportHeight();
         this.$refs.diagram.style.height = '100%';
         svgElement.style.height = '100%';
@@ -199,6 +207,17 @@ export default {
         });
         this.panZoomResizeObserver.observe(this.$refs.viewport);
       }
+    },
+    observeViewportLayout(svgElement) {
+      if (typeof ResizeObserver === 'undefined' || !this.$refs.viewport) return;
+      this.panZoomResizeObserver = new ResizeObserver(() => {
+        const rect = svgElement.getBoundingClientRect();
+        if (!hasSvgLayout(rect)) return;
+        this.panZoomResizeObserver?.disconnect();
+        this.panZoomResizeObserver = null;
+        void this.initializeViewport();
+      });
+      this.panZoomResizeObserver.observe(this.$refs.viewport);
     },
     destroyViewport() {
       this.panZoomResizeObserver?.disconnect();

@@ -22,6 +22,7 @@ import { trackEvent } from '@/utils/window';
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
+import { markEditorAuthoringStarted, registerEditorCloseTracking, trackEditorClosedWithoutSave } from "@/utils/analytics/editorCloseOutcome";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus';
 import store from "@/model/store2";
@@ -284,6 +285,7 @@ async function exit() {
       // User confirmed exit - track exit event
       const exitEventAction = isNewOpenApi ? 'create_macro_exit' : 'edit_macro_exit';
       trackEvent('', exitEventAction, DiagramType.OpenApi, eventProps);
+      await trackEditorClosedWithoutSave('discard_dialog');
       
       // End journey on exit
       if (getEditJourneyId()) {
@@ -488,6 +490,7 @@ async function initializeMacro() {
     // openapi "creates" ended in macro_save_succeeded, versus 1 for the DSL
     // editor, which has always used the fuller resolver below.
     const isNew = !customContentId;
+    markEditorAuthoringStarted();
     if (isNew) {
       trackAnalyticsEvent('macro_create_started', {
         feature_area: 'macro',
@@ -503,6 +506,13 @@ async function initializeMacro() {
         entry_point: 'macro_toolbar',
       });
     }
+    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled)
+    // on the Atlassian modal X; exit() below covers the in-editor discard.
+    registerEditorCloseTracking({
+      getMacroType: () => 'openapi',
+      operationMode: isNew ? 'create' : 'edit',
+      hadChanges: () => window.diagram?.code !== window.specContent,
+    });
 
     // Trigger initial validation after a short delay to ensure everything is set up
     setTimeout(() => {

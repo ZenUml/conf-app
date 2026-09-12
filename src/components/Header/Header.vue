@@ -1,5 +1,5 @@
 <template>
-  <header class="toolbar header bg-[#F1F3F4] px-6 flex items-center gap-3 relative z-10 h-10">
+  <header class="toolbar header bg-[#F1F3F4] px-6 grid items-center gap-3 relative z-10 h-10">
     <div class="flex items-center gap-3 flex-1 min-w-0">
       <DiagramTitleInput />
     </div>
@@ -62,6 +62,7 @@ import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
+import { registerEditorCloseTracking } from "@/utils/analytics/editorCloseOutcome";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, saveDraft, isDraftNewerThanSaved } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getEditorDiagramOptions, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
@@ -440,6 +441,18 @@ export default {
       },
     );
 
+    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled).
+    // The modal X is the only close control, so this listener is the only
+    // place the abandonment can be observed. Mode is fixed at mount; the type
+    // is read at close because the type tabs can change it.
+    this._closeOutcomeOff = registerEditorCloseTracking({
+      getMacroType: () => this.diagramType,
+      operationMode: this.$store.state.diagram.id ? 'edit' : 'create',
+      hadChanges: () => JSON.stringify(this.currentDraft()) !== this._originalDraft,
+    });
+    // Registered BEFORE the draft guard: the close-flow integration spec
+    // invokes the last view.onClose handler and expects the draft saver.
+
     // Wire the platform close hook. ashraf.teleb85 reported the iframe is
     // sometimes destroyed before view.onClose finishes, so we keep the body
     // synchronous: flush the pending debounced write directly to localStorage.
@@ -489,6 +502,7 @@ export default {
   },
   beforeUnmount() {
     this._closeGuardOff?.();
+    this._closeOutcomeOff?.();
     this._draftSaver?.flush();
     this._unwatchDraft?.();
     clearTimeout(this._savingTimeout);
@@ -503,6 +517,11 @@ export default {
 /* Diagram-type tabs raised into a notch straddling the header's top edge,
    concave shoulders cut into the divider — see Claude Design
    preview/toolbar-header-notch.html. */
+.toolbar {
+  /* Equal side tracks keep the tabs centered as titles and actions change. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
 .notch {
   position: relative;
   flex-shrink: 0;
@@ -522,7 +541,7 @@ export default {
   box-sizing: border-box;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

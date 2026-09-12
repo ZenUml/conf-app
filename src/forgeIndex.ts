@@ -1467,7 +1467,8 @@ EventBus.$on('save', async () => {
     // publish-latency clock here so it captures the full user-perceived wait.
     trackPublishCompleted({
       macro_type: store.state.diagram.diagramType as MacroTypeValue,
-      operation_mode: inserting ? 'create' : 'edit',
+      // Byline creates run outside native insertion; keep the pre-save mode.
+      operation_mode: sourceId ? 'edit' : 'create',
       content_id: String(id),
       custom_content_id: String(id),
     });

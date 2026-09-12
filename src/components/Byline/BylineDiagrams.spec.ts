@@ -340,9 +340,7 @@ describe('BylineDiagrams', () => {
       expect(wrapper.find('[data-testid="byline-create-unresolved"]').exists()).toBe(true);
     });
 
-    // #572: the create funnel must SUM. 278 clicks produced 180 cancelled + 35
-    // created, leaving 63 (22.7%) with no terminal event at all, because two of
-    // the four unresolved paths emitted nothing.
+    // The modal's resolution reports one known or unresolved result.
     describe('every create reports exactly one outcome', () => {
       it('reports resolve_failed when the post-editor re-read throws', async () => {
         // The catch used to only set the retry UI. A genuine rejection is what
@@ -387,12 +385,7 @@ describe('BylineDiagrams', () => {
       });
 
       it('emits NOTHING when the iframe goes away mid-create — the known gap', async () => {
-        // Pins the shipped behaviour, not an aspiration. A pagehide reporter for
-        // this was written and reverted (#572): a lite-stg spot check showed it
-        // never reaching Mixpanel, while byline_dismissed on the same listener
-        // did, so it was not a delivery problem and the mechanism is unknown.
-        // This test exists so re-adding one is a deliberate change with a
-        // failing test attached, rather than a silent no-op in production.
+        // Host teardown is not an observed editor close or persistence result.
         apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
         const wrapper = await mountByline();
         await openEditorFrom(wrapper);
@@ -475,9 +468,7 @@ describe('BylineDiagrams', () => {
 
     describe('the Lite limit pre-check', () => {
       it('warns on an over-limit space without blocking the create', async () => {
-        // Warning, not gating: the editor's own gate carries the "Continue
-        // editing (N)" allowance, and 6 of the 27 byline creates blocked over
-        // 2026-08-21..27 used it. Blocking here would take that away silently.
+        // The editor owns the remaining Continue editing allowance.
         paywall.shouldBlock = true;
         apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
         const wrapper = await mountByline();

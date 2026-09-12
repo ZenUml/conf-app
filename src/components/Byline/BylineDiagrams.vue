@@ -645,25 +645,9 @@ const openedAt = Date.now()
 let acted = false
 let pageId = ''
 
-/**
- * A create is in flight and has produced no terminal event yet.
- *
- * Set when the editor modal is opened and cleared by whichever of
- * byline_diagram_created / byline_create_cancelled / byline_create_unresolved
- * fires for it, so `trackCreateOutcome` emits EXACTLY ONE outcome per attempt.
- * That guard is load-bearing rather than defensive: the try block in
- * afterEditorClosed wraps the success path too, so a throw from the trailing
- * copy/thumbnail work — both of which run AFTER byline_diagram_created has
- * fired — lands in the same catch that reports an unresolved create, and
- * without this it would report a second outcome for a create already counted
- * as saved.
- *
- * Re-armed by onRetryCreate, because a retry is a fresh resolution attempt and
- * must be allowed to report its own outcome (`is_retry` marks it).
- *
- * Nothing reads this at teardown: see the note above the pagehide listener for
- * why the abandoned-create reporter was reverted.
- */
+// One result per post-editor resolution attempt. Clear before tracking so a
+// trailing copy/thumbnail error cannot report the saved diagram twice. A retry
+// re-arms this guard and carries is_retry; teardown alone reports no outcome.
 let createOutcomePending = false
 
 /** True once the limit pre-check has resolved and found the space blocked.
@@ -799,27 +783,9 @@ async function loadDiagrams() {
   }
 }
 
-/**
- * Resolve whether a create started from here would meet the Lite paywall.
- *
- * Runs in the same after-the-list-paints slot as the thumbnail and placement
- * scans, and for the same reason: `initialize()` is a set of network reads, and
- * byline_opened is the Phase 1 readout — it must never wait on them. The notice
- * appears when the check lands, which is why `create_limit_reached` is
- * `undefined` rather than `false` on a click that beats it.
- *
- * Uses the SAME predicate as the editor's own gate (`shouldBlockActions` via
- * isPageEditorCreateBlocked), so the two can never disagree about whether this
- * space is over the limit. `shouldBlockActions` already returns false on Full
- * and Diagramly, so no variant check is needed here.
- *
- * Deliberately does NOT block: see the byline_create_limit_warned catalog entry.
- * The editor's gate carries the "Continue editing (N)" allowance, and 6 of the
- * 27 byline creates blocked over 2026-08-21..27 used it. Reading the remaining
- * balance here would also mean calling getOrCreateContinueAttempts, which
- * CREATES the record as a side effect — stamping firstTriggeredAt for a user
- * who never triggered the paywall. So the notice warns without a count.
- */
+// Run once per open, after the list paints. Warn without gating: the editor
+// owns the user's remaining Continue editing allowance. A count that cannot be
+// read stays unknown; this reader must not write the macro's targeting marker.
 async function checkCreateLimit() {
   if (limitCheckStarted) return
   limitCheckStarted = true
@@ -881,36 +847,9 @@ function trackDismissed() {
   })
 }
 
-/**
- * NOT reported: a create still in flight when this iframe goes away.
- *
- * The editor modal's `onClose` is the only thing that resolves a create, and it
- * does not run if Confluence tears the byline down first (a host navigation, a
- * closed tab, the view↔edit transition this iframe cannot outlive). Those
- * creates emit nothing, and they are the one arm of #572's 22.7% unattributed
- * clicks that this component does NOT close.
- *
- * A `pagehide` reporter for it was written and REVERTED (#572, spot-checked on
- * lite-stg 2026-08-29). It never reached Mixpanel, and the failure was not the
- * usual best-effort-delivery excuse:
- *   - `byline_dismissed`, which rides this very listener, DID deliver in the
- *     same run as a control, so the teardown path itself works;
- *   - re-booting a byline iframe on the same origin afterwards flushed nothing,
- *     so it was not the localStorage batch waiting for a send;
- *   - dispatching `pagehide` directly inside the live byline frame produced
- *     nothing either, and threw no error, so the browser signal was not at
- *     fault. At teardown the frame is still attached, on the same URL, with the
- *     byline DOM intact.
- * That points at `createOutcomePending` being false by then, which was not
- * confirmed. Shipping the reporter anyway would have put an event in the
- * catalog that never fires — worse than a documented gap, because a zero would
- * read as "this never happens".
- *
- * Consequence for the funnel: the identity in the byline_create_unresolved
- * catalog entry holds for every create the modal resolves, and teardown-
- * abandoned creates remain unmeasured. Reopening this needs the flag's state at
- * teardown established first, not another reporter.
- */
+// A byline iframe torn down before modal onClose cannot resolve its create.
+// Do not infer cancellation from that missing signal. The editor iframe has
+// separate explicit-close telemetry, scoped to its own creation attempt.
 
 /**
  * The dismissal signal that actually fires in production. Closing the Forge
@@ -1232,8 +1171,7 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
   })
 
   const before = diagrams.value.map(d => d.id)
-  // Armed BEFORE the modal opens, not in onClose: the whole point is to report
-  // a create whose onClose never runs, which cannot arm anything itself.
+  // Arm before opening so an open rejection still produces an outcome.
   createOutcomePending = true
   creating.value = true
   try {
@@ -1264,12 +1202,7 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
       result: 'failed',
       failure_reason: failureReason,
     })
-    // byline_editor_deeplinked answers a different question (did the open
-    // route?), so this attempt still owes the funnel an outcome — otherwise a
-    // click whose editor never opened is exactly the silent gap #572 exists to
-    // remove, and the created + cancelled + unresolved identity acquires an
-    // exception. Emitted after the deeplink event so the two read in order, and
-    // it also disarms the teardown reporter.
+    // The deeplink result describes routing; the create funnel needs its own outcome.
     trackCreateOutcome('byline_create_unresolved', {
       ...baseProps(),
       macro_type: macroType,
@@ -1392,8 +1325,7 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue, is
     console.error('[byline] failed to resolve the created diagram', e)
     pendingCreate = { before, macroType }
     createUnresolved.value = true
-    // Previously silent, and the largest arm of #572's 22.7% unattributed
-    // clicks. trackCreateOutcome is a no-op when the attempt already reported,
+    // trackCreateOutcome is a no-op when the attempt already reported,
     // which is what keeps a throw from the trailing copy/thumbnail work — both
     // of which run AFTER byline_diagram_created has fired — from reporting a
     // second outcome for a create already counted as saved.

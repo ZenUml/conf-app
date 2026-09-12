@@ -412,6 +412,18 @@ function renderZenUmlFullscreenViewer() {
   }
 }
 
+/** PlantUML's editor preview surface, without the read-only viewer chrome. */
+function renderPlantUmlEditorPreview() {
+  return {
+    components: { PlantUml },
+    template: `
+      <div style="width: 100%; height: 440px; padding: 24px; box-sizing: border-box; background: #F8F7F4;">
+        <PlantUml />
+      </div>
+    `,
+  }
+}
+
 /** Production integration: GenericViewer with the real PlantUML renderer in its slot. */
 function renderPlantUmlViewer(args: Args) {
   return {
@@ -476,6 +488,29 @@ export const PlantUmlFullscreenPanZoom: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByRole('button', { name: 'Zoom in' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
+  },
+}
+
+/** The editor preview: a small diagram must not be blown up to fill the pane. */
+export const PlantUmlEditorPanZoom: Story = {
+  name: 'Editor preview — PlantUML pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    () => {
+      stubPlantUmlServer()
+      configureStory({
+        diagramType: DiagramType.PlantUml,
+        title: 'Alice Greets Bob',
+        plantUmlCode: SAMPLE_PLANTUML,
+        displayMode: false,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderPlantUmlEditorPreview(),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom in' })).toBeVisible()
   },
 }
 

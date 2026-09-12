@@ -250,7 +250,25 @@ export default {
       // is sized to the diagram's own ratio, so shrinking there would render every
       // diagram on the page 12.5% smaller than it did before this viewport existed.
       if (this.isFullscreenMode || !this.isDisplayMode) this.panZoom.zoom(0.875);
+      this.clampEditorUpscale();
       this.panZoomDirty = false;
+    },
+    /**
+     * The editor preview is a tall fixed-height pane, and `fit: true` scales to
+     * fill it in BOTH axes -- so a small diagram is enlarged, not fitted. A
+     * 322x243 PlantUML sequence in an 850px pane came out around 3x, which reads
+     * as comically large type next to the source it was typed from.
+     *
+     * Opening a diagram is not a request to magnify it: the initial view never
+     * goes past 1:1, and the + button is there for anyone who wants more. Only
+     * the editor is clamped -- the page viewer and fullscreen have filled their
+     * width since long before this viewport existed.
+     */
+    clampEditorUpscale() {
+      if (this.isDisplayMode) return;
+      const realZoom = this.panZoom?.getSizes?.().realZoom;
+      if (!(realZoom > 1)) return;
+      this.panZoom.zoom(this.panZoom.getZoom() / realZoom);
     },
     zoomIn() {
       this.panZoom?.zoomIn();

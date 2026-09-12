@@ -40,6 +40,6 @@ describe('mixpanel-browser immediate sendBeacon transport', () => {
     });
     expect(sendBeacon).toHaveBeenCalledTimes(1);
 
-    instance.stop_batch_senders();
+    (instance as typeof instance & { stop_batch_senders(): void }).stop_batch_senders();
   });
 });

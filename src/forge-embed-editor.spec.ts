@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({
   copied: false,
   mountedProps: undefined as any,
   getMacroData: vi.fn(async () => undefined as any),
-  submitted: vi.fn(async () => undefined),
+  submitted: vi.fn<() => Promise<void>>(async () => undefined),
   closed: vi.fn(async () => undefined),
   events: [] as Array<[string, Record<string, unknown>]>,
   unloadEvents: [] as Array<[string, Record<string, unknown>]>,

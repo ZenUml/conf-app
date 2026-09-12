@@ -12,6 +12,7 @@ import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason, snapshotFailureDetail } from '@/model/SnapshotAttachment';
 import { getEditorMutationSummary } from '@/utils/analytics/editorMutationTelemetry';
+import { markEditorSaved } from '@/utils/analytics/editorCloseOutcome';
 import { toMacroType } from '@/utils/byline/pageDiagrams';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
@@ -98,6 +99,12 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     };
 
     const save_duration_ms = Math.round(performance.now() - saveStartedAt);
+
+    // The save is durable: a host close from here on is not a cancellation.
+    // Marked here, not on the EventBus 'saved' signal, because every editor
+    // emits that only after view.submit() resolves — by then view.onClose
+    // may already have fired.
+    markEditorSaved();
 
     if (isNew) {
       trackAnalyticsEvent("macro_create_succeeded", {

@@ -8,6 +8,7 @@ import { trackEvent } from "@/utils/window";
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
+import { markEditorAuthoringStarted } from "@/utils/analytics/editorCloseOutcome";
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
@@ -425,6 +426,7 @@ async function initializeMacro() {
   }
 
   const isNew = await MacroUtil.isCreateNew();
+  markEditorAuthoringStarted();
   trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',

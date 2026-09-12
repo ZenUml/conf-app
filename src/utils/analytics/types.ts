@@ -68,6 +68,16 @@ export type AnalyticsProperties = {
   macro_uuid?: string;
   // Lifecycle
   operation_mode?: OperationMode;
+  // macro_create_cancelled / macro_edit_cancelled: which close control ended
+  // the editor session. `host_close` is the Atlassian modal X (view.onClose);
+  // `discard_dialog` is the in-app "close without saving" confirmation;
+  // `exit_button` is an editor's own cancel control (AsyncAPI Studio).
+  close_source?: "host_close" | "discard_dialog" | "exit_button";
+  // Whether the editor content differed from what was loaded when it closed.
+  // Omitted when the editor cannot tell (AsyncAPI Studio, embed picker).
+  had_changes?: boolean;
+  // Wall time from editor mount to the close-without-save, in ms.
+  editor_open_duration_ms?: number;
   // Shared DSL editor type-tab changes (#562). `from_macro_type` and
   // `to_macro_type` describe the observed UI transition; `macro_type` on the
   // same event is the destination for compatibility with existing breakdowns.

@@ -41,13 +41,13 @@
       <button
         type="button"
         class="agent-notice__btn agent-notice__btn--primary agent-notice__btn--block"
-        data-testid="agent-link-reconnect-btn"
-        @click="emit('reconnect')"
+        :data-testid="variant === 'disconnect_failed' ? 'agent-link-retry-disconnect-btn' : 'agent-link-reconnect-btn'"
+        @click="variant === 'disconnect_failed' ? emit('disconnect') : emit('reconnect')"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
         </svg>
-        Reconnect
+        {{ variant === 'disconnect_failed' ? 'Retry disconnect' : 'Reconnect' }}
       </button>
     </div>
   </div>
@@ -61,7 +61,7 @@ const props = withDefaults(
     // 'closed' = explicit Disconnect; 'expired' = TTL lapse; 'rejected' =
     // a second link attempt on an already-bound diagram (mint 409);
     // 'failed' = the session mint failed for any other reason.
-    variant?: 'closed' | 'expired' | 'rejected' | 'failed' | 'recovery_exhausted' | 'incompatible' | 'revoke_failed'
+    variant?: 'closed' | 'expired' | 'rejected' | 'failed' | 'recovery_exhausted' | 'incompatible' | 'revoke_failed' | 'disconnect_failed'
     diagramTitle?: string
     // Amendment D: absolute ms epoch when the existing lock on an
     // already-linked diagram releases (mint 409's lockExpiresAt), or
@@ -75,6 +75,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'reconnect'): void
+  (e: 'disconnect'): void
   (e: 'revoke'): void
   (e: 'cancel'): void
 }>()
@@ -85,8 +86,10 @@ const title = computed(() => {
       return 'Session expired'
     case 'rejected':
       return 'This diagram is already linked to an agent'
+    case 'disconnect_failed':
+      return 'Could not disconnect'
     case 'revoke_failed':
-      return 'Could not replace this link'
+      return 'Could not release this link'
     case 'recovery_exhausted':
       return 'Connection lost'
     case 'incompatible':
@@ -108,6 +111,9 @@ const subline = computed(() => {
       return `Another agent session holds this diagram — it expires in ~${minutesRemaining} min. Only one agent can hold the link at a time.`
     }
     return 'Another agent session holds this diagram. Only one agent can hold the link at a time.'
+  }
+  if (props.variant === 'disconnect_failed') {
+    return 'The agent may still be connected. Try disconnecting again.'
   }
   if (props.variant === 'revoke_failed') {
     return 'The previous link could not be released. Try reconnecting again.'

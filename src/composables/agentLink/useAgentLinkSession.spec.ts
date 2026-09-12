@@ -11,6 +11,11 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
   default: { zenumlRemoteBaseUrl: 'https://backend.example' },
 }))
 
+vi.mock('./relayUrl', async importOriginal => ({
+  ...await importOriginal<typeof import('./relayUrl')>(),
+  revokeAgentLinkSession: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import {
   useAgentLinkSession,
@@ -284,6 +289,7 @@ describe('useAgentLinkSession', () => {
         expect(session.lastActivityAt.value).not.toBeNull()
 
         session.disconnect('user')
+        await vi.advanceTimersByTimeAsync(0)
         session.startConnect()
 
         expect(session.lastActivityAt.value).toBeNull()
@@ -624,6 +630,7 @@ describe('useAgentLinkSession', () => {
       expect(session.state.value).toBe('suspended')
 
       session.disconnect('user')
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(session.state.value).toBe('closed')
       expect(fakeClient.disconnect).toHaveBeenCalledTimes(1)
@@ -634,6 +641,7 @@ describe('useAgentLinkSession', () => {
       const { session, fakeClient } = await connectedSession()
 
       session.disconnect('user')
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(fakeClient.disconnect).toHaveBeenCalledTimes(1)
       expect(fakeClient.close).not.toHaveBeenCalled()
@@ -856,7 +864,7 @@ describe('useAgentLinkSession', () => {
       )
     })
 
-    it('a hydrated Fullscreen revoke asks the inline owner to disconnect its exact token', () => {
+    it('a hydrated Fullscreen revoke asks the inline owner to disconnect its exact token', async () => {
       const fullscreen = useAgentLinkSession(makeBridgeOps(), { macroType: 'sequence' })
       fullscreen.hydrateFrom({
         cloudId: 'c1',
@@ -867,6 +875,7 @@ describe('useAgentLinkSession', () => {
       })
 
       fullscreen.revokeAndRelink()
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(readSessionDisconnectRequest('p1')).toMatchObject({
         pageId: 'p1',
@@ -1646,6 +1655,7 @@ describe('useAgentLinkSession', () => {
       expect(readSession(boundContext.pageId)).not.toBeNull()
 
       session.disconnect('user')
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(readSession(boundContext.pageId)).toBeNull()
     })
@@ -2354,6 +2364,7 @@ describe('useAgentLinkSession', () => {
       expect(session.thinkingState.value).toBe('thinking')
 
       session.disconnect('user')
+      await vi.advanceTimersByTimeAsync(0)
       expect(session.thinkingState.value).toBe('idle')
     })
   })

@@ -219,7 +219,12 @@
       </template>
 
       <template v-else-if="state === 'recovery_exhausted' || state === 'incompatible'">
-        <SessionNotice :variant="noticeReason === 'revoke_failed' ? 'revoke_failed' : state" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
+        <SessionNotice
+          :variant="noticeReason === 'disconnect_failed' || noticeReason === 'revoke_failed' ? noticeReason : state"
+          :diagram-title="diagramTitle"
+          @reconnect="emit('reconnect')"
+          @disconnect="emit('disconnect')"
+        />
         <SetupInstructions v-if="state === 'incompatible'" />
       </template>
 
@@ -330,7 +335,7 @@ const props = withDefaults(
     // 'suspended' banner from the "reconnecting…" spinner (still a genuinely
     // in-progress retry) to a persistent "Connection lost" notice with a
     // manual Reconnect CTA, instead of spinning forever.
-    noticeReason?: 'connection_lost' | 'revoke_failed' | null
+    noticeReason?: 'connection_lost' | 'revoke_failed' | 'disconnect_failed' | null
   }>(),
   { thinking: 'idle', diagramTitle: '', clientName: '', progressStage: null, expiresAt: null, lastActivityAt: null, lockExpiresAt: null, atCap: false, noticeReason: null }
 )

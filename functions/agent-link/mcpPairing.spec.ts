@@ -204,6 +204,19 @@ describe('MCP pairing through real target and binding Durable Objects', () => {
     expect(channel.status).toBe(410);
   });
 
+  it('rejects the old paired MCP client as soon as HTTP revocation succeeds', async () => {
+    const f = fixture(); f.target('CL-DISCONNECT');
+    const { id } = await f.initialize(); await f.connect(id, 'CL-DISCONNECT');
+    const revoked = await revokeSession({ env: f.env, request: new Request('https://example.com/agent-link/session', { method: 'DELETE', body: JSON.stringify({ token: 'CL-DISCONNECT', cloudId: 'cloud-test', pageId: '100', contentId: '200' }) }) } as any);
+    expect(revoked.status).toBe(200);
+    for (const name of ['read_diagram', 'read_page']) {
+      const read = await f.rpc('tools/call', { name, arguments: {} }, id);
+      expect(read.response.status).toBe(403);
+      expect(read.body.error.data.code).toBe('expired');
+      expect(read.body.result).toBeUndefined();
+    }
+  });
+
   it('offers the latest server version for an unsupported initialize revision', async () => {
     const f = fixture();
     expect((await f.initialize('test-client', '2099-01-01')).body.result.protocolVersion).toBe('2025-11-25');

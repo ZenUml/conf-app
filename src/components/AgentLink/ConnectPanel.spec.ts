@@ -595,4 +595,21 @@ describe('ConnectPanel — Track H rail composition', () => {
     expect(wrapper.find('[data-testid="agent-link-notice"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(false)
   })
+  it('reports a failed release without claiming that the agent disconnected', () => {
+    const wrapper = mountPanel({ state: 'recovery_exhausted', noticeReason: 'revoke_failed', token: 'retry-token' })
+    expect(wrapper.text()).toContain('Could not release this link')
+    expect(wrapper.text()).not.toContain('Agent disconnected')
+    expect(wrapper.text()).not.toContain('Your session ended')
+    expect(wrapper.find('[data-testid="agent-link-reconnect-btn"]').exists()).toBe(true)
+  })
+
+  it('offers a retry of Disconnect after revocation fails, without reconnecting', async () => {
+    const wrapper = mountPanel({ state: 'recovery_exhausted', noticeReason: 'disconnect_failed', token: 'retry-token' })
+    expect(wrapper.text()).toContain('Could not disconnect')
+    expect(wrapper.text()).toContain('The agent may still be connected')
+    await wrapper.find('[data-testid="agent-link-retry-disconnect-btn"]').trigger('click')
+    expect(wrapper.emitted('disconnect')).toHaveLength(1)
+    expect(wrapper.emitted('reconnect')).toBeUndefined()
+  })
+
 })

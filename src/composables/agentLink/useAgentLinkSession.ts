@@ -193,7 +193,7 @@ export interface AgentLinkSessionApi {
   progressStage: Ref<'initialized' | 'discovered' | 'verified' | 'working' | null>
   agentClientName: Ref<string | null>
   // Recovery ended, or the previous capability could not be revoked.
-  noticeReason: Ref<'connection_lost' | 'revoke_failed' | null>
+  noticeReason: Ref<'connection_lost' | 'revoke_failed' | 'disconnect_failed' | null>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
   // orthogonal to `state` (a paired session is `connected` the whole time an
@@ -282,7 +282,7 @@ export function useAgentLinkSession(
   const agentClientName = ref<string | null>(null)
   // Detailed recovery notice retained across the iframe handoff. Ordinary
   // transport errors never imply that automatic recovery has stopped.
-  const noticeReason = ref<'connection_lost' | 'revoke_failed' | null>(null)
+  const noticeReason = ref<'connection_lost' | 'revoke_failed' | 'disconnect_failed' | null>(null)
   const thinkingState = ref<AgentLinkThinkingState>('idle') as Ref<AgentLinkThinkingState>
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
     AgentLinkActivityEntry[]
@@ -354,7 +354,9 @@ export function useAgentLinkSession(
       boundContext.pageId,
       (request) => {
         if (!relayClient || request.token !== token.value) return false
-        disconnect('user')
+        // The initiating iframe already confirmed HTTP revocation. Only
+        // close this owner's socket; do not revoke or broadcast recursively.
+        finalizeDisconnect('user', false)
         return true
       }
     )
@@ -1405,7 +1407,7 @@ export function useAgentLinkSession(
     return { ok: result.ok }
   }
 
-  function disconnect(reason: AgentLinkDisconnectReason = 'user'): void {
+  function finalizeDisconnect(reason: AgentLinkDisconnectReason, report = true): void {
     const disconnectedToken = token.value
     const prev = state.value
     state.value = nextClientState(state.value, 'disconnect')
@@ -1436,9 +1438,10 @@ export function useAgentLinkSession(
     stopDisconnectRequestSubscription()
     // Clear the handoff record so a future Fullscreen mount doesn't hydrate
     // a session that's already been disconnected here.
-    if (boundContext) clearSession(boundContext.pageId, disconnectedToken ?? undefined)
+    const context = boundContext ?? hydratedContext
+    if (context) clearSession(context.pageId, disconnectedToken ?? undefined)
 
-    trackAnalyticsEvent('agent_link_disconnected', {
+    if (report) trackAnalyticsEvent('agent_link_disconnected', {
       feature_area: 'agent_link',
       surface: 'fullscreen',
       macro_type: macroType,
@@ -1449,51 +1452,56 @@ export function useAgentLinkSession(
     })
   }
 
-  // "Revoke & re-link" (design decision #1's escape hatch for a dead first
-  // agent, or for a session stuck 'suspended'): asks the inline relay owner to
-  // close the old session when this is a display-only Fullscreen instance,
-  // then closes local state and mints a fresh token in one action. Resets to
-  // 'idle' directly rather than relying
-  // on a natural FSM transition out of the just-set terminal 'closed' —
-  // startConnect() requires prev === 'idle' to actually mint/connect (see its
-  // own guard), and this action IS a deliberate fresh start, not a
-  // resurrection of the old (closed) session.
-  let relinkInProgress = false
-  function revokeAndRelink(): void {
-    if (relinkInProgress) return
+  // HTTP revocation is authoritative even when this instance only displays
+  // another iframe's relay. Share one in-flight operation with Reconnect so
+  // rapid clicks cannot revoke twice or tear down a newly minted capability.
+  let revocationInProgress = false
+  function withConfirmedRevocation(intent: 'disconnect' | 'relink', afterRevocation: () => void): void {
+    if (revocationInProgress) return
     const previousToken = token.value
     const previousContext = boundContext ?? hydratedContext
     const previousState = state.value
     const isCurrent = () => token.value === previousToken &&
       (state.value !== 'closed' || previousState === 'closed')
-    const replaceSession = () => {
+    const confirmed = () => {
       if (!isCurrent()) return
       if (!relayClient && previousToken && previousContext) {
         publishSessionDisconnectRequest(previousContext.pageId, previousToken)
       }
-      disconnect('user')
-      state.value = 'idle'
-      startConnectWithMintConflictRetries(RELINK_MINT_CONFLICT_RETRIES)
+      afterRevocation()
     }
-    // The HTTP revoke works even after the old WebSocket has stopped retrying.
-    // Keep the capability until revocation succeeds so a failed request is retryable.
-    if (options.relay && previousToken && previousContext && !previousToken.startsWith('pending-')) {
-      relinkInProgress = true
-      const revoke = options.relay.revokeSession ?? revokeAgentLinkSession
-      void revoke(previousToken, previousContext).then(replaceSession).catch(() => {
+    if (previousToken && previousContext && !previousToken.startsWith('pending-')) {
+      revocationInProgress = true
+      const revoke = options.relay?.revokeSession ?? revokeAgentLinkSession
+      void revoke(previousToken, previousContext).then(confirmed).catch(() => {
         if (!isCurrent()) return
+        // Preserve the capability and context: failure is not a disconnect,
+        // and the user can retry this action or reconnect with the same token.
         state.value = 'recovery_exhausted'
-        noticeReason.value = 'revoke_failed'
+        noticeReason.value = intent === 'disconnect' ? 'disconnect_failed' : 'revoke_failed'
         resetThinking()
         publishThinking()
         trackAnalyticsEvent('agent_link_edit_failed', {
           feature_area: 'agent_link', surface: 'fullscreen', macro_type: macroType,
           reason: 'session_revoke_failed',
         })
-      }).finally(() => { relinkInProgress = false })
+      }).finally(() => { revocationInProgress = false })
       return
     }
-    replaceSession()
+    confirmed()
+  }
+
+  function disconnect(reason: AgentLinkDisconnectReason = 'user'): void {
+    if (nextClientState(state.value, 'disconnect') === state.value) return
+    withConfirmedRevocation('disconnect', () => finalizeDisconnect(reason))
+  }
+
+  function revokeAndRelink(): void {
+    withConfirmedRevocation('relink', () => {
+      finalizeDisconnect('user')
+      state.value = 'idle'
+      startConnectWithMintConflictRetries(RELINK_MINT_CONFLICT_RETRIES)
+    })
   }
 
   // Fullscreen-side hydration (sessionHandoff.ts): shows a session persisted

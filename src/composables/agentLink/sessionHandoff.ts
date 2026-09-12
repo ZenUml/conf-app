@@ -169,7 +169,7 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // progressStage this is NOT monotonic, so hydrateFrom must CLEAR the mirror
   // when the field is absent, or a resumed session would keep showing "gave
   // up" into its next suspend cycle.
-  noticeReason?: 'connection_lost' | 'revoke_failed'
+  noticeReason?: 'connection_lost' | 'revoke_failed' | 'disconnect_failed'
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -370,9 +370,8 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
         : undefined,
     agentClientName:
       typeof parsed.agentClientName === 'string' ? parsed.agentClientName : undefined,
-    // Task 7: only present while the owner has genuinely given up reconnecting;
-    // anything else (including a pre-Task-7 record) normalizes to undefined.
-    noticeReason: parsed.noticeReason === 'connection_lost' || parsed.noticeReason === 'revoke_failed'
+    // Preserve the action the user can retry after a recovery/revocation failure.
+    noticeReason: parsed.noticeReason === 'connection_lost' || parsed.noticeReason === 'revoke_failed' || parsed.noticeReason === 'disconnect_failed'
       ? parsed.noticeReason : undefined,
   }
 }

@@ -85,6 +85,7 @@ export default {
       currentPage: 0,
       pageCount: 0,
       graphRendered: false,
+      wheelZoomHandler: null,
     };
   },
   mounted() {
@@ -93,6 +94,7 @@ export default {
   beforeUnmount() {
     this.captureResizeObserver?.disconnect();
     this.captureResizeObserver = null;
+    this.disableWheelZoom();
   },
   computed: {
     // Same rule as DiagramViewport: the Export PNG host renders the diagram only
@@ -190,6 +192,7 @@ export default {
           this.captureResizeObserver.observe(container);
         }
         this.enablePanning();
+        this.enableWheelZoom();
         this.graphRendered = true;
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
@@ -241,6 +244,56 @@ export default {
       // Panning starts only past mxGraph's drag tolerance, so a click still lands
       // on the cell underneath and GraphViewer's link handling is unaffected.
       graph.panningHandler.ignoreCell = true;
+    },
+    /**
+     * Wheel to zoom, matching svg-pan-zoom's default on the Mermaid and PlantUML
+     * viewports so all three diagram types respond to the wheel the same way.
+     *
+     * Deliberately NOT mxGraph's own wheel handling: GraphViewer leaves
+     * `Graph.zoomWheel` false, which requires Alt or Ctrl to be held. Nor
+     * `mxEvent.addMouseWheelListener`, which offers no way to unbind — and the
+     * container element outlives a re-render (only its children are cleared), so
+     * every `renderViewer()` would stack another listener and multiply the step.
+     *
+     * A native listener also covers trackpad pinch for free: browsers report it as
+     * a wheel event with `ctrlKey` set.
+     */
+    enableWheelZoom() {
+      const container = this.$refs.graphContainer;
+      if (!container || this.wheelZoomHandler) return;
+      // Wheel deltas are pixels by default but lines in Firefox and pages when a
+      // browser feels like it; normalise before comparing against the step.
+      const toPixels = (event) => {
+        if (event.deltaMode === 1) return event.deltaY * 16;
+        if (event.deltaMode === 2) return event.deltaY * container.clientHeight;
+        return event.deltaY;
+      };
+      // One mxGraph zoom step per notch. A trackpad emits a stream of small
+      // deltas, so accumulating and stepping on the threshold keeps a two-finger
+      // swipe from rocketing through the zoom range; the remainder carries over
+      // rather than being dropped, so slow scrolling still zooms eventually.
+      const STEP_PX = 100;
+      let accumulated = 0;
+      this.wheelZoomHandler = (event) => {
+        const graph = this.graphViewer?.graph;
+        if (!graph) return;
+        event.preventDefault();
+        accumulated += toPixels(event);
+        while (Math.abs(accumulated) >= STEP_PX) {
+          const out = accumulated > 0;
+          accumulated += out ? -STEP_PX : STEP_PX;
+          if (out) graph.zoomOut();
+          else graph.zoomIn();
+        }
+        this.updateCaptureBox();
+      };
+      // Not passive: the whole point is to take the event away from page scroll.
+      container.addEventListener('wheel', this.wheelZoomHandler, { passive: false });
+    },
+    disableWheelZoom() {
+      if (!this.wheelZoomHandler) return;
+      this.$refs.graphContainer?.removeEventListener('wheel', this.wheelZoomHandler);
+      this.wheelZoomHandler = null;
     },
     goToPage(index) {
       if (!this.graphViewer || index < 0 || index >= this.pageCount) return;

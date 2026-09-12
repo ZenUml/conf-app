@@ -181,6 +181,59 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       expect(graph.panningHandler.useLeftButtonForPanning).toBe(true);
     });
 
+    it('zooms on the wheel, the way Mermaid and PlantUML already do', async () => {
+      const graph = graphStub();
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+      const canvas = wrapper.get('.graph-viewer-canvas');
+
+      await canvas.trigger('wheel', { deltaY: -100, deltaMode: 0 });
+      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+
+      await canvas.trigger('wheel', { deltaY: 100, deltaMode: 0 });
+      expect(graph.zoomOut).toHaveBeenCalledTimes(1);
+    });
+
+    it('spends a trackpad\'s small deltas one zoom step at a time', async () => {
+      const graph = graphStub();
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+      const canvas = wrapper.get('.graph-viewer-canvas');
+
+      // A two-finger swipe is a stream of these; one step per notch-worth, not
+      // one per event, or the diagram rockets through the zoom range.
+      for (let i = 0; i < 9; i += 1) {
+        await canvas.trigger('wheel', { deltaY: -10, deltaMode: 0 });
+      }
+      expect(graph.zoomIn).not.toHaveBeenCalled();
+
+      await canvas.trigger('wheel', { deltaY: -10, deltaMode: 0 });
+      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not stack wheel listeners when the diagram re-renders', async () => {
+      const graph = graphStub();
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+
+      // container.innerHTML is cleared on re-render but the container element
+      // itself survives, so a listener bound per render would multiply the step.
+      store.state.diagram = { ...store.state.diagram, graphXml: '<mxGraphModel><root/></mxGraphModel>' };
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalledTimes(2));
+
+      await wrapper.get('.graph-viewer-canvas').trigger('wheel', { deltaY: -100, deltaMode: 0 });
+      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps the controls off the Export PNG surface', async () => {
       (window as { forgeGlobal?: unknown }).forgeGlobal = {
         forgeContext: { extension: { modal: { macroMode: 'fullscreen', openExport: true } } },

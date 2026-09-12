@@ -25,7 +25,7 @@ import { TIMEOUTS } from '../../config/test-config.js';
 const test = createMacroTest('embed');
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Embed editor — document list (search type-scoping)', () => {
+test.describe('Embed editor — document list (search type-scoping)', { tag: ['@editor', '@embed', '@asyncapi'] }, () => {
   test('opening the embed editor lists existing diagrams', async ({ macroPage }) => {
     const embedFrame = macroPage.getEmbedMacroFrame();
     // Sanity: the embed page loaded and the referenced diagram rendered.

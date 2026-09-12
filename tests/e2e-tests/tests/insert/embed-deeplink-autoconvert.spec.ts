@@ -18,7 +18,7 @@ const SAMPLE = embedDeeplinkUrl(
 
 const skip = !testConfig.macros.includes('embed');
 
-test.describe(`Embed deeplink autoConvert - ${testConfig.productType}`, () => {
+test.describe(`Embed deeplink autoConvert - ${testConfig.productType}`, { tag: ['@editor', '@embed', '@deeplink', '@smoke'] }, () => {
   test.skip(skip, `Macro "embed" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test('pasting a /d/ deeplink converts to the embed macro (not a smart-link)', async ({

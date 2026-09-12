@@ -19,7 +19,11 @@ const initMixpanel = () => {
       track_pageview: false,
       autocapture: false,
       persistence: "localStorage",
-      ignore_dnt: true
+      ignore_dnt: true,
+      // Keep in step with trackAnalyticsEvent.ts: whichever path initializes
+      // first fixes the recorder config for this iframe.
+      record_console: true,
+      record_network: true,
     });
     initialized = true;
   }

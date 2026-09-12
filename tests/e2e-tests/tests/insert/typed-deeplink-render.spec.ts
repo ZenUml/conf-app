@@ -82,7 +82,7 @@ async function fetchPageCustomContentId(
   return String(id);
 }
 
-test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, () => {
+test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, { tag: ['@editor', '@viewer', '@graph', '@deeplink'] }, () => {
   test.skip(
     skip,
     testConfig.isLite

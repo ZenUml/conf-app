@@ -52,6 +52,7 @@ import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderC
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
+import { markEditorAuthoringStarted, trackEditorClosedWithoutSave } from '@/utils/analytics/editorCloseOutcome';
 import {
   EXPORT_SESSION_EVENT,
   readExportSession,
@@ -984,6 +985,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
     const trackPageEditorAuthoringStarted = () => {
       const isNew = !customContentId;
       const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
+      markEditorAuthoringStarted();
       if (isNew) {
         trackAnalyticsEvent("macro_create_started", {
           feature_area: "macro",
@@ -1552,7 +1554,10 @@ EventBus.$on('exit', async (showWarning: boolean) => {
       // User confirmed exit - track exit event
       const exitEventAction = isNewSequence ? 'create_macro_exit' : 'edit_macro_exit';
       trackEvent('', exitEventAction, DiagramType.Sequence, eventProps);
-      trackEditorMutationLifecycleEvent('macro_edit_cancelled');
+      // Awaited: view.close() below tears the iframe down, and the shared
+      // tracker suppresses the duplicate that view.onClose would otherwise
+      // send for this same close.
+      await trackEditorClosedWithoutSave('discard_dialog');
       
       // End journey on exit
       if (getEditJourneyId()) {

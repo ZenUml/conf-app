@@ -256,6 +256,16 @@ export type AnalyticsEventName =
   | "macro_create_started"
   | "macro_create_succeeded"
   | "macro_edit_started"
+  // Editor iframe closed without a successful save, for the create and the
+  // edit lifecycle respectively. Emitted from utils/analytics/editorCloseOutcome
+  // on `view.onClose` (the Atlassian modal X — the only close control the
+  // Forge editors have; the in-app exit button no longer exists) and from the
+  // explicit discard dialog where one remains. `close_source` says which.
+  // Before 2026-09-11 macro_edit_cancelled fired only from the discard dialog
+  // of the text editors, which no control reaches, so it recorded 0 events
+  // for 12 weeks while ~17% of customer edit sessions never saved.
+  // Idempotent per iframe; markEditorSaved() suppresses it after a save.
+  | "macro_create_cancelled"
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"

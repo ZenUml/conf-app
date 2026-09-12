@@ -42,7 +42,7 @@ Two sections:
 - **MISSED** — payer renewals that lapsed in the past N days without a new payment landing,
   summed as income at risk.
 - **EVALUATIONS** — trials (`licenseType = EVALUATION`) expiring in the next N days (a
-  conversion window — act before they lapse) or that expired in the past N days. A conversion
+  billing observation window — not an instruction to contact them) or that expired in the past N days. A lifecycle
   signal, **not income** — shown in its own section, kept out of the $ totals. Each row shows
   `converted` (does this tenant+app already have a paid transaction). Lite is excluded (free,
   no paid conversion).
@@ -127,3 +127,7 @@ elsewhere rely on).
 - `tenant` — single-tenant lookup ("is `<domain>` paying, how big, what state").
 - `extend-space-license` / `paywall` — the Lite Stripe/KV layer; Lite paid access isn't in
   Marketplace transactions, so it never appears in this radar.
+
+## Follow-up boundary
+
+Read-only facts and gaps. A trial deadline alone is not urgency, a failed automatic payment or authority to contact. Use `customer-lifecycle` for state changes and `customer-followup` for decisions. Marketplace `all` may include vendor products beyond this document; report the actual product scope.

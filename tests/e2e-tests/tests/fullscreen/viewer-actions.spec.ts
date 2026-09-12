@@ -21,7 +21,7 @@ import {
 } from '../../helpers/ViewerActionsHelper.js';
 import { expectFullscreenLayout } from '../../helpers/FullscreenModalHelper.js';
 
-test.describe('Viewer toolbar actions', () => {
+test.describe('Viewer toolbar actions', { tag: ['@viewer', '@fullscreen', '@sequence', '@export'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
 
   // Sequence (0..3)

@@ -28,7 +28,7 @@ const SHOT_DIR = process.env.CONVERT_SHOT_DIR ?? path.join(process.cwd(), '..', 
 /** Macro chrome that renders whether or not the body loaded. */
 const CHROME = /(Untitled diagram|Test Diagram Sequence|Edit|Source|Copy for AI|Fullscreen|ZenUML\.com|\d+%)/g;
 
-test.describe('Lite->Full converted macro renders', () => {
+test.describe('Lite->Full converted macro renders', { tag: ['@viewer', '@conversion'] }, () => {
   test.use({ viewport: { width: 1400, height: 1000 } });
 
   test(`page ${PAGE_ID} shows diagram content, not an empty macro`, async ({ page }) => {

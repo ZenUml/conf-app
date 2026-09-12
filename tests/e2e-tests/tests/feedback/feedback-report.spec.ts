@@ -94,7 +94,7 @@ import {
 import { openFullscreenViewer, viewerFrame } from '../../helpers/ViewerActionsHelper.js';
 import { frameWithTestId } from '../../helpers/byline.js';
 
-test.describe('Feedback reporting', () => {
+test.describe('Feedback reporting', { tag: ['@modal', '@editor', '@viewer', '@fullscreen', '@feedback'] }, () => {
   test.skip(!testConfig.isForge, 'Feedback reporting is Forge-only');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');
   // File-wide, not just the backend-write test — see the file header for why.

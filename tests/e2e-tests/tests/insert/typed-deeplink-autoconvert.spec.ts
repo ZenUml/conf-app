@@ -22,6 +22,18 @@ import {
  * and a `/new/mermaid` paste opened a sequence editor, because the URL shape and
  * the macro that handled it had drifted apart.
  *
+ * ONE live case, not one per type (ADR-0006, "equivalent lower-cost tests").
+ * The routing table is a property of manifest.yml's `autoConvert.matchers`, and
+ * tests/unit/typedDeeplinkRouting.spec.ts pins it for every type the code can
+ * mint — owner macro, exclusivity, minted host and shape, and the 3- vs
+ * 4-segment split from the embed macro — in milliseconds. What a unit test
+ * cannot prove is Confluence's side of the contract: that a matcher's star is
+ * one segment and that a matching paste really becomes an extension node in
+ * the current editor. One type is enough to keep that canary alive; five
+ * copies of it cost five page creations across two Lite E2E shards
+ * (typed-deeplink-autoconvert ×5 was the whole of shards 7–8 under the 10-way
+ * split of 2026-09-11) and caught nothing the first did not.
+ *
  * The type+space CONTROL leg ("typing must NOT convert") is deliberately absent
  * — see the note in embed-deeplink-autoconvert.spec.ts; Confluence's
  * linkify-on-type behavior varies by per-account editor cohort and cannot be a
@@ -47,23 +59,20 @@ interface TypeCase {
   requires: MacroType;
 }
 
+// The live canary. `graph` rather than `sequence` because it is the type whose
+// 4-segment link sits closest to the embed macro's 3-segment `/d/*/*` claim in
+// day-to-day use (graphs are what the byline places most), so it is the case
+// where Confluence swallowing the typed form into a read-only embed would hurt
+// first. The other types — mermaid/plantuml on the sequence macro, openapi,
+// asyncapi — differ from this one only in which key the manifest lists, and
+// tests/unit/typedDeeplinkRouting.spec.ts pins each of those. To re-run a type
+// against live Confluence ad hoc, add it back to CASES locally; keep CI at one.
 const CASES: TypeCase[] = [
-  { segment: 'sequence', macroKey: testConfig.sequenceMacroKey, requires: 'sequence' },
-  // Mermaid and PlantUML are rendered BY the sequence macro — one macro, three
-  // URL shapes. This is the pairing that regressed: /new/mermaid routed to a
-  // sequence editor, which is the right macro but the wrong starting type.
-  { segment: 'mermaid', macroKey: testConfig.sequenceMacroKey, requires: 'mermaid' },
   { segment: 'graph', macroKey: GRAPH_KEY, requires: 'graph' },
-  { segment: 'openapi', macroKey: OPENAPI_KEY, requires: 'openapi' },
-  // Lite only, and only Lite's app profile lists 'asyncapi' — the macro exists
-  // in Lite per ADR-0005 Option A, and full/diagramly delete the module while
-  // the asyncapi variant keeps the macro but has its typed matchers stripped
-  // (it ships no byline to mint them). Substring matching means the key below
-  // also covers `zenuml-asyncapi-macro-lite`; it must NOT match the sibling
-  // `zenuml-asyncapi-embed-macro`, which Lite strips and which claims only the
-  // 3-segment /d/*/* embed form.
-  { segment: 'asyncapi', macroKey: ASYNCAPI_KEY, requires: 'asyncapi' },
 ];
+// Kept so an ad hoc local run can list them without re-deriving the keys.
+void OPENAPI_KEY;
+void ASYNCAPI_KEY;
 
 function describeConversion(conv: EditorConversion): string {
   return JSON.stringify({
@@ -85,7 +94,7 @@ function describeConversion(conv: EditorConversion): string {
 // there — the paste stays a plain link, Confluence's link toolbar covers the
 // editor, and the next click times out at 60s. That reaped Diagramly's shard at
 // the 8-minute job cap three runs in a row on 2026-08-16 (run 31937067487).
-test.describe(`Typed diagram deeplink autoConvert - ${testConfig.productType}`, () => {
+test.describe(`Typed diagram deeplink autoConvert - ${testConfig.productType}`, { tag: ['@editor', '@graph', '@deeplink'] }, () => {
   for (const c of CASES) {
     const applies = testConfig.isLite && testConfig.macros.includes(c.requires);
 

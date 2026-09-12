@@ -184,6 +184,15 @@ function _initMixpanel(): Promise<void> {
         persistence: "localStorage",
         ignore_dnt: true,
         record_sessions_percent: percent,
+        // Replay console + network telemetry. Console is the SDK default (kept
+        // explicit; see docs/superpowers/specs/2026-08-21-authoring-session-replay-design.md
+        // for the accepted trade-off). Network capture needs mixpanel-browser
+        // >= 2.76 (added 2026-03-18; this repo was on 2.73 until 2026-09-11), so
+        // replays recorded before that upgrade have an empty Network tab. The
+        // plugin defaults record URL, method, status and timing only — no
+        // headers, no bodies — so diagram content never enters the recording.
+        record_console: true,
+        record_network: true,
       });
       // Stamp every event with the resolved rate + why, so the throttle and
       // targeting can be confirmed live in Mixpanel.

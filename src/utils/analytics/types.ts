@@ -34,6 +34,7 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  AuthoringOutcome,
   FeedbackCaptureMethod,
   FeedbackDismissReason,
   FeedbackHandoffOutcome,
@@ -522,6 +523,26 @@ export type AnalyticsProperties = {
   // replacements rather than collapsing them into a session boolean.
   journey_id?: string | null;
   session_id?: string;
+  // --- macro_authoring_ended (utils/journeyTracking.ts) ---------------------
+  // How the authoring session ended. Named `authoring_outcome` rather than
+  // reusing the existing `outcome`, which is the copy-for-AI result union and
+  // would collide on type.
+  authoring_outcome?: AuthoringOutcome;
+  // Wall-clock ms from startEditJourney to the terminal event — the editor's
+  // real dwell time, measured directly instead of inferred from the span
+  // between surrounding events.
+  authoring_duration_ms?: number;
+  // Did the user actually author anything in this session? Separates "editor
+  // opened, nothing typed" from "typed and gave up" — the distinction the
+  // create funnel could not make. Only populated where the editor-mutation
+  // session runs (sequence/mermaid/plantuml); ABSENT means not instrumented,
+  // never false. See editorMutationTelemetry.getEditorInputSummary.
+  // The Lite paywall gate blocked the authoring session this event describes.
+  // See EditJourneyMeta.paywallBlocked for why it lives on the terminal event.
+  paywall_blocked?: boolean;
+  had_input?: boolean;
+  time_to_first_input_ms?: number;
+  input_event_count?: number;
   replace_index?: number;
   ms_since_editor_open?: number;
   replace_scope?: EditorReplaceScope;

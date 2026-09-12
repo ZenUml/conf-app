@@ -75,15 +75,45 @@ describe('DiagramViewport initial zoom', () => {
     expect(panZoom.zoom).toHaveBeenCalledWith(0.875);
   });
 
-  it('does not clamp the page viewer, which has always filled its column', async () => {
-    panZoom.getSizes.mockReturnValue({ realZoom: 1.8 });
-    panZoom.getZoom.mockReturnValue(1.8);
+  it('clamps the page viewer too, so the preview predicts the page', async () => {
+    // PlantUML used to stretch to the column at any size: this 247x188 sequence
+    // drew at 2.36x in a 760px column while the editor showed it at 1:1.
+    panZoom.getSizes.mockReturnValue({ realZoom: 2.36 });
+    panZoom.getZoom.mockReturnValue(2.36);
 
     const wrapper = mountViewport(true);
     await wrapper.vm.attach();
 
-    // Inline gets neither the 0.875 nor the clamp: it renders at fit.
-    expect(panZoom.zoom).not.toHaveBeenCalled();
-    expect(panZoom.reset).toHaveBeenCalled();
+    // No 0.875 here -- the inline box is sized to the diagram's own ratio -- but
+    // the same 1:1 ceiling as every other surface.
+    expect(panZoom.zoom).toHaveBeenCalledTimes(1);
+    expect(panZoom.zoom).toHaveBeenCalledWith(1);
+  });
+
+  it('sizes the inline box to the diagram, not the column, when no px max-width is declared', async () => {
+    // Mermaid states its natural width as an inline `max-width: <n>px`; PlantUML's
+    // is a stylesheet `max-width: 100%`, so the viewBox is the only natural width
+    // available -- and without it the box takes the whole column, which is what
+    // magnified a 322x243 diagram to 2.36x on a published page.
+    // jsdom parses neither viewBox.baseVal nor layout, so both are supplied here.
+    Object.defineProperty(SVGSVGElement.prototype, 'viewBox', {
+      configurable: true,
+      get: () => ({ baseVal: { width: 322, height: 243 } }),
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get: () => 760,
+    });
+
+    try {
+      const wrapper = mountViewport(true);
+      await wrapper.vm.attach();
+
+      // The diagram's own 243px, not the 574px a 760px column would imply.
+      expect(wrapper.get('.diagram-viewport').attributes('style')).toContain('height: 243px');
+    } finally {
+      delete (SVGSVGElement.prototype as unknown as Record<string, unknown>).viewBox;
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
+    }
   });
 });

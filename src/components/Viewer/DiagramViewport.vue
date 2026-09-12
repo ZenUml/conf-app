@@ -226,12 +226,14 @@ export default {
       this.inlineAspectRatio = viewBox?.width > 0 && viewBox?.height > 0
         ? viewBox.width / viewBox.height
         : svgRect.width / svgRect.height;
-      // Only a px cap counts. Mermaid states its natural width as an inline
-      // `max-width: <n>px` and must not be upscaled past it; PlantUML's cap is a
-      // stylesheet `max-width: 100%`, i.e. no cap at all -- it has always stretched
-      // to the column, and parseFloat on "100%" would read 100 and squeeze a 322px
-      // diagram into a 100px box. `null` here means "no cap": take the full width.
-      this.inlineMaxWidth = readPxLength(getComputedStyle(svgElement).maxWidth);
+      // Nothing is ever drawn larger than natural size, so the box is capped at
+      // the diagram's own width. Mermaid states that width as an inline
+      // `max-width: <n>px`; PlantUML's is a stylesheet `max-width: 100%`, i.e. no
+      // cap at all, so its natural width comes from the viewBox instead. (Only a
+      // px value counts here -- parseFloat on "100%" would read 100 and squeeze a
+      // 322px diagram into a 100px box.)
+      this.inlineMaxWidth = readPxLength(getComputedStyle(svgElement).maxWidth)
+        ?? (viewBox?.width > 0 ? viewBox.width : null);
       this.syncInlineHeight();
       this.$refs.content.style.height = '100%';
       svgElement.style.height = '100%';
@@ -250,22 +252,23 @@ export default {
       // is sized to the diagram's own ratio, so shrinking there would render every
       // diagram on the page 12.5% smaller than it did before this viewport existed.
       if (this.isFullscreenMode || !this.isDisplayMode) this.panZoom.zoom(0.875);
-      this.clampEditorUpscale();
+      this.clampUpscale();
       this.panZoomDirty = false;
     },
     /**
-     * The editor preview is a tall fixed-height pane, and `fit: true` scales to
-     * fill it in BOTH axes -- so a small diagram is enlarged, not fitted. A
-     * 322x243 PlantUML sequence in an 850px pane came out around 3x, which reads
-     * as comically large type next to the source it was typed from.
+     * `fit: true` scales to fill the container in BOTH axes, so a small diagram in
+     * a big box is enlarged rather than fitted. A 247x188 PlantUML sequence came
+     * out at 1.4x in a 1218x850 editor pane and 2.4x in a 760px page column --
+     * comically large type next to the source it was typed from, and different on
+     * every surface.
      *
-     * Opening a diagram is not a request to magnify it: the initial view never
-     * goes past 1:1, and the + button is there for anyone who wants more. Only
-     * the editor is clamped -- the page viewer and fullscreen have filled their
-     * width since long before this viewport existed.
+     * Opening a diagram is not a request to magnify it. The initial view never
+     * goes past 1:1 anywhere, so the editor preview predicts the published page
+     * and both show what the author drew; the + button is there for anyone who
+     * wants more. Shrinking is untouched -- a diagram too wide for its box still
+     * fits itself in.
      */
-    clampEditorUpscale() {
-      if (this.isDisplayMode) return;
+    clampUpscale() {
       const realZoom = this.panZoom?.getSizes?.().realZoom;
       if (!(realZoom > 1)) return;
       this.panZoom.zoom(this.panZoom.getZoom() / realZoom);

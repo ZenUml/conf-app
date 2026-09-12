@@ -148,9 +148,9 @@ const FAILURE_MESSAGES = {
   space_not_eligible: "Choose a current shared space for the examples page.",
   space_lookup_failed: "We could not check that space. Try again shortly.",
   variant_not_configured: "The examples page is temporarily unavailable. Contact support if this continues.",
-  draft_create_failed: "We could not create a page in that space. Check the app's permission to add pages.",
-  custom_content_failed: "We could not save all example diagrams. Check the app's permissions in this space.",
-  publish_failed: "The examples were saved as a draft, but the page could not be published.",
+  draft_create_failed: "Confluence could not create the examples page. Try again shortly.",
+  custom_content_failed: "Confluence could not save all example diagrams. Try again shortly.",
+  publish_failed: "Confluence could not publish the examples page. Try again shortly.",
   invoke_failed: "The request could not be completed. Check the space for an examples page before trying again.",
   invalid_response: "We could not confirm the result. Check the space for an examples page before trying again.",
 };
@@ -212,7 +212,14 @@ export default {
     },
     errorMessage() {
       if (!this.result) return '';
-      return FAILURE_MESSAGES[this.result.error] || 'Could not create the examples page. Try again shortly, or insert a diagram from the + menu on a Confluence page.';
+      // Resolver failures include HTTP status. Permission guidance is useful
+      // only when Confluence actually returned an authentication/authorization
+      // status; a 5xx must remain actionable without misdiagnosing permissions.
+      if ([401, 403].includes(Number(this.result.status))) {
+        if (this.result.error === 'not_authorized') return FAILURE_MESSAGES.not_authorized;
+        return "Confluence denied the app permission to create the examples page. Check the app's permissions in this space and try again.";
+      }
+      return FAILURE_MESSAGES[this.result.error] || 'Confluence could not create the examples page. Try again shortly.';
     },
   },
   mounted() {

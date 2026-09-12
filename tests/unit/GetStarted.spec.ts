@@ -129,7 +129,8 @@ describe('GetStarted', () => {
     await flushPromises();
 
     expect(wrapper.find('.action-result.err').exists()).toBe(true);
-    expect(wrapper.text()).toContain('Check the app\'s permissions');
+    expect(wrapper.text()).toContain('Confluence could not save all example diagrams. Try again shortly.');
+    expect(wrapper.text()).not.toContain('permission');
     expect(wrapper.text()).toContain('An unfinished draft remains');
     expect(wrapper.text()).not.toContain('macro=graph status=400');
     expect(JSON.stringify(track.mock.calls)).not.toContain('draft-42');
@@ -146,6 +147,23 @@ describe('GetStarted', () => {
 
     expect(wrapper.text()).toContain('A Confluence site admin needs');
     expect(wrapper.text()).not.toContain('draft page');
+  });
+
+  it.each([401, 403])('gives permission guidance only for HTTP %i failures', async (status) => {
+    invokeMock.mockResolvedValueOnce({
+      ok: false,
+      status,
+      error: 'custom_content_failed',
+      orphanDraftPageId: 'draft-42',
+    });
+
+    const wrapper = mount(GetStarted);
+    await wrapper.find('#get-started-space-key').setValue('TEAM');
+    await wrapper.find('form.action-form').trigger('submit.prevent');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Check the app\'s permissions');
+    expect(wrapper.text()).toContain('An unfinished draft remains');
   });
 
   // Round 3 adversarial finding: the success/timeout messages interpolated

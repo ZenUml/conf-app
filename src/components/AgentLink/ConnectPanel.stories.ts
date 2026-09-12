@@ -7,7 +7,7 @@ import ConnectPanel from './ConnectPanel.vue'
 type Story = StoryObj<typeof ConnectPanel>
 
 const meta: Meta<typeof ConnectPanel> = {
-  title: 'Viewer/Agent Link/ConnectPanel',
+  title: 'Viewer/ConnectPanel',
   component: ConnectPanel,
   parameters: { layout: 'centered' },
   args: {

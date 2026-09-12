@@ -129,6 +129,10 @@ jobs:
           sentry-dsn: ${{ vars.SENTRY_DSN }}
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
           page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_STG }}
+          # The Pages publish runs below, in parallel with the Forge deploy
+          # (ADR-0007 §3, staging only — production keeps backend-before-
+          # frontend in release.yml).
+          skip-publish: 'true'
 
       # full/diagramly: strip the asyncapi-only modules. They live in
       # manifest.yml so the asyncapi variant can ship them, but must NOT leak
@@ -333,11 +337,23 @@ jobs:
           name: manifest-lite-staging
           path: manifest.yml
 
-      # Forge deploy (all variants)
-      - name: Deploy to Forge Staging
+      # Forge deploy (all variants), with the Cloudflare Pages publish running
+      # beside it. Staging has no ordering contract between the two (nothing
+      # in production consumes it), so the ~30s publish hides under the ~90s
+      # Forge deploy. Both exit codes are checked; wrangler.toml (left by the
+      # wrangler-publish action for this) is removed afterwards either way.
+      - name: Deploy to Forge Staging (Pages publish in parallel)
         env:
           MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          set -uo pipefail
+          trap 'rm -f wrangler.toml' EXIT
+          ( pnpm exec wrangler pages deploy dist --branch production --project-name=${{ needs.resolve.outputs.project }} \
+              > pages-publish.log 2>&1; echo $? > pages-publish.exit ) &
+          PAGES_PID=$!
+          set -e
           pnpm forge:deploy:disable-analytics
           case "${{ needs.resolve.outputs.variant }}" in
             full)
@@ -361,6 +377,9 @@ jobs:
               ;;
           esac
           pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
+          wait "$PAGES_PID" || true
+          echo "--- wrangler pages deploy (ran in parallel) ---"; cat pages-publish.log
+          [ "$(cat pages-publish.exit)" = "0" ] || { echo "::error::Cloudflare Pages publish failed (see log above)"; exit 1; }
       - name: Set PAGE_CAPTURE_SECRET in Forge Staging
         if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}
         run: |

@@ -39,6 +39,23 @@ inputs:
     description: 'Comma-separated Atlassian subdomain prefixes to capture (PAGE_CAPTURE_ALLOWED_DOMAINS). If empty, the value is not updated on Cloudflare Pages.'
     required: false
     default: ''
+  prebuilt-dist:
+    description: >-
+      Path to a .tgz of an already-built dist/ (the dist-prod-<variant>.tgz
+      asset the main build attaches to every draft release — ADR-0007 §3).
+      When set, `pnpm build` is skipped and the archive is extracted to dist/
+      instead; vite-mixpanel-token and vite-app-version are then ignored, since
+      both were baked in when the archive was built. Empty = build here.
+    required: false
+    default: ''
+  skip-publish:
+    description: >-
+      'true' to stop after the D1 migrations and leave wrangler.toml in place,
+      so the caller can run `wrangler pages deploy dist` itself — e.g. in
+      parallel with a Forge deploy (staging-deploy.yml does). The caller then
+      owns the cleanup of wrangler.toml.
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -54,12 +71,20 @@ runs:
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
     - name: pnpm build
+      if: inputs.prebuilt-dist == ''
       run: pnpm build:${{ inputs.license }}
       shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
         VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
         VITE_APP_VERSION: ${{ inputs.vite-app-version }}
+    - name: Extract the prebuilt dist
+      if: inputs.prebuilt-dist != ''
+      run: |
+        rm -rf dist && mkdir -p dist
+        tar -xzf "${{ inputs.prebuilt-dist }}" -C dist
+        echo "dist/ restored from ${{ inputs.prebuilt-dist }} ($(du -sh dist | cut -f1), $(find dist -type f | wc -l) files)"
+      shell: bash
     - name: Sync runtime env vars to Cloudflare Pages
       run: |
         printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
@@ -111,12 +136,15 @@ runs:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
     - name: Publish
+      if: inputs.skip-publish != 'true'
       run: pnpm exec wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
     - name: Cleanup
-      if: always()
+      # With skip-publish the caller still needs wrangler.toml for its own
+      # `pages deploy`, so it cleans up afterwards.
+      if: always() && inputs.skip-publish != 'true'
       run: rm -f wrangler.toml
       shell: bash

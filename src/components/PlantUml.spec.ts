@@ -145,6 +145,23 @@ describe('PlantUml pan/zoom viewport', () => {
     expect(svg.attributes('height')).toBeUndefined();
   });
 
+  it('offers a complete, copyable snippet in the empty state', async () => {
+    (window as { forgeGlobal?: unknown }).forgeGlobal = { forgeContext: { extension: {} } };
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: '' };
+
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(wrapper.find('pre').exists()).toBe(true));
+
+    // Wrapping the template into `.plantuml-root` for the viewport dropped the
+    // closing line here, and every spec still passed: the onboarding snippet is
+    // static markup no other test reads. A user who copied it got an
+    // unterminated block. Assert the shape rather than the exact text, so this
+    // guards the class of regression and not one byte of copy.
+    const snippet = wrapper.get('pre').text();
+    expect(snippet.startsWith('@startuml')).toBe(true);
+    expect(snippet.trimEnd().endsWith('@enduml')).toBe(true);
+  });
+
   it('waits for layout instead of attaching to a 0 x 0 SVG', async () => {
     (window as { forgeGlobal?: unknown }).forgeGlobal = { forgeContext: { extension: {} } };
     // A Forge iframe can still be unlaid-out when the render lands; attaching

@@ -359,6 +359,115 @@ jobs:
   # It also requires the PR run's E2E jobs to have RUN and passed — a draft
   # PR's run is green with its E2E skipped, which proves nothing. Anything it
   # cannot establish (no merge parent, no run, jobs missing) means no reuse.
+  select:
+    # PR runs only (ADR-0007 §5): decide which E2E specs this PR needs from
+    # the files it changes, deterministically, via the path→tag map in
+    # tests/e2e-tests/config/impact-map.mjs. `@smoke` always runs; a shared or
+    # unmapped file makes the run unselective. The Lite E2E jobs below take
+    # `grep` from here and add "(selected)" to their names when it is set, so
+    # a selected run is visible in the job list — and never matches
+    # reuse-check's job-name filter, so `main` always runs the full suite.
+    # Skipped on `main` (outputs read as empty → full suite). The ranked
+    # reasons land in the job summary.
+    name: "Select E2E for this PR"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      grep: ${{ steps.select.outputs.grep }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - name: Select specs from the PR's changed files
+        id: select
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # The PR's file list from the API (base...head), not a checkout diff:
+          # the merge ref's depth games are not worth it. Paginated: up to 3000.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > changed-files.txt
+          node scripts/e2e-select.mjs --github-output --stdin < changed-files.txt > selection.json
+          MODE=$(jq -r .mode selection.json); GREP=$(jq -r .grep selection.json)
+          {
+            if [ "$MODE" = "selected" ]; then
+              echo "### E2E selection: \`--grep=$GREP\`"
+            else
+              echo "### E2E selection: full suite"
+            fi
+            echo; echo "<details><summary>$(wc -l < changed-files.txt) changed files</summary>"; echo; echo '```'
+            jq -r '.reasons[]' selection.json; echo '```'; echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "mode=$MODE grep=$GREP"
+      - name: Keep the file list for the AI pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-selection-${{ github.run_id }}
+          path: |
+            changed-files.txt
+            selection.json
+          retention-days: 3
+
+  select-ai:
+    # ADR-0007 §5, the AI half: for the first weeks it only LOGS what a model
+    # would add to the deterministic selection (never what it would remove),
+    # so the map can be widened from evidence. It never changes what runs:
+    # nothing reads its output. Runs only when the ANTHROPIC_API_KEY secret is
+    # set — the step exits early otherwise (secrets are not readable in a job
+    # `if`). Off the critical path: nothing depends on it.
+    name: "Select E2E (AI, log only)"
+    needs: [select]
+    if: github.event_name == 'pull_request' && needs.select.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: e2e-selection-${{ github.run_id }}
+      - name: Ask what the deterministic selection would miss
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::notice::ANTHROPIC_API_KEY is not set — the AI selection pass is skipped (the deterministic selection is unaffected)"
+            exit 0
+          fi
+          TAGS=$(grep -o "'@[a-z-]*'" tests/e2e-tests/config/tags.ts | tr -d "'" | sort -u | tr '\n' ' ')
+          # The diff, capped: the model needs the shape of the change, not all of it.
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" -H "Accept: application/vnd.github.diff" > pr-full.diff
+          head -c 80000 pr-full.diff > pr.diff
+          SYSTEM="You review a pull request to a Confluence diagramming app and judge which Playwright E2E tags its changes could affect. The tag vocabulary is closed: $TAGS. A deterministic path-to-tag map has already made a selection; you only propose tags it MISSED, never removals. Answer with one JSON object and nothing else: {\"add\": [\"@tag\"], \"why\": {\"@tag\": \"one short sentence\"}}. An empty add list is a fine answer."
+          jq -n --arg system "$SYSTEM" \
+                --rawfile files changed-files.txt --rawfile selection selection.json --rawfile diff pr.diff \
+                '{model: "claude-opus-5", max_tokens: 1500, output_config: {effort: "low"}, system: $system,
+                  messages: [{role: "user", content: ("Changed files:\n" + $files + "\nDeterministic selection:\n" + $selection + "\nDiff (may be truncated):\n" + $diff)}]}' > request.json
+          curl -sS https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" -H "x-api-key: $ANTHROPIC_API_KEY" -H "anthropic-version: 2023-06-01" \
+            -d @request.json > response.json
+          TEXT=$(jq -r '[.content[]? | select(.type == "text") | .text] | join("")' response.json)
+          STOP=$(jq -r '.stop_reason // .error.type // "?"' response.json)
+          ADD=$(printf '%s' "$TEXT" | sed -n 's/.*\({.*}\).*/\1/p' | jq -c '.add // []' 2>/dev/null || echo '[]')
+          {
+            echo "### AI selection pass (log only, stop_reason: $STOP)"
+            echo; echo "Deterministic: \`$(jq -r .mode selection.json)\` \`$(jq -r .grep selection.json)\`"
+            echo; echo "Would add: \`$ADD\`"; echo; echo '```'; printf '%s\n' "$TEXT" | head -c 4000; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "would add: $ADD"
+
   reuse-check:
     name: "Reuse PR E2E?"
     if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -396,6 +505,8 @@ jobs:
                   --jq '.workflow_runs[0].id // empty')
           [ -n "$RUN" ] || no "no successful pull_request run for $H"
           # Every Lite E2E shard of the three suites must have RUN and passed.
+          # A selected PR run (ADR-0007 §5) names its jobs "E2E: Lite (selected)"
+          # and so never matches: only a full-suite PR run can be reused.
           # `skipped` is what a draft PR's run shows — and a suite that never
           # ran covers nothing. Counted per suite so a suite missing entirely is
           # also caught.
@@ -448,13 +559,17 @@ jobs:
       && needs.staging-lite.result == 'success'
       && needs.e2e-auth-lite.result == 'success'
       && needs.reuse-check.outputs.reuse != 'true'
-    needs: [staging-lite, e2e-auth-lite, reuse-check]
-    name: "E2E: Lite"
+      && (needs.select.result == 'success' || needs.select.result == 'skipped')
+    needs: [staging-lite, e2e-auth-lite, reuse-check, select]
+    # "(selected)" when the PR's selection narrowed the suite (see `select`).
+    name: "E2E: Lite${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
       suite: insert
       auth-artifact: auth-state-pre-lite-stg
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ needs.select.outputs.grep }}
       # 10 shards, not the default 5. `--shard` splits the test list
       # contiguously, and the byline tests are the expensive ones (a page
       # creation each): under 8 the split put byline-create #2, byline-paywall
@@ -510,13 +625,17 @@ jobs:
       && needs.staging-lite.result == 'success'
       && needs.e2e-auth-lite.result == 'success'
       && needs.reuse-check.outputs.reuse != 'true'
-    needs: [staging-lite, e2e-auth-lite, reuse-check]
-    name: "E2E: Lite DrawIO Publish"
+      && (needs.select.result == 'success' || needs.select.result == 'skipped')
+    needs: [staging-lite, e2e-auth-lite, reuse-check, select]
+    # "(selected)" when the PR's selection narrowed the suite (see `select`).
+    name: "E2E: Lite DrawIO Publish${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
       suite: graph-publish
       auth-artifact: auth-state-pre-lite-stg
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ needs.select.outputs.grep }}
       # graph-edit.spec.ts declares `test.describe.configure({ mode: 'parallel' })`,
       # so `--shard=N/M` splits its 8 tests across shards instead of stacking all
       # of them on shard 1 (which made this job an 8-minute critical path).
@@ -552,13 +671,17 @@ jobs:
       && needs.staging-lite.result == 'success'
       && needs.e2e-auth-lite.result == 'success'
       && needs.reuse-check.outputs.reuse != 'true'
-    needs: [staging-lite, e2e-auth-lite, reuse-check]
-    name: "E2E: Lite render"
+      && (needs.select.result == 'success' || needs.select.result == 'skipped')
+    needs: [staging-lite, e2e-auth-lite, reuse-check, select]
+    # "(selected)" when the PR's selection narrowed the suite (see `select`).
+    name: "E2E: Lite render${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
       suite: render
       auth-artifact: auth-state-pre-lite-stg
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ needs.select.outputs.grep }}
       artifact-suffix: lite-stg-render
       # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
       # creates any fixture missing from config/render-fixtures.json, and

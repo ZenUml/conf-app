@@ -345,9 +345,12 @@ jobs:
           RETRY_FLAG=""
           [ -n "${{ inputs.retries }}" ] && RETRY_FLAG="--retries=${{ inputs.retries }}"
           # Optional --grep tag filter (empty input → whole suite). Playwright
-          # shards the FILTERED list, so a filtered run still spreads evenly.
+          # shards the FILTERED list, so a filtered run still spreads evenly —
+          # and a narrow selection can leave a shard, or a whole suite (the
+          # DrawIO Publish one is a single spec), with no test at all, which
+          # Playwright otherwise reports as a failure ("No tests found").
           GREP_FLAG=""
-          [ -n "$GREP" ] && GREP_FLAG="--grep=$GREP"
+          [ -n "$GREP" ] && GREP_FLAG="--grep=$GREP --pass-with-no-tests"
           # M comes from strategy.job-total (GitHub's own count of the current
           # matrix), not a second hand-tracked number — see the note above
           # `jobs:`. With shard-matrix='[1]' this is `--shard=1/1`, i.e. one

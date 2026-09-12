@@ -160,7 +160,10 @@ function safeFailureReason(result) {
 }
 
 function examplesResult(result) {
-  if (result?.ok && result.pageId) return result.alreadyExists ? "already_exists" : "created";
+  const pageId = result?.pageId;
+  if (result?.ok && (typeof pageId === "string" || typeof pageId === "number") && /^[1-9]\d*$/.test(String(pageId))) {
+    return result.alreadyExists ? "already_exists" : "created";
+  }
   if (result?.error === "in_progress") return "in_progress";
   if (result?.ok && result.enrolled) return "enrolled";
   return "failed";

@@ -68,6 +68,7 @@ describe('GetStarted', () => {
     [{ ok: true, enrolled: true }, 'enrolled'],
     [{ ok: false, error: 'space_not_found', detail: 'private response' }, 'failed'],
     [undefined, 'failed'],
+    [{ ok: true, pageId: '0' }, 'failed'],
   ])('records the observed result without treating an unresolved request as creation: %j', async (response, outcome) => {
     invokeMock.mockResolvedValueOnce(response);
     const wrapper = mount(GetStarted);

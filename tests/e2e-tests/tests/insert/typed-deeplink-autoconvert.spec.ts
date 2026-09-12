@@ -94,7 +94,7 @@ function describeConversion(conv: EditorConversion): string {
 // there — the paste stays a plain link, Confluence's link toolbar covers the
 // editor, and the next click times out at 60s. That reaped Diagramly's shard at
 // the 8-minute job cap three runs in a row on 2026-08-16 (run 31937067487).
-test.describe(`Typed diagram deeplink autoConvert - ${testConfig.productType}`, () => {
+test.describe(`Typed diagram deeplink autoConvert - ${testConfig.productType}`, { tag: ['@editor', '@graph', '@deeplink'] }, () => {
   for (const c of CASES) {
     const applies = testConfig.isLite && testConfig.macros.includes(c.requires);
 

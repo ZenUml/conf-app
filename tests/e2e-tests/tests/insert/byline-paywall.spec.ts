@@ -42,7 +42,7 @@ const OVER_LIMIT_MOCKS = {
   mockSpacePaid: 'false',
 };
 
-test.describe.serial(`Byline create is not paywalled - ${testConfig.productType}`, () => {
+test.describe.serial(`Byline create is not paywalled - ${testConfig.productType}`, { tag: ['@byline', '@paywall'] }, () => {
   // The byline entry ships on Lite only (manifest strip in staging-deploy.yml),
   // and the paywall is Lite-only, so both gates are the same gate here.
   test.skip(!testConfig.isForge, 'byline is Forge-only');

@@ -62,7 +62,7 @@ const ASYNCAPI_MACRO_KEY = 'zenuml-asyncapi-macro';
  *  string that proves the whole chain resolved rather than an iframe existing. */
 const DEFAULT_SPEC_TITLE = 'Example AsyncAPI';
 
-test.describe.serial(`Byline AsyncAPI create + place - ${testConfig.productType}`, () => {
+test.describe.serial(`Byline AsyncAPI create + place - ${testConfig.productType}`, { tag: ['@byline', '@asyncapi', '@deeplink'] }, () => {
   test.skip(!testConfig.isForge, 'byline is Forge-only');
   test.skip(!testConfig.isLite, 'the Diagrams byline entry ships on Lite only');
   test.skip(

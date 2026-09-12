@@ -22,7 +22,7 @@ import {
 } from '../../helpers/CloseGuardHelper.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
 
-test.describe('Sequence — Create flow', () => {
+test.describe('Sequence — Create flow', { tag: ['@fullscreen', '@sequence'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence not in profile');
 

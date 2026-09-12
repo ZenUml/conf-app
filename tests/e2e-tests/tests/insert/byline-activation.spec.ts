@@ -25,7 +25,7 @@ const LIVE = process.env.BYLINE_ACTIVATION_LIVE === '1';
 // (test pages are never deleted); the property is added/removed around the test.
 const PAGE_ID = process.env.BYLINE_PAGE_ID || '';
 
-test.describe('byline activation nudge', () => {
+test.describe('byline activation nudge', { tag: ['@byline', '@page-banner', '@analytics'] }, () => {
   test.skip(!LIVE, 'needs this branch deployed + BYLINE_ACTIVATION_LIVE=1');
   test.skip(!PAGE_ID, 'set BYLINE_PAGE_ID to a published page on the target site');
 

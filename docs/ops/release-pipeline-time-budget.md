@@ -118,8 +118,53 @@ Merge-to-Lite-draft, by run:
 | 34655187796 | 7m58s | ADR-0006 |
 | 34659544917 | 8m48s | `now` lane by accident + 8-shard regression |
 | **34660754910** | **4m42s** | reuse hit + 10 shards (ADR-0007 §2) |
+| 34661075623 | 10m12s (12m20s from push) | another author's merge: reuse miss, pending 2m10s behind the previous main run, runner queues up to 172s while a PR run overlapped, one flake retry on the tail shard |
+| 34661804793 | 8m30s (10m49s from push) | reuse miss with `build-prod` (ADR-0007 §3), pending 2m19s behind the previous main run, Lite shards queued 46–97s for runners |
+| **34662255935** (attempt 2) | **3m42s** | reuse hit after a queue cancellation and a hand re-run — no overlapping run, no runner queue |
 
-On a reuse miss (main moved between the PR run and the merge) the Lite draft should land at roughly Deploy: Lite + ~3m ≈ 7m; that case has not been measured yet.
+Times in the first column are from the run's first job; the bracketed figure
+adds the time the run sat **pending behind the previous main run** on the
+workflow's concurrency group (see below) — that wait is real merge-to-live
+time, but it is not this pipeline's to shorten.
+
+### Run 34661804793 — first run with `build-prod`, a reuse miss (Lite draft 8m30s)
+
+Main run [34661804793](https://github.com/ZenUml/conf-app/actions/runs/34661804793) (the merge of #672, 2026-09-12): `main` had moved between #672's PR run and its merge (#671 landed in between — PR-head tree ≠ merge tree), so this is the reuse-miss case predicted above at ~7m. It measured 8m30s from the first job, and the run had also waited 2m19s pending behind #671's run before its first job was created.
+
+| t (min) | Job | Note |
+|---|---|---|
+| 0.1 → 1.8 | Build prod: lite / full / diagramly / asyncapi | 1.2–1.6m each at t=0, all done before any deploy finished; drafts carry `dist-prod-<variant>.tgz` (verified on the four `v2026.09.120031-*` drafts) |
+| 0.1 → 3.4 | Deploy: Lite | 3m18s (Pages publish beside the Forge deploy) |
+| 3.4 → 5.0 | E2E: Lite shards created → started | **queued 46–97s for runners**: Lite 10 + DrawIO 5 + render 1 + Diagramly 4 + AsyncAPI 3 = 23 shards against the cap of 20 (peak 19 concurrent) |
+| 5.0 → 8.2 | E2E: Lite / shard 9/10 | 3m12s of work after its 97s queue — the tail; shard 3/10 2m42s, 2/10 2m48s |
+| 8.3 → 8.5 | Draft: Lite | **8m30s** from first job, 10m49s from push |
+| 8.3 → 11.2 | E2E: Full (default lane) | heaviest shard 2m54s |
+| 11.2 → 11.4 | Draft: Full | AsyncAPI's at 5m24s, Diagramly's at 6m48s |
+
+The runner queue on the Lite shards is the difference between this and the ~7m prediction. The next lever for a miss is not more shards but fewer: Diagramly's and AsyncAPI's shards are created at the same moment as Lite's and compete for the same 20 slots (ADR-0007 §5's selection will cut that fan-out on PR runs; on `main` the four apps still fan out together).
+
+### Run 34661075623 — another author's merge under load (Lite draft 10m12s) and an unexplained `Draft: Full` 403
+
+Main run [34661075623](https://github.com/ZenUml/conf-app/actions/runs/34661075623) (the merge of #671, not part of this series) is the first measurement of the pipeline as other people meet it: reuse miss (their PR run predated #670's merge), pending 2m10s behind #670's run, and #672's PR run overlapping from t≈2.5m, which pushed runner queues on the Lite shards to 99–172s. Its tail shard (3/10, 4m41s) also carried the first flake-ranking data point: `edit-graph.spec.ts`'s DrawIO publish modal stayed open past 60s once and passed on retry. Lite draft at 10m12s from the first job.
+
+`Draft: Full` then failed **twice** (attempt 1 at 00:31:49Z, and the human re-run at 00:43:29Z) with `Error 403: Resource not accessible by integration` from `ncipollo/release-action` on *create a release*. Same action SHA (`339a818`), same job-level `contents: write` (the job header prints it), same actor, same tag pattern as the `Draft: Full` of run 34661804793 that succeeded at 00:43:14Z — fifteen seconds earlier — and the three other drafts of the same run had been created fine at 00:24–00:28Z. None of the 60 previous `main` runs had this failure. The only variable left is the target commit (`c1315673`, then no longer the tip of `main`), and a direct probe of that from the agent container is refused by its GitHub proxy ("Creating, editing, or deleting releases is not permitted for this session type"), so the cause is **not established**. No fix was made; the tree's Full draft was superseded by the next merge's. If it recurs, capture the exact `target_commitish` and whether it was still the branch tip.
+
+### Run 34662255935 — cancelled while pending, then resurrected
+
+Main run [34662255935](https://github.com/ZenUml/conf-app/actions/runs/34662255935) (the merge of #673) entered the workflow's concurrency group at 00:37:31Z, pending behind #672's run. At 00:38:59Z the human re-run of #671's run (attempt 2) entered the same group, and GitHub — which keeps at most **one** pending run per group — cancelled #673's run at 00:39:01Z with **zero jobs started**. The tip of `main` then had no staging deploy and no drafts, and nothing would have produced them until the next merge. The GitHub docs describe exactly this (`queue: single`, the default: "any existing pending job or workflow run in the same group is canceled and replaced"); `queue: max` would keep every pending run, but it is not allowed next to `cancel-in-progress: true`, which the same block needs on PR branches.
+
+The fix is `e2e-rerun.yml`'s `resurrect` job (the workflow is now named **Run recovery**): on a `main` push run that ended `cancelled` with no job started, whose commit is still the branch tip and has no other pending, running or green run, it re-runs the run. A burst of merges still collapses to the newest pending run — that is the desirable case, its tree contains the older ones — and only the re-run-of-an-older-run case is undone. Re-run by hand at 01:19Z to validate the mechanism (`POST …/runs/34662255935/rerun` → 201 on a never-started run) and to get the tip its drafts. Attempt 2, with nothing else running:
+
+| t (min) | Job | Note |
+|---|---|---|
+| 0.0 → 0.2 | Reuse PR E2E? | merge tree == PR-head tree of run 34661845980 → `reuse=true` |
+| 0.1 → 1.8 | Build prod ×4 | all done before any deploy |
+| 0.1 → 3.5 | Deploy: Lite | 3m24s |
+| 3.5 → 3.7 | **Draft: Lite** | **3m42s** from first job — the fastest Lite draft so far (4m42s on the first reuse hit; the difference is Deploy: Lite, 3m48s there) |
+| 3.5 → 6.4 | E2E: Full (default lane) | started the moment Lite's skipped suites resolved; heaviest shard 2m54s |
+| 5.2 / 6.7 / 6.8 | Draft: AsyncAPI / Full / Diagramly | Full's draft at **6m42s** |
+
+Peak 13 concurrent jobs, no shard queued (`started_at − created_at` ≤ 3s on every shard). All four drafts (`v2026.09.120119-*`) carry `dist-prod-<variant>.tgz`; Lite's body names the reused PR run. This is what a quiet-hour merge of a rebased branch now costs from first job to a releasable Lite draft: under four minutes.
 
 ## How to re-measure
 
@@ -129,7 +174,11 @@ gh api repos/ZenUml/conf-app/actions/runs/<run-id>/jobs --paginate --jq '.jobs[]
 ```
 
 Sort by `started_at`; the critical path is the chain of jobs where each starts
-right after the previous one ends. `started_at − created_at` above ~20s on a
+right after the previous one ends. Measure from the first job's `created_at`,
+not the run's `run_started_at`: `main` runs are serialised on the workflow's
+concurrency group, and a run queued behind another sits pending for the whole
+of the previous run (2m10s and 2m19s on the two measured cases) before its
+first job exists. Report both figures when they differ. `started_at − created_at` above ~20s on a
 non-auth job means the account's runner concurrency cap is queueing jobs — the
 first sign that more shards would stop paying.
 
@@ -165,8 +214,9 @@ Each row lands as its own PR and gets its measurement added here.
 | Full's E2E runs after Lite's by default (`[full-first]` / `FULL_DRAFT_LANE=now` for the parallel lane); Full/Diagramly 4 shards; byline-create tests independent; env-gated byline-activation spec not collected in CI | landed (#669); the first main run took the `now` lane by accident, see below | peak 21 jobs instead of 27; Lite tail ~3m30s → ~3m (regressed to 4m18s at 8 shards; fixed by 10 shards in the next PR) |
 | `main` reuses a green PR run's E2E when the merge tree is identical (`reuse-check` job); Lite 10 shards | landed (#670); **measured: Lite draft 4m42s** on run 34660754910, heaviest Lite shard 2m54s | Lite draft ~8m → ~4m on a hit |
 | `main` attaches production bundles to drafts (`build-prod` matrix at t=0, one shared version string per run); `release.yml` downloads and deploys them, building only when a draft has no asset; Forge/Pages parallel on staging | landed; staging parallel publish measured on branch run 34660908646: Deploy: Lite 3m26s (Cloudflare step 75s, was 94–101s) | release deploy gate ~3.5m → ~2.5m (build skipped; install, secrets, D1, publish and the Forge deploy remain) |
-| Failed E2E shard re-run once (`e2e-rerun.yml`, `workflow_run` on attempt 1, only when every failed job is an E2E shard/bootstrap/merge/preview); weekly flake ranking (`e2e-flake-ranking.yml`, merges the week's blob reports and ranks tests by passed-on-retry and failed) | landed | fewer red re-runs; a target list for flake fixes |
-| Tag taxonomy + path→tag map; deterministic PR test selection; AI pass logs only | last | PR E2E runs related specs only |
+| Failed E2E shard re-run once (`e2e-rerun.yml`, `workflow_run` on attempt 1, only when every failed job is an E2E shard/bootstrap/merge/preview); weekly flake ranking (`e2e-flake-ranking.yml`, merges the week's blob reports and ranks tests by passed-on-retry and failed) | landed (#673); `resurrect` job added after run 34662255935 was cancelled while pending (see above) | fewer red re-runs; a target list for flake fixes; no tip of `main` left without drafts |
+| Tag taxonomy (`tests/e2e-tests/config/tags.ts`: surface × diagram type × concern) on all 53 top-level blocks of the 52 specs, policed by `tests/unit/e2eTags.spec.ts` | landed (the PR after #673) | no timing change by itself — `--grep @smoke` still selects the same 7 tests |
+| Path→tag map; deterministic PR test selection; AI pass logs only | next | PR E2E runs related specs only |
 | Release `@smoke` counts as PVT (release-app skill) | landed | one browser session fewer per release |
 | 7-day Full soak | unchanged | revisit with data |
 

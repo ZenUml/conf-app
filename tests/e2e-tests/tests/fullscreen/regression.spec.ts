@@ -41,7 +41,7 @@ function runCommand(cmd: string): { exitCode: number; output: string } {
   }
 }
 
-test.describe('Regression baseline', () => {
+test.describe('Regression baseline', { tag: ['@fullscreen', '@viewer', '@sequence'] }, () => {
   test.skip(
     process.env.RUN_REGRESSION !== 'true',
     'Skipped unless RUN_REGRESSION=true (regression cases shell out to other suites — slow)',

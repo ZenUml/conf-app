@@ -3,7 +3,7 @@ import { createMacroTest } from '../../fixtures/macro-test.js';
 const test = createMacroTest('sequence');
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Sequence Diagram Tests', () => {
+test.describe('Sequence Diagram Tests', { tag: ['@viewer', '@editor', '@sequence'] }, () => {
   test('should display sequence diagram correctly', async ({ macroPage }) => {
     const sequenceFrame = macroPage.getSequenceMacroFrame();
     await macroPage.assertMacroContent(

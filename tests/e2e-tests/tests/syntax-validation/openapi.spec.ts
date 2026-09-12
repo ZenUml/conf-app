@@ -11,7 +11,7 @@ import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
  * - Validates error detection and error clearing for OpenAPI specifications
  */
 
-test.describe('OpenAPI Syntax Error Detection', () => {
+test.describe('OpenAPI Syntax Error Detection', { tag: ['@editor', '@openapi'] }, () => {
   // Disable retries for this test suite
   //test.describe.configure({ retries: 0 });
 

@@ -57,5 +57,6 @@ data on lite hotfixes within 7 days of a release); no in-shard `workers: 2`
 | 1, 4, plus the shard/serial-group changes measured in `build-test-deploy.yml` | #669 |
 | 2 (`reuse-check` job; Lite at 10 shards after #669's split measured 4m06s on its tail shard) | the PR after #669 |
 | 3 (`version` + `build-prod` jobs attach `dist-prod-<variant>.tgz` to each draft; `release.yml` downloads it; staging publishes Pages beside the Forge deploy) | the PR after #670 |
-| 6 (`e2e-rerun.yml`: one automatic re-run when every failed job is an E2E job, attempt 1 only; `e2e-flake-ranking.yml`: Mondays, from the week's blob reports) | the PR after #672 |
-| 5 | last, taxonomy first |
+| 6 (`e2e-rerun.yml`: one automatic re-run when every failed job is an E2E job, attempt 1 only; `e2e-flake-ranking.yml`: Mondays, from the week's blob reports) | #673; its `resurrect` job (a `main` run cancelled while pending, commit still the tip → re-run) in the PR after #673 |
+| 5, first half (closed tag taxonomy in `tests/e2e-tests/config/tags.ts`, every spec's top-level blocks tagged, `tests/unit/e2eTags.spec.ts` polices it) | the PR after #673 |
+| 5, second half (path→tag map, PR selection, AI logging pass) | next |

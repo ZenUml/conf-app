@@ -11,7 +11,7 @@ import { testConfig } from '../../config/test-config.js';
 import { insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';
 import { dispatchSyntheticBeforeunloadOnPage } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Page-level actions', () => {
+test.describe('Page-level actions', { tag: ['@fullscreen', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'need at least one macro to seed the page');
 

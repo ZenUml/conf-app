@@ -77,6 +77,11 @@ export class MacroPage {
    *     rendering at ratio 53.05 against an intrinsic 53.02). Skew is symmetric,
    *     so a squash on either axis fails identically, and the check is skipped
    *     when the SVG carries no usable viewBox since no intrinsic ratio exists.
+   *     `data-intrinsic-ratio` covers the case where there IS an intrinsic ratio
+   *     but no viewBox to read it from: svg-pan-zoom deletes that attribute when
+   *     the pan/zoom viewport attaches, which would otherwise silently retire
+   *     this check on Mermaid and PlantUML -- the very renderers it was written
+   *     for. DiagramViewport stamps the ratio before the attribute goes.
    */
   async assertMacroRendersDiagram(
     frame: FrameLocator,
@@ -94,11 +99,13 @@ export class MacroPage {
         const measured = (els as SVGSVGElement[]).map((el) => {
           const rect = el.getBoundingClientRect();
           const box = el.viewBox?.baseVal;
+          const stamped = Number(el.getAttribute('data-intrinsic-ratio'));
           return {
             width: rect.width,
             height: rect.height,
             viewBoxWidth: box?.width ?? 0,
             viewBoxHeight: box?.height ?? 0,
+            intrinsicRatio: Number.isFinite(stamped) && stamped > 0 ? stamped : 0,
             preserveAspectRatio: el.getAttribute('preserveAspectRatio'),
           };
         });
@@ -124,8 +131,11 @@ export class MacroPage {
 
     expect(geometry.width, `rendered diagram width is degenerate: ${describe}`).toBeGreaterThan(minWidth);
 
-    if (geometry.viewBoxWidth > 0 && geometry.viewBoxHeight > 0) {
-      const intrinsic = geometry.viewBoxWidth / geometry.viewBoxHeight;
+    const hasViewBox = geometry.viewBoxWidth > 0 && geometry.viewBoxHeight > 0;
+    if (hasViewBox || geometry.intrinsicRatio > 0) {
+      const intrinsic = hasViewBox
+        ? geometry.viewBoxWidth / geometry.viewBoxHeight
+        : geometry.intrinsicRatio;
       const rendered = geometry.width / geometry.height;
       const skew = Math.max(intrinsic / rendered, rendered / intrinsic);
       expect(

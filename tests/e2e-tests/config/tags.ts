@@ -56,6 +56,11 @@ export const CONCERN_TAGS = [
   '@ai',
   // The Lite -> Full conversion pipeline.
   '@conversion',
+  // The shared pan/zoom viewport: the zoom toolbar, drag-to-pan, wheel zoom and
+  // the 1:1 ceiling. Cross-cutting because one control drives three engines --
+  // svg-pan-zoom for Mermaid/PlantUML, mxGraph for Graph, a CSS transform for
+  // Sequence -- so a change to any of them needs the same specs.
+  '@viewport',
 ] as const;
 
 export const ALL_TAGS: readonly string[] = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS];

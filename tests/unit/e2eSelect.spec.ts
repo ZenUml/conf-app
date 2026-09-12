@@ -50,8 +50,9 @@ describe('select()', () => {
   it('always includes @smoke and unions the tags of the changed files', () => {
     const r = select(['src/components/Mermaid.vue', 'src/utils/paywall/gate.ts']);
     expect(r.mode).toBe('selected');
-    expect(r.tags).toEqual(['@editor', '@mermaid', '@paywall', '@smoke', '@viewer']);
-    expect(r.grep).toBe('@editor|@mermaid|@paywall|@smoke|@viewer');
+    // Mermaid.vue carries @viewport too: it drives the shared pan/zoom viewport.
+    expect(r.tags).toEqual(['@editor', '@mermaid', '@paywall', '@smoke', '@viewer', '@viewport']);
+    expect(r.grep).toBe('@editor|@mermaid|@paywall|@smoke|@viewer|@viewport');
   });
 
   it('runs everything for a shared file, an unmapped file, or no files', () => {

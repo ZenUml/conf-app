@@ -14,7 +14,7 @@ const createdPageIds: string[] = [];
 // only if a release must not go out without it — every tagged test runs against
 // production on every release of every variant, so the tier's total runtime is
 // the release's tail.
-test.describe(`Smoke Test - ${macroType}`, { tag: '@smoke' }, () => {
+test.describe(`Smoke Test - ${macroType}`, { tag: ['@editor', '@viewer', '@sequence', '@smoke'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {

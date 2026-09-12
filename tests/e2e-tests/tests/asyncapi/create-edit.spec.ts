@@ -91,7 +91,7 @@ async function publishAndExpectClose(page: import('@playwright/test').Page) {
   await expect(page.locator(MODAL)).toBeHidden({ timeout: 60_000 });
 }
 
-test.describe('AsyncAPI create + edit', () => {
+test.describe('AsyncAPI create + edit', { tag: ['@dashboard', '@asyncapi', '@openapi'] }, () => {
   test.describe.configure({ mode: 'serial' });
   test.skip(skip, `Profile ${testConfig.domain} is not the asyncapi variant`);
 

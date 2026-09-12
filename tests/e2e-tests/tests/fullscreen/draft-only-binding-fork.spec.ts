@@ -48,7 +48,7 @@ async function dismissPaywall(page: Page, waitMs = 4000): Promise<void> {
   }
 }
 
-test.describe('REGRESSION #169 — draft-only binding updates in place (no fork)', () => {
+test.describe('REGRESSION #169 — draft-only binding updates in place (no fork)', { tag: ['@fullscreen', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 

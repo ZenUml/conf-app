@@ -28,7 +28,7 @@ const ROUTE = 'zenuml-asyncapi-dashboard';
 
 const skip = testConfig.productType !== 'asyncapi';
 
-test.describe('AsyncAPI smoke', () => {
+test.describe('AsyncAPI smoke', { tag: ['@dashboard', '@asyncapi'] }, () => {
   test.skip(skip, `Profile ${testConfig.domain} is not the asyncapi variant`);
 
   test('"My API Documents" space-page loads', async ({ page, request }) => {

@@ -87,7 +87,7 @@ async function insertAndPublishNonSequenceMacro(page: Page, kind: 'graph' | 'ope
   return pageId!;
 }
 
-test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', () => {
+test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', { tag: ['@fullscreen', '@viewer', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 

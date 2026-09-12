@@ -60,7 +60,7 @@ async function dirtyAndPublish(page: Page): Promise<void> {
   await clickEditorPublish(page);
 }
 
-test.describe('SAME-PAGE #169 — one page: broken on buggy deploy → fixed on fixed deploy', () => {
+test.describe('SAME-PAGE #169 — one page: broken on buggy deploy → fixed on fixed deploy', { tag: ['@fullscreen', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 

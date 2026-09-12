@@ -78,7 +78,7 @@ async function publishEditorAndExpectClose(page: import('@playwright/test').Page
   await expect(page.locator(MODAL)).toBeHidden({ timeout: 60_000 });
 }
 
-test.describe('AsyncAPI macro create + edit', () => {
+test.describe('AsyncAPI macro create + edit', { tag: ['@editor', '@viewer', '@asyncapi'] }, () => {
   test.describe.configure({ mode: 'serial' });
   test.skip(skip, `Profile ${testConfig.domain} is not the asyncapi variant`);
 

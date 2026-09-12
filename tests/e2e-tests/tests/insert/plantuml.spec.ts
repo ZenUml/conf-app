@@ -12,7 +12,7 @@ const macroType = 'mermaid' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Smoke Test - plantuml`, { tag: '@smoke' }, () => {
+test.describe(`Smoke Test - plantuml`, { tag: ['@editor', '@viewer', '@plantuml', '@smoke'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {

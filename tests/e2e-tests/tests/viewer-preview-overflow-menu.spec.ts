@@ -38,7 +38,7 @@ import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('viewer-preview.html')
 
-test.describe('GenericViewer — OverflowMenu trigger + Download debug info', () => {
+test.describe('GenericViewer — OverflowMenu trigger + Download debug info', { tag: ['@viewer', '@export'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } })
 
   test.beforeEach(async ({ page }) => {

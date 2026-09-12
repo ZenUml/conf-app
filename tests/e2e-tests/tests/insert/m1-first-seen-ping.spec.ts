@@ -29,7 +29,7 @@ const FORGE_APP_ID_BY_PRODUCT = {
 
 const DIAGRAMLY_FORGE_APP_ID = FORGE_APP_ID_BY_PRODUCT.diagramly;
 
-test('identifies only the target app page-banner first-seen relay', () => {
+test('identifies only the target app page-banner first-seen relay', { tag: ['@page-banner', '@analytics'] }, () => {
   expect(isTargetFirstSeenRelay({
     variables: {
       input: {
@@ -43,7 +43,7 @@ test('identifies only the target app page-banner first-seen relay', () => {
   }, DIAGRAMLY_FORGE_APP_ID)).toBe(true);
 });
 
-test('first-seen ping completes from the target app page-banner', async ({ page }) => {
+test('first-seen ping completes from the target app page-banner', { tag: ['@page-banner', '@analytics'] }, async ({ page }) => {
   test.setTimeout(120_000);
 
   // The shared auth-state.json this project's `auth` dependency produces is

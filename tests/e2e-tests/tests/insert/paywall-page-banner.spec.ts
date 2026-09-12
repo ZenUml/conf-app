@@ -35,7 +35,7 @@ test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 // test. Each test still gets a fresh browser context (Playwright default), so the
 // app-origin localStorage is clean per test — markers never leak across tests
 // even though they share the same Confluence page.
-test.describe.serial('Paywall page banner', () => {
+test.describe.serial('Paywall page banner', { tag: ['@page-banner', '@paywall'] }, () => {
   test.skip(!testConfig.isForge, 'pageBanner is Forge-only');
   // Lite-only: the macro writes the warning targeting marker only on Lite
   // (persistTargetingMarker() in useCustomerSuccessService.ts returns early when

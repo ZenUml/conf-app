@@ -7,7 +7,7 @@ const macroType = 'graph' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Edit Test - ${macroType}`, { tag: '@smoke' }, () => {
+test.describe(`Edit Test - ${macroType}`, { tag: ['@editor', '@viewer', '@graph', '@smoke'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {

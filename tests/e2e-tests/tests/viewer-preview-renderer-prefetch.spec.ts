@@ -39,7 +39,7 @@ import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('viewer-preview.html')
 
-test.describe('renderer prefetch — browser mechanics', () => {
+test.describe('renderer prefetch — browser mechanics', { tag: ['@viewer', '@mermaid', '@plantuml'] }, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE)
     await clearPrefetchState(page)

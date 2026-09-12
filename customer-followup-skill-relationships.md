@@ -73,4 +73,4 @@ flowchart TB
 - 功能反馈是独立的一路：在相邻开发目录 `../conf-app-markdown-tab/` 找到 `src/features/feedback/feedbackTransport.ts`、`feedbackSession.ts`、`functions/api/feedback-report.ts` 及数据库迁移 0025–0027。该实现将正文 description、功能入口 surface、产品/站点/用户和页面上下文存入 D1 `FeedbackReport`，并支持有保留期限的可选截图。
 - 这一路的 Mixpanel 事件 `feedback_report_submit_requested/succeeded/failed` 等记录提交流程，`feedbackSession.ts` 不将正文或截图写入这些事件。因此读取反馈内容需要查询 D1 报告；不能只统计 Mixpanel 成功事件，也不能把两边当成两条用户意见。
 - 功能反馈保存后，用户可自愿转到工单继续交流；打开工单页面不等于已创建工单或已获回复。归并时保留反馈引用与后续工单的关联证据。
-- 以上是代码路径核对，不是生产记录覆盖或部署核验。落地查询前仍需核实生产表、迁移状态、记录覆盖日期、截图可用性及来源间关联。当前主检出目录缺少功能反馈实现不能推导为该能力不存在。
+- 以上是代码路径核对，不是生产记录覆盖或部署核验。落地查询前仍需核实生产表、迁移状态、记录覆盖日期、截图可用性及来源间关联。初次审计时主检出目录缺少该实现，不能据此推导能力不存在；发布前同步最新 main 后，已确认上述功能反馈代码与迁移进入当前分支，生产覆盖仍未核验。

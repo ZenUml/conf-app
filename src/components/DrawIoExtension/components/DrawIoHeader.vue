@@ -28,6 +28,9 @@
       <input
         type="text"
         placeholder="Name your graph…"
+        aria-label="Diagram title"
+        :aria-invalid="error || undefined"
+        :aria-describedby="error ? 'drawio-title-error' : undefined"
         :value="displayValue"
         @input="handleInput"
         @keydown.enter="$emit('titleConfirm')"
@@ -41,6 +44,10 @@
         <IconDismiss />
       </button>
     </div>
+    <p v-if="error" id="drawio-title-error" role="alert"
+      class="mt-1 w-72 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 shadow-sm">
+      Enter a title to finish publishing.
+    </p>
   </div>
 </template>
 

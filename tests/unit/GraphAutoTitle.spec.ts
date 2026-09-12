@@ -179,4 +179,63 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     expect(resolved).toBe(TITLE)
     void wrapper
   })
+
+  it('explains the missing title and focuses the empty input while Publish waits (#354)', async () => {
+    const wrapper = mount(DrawIoExtension, { props: { doc: {}, currentXml: EMPTY_GRAPH }, attachTo: document.body })
+    try {
+      await flushPromises()
+      const pending = (window as any).ensureTitle() as Promise<string>
+      await wrapper.vm.$nextTick()
+
+      const input = wrapper.find('input')
+      expect(input.element.value).toBe('')
+      expect(document.activeElement).toBe(input.element)
+      expect(input.attributes('aria-invalid')).toBe('true')
+      const message = wrapper.find('[role="alert"]')
+      expect(message.text()).toMatch(/enter a title.*publish/i)
+      expect(input.attributes('aria-describedby')).toBe(message.attributes('id'))
+
+      await input.setValue('Order flow')
+      await expect(pending).resolves.toBe('Order flow')
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('does not release a pending Publish for a whitespace-only title', async () => {
+    const wrapper = mountGraphTitle(EMPTY_GRAPH)
+    try {
+      await flushPromises()
+      let title: string | undefined
+      const pending = (window as any).ensureTitle().then((value: string) => { title = value })
+      await wrapper.find('input').setValue('   ')
+      await flushPromises()
+
+      expect(title).toBeUndefined()
+      expect(store.state.diagram.title).toBe('')
+      await wrapper.find('input').setValue('  Order flow  ')
+      await pending
+      expect(title).toBe('Order flow')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('shows title guidance when AI title generation fails at Publish', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue({ ok: false, text: async () => 'Unavailable' } as any)
+    const wrapper = mountGraphTitle(EMPTY_GRAPH)
+    try {
+      await flushPromises()
+      ;(window as any).graphXml = LABELLED_XML
+      const pending = (window as any).ensureTitle() as Promise<string>
+      await runGeneration()
+
+      expect(wrapper.find('[role="alert"]').text()).toMatch(/enter a title.*publish/i)
+      await wrapper.find('input').setValue('Manual title')
+      await expect(pending).resolves.toBe('Manual title')
+    } finally {
+      wrapper.unmount()
+    }
+  })
 })

@@ -64,7 +64,7 @@ export default defineComponent({
     // dispatching `updateTitle` keeps `window.diagram.title` synced for the
     // save path (saveGraphAndExit spreads window.diagram) AND for
     // `window.ensureTitle` below.
-    const currentTitle = computed<string>(() => store.state.diagram?.title || "");
+    const currentTitle = computed<string>(() => (store.state.diagram?.title || "").trim());
 
     // The extracted shape labels are the "code" fed to the title model — clean
     // signal instead of raw mxfile XML.
@@ -84,7 +84,8 @@ export default defineComponent({
     }
 
     const handleTitleChange = (value: string) => {
-      if (value) {
+      const title = value.trim();
+      if (title) {
         titleError.value = false;
         markManualEdit();
       } else {
@@ -92,8 +93,8 @@ export default defineComponent({
         scheduleAutoGenerate();
       }
       store.dispatch("updateTitle", value);
-      if (value && pendingResolve) {
-        pendingResolve(value);
+      if (title && pendingResolve) {
+        pendingResolve(title);
         pendingResolve = null;
       }
     };
@@ -156,6 +157,7 @@ export default defineComponent({
     // A committed AI title (or any late title change) should release a pending
     // ensureTitle() the publish flow is blocked on.
     watch(currentTitle, (value) => {
+      if (value) titleError.value = false;
       if (value && pendingResolve) {
         pendingResolve(value);
         pendingResolve = null;

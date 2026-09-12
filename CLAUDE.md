@@ -70,7 +70,27 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
 
-**The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — per-worktree setup cost, start-of-issue steps, cleanup.
+**The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — the overlap scan, per-worktree setup cost, start-of-issue steps, cleanup.
+
+### Scan for overlapping work before starting a branch
+
+Before you create a branch or a worktree for any non-trivial change, check whether the work already
+exists — several sessions and the user work this repo in parallel:
+
+```bash
+git fetch --prune origin
+git branch -r --sort=-committerdate --format='%(committerdate:short)  %(refname:short)  %(contents:subject)' | head -30
+git worktree list
+gh pr list --state open --json number,title,headRefName,updatedAt   # container: mcp__github__list_pull_requests
+```
+
+Judge a candidate by `git diff --name-only origin/main...origin/<branch>`, not by its name. If an
+open PR already does it, **stop and report it** instead of opening a competing branch; if a branch
+holds partial work that is not yours, ask before building on it and never rebase or force-push it.
+In the remote agent container the clone may hold only `main` and your own branch, so `git branch -r`
+alone is not evidence — use the `mcp__github__*` tools.
+
+Full decision table: [docs/policies/git-workflow.md](docs/policies/git-workflow.md#before-starting-scan-for-overlapping-work).
 
 ### Never disrupt another session's working tree
 

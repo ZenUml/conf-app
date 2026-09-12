@@ -105,6 +105,7 @@ import {
   type RelatedResponse,
 } from '@/services/ArchitectureTokens'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender'
 
 const props = defineProps<{
@@ -112,6 +113,7 @@ const props = defineProps<{
   ready: boolean
   enabled: boolean
   surface: 'viewer' | 'fullscreen'
+  macroType: MacroTypeValue
   svgHost: () => HTMLElement | null
   pageId?: string
 }>()
@@ -235,7 +237,7 @@ const highlightStyle = computed(() => {
 const baseProperties = () => ({
   feature_area: 'architecture_tokens' as const,
   surface: props.surface,
-  macro_type: 'mermaid' as const,
+  macro_type: props.macroType,
   // Whether the macro was on screen when the render happened. Without it a
   // render count cannot be read as an opportunity to interact: measured over
   // 2026-08-15..09-02 on the two customer tenants, 54.8% of `macro_viewed`

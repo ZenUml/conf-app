@@ -209,12 +209,13 @@ describe('GenericViewer (chrome-less)', () => {
         ready: true,
         enabled: true,
         surface: 'viewer',
+        macroType: 'mermaid',
       })
 
       store.commit('updateDiagramType', DiagramType.Sequence)
       store.commit('updateCode2', '@Actor Customer\nCustomer->Service: request')
       await sequence.vm.$nextTick()
-      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(true)
+      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).props('macroType')).toBe('sequence')
 
       store.commit('updateMermaidCode', 'flowchart TD\n  A-->B')
       store.commit('updateDiagramType', DiagramType.Mermaid)

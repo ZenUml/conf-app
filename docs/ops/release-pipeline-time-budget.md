@@ -95,6 +95,32 @@ So this run measures the parallel lane plus a shard regression, not the default.
 
 The 10-shard Lite split in the next PR separates byline-create's two tests from byline-paywall and edit-graph (measured layout in the job comment; no shard with more than two page-creating tests, expected tail ~3m). The first `main` run after it, with the default Full lane, is the one to compare against 7m58s.
 
+### Run 34660754910 — first run with `reuse-check` (7m47s, green): Lite draft at 4m42s
+
+Main run [34660754910](https://github.com/ZenUml/conf-app/actions/runs/34660754910) (the merge of #670, 2026-09-12), default Full lane, reuse hit:
+
+| t (min) | Job | Note |
+|---|---|---|
+| 0.0 → 0.2 | Reuse PR E2E? | 12s: merge tree == PR-head tree, PR run 34660307453 had all three Lite suites green → `reuse=true` |
+| 0.7 → 4.5 | Deploy: Lite | 3m48s |
+| 4.5 | E2E: Lite, DrawIO Publish, render | all **skipped** (reused) |
+| 4.5 → 4.7 | **Draft: Lite** | **4m42s** from push, body: `E2E: reused from a PR run on the identical tree — …/runs/34660307453` |
+| 4.5 → 7.6 | E2E: Full (default lane) | started the moment Lite's E2E resolved; heaviest shard 3m00s |
+| 5.4 / 6.3 / 7.8 | Draft: AsyncAPI / Diagramly / Full | |
+
+Peak 10 concurrent jobs; no shard queued for a runner. The PR run that was reused ([34660307453](https://github.com/ZenUml/conf-app/actions/runs/34660307453), 6m54s) measured the 10-shard Lite layout: heaviest shard **2m54s** (byline-paywall + edit-graph), byline-create ×2 at 2m42s — the 4m18s regression from the 8-shard split is gone.
+
+Merge-to-Lite-draft, by run:
+
+| Run | Draft: Lite | What changed |
+|---|---|---|
+| 34602804979 | 13m26s | baseline |
+| 34655187796 | 7m58s | ADR-0006 |
+| 34659544917 | 8m48s | `now` lane by accident + 8-shard regression |
+| **34660754910** | **4m42s** | reuse hit + 10 shards (ADR-0007 §2) |
+
+On a reuse miss (main moved between the PR run and the merge) the Lite draft should land at roughly Deploy: Lite + ~3m ≈ 7m; that case has not been measured yet.
+
 ## How to re-measure
 
 ```bash
@@ -137,8 +163,8 @@ Each row lands as its own PR and gets its measurement added here.
 | Decision | Status | Expected |
 |---|---|---|
 | Full's E2E runs after Lite's by default (`[full-first]` / `FULL_DRAFT_LANE=now` for the parallel lane); Full/Diagramly 4 shards; byline-create tests independent; env-gated byline-activation spec not collected in CI | landed (#669); the first main run took the `now` lane by accident, see below | peak 21 jobs instead of 27; Lite tail ~3m30s → ~3m (regressed to 4m18s at 8 shards; fixed by 10 shards in the next PR) |
-| `main` reuses a green PR run's E2E when the merge tree is identical (`reuse-check` job); Lite 10 shards (the 8-way split after unpinning byline-create measured 4m06s on its tail shard, PR run 34658978233) | landed | Lite draft ~8m → ~4m on a hit |
-| `main` attaches production bundles to drafts (`build-prod` matrix at t=0, one shared version string per run); `release.yml` downloads and deploys them, building only when a draft has no asset; Forge/Pages parallel on staging | landed | release deploy gate ~3.5m → ~2.5m (build skipped; install, secrets, D1, publish and the Forge deploy remain) |
+| `main` reuses a green PR run's E2E when the merge tree is identical (`reuse-check` job); Lite 10 shards | landed (#670); **measured: Lite draft 4m42s** on run 34660754910, heaviest Lite shard 2m54s | Lite draft ~8m → ~4m on a hit |
+| `main` attaches production bundles to drafts (`build-prod` matrix at t=0, one shared version string per run); `release.yml` downloads and deploys them, building only when a draft has no asset; Forge/Pages parallel on staging | landed; staging parallel publish measured on branch run 34660908646: Deploy: Lite 3m26s (Cloudflare step 75s, was 94–101s) | release deploy gate ~3.5m → ~2.5m (build skipped; install, secrets, D1, publish and the Forge deploy remain) |
 | Failed E2E shard re-run once; weekly flake ranking | after | fewer red re-runs |
 | Tag taxonomy + path→tag map; deterministic PR test selection; AI pass logs only | last | PR E2E runs related specs only |
 | Release `@smoke` counts as PVT (release-app skill) | landed | one browser session fewer per release |

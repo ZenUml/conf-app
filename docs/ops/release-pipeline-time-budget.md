@@ -123,6 +123,7 @@ Merge-to-Lite-draft, by run:
 | **34662255935** (attempt 2) | **3m42s** | reuse hit after a queue cancellation and a hand re-run — no overlapping run, no runner queue |
 | 34665226448 | 4m18s | #674 merge, reuse hit, quiet main (Deploy: Lite 3m54s — the deploy step's ±30s is now the whole variance on a hit) |
 | 34666114785 | 4m00s | #675 merge (selection landed; `select` skipped on main as designed), reuse hit, quiet main; Full's draft at 6m48s |
+| 34667481219 | 3m36s | #677 merge, reuse hit of the PR run's **second attempt** (its first died in `forge deploy`'s pre-deploy lint on `fetch failed`); Full's draft at 6m42s |
 
 Times in the first column are from the run's first job; the bracketed figure
 adds the time the run sat **pending behind the previous main run** on the
@@ -167,6 +168,24 @@ The fix is `e2e-rerun.yml`'s `resurrect` job (the workflow is now named **Run re
 | 5.2 / 6.7 / 6.8 | Draft: AsyncAPI / Full / Diagramly | Full's draft at **6m42s** |
 
 Peak 13 concurrent jobs, no shard queued (`started_at − created_at` ≤ 3s on every shard). All four drafts (`v2026.09.120119-*`) carry `dist-prod-<variant>.tgz`; Lite's body names the reused PR run. This is what a quiet-hour merge of a rebased branch now costs from first job to a releasable Lite draft: under four minutes.
+
+## Flake ranking: first real week (2026-09-05 → 09-12)
+
+The first hand-dispatched ranking ([run 34666457162](https://github.com/ZenUml/conf-app/actions/runs/34666457162)) ranked one test from 565 blob reports: every run's shard blobs carry the same file names, and one flat directory kept only the last copy of each. Fixed in #677 (one `merge-reports` per run and suite, rows counted across runs). The second dispatch ([run 34667507536](https://github.com/ZenUml/conf-app/actions/runs/34667507536), 12 minutes, 8 of them downloading) counted **2,600 test results from the 44 runs whose blobs had not expired** and ranked 17 tests. The top of the table:
+
+| test | runs | passed on retry | failed | last non-green run |
+|---|---|---|---|---|
+| viewer-preview-overflow-menu › More trigger is 30×30 and Download debug info produces a JSON bundle | 44 | 0 | **2** | 34483255705 |
+| feedback-report › editor, fullscreen, viewer and PNG export surfaces | 53 | 1 | 0 | 34586830363 |
+| feedback-report › submitting with a description saves a report and returns a reference | 53 | 0 | 1 | 34586830363 |
+| fullscreen/graph-edit › three of its steps, one retry each | 29 | 1 each | 0 | 34483255705 · 34591306032 · 34642502936 |
+| insert/{edit-graph, graph, mermaid, openapi, plantuml, sequence} › insert and verify render | 53 | 1 each | 0 | one run each, all different |
+
+What it says: no test failed twice in the week except the viewer-preview overflow-menu one (both in one run); the `insert/*` core specs each needed exactly one retry in one of 53 runs — a ~2% per-run retry rate spread evenly across the six diagram types, which points at the shared page-creation path (or staging itself) rather than any one spec. The graph-edit DrawIO Publish steps are the only spec family with three separate retry events; that is the first target. Runs older than a few days have no blobs left (artifact retention), so "the week" is really the last 3–4 days — enough for a Monday ranking, but note it when reading the counts.
+
+## The staging deploy's one retry
+
+PR #677's own run ([34666960785](https://github.com/ZenUml/conf-app/actions/runs/34666960785), attempt 1) failed in `Deploy: Lite` with `Error: fetch failed` from `@forge/lint`, the pre-deploy verification inside `forge deploy` — before anything was deployed; the diff was one workflow file. Run recovery correctly declined to re-run (a deploy failure is not an E2E job) and a hand re-run was green. `staging-deploy.yml` now retries `forge deploy` once after 20 s when it fails: a failed pre-deploy deployed nothing, so a second attempt is safe, and a real manifest or bundle error fails both times. A retry costs ~1.5 min inside the job instead of a 7-minute re-run of everything downstream.
 
 ## PR test selection (ADR-0007 §5)
 

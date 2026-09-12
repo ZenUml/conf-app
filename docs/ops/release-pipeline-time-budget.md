@@ -121,6 +121,7 @@ Merge-to-Lite-draft, by run:
 | 34661075623 | 10m12s (12m20s from push) | another author's merge: reuse miss, pending 2m10s behind the previous main run, runner queues up to 172s while a PR run overlapped, one flake retry on the tail shard |
 | 34661804793 | 8m30s (10m49s from push) | reuse miss with `build-prod` (ADR-0007 §3), pending 2m19s behind the previous main run, Lite shards queued 46–97s for runners |
 | **34662255935** (attempt 2) | **3m42s** | reuse hit after a queue cancellation and a hand re-run — no overlapping run, no runner queue |
+| 34665226448 | 4m18s | #674 merge, reuse hit, quiet main (Deploy: Lite 3m54s — the deploy step's ±30s is now the whole variance on a hit) |
 
 Times in the first column are from the run's first job; the bracketed figure
 adds the time the run sat **pending behind the previous main run** on the
@@ -165,6 +166,36 @@ The fix is `e2e-rerun.yml`'s `resurrect` job (the workflow is now named **Run re
 | 5.2 / 6.7 / 6.8 | Draft: AsyncAPI / Full / Diagramly | Full's draft at **6m42s** |
 
 Peak 13 concurrent jobs, no shard queued (`started_at − created_at` ≤ 3s on every shard). All four drafts (`v2026.09.120119-*`) carry `dist-prod-<variant>.tgz`; Lite's body names the reused PR run. This is what a quiet-hour merge of a rebased branch now costs from first job to a releasable Lite draft: under four minutes.
+
+## PR test selection (ADR-0007 §5)
+
+On a pull request the `select` job maps the PR's changed files (from the
+`pulls/N/files` API) through `tests/e2e-tests/config/impact-map.mjs` and hands
+the three Lite E2E jobs a `--grep` of tags; `@smoke` is always in it, and the
+job names gain "(selected)". A file in `RUN_EVERYTHING` (the Forge entry,
+`src/model/**`, the manifest, dependencies, the workflows, anything under
+`tests/e2e-tests/` — the specs included), or a file the map does not mention,
+makes the run unselective. Unit specs, stories and docs select nothing. The
+map is conservative on purpose: a miss costs a full run, never a missed spec.
+`main` never selects — `reuse-check` also refuses a selected PR run, so a
+draft is always backed by the whole suite.
+
+Replayed over the last 40 merged PRs (2026-09-06 → 09-12) the map would have
+narrowed **18** of them; the rest hit `package.json`/`pnpm-lock.yaml`,
+`src/model/**`, `src/forgeIndex.ts` or the workflows. `src/utils/analytics/catalog.ts`
+and `types.ts` were in 17 of the 40 (every feature registers its events there)
+and are mapped to `@analytics`, not to everything — a new event name changes
+nothing another surface can observe. Empty shards still cost their setup
+(~40s each; the DrawIO Publish suite is one spec, so a selection without
+`@graph`/`@fullscreen` leaves all five of its shards empty) — the next lever is
+to shrink the shard matrix from the selection, which needs the selected test
+count. The first selected PR runs will say what a narrowed run actually costs;
+the expected shape is auth + deploy (~3.5m) + the heaviest selected spec.
+
+`select-ai` runs beside it and only writes to its job summary what a model
+would add to the selection (never remove) — evidence for widening the map
+after two weeks. It needs the `ANTHROPIC_API_KEY` repository secret; without
+it the step exits with a notice and the deterministic selection is unaffected.
 
 ## How to re-measure
 
@@ -216,7 +247,7 @@ Each row lands as its own PR and gets its measurement added here.
 | `main` attaches production bundles to drafts (`build-prod` matrix at t=0, one shared version string per run); `release.yml` downloads and deploys them, building only when a draft has no asset; Forge/Pages parallel on staging | landed; staging parallel publish measured on branch run 34660908646: Deploy: Lite 3m26s (Cloudflare step 75s, was 94–101s) | release deploy gate ~3.5m → ~2.5m (build skipped; install, secrets, D1, publish and the Forge deploy remain) |
 | Failed E2E shard re-run once (`e2e-rerun.yml`, `workflow_run` on attempt 1, only when every failed job is an E2E shard/bootstrap/merge/preview); weekly flake ranking (`e2e-flake-ranking.yml`, merges the week's blob reports and ranks tests by passed-on-retry and failed) | landed (#673); `resurrect` job added after run 34662255935 was cancelled while pending (see above) | fewer red re-runs; a target list for flake fixes; no tip of `main` left without drafts |
 | Tag taxonomy (`tests/e2e-tests/config/tags.ts`: surface × diagram type × concern) on all 53 top-level blocks of the 52 specs, policed by `tests/unit/e2eTags.spec.ts` | landed (the PR after #673) | no timing change by itself — `--grep @smoke` still selects the same 7 tests |
-| Path→tag map; deterministic PR test selection; AI pass logs only | next | PR E2E runs related specs only |
+| Path→tag map (`impact-map.mjs`) + `scripts/e2e-select.mjs`; the `select` job narrows the Lite E2E on PR runs; `select-ai` logs only | landed (the PR after #674); see *PR test selection* below | 18 of the last 40 merged PRs would have run a selection instead of the full suite |
 | Release `@smoke` counts as PVT (release-app skill) | landed | one browser session fewer per release |
 | 7-day Full soak | unchanged | revisit with data |
 

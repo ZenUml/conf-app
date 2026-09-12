@@ -41,6 +41,8 @@ import type {
   FeedbackCaptureMethod,
   FeedbackDismissReason,
   FeedbackHandoffOutcome,
+  GetStartedAction,
+  ExamplesPageResult,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -51,6 +53,10 @@ export type AnalyticsProperties = {
   // Required at call site
   feature_area: FeatureArea;
   surface: Surface;
+  // Get Started: explicit control intent and the observed create-examples
+  // request outcome. Timeout/enrolled are unresolved, never creation success.
+  action?: GetStartedAction;
+  examples_result?: ExamplesPageResult;
   // Auto-enriched by tracker (optional for callers)
   client_domain?: string;
   user_account_id?: string;
@@ -794,6 +800,8 @@ export type AnalyticsProperties = {
   // macro_create_started/macro_edit_started split (`!diagram.id`) — reused
   // here so the gallery's funnel joins against that axis rather than
   // inventing a second one.
+  // template_created uses the fixed kind "sequence-space-template", never the
+  // tenant-specific identifier returned by Confluence's template API.
   template_id?: string;
   is_new_macro?: boolean;
   // Onboarding funnel. `trigger` (editor_starter_shown) and

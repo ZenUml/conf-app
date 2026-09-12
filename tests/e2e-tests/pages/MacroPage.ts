@@ -77,11 +77,27 @@ export class MacroPage {
    *     rendering at ratio 53.05 against an intrinsic 53.02). Skew is symmetric,
    *     so a squash on either axis fails identically, and the check is skipped
    *     when the SVG carries no usable viewBox since no intrinsic ratio exists.
-   *     `data-intrinsic-ratio` covers the case where there IS an intrinsic ratio
-   *     but no viewBox to read it from: svg-pan-zoom deletes that attribute when
-   *     the pan/zoom viewport attaches, which would otherwise silently retire
-   *     this check on Mermaid and PlantUML -- the very renderers it was written
-   *     for. DiagramViewport stamps the ratio before the attribute goes.
+   *     Once the pan/zoom viewport attaches, svg-pan-zoom deletes the viewBox
+   *     and this comparison has nothing to work from. Two things change:
+   *
+   *     a) The <svg> becomes the FRAME, sized to the column, with the drawing
+   *        inside it at its own size. A correctly rendered 247x188 PlantUML
+   *        centred in a 758px column measures 758x188 on the element and reads
+   *        as a 3.07x squash, so the pan/zoom group's box is measured instead.
+   *     b) Box ratios are then the wrong instrument anyway: a viewBox carries
+   *        padding the drawn content does not fill, which put a healthy Mermaid
+   *        at 1.16 against a 1.15 threshold. Distortion is non-uniform scaling,
+   *        so it is read straight off the screen CTM, `a` against `d`.
+   *
+   *     Be clear about what that is worth: #626's mechanism cannot recur on a
+   *     viewport'd SVG, because the viewBox mapping it stretched no longer
+   *     exists — with no viewBox, resizing the element moves the frame and
+   *     leaves the drawing alone. The CTM check is therefore a cheap invariant
+   *     (svg-pan-zoom only ever writes scale(k), so a healthy diagram reads
+   *     exactly 1.00) rather than a restored guard. The risks that DID replace
+   *     #626 on these renderers are the frame collapsing to the 150px default
+   *     (#650) and the drawing being magnified past 1:1, and those are covered
+   *     by the minHeight assertion here and by tests/render/viewport-*.spec.ts.
    */
   async assertMacroRendersDiagram(
     frame: FrameLocator,
@@ -97,15 +113,21 @@ export class MacroPage {
     const readLargestSvg = () =>
       frame.locator('svg').evaluateAll((els) => {
         const measured = (els as SVGSVGElement[]).map((el) => {
-          const rect = el.getBoundingClientRect();
+          // The drawing, not the frame: svg-pan-zoom's viewport group carries
+          // the transform, so its box is what the reader actually sees. Falls
+          // back to the element for every renderer without one.
+          const drawn = (el.querySelector('.svg-pan-zoom_viewport') ?? el) as SVGGraphicsElement;
+          const rect = drawn.getBoundingClientRect();
           const box = el.viewBox?.baseVal;
-          const stamped = Number(el.getAttribute('data-intrinsic-ratio'));
+          const ctm = drawn.getScreenCTM?.();
           return {
             width: rect.width,
             height: rect.height,
             viewBoxWidth: box?.width ?? 0,
             viewBoxHeight: box?.height ?? 0,
-            intrinsicRatio: Number.isFinite(stamped) && stamped > 0 ? stamped : 0,
+            // Per-axis scale actually painted. Equal means undistorted.
+            scaleX: ctm?.a ?? 0,
+            scaleY: ctm?.d ?? 0,
             preserveAspectRatio: el.getAttribute('preserveAspectRatio'),
           };
         });
@@ -131,11 +153,25 @@ export class MacroPage {
 
     expect(geometry.width, `rendered diagram width is degenerate: ${describe}`).toBeGreaterThan(minWidth);
 
-    const hasViewBox = geometry.viewBoxWidth > 0 && geometry.viewBoxHeight > 0;
-    if (hasViewBox || geometry.intrinsicRatio > 0) {
-      const intrinsic = hasViewBox
-        ? geometry.viewBoxWidth / geometry.viewBoxHeight
-        : geometry.intrinsicRatio;
+    if (geometry.viewBoxWidth <= 0 || geometry.viewBoxHeight <= 0) {
+      // No viewBox: the pan/zoom viewport removed it. Read the distortion off
+      // the painted per-axis scale instead — see (b) above.
+      if (geometry.scaleX > 0 && geometry.scaleY > 0) {
+        const axisSkew = Math.max(
+          geometry.scaleX / geometry.scaleY,
+          geometry.scaleY / geometry.scaleX,
+        );
+        expect(
+          axisSkew,
+          `diagram is scaled unevenly ${axisSkew.toFixed(2)}x: ` +
+            `x=${geometry.scaleX.toFixed(3)} y=${geometry.scaleY.toFixed(3)} (${describe})`,
+        ).toBeLessThan(maxSkew);
+      }
+      return;
+    }
+
+    {
+      const intrinsic = geometry.viewBoxWidth / geometry.viewBoxHeight;
       const rendered = geometry.width / geometry.height;
       const skew = Math.max(intrinsic / rendered, rendered / intrinsic);
       expect(

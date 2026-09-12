@@ -125,7 +125,6 @@ export default {
         this.observeLayout(svgElement);
         return;
       }
-      this.stampIntrinsicRatio(svgElement);
       this.captureInlineSize(svgElement, svgRect);
       // svg-pan-zoom removes the viewBox attribute (shadow-viewport.js), which is
       // what gave the SVG its intrinsic ratio. Without the height captured above,
@@ -190,23 +189,6 @@ export default {
         });
         this.panZoomResizeObserver.observe(this.$refs.viewport);
       }
-    },
-    /**
-     * Record the diagram's intrinsic aspect ratio before svg-pan-zoom deletes the
-     * viewBox it comes from (shadow-viewport.js).
-     *
-     * Not for our own use -- `captureInlineSize` reads the viewBox directly a line
-     * later. This is for anything downstream that needs to tell a correctly
-     * rendered diagram from a squashed one, and the E2E geometry assertion
-     * (MacroPage.assertMacroRendersDiagram) is the reason it exists: that check
-     * guards the conf-app#626 squash, and it skips any SVG without a viewBox. Once
-     * this viewport attaches there is no viewBox left, so the guard silently
-     * stopped applying to exactly the renderers it was written for.
-     */
-    stampIntrinsicRatio(svgElement) {
-      const viewBox = svgElement.viewBox?.baseVal;
-      if (!(viewBox?.width > 0) || !(viewBox?.height > 0)) return;
-      svgElement.dataset.intrinsicRatio = String(viewBox.width / viewBox.height);
     },
     /** Re-try the attach once the host gives the SVG a box to measure. */
     observeLayout(svgElement) {

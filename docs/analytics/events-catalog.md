@@ -130,7 +130,7 @@ about persistence; success is still `macro_create_succeeded` / `macro_save_succe
 
 ### `macro_create_succeeded`
 
-**Trigger:** First successful save of a new macro — `diagram.id` was falsy at save time. Fired in `Persistence.ts`, `forge-embed-editor.ts`.
+**Trigger:** First successful save of a new macro — `diagram.id` was falsy at save time in `Persistence.ts`. Embed instead freezes create/edit from `config.customContentId` at editor open and succeeds only after `view.submit()` confirms its selected reference. It creates no custom content of its own.
 
 | Property | Notes |
 |---|---|
@@ -138,7 +138,7 @@ about persistence; success is still `macro_create_succeeded` / `macro_save_succe
 | `surface` | `"editor"` |
 | `macro_type` | Diagram type saved |
 | `operation_mode` | `"create"` |
-| `content_id` / `custom_content_id` | The newly-created custom content ID returned by the server |
+| `content_id` / `custom_content_id` | The newly-created custom content ID returned by the server; for Embed, the selected existing custom content ID |
 | `attachment_name` | `zenuml-{newId}.png` |
 
 ---
@@ -216,13 +216,17 @@ for creates and edits from every editor that saves through `saveToPlatform` (tex
 Graph, OpenAPI, AsyncAPI). Failures after the custom content was stored (snapshot, D1 telemetry,
 `view.submit`) are not labelled as save failures.
 
+Embed stores only a reference through `view.submit`, so its failure boundary differs: an invalid
+or inaccessible selection, or a rejected submit, emits this event without a success event.
+Create/edit is frozen from the editor's initial `config.customContentId`, including copied macros.
+
 | Property | Notes |
 |---|---|
 | `feature_area` / `surface` | `"macro"` / `"editor"` |
 | `macro_type` | Type being saved |
-| `operation_mode` | `"create"` (no `diagram.id` at save time) / `"edit"` |
-| `failure_stage` | Always `"persistence"` |
-| `failure_reason` | `http_error` (Confluence answered 4xx/5xx), `request_failed` (no HTTP status: network, bridge, thrown error), `invalid_saved_content_id` (the save returned without a usable id) |
+| `operation_mode` | `"create"` (no `diagram.id` at save time; Embed: no initial configured reference) / `"edit"` |
+| `failure_stage` | `"persistence"`; Embed uses `"validation"` or `"writeback"` |
+| `failure_reason` | Persistence: `http_error` (Confluence answered 4xx/5xx), `request_failed` (no HTTP status: network, bridge, thrown error), `invalid_saved_content_id` (the save returned without a usable id). Embed validation: `invalid_selected_content_id`, `target_not_fetchable`; writeback: `view_submit_failed` |
 | `http_status` | Present with `http_error` only; validated 400–599 |
 | `error_code` | Present only for a known machine code: `NOT_FOUND`, `FORBIDDEN`, `UNAUTHORIZED`, `MISSING_CONTENT_PARENT`, `INVALID_ARGUMENT`. Server error text is never sent |
 | mutation summary | On text-editor edits, the same `journey_id` / `had_global_replace` / delta buckets as `macro_save_succeeded` |
@@ -292,10 +296,42 @@ The frontend's `attachment_upload_queued` is the denominator: every queued uploa
 
 **Sampling:** unsampled. Volume tracks saves, not views.
 
+## Get Started and Lite space templates
+
+Get Started uses `feature_area: "confluence"`, `surface: "get_started"`.
+
+| Event | Trigger and properties |
+|---|---|
+| `get_started_viewed` | Actual component mount |
+| `get_started_action_clicked` | Explicit control click; `action`: `create_examples_page`, `open_examples_page`, `view_documentation`, `watch_videos`, `join_community`, or `report_issue` |
+| `get_started_examples_result` | One observed resolver result or local timeout per request; `examples_result`: `created`, `already_exists`, `in_progress`, `enrolled`, `failed`, or `timeout`; `duration_ms`, and a closed `failure_reason` category on failure |
+
+Only `created` and `already_exists` with a usable page ID show an examples-page link. `enrolled`,
+`in_progress`, and `timeout` do not prove creation. A late response after timeout does not emit a
+second outcome. Selected space keys, returned page IDs, raw resolver errors, and example content
+are not added as event properties; standard tracker context still applies.
+
+Lite templates use `feature_area: "confluence"`, `surface: "page_banner"`, `macro_type: "sequence"`,
+`ui_component: "template_offer"`, and the cached `macro_count` that admitted the banner.
+
+| Event | Trigger and properties |
+|---|---|
+| `template_offer_shown` | Actual banner mount |
+| `template_offer_clicked` | Explicit Create template click |
+| `template_created` | Confluence template API confirmed creation; `template_id` is the fixed kind `sequence-space-template`, not the returned Confluence ID |
+| `template_create_failed` | Creation failed; `failure_reason`: `forbidden`, `bad_request`, `network`, `unexpected`, or `context_unavailable` |
+| `template_offer_dismissed` | Explicit Not now click; suppresses the local offer for 30 days |
+
+The offer uses an existing cached 50–84 count and space-admin verdict, below paywall and CSAT
+priority. It performs no inventory query for eligibility or enrichment. Template creation is not
+macro creation: a page made from the native template must later produce `macro_create_succeeded`
+through its own editor save. The template contains no existing custom-content reference or UUID.
+
 ## Architecture Tokens (Phase 1)
 
 These viewer events use `feature_area: "architecture_tokens"`, `surface: "viewer" | "fullscreen"`,
-and `macro_type: "mermaid"`.
+and the rendered diagram's `macro_type: "sequence" | "mermaid"`. Before the #582 fix, the footer
+hardcoded `mermaid`, so historical events cannot establish the actual rendered type.
 
 ### `related_diagrams_lookup_succeeded`
 

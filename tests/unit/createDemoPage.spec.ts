@@ -7,7 +7,7 @@ const { asAppRequest, asUserRequest, storageGet, storageSet, storageDelete, stor
   storageSet: vi.fn(),
   storageDelete: vi.fn(),
   storageQuery: vi.fn(() => ({
-    where: () => ({ getMany: async () => ({ results: [] }) }),
+    where: () => ({ getMany: async (): Promise<{ results: Array<{ key: string; value: { state: string } }> }> => ({ results: [] }) }),
   })),
   getAppContext: vi.fn(() => ({
     appAri: { appId: '01ede8b1-4e88-451a-b9ef-89eeef93afaf' },
@@ -568,8 +568,8 @@ describe('processDemoPageForSpace — variant not configured (fail closed)', () 
     const result = await callHandler({ spaceKey: 'DEMO' });
 
     expect(result).toMatchObject({ ok: false, status: 500, error: 'variant_not_configured' });
-    expect(result.detail).toContain('APP_LABEL');
-    expect(result.detail).toContain('CUSTOM_CONTENT_KEY');
+    expect(result).toMatchObject({ detail: expect.stringContaining('APP_LABEL') });
+    expect(result).toMatchObject({ detail: expect.stringContaining('CUSTOM_CONTENT_KEY') });
     // Not reached: no draft, no custom-content, no publish — i.e. it never
     // fell through to the Diagramly-literal fallback and sent that to
     // Confluence.

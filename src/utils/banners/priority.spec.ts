@@ -34,7 +34,7 @@ describe('higherPriorityBannerPending — the order both banner iframes obey', (
     csat.mockReturnValue(false)
     csatSuppressed.mockReturnValue(false)
     isAdmin.mockReturnValue(false)
-    targeting.mockReturnValue(undefined)
+    targeting.mockReturnValue(null)
     inTemplateBand.mockReturnValue(false)
     templateSuppressed.mockReturnValue(false)
   })

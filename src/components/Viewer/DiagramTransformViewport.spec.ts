@@ -133,6 +133,21 @@ describe('DiagramTransformViewport', () => {
 
     expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
     expect(event.defaultPrevented).toBe(false);
+    // ...and on the page viewer the wheel did what the reader wanted, so no hint.
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(false);
+  });
+
+  it('hints at the modifier where a plain wheel has nowhere to go', async () => {
+    // sizeToContent false is fullscreen/editor: the pane is overflow:hidden, so
+    // an ungated wheel there does nothing at all.
+    const wrapper = mountViewport(false);
+    await wrapper.vm.layout();
+
+    wheel(wrapper.get('.transform-viewport').element, { deltaY: -400 });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(true);
   });
 
   it('pans only once the pointer passes the click tolerance', async () => {

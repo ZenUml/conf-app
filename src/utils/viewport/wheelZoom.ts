@@ -53,3 +53,29 @@ export function createWheelStepper(
     }
   };
 }
+
+/**
+ * Fires when a reader has been wheeling over a diagram without the zoom modifier
+ * for long enough to mean it — the cue for the "use Ctrl/Cmd + scroll" hint.
+ *
+ * A threshold rather than the first tick: one notch is someone passing through,
+ * a sustained push is someone working at a diagram that is not responding. And a
+ * hard cap rather than a cooldown, because after two tellings the reader either
+ * learned it or is doing something else, and an overlay that keeps reappearing
+ * over a diagram is worse than one that never did.
+ */
+export function createZoomHintTrigger(
+  onHint: () => void,
+  { thresholdPx = 120, maxHints = 2 } = {},
+): (event: WheelEvent, pageHeight: number) => void {
+  let accumulated = 0;
+  let hints = 0;
+  return (event, pageHeight) => {
+    if (hints >= maxHints) return;
+    accumulated += Math.abs(wheelDeltaPixels(event, pageHeight));
+    if (accumulated < thresholdPx) return;
+    accumulated = 0;
+    hints += 1;
+    onHint();
+  };
+}

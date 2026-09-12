@@ -16,6 +16,7 @@
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
     />
+    <ViewportZoomHint v-if="isInteractive" ref="zoomHint" :macro-type="macroType" />
   </div>
 </template>
 
@@ -37,7 +38,9 @@ import svgPanZoom from 'svg-pan-zoom';
 import Hammer from 'hammerjs';
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
 import { hasSvgLayout } from '@/utils/mermaid/viewportLayout';
-import { createWheelStepper, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
+import ViewportZoomHint from '@/components/Viewer/ViewportZoomHint.vue';
 
 /** A CSS length in px, or null for `none`, a percentage, or anything else. */
 function readPxLength(value) {
@@ -47,7 +50,7 @@ function readPxLength(value) {
 
 export default {
   name: 'DiagramViewport',
-  components: { DiagramViewportToolbar },
+  components: { DiagramViewportToolbar, ViewportZoomHint },
   props: {
     /** The renderer's SVG markup, injected verbatim (both callers produce a string). */
     html: {
@@ -230,8 +233,16 @@ export default {
         if (direction > 0) this.panZoom?.zoomIn();
         else this.panZoom?.zoomOut();
       });
+      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show());
       this.wheelHandler = (event) => {
-        if (!this.panZoom || !isZoomIntent(event)) return;
+        if (!this.panZoom) return;
+        if (!isZoomIntent(event)) {
+          // The wheel is on its way to the page -- unless this surface has no
+          // page to give it to, in which case it did nothing and the reader
+          // deserves to be told why.
+          if (!wheelFallsThroughToPage(this.isDisplayMode)) hint(event, viewport.clientHeight);
+          return;
+        }
         event.preventDefault();
         step(event, viewport.clientHeight);
       };

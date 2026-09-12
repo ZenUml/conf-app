@@ -18,6 +18,7 @@
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
         />
+        <ViewportZoomHint v-if="showZoomControls" ref="zoomHint" macro-type="graph" />
       </div>
       <template v-if="pageCount > 1" #pill-prefix>
         <button
@@ -65,12 +66,15 @@ import {
 } from "@/utils/graph/boardDocument";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
-import { createWheelStepper, isZoomIntent } from "@/utils/viewport/wheelZoom";
+import { createWheelStepper, createZoomHintTrigger, isZoomIntent } from "@/utils/viewport/wheelZoom";
+import { wheelFallsThroughToPage } from "@/utils/viewport/surface";
+import ViewportZoomHint from "@/components/Viewer/ViewportZoomHint.vue";
 export default {
   name: "ForgeGraphViewer",
   components: {
     GenericViewer,
-    DiagramViewportToolbar
+    DiagramViewportToolbar,
+    ViewportZoomHint
   },
   props: {
     graphXml: String,
@@ -269,8 +273,18 @@ export default {
         if (direction > 0) graph.zoomIn();
         else graph.zoomOut();
       });
+      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show());
       this.wheelZoomHandler = (event) => {
-        if (!this.graphViewer?.graph || !isZoomIntent(event)) return;
+        if (!this.graphViewer?.graph) return;
+        if (!isZoomIntent(event)) {
+          // The wheel is on its way to the page -- unless this surface has no
+          // page to give it to, in which case it did nothing and the reader
+          // deserves to be told why.
+          if (!wheelFallsThroughToPage(this.$store.getters.isDisplayMode)) {
+            hint(event, container.clientHeight);
+          }
+          return;
+        }
         event.preventDefault();
         step(event, container.clientHeight);
         this.updateCaptureBox();

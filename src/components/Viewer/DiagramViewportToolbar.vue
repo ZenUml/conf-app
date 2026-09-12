@@ -1,9 +1,9 @@
 <template>
   <div class="diagram-viewport-toolbar" role="toolbar" :aria-label="`${label} zoom controls`">
-    <button type="button" class="diagram-viewport-button" aria-label="Zoom out" title="Zoom out" @click="emitAction('zoom_out')">
+    <button type="button" class="diagram-viewport-button" aria-label="Zoom out" :title="`Zoom out (${WHEEL_SHORTCUT})`" @click="emitAction('zoom_out')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></svg>
     </button>
-    <button type="button" class="diagram-viewport-button" aria-label="Zoom in" title="Zoom in" @click="emitAction('zoom_in')">
+    <button type="button" class="diagram-viewport-button" aria-label="Zoom in" :title="`Zoom in (${WHEEL_SHORTCUT})`" @click="emitAction('zoom_in')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></svg>
     </button>
   </div>
@@ -20,6 +20,16 @@
  * emitted action and this stays presentational.
  */
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { viewportSurface } from '@/utils/viewport/surface';
+
+/**
+ * The wheel gesture, spelled for a tooltip. Both platforms in one string
+ * rather than sniffing the OS -- the house convention (AdvocacyButton.vue) --
+ * and the tooltip is where someone who already reached for the zoom buttons
+ * learns there is a faster way. `aria-label` stays the bare action: a screen
+ * reader announcing a mouse gesture on every focus is noise.
+ */
+const WHEEL_SHORTCUT = '\u2318/Ctrl + scroll';
 
 export default {
   name: 'DiagramViewportToolbar',
@@ -36,13 +46,12 @@ export default {
     },
   },
   emits: ['zoom-in', 'zoom-out'],
+  data() {
+    return { WHEEL_SHORTCUT };
+  },
   computed: {
-    isDisplayMode() {
-      return this.$store.getters.isDisplayMode;
-    },
     surface() {
-      if (window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen') return 'fullscreen';
-      return this.isDisplayMode ? 'viewer' : 'editor';
+      return viewportSurface(this.$store.getters.isDisplayMode);
     },
   },
   methods: {

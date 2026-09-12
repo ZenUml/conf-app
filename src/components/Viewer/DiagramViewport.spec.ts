@@ -178,4 +178,36 @@ describe('DiagramViewport wheel zoom', () => {
     expect(panZoom.zoomIn).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
   });
+
+  it('names the wheel shortcut on the zoom buttons', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+
+    // The tooltip is how someone who reached for the buttons learns the gesture.
+    expect(wrapper.get('[aria-label="Zoom in"]').attributes('title')).toBe('Zoom in (\u2318/Ctrl + scroll)');
+    // ...but the accessible name stays the bare action.
+    expect(wrapper.get('[aria-label="Zoom in"]').attributes('aria-label')).toBe('Zoom in');
+  });
+
+  it('hints at the modifier on the editor, where a plain wheel does nothing', async () => {
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+
+    // The editor pane is overflow:hidden, so that wheel went nowhere.
+    wheel(wrapper.get('.diagram-viewport').element, { deltaY: -400 });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(true);
+  });
+
+  it('stays quiet on the page viewer, where a plain wheel scrolls the page', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+
+    // Here the wheel did exactly what the reader wanted; a hint would be noise.
+    wheel(wrapper.get('.diagram-viewport').element, { deltaY: -400 });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(false);
+  });
 });

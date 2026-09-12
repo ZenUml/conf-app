@@ -17,6 +17,7 @@
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
     />
+    <ViewportZoomHint v-if="isInteractive" ref="zoomHint" :macro-type="macroType" />
   </div>
 </template>
 
@@ -36,7 +37,9 @@
  * tolerance and never swallows a plain click.
  */
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
-import { createWheelStepper, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
+import ViewportZoomHint from '@/components/Viewer/ViewportZoomHint.vue';
 
 /** Matches svg-pan-zoom's limits on the other viewports. */
 const MIN_ZOOM = 0.2;
@@ -47,7 +50,7 @@ const DRAG_TOLERANCE_PX = 4;
 
 export default {
   name: 'DiagramTransformViewport',
-  components: { DiagramViewportToolbar },
+  components: { DiagramViewportToolbar, ViewportZoomHint },
   props: {
     /** Analytics `macro_type` — the renderer this viewport is driving. */
     macroType: {
@@ -190,10 +193,18 @@ export default {
       const step = createWheelStepper((direction) => {
         this.zoomBy(direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
       });
+      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show());
       this.wheelHandler = (event) => {
         // A plain wheel stays the page's to scroll; only Ctrl/Cmd (or a trackpad
         // pinch, which arrives as one) means zoom. See isZoomIntent.
-        if (!isZoomIntent(event)) return;
+        if (!isZoomIntent(event)) {
+          // ...unless this surface has no page to give it to, in which case the
+          // wheel did nothing and the reader deserves to be told why.
+          if (!wheelFallsThroughToPage(this.$store.getters.isDisplayMode)) {
+            hint(event, viewport.clientHeight);
+          }
+          return;
+        }
         event.preventDefault();
         step(event, viewport.clientHeight);
       };

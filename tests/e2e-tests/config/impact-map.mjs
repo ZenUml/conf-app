@@ -80,6 +80,7 @@ export const IMPACT = [
   // was unmapped when it was added, which cost a full unselective run.
   { glob: 'src/components/Viewer/DiagramViewport*.vue', tags: ['@viewer', '@viewport'] },
   { glob: 'src/components/Viewer/DiagramTransformViewport.vue', tags: ['@viewer', '@viewport'] },
+  { glob: 'src/components/Viewer/ViewportZoomHint.vue', tags: ['@viewer', '@viewport'] },
   { glob: 'src/utils/viewport/**', tags: ['@viewer', '@editor', '@viewport'] },
   { glob: 'src/components/Viewer/**', tags: ['@viewer'] },
   { glob: 'src/utils/{viewerBootstrap,viewerLoadOutcome,loadFailedRetry}.ts', tags: ['@viewer'] },

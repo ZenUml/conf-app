@@ -253,6 +253,10 @@ export type AnalyticsEventName =
   // Both authoring-start events force Session Replay at 100% before the event
   // is sent. Editor entries must emit the event from the iframe that owns the
   // interaction; the replay policy itself stays centralized here.
+  // Creation lifecycle pairing (#520): one random creation_attempt_id begins
+  // at macro_create_started and survives type switches and publish retries.
+  // Success means Confluence custom content persisted (not macro placement).
+  // Explicit close ends the attempt; missing telemetry is not cancellation.
   | "macro_create_started"
   | "macro_create_succeeded"
   | "macro_edit_started"
@@ -269,6 +273,11 @@ export type AnalyticsEventName =
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
+  // Observed Publish click/save message before local gates; title_present is
+  // boolean only. A rejected gate reports macro_publish_blocked with a closed
+  // publish_block_reason. Neither event establishes persistence success.
+  | "macro_publish_requested"
+  | "macro_publish_blocked"
   // Fired once per failed CREATE whose Confluence answer was a 404 NOT_FOUND
   // envelope, AFTER a read-only probe of the caller's own operations on the
   // host page (`GET /api/v2/pages/{pageId}?include-operations=true`; the v1
@@ -657,6 +666,15 @@ export type AnalyticsEventName =
   // The byline editor closed without saving. Splits abandonment from failure,
   // which byline_create_clicked alone cannot distinguish.
   | "byline_create_cancelled"
+  // Editor close could not be resolved to a persisted diagram or cancellation.
+  // result: listing_failed | listing_partial | resolve_failed | editor_never_opened.
+  // One outcome per resolution attempt; is_retry separates a re-read retry.
+  // Host teardown without modal onClose remains unobserved, never abandonment.
+  | "byline_create_unresolved"
+  // Once per byline open after a successful read establishes the Lite limit;
+  // warns without blocking the editor's Continue editing allowance. Carries
+  // create_limit_reached, macro_count and macro_count_source.
+  | "byline_create_limit_warned"
   // "Done" was pressed on the post-create panel while the host page was in the
   // editor, and the app asked Confluence to close the byline view. Forge
   // documents view.close() as a *request* with no module restrictions stated,

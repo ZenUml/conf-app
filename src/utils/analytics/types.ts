@@ -67,6 +67,25 @@ export type AnalyticsProperties = {
   confluence_space?: string;
   macro_uuid?: string;
   // Lifecycle
+  // Random per-editor creation identifier. Never derived from account, tenant,
+  // page, content, URL, source or replay identifiers; absent for edit sessions.
+  creation_attempt_id?: string;
+  // Initial type is frozen at start. Final type is the selection at this event,
+  // and becomes final for the attempt only on success or explicit cancellation.
+  // macro_type keeps its existing per-event meaning for dashboard migration.
+  initial_macro_type?: MacroTypeValue;
+  final_macro_type?: MacroTypeValue;
+  // Monotonic within the attempt; makes rapid DSL switches orderable even when
+  // async enrichment delivers events out of order. Start has index 0.
+  creation_event_index?: number;
+  creation_elapsed_ms?: number;
+  title_present?: boolean;
+  publish_block_reason?: 'title_missing' | 'validation_error' | 'legacy_load_blocked' | 'writeback_unavailable';
+  // Byline resolution retry (absent for the initial attempt).
+  is_retry?: boolean;
+  // Undefined means the asynchronous byline pre-check has not resolved or could
+  // not read the macro count; it must not be represented as an under-limit read.
+  create_limit_reached?: boolean;
   operation_mode?: OperationMode;
   // macro_create_cancelled / macro_edit_cancelled: which close control ended
   // the editor session. `host_close` is the Atlassian modal X (view.onClose);

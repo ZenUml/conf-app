@@ -63,6 +63,68 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `surface` | `"editor"` |
 | `macro_type` | Diagram type of the new macro |
 | `entry_point` | `"page_editor"` (inserted via slash menu / macro browser) |
+| creation attempt | The pairing properties below, with `creation_event_index` = 0 |
+
+---
+
+### Creation attempt pairing (`creation_attempt_id`)
+
+Not an event. `src/utils/analytics/creationAttemptTelemetry.ts` stamps every create-mode lifecycle
+event sent from one editor iframe with the same random attempt token, so a DSL type switch, a
+blocked publish, a failed save and the terminal outcome can be joined without account, page,
+content or replay identifiers (#520). The attempt starts at `macro_create_started` and ends at
+`macro_create_succeeded` or `macro_create_cancelled`; `macro_publish_completed` and
+`macro_save_failed` may still carry it after the end. Edit sessions (`operation_mode = "edit"`)
+never carry these properties. The stamp is captured synchronously, before tracker initialisation,
+so a fast switch-then-close cannot rewrite an earlier queued event.
+
+| Property | Notes |
+|---|---|
+| `creation_attempt_id` | Random UUID per editor open; never persisted, never reused across opens |
+| `initial_macro_type` | Type at `macro_create_started`; frozen for the attempt |
+| `final_macro_type` | Type selected at the time of this event; final for the attempt only on success or cancellation |
+| `creation_event_index` | 0 at start, +1 per stamped event; orders rapid switches even when ingestion reorders them |
+| `creation_elapsed_ms` | Milliseconds since `macro_create_started` |
+
+Stamped events: `macro_create_started`, `macro_type_changed`, `macro_publish_requested`,
+`macro_publish_blocked`, `macro_save_failed`, `macro_create_succeeded`, `macro_create_cancelled`,
+`macro_publish_completed`.
+
+---
+
+### `macro_type_changed`
+
+**Trigger:** The DSL type selector in the shared text-editor header changes value. Fired in
+`src/components/Header/Header.vue`; not fired when the selection is unchanged.
+
+| Property | Notes |
+|---|---|
+| `feature_area` / `surface` | `"macro"` / `"editor"` |
+| `macro_type` / `to_macro_type` | The newly selected type |
+| `from_macro_type` | The previous type |
+| `operation_mode` | `"create"` when the diagram has no id yet, else `"edit"` |
+| `type_requested` / `is_new_macro` | Whether a deep link / byline chip pre-requested the type; whether the diagram is unsaved |
+| creation attempt | On creates, the pairing properties above |
+
+---
+
+### `macro_publish_requested` / `macro_publish_blocked`
+
+**Trigger:** `macro_publish_requested` fires on the observed Publish click or DrawIO save message,
+before any local validation, via `src/utils/analytics/publishIntent.ts` (callers: `Header.vue` for
+the text editors, `ForgeGraphEditor.vue` for Graph, `forge-swagger-editor.ts`,
+`forge-asyncapi-editor.ts`, `forge-embed-editor.ts`). `macro_publish_blocked` fires when a local
+gate refuses that request instead of reaching the persistence layer. Neither event says anything
+about persistence; success is still `macro_create_succeeded` / `macro_save_succeeded`.
+
+| Property | Notes |
+|---|---|
+| `feature_area` / `surface` | `"macro"` / `"editor"` |
+| `macro_type` | Type at the click |
+| `operation_mode` | `"create"` / `"edit"` |
+| `title_present` | Boolean only; the title text is never sent |
+| `publish_block_reason` | `macro_publish_blocked` only. `title_missing` (empty or whitespace title and no AI title available), `writeback_unavailable` (the host page cannot take the macro write-back), `legacy_load_blocked` (see `macro_save_failed` history). `validation_error` is reserved and not emitted yet |
+| creation attempt | On creates, the pairing properties above |
 
 ---
 
@@ -114,6 +176,7 @@ never fires it. At most one event per iframe.
 | `had_changes` | Content differed from what was loaded; omitted when unknown |
 | `editor_open_duration_ms` | Mount → close |
 | mutation summary | On text-editor edits, the same `had_global_replace` / delta buckets as `macro_save_succeeded` |
+| creation attempt | On `macro_create_cancelled`, the pairing properties above |
 
 **History:** Until 2026-09-11 `macro_edit_cancelled` fired only when a user confirmed **Discard** in
 the text editors' close-without-saving dialog. That dialog is reached only from an exit button the
@@ -147,12 +210,30 @@ transport because the host destroys the iframe right after `view.onClose`.
 
 ### `macro_save_failed`
 
-**Trigger:** `saveToPlatform` throws while saving an existing Sequence / Mermaid / PlantUML
-diagram. The canonical event carries the same editor-session summary as `macro_edit_cancelled`, plus
-a bounded, stable `failure_reason` (`legacy_load_blocked`, `invalid_saved_content_id`, `http_<status>`,
-the JavaScript error class, or `unknown_error`). Existing legacy `trackEvent` diagnostics remain in
-place. A later `view.submit` failure is not labelled as persistence failure because the custom
-content save already succeeded.
+**Trigger:** `saveToPlatform` (`src/model/ContentProvider/Persistence.ts`) could not persist the
+custom content: the Confluence create/update call threw, or it returned without a usable id. Fired
+for creates and edits from every editor that saves through `saveToPlatform` (text DSL editors,
+Graph, OpenAPI, AsyncAPI). Failures after the custom content was stored (snapshot, D1 telemetry,
+`view.submit`) are not labelled as save failures.
+
+| Property | Notes |
+|---|---|
+| `feature_area` / `surface` | `"macro"` / `"editor"` |
+| `macro_type` | Type being saved |
+| `operation_mode` | `"create"` (no `diagram.id` at save time) / `"edit"` |
+| `failure_stage` | Always `"persistence"` |
+| `failure_reason` | `http_error` (Confluence answered 4xx/5xx), `request_failed` (no HTTP status: network, bridge, thrown error), `invalid_saved_content_id` (the save returned without a usable id) |
+| `http_status` | Present with `http_error` only; validated 400–599 |
+| `error_code` | Present only for a known machine code: `NOT_FOUND`, `FORBIDDEN`, `UNAUTHORIZED`, `MISSING_CONTENT_PARENT`, `INVALID_ARGUMENT`. Server error text is never sent |
+| mutation summary | On text-editor edits, the same `journey_id` / `had_global_replace` / delta buckets as `macro_save_succeeded` |
+| creation attempt | On creates, the pairing properties above |
+
+**History:** Until 2026-09-12 (PR #683) the event fired only from the text-editor save handler in
+`forgeIndex.ts`, only for edits, with `failure_reason` drawn from `legacy_load_blocked`,
+`invalid_saved_content_id`, `http_<status>`, the JavaScript error class, or `unknown_error`. A
+query spanning that date must map `http_<status>` to `failure_reason = http_error` plus
+`http_status`, and read the legacy-load refusal from `macro_publish_blocked`
+(`publish_block_reason = legacy_load_blocked`), where it is reported now.
 
 ### `editor_global_replace_observed`
 

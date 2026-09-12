@@ -289,22 +289,6 @@ export function getEditorMutationSummary(): Partial<AnalyticsProperties> {
   };
 }
 
-export function trackEditorMutationLifecycleEvent(
-  event: 'macro_edit_cancelled' | 'macro_save_failed',
-  failureReason?: string,
-): boolean {
-  if (!activeSession) return false;
-  activeSession.dependencies.track(event, {
-    feature_area: 'macro',
-    surface: 'editor',
-    macro_type: activeSession.macroType,
-    operation_mode: 'edit',
-    ...getEditorMutationSummary(),
-    ...(failureReason ? { failure_reason: failureReason.substring(0, 200) } : {}),
-  });
-  return true;
-}
-
 export function resetEditorMutationSession(): void {
   activeSession = null;
 }

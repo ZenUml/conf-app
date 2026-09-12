@@ -412,6 +412,18 @@ function renderZenUmlFullscreenViewer() {
   }
 }
 
+/**
+ * The page viewer as forgeIndex.ts mounts it: DiagramPortal with autoResize=true,
+ * the surface where the box has to take the scaled diagram's height because the
+ * Forge macro iframe is sized by its content.
+ */
+function renderZenUmlInlineViewer() {
+  return {
+    components: { DiagramPortal },
+    template: `<DiagramPortal :autoResize="true" />`,
+  }
+}
+
 /** PlantUML's editor preview surface, without the read-only viewer chrome. */
 function renderPlantUmlEditorPreview() {
   return {
@@ -1133,6 +1145,28 @@ export const LoadFailedWithoutSource: Story = {
  * a diagram-type chip replaces the hover-revealed row's Edit and Fullscreen
  * buttons — so mounting GenericViewer directly would not show it.
  */
+/** The page viewer: Sequence fits to width and zooms, like the other types. */
+export const ZenUmlInlinePanZoom: Story = {
+  name: 'Normal view — ZenUML sequence pan and zoom',
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Sequence,
+        title: 'Login flow',
+        code: SAMPLE_SEQUENCE,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderZenUmlInlineViewer(),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(
+      await canvas.findByRole('toolbar', { name: 'Sequence zoom controls' }, { timeout: 15000 }),
+    ).toBeVisible()
+  },
+}
+
 export const ZenUmlFullscreen: Story = {
   name: 'Fullscreen — ZenUML sequence via DiagramPortal',
   parameters: { layout: 'fullscreen' },

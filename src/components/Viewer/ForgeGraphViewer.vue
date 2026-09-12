@@ -65,6 +65,7 @@ import {
 } from "@/utils/graph/boardDocument";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
+import { createWheelStepper } from "@/utils/viewport/wheelZoom";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -256,35 +257,21 @@ export default {
      * every `renderViewer()` would stack another listener and multiply the step.
      *
      * A native listener also covers trackpad pinch for free: browsers report it as
-     * a wheel event with `ctrlKey` set.
+     * a wheel event with `ctrlKey` set. The accumulate-to-a-step behaviour and the
+     * deltaMode normalisation live in `wheelZoom.ts`, shared with Sequence.
      */
     enableWheelZoom() {
       const container = this.$refs.graphContainer;
       if (!container || this.wheelZoomHandler) return;
-      // Wheel deltas are pixels by default but lines in Firefox and pages when a
-      // browser feels like it; normalise before comparing against the step.
-      const toPixels = (event) => {
-        if (event.deltaMode === 1) return event.deltaY * 16;
-        if (event.deltaMode === 2) return event.deltaY * container.clientHeight;
-        return event.deltaY;
-      };
-      // One mxGraph zoom step per notch. A trackpad emits a stream of small
-      // deltas, so accumulating and stepping on the threshold keeps a two-finger
-      // swipe from rocketing through the zoom range; the remainder carries over
-      // rather than being dropped, so slow scrolling still zooms eventually.
-      const STEP_PX = 100;
-      let accumulated = 0;
-      this.wheelZoomHandler = (event) => {
+      const step = createWheelStepper((direction) => {
         const graph = this.graphViewer?.graph;
-        if (!graph) return;
+        if (direction > 0) graph.zoomIn();
+        else graph.zoomOut();
+      });
+      this.wheelZoomHandler = (event) => {
+        if (!this.graphViewer?.graph) return;
         event.preventDefault();
-        accumulated += toPixels(event);
-        while (Math.abs(accumulated) >= STEP_PX) {
-          const out = accumulated > 0;
-          accumulated += out ? -STEP_PX : STEP_PX;
-          if (out) graph.zoomOut();
-          else graph.zoomIn();
-        }
+        step(event, container.clientHeight);
         this.updateCaptureBox();
       };
       // Not passive: the whole point is to take the event away from page scroll.

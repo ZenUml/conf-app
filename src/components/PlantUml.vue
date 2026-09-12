@@ -11,7 +11,8 @@
       <div class="text-xs text-gray-400 mb-4">Type or paste PlantUML syntax in the editor</div>
       <pre class="text-left text-xs font-mono bg-gray-900 text-violet-300 rounded-lg px-5 py-4 leading-relaxed">@startuml
 Alice -&gt; Bob: Hello
-Bob --&gt; Alice: Hi there!</pre>
+Bob --&gt; Alice: Hi there!
+@enduml</pre>
     </div>
     <DiagramViewport
       v-else

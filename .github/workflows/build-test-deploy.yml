@@ -258,6 +258,80 @@ jobs:
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
+  # ---------------------------------------------------------------------------
+  # Did a PR run already test THIS tree? (ADR-0007 §2)
+  #
+  # A `pull_request` run does not test the PR head; it tests refs/pull/N/merge,
+  # the synthetic merge of head into main at that moment. When main has not
+  # moved since, the real merge commit has the same tree — a merge of the same
+  # two parents is deterministic — so its staging deploy and its Lite E2E would
+  # be a byte-for-byte repeat of what the PR run already did. This job decides
+  # whether that is the case, and the Lite E2E jobs below skip themselves when
+  # it is; `Draft: Lite` then records which run it is trusting.
+  #
+  # The check is "identical tree", never "same commit": if main moved between
+  # the PR run and the merge, the trees differ and everything runs as before.
+  # It also requires the PR run's E2E jobs to have RUN and passed — a draft
+  # PR's run is green with its E2E skipped, which proves nothing. Anything it
+  # cannot establish (no merge parent, no run, jobs missing) means no reuse.
+  reuse-check:
+    name: "Reuse PR E2E?"
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      reuse: ${{ steps.check.outputs.reuse }}
+      run-url: ${{ steps.check.outputs.run_url }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # HEAD and its parents: HEAD^2 is the PR head of a merge commit, and
+          # its tree is what gets compared.
+          fetch-depth: 2
+      - name: Compare the merge tree with the PR run's tree
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          no() { echo "reuse=false" >> "$GITHUB_OUTPUT"; echo "reason=$1" >> "$GITHUB_OUTPUT"; echo "no reuse: $1"; exit 0; }
+          MERGE_TREE=$(git rev-parse 'HEAD^{tree}')
+          # Second parent = the PR head. A squash or fast-forward has none; the
+          # tree comparison below would still be sound for a squash, but the PR
+          # head SHA needed to find its run would not be, so no reuse.
+          H=$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null) || no "not a merge commit"
+          H_TREE=$(git rev-parse "$H^{tree}")
+          [ "$H_TREE" = "$MERGE_TREE" ] || no "main moved since the PR run (merge tree $MERGE_TREE != PR head tree $H_TREE)"
+          # The newest successful pull_request run of THIS workflow on that head.
+          RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-test-deploy.yml/runs?event=pull_request&head_sha=$H&status=success&per_page=5" \
+                  --jq '.workflow_runs[0].id // empty')
+          [ -n "$RUN" ] || no "no successful pull_request run for $H"
+          # Every Lite E2E shard of the three suites must have RUN and passed.
+          # `skipped` is what a draft PR's run shows — and a suite that never
+          # ran covers nothing. Counted per suite so a suite missing entirely is
+          # also caught.
+          SUMMARY=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/jobs?per_page=100" --jq '
+            [.jobs[] | select(.name | test("^E2E: Lite( DrawIO Publish| render)? / shard"))]
+            | { suites: (map(.name | sub(" / shard.*$"; "")) | unique | length),
+                shards: length,
+                passed: (map(select(.conclusion == "success")) | length) }')
+          echo "run $RUN jobs: $SUMMARY"
+          SUITES=$(jq -r .suites <<<"$SUMMARY"); SHARDS=$(jq -r .shards <<<"$SUMMARY"); PASSED=$(jq -r .passed <<<"$SUMMARY")
+          [ "$SUITES" = "3" ] || no "PR run $RUN ran $SUITES of the 3 Lite E2E suites"
+          { [ "$SHARDS" -gt 0 ] && [ "$PASSED" = "$SHARDS" ]; } || no "PR run $RUN: $PASSED of $SHARDS Lite shards passed"
+          URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN"
+          {
+            echo "reuse=true"
+            echo "run_url=$URL"
+            echo "reason=tree $MERGE_TREE already tested by $URL ($SHARDS shards, 3 suites)"
+          } >> "$GITHUB_OUTPUT"
+          echo "reuse: tree $MERGE_TREE already tested by $URL"
+          echo "### Lite E2E reused from [PR run $RUN]($URL) — identical tree \`$MERGE_TREE\`" >> "$GITHUB_STEP_SUMMARY"
+
   staging-lite:
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
@@ -274,38 +348,48 @@ jobs:
     #   - on a PR that is Ready for Review (signals "I want this merged").
     # Pushing to a Draft PR (or to a branch with no PR open) deploys but
     # skips E2E so iterative work isn't gated on a slow test run.
-    if: |
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     # Not `build`: the unit tests gate the DRAFT (see draft-release-lite), not the
     # E2E. Waiting for them here bought nothing on a green run and, once the
     # Studio cache brought Deploy: Lite under the 3m30s the build job takes,
     # would have put the unit tests on the critical path — see ADR-0006.
-    needs: [staging-lite, e2e-auth-lite]
+    # reuse-check is skipped on PR runs (its outputs read as empty, so the
+    # `!= 'true'` test passes) and says true/false on main; the explicit
+    # result checks replace the all-succeeded semantics a plain `needs` would
+    # apply to a skipped job. ADR-0007 §2.
+    if: |
+      !cancelled()
+      && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+          (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
+      && needs.staging-lite.result == 'success'
+      && needs.e2e-auth-lite.result == 'success'
+      && needs.reuse-check.outputs.reuse != 'true'
+    needs: [staging-lite, e2e-auth-lite, reuse-check]
     name: "E2E: Lite"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
       suite: insert
       auth-artifact: auth-state-pre-lite-stg
-      # 8 shards, not the default 5. `--shard` splits the test list
-      # contiguously and keeps a `describe.serial` group on one shard, and under
-      # 5 the first shard carried byline-asyncapi (x2) AND byline-create (x2)
-      # together — 5m12s on run 34602804979, the tail of the whole main build.
+      # 10 shards, not the default 5. `--shard` splits the test list
+      # contiguously, and the byline tests are the expensive ones (a page
+      # creation each): under 8 the split put byline-create #2, byline-paywall
+      # and edit-graph on one shard — 4m06s on PR run 34658978233, the tail.
       # Measured with `CI=true APP=zenuml-lite@stg pnpm exec playwright test
-      # --list --project=auth --project=insert --project=feedback --shard=N/8`
-      # (2026-09-11, after byline-create stopped being serial and the env-gated
-      # byline-activation spec stopped being collected — ADR-0007):
-      #   1: byline-asyncapi (x2), byline-create #1   5: paywall-page-banner (x2)
-      #   2: byline-create #2, byline-paywall,        6: plantuml, sequence
-      #      edit-graph                               7: typed-deeplink-autoconvert,
-      #   3: embed-deeplink-autoconvert, graph,          typed-deeplink-render
-      #      m1-first-seen-ping #1                    8: feedback-report (x2)
-      #   4: m1-first-seen-ping #2, mermaid, openapi
-      # The two byline-create tests are now apart (they were shard 2/8's 3m30s
-      # tail on run 34655187796). Re-measure with `--list` after adding or
-      # renaming a spec; do not reason about placement by hand.
-      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
+      # --list --project=auth --project=insert --project=feedback --shard=N/10`
+      # (2026-09-12):
+      #   1: byline-asyncapi (x2)            6: mermaid, openapi
+      #   2: byline-create (x2)              7: paywall-page-banner (x2)
+      #   3: byline-paywall, edit-graph      8: plantuml, sequence
+      #   4: embed-deeplink-autoconvert,     9: typed-deeplink-autoconvert,
+      #      graph                              typed-deeplink-render
+      #   5: m1-first-seen-ping (x2)        10: feedback-report (x2)
+      # No shard carries more than two page-creating tests (~3m). Peak fan-out
+      # on main is 16 Lite + 4 Diagramly + 3 AsyncAPI = 23 with Full sequenced
+      # behind Lite; the three jobs over the 20 cap are Lite's last-created
+      # (light) shards, which wait ~40s for Diagramly's all-skip shard 1 to free
+      # a runner. Re-measure with `--list` after adding or renaming a spec; do
+      # not reason about placement by hand.
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
       # Above the 8-minute default because shard 1 carries every `byline-*` spec
       # (`--shard` splits contiguously by file name — see the note in
       # e2e-test.yml). Measured on this job: 3m36s at 6 tests, 5m35s at 8 after
@@ -315,8 +399,8 @@ jobs:
       # 11 leaves room for one retry; a second growth spurt should move a spec
       # off shard 1 instead of raising this again.
       #
-      # Kept at 11 after the move to 8 shards (above) even though no shard now
-      # carries more than three tests: the ceiling only ever matters for a
+      # Kept at 11 after the move to 10 shards (above) even though no shard now
+      # carries more than two tests: the ceiling only ever matters for a
       # wedged test, and a reaped shard costs a whole re-run.
       timeout-minutes: 11
       artifact-suffix: lite-stg
@@ -330,10 +414,18 @@ jobs:
     # Keep the DrawIO Publish checks focused on graph-edit.spec.ts. Like the
     # main Lite E2E, run them for the default branch and ready-for-review PRs,
     # but not for draft/branch iteration pushes.
+    # reuse-check is skipped on PR runs (its outputs read as empty, so the
+    # `!= 'true'` test passes) and says true/false on main; the explicit
+    # result checks replace the all-succeeded semantics a plain `needs` would
+    # apply to a skipped job. ADR-0007 §2.
     if: |
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    needs: [staging-lite, e2e-auth-lite]
+      !cancelled()
+      && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+          (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
+      && needs.staging-lite.result == 'success'
+      && needs.e2e-auth-lite.result == 'success'
+      && needs.reuse-check.outputs.reuse != 'true'
+    needs: [staging-lite, e2e-auth-lite, reuse-check]
     name: "E2E: Lite DrawIO Publish"
     uses: ./.github/workflows/e2e-test.yml
     with:
@@ -364,10 +456,18 @@ jobs:
     # render was collected but never gated in CI. Same cadence as the other
     # Lite E2E jobs: default branch, or a PR that's Ready for Review — not
     # draft/branch iteration pushes.
+    # reuse-check is skipped on PR runs (its outputs read as empty, so the
+    # `!= 'true'` test passes) and says true/false on main; the explicit
+    # result checks replace the all-succeeded semantics a plain `needs` would
+    # apply to a skipped job. ADR-0007 §2.
     if: |
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    needs: [staging-lite, e2e-auth-lite]
+      !cancelled()
+      && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+          (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
+      && needs.staging-lite.result == 'success'
+      && needs.e2e-auth-lite.result == 'success'
+      && needs.reuse-check.outputs.reuse != 'true'
+    needs: [staging-lite, e2e-auth-lite, reuse-check]
     name: "E2E: Lite render"
     uses: ./.github/workflows/e2e-test.yml
     with:
@@ -411,8 +511,9 @@ jobs:
   # finishes before any shard starts. The `now` lane runs Full alongside the
   # others for the times Full has to ship first (a Full-only hotfix); it is
   # selected per merge by `[full-first]` anywhere in the merge commit message
-  # (the PR title carries into a merge commit) or standing, by the repo
-  # variable FULL_DRAFT_LANE=now (`gh variable set FULL_DRAFT_LANE --body now`;
+  # (the PR title carries into a merge commit — so never QUOTE the token in a
+  # PR title; main run 34659544917 took this lane because #669's title did) or
+  # standing, by the repo variable FULL_DRAFT_LANE=now (`gh variable set FULL_DRAFT_LANE --body now`;
   # unset it or set anything else to return to the default). Exactly one lane
   # runs; `Draft: Full` accepts either. The two jobs are call sites only —
   # every input is identical, so a change to one must be made to both.
@@ -428,6 +529,12 @@ jobs:
     # not Lite's verdict, which Full's own shards do not depend on. That is why
     # the `if` names the two real prerequisites and `!cancelled()` rather than
     # relying on the default all-succeeded semantics of `needs`.
+    #
+    # Known wrinkle: even when this lane is NOT selected, GitHub evaluates its
+    # `if` only once every `needs` entry has finished, so `Draft: Full` (which
+    # needs both lanes) still waits for Lite's E2E in the `now` case. Full's
+    # draft is never what a person waits for, so this is accepted rather than
+    # worked around with a third job.
     needs: [staging-full, e2e-auth-full, staging-lite-e2e]
     name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml
@@ -558,11 +665,23 @@ jobs:
     name: "Draft: Lite"
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the default branch, to avoid cutting releases from feature branches
-    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     # `build` (unit tests + the asyncapi build check) gates the drafts here
     # rather than the E2E jobs — a draft is never cut from a commit whose unit
-    # tests failed, but the E2E no longer waits for them. See ADR-0006.
-    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e, build]
+    # tests failed, but the E2E no longer waits for them (ADR-0006). The Lite
+    # E2E is either this run's (both suites green) or a PR run's on the
+    # identical tree (reuse-check said so and the suites skipped themselves) —
+    # ADR-0007 §2. The staging deploy must have happened in THIS run either way.
+    if: |
+      !cancelled()
+      && github.event_name != 'pull_request'
+      && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      && needs.build.result == 'success'
+      && needs.staging-lite.result == 'success'
+      && (
+        (needs.staging-lite-e2e.result == 'success' && needs.staging-lite-fullscreen-e2e.result == 'success')
+        || needs.reuse-check.outputs.reuse == 'true'
+      )
+    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e, build, staging-lite, reuse-check]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -594,7 +713,12 @@ jobs:
           # the draft is published — so a draft published after a later merge
           # ships that newer commit instead, under this build's version number.
           commit: ${{ github.sha }}
-          body: 'This is a draft release for the Lite version of the plugin.'
+          # Provenance: which run's E2E this draft rests on. The release-app
+          # skill reads it when composing the notes.
+          body: |
+            This is a draft release for the Lite version of the plugin.
+
+            E2E: ${{ needs.reuse-check.outputs.reuse == 'true' && format('reused from a PR run on the identical tree — {0}', needs.reuse-check.outputs.run-url) || 'ran in this build' }}
           draft: true
 
   draft-release-full:

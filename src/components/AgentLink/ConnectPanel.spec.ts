@@ -4,7 +4,7 @@ import ConnectPanel from './ConnectPanel.vue'
 import AgentStatusHeader from './AgentStatusHeader.vue'
 import { rememberAgentLinkClient } from '@/composables/agentLink/clientMemory'
 import connectPanelSource from './ConnectPanel.vue?raw'
-import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
+import type { AgentLinkActivityEntry, AgentLinkSessionApi } from '@/composables/agentLink/useAgentLinkSession'
 import { GUARDRAIL_REJECTED_FEED_SUMMARY } from '@/composables/agentLink/useAgentLinkSession'
 
 function mountPanel(props: {
@@ -26,7 +26,7 @@ function mountPanel(props: {
   thinking?: 'idle' | 'thinking' | 'error'
   progressStage?: 'initialized' | 'discovered' | 'verified' | 'working' | null
   clientName?: string
-  noticeReason?: 'connection_lost' | null
+  noticeReason?: AgentLinkSessionApi['noticeReason']['value']
   expiresAt?: number | null
   atCap?: boolean
 }) {

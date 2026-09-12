@@ -221,4 +221,37 @@ describe('MCP pairing through real target and binding Durable Objects', () => {
     const f = fixture();
     expect((await f.initialize('test-client', '2099-01-01')).body.result.protocolVersion).toBe('2025-11-25');
   });
+
+  it('refuses a raw peer=agent WebSocket so a retained code cannot bypass the MCP claim', async () => {
+    const f = fixture(); f.target('CL-WS-AGENT');
+    const { id } = await f.initialize();
+    await f.connect(id, 'CL-WS-AGENT');
+    // A holder of the now-consumed code opens the vestigial agent transport
+    // directly. Agent ops travel over HTTP (mcp.ts, gated by mcpClaim); a raw
+    // peer=agent socket would route `op` envelopes to the macro unchecked, so
+    // it must be refused before any socket is accepted.
+    const agentWs = await f.env.AGENT_LINK.get({ name: 'CL-WS-AGENT' }).fetch(
+      'https://agent-link-do/channel?token=CL-WS-AGENT&peer=agent&cloudId=cloud-test&pageId=100&contentId=200',
+      { headers: { Upgrade: 'websocket' } },
+    );
+    expect(agentWs.status).toBe(403);
+    expect(agentWs.webSocket ?? null).toBeNull();
+  });
+
+  it('keeps the previous binding intact when a switch fails its confirmation', async () => {
+    const f = fixture(); f.target('CL-KEEP'); f.target('CL-SWITCH');
+    const { id } = await f.initialize();
+    expect((await f.connect(id, 'CL-KEEP')).body.result.structuredContent.connected).toBe(true);
+    // Confirmation on the new target fails mid-switch.
+    f.beforeFetch.value = async (name, path) => {
+      if (name === 'CL-SWITCH' && path === '/session') throw new Error('confirm unavailable');
+    };
+    expect((await f.connect(id, 'CL-SWITCH')).body.error.data.code).toBe('binding_failed');
+    f.beforeFetch.value = undefined;
+    // The transport binding still points at the original target, and it stays
+    // usable — a failed switch must not orphan the live session.
+    expect(f.stores.get('mcp:' + id)!.get('mcpBinding').token).toBe('CL-KEEP');
+    expect(f.stores.get('CL-SWITCH')!.has('mcpClaim')).toBe(false);
+    expect((await f.rpc('tools/call', { name: 'get_status' }, id)).response.status).toBe(200);
+  });
 });

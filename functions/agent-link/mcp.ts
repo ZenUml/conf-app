@@ -179,6 +179,16 @@ async function pairViaDo(
   try {
     const claimBody = (await claim.json()) as { expiresAtMs?: unknown; bindingExpiresAtMs?: unknown };
     if (typeof claimBody.expiresAtMs !== 'number' || !Number.isFinite(claimBody.expiresAtMs)) throw new Error('invalid claim');
+    // Confirm the new target BEFORE repointing the transport binding. The
+    // binding is the only record that says which target this MCP session
+    // resolves to; if confirmation fails after it is overwritten, the session
+    // is left pointing at a just-released claim (401) while the previous
+    // target is orphaned. Confirming first means a failed switch leaves the
+    // previous binding — and the still-live previous session — untouched.
+    const confirmed = await target.fetch(`https://agent-link-do/session?${new URLSearchParams({
+      presence: 'verified', mcpSessionId, ...(clientName ? { client: clientName } : {}),
+    })}`, { method: 'GET' });
+    if (!confirmed.ok) throw new Error('pairing confirmation failed');
     // A mapping lives until the absolute cap. Target auth checks the current
     // sliding idle deadline on every call; caching the initial idle deadline
     // here used to disconnect an actively-used link at minute ten.
@@ -189,11 +199,6 @@ async function pairViaDo(
       body: JSON.stringify({ token: code, expiresAtMs: claimBody.bindingExpiresAtMs ?? claimBody.expiresAtMs, expectedToken: previousToken ?? null }),
     });
     if (!stored.ok) throw new Error('binding write failed');
-    // Report successful pairing only after the transport mapping is durable.
-    const confirmed = await target.fetch(`https://agent-link-do/session?${new URLSearchParams({
-      presence: 'verified', mcpSessionId, ...(clientName ? { client: clientName } : {}),
-    })}`, { method: 'GET' });
-    if (!confirmed.ok) throw new Error('pairing confirmation failed');
     if (previousToken && previousToken !== code) {
       await agentLink.get(agentLink.idFromName(previousToken)).fetch('https://agent-link-do/mcp-release', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },

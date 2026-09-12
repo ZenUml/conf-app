@@ -46,6 +46,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import {
   agentLinkMcp,
   clickConnectToAgent,
+  connectAgentLink,
   enableAgentLinkOverrides,
   assertAgentLinkEndpointLive,
   openMacroPage,
@@ -191,6 +192,8 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
 
     let tokenA: string | null = null;
     let tokenB: string | null = null;
+    let mcpSessionIdA: string | null = null;
+    let mcpSessionIdB: string | null = null;
     let originalDslA = '';
     let originalDslB = '';
 
@@ -222,7 +225,7 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
         url: string,
         label: string,
         onToken: (token: string) => void,
-      ): Promise<{ token: string; dsl: string; diagramType: string }> {
+      ): Promise<{ token: string; mcpSessionId: string; dsl: string; diagramType: string }> {
         await enableAgentLinkOverrides(page);
         await openMacroPage(page, url);
         expect(await clickConnectToAgent(page), `${label} renders "Connect to Agent"`).toBe(true);
@@ -232,32 +235,41 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
         expect(token, `${label} mints a session token`).toBeTruthy();
         onToken(token!);
 
-        const rp = await agentLinkMcp(token!, 'read_page');
+        // Pair a real MCP transport session with this page's one-time code:
+        // initialize + connect, then address every tool call by the returned
+        // Mcp-Session-Id. The bare token is the pairing credential, not a
+        // transport handle — passing it as an Mcp-Session-Id addresses a
+        // nonexistent transport and 404s before isolation is ever exercised.
+        const mcpSessionId = await connectAgentLink(token!);
+
+        const rp = await agentLinkMcp(mcpSessionId, 'read_page');
         expect(rp.status, `${label} read_page HTTP`).toBe(200);
 
         await expect
           .poll(() => readPanelClass(page), { timeout: 15000, message: `${label} border flips to connected` })
           .toContain('connected');
 
-        const rd = await agentLinkMcp(token!, 'read_diagram');
+        const rd = await agentLinkMcp(mcpSessionId, 'read_diagram');
         expect(rd.status, `${label} read_diagram HTTP`).toBe(200);
         const rdPayload = mcpPayload(rd);
         const dsl = String(rdPayload.dsl ?? rdPayload.code ?? '');
         expect(dsl, `${label} read_diagram returns current DSL`).not.toHaveLength(0);
         const diagramType = String(rdPayload.diagramType ?? 'sequence');
 
-        return { token: token!, dsl, diagramType };
+        return { token: token!, mcpSessionId, dsl, diagramType };
       }
 
       const a = await connectAndPair(pageA, PAGE_A_URL, 'page A', (t) => {
         tokenA = t;
       });
       originalDslA = a.dsl;
+      mcpSessionIdA = a.mcpSessionId;
 
       const b = await connectAndPair(pageB, PAGE_B_URL, 'page B', (t) => {
         tokenB = t;
       });
       originalDslB = b.dsl;
+      mcpSessionIdB = b.mcpSessionId;
 
       expect(tokenA, 'the two pages mint DIFFERENT tokens').not.toBe(tokenB);
       const diagramTypeA = a.diagramType;
@@ -280,11 +292,11 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
       const markerB = `AGENTX${suffix}B`;
 
       const [upA, upB] = await Promise.all([
-        agentLinkMcp(tokenA!, 'update_diagram', {
+        agentLinkMcp(mcpSessionIdA!, 'update_diagram', {
           dsl: appendMarkerEdit(originalDslA, diagramTypeA, markerA),
           summary: 'crosstalk-check A',
         }),
-        agentLinkMcp(tokenB!, 'update_diagram', {
+        agentLinkMcp(mcpSessionIdB!, 'update_diagram', {
           dsl: appendMarkerEdit(originalDslB, diagramTypeB, markerB),
           summary: 'crosstalk-check B',
         }),
@@ -316,13 +328,13 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
       expect(textOnB, "page B's DOM never shows page A's marker (no cross-talk)").not.toContain(markerA);
     } finally {
       // Non-destructive: restore both diagrams, matching agent-link-e2e.spec.ts's convention.
-      if (tokenA && originalDslA) {
-        await agentLinkMcp(tokenA, 'update_diagram', { dsl: originalDslA, summary: 'crosstalk-check restore A' }).catch(
+      if (mcpSessionIdA && originalDslA) {
+        await agentLinkMcp(mcpSessionIdA, 'update_diagram', { dsl: originalDslA, summary: 'crosstalk-check restore A' }).catch(
           () => {},
         );
       }
-      if (tokenB && originalDslB) {
-        await agentLinkMcp(tokenB, 'update_diagram', { dsl: originalDslB, summary: 'crosstalk-check restore B' }).catch(
+      if (mcpSessionIdB && originalDslB) {
+        await agentLinkMcp(mcpSessionIdB, 'update_diagram', { dsl: originalDslB, summary: 'crosstalk-check restore B' }).catch(
           () => {},
         );
       }

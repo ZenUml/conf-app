@@ -1618,7 +1618,20 @@ export function useAgentLinkSession(
     // would leave this display-only instance claiming "gave up reconnecting"
     // through the next healthy suspend cycle, while the owner is still
     // actively retrying.
-    noticeReason.value = session.noticeReason ?? null
+    //
+    // Exception: a revocation failure THIS instance raised itself
+    // (recovery_exhausted + disconnect_failed/revoke_failed, set by
+    // withConfirmedRevocation) is locally owned. The owner is still connected —
+    // that is the failure — so a mirrored record carrying no notice must not
+    // clear it, or the rail would swap "Could not disconnect / Retry" for
+    // "Connection lost / Reconnect" while the agent is in fact still linked.
+    // Only a confirmed revocation or a deliberate relink clears it.
+    const localRevocationFailure =
+      state.value === 'recovery_exhausted' &&
+      (noticeReason.value === 'disconnect_failed' || noticeReason.value === 'revoke_failed')
+    if (!localRevocationFailure) {
+      noticeReason.value = session.noticeReason ?? null
+    }
 
     // --- Amendment D: honest already-linked countdown mirror -------------
     // The relay owner (inline) learns the lock release time from the mint

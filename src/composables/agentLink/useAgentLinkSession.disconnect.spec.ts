@@ -89,6 +89,24 @@ describe('confirmed Disconnect across inline and Fullscreen instances', () => {
     expect(readSession(context.pageId)).toBeNull()
   })
 
+  it('does not let a mirrored owner record erase a local failed-disconnect notice', async () => {
+    persistSession(handoff)
+    const fullscreen = useAgentLinkSession(bridge(), { macroType: 'sequence' })
+    fullscreen.hydrateFrom(handoff)
+    vi.mocked(revokeAgentLinkSession).mockRejectedValueOnce(new Error('offline'))
+    fullscreen.disconnect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fullscreen.state.value).toBe('recovery_exhausted')
+    expect(fullscreen.noticeReason.value).toBe('disconnect_failed')
+
+    // The still-active owner publishes a fresh handoff carrying no notice.
+    // Mirroring it must not swap "Could not disconnect / Retry" for
+    // "Connection lost / Reconnect" while the agent is in fact still linked.
+    fullscreen.hydrateFrom({ ...handoff, state: 'connected' })
+    expect(fullscreen.noticeReason.value).toBe('disconnect_failed')
+    expect(fullscreen.state.value).toBe('recovery_exhausted')
+  })
+
   it('does not close or clear a newer session when an older revocation finishes late', async () => {
     persistSession(handoff)
     const fullscreen = useAgentLinkSession(bridge(), { macroType: 'sequence' })

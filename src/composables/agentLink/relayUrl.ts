@@ -110,16 +110,25 @@ export async function mintAgentLinkSession(
 }
 
 
+// A revocation must not hang forever. withConfirmedRevocation holds an
+// in-flight guard that blocks every later Disconnect/Reconnect until this
+// settles, so an unbounded DELETE on a stalled network would wedge the control
+// permanently with no error and no retry. Bound it and let the caller surface
+// Retry disconnect on the resulting rejection.
+export const REVOCATION_TIMEOUT_MS = 10000
+
 /** Confirm teardown over HTTP even when the old relay WebSocket is closed. */
 export async function revokeAgentLinkSession(
   token: string,
   ctx: AgentLinkBoundContext,
-  backendBaseUrl: string = forgeGlobal.zenumlRemoteBaseUrl
+  backendBaseUrl: string = forgeGlobal.zenumlRemoteBaseUrl,
+  timeoutMs: number = REVOCATION_TIMEOUT_MS
 ): Promise<void> {
   const response = await fetch(`${backendBaseUrl}/agent-link/session`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...ctx, token }),
+    signal: AbortSignal.timeout(timeoutMs),
   })
   if (!response.ok && response.status !== 404) throw new Error(`Agent Link revocation failed: HTTP ${response.status}`)
 }

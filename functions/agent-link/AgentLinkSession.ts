@@ -535,6 +535,17 @@ export class AgentLinkSession {
     }
     const peer: Peer = peerParam;
 
+    // Agent traffic is HTTP-only in this transport: mcp.ts forwards ops through
+    // the DO's /agent-op endpoint, gated by the one-time `mcpClaim`. A raw
+    // `peer=agent` WebSocket bypasses that gate entirely — `routeMessage`
+    // forwards an agent-sent `op` straight to the macro — so a retained or
+    // already-consumed code could still read and write through the macro. No
+    // client ever opens this socket (the browser is `peer=macro`), so refuse
+    // the upgrade rather than accept a claim-less agent channel.
+    if (peer === 'agent') {
+      return new Response('agent transport is HTTP-only; peer=agent is not accepted', { status: 403 });
+    }
+
     // A macro reconnecting after a hibernation wake must re-attach to the
     // existing (persisted) session rather than bootstrap a second one.
     await this.ensureSession();

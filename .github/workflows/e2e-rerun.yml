@@ -1,0 +1,57 @@
+name: E2E shard re-run
+
+# One automatic re-run of failed E2E shards (ADR-0007 §6).
+#
+# Playwright already retries a failing TEST twice inside its shard
+# (playwright.config.ts: retries 2 on CI), so a shard that fails did so three
+# times over — or never got to run its tests at all: an auth bootstrap that
+# lost the TOTP race, a runner reaped at the job timeout, a checkout or
+# install hiccup. Those are the cases a human used to fix by pressing
+# "Re-run failed jobs" and losing 10-20 minutes to noticing. This workflow
+# presses it once, and only when EVERY failed job in the run is an E2E job
+# (shard, auth bootstrap or report merge): a failed build, unit test, deploy
+# or draft is never re-run, and a run already on its second attempt is left
+# red — a second failure is real.
+#
+# `workflow_run` fires after the whole Build, Test and Draft Release run has
+# finished; re-running the failed jobs also re-runs everything downstream of
+# them (the drafts), so a green second attempt still cuts the drafts.
+
+on:
+  workflow_run:
+    workflows: ["Build, Test and Draft Release"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  rerun:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Re-run the failed jobs if they are all E2E jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          FAILED=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name]')
+          echo "failed jobs: $FAILED"
+          COUNT=$(jq 'length' <<<"$FAILED")
+          [ "$COUNT" -gt 0 ] || { echo "nothing failed at job level (a cancelled or errored run) — not re-running"; exit 0; }
+          # Every failed job must be an E2E job: a shard, an auth bootstrap
+          # (the t=0 "E2E auth: <site>" ones or a suite's own), a report merge,
+          # or the Vite-backed viewer preview. Anything else is a real failure.
+          NON_E2E=$(jq -r '[.[] | select(test("^(E2E: .* / (shard [0-9]+/[0-9]+|auth / auth bootstrap|merge shard reports)|E2E auth: .* / auth bootstrap|E2E: Viewer preview)$") | not)] | length' <<<"$FAILED")
+          if [ "$NON_E2E" != "0" ]; then
+            echo "::notice::$RUN_URL has $NON_E2E non-E2E failure(s) — not re-running (a build, deploy or draft failure is real)"
+            exit 0
+          fi
+          echo "::notice::re-running $COUNT failed E2E job(s) of $RUN_URL once (attempt 2)"
+          gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY" --failed
+          echo "### Re-ran $COUNT failed E2E job(s) of [run $RUN_ID]($RUN_URL) — attempt 2 is the last automatic one" >> "$GITHUB_STEP_SUMMARY"

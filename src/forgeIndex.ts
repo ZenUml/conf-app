@@ -51,7 +51,6 @@ import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
-import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
 import { markEditorAuthoringStarted, trackEditorClosedWithoutSave } from '@/utils/analytics/editorCloseOutcome';
 import {
   EXPORT_SESSION_EVENT,
@@ -1333,17 +1332,6 @@ EventBus.$on('save', async () => {
   try {
     id = await saveToPlatform(store.state.diagram);
   } catch (error) {
-    const status = (error as any)?.status || (error as any)?.statusCode;
-    const failureReason = error instanceof LegacyLoadBlockedSaveError
-      ? 'legacy_load_blocked'
-      : error instanceof InvalidSavedContentIdError
-        ? 'invalid_saved_content_id'
-        : status
-          ? `http_${status}`
-          : error instanceof Error
-            ? error.name
-            : 'unknown_error';
-    trackEditorMutationLifecycleEvent('macro_save_failed', failureReason);
     // ZEN-1170 Defect 1: persistence layer refused save because the legacy
     // content-property load failed. Surface a clear message that does NOT
     // suggest "retry" (retrying won't help; the user needs to refresh or

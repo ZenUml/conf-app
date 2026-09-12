@@ -20,6 +20,7 @@
 </template>
 
 <script lang="ts">
+import { trackPublishBlocked } from '@/utils/analytics/publishIntent';
 import { defineComponent, computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import DrawIoHeader from "./components/DrawIoHeader.vue";
 import store from "@/model/store2";
@@ -147,6 +148,9 @@ export default defineComponent({
       // and wait. The currentTitle watcher below resolves this promise if an
       // in-flight generation lands a title, so publish can still proceed
       // automatically without the user typing.
+      trackPublishBlocked('title_missing', {
+        macroType: 'graph', operationMode: store.state.diagram.id ? 'edit' : 'create', titlePresent: false,
+      });
       titleError.value = true;
       headerRef.value?.focusInput();
       return new Promise((resolve) => {

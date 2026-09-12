@@ -38,6 +38,7 @@
 </template>
 
 <script>
+import { trackPublishRequested } from '@/utils/analytics/publishIntent';
 import DrawIoExtension from "@/components/DrawIoExtension/DrawIoExtension.vue";
 import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
@@ -320,6 +321,11 @@ export default {
         }
       }
       else if (payload.event === 'save') {
+        trackPublishRequested({
+          macroType: 'graph',
+          operationMode: this.$store?.state?.diagram?.id ? 'edit' : 'create',
+          titlePresent: !!this.$store?.state?.diagram?.title?.trim(),
+        });
         this.drawioModified = false;
         // Persist the full <mxfile> wrapper so multi-page diagrams keep
         // every page. Previously we extracted the first <mxGraphModel>

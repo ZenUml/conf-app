@@ -81,8 +81,6 @@ export type AnalyticsProperties = {
   creation_elapsed_ms?: number;
   title_present?: boolean;
   publish_block_reason?: 'title_missing' | 'validation_error' | 'legacy_load_blocked' | 'writeback_unavailable';
-  // Byline resolution retry (absent for the initial attempt).
-  is_retry?: boolean;
   operation_mode?: OperationMode;
   // macro_create_cancelled / macro_edit_cancelled: which close control ended
   // the editor session. `host_close` is the Atlassian modal X (view.onClose);
@@ -249,6 +247,7 @@ export type AnalyticsProperties = {
   version_id?: string;
   version_number?: number;
   version_count?: number;
+  // Also marks a byline resolution retry; absent for its initial attempt.
   is_retry?: boolean;
   error_category?: "syntax_error";
   lines_added?: number;

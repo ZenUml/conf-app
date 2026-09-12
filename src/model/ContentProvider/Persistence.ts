@@ -1,3 +1,4 @@
+import { trackPublishBlocked } from '@/utils/analytics/publishIntent';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import {CustomContentStorageProvider} from "@/model/ContentProvider/CustomContentStorageProvider";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -36,6 +37,28 @@ export class InvalidSavedContentIdError extends Error {
 }
 
 export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
+  const intent = {
+    macroType: toMacroType(diagram.diagramType) as MacroTypeValue,
+    operationMode: diagram.id ? 'edit' as const : 'create' as const,
+    titlePresent: !!diagram.title?.trim(),
+  };
+  const reportFailure = (error: unknown, invalidId = false) => {
+    const candidate = Number((error as any)?.status ?? (error as any)?.statusCode);
+    const httpStatus = Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : undefined;
+    // The server may put arbitrary customer text in an error envelope. Only
+    // known machine codes and a validated HTTP status belong on this event.
+    const code = (error as any)?.code;
+    const safeCode = ['NOT_FOUND', 'FORBIDDEN', 'UNAUTHORIZED', 'MISSING_CONTENT_PARENT', 'INVALID_ARGUMENT'].includes(code) ? code : undefined;
+    trackAnalyticsEvent('macro_save_failed', {
+      feature_area: 'macro', surface: 'editor', macro_type: intent.macroType,
+      operation_mode: intent.operationMode,
+      failure_stage: 'persistence',
+      failure_reason: invalidId ? 'invalid_saved_content_id' : httpStatus ? 'http_error' : 'request_failed',
+      ...(httpStatus ? { http_status: httpStatus } : {}),
+      ...(safeCode ? { error_code: safeCode } : {}),
+      ...getEditorMutationSummary(),
+    });
+  };
   // ZEN-1170 Defect 1: refuse to save when the editor was mounted with a
   // failed legacy-content-property load. Saving would create fresh custom
   // content and (via writeback) repoint the macro XML, hiding the legacy
@@ -43,6 +66,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   // is the actual safety boundary.
   if (diagram.legacyLoadBlocked) {
     reportSaveRefusedLegacyLoadBlocked(String(diagram.diagramType), diagram.source);
+    trackPublishBlocked('legacy_load_blocked', intent);
     throw new LegacyLoadBlockedSaveError();
   }
 
@@ -54,7 +78,15 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
 
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
-  const customContent = await customContentStorageProvider.save(diagram);
+  // Only the Confluence persistence boundary reports a save failure. Snapshot
+  // or D1 telemetry failures after this point must not invert a durable save.
+  let customContent;
+  try {
+    customContent = await customContentStorageProvider.save(diagram);
+  } catch (error) {
+    reportFailure(error);
+    throw error;
+  }
 
   // conf-app#320 boundary invariant: never treat a save as successful without a
   // usable id. createCustomContentV2/updateCustomContentV2 now throw on an
@@ -63,7 +95,9 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   // fail closed here rather than emit an optimistic macro_create_succeeded and
   // return String(undefined) === "undefined" for the config.
   if (!isValidCustomContentId(customContent?.id)) {
-    throw new InvalidSavedContentIdError();
+    const error = new InvalidSavedContentIdError();
+    reportFailure(error, true);
+    throw error;
   }
 
   const macroData = await apWrapper.getMacroData();

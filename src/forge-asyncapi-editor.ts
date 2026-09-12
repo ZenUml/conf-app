@@ -1,3 +1,4 @@
+import { trackPublishRequested } from '@/utils/analytics/publishIntent'
 // AsyncAPI editor entry. Mounts AsyncApiStudioEditor (a thin React wrapper
 // around an iframe that loads the vendored AsyncAPI Studio bundle from
 // `./asyncapi-studio/index.html`). The Studio runs same-origin under the
@@ -175,6 +176,7 @@ async function initializeMacro() {
       spec,
       pinToId: isDashboardEdit ? customContentId : undefined,
     })
+    trackPublishRequested({ macroType: 'asyncapi', operationMode: existing?.id ? 'edit' : 'create', titlePresent: !!diagram.title?.trim() })
     const savedId = await saveToPlatform(diagram)
     const view = await getView()
     // Three reasons to write back the macro config via view.submit:

@@ -281,6 +281,7 @@ const meta: Meta<typeof RelatedDiagramsFooter> = {
     ready: true,
     enabled: true,
     surface: 'viewer',
+    macroType: 'mermaid',
     pageId: 'storybook-page',
     svgHost: () => null,
   },

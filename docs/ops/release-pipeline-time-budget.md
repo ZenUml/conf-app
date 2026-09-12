@@ -122,6 +122,7 @@ Merge-to-Lite-draft, by run:
 | 34661804793 | 8m30s (10m49s from push) | reuse miss with `build-prod` (ADR-0007 §3), pending 2m19s behind the previous main run, Lite shards queued 46–97s for runners |
 | **34662255935** (attempt 2) | **3m42s** | reuse hit after a queue cancellation and a hand re-run — no overlapping run, no runner queue |
 | 34665226448 | 4m18s | #674 merge, reuse hit, quiet main (Deploy: Lite 3m54s — the deploy step's ±30s is now the whole variance on a hit) |
+| 34666114785 | 4m00s | #675 merge (selection landed; `select` skipped on main as designed), reuse hit, quiet main; Full's draft at 6m48s |
 
 Times in the first column are from the run's first job; the bracketed figure
 adds the time the run sat **pending behind the previous main run** on the
@@ -191,6 +192,12 @@ nothing another surface can observe. Empty shards still cost their setup
 to shrink the shard matrix from the selection, which needs the selected test
 count. The first selected PR runs will say what a narrowed run actually costs;
 the expected shape is auth + deploy (~3.5m) + the heaviest selected spec.
+At landing (2026-09-12) every open, non-draft PR would be narrowed on its
+next push — #664 and #663 to seven and nine tags, #636 to `@export|@modal|@smoke`,
+#637 to five tags — so the measurement comes from whichever is pushed first
+(the two `fix/export-*` PRs could not be brought up to date for a
+measurement run: both conflict with `main`). #675's own run was unselective
+(it touches `.github/**`): `select` cost 12s at t=0, off the critical path.
 
 `select-ai` runs beside it and only writes to its job summary what a model
 would add to the selection (never remove) — evidence for widening the map

@@ -30,6 +30,11 @@ export interface McpResult {
   error: any;
 }
 
+interface McpInitializeResponse {
+  result?: { protocolVersion?: unknown };
+  error?: unknown;
+}
+
 /** Start one standard Streamable HTTP MCP transport session. */
 export async function initializeAgentLinkMcp(base = AGENT_LINK_STG_BASE): Promise<string> {
   const init = await fetch(agentLinkMcpUrl(base), {
@@ -113,7 +118,7 @@ export async function assertAgentLinkEndpointLive(base = AGENT_LINK_STG_BASE): P
     }),
   });
   if (res.status !== 200) throw new Error(`Candidate MCP initialize failed: HTTP ${res.status}`);
-  const body = await res.json();
+  const body = await res.json() as McpInitializeResponse;
   if (!res.headers.get('mcp-session-id') || body?.error || typeof body?.result?.protocolVersion !== 'string') {
     throw new Error('Candidate MCP initialize did not return a valid session and protocol');
   }

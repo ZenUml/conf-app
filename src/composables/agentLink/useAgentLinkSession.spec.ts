@@ -188,7 +188,7 @@ describe('useAgentLinkSession', () => {
 
   describe('relay wiring — live-render callback (agent-link render fix)', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn((): RelayConnectionState => 'open') }
     }
 
     describe('Task 1 — lastActivityAt display fact + handoff mirror', () => {
@@ -536,7 +536,7 @@ describe('useAgentLinkSession', () => {
 
   describe('Track G — session lifecycle: suspend on an accidental ws drop, resume on reconnect', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn((): RelayConnectionState => 'open') }
     }
 
     async function connectedSession() {
@@ -1011,7 +1011,7 @@ describe('useAgentLinkSession', () => {
   // reads).
   describe('#314 — client-side TTL watchdog expires a stale session', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn((): RelayConnectionState => 'open') }
     }
     const IDLE_TTL_MS = 10 * 60 * 1000
     const boundContext = { cloudId: 'c1', pageId: 'ttl-page', contentId: 'cc1' }
@@ -1225,7 +1225,7 @@ describe('useAgentLinkSession', () => {
 
   describe('relay wiring — relay-driven edits populate the activity feed + fire analytics (the gap this fix closes)', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn((): RelayConnectionState => 'open') }
     }
 
     it('a successful relay-driven update_diagram op pushes a feed entry and fires agent_link_edit_applied', async () => {
@@ -1570,7 +1570,7 @@ describe('useAgentLinkSession', () => {
   // 'hydrateFrom' below for the Fullscreen side.
   describe('session handoff — the inline instance persists its token for Fullscreen to pick up', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn((): RelayConnectionState => 'open') }
     }
     const boundContext = { cloudId: 'c1', pageId: 'page-99', contentId: 'cc1' }
 
@@ -2060,7 +2060,7 @@ describe('useAgentLinkSession', () => {
           captured.onStateEvent = onStateEvent
           captured.onDiagramUpdated = onDiagUpdated
           captured.onEditApplied = onEditApplied
-          return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+          return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn((): RelayConnectionState => 'open') }
         }
       )
       const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
@@ -2823,7 +2823,7 @@ describe('useAgentLinkSession', () => {
   // a blind "already linked". Absent lock_expires_at → the ref stays null.
   describe('alreadyLinkedUntil — honest lock countdown from a mint 409', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn((): RelayConnectionState => 'open') }
     }
 
     it('sets alreadyLinkedUntil from a 409 error carrying lockExpiresAt and persists it', async () => {

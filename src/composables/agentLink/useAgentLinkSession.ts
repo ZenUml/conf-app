@@ -423,7 +423,7 @@ export function useAgentLinkSession(
   // operations retain the legacy connected fallback for existing agents.
   function handleRelayStateEvent(event: RelayStateEvent): void {
     // Literal transport facts only: never include URLs, tokens or browser error text.
-    const diagnostic = (props: Parameters<typeof trackAnalyticsEvent>[1]) => {
+    const diagnostic = (props: Omit<Parameters<typeof trackAnalyticsEvent>[1], 'feature_area' | 'surface' | 'macro_type'>) => {
       trackAnalyticsEvent('agent_link_connection_diagnostic', {
         feature_area: 'agent_link', surface: 'fullscreen', macro_type: macroType, ...props,
       })

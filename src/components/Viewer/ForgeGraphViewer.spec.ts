@@ -29,6 +29,17 @@ const macroViewedCalls = () =>
 const viewerLoadFailedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
 
+/**
+ * VTU's `trigger` cannot set `ctrlKey` — it is getter-only on MouseEvent — so
+ * the modifier cases dispatch a real WheelEvent. Returns it, so a test can also
+ * assert whether the page's scroll was taken away.
+ */
+function wheel(element: Element, init: WheelEventInit): WheelEvent {
+  const event = new WheelEvent('wheel', { cancelable: true, bubbles: true, ...init });
+  element.dispatchEvent(event);
+  return event;
+}
+
 const VALID_XML = '<mxGraphModel><root></root></mxGraphModel>';
 
 describe('ForgeGraphViewer render-failure telemetry', () => {
@@ -181,7 +192,7 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       expect(graph.panningHandler.useLeftButtonForPanning).toBe(true);
     });
 
-    it('zooms on the wheel, the way Mermaid and PlantUML already do', async () => {
+    it('zooms on Ctrl/Cmd + wheel, the way the other three viewports do', async () => {
       const graph = graphStub();
       // @ts-expect-error window.GraphViewer is injected by the drawio bundle
       window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
@@ -190,11 +201,31 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
       const canvas = wrapper.get('.graph-viewer-canvas');
 
-      await canvas.trigger('wheel', { deltaY: -100, deltaMode: 0 });
+      wheel(canvas.element, { deltaY: -100, ctrlKey: true });
       expect(graph.zoomIn).toHaveBeenCalledTimes(1);
 
-      await canvas.trigger('wheel', { deltaY: 100, deltaMode: 0 });
+      wheel(canvas.element, { deltaY: 100, ctrlKey: true });
       expect(graph.zoomOut).toHaveBeenCalledTimes(1);
+
+      // macOS holds Cmd, and a trackpad pinch arrives as a ctrlKey wheel.
+      wheel(canvas.element, { deltaY: -100, metaKey: true });
+      expect(graph.zoomIn).toHaveBeenCalledTimes(2);
+    });
+
+    it('leaves a plain wheel to the page rather than zooming', async () => {
+      const graph = graphStub();
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+
+      // The page viewer's Forge iframe is sized to the diagram, so a tall graph
+      // covers the reading area: taking the wheel there traps the reader.
+      const event = wheel(wrapper.get('.graph-viewer-canvas').element, { deltaY: -400 });
+
+      expect(graph.zoomIn).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
     });
 
     it('spends a trackpad\'s small deltas one zoom step at a time', async () => {
@@ -209,11 +240,11 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       // A two-finger swipe is a stream of these; one step per notch-worth, not
       // one per event, or the diagram rockets through the zoom range.
       for (let i = 0; i < 9; i += 1) {
-        await canvas.trigger('wheel', { deltaY: -10, deltaMode: 0 });
+        wheel(canvas.element, { deltaY: -10, ctrlKey: true });
       }
       expect(graph.zoomIn).not.toHaveBeenCalled();
 
-      await canvas.trigger('wheel', { deltaY: -10, deltaMode: 0 });
+      wheel(canvas.element, { deltaY: -10, ctrlKey: true });
       expect(graph.zoomIn).toHaveBeenCalledTimes(1);
     });
 
@@ -230,7 +261,7 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       store.state.diagram = { ...store.state.diagram, graphXml: '<mxGraphModel><root/></mxGraphModel>' };
       await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalledTimes(2));
 
-      await wrapper.get('.graph-viewer-canvas').trigger('wheel', { deltaY: -100, deltaMode: 0 });
+      wheel(wrapper.get('.graph-viewer-canvas').element, { deltaY: -100, ctrlKey: true });
       expect(graph.zoomIn).toHaveBeenCalledTimes(1);
     });
 

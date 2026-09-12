@@ -65,7 +65,7 @@ import {
 } from "@/utils/graph/boardDocument";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
-import { createWheelStepper } from "@/utils/viewport/wheelZoom";
+import { createWheelStepper, isZoomIntent } from "@/utils/viewport/wheelZoom";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -247,18 +247,19 @@ export default {
       graph.panningHandler.ignoreCell = true;
     },
     /**
-     * Wheel to zoom, matching svg-pan-zoom's default on the Mermaid and PlantUML
-     * viewports so all three diagram types respond to the wheel the same way.
+     * Ctrl/Cmd + wheel to zoom, the same rule the other three viewports follow —
+     * a plain wheel is left to scroll the page (see `isZoomIntent`). That is also
+     * what mxGraph's own wheel handling would have asked for: GraphViewer leaves
+     * `Graph.zoomWheel` false, which requires Alt or Ctrl to be held.
      *
-     * Deliberately NOT mxGraph's own wheel handling: GraphViewer leaves
-     * `Graph.zoomWheel` false, which requires Alt or Ctrl to be held. Nor
-     * `mxEvent.addMouseWheelListener`, which offers no way to unbind — and the
-     * container element outlives a re-render (only its children are cleared), so
-     * every `renderViewer()` would stack another listener and multiply the step.
+     * Still not `mxEvent.addMouseWheelListener` though — it offers no way to
+     * unbind, and the container element outlives a re-render (only its children
+     * are cleared), so every `renderViewer()` would stack another listener and
+     * multiply the step.
      *
      * A native listener also covers trackpad pinch for free: browsers report it as
      * a wheel event with `ctrlKey` set. The accumulate-to-a-step behaviour and the
-     * deltaMode normalisation live in `wheelZoom.ts`, shared with Sequence.
+     * deltaMode normalisation live in `wheelZoom.ts`, shared with the others.
      */
     enableWheelZoom() {
       const container = this.$refs.graphContainer;
@@ -269,12 +270,13 @@ export default {
         else graph.zoomOut();
       });
       this.wheelZoomHandler = (event) => {
-        if (!this.graphViewer?.graph) return;
+        if (!this.graphViewer?.graph || !isZoomIntent(event)) return;
         event.preventDefault();
         step(event, container.clientHeight);
         this.updateCaptureBox();
       };
-      // Not passive: the whole point is to take the event away from page scroll.
+      // Not passive: a zoom has to take the event away from page scroll. Only
+      // the zoom branch above does, so an ungated wheel still reaches the page.
       container.addEventListener('wheel', this.wheelZoomHandler, { passive: false });
     },
     disableWheelZoom() {

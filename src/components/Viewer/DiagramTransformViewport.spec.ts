@@ -40,6 +40,17 @@ function scaleOf(wrapper: ReturnType<typeof mountViewport>) {
   return Number(/scale\(([\d.]+)\)/.exec(transform)?.[1]);
 }
 
+/**
+ * VTU's `trigger` cannot set `ctrlKey` — it is getter-only on MouseEvent — so
+ * the modifier cases dispatch a real WheelEvent. Returns it, so a test can also
+ * assert whether the page's scroll was taken away.
+ */
+function wheel(element: Element, init: WheelEventInit): WheelEvent {
+  const event = new WheelEvent('wheel', { cancelable: true, bubbles: true, ...init });
+  element.dispatchEvent(event);
+  return event;
+}
+
 describe('DiagramTransformViewport', () => {
   enableAutoUnmount(afterEach);
 
@@ -96,6 +107,32 @@ describe('DiagramTransformViewport', () => {
 
     await wrapper.get('[aria-label="Zoom out"]').trigger('click');
     expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
+  });
+
+  it('zooms on Ctrl/Cmd + wheel', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.layout();
+    const viewport = wrapper.get('.transform-viewport').element;
+
+    // 100px of wheel is one notch: 0.5 fit * 1.2.
+    wheel(viewport, { deltaY: -100, ctrlKey: true });
+    expect(scaleOf(wrapper)).toBeCloseTo(0.6, 5);
+
+    // macOS holds Cmd, and a trackpad pinch arrives as a ctrlKey wheel.
+    wheel(viewport, { deltaY: 100, metaKey: true });
+    expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
+  });
+
+  it('leaves a plain wheel to the page rather than zooming', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.layout();
+
+    // The page viewer's Forge iframe is sized to the diagram, so a tall sequence
+    // covers the reading area: taking the wheel there traps the reader.
+    const event = wheel(wrapper.get('.transform-viewport').element, { deltaY: -400 });
+
+    expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it('pans only once the pointer passes the click tolerance', async () => {

@@ -36,7 +36,7 @@
  * tolerance and never swallows a plain click.
  */
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
-import { createWheelStepper } from '@/utils/viewport/wheelZoom';
+import { createWheelStepper, isZoomIntent } from '@/utils/viewport/wheelZoom';
 
 /** Matches svg-pan-zoom's limits on the other viewports. */
 const MIN_ZOOM = 0.2;
@@ -191,10 +191,14 @@ export default {
         this.zoomBy(direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
       });
       this.wheelHandler = (event) => {
+        // A plain wheel stays the page's to scroll; only Ctrl/Cmd (or a trackpad
+        // pinch, which arrives as one) means zoom. See isZoomIntent.
+        if (!isZoomIntent(event)) return;
         event.preventDefault();
         step(event, viewport.clientHeight);
       };
-      // Not passive: the whole point is to take the event away from page scroll.
+      // Not passive: a zoom has to take the event away from page scroll. Only
+      // the zoom branch above does, so an ungated wheel still reaches the page.
       viewport.addEventListener('wheel', this.wheelHandler, { passive: false });
       viewport.addEventListener('pointerdown', this.onPointerDown);
       viewport.addEventListener('pointermove', this.onPointerMove);

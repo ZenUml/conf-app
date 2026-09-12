@@ -1,6 +1,7 @@
 import { mount, enableAutoUnmount } from '@vue/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
+import svgPanZoom from 'svg-pan-zoom';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -30,6 +31,17 @@ function mountViewport(isDisplayMode: boolean) {
     props: { html: SVG, macroType: 'plantuml', label: 'PlantUML', contentClass: 'plantuml-render' },
     global: { mocks: { $store: { getters: { isDisplayMode } } } },
   });
+}
+
+/**
+ * VTU's `trigger` cannot set `ctrlKey` — it is getter-only on MouseEvent — so
+ * the modifier cases dispatch a real WheelEvent. Returns it, so a test can also
+ * assert whether the page's scroll was taken away.
+ */
+function wheel(element: Element, init: WheelEventInit): WheelEvent {
+  const event = new WheelEvent('wheel', { cancelable: true, bubbles: true, ...init });
+  element.dispatchEvent(event);
+  return event;
 }
 
 describe('DiagramViewport initial zoom', () => {
@@ -115,5 +127,55 @@ describe('DiagramViewport initial zoom', () => {
       delete (SVGSVGElement.prototype as unknown as Record<string, unknown>).viewBox;
       delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
     }
+  });
+});
+
+describe('DiagramViewport wheel zoom', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    panZoom.getSizes.mockReturnValue({ realZoom: 1 });
+    panZoom.getZoom.mockReturnValue(1);
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 322, height: 243,
+    } as DOMRect);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (window as { forgeGlobal?: unknown }).forgeGlobal;
+  });
+
+  it("turns off svg-pan-zoom's own wheel zoom, which cannot require a modifier", async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+
+    const [, options] = vi.mocked(svgPanZoom).mock.calls[0];
+    expect(options).toMatchObject({ mouseWheelZoomEnabled: false });
+  });
+
+  it('zooms on Ctrl/Cmd + wheel', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+    const viewport = wrapper.get('.diagram-viewport').element;
+
+    // 100px of wheel is one notch.
+    wheel(viewport, { deltaY: -100, ctrlKey: true });
+    expect(panZoom.zoomIn).toHaveBeenCalledTimes(1);
+
+    // macOS holds Cmd, and a trackpad pinch arrives as a ctrlKey wheel.
+    wheel(viewport, { deltaY: 100, metaKey: true });
+    expect(panZoom.zoomOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a plain wheel to the page rather than zooming', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+
+    // Mermaid and PlantUML took the wheel unconditionally before this: on a page
+    // of diagrams the reader's scroll stopped wherever the pointer landed.
+    const event = wheel(wrapper.get('.diagram-viewport').element, { deltaY: -400 });
+
+    expect(panZoom.zoomIn).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 });

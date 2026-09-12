@@ -37,6 +37,7 @@ import svgPanZoom from 'svg-pan-zoom';
 import Hammer from 'hammerjs';
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
 import { hasSvgLayout } from '@/utils/mermaid/viewportLayout';
+import { createWheelStepper, isZoomIntent } from '@/utils/viewport/wheelZoom';
 
 /** A CSS length in px, or null for `none`, a percentage, or anything else. */
 function readPxLength(value) {
@@ -79,6 +80,7 @@ export default {
       panZoomSvg: null,
       panZoomDirty: false,
       panZoomResizeObserver: null,
+      wheelHandler: null,
       inlineAspectRatio: null,
       inlineMaxWidth: null,
     };
@@ -98,7 +100,11 @@ export default {
       return modal?.openExport !== true;
     },
   },
+  mounted() {
+    this.bindWheelZoom();
+  },
   beforeUnmount() {
+    this.unbindWheelZoom();
     this.detach();
   },
   methods: {
@@ -172,6 +178,10 @@ export default {
         fit: true,
         maxZoom: 12,
         minZoom: 0.2,
+        // Off in favour of bindWheelZoom(): svg-pan-zoom zooms on a plain wheel
+        // with no option to require a modifier, which is how a Mermaid or
+        // PlantUML diagram used to swallow the page's scroll.
+        mouseWheelZoomEnabled: false,
         onPan: () => { this.panZoomDirty = true; },
         onZoom: () => { this.panZoomDirty = true; },
         panEnabled: true,
@@ -200,6 +210,39 @@ export default {
         void this.attach();
       });
       this.panZoomResizeObserver.observe(this.$refs.viewport);
+    },
+    /**
+     * Ctrl/Cmd + wheel to zoom, the rule all four diagram types share.
+     *
+     * Bound to the viewport rather than handed to svg-pan-zoom because its own
+     * `mouseWheelZoomEnabled` cannot be told to require a modifier. Bound once on
+     * mount rather than per attach(): the element outlives every re-render, and
+     * `panZoom` is read at call time, so a diagram that has not attached yet (or
+     * has detached) simply does nothing.
+     *
+     * Zooms about the box centre, like the toolbar buttons and the other two
+     * engines, rather than svg-pan-zoom's old zoom-at-pointer.
+     */
+    bindWheelZoom() {
+      const viewport = this.$refs.viewport;
+      if (!viewport || !this.isInteractive || this.wheelHandler) return;
+      const step = createWheelStepper((direction) => {
+        if (direction > 0) this.panZoom?.zoomIn();
+        else this.panZoom?.zoomOut();
+      });
+      this.wheelHandler = (event) => {
+        if (!this.panZoom || !isZoomIntent(event)) return;
+        event.preventDefault();
+        step(event, viewport.clientHeight);
+      };
+      // Not passive: a zoom has to take the event away from page scroll. Only
+      // the zoom branch above does, so an ungated wheel still reaches the page.
+      viewport.addEventListener('wheel', this.wheelHandler, { passive: false });
+    },
+    unbindWheelZoom() {
+      if (!this.wheelHandler) return;
+      this.$refs.viewport?.removeEventListener('wheel', this.wheelHandler);
+      this.wheelHandler = null;
     },
     detach() {
       this.panZoomResizeObserver?.disconnect();

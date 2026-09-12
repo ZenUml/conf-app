@@ -222,6 +222,35 @@ describe('MCP pairing through real target and binding Durable Objects', () => {
     expect((await f.initialize('test-client', '2099-01-01')).body.result.protocolVersion).toBe('2025-11-25');
   });
 
+  it('does not let a delayed previous-target release revoke a newer re-claim of it', async () => {
+    const f = fixture(); f.target('CL-X'); f.target('CL-Y');
+    const { id } = await f.initialize();
+    await f.connect(id, 'CL-X'); // session -> X
+
+    // Pause op1 (X -> Y) right before it releases X, after it has committed the
+    // X -> Y binding, so op2 can re-claim X while the stale release is in flight.
+    let reachedRelease!: () => void;
+    const atRelease = new Promise<void>((resolve) => { reachedRelease = resolve; });
+    let resumeRelease!: () => void;
+    const paused = new Promise<void>((resolve) => { resumeRelease = resolve; });
+    f.beforeFetch.value = async (name, path) => {
+      if (name === 'CL-X' && path === '/mcp-release') { reachedRelease(); await paused; }
+    };
+
+    const op1 = f.connect(id, 'CL-Y'); // X -> Y, will block before releasing X
+    await atRelease;
+    f.beforeFetch.value = undefined;
+    await f.connect(id, 'CL-X'); // Y -> X, re-claims X at a NEW nonce
+    resumeRelease();             // op1's stale release of X (old nonce) runs now
+    await op1;
+
+    // The stale release must be a no-op: X is still claimed by this session at
+    // the newer nonce, and the session still authenticates against it.
+    expect(f.stores.get('mcp:' + id)!.get('mcpBinding').token).toBe('CL-X');
+    expect(f.stores.get('CL-X')!.get('mcpClaim')).toBe(id);
+    expect((await f.rpc('tools/call', { name: 'get_status' }, id)).response.status).toBe(200);
+  });
+
   it('refuses a raw peer=agent WebSocket so a retained code cannot bypass the MCP claim', async () => {
     const f = fixture(); f.target('CL-WS-AGENT');
     const { id } = await f.initialize();
@@ -236,6 +265,20 @@ describe('MCP pairing through real target and binding Durable Objects', () => {
     );
     expect(agentWs.status).toBe(403);
     expect(agentWs.webSocket ?? null).toBeNull();
+  });
+
+  it('does not publish verified presence to the macro when the binding write fails', async () => {
+    const f = fixture(); f.target('CL-NOPRESENCE');
+    const { id } = await f.initialize();
+    f.failBindingWrite.value = true;
+    // A failed binding write must roll back to no pairing — the frontend must
+    // not be told "verified" (which flips it to Connected and emits
+    // pairing_completed) for a session that never bound.
+    expect((await f.connect(id, 'CL-NOPRESENCE')).body.error.data.code).toBe('binding_failed');
+    const pushed = f.sockets.get('CL-NOPRESENCE')!.send.mock.calls.map(([raw]) => JSON.parse(raw));
+    expect(pushed).not.toContainEqual(
+      expect.objectContaining({ activity: expect.objectContaining({ type: 'agent_presence', stage: 'verified' }) }),
+    );
   });
 
   it('keeps the previous binding intact when a switch fails its confirmation', async () => {

@@ -99,6 +99,9 @@ interface ContentLock {
 interface McpBinding {
   token: string;
   expiresAtMs: number;
+  // The nonce of the target claim this binding points at, so a delayed release
+  // of a superseded claim can be rejected (see handleMcpClaim/handleMcpRelease).
+  claimNonce?: string;
 }
 
 /** Sent back to a peer when the other side isn't connected yet, or on a malformed message. */
@@ -857,11 +860,18 @@ export class AgentLinkSession {
     if (existing && existing !== mcpSessionId) {
       return jsonResponse({ error: 'code_already_used' }, 409);
     }
+    // Stamp each claim with a fresh nonce. A later re-claim of this same target
+    // by the same session bumps it, so a delayed or rolled-back release that
+    // carries the old nonce becomes a no-op instead of revoking the newer claim
+    // (see handleMcpRelease).
+    const claimNonce = crypto.randomUUID();
     await this.state.storage.put('mcpClaim', mcpSessionId);
+    await this.state.storage.put('mcpClaimNonce', claimNonce);
     const session = this.session as SessionRecord;
     return jsonResponse(
       {
         ok: true,
+        claimNonce,
         expiresAtMs: effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs),
         bindingExpiresAtMs: session.issuedAtMs + MAX_SESSION_MS,
       },
@@ -872,7 +882,7 @@ export class AgentLinkSession {
   /** Releases a consumed linking code when its owning MCP transport ends or
    * switches targets. A stale/non-owner release is an idempotent no-op. */
   private async handleMcpRelease(request: Request): Promise<Response> {
-    let body: { mcpSessionId?: unknown };
+    let body: { mcpSessionId?: unknown; claimNonce?: unknown };
     try {
       body = await request.json();
     } catch {
@@ -880,16 +890,28 @@ export class AgentLinkSession {
     }
     const mcpSessionId = typeof body?.mcpSessionId === 'string' ? body.mcpSessionId.trim() : '';
     if (!mcpSessionId) return jsonResponse({ error: 'invalid_body' }, 400);
+    const claimNonce = typeof body?.claimNonce === 'string' ? body.claimNonce : undefined;
 
     const existing = await this.state.storage.get<string>('mcpClaim');
-    if (existing === mcpSessionId) await this.state.storage.delete('mcpClaim');
+    // Release only the exact claim we mean to. When a nonce is supplied it must
+    // match the current one: once the same session has re-claimed this target
+    // at a newer nonce, a delayed X->Y release cannot revoke the concurrent
+    // Y->X re-claim, and a failed duplicate-connect rollback cannot revoke the
+    // winner. A nonce-less release stays a plain owner-scoped delete.
+    if (existing === mcpSessionId) {
+      const existingNonce = await this.state.storage.get<string>('mcpClaimNonce');
+      if (claimNonce === undefined || existingNonce === claimNonce) {
+        await this.state.storage.delete('mcpClaim');
+        await this.state.storage.delete('mcpClaimNonce');
+      }
+    }
     return jsonResponse({ ok: true }, 200);
   }
 
   /** Stores the target-code lookup on the DO instance addressed by
    * `mcp:<Mcp-Session-Id>`. This instance intentionally has no Macro session. */
   private async handleMcpBindingWrite(request: Request): Promise<Response> {
-    let body: { token?: unknown; expiresAtMs?: unknown; expectedToken?: unknown };
+    let body: { token?: unknown; expiresAtMs?: unknown; expectedToken?: unknown; claimNonce?: unknown };
     try {
       body = await request.json();
     } catch {
@@ -907,7 +929,8 @@ export class AgentLinkSession {
       if ('expectedToken' in body && (current?.token ?? null) !== body.expectedToken && current?.token !== token) {
         return jsonResponse({ error: 'binding_changed' }, 409);
       }
-      const binding: McpBinding = { token, expiresAtMs };
+      const claimNonce = typeof body?.claimNonce === 'string' ? body.claimNonce : undefined;
+      const binding: McpBinding = { token, expiresAtMs, ...(claimNonce ? { claimNonce } : {}) };
       await this.state.storage.put('mcpBinding', binding);
       return jsonResponse({ ok: true }, 200);
     });

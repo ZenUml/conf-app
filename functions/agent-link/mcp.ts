@@ -156,7 +156,9 @@ async function pairViaDo(
   mcpSessionId: string,
   clientName?: string,
 ): Promise<PairingResult> {
-  const previousToken = await resolveBindingViaDo(agentLink, mcpSessionId);
+  const previous = await resolveBindingRecordViaDo(agentLink, mcpSessionId);
+  const previousToken = previous?.token;
+  const previousClaimNonce = previous?.claimNonce;
   const target = agentLink.get(agentLink.idFromName(code));
   const claim = await target.fetch('https://agent-link-do/mcp-claim', {
     method: 'POST',
@@ -176,19 +178,20 @@ async function pairViaDo(
     return { ok: false, code: 'invalid_code' };
   }
 
+  // Hoisted so the rollback in `catch` can release the claim we just made at
+  // the exact nonce we minted (undefined only if the claim response never
+  // parsed, in which case the rollback falls back to an owner-scoped release).
+  let claimNonce: string | undefined;
   try {
-    const claimBody = (await claim.json()) as { expiresAtMs?: unknown; bindingExpiresAtMs?: unknown };
+    const claimBody = (await claim.json()) as { expiresAtMs?: unknown; bindingExpiresAtMs?: unknown; claimNonce?: unknown };
     if (typeof claimBody.expiresAtMs !== 'number' || !Number.isFinite(claimBody.expiresAtMs)) throw new Error('invalid claim');
-    // Confirm the new target BEFORE repointing the transport binding. The
-    // binding is the only record that says which target this MCP session
-    // resolves to; if confirmation fails after it is overwritten, the session
-    // is left pointing at a just-released claim (401) while the previous
-    // target is orphaned. Confirming first means a failed switch leaves the
-    // previous binding — and the still-live previous session — untouched.
-    const confirmed = await target.fetch(`https://agent-link-do/session?${new URLSearchParams({
-      presence: 'verified', mcpSessionId, ...(clientName ? { client: clientName } : {}),
-    })}`, { method: 'GET' });
-    if (!confirmed.ok) throw new Error('pairing confirmation failed');
+    claimNonce = typeof claimBody.claimNonce === 'string' ? claimBody.claimNonce : undefined;
+    // Preflight the new target BEFORE repointing the transport binding, using a
+    // side-effect-free GET /session (no ?presence): it validates the target is
+    // reachable and claimed by us without publishing anything. If it fails, the
+    // previous binding — and the still-live previous session — stay untouched.
+    const preflight = await target.fetch(`https://agent-link-do/session?${new URLSearchParams({ mcpSessionId })}`, { method: 'GET' });
+    if (!preflight.ok) throw new Error('pairing confirmation failed');
     // A mapping lives until the absolute cap. Target auth checks the current
     // sliding idle deadline on every call; caching the initial idle deadline
     // here used to disconnect an actively-used link at minute ten.
@@ -196,23 +199,35 @@ async function pairViaDo(
     const stored = await binding.fetch('https://agent-link-do/mcp-binding', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: code, expiresAtMs: claimBody.bindingExpiresAtMs ?? claimBody.expiresAtMs, expectedToken: previousToken ?? null }),
+      body: JSON.stringify({ token: code, expiresAtMs: claimBody.bindingExpiresAtMs ?? claimBody.expiresAtMs, expectedToken: previousToken ?? null, claimNonce }),
     });
     if (!stored.ok) throw new Error('binding write failed');
+    // Only now that the binding is durable is the pairing real: publish
+    // verified presence, which flips the frontend to Connected and emits
+    // pairing_completed. Publishing it before this point would leave a false
+    // success if the binding write failed. A failed presence push must NOT
+    // undo a committed pairing, so it is best-effort (the client can re-poll).
+    await target.fetch(`https://agent-link-do/session?${new URLSearchParams({
+      presence: 'verified', mcpSessionId, ...(clientName ? { client: clientName } : {}),
+    })}`, { method: 'GET' }).catch(() => {});
     if (previousToken && previousToken !== code) {
+      // Release the PREVIOUS target at the nonce this session held it under, so
+      // a concurrent re-claim of that same target is not revoked by this late
+      // release (see AgentLinkSession.handleMcpRelease).
       await agentLink.get(agentLink.idFromName(previousToken)).fetch('https://agent-link-do/mcp-release', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mcpSessionId }),
+        body: JSON.stringify({ mcpSessionId, claimNonce: previousClaimNonce }),
       }).catch(() => {});
     }
     return { ok: true, expiresAtMs: claimBody.expiresAtMs };
   } catch {
-    // Claiming a code without storing its mapping must remain retryable.
-    // This release is owner-aware, so a late failure cannot revoke a new owner.
+    // Claiming a code without storing its mapping must remain retryable. The
+    // release is scoped to the nonce we just minted, so a duplicate connect
+    // that already re-claimed this target (a newer nonce) is not revoked.
     try {
       if (previousToken !== code) await target.fetch('https://agent-link-do/mcp-release', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mcpSessionId }),
+        body: JSON.stringify({ mcpSessionId, claimNonce }),
       });
     } catch { /* target TTL bounds an unavailable rollback */ }
     return { ok: false, code: 'binding_failed' };
@@ -223,11 +238,23 @@ async function resolveBindingViaDo(
   agentLink: DurableObjectNamespace,
   mcpSessionId: string,
 ): Promise<string | undefined> {
+  return (await resolveBindingRecordViaDo(agentLink, mcpSessionId))?.token;
+}
+
+// Like resolveBindingViaDo but returns the claim nonce too, so pairViaDo can
+// release a superseded previous target at the exact nonce it held it under.
+// Kept separate from resolveBindingViaDo so the hot auth/forward path (which
+// only needs the token) is untouched.
+async function resolveBindingRecordViaDo(
+  agentLink: DurableObjectNamespace,
+  mcpSessionId: string,
+): Promise<{ token: string; claimNonce?: string } | undefined> {
   const binding = agentLink.get(agentLink.idFromName(`mcp:${mcpSessionId}`));
   const res = await binding.fetch('https://agent-link-do/mcp-binding', { method: 'GET' });
   if (!res.ok) return undefined;
-  const body = (await res.json()) as { token?: unknown };
-  return typeof body.token === 'string' && body.token ? body.token : undefined;
+  const body = (await res.json()) as { token?: unknown; claimNonce?: unknown };
+  if (typeof body.token !== 'string' || !body.token) return undefined;
+  return { token: body.token, claimNonce: typeof body.claimNonce === 'string' ? body.claimNonce : undefined };
 }
 
 // 'macro_disconnected' (Track G, design §7 decision #4): the session is

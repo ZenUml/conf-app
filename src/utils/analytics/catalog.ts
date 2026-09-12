@@ -255,7 +255,8 @@ export type AnalyticsEventName =
   // interaction; the replay policy itself stays centralized here.
   // Creation lifecycle pairing (#520): one random creation_attempt_id begins
   // at macro_create_started and survives type switches and publish retries.
-  // Success means Confluence custom content persisted (not macro placement).
+  // Success means Confluence custom content persisted; Embed instead confirms
+  // its macro configuration with view.submit, since it selects existing content.
   // Explicit close ends the attempt; missing telemetry is not cancellation.
   | "macro_create_started"
   | "macro_create_succeeded"

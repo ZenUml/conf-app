@@ -124,6 +124,7 @@ Merge-to-Lite-draft, by run:
 | 34665226448 | 4m18s | #674 merge, reuse hit, quiet main (Deploy: Lite 3m54s — the deploy step's ±30s is now the whole variance on a hit) |
 | 34666114785 | 4m00s | #675 merge (selection landed; `select` skipped on main as designed), reuse hit, quiet main; Full's draft at 6m48s |
 | 34667481219 | 3m36s | #677 merge, reuse hit of the PR run's **second attempt** (its first died in `forge deploy`'s pre-deploy lint on `fetch failed`); Full's draft at 6m42s |
+| 34668528579 | 3m48s | #678 merge (deploy retry landed), reuse hit; Full's draft at 7m00s |
 
 Times in the first column are from the run's first job; the bracketed figure
 adds the time the run sat **pending behind the previous main run** on the
@@ -217,6 +218,8 @@ next push — #664 and #663 to seven and nine tags, #636 to `@export|@modal|@smo
 (the two `fix/export-*` PRs could not be brought up to date for a
 measurement run: both conflict with `main`). #675's own run was unselective
 (it touches `.github/**`): `select` cost 12s at t=0, off the critical path.
+
+First run with selection in effect on someone else's PR ([34667734251](https://github.com/ZenUml/conf-app/actions/runs/34667734251), #664, 2026-09-12 02:35Z): **unselective**, and correctly so — the PR adds a new directory, `src/utils/viewport/`, which no glob knows (`wheelZoom.ts: unmapped → runs everything`); every other file mapped to `@viewer`/`@mermaid`/`@plantuml`/`@sequence`/`@graph`/`@analytics` or to nothing. That is the designed failure mode: a new area costs one full run until its glob is added, and the glob can only be added in a PR where a tracked file matches it (`e2eSelect.spec.ts` insists on that) — i.e. in the PR that creates the directory, or the one after. `src/utils/viewport/**` → `@viewer` goes in once #664 lands.
 
 `select-ai` runs beside it and only writes to its job summary what a model
 would add to the selection (never remove) — evidence for widening the map

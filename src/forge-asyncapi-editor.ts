@@ -206,7 +206,8 @@ async function initializeMacro() {
     // Redirect starts now (view.submit / view.close below). Stop the clock.
     trackPublishCompleted({
       macro_type: 'asyncapi',
-      operation_mode: inserting ? 'create' : 'edit',
+      // Modal creates run outside native insertion; keep the pre-save mode.
+      operation_mode: sourceId ? 'edit' : 'create',
       content_id: String(savedId),
       custom_content_id: String(savedId),
     })

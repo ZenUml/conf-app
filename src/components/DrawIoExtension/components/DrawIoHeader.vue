@@ -46,7 +46,7 @@
     </div>
     <p v-if="error" id="drawio-title-error" role="alert"
       class="mt-1 w-72 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 shadow-sm">
-      Enter a title to finish publishing.
+      Enter a title, then press Enter or Publish.
     </p>
   </div>
 </template>

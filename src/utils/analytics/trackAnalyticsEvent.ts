@@ -378,11 +378,15 @@ async function _getDemoPageTelemetry(
 }
 
 /**
- * Extra options handed straight to mixpanel.track. Only the transport override
- * is used today — see trackAnalyticsEventBeforeUnload.
+ * Extra options handed straight to mixpanel.track. See
+ * trackAnalyticsEventBeforeUnload.
  */
 interface TrackTransportOptions {
   transport: "sendBeacon";
+  // mixpanel-browser batches by default. Without this override, a per-event
+  // sendBeacon transport is queued for a later batch flush and the iframe can
+  // be destroyed first.
+  send_immediately: true;
 }
 
 export async function _awaitableTrackAnalyticsEvent(
@@ -469,6 +473,7 @@ export async function trackAnalyticsEventBeforeUnload(
 ): Promise<void> {
   await _awaitableTrackAnalyticsEvent(eventName, properties, {
     transport: "sendBeacon",
+    send_immediately: true,
   });
 }
 

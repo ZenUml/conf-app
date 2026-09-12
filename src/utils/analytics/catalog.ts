@@ -255,7 +255,8 @@ export type AnalyticsEventName =
   // interaction; the replay policy itself stays centralized here.
   // Creation lifecycle pairing (#520): one random creation_attempt_id begins
   // at macro_create_started and survives type switches and publish retries.
-  // Success means Confluence custom content persisted (not macro placement).
+  // Success means Confluence custom content persisted; Embed instead confirms
+  // its macro configuration with view.submit, since it selects existing content.
   // Explicit close ends the attempt; missing telemetry is not cancellation.
   | "macro_create_started"
   | "macro_create_succeeded"
@@ -1114,7 +1115,44 @@ export type AnalyticsEventName =
   // action already covered by `advocacy_message_copied`).
   | "request_full_guide_shown"
   | "request_full_reason_copied"
-  | "request_full_atlassian_clicked";
+  | "request_full_atlassian_clicked"
+  // Get Started (#508). Viewed fires once on mount; action_clicked records an
+  // explicit control click. examples_result records the observed resolver
+  // outcome or local timeout once per submitted request. A timeout/enrollment
+  // is not proof that a page was created. All use feature_area=confluence and
+  // surface=get_started; result events include examples_result and duration_ms,
+  // with a closed failure_reason category on failure. Never send the selected
+  // space key, returned page ID, raw resolver error, or example content here.
+  | "get_started_viewed"
+  | "get_started_action_clicked"
+  | "get_started_examples_result"
+  // Lite admin template (#539). Actual banner mount -> explicit create click
+  // -> confirmed creation or failed request; dismiss is the explicit Not now
+  // action. feature_area=confluence, surface=page_banner, macro_type=sequence,
+  // ui_component=template_offer. macro_count is optional cached context only;
+  // never fetch a space inventory just to enrich these events. template_id is
+  // the fixed template kind, not the returned Confluence template identifier.
+  | "template_offer_shown"
+  | "template_offer_clicked"
+  | "template_created"
+  | "template_create_failed"
+  | "template_offer_dismissed";
+
+export type GetStartedAction =
+  | "create_examples_page"
+  | "open_examples_page"
+  | "view_documentation"
+  | "watch_videos"
+  | "join_community"
+  | "report_issue";
+
+export type ExamplesPageResult =
+  | "created"
+  | "already_exists"
+  | "in_progress"
+  | "enrolled"
+  | "failed"
+  | "timeout";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

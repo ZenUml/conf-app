@@ -138,6 +138,7 @@ function mountFooter(props: Partial<any> = {}, suppliedHost = host()) {
       ready: true,
       enabled: true,
       surface: 'viewer',
+      macroType: 'mermaid',
       svgHost: () => suppliedHost,
       ...props,
     },
@@ -226,6 +227,17 @@ describe('RelatedDiagramsFooter', () => {
         ([eventName]) => eventName === 'related_token_indicators_shown',
       ),
     ).toHaveLength(1)
+  })
+
+  it('uses the supplied macro type in related-diagram analytics', async () => {
+    related.value = twoParticipants
+    mountFooter({ macroType: 'sequence' })
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_diagrams_lookup_succeeded',
+      expect.objectContaining({ macro_type: 'sequence' }),
+    )
   })
 
   // The footer text and the circles come from two different reads of the SVG:

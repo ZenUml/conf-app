@@ -1,6 +1,7 @@
-import { deriveWarningBannerIdentity, shouldShowPaywallBanner } from '@/utils/paywall/warningBanner'
+import { deriveWarningBannerIdentity, readTargetingMarker, shouldShowPaywallBanner } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
+import { isInTemplateOfferBand, isTemplateOfferSuppressed } from '@/utils/template/templateOfferMarker'
 
 /**
  * Which banner outranks the unplaced-diagram notice on this page load.
@@ -20,7 +21,7 @@ import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
  * the unplaced module stands down before it buys its property read.
  *
  * Why the unplaced notice is the one that yields: it is the only one of the
- * three that keeps. A paywall block is happening to the user right now, and a
+ * four that keeps. A paywall block is happening to the user right now, and a
  * CSAT trigger is fresh for hours — miss its window and the answer is gone. A
  * diagram saved on a page and placed nowhere on it is still saved and still
  * unplaced tomorrow, and its banner re-arms itself on the next load.
@@ -35,7 +36,7 @@ import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
  * asked here now (isCsatSuppressed), off the same record and the same
  * synchronous read as everything else in this cascade.
  */
-export type HigherPriorityBanner = 'paywall' | 'paywall-admin' | 'csat'
+export type HigherPriorityBanner = 'paywall' | 'paywall-admin' | 'csat' | 'template-offer'
 
 export function higherPriorityBannerPending(now: number = Date.now()): HigherPriorityBanner | null {
   const identity = deriveWarningBannerIdentity()
@@ -51,5 +52,14 @@ export function higherPriorityBannerPending(now: number = Date.now()): HigherPri
   // would close itself on mount, and the yield would buy nothing — see
   // isCsatSuppressed for the failure this cost us.
   if (isCsatPendingFresh(now) && !isCsatSuppressed(now)) return 'csat'
+  // The offer uses the existing customer-success cache as an activation band;
+  // it never inventories a space during a page-banner load. It outranks only
+  // the durable unplaced notice, which can retry on a later page load.
+  if (import.meta.env.PRODUCT_TYPE === 'lite' && isCurrentUserSpaceAdmin(identity)) {
+    const macroCount = readTargetingMarker(identity)?.macroCount
+    if (isInTemplateOfferBand(macroCount) && !isTemplateOfferSuppressed(identity, now)) {
+      return 'template-offer'
+    }
+  }
   return null
 }

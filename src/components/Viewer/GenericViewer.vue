@@ -284,6 +284,7 @@
                 :ready="viewerLoadState === 'ready'"
                 :enabled="architectureTokensEnabled"
                 :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+                :macro-type="diagramType"
                 :svg-host="getCaptureNode"
                 :page-id="currentPageId"
               />

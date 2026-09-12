@@ -690,7 +690,7 @@ describe("trackAnalyticsEvent", () => {
     const start = calls.find(([event]) => event === 'macro_create_started')![1] as any;
     expect(start).toMatchObject({ initial_macro_type: 'sequence', final_macro_type: 'sequence', creation_event_index: 0 });
     expect(calls.find(([event]) => event === 'macro_type_changed')![1]).toMatchObject({ creation_attempt_id: start.creation_attempt_id, final_macro_type: 'mermaid', creation_event_index: 1 });
-    expect(calls.find(([event]) => event === 'macro_create_cancelled')).toEqual(['macro_create_cancelled', expect.objectContaining({ creation_attempt_id: start.creation_attempt_id, initial_macro_type: 'sequence', final_macro_type: 'mermaid', creation_event_index: 2 }), { transport: 'sendBeacon' }]);
+    expect(calls.find(([event]) => event === 'macro_create_cancelled')).toEqual(['macro_create_cancelled', expect.objectContaining({ creation_attempt_id: start.creation_attempt_id, initial_macro_type: 'sequence', final_macro_type: 'mermaid', creation_event_index: 2 }), { transport: 'sendBeacon', send_immediately: true }]);
   });
 
   it("forces replay when macro creation starts", async () => {
@@ -1013,7 +1013,7 @@ describe("trackAnalyticsEvent", () => {
       expect(mixpanel.track).toHaveBeenCalledWith(
         "load_failed_retry_clicked",
         expect.objectContaining({ retry_attempt: 1 }),
-        { transport: "sendBeacon" }
+        { transport: "sendBeacon", send_immediately: true }
       );
     });
 

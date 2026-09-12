@@ -552,6 +552,19 @@ export type AnalyticsEventName =
   // the mermaid-only viewport and carries ~2 days of data. The property shape is
   // unchanged, so a report spanning the rename has to union both names.
   | "viewport_control_used"
+  // Shown when a reader wheels over a diagram WITHOUT the Ctrl/Cmd modifier on a
+  // surface where a plain wheel has nowhere to go (fullscreen and the editor
+  // preview both set `overflow: hidden`), so the gesture did nothing and the
+  // overlay tells them the modifier. Not fired on the page viewer, where a plain
+  // wheel correctly scrolls the Confluence page.
+  //
+  // This is the discovery half of the wheel gate: `viewport_control_used`
+  // counts people who already know how to zoom, and this counts people who
+  // tried and could not. A hint count that stays high per user is the signal
+  // that the affordance is not landing. Fires at most twice per viewer instance
+  // (createZoomHintTrigger) — someone who has been told twice and keeps
+  // wheeling is scrolling, not searching for the zoom.
+  | "viewport_zoom_hint_shown"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).

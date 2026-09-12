@@ -41,19 +41,9 @@ python3 $S validate         # does the band table still match real renewals?
 python3 $S tiers            # the band table
 ```
 
-**The Full plan is cumulative per-user bands, priced per MONTH.** Annual list = 10 × monthly
-(two months free). A 152-user site pays `100 × $0.44 + 52 × $0.33 = $61.16/month`.
+**Full annual and monthly billing use different published price shapes.** `quote` and `tiers` read the live Marketplace price list. Annual is the flat price of the tier containing the verified seat count; do not multiply a monthly price by ten. The grant tool delegates to the same implementation. If fetching or tier coverage fails, report price unknown rather than using a stale fallback.
 
-| band | USD per user per month |
-|---|---|
-| 1–100 | $0.44 |
-| 101–250 | $0.33 |
-| 251–1000 | $0.11 |
-| 1001+ | $0.05 |
-| 1–10 users | flat $40/year |
-
-Enterprise Bundle is a separate SKU: **$299 per space per year**, flat, billed by us through
-Stripe, so no Atlassian cut applies. Below ~68 users the Full plan is cheaper than one Bundle.
+The configured single-space reference is $299/year; verify the actual checkout before a commercial quote. Choose whether to mention it using `customer-followup` contact policy: site administrators and site-wide procurement owners receive Full only. Do not hardcode a seat break-even point.
 
 **Never write Atlassian's take rate down — derive it.** It moved three times in 19 months:
 

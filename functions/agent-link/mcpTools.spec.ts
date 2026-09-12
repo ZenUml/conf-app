@@ -26,11 +26,12 @@ function makeCtxWithSnapshot(
 }
 
 describe('getToolSchemas', () => {
-  it('lists exactly the 6 tools (design §6 + Track U discovery)', () => {
+  it('lists connect plus the 6 diagram tools', () => {
     const schemas = getToolSchemas();
     expect(schemas).toBe(TOOLS);
     expect(schemas.map((t) => t.name).sort()).toEqual(
       [
+        'connect',
         'get_status',
         'list_diagrams',
         'read_diagram',

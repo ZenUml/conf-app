@@ -50,6 +50,14 @@ function customContentTypesForVariant(): string[] {
   if (forgeGlobal.isDiagramly) return DIAGRAMLY_CUSTOM_CONTENT_TYPES;
   return CUSTOM_CONTENT_TYPES;
 }
+
+// Confluence uses "0" while a newly composed page has no persisted parent.
+// Keep IDs as strings so large IDs are never rounded through Number.
+function customContentParentId(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const id = String(value).trim();
+  return /^[1-9]\d*$/.test(id) ? id : undefined;
+}
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 
 // One raw candidate hit for the Agent Link discovery tools (search_diagrams /
@@ -293,21 +301,21 @@ export default class ApWrapper2 {
     };
 
     // Custom-content v2 requires exactly one parent (pageId / spaceId /
-    // blogPostId / customContentId). Macro saves always have a pageId via
-    // forgeContext.extension.content.id, but space-app dashboards (e.g.
-    // asyncapi's "Create New API") run outside a page — there's no
-    // extension.content, so pageId is undefined and the POST fails 400.
-    // Fall back to spaceId from forgeContext.extension.space when no page
-    // is in scope.
-    const pageId = await this._getCurrentPageId();
+    // blogPostId / customContentId). New unpublished pages may report "0",
+    // and space-app dashboards have no page at all. Both must use the
+    // current space instead of sending an unavailable page parent (#523).
+    const pageId = customContentParentId(await this._getCurrentPageId());
     if (pageId) {
       data.pageId = pageId;
     } else {
       const space = await this.getCurrentSpace();
-      if (space?.id) {
-        data.spaceId = space.id;
+      const spaceId = customContentParentId(space?.id);
+      if (spaceId) {
+        data.spaceId = spaceId;
       } else {
-        throw new Error('createCustomContentV2: no page or space context available');
+        throw Object.assign(new Error('createCustomContentV2: no page or space context available'), {
+          code: 'MISSING_CONTENT_PARENT',
+        });
       }
     }
 

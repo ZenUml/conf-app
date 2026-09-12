@@ -95,6 +95,9 @@ describe('BylineDiagrams', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    // clearAllMocks resets calls but NOT implementations, so a test that makes
+    // the tracker throw would leak that into every test after it.
+    vi.mocked(trackAnalyticsEvent).mockImplementation(() => {});
     spaceKey.value = 'SPACE';
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1' };
     apWrapper._getCurrentPageId.mockResolvedValue('page-1');
@@ -288,7 +291,10 @@ describe('BylineDiagrams', () => {
       // limit. Treating the unreadable re-read as "no new id" wiped the list,
       // emitted byline_create_cancelled for a saved diagram, and left no link.
       expect(events('byline_create_cancelled')).toHaveLength(0);
-      expect(events('byline_diagram_created')[0][1]).toMatchObject({ result: 'listing_failed' });
+      // Reported as unresolved rather than created (#572): we do not know that
+      // a diagram exists, and byline_diagram_created claims we do.
+      expect(events('byline_diagram_created')).toHaveLength(0);
+      expect(events('byline_create_unresolved')[0][1]).toMatchObject({ result: 'listing_failed' });
       expect(wrapper.find('[data-testid="byline-create-unresolved"]').exists()).toBe(true);
     });
 
@@ -309,8 +315,135 @@ describe('BylineDiagrams', () => {
       await closeEditor();
 
       expect(events('byline_create_cancelled')).toHaveLength(0);
-      expect(events('byline_diagram_created')[0][1]).toMatchObject({ result: 'listing_partial' });
+      expect(events('byline_diagram_created')).toHaveLength(0);
+      expect(events('byline_create_unresolved')[0][1]).toMatchObject({ result: 'listing_partial' });
       expect(wrapper.find('[data-testid="byline-create-unresolved"]').exists()).toBe(true);
+    });
+
+    // The modal's resolution reports one known or unresolved result.
+    describe('every create reports exactly one outcome', () => {
+      it('reports resolve_failed when the post-editor re-read throws', async () => {
+        // The catch used to only set the retry UI. A genuine rejection is what
+        // it exists for — the ordinary 403 RESOLVES with an error body (see
+        // `forbidden`) and is the listing_failed case above, not this one.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+
+        apWrapper.listPageDiagramContents.mockRejectedValue(new Error('network down'));
+        await closeEditor();
+
+        expect(events('byline_create_cancelled')).toHaveLength(0);
+        expect(events('byline_diagram_created')).toHaveLength(0);
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+        expect(events('byline_create_unresolved')[0][1]).toMatchObject({
+          result: 'resolve_failed',
+          failure_reason: 'network down',
+        });
+      });
+
+      it('does not report a second outcome when the trailing work throws after a save', async () => {
+        // The try block wraps the success path too: loadThumbnails and the
+        // automatic copy both run AFTER byline_diagram_created has fired, so a
+        // throw from either lands in the same catch that reports an unresolved
+        // create. Without the outcome guard that turns one saved diagram into
+        // both a created and an unresolved event.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+
+        vi.mocked(trackAnalyticsEvent).mockImplementation((name: any) => {
+          if (name === 'advocacy_message_copied') throw new Error('copy tracking blew up');
+        });
+        apWrapper.listPageDiagramContents.mockResolvedValue([
+          ok(child('9', 'New', DiagramType.Sequence)),
+        ]);
+        await closeEditor();
+
+        expect(events('byline_diagram_created')).toHaveLength(1);
+        expect(events('byline_create_unresolved')).toHaveLength(0);
+      });
+
+      it('emits NOTHING when the iframe goes away mid-create — the known gap', async () => {
+        // Host teardown is not an observed editor close or persistence result.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+
+        window.dispatchEvent(new Event('pagehide'));
+        await flushPromises();
+
+        expect(events('byline_create_unresolved')).toHaveLength(0);
+        // byline_dismissed stays suppressed too: `acted` is true once a create
+        // has started, so a teardown mid-create is not a "looked and left".
+        expect(events('byline_dismissed')).toHaveLength(0);
+      });
+
+      it('still reports an outcome when the editor never opens', async () => {
+        // byline_editor_deeplinked result:'failed' answers whether the open
+        // routed, not what became of the create, so on its own it leaves the
+        // same silent gap this event exists to remove.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        vi.mocked(openModal).mockRejectedValueOnce(new Error('modal refused'));
+
+        await openEditorFrom(wrapper);
+
+        expect(events('byline_editor_deeplinked')[0][1]).toMatchObject({ result: 'failed' });
+        // The tiles must come back. `creating` stuck true is what the missing
+        // await in forgeGlobal.openModal actually caused in production: every
+        // picker tile permanently disabled with no error surfaced.
+        await flushPromises();
+        expect(
+          wrapper.find('[data-testid="byline-type-sequence"]').attributes('disabled'),
+        ).toBeUndefined();
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+        expect(events('byline_create_unresolved')[0][1]).toMatchObject({
+          result: 'editor_never_opened',
+          failure_reason: 'modal refused',
+        });
+
+        // ...and that outcome is final: nothing later adds a second one.
+        window.dispatchEvent(new Event('pagehide'));
+        await flushPromises();
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+      });
+
+      it('does not report an abandoned create once the editor has resolved', async () => {
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+        await closeEditor();
+        expect(events('byline_create_cancelled')).toHaveLength(1);
+
+        window.dispatchEvent(new Event('pagehide'));
+        await flushPromises();
+
+        expect(events('byline_create_unresolved')).toHaveLength(0);
+      });
+
+      it('lets a retry report its own outcome, marked as a retry', async () => {
+        // A retry is a fresh resolution attempt: the first attempt already
+        // cleared the outcome flag, so without re-arming, a create that failed
+        // to resolve and then succeeded would report nothing the second time.
+        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+        const wrapper = await mountByline();
+        await openEditorFrom(wrapper);
+
+        apWrapper.listPageDiagramContents.mockRejectedValue(new Error('network down'));
+        await closeEditor();
+        expect(events('byline_create_unresolved')).toHaveLength(1);
+        expect(events('byline_create_unresolved')[0][1].is_retry).toBeUndefined();
+
+        apWrapper.listPageDiagramContents.mockResolvedValue([
+          ok(child('9', 'New', DiagramType.Sequence)),
+        ]);
+        await wrapper.find('[data-testid="byline-retry-create"]').trigger('click');
+        await flushPromises();
+
+        expect(events('byline_diagram_created')).toHaveLength(1);
+        expect(events('byline_diagram_created')[0][1]).toMatchObject({ is_retry: true });
+      });
     });
 
     it('a found id proves the save even when another type failed', async () => {
@@ -856,7 +989,7 @@ describe('BylineDiagrams', () => {
       const rows = wrapper.findAll('[data-testid="byline-item"]');
       expect(rows[0].find('[data-testid="byline-add-to-page"]').exists()).toBe(false);
       expect(rows[1].find('[data-testid="byline-add-to-page"]').exists()).toBe(true);
-      expect(rows[1].text()).toContain('not on this page');
+      expect(rows[1].text()).toContain('not on the published page');
     });
 
     it('places the diagram in one click and drops the label', async () => {
@@ -871,7 +1004,7 @@ describe('BylineDiagrams', () => {
       await flushPromises();
 
       expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: '2' }), expect.any(Function));
-      expect(wrapper.text()).not.toContain('not on this page');
+      expect(wrapper.text()).not.toContain('not on the published page');
       expect(events('diagram_added_to_page')[0][1]).toMatchObject({
         result: 'added',
         macro_type: 'sequence',
@@ -902,7 +1035,7 @@ describe('BylineDiagrams', () => {
 
       expect(wrapper.find('[data-testid="byline-add-to-page"]').exists()).toBe(false);
       expect(wrapper.find('[data-testid="byline-copy-url"]').exists()).toBe(true);
-      expect(wrapper.text()).toContain('not on this page');
+      expect(wrapper.text()).toContain('not on the published page');
       expect(events('diagram_added_to_page')[0][1]).toMatchObject({ result: 'forbidden' });
     });
 
@@ -931,7 +1064,7 @@ describe('BylineDiagrams', () => {
       const wrapper = await mountByline();
 
       expect(wrapper.findAll('[data-testid="byline-copy-url"]')).toHaveLength(0);
-      expect(wrapper.text()).not.toContain('not on this page');
+      expect(wrapper.text()).not.toContain('not on the published page');
       expect(events('byline_unplaced_scanned')).toHaveLength(0);
     });
 

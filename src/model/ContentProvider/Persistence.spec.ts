@@ -241,7 +241,7 @@ describe('Persistence', function () {
       expect(mockSave).not.toHaveBeenCalled();
     });
 
-    it('does NOT call syncCustomContent or fire analytics when legacyLoadBlocked is true', async () => {
+    it('reports a blocked publish without success or sync when legacyLoadBlocked is true', async () => {
       const blocked = {
         ...NULL_DIAGRAM,
         diagramType: DiagramType.Sequence,
@@ -249,7 +249,8 @@ describe('Persistence', function () {
       };
       try { await saveToPlatform(blocked as any, mockApWrapper); } catch {}
       expect(syncCustomContent).not.toHaveBeenCalled();
-      expect(trackAnalyticsEvent).not.toHaveBeenCalled();
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_publish_blocked', expect.objectContaining({ publish_block_reason: 'legacy_load_blocked' }));
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('macro_create_succeeded', expect.anything());
     });
 
     it('still saves normally when legacyLoadBlocked is undefined or false', async () => {
@@ -280,6 +281,42 @@ describe('Persistence', function () {
     });
   });
 
+  describe('canonical persistence failures', () => {
+    it.each([DiagramType.Sequence, DiagramType.Graph, DiagramType.OpenApi, DiagramType.AsyncApi])('reports a failed create for %s without leaking the API error body', async (diagramType) => {
+      const error = Object.assign(new Error('customer title and diagram content'), { status: 403, code: 'FORBIDDEN' });
+      mockSave.mockImplementationOnce(() => { throw error; });
+      await expect(saveToPlatform({ ...NULL_DIAGRAM, diagramType }, mockApWrapper)).rejects.toBe(error);
+      const failures = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([event]) => event === 'macro_save_failed');
+      expect(failures).toHaveLength(1);
+      expect(failures[0][1]).toMatchObject({ operation_mode: 'create', failure_stage: 'persistence', failure_reason: 'http_error', http_status: 403, error_code: 'FORBIDDEN' });
+      expect(JSON.stringify(failures)).not.toContain('customer title');
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('macro_create_succeeded', expect.anything());
+    });
+
+    it('omits arbitrary error codes and invalid status values', async () => {
+      const error = Object.assign(new Error('customer source'), { status: 'customer title', code: 'customer identity' });
+      mockSave.mockImplementationOnce(() => { throw error; });
+      await expect(saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper)).rejects.toBe(error);
+      const [, payload] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_save_failed')!;
+      expect(payload).not.toHaveProperty('error_code');
+      expect(payload).not.toHaveProperty('http_status');
+      expect(JSON.stringify(payload)).not.toContain('customer');
+    });
+
+    it('keeps an edit failure in edit mode and does not call it a creation failure', async () => {
+      mockSave.mockImplementationOnce(() => { throw new Error('offline'); });
+      await expect(saveToPlatform({ ...NULL_DIAGRAM, id: 'existing', diagramType: DiagramType.Sequence }, mockApWrapper)).rejects.toThrow('offline');
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_save_failed', expect.objectContaining({ operation_mode: 'edit', failure_reason: 'request_failed' }));
+    });
+
+    it('does not report telemetry sync failure as a failed Confluence save', async () => {
+      vi.mocked(syncCustomContent).mockRejectedValueOnce(new Error('telemetry unavailable'));
+      await expect(saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper)).rejects.toThrow('telemetry unavailable');
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_create_succeeded', expect.anything());
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('macro_save_failed', expect.anything());
+    });
+  });
+
   // conf-app#320: a save whose persistence returned no usable id must NOT be
   // treated as success. Previously String(undefined) === "undefined" leaked into
   // macro_create_succeeded AND back into the macro config (permanent orphan).
@@ -295,7 +332,8 @@ describe('Persistence', function () {
     it('does NOT fire macro_create_succeeded or syncCustomContent when the saved id is invalid', async () => {
       mockSave.mockReturnValueOnce({ id: undefined } as any);
       try { await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper); } catch {}
-      expect(trackAnalyticsEvent).not.toHaveBeenCalled();
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('macro_create_succeeded', expect.anything());
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_save_failed', expect.objectContaining({ failure_reason: 'invalid_saved_content_id' }));
       expect(syncCustomContent).not.toHaveBeenCalled();
     });
   });

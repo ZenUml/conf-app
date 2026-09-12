@@ -151,7 +151,8 @@ async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolea
     // Redirect starts now (view.submit / view.close below). Stop the clock.
     trackPublishCompleted({
       macro_type: 'graph',
-      operation_mode: inserting ? 'create' : 'edit',
+      // Byline creates run outside native insertion; keep the pre-save mode.
+      operation_mode: sourceId ? 'edit' : 'create',
       content_id: String(id),
       custom_content_id: String(id),
     });

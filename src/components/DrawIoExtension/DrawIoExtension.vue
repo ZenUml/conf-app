@@ -20,6 +20,7 @@
 </template>
 
 <script lang="ts">
+import { trackPublishBlocked } from '@/utils/analytics/publishIntent';
 import { defineComponent, computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import DrawIoHeader from "./components/DrawIoHeader.vue";
 import store from "@/model/store2";
@@ -52,6 +53,7 @@ export default defineComponent({
     const titleError = ref(false);
     const headerRef = ref<InstanceType<typeof DrawIoHeader>>();
     let pendingResolve: ((value: string) => void) | null = null;
+    let pendingTitle: Promise<string> | null = null;
 
     const {
       aiTitleEnabled, isGeneratingTitle, isAnimating, displayedTitle,
@@ -64,7 +66,7 @@ export default defineComponent({
     // dispatching `updateTitle` keeps `window.diagram.title` synced for the
     // save path (saveGraphAndExit spreads window.diagram) AND for
     // `window.ensureTitle` below.
-    const currentTitle = computed<string>(() => store.state.diagram?.title || "");
+    const currentTitle = computed<string>(() => (store.state.diagram?.title || "").trim());
 
     // The extracted shape labels are the "code" fed to the title model — clean
     // signal instead of raw mxfile XML.
@@ -84,25 +86,27 @@ export default defineComponent({
     }
 
     const handleTitleChange = (value: string) => {
-      if (value) {
+      const title = value.trim();
+      // Every keystroke, including clearing, cancels an older AI request.
+      markManualEdit();
+      if (title) {
         titleError.value = false;
-        markManualEdit();
       } else {
         onTitleCleared();
         scheduleAutoGenerate();
       }
       store.dispatch("updateTitle", value);
-      if (value && pendingResolve) {
-        pendingResolve(value);
-        pendingResolve = null;
-      }
     };
 
     const handleTitleConfirm = () => {
-      if (currentTitle.value && pendingResolve) {
-        pendingResolve(currentTitle.value);
-        pendingResolve = null;
+      if (!pendingResolve) return;
+      if (!currentTitle.value) {
+        titleError.value = true;
+        headerRef.value?.focusInput();
+        return;
       }
+      pendingResolve(currentTitle.value);
+      pendingResolve = null;
     };
 
     const onManualGenerate = () => {
@@ -117,18 +121,28 @@ export default defineComponent({
       dismiss();
     };
 
-    // Publish gate (ForgeGraphEditor calls window.ensureTitle() before save).
-    const ensureTitle = async (): Promise<string> => {
-      if (currentTitle.value) {
-        return currentTitle.value;
+    // A manual title is only accepted by Enter or a fresh Publish click.
+    // Reuse one gate so repeated clicks cannot replace its pending resolver.
+    const ensureTitle = (): Promise<string> => {
+      if (pendingTitle) {
+        const existing = pendingTitle;
+        handleTitleConfirm();
+        return existing;
       }
+      if (currentTitle.value) return Promise.resolve(currentTitle.value);
 
-      // The title is still empty at publish. Rather than depending on the
-      // debounced while-editing watcher (which may not have fired yet if the
-      // user published right after their last edit), generate on demand from
-      // the diagram content that's being saved right now. The save handler in
-      // ForgeGraphEditor sets window.graphXml = payload.xml immediately before
-      // calling this, so it is the freshest, most complete source.
+      const gate = new Promise<string>((resolve) => {
+        pendingResolve = (value) => {
+          pendingTitle = null;
+          resolve(value);
+        };
+      });
+      pendingTitle = gate;
+      void prepareMissingTitle();
+      return gate;
+    };
+
+    async function prepareMissingTitle() {
       if (debounceTimer) clearTimeout(debounceTimer);
       const xml = (window as any).graphXml || props.currentXml || "";
       const code = extractGraphText(xml);
@@ -138,28 +152,25 @@ export default defineComponent({
           diagramType: DiagramType.Graph,
           currentTitle: "",
         });
-        if (currentTitle.value) return currentTitle.value;
       }
-
-      // No content to title yet (e.g. unlabelled shapes), generation failed, or
-      // a generation is still in flight — surface the error, focus the input,
-      // and wait. The currentTitle watcher below resolves this promise if an
-      // in-flight generation lands a title, so publish can still proceed
-      // automatically without the user typing.
+      // Generation may have been cancelled by typing. Only the AI-completed
+      // edge below can accept its result; a nonempty manual title still waits.
+      if (!pendingResolve || currentTitle.value) return;
+      trackPublishBlocked('title_missing', {
+        macroType: 'graph', operationMode: store.state.diagram.id ? 'edit' : 'create', titlePresent: false,
+      });
       titleError.value = true;
       headerRef.value?.focusInput();
-      return new Promise((resolve) => {
-        pendingResolve = resolve;
-      });
-    };
+    }
 
-    // A committed AI title (or any late title change) should release a pending
-    // ensureTitle() the publish flow is blocked on.
     watch(currentTitle, (value) => {
-      if (value && pendingResolve) {
-        pendingResolve(value);
-        pendingResolve = null;
-      }
+      if (value) titleError.value = false;
+    });
+
+    // The composable commits the whole generated title before this edge.
+    // Typing never creates this transition, including after an older AI title.
+    watch(autoNameAnimationDone, (done) => {
+      if (done) handleTitleConfirm();
     });
 
     watch(graphCode, () => scheduleAutoGenerate());

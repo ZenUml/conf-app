@@ -40,6 +40,10 @@ class MockWebSocket {
   triggerUnexpectedClose(code = 1006, wasClean = false): void {
     this.onclose?.({ code, wasClean })
   }
+
+  triggerError(message = 'browser websocket error'): void {
+    this.onerror?.({ message })
+  }
 }
 
 function makeBridge(overrides: Partial<AgentLinkBridgeOps> = {}): AgentLinkBridgeOps {
@@ -572,8 +576,38 @@ describe('createRelayClient', () => {
     MockWebSocket.instances[3].triggerUnexpectedClose() // exhausted -> no more sockets
 
     expect(MockWebSocket.instances).toHaveLength(4) // 1 initial + 3 reconnects
-    expect(events.filter((e) => e.type === 'reconnecting')).toHaveLength(3)
-    expect(events.some((e) => e.type === 'reconnect_failed')).toBe(true)
+    expect(events.filter((e) => e.type === 'reconnecting')).toEqual([
+      { type: 'reconnecting', attempt: 1 },
+      { type: 'reconnecting', attempt: 2 },
+      { type: 'reconnecting', attempt: 3 },
+    ])
+    expect(events).toContainEqual({
+      type: 'close',
+      code: 1006,
+      wasClean: false,
+      reconnectAttempt: 0,
+      unexpected: true,
+    })
+    expect(events).toContainEqual({ type: 'reconnect_failed', attempt: 3 })
+  })
+
+  it('labels browser WebSocket errors as unexpected with the current reconnect attempt', () => {
+    const events: RelayStateEvent[] = []
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge: makeBridge(),
+      WebSocketImpl: MockWebSocket as any,
+      onStateEvent: (event) => events.push(event),
+    })
+
+    MockWebSocket.instances[0].triggerError('must not be forwarded to analytics')
+
+    expect(events).toContainEqual({
+      type: 'error',
+      message: 'must not be forwarded to analytics',
+      reconnectAttempt: 0,
+      unexpected: true,
+    })
   })
 
   it('a deliberate close() does NOT trigger a reconnect', () => {
@@ -599,10 +633,12 @@ describe('createRelayClient', () => {
 
   it('a successful reconnect resets the attempt counter (a later close retries the full count again)', () => {
     const bridge = makeBridge()
+    const events: RelayStateEvent[] = []
     createRelayClient({
       wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
       bridge,
       WebSocketImpl: MockWebSocket as any,
+      onStateEvent: (event) => events.push(event),
       maxReconnectAttempts: 2,
       clock: instantClock(),
     })
@@ -613,6 +649,7 @@ describe('createRelayClient', () => {
     MockWebSocket.instances[1].triggerUnexpectedClose() // attempt 2 -> socket #3
     expect(MockWebSocket.instances).toHaveLength(3)
     MockWebSocket.instances[2].triggerOpen()
+    expect(events).toContainEqual({ type: 'open', reconnectAttempt: 2 })
 
     // Second outage on the now-recovered socket: counter should have reset,
     // so it again gets 2 fresh reconnect attempts (not 0 remaining).
@@ -651,9 +688,19 @@ describe('createRelayClient', () => {
     MockWebSocket.instances[0].triggerOpen()
 
     client.disconnect()
+    // Browsers deliver onclose asynchronously after close(); simulate it so
+    // callers can distinguish this intentional terminal signal from a pause.
+    MockWebSocket.instances[0].triggerUnexpectedClose(1000, true)
 
     expect(MockWebSocket.instances).toHaveLength(1) // no reconnect socket created
     expect(events.some((e) => e.type === 'reconnecting')).toBe(false)
+    expect(events).toContainEqual({
+      type: 'close',
+      code: 1000,
+      wasClean: true,
+      reconnectAttempt: 0,
+      unexpected: false,
+    })
   })
 
   it('disconnect() before the socket is open does not throw (send is a no-op, close still happens)', () => {

@@ -179,4 +179,126 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     expect(resolved).toBe(TITLE)
     void wrapper
   })
+
+  it('explains the missing title and focuses the empty input while Publish waits (#354)', async () => {
+    const wrapper = mount(DrawIoExtension, { props: { doc: {}, currentXml: EMPTY_GRAPH }, attachTo: document.body })
+    try {
+      await flushPromises()
+      const pending = (window as any).ensureTitle() as Promise<string>
+      await wrapper.vm.$nextTick()
+
+      const input = wrapper.find('input')
+      expect(input.element.value).toBe('')
+      expect(document.activeElement).toBe(input.element)
+      expect(input.attributes('aria-invalid')).toBe('true')
+      const message = wrapper.find('[role="alert"]')
+      expect(message.text()).toBe('Enter a title, then press Enter or Publish.')
+      expect(input.attributes('aria-describedby')).toBe(message.attributes('id'))
+
+      await input.setValue('Order flow')
+      await input.trigger('keydown.enter')
+      await expect(pending).resolves.toBe('Order flow')
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('does not release a pending Publish for a whitespace-only title', async () => {
+    const wrapper = mountGraphTitle(EMPTY_GRAPH)
+    try {
+      await flushPromises()
+      let title: string | undefined
+      const pending = (window as any).ensureTitle().then((value: string) => { title = value })
+      await wrapper.find('input').setValue('   ')
+      await flushPromises()
+
+      expect(title).toBeUndefined()
+      expect(store.state.diagram.title).toBe('')
+      await wrapper.find('input').setValue('  Order flow  ')
+      await wrapper.find('input').trigger('keydown.enter')
+      await pending
+      expect(title).toBe('Order flow')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('shows title guidance when AI title generation fails at Publish', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue({ ok: false, text: async () => 'Unavailable' } as any)
+    const wrapper = mountGraphTitle(EMPTY_GRAPH)
+    try {
+      await flushPromises()
+      ;(window as any).graphXml = LABELLED_XML
+      const pending = (window as any).ensureTitle() as Promise<string>
+      await runGeneration()
+
+      expect(wrapper.find('[role="alert"]').text()).toMatch(/enter a title.*publish/i)
+      await wrapper.find('input').setValue('Manual title')
+      await wrapper.find('input').trigger('keydown.enter')
+      await expect(pending).resolves.toBe('Manual title')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+  it.each(['Enter', 'Publish'])('waits for %s after the complete manual title, including repeated empty Publish clicks', async confirm => {
+    const wrapper = mountGraphTitle(EMPTY_GRAPH)
+    try {
+      await flushPromises()
+      const saved = vi.fn()
+      const first = window.ensureTitle().then(saved)
+      const repeated = window.ensureTitle()
+      const input = wrapper.find('input')
+      await input.setValue('   ')
+      await input.trigger('keydown.enter')
+      await input.setValue('G')
+      await flushPromises()
+      expect(saved).not.toHaveBeenCalled()
+      await input.setValue('   ')
+      await input.trigger('keydown.enter')
+      expect(wrapper.find('[role="alert"]').text()).toContain('press Enter or Publish')
+      await input.setValue('Graph title complete')
+      await flushPromises()
+      expect(saved).not.toHaveBeenCalled()
+      if (confirm === 'Enter') await input.trigger('keydown.enter')
+      else await window.ensureTitle()
+      await Promise.all([first, repeated])
+      expect(saved).toHaveBeenCalledTimes(1)
+      expect(saved).toHaveBeenCalledWith('Graph title complete')
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['G', '   '])('does not publish or replace manual input %j when a cancelled AI request finishes', async typed => {
+    let finish!: (response: any) => void
+    vi.mocked(aiGenerateTitle).mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const wrapper = mountGraphTitle(EMPTY_GRAPH)
+    try {
+      await flushPromises()
+      ;(window as any).graphXml = LABELLED_XML
+      const saved = vi.fn()
+      const pending = window.ensureTitle().then(saved)
+      await wrapper.find('input').setValue(typed)
+      finish(okRes(TITLE))
+      await runGeneration()
+      expect(saved).not.toHaveBeenCalled()
+      expect(store.state.diagram.title).toBe(typed.trim())
+      await wrapper.find('input').setValue('Graph manual title')
+      await wrapper.find('input').trigger('keydown.enter')
+      await pending
+      expect(saved).toHaveBeenCalledTimes(1)
+      expect(saved).toHaveBeenCalledWith('Graph manual title')
+    } finally { wrapper.unmount() }
+  })
+
+  it('an already-running AI generation can complete a waiting Publish', async () => {
+    const wrapper = mountGraphTitle(LABELLED_XML)
+    try {
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(1500)
+      const pending = window.ensureTitle()
+      await runGeneration()
+      await expect(pending).resolves.toBe(TITLE)
+    } finally { wrapper.unmount() }
+  })
+
 })

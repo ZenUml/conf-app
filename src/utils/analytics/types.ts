@@ -21,7 +21,11 @@ import type {
   AgentLinkRenderOutcome,
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
+  AgentLinkConnectionDiagnosticOrigin,
+  AgentLinkReconnectOutcome,
   AgentLinkListScope,
+  AgentLinkPairingMethod,
+  AgentLinkInstructionKind,
   ActivationPath,
   GalleryOpenTrigger,
   SessionReplayEventSource,
@@ -67,6 +71,20 @@ export type AnalyticsProperties = {
   confluence_space?: string;
   macro_uuid?: string;
   // Lifecycle
+  // Random per-editor creation identifier. Never derived from account, tenant,
+  // page, content, URL, source or replay identifiers; absent for edit sessions.
+  creation_attempt_id?: string;
+  // Initial type is frozen at start. Final type is the selection at this event,
+  // and becomes final for the attempt only on success or explicit cancellation.
+  // macro_type keeps its existing per-event meaning for dashboard migration.
+  initial_macro_type?: MacroTypeValue;
+  final_macro_type?: MacroTypeValue;
+  // Monotonic within the attempt; makes rapid DSL switches orderable even when
+  // async enrichment delivers events out of order. Start has index 0.
+  creation_event_index?: number;
+  creation_elapsed_ms?: number;
+  title_present?: boolean;
+  publish_block_reason?: 'title_missing' | 'validation_error' | 'legacy_load_blocked' | 'writeback_unavailable';
   operation_mode?: OperationMode;
   // macro_create_cancelled / macro_edit_cancelled: which close control ended
   // the editor session. `host_close` is the Atlassian modal X (view.onClose);
@@ -233,6 +251,7 @@ export type AnalyticsProperties = {
   version_id?: string;
   version_number?: number;
   version_count?: number;
+  // Also marks a byline resolution retry; absent for its initial attempt.
   is_retry?: boolean;
   error_category?: "syntax_error";
   lines_added?: number;
@@ -733,6 +752,17 @@ export type AnalyticsProperties = {
   // agent_link_session_suspended and this resume. Absent when the session
   // never actually suspended (e.g. a duplicate/no-op resume signal).
   resume_latency_ms?: number;
+  // Browser-to-relay reliability diagnostics
+  // (agent_link_connection_diagnostic only). These are deliberately
+  // low-cardinality transport observations, not inferred server causes.
+  // No message, URL, token, linking code, or document content is accepted by
+  // this contract. `reconnect_outcome` appears only on the terminal succeeded
+  // / exhausted signal.
+  diagnostic_origin?: AgentLinkConnectionDiagnosticOrigin;
+  close_code?: number;
+  was_clean?: boolean;
+  reconnect_attempt?: number;
+  reconnect_outcome?: AgentLinkReconnectOutcome;
   // U — discovery tool surface (agent_link_diagram_read / _search_performed /
   // _list_performed). `by_content_id` = read_diagram targeted a discovered
   // contentId rather than the bound diagram. `query_len` = search query length
@@ -742,6 +772,20 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  // Presence (agent_link_stage_reached only, 2026-08-15 connection-experience
+  // §3, Task 5). `stage` = the MCP relay's highest-ranked presence stage
+  // (initialized/discovered/verified/working); `ms_since_connect_clicked` =
+  // elapsed ms since this instance's own Connect click, or -1 when unknown
+  // (a display-only hydrated instance that never clicked Connect itself);
+  // `client_name` = the connecting agent's self-reported name, first seen on
+  // the 'initialized' stage and carried forward on every later push.
+  stage?: string;
+  ms_since_connect_clicked?: number;
+  client_name?: string;
+  // One-time Remote MCP pairing (2026-08-23). Both copy and completion carry
+  // pairing_method; only the copy event carries instruction_kind.
+  pairing_method?: AgentLinkPairingMethod;
+  instruction_kind?: AgentLinkInstructionKind;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

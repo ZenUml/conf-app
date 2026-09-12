@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { agentLinkWsUrl, mintAgentLinkSession, toWebSocketBaseUrl } from './relayUrl'
+import { agentLinkMcpUrl, agentLinkWsUrl, mintAgentLinkSession, revokeAgentLinkSession, toWebSocketBaseUrl } from './relayUrl'
 
 describe('toWebSocketBaseUrl', () => {
   it('upgrades https:// to wss://', () => {
@@ -34,6 +34,17 @@ describe('agentLinkWsUrl', () => {
       'https://conf-full.zenuml.com'
     )
     expect(url.startsWith('wss://conf-full.zenuml.com/agent-link/channel?')).toBe(true)
+  })
+})
+
+describe('agentLinkMcpUrl', () => {
+  it('derives the MCP endpoint from the backend base URL', () => {
+    expect(agentLinkMcpUrl('https://conf-stg-lite.zenuml.com')).toBe(
+      'https://conf-stg-lite.zenuml.com/agent-link/mcp'
+    )
+  })
+  it('defaults to forgeGlobal.zenumlRemoteBaseUrl', () => {
+    expect(agentLinkMcpUrl()).toMatch(/\/agent-link\/mcp$/)
   })
 })
 
@@ -129,5 +140,38 @@ describe('mintAgentLinkSession', () => {
     } catch (err) {
       expect((err as { lockExpiresAt?: number }).lockExpiresAt).toBeUndefined()
     }
+  })
+})
+
+describe('revokeAgentLinkSession', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('resolves on a 200 revocation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(
+      revokeAgentLinkSession('tok', { cloudId: 'c', pageId: 'p', contentId: 'd' }, 'https://backend.example')
+    ).resolves.toBeUndefined()
+    expect((fetchMock.mock.calls[0][1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('aborts a hung revoke request so a stalled network cannot wedge Disconnect forever', async () => {
+    // withConfirmedRevocation blocks every later Disconnect/Reconnect until
+    // this settles; an unbounded DELETE would freeze the control. The bounded
+    // signal must abort the request so the caller can surface Retry.
+    const fetchMock = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject((init.signal as AbortSignal).reason ?? new Error('aborted'))
+          )
+        })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(
+      revokeAgentLinkSession('tok', { cloudId: 'c', pageId: 'p', contentId: 'd' }, 'https://backend.example', 10)
+    ).rejects.toBeTruthy()
   })
 })

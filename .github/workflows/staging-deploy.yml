@@ -376,7 +376,17 @@ jobs:
               pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
           esac
-          pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
+          # One retry, for the pre-deploy step that dies on the network rather
+          # than on the manifest: PR #677's run 34666960785 failed here with
+          # `Error: fetch failed` inside @forge/lint before anything was
+          # deployed, and the hand re-run was green. A failed pre-deploy
+          # deploys nothing, so a second attempt is safe; a real manifest or
+          # bundle error fails twice and stays red.
+          if ! pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging; then
+            echo "::warning::forge deploy failed once — retrying in 20s"
+            sleep 20
+            pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
+          fi
           wait "$PAGES_PID" || true
           echo "--- wrangler pages deploy (ran in parallel) ---"; cat pages-publish.log
           [ "$(cat pages-publish.exit)" = "0" ] || { echo "::error::Cloudflare Pages publish failed (see log above)"; exit 1; }

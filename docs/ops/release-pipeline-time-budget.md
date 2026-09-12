@@ -80,7 +80,21 @@ plan changes. The full-fan-out moment (27 shards: Lite 8, DrawIO 5, render 1,
 Full 5, Diagramly 5, AsyncAPI 3) exceeds it by 7. Without that queue the tail
 would have been Lite shard 2/8 at 7m18s.
 
-## How to re-measure
+### Run 34659544917 — first run with the Full lanes (8m48s, green): a measurement of the wrong lane
+
+Main run [34659544917](https://github.com/ZenUml/conf-app/actions/runs/34659544917) (the merge of #669, 2026-09-11) took **8m48s**, 50s slower than run 34655187796. Two causes, both visible in the job list:
+
+| t (min) | Job | Note |
+|---|---|---|
+| 0.1 → 4.2 | Deploy: Lite | 4m06s this time (3m36s the run before — the Forge deploy step varies by ~30s) |
+| 3.0 → 6.8 | E2E: Full (now) / shard 4/4 | **the `now` lane ran**: #669's own title quoted the `[full-first]` token, and the merge commit carries the PR title. Peak hit 20 again; Lite shard 3/8 queued 57s, DrawIO Publish shard 1/5 93s |
+| 4.3 → 8.6 | E2E: Lite / shard 2/8 | **4m18s** — byline-create #2 + byline-paywall + edit-graph, three page-creating tests on one shard: unpinning byline-create at 8 shards moved the boundary the wrong way (PR run 34658978233 showed the same shard at 4m06s) |
+| 8.6 → 8.8 | Draft: Lite, Draft: Full | Draft: Full waited for Lite's E2E even in the `now` lane — a skipped job still waits for its `needs` before its `if` is evaluated. Harmless (Full's draft is never waited for), but the `now` lane does not make Full's draft any earlier |
+
+So this run measures the parallel lane plus a shard regression, not the default. What it does show: the `now` lane and its selection work; the 4-shard Full/Diagramly split keeps their heaviest shard under 4m; and the lesson that **the token must not appear in a PR title unless it is meant** — PR titles become merge-commit messages.
+
+The 10-shard Lite split in the next PR separates byline-create's two tests from byline-paywall and edit-graph (measured layout in the job comment; no shard with more than two page-creating tests, expected tail ~3m). The first `main` run after it, with the default Full lane, is the one to compare against 7m58s.
+
 ## How to re-measure
 
 ```bash
@@ -122,7 +136,7 @@ Each row lands as its own PR and gets its measurement added here.
 
 | Decision | Status | Expected |
 |---|---|---|
-| Full's E2E runs after Lite's by default (`[full-first]` / `FULL_DRAFT_LANE=now` for the parallel lane); Full/Diagramly 4 shards; byline-create tests independent; env-gated byline-activation spec not collected in CI | landed | peak 21 jobs instead of 27; Lite tail ~3m30s → ~3m |
+| Full's E2E runs after Lite's by default (`[full-first]` / `FULL_DRAFT_LANE=now` for the parallel lane); Full/Diagramly 4 shards; byline-create tests independent; env-gated byline-activation spec not collected in CI | landed (#669); the first main run took the `now` lane by accident, see below | peak 21 jobs instead of 27; Lite tail ~3m30s → ~3m (regressed to 4m18s at 8 shards; fixed by 10 shards in the next PR) |
 | `main` reuses a green PR run's E2E when the merge tree is identical (`reuse-check` job); Lite 10 shards (the 8-way split after unpinning byline-create measured 4m06s on its tail shard, PR run 34658978233) | landed | Lite draft ~8m → ~4m on a hit |
 | `main` attaches production bundles to drafts; `release.yml` only deploys; Forge/Pages parallel on staging | after | release deploy gate ~3.5m → <2m |
 | Failed E2E shard re-run once; weekly flake ranking | after | fewer red re-runs |

@@ -511,8 +511,9 @@ jobs:
   # finishes before any shard starts. The `now` lane runs Full alongside the
   # others for the times Full has to ship first (a Full-only hotfix); it is
   # selected per merge by `[full-first]` anywhere in the merge commit message
-  # (the PR title carries into a merge commit) or standing, by the repo
-  # variable FULL_DRAFT_LANE=now (`gh variable set FULL_DRAFT_LANE --body now`;
+  # (the PR title carries into a merge commit — so never QUOTE the token in a
+  # PR title; main run 34659544917 took this lane because #669's title did) or
+  # standing, by the repo variable FULL_DRAFT_LANE=now (`gh variable set FULL_DRAFT_LANE --body now`;
   # unset it or set anything else to return to the default). Exactly one lane
   # runs; `Draft: Full` accepts either. The two jobs are call sites only —
   # every input is identical, so a change to one must be made to both.
@@ -528,6 +529,12 @@ jobs:
     # not Lite's verdict, which Full's own shards do not depend on. That is why
     # the `if` names the two real prerequisites and `!cancelled()` rather than
     # relying on the default all-succeeded semantics of `needs`.
+    #
+    # Known wrinkle: even when this lane is NOT selected, GitHub evaluates its
+    # `if` only once every `needs` entry has finished, so `Draft: Full` (which
+    # needs both lanes) still waits for Lite's E2E in the `now` case. Full's
+    # draft is never what a person waits for, so this is accepted rather than
+    # worked around with a third job.
     needs: [staging-full, e2e-auth-full, staging-lite-e2e]
     name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml

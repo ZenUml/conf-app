@@ -671,10 +671,6 @@ export type AnalyticsEventName =
   // One outcome per resolution attempt; is_retry separates a re-read retry.
   // Host teardown without modal onClose remains unobserved, never abandonment.
   | "byline_create_unresolved"
-  // Once per byline open after a successful read establishes the Lite limit;
-  // warns without blocking the editor's Continue editing allowance. Carries
-  // create_limit_reached, macro_count and macro_count_source.
-  | "byline_create_limit_warned"
   // "Done" was pressed on the post-create panel while the host page was in the
   // editor, and the app asked Confluence to close the byline view. Forge
   // documents view.close() as a *request* with no module restrictions stated,

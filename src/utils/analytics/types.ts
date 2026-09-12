@@ -83,9 +83,6 @@ export type AnalyticsProperties = {
   publish_block_reason?: 'title_missing' | 'validation_error' | 'legacy_load_blocked' | 'writeback_unavailable';
   // Byline resolution retry (absent for the initial attempt).
   is_retry?: boolean;
-  // Undefined means the asynchronous byline pre-check has not resolved or could
-  // not read the macro count; it must not be represented as an under-limit read.
-  create_limit_reached?: boolean;
   operation_mode?: OperationMode;
   // macro_create_cancelled / macro_edit_cancelled: which close control ended
   // the editor session. `host_close` is the Atlassian modal X (view.onClose);

@@ -262,28 +262,6 @@
          where the plus says *create*. The heading is a 13px semibold dark
          "Add a diagram", not a 12px grey caption that read as metadata about
          the list above. -->
-    <!-- Lite macro-limit warning. Placed AFTER the whole v-if/v-else-if chain
-         for the same reason the add-another strip is (see the comment above):
-         a v-if wedged between two branches re-parents everything after it.
-         One notice covers the empty, failed and list states rather than three
-         copies inside them.
-
-         Suppressed once a diagram has been created or is unresolved: the panel
-         is then about placing what was saved, and a limit warning there is
-         answering a question the user has already stopped asking.
-
-         It warns; it does not block. Every tile below still opens the editor,
-         whose own gate carries the "Continue editing" allowance — see
-         checkCreateLimit. -->
-    <div
-      v-if="createLimitReached && !createdLink && !createUnresolved"
-      class="limitnote"
-      data-testid="byline-limit-notice"
-    >
-      <div class="limitnote__title">This space has reached the free diagram limit</div>
-      <div class="limitnote__sub">You can still open the editor to see your available options.</div>
-    </div>
-
     <div v-if="showAddAnother" class="addrow" data-testid="byline-type-strip">
       <div class="addrow__label">Add a diagram</div>
       <div class="chips">
@@ -377,7 +355,7 @@ import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
-import type { MacroTypeValue, MacroCountSource } from '@/utils/analytics/catalog'
+import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import {
   parsePageDiagrams,
   summarizeDiagrams,
@@ -396,8 +374,6 @@ import { placeDiagram } from '@/utils/byline/placeDiagram'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
-import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
-import { isPageEditorCreateBlocked } from '@/utils/paywall/preEditGate'
 
 /** Drives nothing in the template any more — the picker renders immediately
  *  rather than behind a skeleton (see the empty-state comment) — but the list
@@ -650,19 +626,6 @@ let pageId = ''
 // re-arms this guard and carries is_retry; teardown alone reports no outcome.
 let createOutcomePending = false
 
-/** True once the limit pre-check has resolved and found the space blocked.
- *  `undefined` while the check is still in flight, and when it resolved against
- *  a macro count that could not be read — see create_limit_reached. */
-const createLimitReached = ref<boolean | undefined>(undefined)
-
-/** Where the macro count behind `createLimitReached` came from, so a degraded
- *  read is filterable rather than indistinguishable from a real small space. */
-let createLimitSource: MacroCountSource | undefined
-
-/** byline_create_limit_warned fires at most once per modal open. */
-let limitWarnedTracked = false
-let limitCheckStarted = false
-
 /**
  * Emit the one terminal event for the create attempt in flight, or nothing if
  * that attempt has already reported. See `createOutcomePending`.
@@ -779,56 +742,6 @@ async function loadDiagrams() {
     // Never awaited: this is a write for the NEXT page load, and the list must
     // not wait on it to paint.
     void syncUnplacedState()
-    void checkCreateLimit()
-  }
-}
-
-// Run once per open, after the list paints. Warn without gating: the editor
-// owns the user's remaining Continue editing allowance. A count that cannot be
-// read stays unknown; this reader must not write the macro's targeting marker.
-async function checkCreateLimit() {
-  if (limitCheckStarted) return
-  limitCheckStarted = true
-  try {
-    const customerSuccess = useCustomerSuccessService()
-    // persistMarker: false — this is a READ of the paywall decision, not a
-    // macro render. The paywall warning banner's targeting marker is
-    // single-writer (the macro iframe); writing it from here would both make
-    // the banner eligible on pages where no macro rendered, and risk clobbering
-    // a good marker with a degraded read. See initialize()'s doc comment.
-    await customerSuccess.initialize({ persistMarker: false })
-
-    // A count we could not actually read is NOT a count of zero. Every loader
-    // inside initialize() catches its own error, so the catch below never sees
-    // a failed macro-count read: it surfaces as macroCountSource 'undefined'
-    // (the #302 fail-open) with macrosCreated left at 0, which would otherwise
-    // resolve to "not blocked" and stamp create_limit_reached: false on a space
-    // we know nothing about. Leave it undefined instead — that is exactly what
-    // the property documents, and what the notice's hidden state means here.
-    createLimitSource = customerSuccess.macroCountSource.value
-    if (createLimitSource === 'undefined') return
-
-    const blocked = isPageEditorCreateBlocked(customerSuccess.shouldBlockActions.value)
-    createLimitReached.value = blocked
-    if (!blocked) return
-    // Once per open, not once per load. loadDiagrams' finally calls this, and
-    // onRetry re-runs loadDiagrams — so an unguarded emit counts a retry as a
-    // second warning, and only users who hit a load failure can retry, biasing
-    // the metric toward the failure population. Same defect the byline_opened
-    // guard directly above exists to prevent.
-    if (limitWarnedTracked) return
-    limitWarnedTracked = true
-    trackAnalyticsEvent('byline_create_limit_warned', {
-      ...baseProps(),
-      create_limit_reached: true,
-      macro_count: customerSuccess.macrosCreated.value,
-      macro_count_source: createLimitSource,
-    })
-  } catch (e) {
-    // Unreachable for a network failure (see above); kept for a genuine throw
-    // from the composable itself. Leaving createLimitReached undefined keeps the
-    // notice hidden and the property honest about not knowing.
-    console.warn('[byline] could not resolve the create limit', e)
   }
 }
 
@@ -1155,20 +1068,7 @@ async function onCopyUrl(d: PageDiagram) {
  */
 async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
   acted = true
-  trackAnalyticsEvent('byline_create_clicked', {
-    ...baseProps(),
-    macro_type: macroType,
-    // Undefined when the pre-check has not resolved yet — it runs after the
-    // list paints and a fast click beats it. That is deliberately not `false`.
-    ...(createLimitReached.value === undefined
-      ? {}
-      : { create_limit_reached: createLimitReached.value }),
-    // Carried whenever the check ran at all, so `create_limit_reached: false`
-    // from a 'zero' read (an empty space and an under-returning one are
-    // indistinguishable by construction — see useCustomerSuccessService) can be
-    // separated from one backed by a real 'kv'/'collect' count.
-    ...(createLimitSource ? { macro_count_source: createLimitSource } : {}),
-  })
+  trackAnalyticsEvent('byline_create_clicked', { ...baseProps(), macro_type: macroType })
 
   const before = diagrams.value.map(d => d.id)
   // Arm before opening so an open rejection still produces an outcome.
@@ -2066,24 +1966,6 @@ async function onLearnMore() {
 }
 
 /* Error banner ------------------------------------------------------------ */
-.limitnote {
-  flex: none;
-  border: 1px solid #f0d9a8;
-  border-radius: 6px;
-  background: #fffaef;
-  padding: 10px 14px;
-  margin-bottom: 8px;
-}
-.limitnote__title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #7a5b06;
-}
-.limitnote__sub {
-  font-size: 12px;
-  color: #5e6c84;
-  margin-top: 2px;
-}
 .banner {
   flex: none;
   border: 1px solid #dfe1e6;

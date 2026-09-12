@@ -56,24 +56,6 @@ vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   getClientDomain: () => 'example-tenant',
 }));
 
-// The Lite limit pre-check. Mocked rather than driven through the real
-// composable so these tests state the ONE input they care about — is this space
-// blocked — instead of assembling a macro count, a policy read and a paid-status
-// read to imply it.
-const paywall = vi.hoisted(() => ({
-  shouldBlock: false,
-  countSource: 'kv' as string,
-  initialize: vi.fn(async (_opts?: { persistMarker?: boolean }) => {}),
-}));
-vi.mock('@/composables/useCustomerSuccessService', () => ({
-  useCustomerSuccessService: () => ({
-    initialize: paywall.initialize,
-    shouldBlockActions: { value: paywall.shouldBlock },
-    macrosCreated: { value: 128 },
-    macroCountSource: { value: paywall.countSource },
-  }),
-}));
-
 const routerNavigate = vi.hoisted(() => vi.fn(async () => {}));
 const viewClose = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('@forge/bridge', () => ({
@@ -116,8 +98,6 @@ describe('BylineDiagrams', () => {
     // clearAllMocks resets calls but NOT implementations, so a test that makes
     // the tracker throw would leak that into every test after it.
     vi.mocked(trackAnalyticsEvent).mockImplementation(() => {});
-    paywall.shouldBlock = false;
-    paywall.countSource = 'kv';
     spaceKey.value = 'SPACE';
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1' };
     apWrapper._getCurrentPageId.mockResolvedValue('page-1');
@@ -463,117 +443,6 @@ describe('BylineDiagrams', () => {
 
         expect(events('byline_diagram_created')).toHaveLength(1);
         expect(events('byline_diagram_created')[0][1]).toMatchObject({ is_retry: true });
-      });
-    });
-
-    describe('the Lite limit pre-check', () => {
-      it('warns on an over-limit space without blocking the create', async () => {
-        // The editor owns the remaining Continue editing allowance.
-        paywall.shouldBlock = true;
-        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
-        const wrapper = await mountByline();
-
-        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(true);
-        expect(events('byline_create_limit_warned')).toHaveLength(1);
-        expect(events('byline_create_limit_warned')[0][1]).toMatchObject({
-          create_limit_reached: true,
-          macro_count: 128,
-        });
-
-        await openEditorFrom(wrapper);
-        expect(vi.mocked(openModal)).toHaveBeenCalled();
-        expect(events('byline_create_clicked')[0][1]).toMatchObject({
-          create_limit_reached: true,
-        });
-      });
-
-      it('stays silent on a space that is under the limit', async () => {
-        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
-        const wrapper = await mountByline();
-
-        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(false);
-        expect(events('byline_create_limit_warned')).toHaveLength(0);
-        await openEditorFrom(wrapper);
-        expect(events('byline_create_clicked')[0][1]).toMatchObject({
-          create_limit_reached: false,
-        });
-      });
-
-      it('reads the paywall decision without writing the banner targeting marker', async () => {
-        // The targeting marker is single-writer by design — only the macro
-        // iframe writes it, when a macro renders (see warningBanner.ts). The
-        // byline is a READER. Writing it from here would create a marker on
-        // pages where no macro rendered, which alone makes the warning banner
-        // eligible for a space admin, and a degraded read could clobber a good
-        // marker and suppress a banner that should have shown.
-        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
-        await mountByline();
-
-        expect(paywall.initialize).toHaveBeenCalledWith({ persistMarker: false });
-      });
-
-      it('warns once per open, not once per list load', async () => {
-        // loadDiagrams' finally runs the check, and onRetry re-runs loadDiagrams.
-        // Unguarded, a retry counted as a second warning — and only users who hit
-        // a load failure can retry, so the inflation is biased toward the failure
-        // population. Exactly what the byline_opened guard exists to prevent.
-        paywall.shouldBlock = true;
-        apWrapper.listPageDiagramContents.mockResolvedValue([forbidden]);
-        const wrapper = await mountByline();
-        expect(events('byline_create_limit_warned')).toHaveLength(1);
-
-        apWrapper.listPageDiagramContents.mockResolvedValue([
-          ok(child('1', 'Login', DiagramType.Sequence)),
-        ]);
-        await wrapper.find('[data-testid="byline-retry"]').trigger('click');
-        await flushPromises();
-
-        expect(events('byline_create_limit_warned')).toHaveLength(1);
-      });
-
-      it('treats an unreadable macro count as unknown, not as zero', async () => {
-        // Every loader inside initialize() catches its own error, so a failed
-        // count read never reaches the catch — it arrives as macroCountSource
-        // 'undefined' with the count left at 0, which would otherwise resolve to
-        // "not blocked" and stamp create_limit_reached: false on a space we know
-        // nothing about.
-        paywall.countSource = 'undefined';
-        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
-        const wrapper = await mountByline();
-
-        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(false);
-        expect(events('byline_create_limit_warned')).toHaveLength(0);
-        await openEditorFrom(wrapper);
-        expect(events('byline_create_clicked')[0][1].create_limit_reached).toBeUndefined();
-      });
-
-      it('carries the count source so a degraded read stays filterable', async () => {
-        // An empty space and an under-returning read both surface as 'zero' and
-        // are indistinguishable by construction, so the source rides along rather
-        // than the decision pretending to more certainty than it has.
-        paywall.countSource = 'zero';
-        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
-        const wrapper = await mountByline();
-
-        await openEditorFrom(wrapper);
-        expect(events('byline_create_clicked')[0][1]).toMatchObject({
-          create_limit_reached: false,
-          macro_count_source: 'zero',
-        });
-      });
-
-      it('claims no limit it could not actually read', async () => {
-        // A failed read must not invent a paywall the user is not at, and must
-        // not report create_limit_reached: false either — undefined is the
-        // honest answer and is what the property documents.
-        paywall.initialize.mockRejectedValueOnce(new Error('metrics unreachable'));
-        apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
-        const wrapper = await mountByline();
-
-        expect(wrapper.find('[data-testid="byline-limit-notice"]').exists()).toBe(false);
-        expect(events('byline_create_limit_warned')).toHaveLength(0);
-        await openEditorFrom(wrapper);
-        expect(events('byline_create_clicked')[0][1].create_limit_reached).toBeUndefined();
       });
     });
 

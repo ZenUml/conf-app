@@ -37,20 +37,17 @@
  * exclusivity test (test 6): `browser.newContext({ storageState:
  * AUTH_STATE_PATH })` per "user", not the default single `page` fixture.
  *
- * Gated on the unreleased agent-link build: skips (not fails) when
- * `/agent-link/mcp` isn't routed on conf-stg-lite — same skip pattern as
- * agent-link-e2e.spec.ts. Both edits are restored in `finally`, so the run is
- * non-destructive.
+ * Selecting this suite requires a working candidate MCP handshake. Both edits
+ * are restored in `finally`, so the run is non-destructive.
  *
  * Run: cd tests/e2e-tests && npx playwright test --project=agent-link agent-link-multi-page-crosstalk
  */
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import {
-  AGENT_LINK_STG_BASE,
   agentLinkMcp,
   clickConnectToAgent,
   enableAgentLinkOverrides,
-  isAgentLinkEndpointLive,
+  assertAgentLinkEndpointLive,
   openMacroPage,
   readPanelClass,
   readSessionToken,
@@ -185,10 +182,7 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
   }) => {
     test.setTimeout(150_000);
 
-    test.skip(
-      !(await isAgentLinkEndpointLive()),
-      `agent-link not routed on ${AGENT_LINK_STG_BASE} (unreleased build or shared-alias clobber)`,
-    );
+    await assertAgentLinkEndpointLive();
 
     const contextA = await browser.newContext({ storageState: AUTH_STATE_PATH });
     const contextB = await browser.newContext({ storageState: AUTH_STATE_PATH });

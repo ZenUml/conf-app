@@ -1,6 +1,6 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.ts to select the node. -->
-<div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel}">
+<div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel, 'generic--agent-link-workspace': showAgentLinkPanel}">
   <!-- The debug strip is a dev affordance for the inline macro. In the
        fullscreen modal it stacks above .viewer-frame, which is min-height:100vh,
        so the page ends up taller than the viewport and scrolls; it also eats the
@@ -16,11 +16,12 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--agent-link': showAgentLinkPanel}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
         <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved}">
+
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
@@ -387,13 +388,17 @@
             :activity-feed="agentLinkActivityFeed"
             :thinking="agentLinkThinking"
             :diagram-title="title"
+            :progress-stage="agentLinkProgressStage"
+            :client-name="agentLinkClientName"
             :expires-at="agentLinkExpiresAt"
             :last-activity-at="agentLinkLastActivityAt"
             :lock-expires-at="agentLinkLockExpiresAt"
             :at-cap="agentLinkAtCap"
+            :notice-reason="agentLinkNoticeReason"
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
             @reconnect="onAgentLinkReconnect"
+            @instruction-copied="onAgentLinkInstructionCopied"
           />
         </aside>
         </div>
@@ -796,7 +801,7 @@ export default {
     // variant once the client-side TTL watchdog fires, instead of staying on
     // whatever it last showed forever.
     showAgentLinkChip() {
-      return this.showAgentLinkPanel && ['connected', 'suspended', 'closed', 'expired'].includes(this.agentLinkState);
+      return this.showAgentLinkPanel && ['connected', 'suspended', 'recovery_exhausted', 'incompatible', 'closed', 'expired'].includes(this.agentLinkState);
     },
     agentLinkExpiresAt() {
       return this.agentLinkSession?.expiresAt.value ?? null;
@@ -815,6 +820,10 @@ export default {
     // hint once bumps no longer move the meter.
     agentLinkAtCap() {
       return this.agentLinkSession?.atCap.value ?? false;
+    },
+    // Recovery notices preserve the reason the user needs to reconnect.
+    agentLinkNoticeReason() {
+      return this.agentLinkSession?.noticeReason.value ?? null;
     },
     // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
     // gating as the other affordances, but NOT restricted to Fullscreen: the
@@ -835,6 +844,15 @@ export default {
     },
     agentLinkActivityFeed() {
       return this.agentLinkSession?.activityFeed.value ?? [];
+    },
+    // Display-only handshake presence drives ConnectPanel's
+    // waiting-state ladder. Both stay null/'' pre-handshake, which keeps the
+    // ladder hidden and the existing pulse + setup disclosure unchanged.
+    agentLinkProgressStage() {
+      return this.agentLinkSession?.progressStage.value ?? null;
+    },
+    agentLinkClientName() {
+      return this.agentLinkSession?.agentClientName.value ?? '';
     },
   },
   watch: {
@@ -1272,6 +1290,15 @@ export default {
     // absorbing 'closed' terminal state (a plain startConnect() would no-op).
     onAgentLinkReconnect() {
       this.agentLinkSession?.revokeAndRelink();
+    },
+    onAgentLinkInstructionCopied(instructionKind) {
+      trackAnalyticsEvent('agent_link_connection_instruction_copied', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: this.diagramType ?? 'none',
+        pairing_method: 'linking_code',
+        instruction_kind: instructionKind,
+      });
     },
     // Live Agent Link render fix: an agent's update_diagram op PERSISTS via
     // the Forge bridge (writeDiagram -> saveCustomContentV2), but that write
@@ -1890,6 +1917,40 @@ export default {
    .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
    back into a column. */
 .viewer-frame--fullscreen .viewer-body--with-agent-rail { flex-direction: row; }
+/* .viewer-frame--fullscreen .viewer-body (0,2,0) outranks the base mounting
+   seam below, so define the stable Agent Link workspace at this specificity. */
+.viewer-frame--fullscreen .viewer-body--with-agent-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 316px;
+}
+
+/* Agent Link is a viewport workspace, not a card sized by the diagram. Keep
+   the shell fixed while the left canvas absorbs intrinsic diagram dimensions.
+   This prevents a short sequence diagram from pulling the 316px rail inward,
+   and a large diagram from pushing the rail or the modal beyond the viewport. */
+.viewer-frame--agent-link {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  max-height: 100vh;
+  margin-left: 0;
+  margin-right: 0;
+}
+.viewer-frame--agent-link .viewer-canvas { overflow: hidden; }
+.viewer-frame--agent-link .viewer-canvas .screen-capture-content {
+  max-width: 100%;
+  max-height: 100%;
+  overflow: auto;
+}
+/* Sequence.vue normally clips its generated ZenUML canvas. Inside the fixed
+   workspace that would hide participants beyond the left pane instead of
+   letting the pane own the overflow. Expose the generated canvas here so the
+   screen-capture wrapper above becomes the single scroll container. */
+.generic--agent-link-workspace .viewer-canvas .screen-capture-content :deep(.zenuml) {
+  overflow: visible;
+}
+
 
 /* The Source panel is position:fixed in fullscreen (ViewSourcePanel.vue) —
    out of layout flow — so neither .viewer-frame--auto's fit-content+auto-
@@ -1911,7 +1972,7 @@ export default {
 /* ----- Live Agent Link mounting seam (flag-gated, see showAgentLinkPanel) --
    .viewer-body is a no-op wrapper (default block) when the rail is hidden —
    it changes nothing about layout/sizing for the flag-off / non-fullscreen
-   path. It only becomes a two-column row when the Fullscreen Connect rail
+   path. It becomes the two-column grid above when the Fullscreen Connect rail
    is actually showing. */
 .viewer-body--with-agent-rail {
   display: flex;

@@ -138,7 +138,7 @@ Each row lands as its own PR and gets its measurement added here.
 |---|---|---|
 | Full's E2E runs after Lite's by default (`[full-first]` / `FULL_DRAFT_LANE=now` for the parallel lane); Full/Diagramly 4 shards; byline-create tests independent; env-gated byline-activation spec not collected in CI | landed (#669); the first main run took the `now` lane by accident, see below | peak 21 jobs instead of 27; Lite tail ~3m30s → ~3m (regressed to 4m18s at 8 shards; fixed by 10 shards in the next PR) |
 | `main` reuses a green PR run's E2E when the merge tree is identical (`reuse-check` job); Lite 10 shards (the 8-way split after unpinning byline-create measured 4m06s on its tail shard, PR run 34658978233) | landed | Lite draft ~8m → ~4m on a hit |
-| `main` attaches production bundles to drafts; `release.yml` only deploys; Forge/Pages parallel on staging | after | release deploy gate ~3.5m → <2m |
+| `main` attaches production bundles to drafts (`build-prod` matrix at t=0, one shared version string per run); `release.yml` downloads and deploys them, building only when a draft has no asset; Forge/Pages parallel on staging | landed | release deploy gate ~3.5m → ~2.5m (build skipped; install, secrets, D1, publish and the Forge deploy remain) |
 | Failed E2E shard re-run once; weekly flake ranking | after | fewer red re-runs |
 | Tag taxonomy + path→tag map; deterministic PR test selection; AI pass logs only | last | PR E2E runs related specs only |
 | Release `@smoke` counts as PVT (release-app skill) | landed | one browser session fewer per release |

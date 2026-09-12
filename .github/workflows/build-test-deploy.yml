@@ -259,6 +259,82 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   # ---------------------------------------------------------------------------
+  # One version string for this run's drafts, and the production bundles that
+  # will ship under it (ADR-0007 §3). Every draft used to stamp its own
+  # `date` at creation, which is why tags of one build differed by a minute
+  # across variants; now they share this value. The bundles are built here,
+  # at t=0 under the deploys, with VITE_APP_VERSION already set to the tag —
+  # the only build-time input that differs from the staging build — and
+  # attached to the drafts, so release.yml deploys instead of rebuilding.
+  version:
+    name: "Version"
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: echo "version=$(date +'%Y.%m.%d%H%M')" >> "$GITHUB_OUTPUT"
+
+  build-prod:
+    name: "Build prod: ${{ matrix.variant }}"
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: [version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [lite, full, diagramly, asyncapi]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Init asyncapi-studio submodule
+        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
+      - name: Resolve asyncapi-studio submodule SHA
+        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        id: studio-sha
+        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cache asyncapi Studio build
+        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        uses: actions/cache@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Build the production bundle
+        run: pnpm build:${{ matrix.variant }}
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+          VITE_MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+          # Same string the draft job tags the release with.
+          VITE_APP_VERSION: v${{ needs.version.outputs.version }}-${{ matrix.variant }}
+      - name: Pack dist/
+        run: tar -czf dist-prod-${{ matrix.variant }}.tgz -C dist . && ls -la dist-prod-${{ matrix.variant }}.tgz
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dist-prod-${{ matrix.variant }}
+          path: dist-prod-${{ matrix.variant }}.tgz
+          retention-days: 3
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # Did a PR run already test THIS tree? (ADR-0007 §2)
   #
   # A `pull_request` run does not test the PR head; it tests refs/pull/N/merge,
@@ -676,12 +752,13 @@ jobs:
       && github.event_name != 'pull_request'
       && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
       && needs.build.result == 'success'
+      && needs.build-prod.result == 'success'
       && needs.staging-lite.result == 'success'
       && (
         (needs.staging-lite-e2e.result == 'success' && needs.staging-lite-fullscreen-e2e.result == 'success')
         || needs.reuse-check.outputs.reuse == 'true'
       )
-    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e, build, staging-lite, reuse-check]
+    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e, build, staging-lite, reuse-check, version, build-prod]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -696,9 +773,11 @@ jobs:
       - name: Export Properties
         id: properties
         shell: bash
-        run: |
-          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
-          echo "version=$VERSION" >> $GITHUB_ENV
+        run: echo "version=${{ needs.version.outputs.version }}" >> $GITHUB_ENV
+      - name: Download the production bundle built for this version
+        uses: actions/download-artifact@v7
+        with:
+          name: dist-prod-lite
 
       # Create new release draft - which is not publicly visible and requires manual acceptance
       - name: Create Release Draft
@@ -708,6 +787,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.version }}-lite
           name: v${{ env.version }}-lite
+          # The production bundle release.yml deploys (ADR-0007 §3).
+          artifacts: dist-prod-lite.tgz
+          artifactErrorsFailBuild: true
           # Pin the draft to the commit this build tested. Without `commit`,
           # target_commitish defaults to the `main` BRANCH and is resolved when
           # the draft is published — so a draft published after a later merge
@@ -731,8 +813,9 @@ jobs:
       && github.event_name != 'pull_request'
       && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
       && needs.build.result == 'success'
+      && needs.build-prod.result == 'success'
       && (needs.staging-full-e2e.result == 'success' || needs.staging-full-e2e-now.result == 'success')
-    needs: [staging-full-e2e, staging-full-e2e-now, build]
+    needs: [staging-full-e2e, staging-full-e2e-now, build, version, build-prod]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -746,9 +829,11 @@ jobs:
       - name: Export Properties
         id: properties
         shell: bash
-        run: |
-          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
-          echo "version=$VERSION" >> $GITHUB_ENV
+        run: echo "version=${{ needs.version.outputs.version }}" >> $GITHUB_ENV
+      - name: Download the production bundle built for this version
+        uses: actions/download-artifact@v7
+        with:
+          name: dist-prod-full
 
       - name: Create Release Draft
         id: createDraft
@@ -757,6 +842,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.version }}-full
           name: v${{ env.version }}-full
+          # The production bundle release.yml deploys (ADR-0007 §3).
+          artifacts: dist-prod-full.tgz
+          artifactErrorsFailBuild: true
           # See the Lite draft step: pins the draft to the tested commit.
           commit: ${{ github.sha }}
           body: 'This is a draft release for the Full version of the plugin.'
@@ -767,7 +855,7 @@ jobs:
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the default branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-diagramly-e2e, build]
+    needs: [staging-diagramly-e2e, build, version, build-prod]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -782,9 +870,11 @@ jobs:
       - name: Export Properties
         id: properties
         shell: bash
-        run: |
-          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
-          echo "version=$VERSION" >> $GITHUB_ENV
+        run: echo "version=${{ needs.version.outputs.version }}" >> $GITHUB_ENV
+      - name: Download the production bundle built for this version
+        uses: actions/download-artifact@v7
+        with:
+          name: dist-prod-diagramly
 
       # Create new release draft - which is not publicly visible and requires manual acceptance
       - name: Create Release Draft
@@ -794,6 +884,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.version }}-diagramly
           name: v${{ env.version }}-diagramly
+          # The production bundle release.yml deploys (ADR-0007 §3).
+          artifacts: dist-prod-diagramly.tgz
+          artifactErrorsFailBuild: true
           # See the Lite draft step: pins the draft to the tested commit.
           commit: ${{ github.sha }}
           body: 'This is a draft release for the Diagramly version of the plugin.'
@@ -807,7 +900,7 @@ jobs:
     # Until then the draft is a no-op artifact (intentional: keeps the
     # release cadence aligned across variants).
     if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-asyncapi-e2e, build]
+    needs: [staging-asyncapi-e2e, build, version, build-prod]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -821,9 +914,11 @@ jobs:
       - name: Export Properties
         id: properties
         shell: bash
-        run: |
-          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
-          echo "version=$VERSION" >> $GITHUB_ENV
+        run: echo "version=${{ needs.version.outputs.version }}" >> $GITHUB_ENV
+      - name: Download the production bundle built for this version
+        uses: actions/download-artifact@v7
+        with:
+          name: dist-prod-asyncapi
 
       - name: Create Release Draft
         id: createDraft
@@ -832,6 +927,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.version }}-asyncapi
           name: v${{ env.version }}-asyncapi
+          # The production bundle release.yml deploys (ADR-0007 §3).
+          artifacts: dist-prod-asyncapi.tgz
+          artifactErrorsFailBuild: true
           # See the Lite draft step: pins the draft to the tested commit.
           commit: ${{ github.sha }}
           body: 'This is a draft release for the AsyncAPI variant of the plugin.'

@@ -88,6 +88,26 @@ jobs:
           restore-keys: |
             studio-${{ steps.studio-sha.outputs.sha }}-
             studio-
+      # The main build attaches the production bundle (built with
+      # VITE_APP_VERSION = this tag) to every draft as dist-prod-<variant>.tgz
+      # — ADR-0007 §3. Download it so the action below deploys instead of
+      # rebuilding (~95s). A draft cut before that change has no asset; then
+      # the action builds as it always did, which is why this never fails.
+      - name: Download the prebuilt bundle from the release
+        id: prebuilt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          ASSET: dist-prod-${{ steps.properties.outputs.license }}.tgz
+        run: |
+          mkdir -p prebuilt
+          if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ASSET" --dir prebuilt && [ -s "prebuilt/$ASSET" ]; then
+            echo "path=prebuilt/$ASSET" >> "$GITHUB_OUTPUT"
+            echo "using prebuilt $ASSET from $TAG ($(du -h "prebuilt/$ASSET" | cut -f1))"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "::warning::$TAG carries no $ASSET — building from source instead"
+          fi
       - name: Build and publish to Cloudflare
         uses: ./.github/actions/wrangler-publish
         with:
@@ -97,6 +117,7 @@ jobs:
           license: ${{ steps.properties.outputs.license }}
           project: ${{ steps.properties.outputs.cf_project }}
           environment: prod
+          prebuilt-dist: ${{ steps.prebuilt.outputs.path }}
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           vite-app-version: ${{ github.event.release.tag_name }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}

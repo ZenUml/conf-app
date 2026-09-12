@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { decidePageBanner, handlePageBannerRoute } from './pageBanner'
-import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner'
+import { shouldShowPaywallBanner, deriveWarningBannerIdentity, readTargetingMarker } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
 
@@ -9,6 +9,7 @@ const IDENTITY = { clientDomain: 'example-tenant', spaceKey: 'ENG' }
 vi.mock('@/utils/paywall/warningBanner', () => ({
   shouldShowPaywallBanner: vi.fn(),
   deriveWarningBannerIdentity: vi.fn(),
+  readTargetingMarker: vi.fn(),
 }))
 vi.mock('@/utils/paywall/spaceAdminProbe', () => ({ isCurrentUserSpaceAdmin: vi.fn() }))
 vi.mock('@/utils/csat', () => ({ isCsatPendingFresh: vi.fn(), isCsatSuppressed: vi.fn() }))
@@ -23,6 +24,7 @@ vi.mock('@/model/globals', () => ({
 vi.mock('@/components/UpgradePrompt/PaywallWarningBanner.vue', () => ({ default: { name: 'PaywallBanner' } }))
 vi.mock('@/components/CSAT/CsatBanner.vue', () => ({ default: { name: 'CsatBanner' } }))
 vi.mock('@/components/Byline/UnplacedDiagramsBanner.vue', () => ({ default: { name: 'UnplacedBanner' } }))
+vi.mock('@/components/UpgradePrompt/TemplateOfferBanner.vue', () => ({ default: { name: 'TemplateOfferBanner' } }))
 
 // Capture the root props handed to createApp — that is how the audience reaches
 // the component, and a silent drop would be invisible in a render assertion.
@@ -41,6 +43,7 @@ const csat = vi.mocked(isCsatPendingFresh)
 const csatSuppressed = vi.mocked(isCsatSuppressed)
 const identity = vi.mocked(deriveWarningBannerIdentity)
 const isAdmin = vi.mocked(isCurrentUserSpaceAdmin)
+const targeting = vi.mocked(readTargetingMarker)
 const flag = vi.mocked((await import('@/utils/paywall/adminBannerFlag')).isAdminBannerEnabled)
 const unplacedMarker = await import('@/utils/byline/unplacedMarker')
 const unplaced = vi.mocked(unplacedMarker.isUnplacedBannerCandidate)
@@ -135,6 +138,19 @@ describe('decidePageBanner — central priority for page-banner slots', () => {
     expect(decidePageBanner()).toBe('none')
   })
 
+  it('offers the Lite space template before the unplaced fallback for an eligible admin', () => {
+    // This catches a regression where the offer is added after the fallback: a
+    // property-gated unplaced banner then stacks with the shared host.
+    vi.stubEnv('PRODUCT_TYPE', 'lite')
+    paywall.mockReturnValue(false)
+    csat.mockReturnValue(false)
+    isAdmin.mockReturnValue(true)
+    unplaced.mockReturnValue(true)
+    targeting.mockReturnValue({ macroCount: 60 } as any)
+
+    expect(decidePageBanner(1234)).toBe('template-offer')
+  })
+
   it('falls through to the unplaced-diagram notice when nothing else is eligible', () => {
     paywall.mockReturnValue(false)
     csat.mockReturnValue(false)
@@ -206,6 +222,14 @@ describe('handlePageBannerRoute — Phase 5b flag gating', () => {
   it('never consults the flag for CSAT', async () => {
     await expect(handlePageBannerRoute('csat')).resolves.toBe('csat')
     expect(flag).not.toHaveBeenCalled()
+  })
+
+  it('hands the cached qualifying count to the template-offer component', async () => {
+    identity.mockReturnValue(IDENTITY)
+    targeting.mockReturnValue({ macroCount: 60 } as any)
+
+    await expect(handlePageBannerRoute('template-offer')).resolves.toBe('template-offer')
+    expect(createdWith).toEqual({ macroCount: 60 })
   })
 
   it('does NOT resume down the list when the flag is off — the flag is the paywall banner\'s', async () => {

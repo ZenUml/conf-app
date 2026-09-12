@@ -3,6 +3,7 @@ import globals from '@/model/globals';
 import { isCsatPendingFresh } from '@/utils/csat';
 import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/byline/unplacedMarker';
 import { higherPriorityBannerPending } from '@/utils/banners/priority';
+import { deriveWarningBannerIdentity, readTargetingMarker } from '@/utils/paywall/warningBanner';
 
 /**
  * Single `confluence:pageBanner` host. Confluence creates exactly one banner
@@ -14,10 +15,10 @@ import { higherPriorityBannerPending } from '@/utils/banners/priority';
  *
  * Priority: the paywall warning (unpaid Lite space over the hard limit, seen by
  * a recent macro author or by a space admin of that space) outranks the CSAT
- * survey, which outranks the unplaced-diagram notice. `none` means close the
- * iframe with no work.
+ * survey, which outranks the Lite template offer, which outranks the
+ * unplaced-diagram notice. `none` means close the iframe with no work.
  *
- * Why `unplaced` sits LAST despite being the most page-specific of the three:
+ * Why `unplaced` sits LAST despite being the most page-specific of the four:
  * it is the only one that keeps. The paywall warning is about work the user is
  * being blocked from doing right now, and a CSAT trigger is fresh for hours —
  * miss its window and the answer is gone. A diagram saved on this page and
@@ -34,6 +35,7 @@ export type PageBannerChoice =
   | 'paywall'
   | 'paywall-admin'
   | 'csat'
+  | 'template-offer'
   /** From the shared host, off the localStorage fallback marker. */
   | 'unplaced'
   /**
@@ -76,10 +78,15 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
  * admin banner is gated off.
  */
 export async function handlePageBannerRoute(
-  choice: 'paywall' | 'paywall-admin' | 'csat' | 'unplaced' | 'unplaced-property',
+  choice: 'paywall' | 'paywall-admin' | 'csat' | 'template-offer' | 'unplaced' | 'unplaced-property',
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
   let effective = choice;
+  // Preserve the count that admitted this load. An editor iframe may refresh
+  // the cache while this route awaits context or its component chunk.
+  const templateOfferMacroCount = choice === 'template-offer'
+    ? readTargetingMarker(deriveWarningBannerIdentity())?.macroCount ?? 0
+    : 0;
 
   // Flag check happens here, not in decidePageBanner, so it costs nothing on the
   // ~99% of loads that show no banner. When off, the admin impression is dropped
@@ -117,6 +124,10 @@ export async function handlePageBannerRoute(
       props: { isSpaceAdmin: true },
     }),
     csat: async () => ({ component: (await import('@/components/CSAT/CsatBanner.vue')).default }),
+    'template-offer': async () => ({
+      component: (await import('@/components/UpgradePrompt/TemplateOfferBanner.vue')).default,
+      props: { macroCount: templateOfferMacroCount },
+    }),
     unplaced: async () => ({
       component: (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default,
       props: { source: 'marker' },

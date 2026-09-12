@@ -89,6 +89,47 @@ describe('ApWrapper2', () => {
     });
   });
 
+  describe('createCustomContentV2 parent selection (#523)', () => {
+    beforeEach(() => {
+      wrapper.currentSpace = { id: '789', key: 'TEST' };
+      vi.mocked(forgeRequest).mockResolvedValue({ id: '123', version: { number: 1 } });
+    });
+
+    it.each(['456', 456, '9007199254740993'])('uses a persisted page parent %s without a space parent', async (pageId) => {
+      (wrapper as any)._page.getPageId.mockResolvedValue(pageId);
+
+      await wrapper.createCustomContentV2(buildDiagram());
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      expect(payload.pageId).toBe(String(pageId));
+      expect(payload).not.toHaveProperty('spaceId');
+    });
+
+    it.each(['0', 0, '', null, undefined, '   ', '-1', 'undefined'])('falls back to the current space for unavailable page parent %s', async (pageId) => {
+      (wrapper as any)._page.getPageId.mockResolvedValue(pageId);
+
+      await wrapper.createCustomContentV2(buildDiagram());
+
+      expect(forgeRequest).toHaveBeenCalledTimes(1);
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      expect(payload.spaceId).toBe('789');
+      expect(payload).not.toHaveProperty('pageId');
+    });
+
+    it.each(['0', 0, '', null, undefined, '   '])('refuses an unavailable space parent %s without changing the draft or sending a request', async (spaceId) => {
+      (wrapper as any)._page.getPageId.mockResolvedValue('0');
+      wrapper.currentSpace = { id: spaceId, key: 'TEST' } as any;
+      const diagram = buildDiagram();
+      const before = structuredClone(diagram);
+
+      await expect(wrapper.createCustomContentV2(diagram))
+        .rejects.toMatchObject({ code: 'MISSING_CONTENT_PARENT' });
+
+      expect(forgeRequest).not.toHaveBeenCalled();
+      expect(diagram).toEqual(before);
+    });
+  });
+
   describe('updateCustomContentV2', () => {
     it('should succeed on first attempt and track update event', async () => {
       const content = buildContent(5);

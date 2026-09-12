@@ -38,7 +38,7 @@ export interface ToolProperty {
 }
 
 export interface ToolDescriptor {
-  name: ToolName;
+  name: ToolName | 'connect';
   description: string;
   inputSchema: {
     type: 'object';
@@ -146,6 +146,21 @@ function updateDiagramDescriptor(hint: string | undefined): ToolDescriptor {
 
 export const TOOLS: ToolDescriptor[] = [
   {
+    name: 'connect',
+    description:
+      'Pair this already-installed Agent Link MCP session with an open Confluence Macro using its short-lived one-time code.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          description: 'The one-time linking code shown by the open Confluence Macro.',
+        },
+      },
+      required: ['code'],
+    },
+  },
+  {
     name: 'read_page',
     description: "Read the bound Confluence page's title and text, for context.",
     inputSchema: { type: 'object', properties: {} },
@@ -230,7 +245,9 @@ export const TOOLS: ToolDescriptor[] = [
   },
 ];
 
-const TOOL_NAMES: ReadonlySet<string> = new Set(TOOLS.map((t) => t.name));
+// `connect` is handled by mcp.ts because it establishes the DispatchContext;
+// only Macro operations enter dispatchTool below.
+const TOOL_NAMES: ReadonlySet<string> = new Set(TOOLS.filter((t) => t.name !== 'connect').map((t) => t.name));
 
 /**
  * Returns the tool descriptors for an MCP `tools/list` response. When the

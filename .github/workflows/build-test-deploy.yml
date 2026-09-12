@@ -384,6 +384,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
+          # No install here — the selector has no dependencies — and the
+          # default `package-manager-cache: true` fails without pnpm on PATH.
+          package-manager-cache: false
       - name: Select specs from the PR's changed files
         id: select
         env:

@@ -1024,6 +1024,17 @@ export type AnalyticsEventName =
   // auto-open-on-empty-macro surface exists yet, so `trigger: 'auto_first_open'`
   // is reserved for when one is built.
   | "editor_starter_shown"
+  // Editor code-panel collapse (the left source pane of the text-DSL editor:
+  // sequence / mermaid / plantuml / markdown). The user hides the code to give
+  // the diagram preview the full width, and shows it again to edit. Fires once
+  // per user-initiated toggle from the header's Code button;
+  // `interaction_state` carries the state the panel moved INTO ('hidden' on
+  // collapse, 'shown' on expand), so collapse rate is a groupBy rather than a
+  // diff of two event names. The AI-chat panel's own code toggle keeps its
+  // existing `ai_chat_code_visibility_toggled` event — same underlying pane,
+  // but a different surface and a different question ("does AI chat need the
+  // code visible?"), so the two are not merged.
+  | "editor_code_panel_toggled"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A

@@ -228,6 +228,9 @@ export type AnalyticsProperties = {
   turn_index?: number;
   input_source?: "typed" | "suggestion" | "syntax_repair";
   retry_after_failure?: boolean;
+  // Shared by the AI-chat open/close + code-visibility toggles and by
+  // editor_code_panel_toggled (the editor's left source pane). Always the
+  // state the surface moved INTO, never the state it came from.
   interaction_state?: "opened" | "closed" | "shown" | "hidden";
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;

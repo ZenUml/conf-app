@@ -76,6 +76,40 @@ describe('Header', () => {
     expect(wrapper.emitted('toggle-ai-chat')).toHaveLength(1)
   })
 
+  it('offers the code-panel toggle and emits it, labelled by the pane state', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, {
+      props: { codePanelVisible: true },
+      global: { plugins: [store] },
+    })
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="code-panel-toggle"]')
+    expect(toggle.text()).toBe('Hide code')
+    expect(toggle.attributes('aria-label')).toBe('Hide code panel')
+    await toggle.trigger('click')
+    expect(wrapper.emitted('toggle-code-panel')).toHaveLength(1)
+
+    // Workspace owns the state, so the label only flips when it hands the new
+    // value back down.
+    await wrapper.setProps({ codePanelVisible: false })
+    expect(wrapper.get('[data-testid="code-panel-toggle"]').text()).toBe('Show code')
+    expect(wrapper.get('[data-testid="code-panel-toggle"]').attributes('aria-label')).toBe('Show code panel')
+  })
+
+  it('hides the code-panel toggle while AI Chat owns that control', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, {
+      props: { aiChatOpen: true, codePanelVisible: false },
+      global: { plugins: [store] },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false)
+  })
+
   it('tracks each AI Chat button visibility transition without counting re-renders', async () => {
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.isNew = false

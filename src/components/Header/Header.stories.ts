@@ -63,7 +63,7 @@ const meta: Meta<typeof Header> = {
     docs: {
       description: {
         component:
-          'Top toolbar of the diagram editor (Workspace.vue): the diagram title input on the left, the Sequence / Mermaid / PlantUML / Markdown tab strip, then AI Chat and Templates (when available), Help and Publish on the right. At narrow widths the tabs occupy a second row to preserve the title. Publish is disabled until a title is provided; hovering the disabled button shows "Add a diagram title to publish".',
+          'Top toolbar of the diagram editor (Workspace.vue): the diagram title input on the left, the Sequence / Mermaid / PlantUML / Markdown tab strip, then the Hide/Show code toggle, AI Chat and Templates (when available), Help and Publish on the right. At narrow widths the tabs occupy a second row to preserve the title. Publish is disabled until a title is provided; hovering the disabled button shows "Add a diagram title to publish".',
       },
     },
   },
@@ -208,6 +208,33 @@ export const AutoOpenStarterGallery: Story = {
         code: '',
         isNew: true,
         id: '',
+      })
+      return { template: '<story />' }
+    },
+  ],
+}
+
+// ---------------------------------------------------------------------------
+// Code panel collapsed
+// ---------------------------------------------------------------------------
+
+/**
+ * The left source pane is collapsed, so the diagram preview has the editor's
+ * full width. The toggle carries the inverse action ("Show code") and sits in
+ * its pressed state; below the 2xl breakpoint the label drops and the icon
+ * plus that pressed background carry it. `codePanelVisible` is owned by Workspace.vue — the header only
+ * renders the control.
+ */
+export const CodePanelCollapsed: Story = {
+  args: { codePanelVisible: false },
+  decorators: [
+    () => {
+      setupStore({
+        diagramType: DiagramType.Sequence,
+        title: 'Payment Flow',
+        code: 'Client->Server: pay()\nServer-->Client: receipt',
+        isNew: false,
+        id: 'cc-123456',
       })
       return { template: '<story />' }
     },

@@ -247,16 +247,19 @@ describe('AIRepair analytics', () => {
     wrapper.unmount()
   })
 
-  it('starts a fresh repair job when the user retries a timeout', async () => {
+  it.each([TIMEOUT_STATUS, FAILED_STATUS])('waits for the user before retrying a failed repair (%j)', async (failureStatus) => {
     vi.mocked(startFixDiagram as any)
       .mockResolvedValueOnce({ jobId: 'j-timeout' })
       .mockResolvedValueOnce({ jobId: 'j-retry' })
     vi.mocked(getFixDiagramStatus as any)
-      .mockResolvedValueOnce(TIMEOUT_STATUS)
+      .mockResolvedValueOnce(failureStatus)
       .mockResolvedValueOnce(COMPLETED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(startFixDiagram).toHaveBeenCalledTimes(1)
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(1)
     await wrapper.get('[data-testid="ai-repair-retry"]').trigger('click')
     await flushPromises()
     await nextTick()

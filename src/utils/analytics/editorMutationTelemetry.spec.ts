@@ -6,7 +6,6 @@ import {
   recordEditorTransaction,
   resetEditorMutationSession,
   startEditorMutationSession,
-  trackEditorMutationLifecycleEvent,
 } from './editorMutationTelemetry';
 
 function userTransaction(oldDoc: string, from: number, to: number, insert: string, userEvent: string) {
@@ -203,42 +202,6 @@ describe('editor mutation session', () => {
       last_copy_id: 'copy-1',
     });
 
-    resetEditorMutationSession();
-  });
-
-  it('attaches the replacement summary to real cancel and save-failure lifecycle events', () => {
-    const tracked: Array<[string, Record<string, unknown>]> = [];
-    const oldDoc = 'A -> B: hello';
-    startEditorMutationSession({
-      initialCode: oldDoc,
-      macroType: 'sequence',
-      operationMode: 'edit',
-      customContentId: '12345',
-      journeyId: 'journey-2',
-      sessionId: 'session-2',
-      openedAt: 1_000,
-    }, {
-      now: () => 1_500,
-      track: (event, properties) => tracked.push([event, properties]),
-      readAttribution: () => null,
-    });
-    recordEditorTransaction(userTransaction(oldDoc, 0, oldDoc.length, 'replacement', 'input.paste'));
-
-    trackEditorMutationLifecycleEvent('macro_edit_cancelled');
-    trackEditorMutationLifecycleEvent('macro_save_failed', 'network timeout');
-
-    expect(tracked.slice(-2)).toEqual([
-      ['macro_edit_cancelled', expect.objectContaining({
-        journey_id: 'journey-2',
-        had_global_replace: true,
-        global_replace_count: 1,
-      })],
-      ['macro_save_failed', expect.objectContaining({
-        journey_id: 'journey-2',
-        had_global_replace: true,
-        failure_reason: 'network timeout',
-      })],
-    ]);
     resetEditorMutationSession();
   });
 

@@ -66,6 +66,8 @@ const variant = computed<'live' | 'suspended' | 'dead' | 'expired' | null>(() =>
       return 'live'
     case 'suspended':
       return 'suspended'
+    case 'recovery_exhausted':
+    case 'incompatible':
     case 'closed':
       return 'dead'
     // #314: the client-side TTL watchdog moves a stale session here — the

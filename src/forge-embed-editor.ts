@@ -1,3 +1,4 @@
+import { trackPublishRequested } from '@/utils/analytics/publishIntent';
 import globals from "@/model/globals";
 import forgeGlobal, { getView, getContext as initForgeContext } from './model/globals/forgeGlobal';
 import MacroUtil from "@/model/MacroUtil";
@@ -26,6 +27,7 @@ import { toast } from '@/utils/toast';
 let originalConfigUuid: string | undefined;
 
 async function saveEmbedAndExit(selectedCustomContentId: string) {
+  trackPublishRequested({ macroType: 'embed', operationMode: store.state.diagram.id ? 'edit' : 'create', titlePresent: !!store.state.diagram.title?.trim() });
   // Start the publish-latency clock at the save-handler entry (≈ the Publish
   // click in DocumentList.vue). Stopped at the redirect below.
   markPublishClicked();

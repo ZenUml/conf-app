@@ -37,41 +37,66 @@ export interface CloseGuardHandler {
   (): void | Promise<void>;
 }
 
-export function setupCloseGuard(handler: CloseGuardHandler): () => void {
-  let active = true;
+const handlers = new Map<symbol, CloseGuardHandler>();
+let dispatcherRegistered = false;
 
-  const wrapped = async () => {
-    if (!active) return;
+async function dispatchClose(): Promise<void> {
+  const pending: Promise<void>[] = [];
+
+  // Start every listener synchronously. A close can destroy this iframe at any
+  // time, so awaiting one listener before starting the next can lose outcomes.
+  for (const handler of handlers.values()) {
     try {
-      await handler();
+      const result = handler();
+      if (result && typeof (result as Promise<void>).then === 'function') {
+        pending.push(Promise.resolve(result).catch((e) => {
+          console.error('[closeGuard] handler error:', e);
+        }));
+      }
     } catch (e) {
       console.error('[closeGuard] handler error:', e);
     }
-  };
+  }
 
-  // view.onClose returns a Promise<void>; the handler stays registered for
-  // the lifetime of the view. There is no documented unregister API, so we
-  // gate the handler with `active` to make this teardown safe to call
-  // multiple times and from beforeUnmount.
+  await Promise.all(pending);
+}
+
+function registerDispatcher(): void {
+  if (dispatcherRegistered) return;
+  dispatcherRegistered = true;
+
+  try {
+    if (typeof (view as any).onClose === 'function') {
+      void (view as any).onClose(dispatchClose).catch((e: unknown) => {
+        dispatcherRegistered = false;
+        trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
+        console.warn('[closeGuard] view.onClose rejected, ignoring:', e);
+      });
+    } else {
+      dispatcherRegistered = false;
+      console.warn('[closeGuard] view.onClose unavailable — relying on per-keystroke draft only.');
+    }
+  } catch (e) {
+    dispatcherRegistered = false;
+    console.warn('[closeGuard] view.onClose threw, ignoring:', e);
+  }
+}
+
+export function setupCloseGuard(handler: CloseGuardHandler): () => void {
+  const subscription = Symbol('closeGuard');
+  handlers.set(subscription, handler);
+
+  // Forge retains only one onClose callback per iframe. Keep that callback for
+  // the view lifetime and fan out locally so independent editor concerns such
+  // as draft saving and close-outcome telemetry cannot replace each other.
   //
   // Defensive guard: if @forge/bridge is older than 5.16 (or running in a
   // non-Forge sandbox), `view.onClose` may be undefined. We swallow the
   // failure so the caller's mount logic — including the per-keystroke draft
   // saver — still completes. The localStorage draft is the safety net.
-  try {
-    if (typeof (view as any).onClose === 'function') {
-      void (view as any).onClose(wrapped).catch((e: unknown) => {
-        trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
-        console.warn('[closeGuard] view.onClose rejected, ignoring:', e);
-      });
-    } else {
-      console.warn('[closeGuard] view.onClose unavailable — relying on per-keystroke draft only.');
-    }
-  } catch (e) {
-    console.warn('[closeGuard] view.onClose threw, ignoring:', e);
-  }
+  registerDispatcher();
 
   return () => {
-    active = false;
+    handlers.delete(subscription);
   };
 }

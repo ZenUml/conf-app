@@ -10,6 +10,8 @@ declare global {
 
     // Graph-related properties (forge-graph-editor, forge-graph-viewer)
     graphXml?: string;
+    // Installed by the graph title overlay; repeated calls confirm one pending publish.
+    ensureTitle: () => Promise<string>;
     graph: any;
     Graph?: any;
     GraphViewer?: any;

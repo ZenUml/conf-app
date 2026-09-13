@@ -16,6 +16,8 @@ export type AgentLinkClientState =
   | "connected"
   | "timeout"
   | "suspended"
+  | "recovery_exhausted"
+  | "incompatible"
   | "closed"
   | "already_linked"
   | "failed"
@@ -42,6 +44,8 @@ export type AgentLinkClientEvent =
   // client-side UI counterpart to the server's 'reattach').
   | "ws_drop"
   | "resumed"
+  | "reconnect_failed"
+  | "protocol_incompatible"
   // #314: fired by useAgentLinkSession.ts's client-side TTL watchdog the
   // instant `expiresAt` lapses — the relay independently 403s the agent
   // server-side ("Session token expired"), but nothing previously told this
@@ -101,6 +105,8 @@ const TRANSITIONS: Partial<
     connect_clicked: "waiting",
   },
   waiting: {
+    reconnect_failed: "recovery_exhausted",
+    protocol_incompatible: "incompatible",
     session_created: "waiting",
     agent_connected: "connected",
     timeout: "timeout",
@@ -110,6 +116,8 @@ const TRANSITIONS: Partial<
     expired: "expired",
   },
   timeout: {
+    reconnect_failed: "recovery_exhausted",
+    protocol_incompatible: "incompatible",
     agent_connected: "connected",
     disconnect: "closed",
     mint_rejected: "already_linked",
@@ -117,15 +125,21 @@ const TRANSITIONS: Partial<
     expired: "expired",
   },
   connected: {
+    reconnect_failed: "recovery_exhausted",
+    protocol_incompatible: "incompatible",
     disconnect: "closed",
     ws_drop: "suspended",
     expired: "expired",
   },
   suspended: {
+    reconnect_failed: "recovery_exhausted",
+    protocol_incompatible: "incompatible",
     resumed: "connected",
     disconnect: "closed",
     expired: "expired",
   },
+  recovery_exhausted: { disconnect: "closed", expired: "expired" },
+  incompatible: { disconnect: "closed" },
   closed: {},
   // #314: the only event 'expired' itself responds to is an explicit
   // disconnect (e.g. the rail's Reconnect/"Revoke & re-link" CTA closing this

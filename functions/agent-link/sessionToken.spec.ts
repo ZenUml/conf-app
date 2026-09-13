@@ -11,11 +11,11 @@ import {
 import type { SessionEvent, SessionState } from './sessionToken';
 
 describe('mintToken', () => {
-  it('matches the CL-XXXX-XXXX format using the Crockford base32 alphabet', () => {
+  it('carries at least 128 bits of entropy in a pasteable Crockford-base32 format', () => {
     const token = mintToken();
     // Crockford base32 alphabet: digits + A-Z minus the ambiguous I, L, O, U.
     const charClass = '[0-9ABCDEFGHJKMNPQRSTVWXYZ]';
-    expect(token).toMatch(new RegExp(`^CL-${charClass}{4}-${charClass}{4}$`));
+    expect(token).toMatch(new RegExp(`^CL-(?:${charClass}{5}-){4}${charClass}{6}$`));
   });
 
   it('is unique across 1000 calls', () => {

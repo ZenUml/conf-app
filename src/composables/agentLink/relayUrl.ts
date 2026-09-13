@@ -66,6 +66,13 @@ export function agentLinkWsUrl(
   return `${toWebSocketBaseUrl(backendBaseUrl)}/agent-link/channel?${params.toString()}`
 }
 
+// Hosted-MCP endpoint for the agent CLI. Derived from the same backend base
+// the macro itself talks to, so a staging macro prints a staging command
+// (the old hardcoded prod URL made staging untestable via the real UI path).
+export function agentLinkMcpUrl(backendBaseUrl: string = forgeGlobal.zenumlRemoteBaseUrl): string {
+  return `${backendBaseUrl}/agent-link/mcp`
+}
+
 // POST /agent-link/session (design §4.3 step 2) — mints the real, short-lived
 // single-use token that replaces useAgentLinkSession's `pending-<ts>`
 // placeholder. Plain `fetch`, not invokeRemote/requestConfluence: the backend
@@ -100,4 +107,28 @@ export async function mintAgentLinkSession(
     throw error
   }
   return response.json()
+}
+
+
+// A revocation must not hang forever. withConfirmedRevocation holds an
+// in-flight guard that blocks every later Disconnect/Reconnect until this
+// settles, so an unbounded DELETE on a stalled network would wedge the control
+// permanently with no error and no retry. Bound it and let the caller surface
+// Retry disconnect on the resulting rejection.
+export const REVOCATION_TIMEOUT_MS = 10000
+
+/** Confirm teardown over HTTP even when the old relay WebSocket is closed. */
+export async function revokeAgentLinkSession(
+  token: string,
+  ctx: AgentLinkBoundContext,
+  backendBaseUrl: string = forgeGlobal.zenumlRemoteBaseUrl,
+  timeoutMs: number = REVOCATION_TIMEOUT_MS
+): Promise<void> {
+  const response = await fetch(`${backendBaseUrl}/agent-link/session`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...ctx, token }),
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  if (!response.ok && response.status !== 404) throw new Error(`Agent Link revocation failed: HTTP ${response.status}`)
 }

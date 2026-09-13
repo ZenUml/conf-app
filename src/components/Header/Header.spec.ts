@@ -542,3 +542,21 @@ describe('Markdown tab discovery and draft restore', () => {
     wrapper.unmount();
   });
 });
+
+
+describe('Header publish intent', () => {
+  it('records an observed publish request and missing-title block before persistence', async () => {
+    store.state.diagram = { ...store.state.diagram, id: '', title: '', diagramType: DiagramType.Sequence } as any;
+    store.state.publishBlock = null;
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    await flushPromises();
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    const save = vi.fn();
+    EventBus.$on('save', save);
+    wrapper.vm.saveAndExit();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_publish_requested', expect.objectContaining({ operation_mode: 'create', title_present: false }));
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_publish_blocked', expect.objectContaining({ publish_block_reason: 'title_missing' }));
+    expect(save).not.toHaveBeenCalled();
+    EventBus.$off('save', save);
+  });
+});

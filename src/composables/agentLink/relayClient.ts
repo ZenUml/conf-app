@@ -30,6 +30,22 @@ import type { AgentLinkBridgeOps } from './bridgeOps'
 
 export type RelayEnvelopeKind = 'op' | 'result' | 'error' | 'ping' | 'disconnect' | 'status'
 
+// Mirrors functions/agent-link/forwarding.ts's StatusActivity (BumpActivity |
+// AgentPresenceActivity) — kept as a separate type here rather than imported
+// since src/ (Vue app) and functions/ (Workers backend) don't share a build
+// graph. Extended 2026-08-15 (connection-experience §3) to include the
+// presence-only variant: 'agent_presence' carries `stage`/`clientName`
+// instead of `detail`, and — unlike the other three — is NOT bump-worthy (it
+// must never be read as a reason to slide the TTL).
+export type RelayStatusActivity =
+  | { type: 'protocol_incompatible' }
+  | { type: 'agent_request' | 'guardrail_rejected' | 'turn'; detail?: string }
+  | {
+      type: 'agent_presence'
+      stage: 'initialized' | 'discovered' | 'verified' | 'working'
+      clientName?: string
+    }
+
 export interface RelayEnvelope {
   kind: RelayEnvelopeKind
   id?: string
@@ -40,7 +56,7 @@ export interface RelayEnvelope {
   // itself — the macro never sends these.
   expiresAt?: number
   hitCap?: boolean
-  activity?: { type: string; detail?: string }
+  activity?: RelayStatusActivity
 }
 
 export type RelayConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed'
@@ -63,11 +79,17 @@ export interface RelayEditOutcome {
 // see forwarding.ts's Envelope union), and 'close'/'reconnect_failed' for
 // surfacing connection loss.
 export type RelayStateEvent =
-  | { type: 'open' }
-  | { type: 'close'; code?: number; wasClean?: boolean }
-  | { type: 'error'; message?: string }
+  | { type: 'open'; reconnectAttempt?: number }
+  | {
+      type: 'close'
+      code?: number
+      wasClean?: boolean
+      reconnectAttempt?: number
+      unexpected?: boolean
+    }
+  | { type: 'error'; message?: string; reconnectAttempt?: number; unexpected?: boolean }
   | { type: 'reconnecting'; attempt: number }
-  | { type: 'reconnect_failed' }
+  | { type: 'reconnect_failed'; attempt?: number }
   // `receivedAt` is stamped the instant handleOp() begins (i.e. as close to
   // the wire as this module gets), so the composable can measure perceived
   // latency — op received → "AI thinking" shown — against a transport-owned
@@ -83,7 +105,7 @@ export type RelayStateEvent =
       type: 'status'
       expiresAt?: number
       hitCap?: boolean
-      activity?: { type: string; detail?: string }
+      activity?: RelayStatusActivity
     }
 
 // Mirrors useAgentLinkSession.ts's AgentLinkClock injection pattern so the
@@ -323,7 +345,7 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
   function scheduleReconnect(): void {
     if (closedByCaller) return
     if (reconnectAttempt >= maxReconnectAttempts) {
-      emit({ type: 'reconnect_failed' })
+      emit({ type: 'reconnect_failed', attempt: reconnectAttempt })
       return
     }
     reconnectAttempt += 1
@@ -338,20 +360,36 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
     ws = socket
 
     socket.onopen = () => {
+      const successfulReconnectAttempt = reconnectAttempt
       reconnectAttempt = 0
       state = 'open'
-      emit({ type: 'open' })
+      emit(
+        successfulReconnectAttempt > 0
+          ? { type: 'open', reconnectAttempt: successfulReconnectAttempt }
+          : { type: 'open' }
+      )
     }
     socket.onmessage = (evt: MessageEvent) => {
       const raw = typeof evt.data === 'string' ? evt.data : String(evt.data)
       handleMessage(raw)
     }
     socket.onerror = (evt: any) => {
-      emit({ type: 'error', message: evt?.message })
+      emit({
+        type: 'error',
+        message: evt?.message,
+        reconnectAttempt,
+        unexpected: !closedByCaller,
+      })
     }
     socket.onclose = (evt: any) => {
       state = 'closed'
-      emit({ type: 'close', code: evt?.code, wasClean: evt?.wasClean })
+      emit({
+        type: 'close',
+        code: evt?.code,
+        wasClean: evt?.wasClean,
+        reconnectAttempt,
+        unexpected: !closedByCaller,
+      })
       if (!closedByCaller) scheduleReconnect()
     }
   }

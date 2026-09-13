@@ -1,3 +1,4 @@
+import { trackPublishRequested } from '@/utils/analytics/publishIntent';
 import SwaggerEditorBundle from 'swagger-editor'
 import "swagger-editor/dist/swagger-editor.css";
 import "./assets/swagger-editor.css";
@@ -119,6 +120,11 @@ function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
 }
 
 async function saveOpenApiAndExit() {
+  trackPublishRequested({
+    macroType: 'openapi',
+    operationMode: window.diagram?.id ? 'edit' : 'create',
+    titlePresent: !!window.diagram?.title?.trim(),
+  });
   // Start the publish-latency clock at the save-handler entry (≈ the Publish
   // click in react/Header.tsx). Stopped at the redirect below.
   markPublishClicked();
@@ -216,7 +222,8 @@ async function saveOpenApiAndExit() {
     // Redirect starts now (view.submit / view.close below). Stop the clock.
     trackPublishCompleted({
       macro_type: 'openapi',
-      operation_mode: inserting ? 'create' : 'edit',
+      // Modal creates run outside native insertion; keep the pre-save mode.
+      operation_mode: sourceId ? 'edit' : 'create',
       content_id: String(id),
       custom_content_id: String(id),
     });

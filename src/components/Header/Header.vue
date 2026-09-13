@@ -58,6 +58,7 @@
 </template>
 
 <script>
+import { trackPublishRequested, trackPublishBlocked } from '@/utils/analytics/publishIntent';
 import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
@@ -176,11 +177,22 @@ export default {
     },
     saveAndExit: function () {
       return () => {
-        if (!this.$store.state.diagram.title) {
+        if (this.isSaving) return; // guard against double-fire
+        const intent = {
+          macroType: this.diagramType,
+          operationMode: this.$store.state.diagram.id ? 'edit' : 'create',
+          titlePresent: !!this.$store.state.diagram.title?.trim(),
+        };
+        trackPublishRequested(intent);
+        if (!intent.titlePresent) {
+          trackPublishBlocked('title_missing', intent);
           EventBus.$emit("flash-title-error");
           return;
         }
-        if (this.isSaving) return; // guard against double-fire
+        if (this.$store.state.publishBlock) {
+          trackPublishBlocked('writeback_unavailable', intent);
+          return;
+        }
         this.startSaving();
         EventBus.$emit("save");
       };

@@ -14,7 +14,9 @@ import { resolve } from 'node:path';
 describe('Connect cleanup: window.AP removed from former resize call sites', () => {
   const targets = [
     'src/forgeIndex.ts',
-    'src/components/Viewer/ViewResizer.vue',
+    // Was ViewResizer.vue, which carried the second AP.resize() call site;
+    // DiagramTransformViewport replaced it and inherits the invariant.
+    'src/components/Viewer/DiagramTransformViewport.vue',
   ];
 
   for (const rel of targets) {

@@ -26,11 +26,21 @@ export function isFullscreenViewport(): boolean {
 /**
  * Whether an ungated wheel on this surface has somewhere to go.
  *
- * Only the page viewer does: its iframe is sized to the diagram, so the wheel
- * falls through to the Confluence page and scrolls it, which is what the reader
- * wanted. Fullscreen and the editor preview both set `overflow: hidden` on the
- * viewport, so a wheel without the zoom modifier there does nothing at all —
- * which is the one place a hint is unambiguously worth showing.
+ * Only the page viewer does: its Forge iframe is sized to the diagram, so
+ * nothing inside the frame can absorb the wheel and it chains out to the
+ * Confluence page and scrolls it — which is what the reader wanted. Fullscreen
+ * and the editor preview are fixed-height hosts with no page behind the diagram
+ * to take it, so a wheel without the zoom modifier there does nothing at all,
+ * and that is the one place a hint is worth showing.
+ *
+ * Note the discriminator is the host, NOT `overflow: hidden` on the viewport:
+ * `.diagram-viewport--interactive` sets that on all three surfaces (it is off
+ * only for the Export PNG host), so it separates nothing.
+ *
+ * Not yet confirmed in a browser for the editor preview — if the Confluence
+ * editor behind it turns out to scroll, the wheel there did do something and the
+ * hint on that surface is noise. Verify before treating the editor half of this
+ * rule as settled.
  */
 export function wheelFallsThroughToPage(isDisplayMode: boolean): boolean {
   return viewportSurface(isDisplayMode) === 'viewer';

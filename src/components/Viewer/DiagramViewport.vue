@@ -234,9 +234,9 @@ export default {
       const step = createWheelStepper((direction) => {
         if (direction > 0) this.panZoom?.zoomIn();
         else this.panZoom?.zoomOut();
-      // One event per gesture, not per step: the gate stays shut for the rest
-      // of a continuous scroll, so a wheel zoom costs the same one event as a
-      // button click and the two can be compared.
+        // One event per gesture, not per step: the gate stays shut for the
+        // rest of a continuous scroll, so a wheel zoom costs the same one event
+        // as a button click and the two can be compared.
         if (!startsGesture()) return;
         trackViewportControl({
           macroType: this.macroType,
@@ -245,7 +245,7 @@ export default {
           isDisplayMode: this.isDisplayMode,
         });
       });
-      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show());
+      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show() ?? false);
       this.wheelHandler = (event) => {
         if (!this.panZoom) return;
         if (!isZoomIntent(event)) {

@@ -45,18 +45,25 @@ export default {
     this.timer = null;
   },
   methods: {
+    /**
+     * Raise the hint. Returns whether this was a new telling — false means the
+     * hint was already on screen and this only extended it. The reader saw one
+     * message either way, so the caller's "told them twice already" budget
+     * should not be charged for it.
+     */
     show() {
       clearTimeout(this.timer);
       this.timer = setTimeout(() => { this.visible = false; }, VISIBLE_MS);
       // Re-showing while already visible only extends it; the reader is looking
       // at the same message, so it is one telling, not two.
-      if (this.visible) return;
+      if (this.visible) return false;
       this.visible = true;
       trackAnalyticsEvent('viewport_zoom_hint_shown', {
         feature_area: 'macro',
         surface: viewportSurface(this.$store.getters.isDisplayMode),
         macro_type: this.macroType,
       });
+      return true;
     },
   },
 };

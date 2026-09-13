@@ -274,9 +274,9 @@ export default {
         const graph = this.graphViewer?.graph;
         if (direction > 0) graph.zoomIn();
         else graph.zoomOut();
-      // One event per gesture, not per step: the gate stays shut for the rest
-      // of a continuous scroll, so a wheel zoom costs the same one event as a
-      // button click and the two can be compared.
+        // One event per gesture, not per step: the gate stays shut for the
+        // rest of a continuous scroll, so a wheel zoom costs the same one event
+        // as a button click and the two can be compared.
         if (!startsGesture()) return;
         trackViewportControl({
           macroType: 'graph',
@@ -285,7 +285,7 @@ export default {
           isDisplayMode: this.$store.getters.isDisplayMode,
         });
       });
-      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show());
+      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show() ?? false);
       this.wheelZoomHandler = (event) => {
         if (!this.graphViewer?.graph) return;
         if (!isZoomIntent(event)) {

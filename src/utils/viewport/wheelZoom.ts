@@ -59,24 +59,39 @@ export function createWheelStepper(
  * for long enough to mean it — the cue for the "use Ctrl/Cmd + scroll" hint.
  *
  * A threshold rather than the first tick: one notch is someone passing through,
- * a sustained push is someone working at a diagram that is not responding. And a
- * hard cap rather than a cooldown, because after two tellings the reader either
- * learned it or is doing something else, and an overlay that keeps reappearing
- * over a diagram is worse than one that never did.
+ * a sustained push is someone working at a diagram that is not responding. That
+ * only holds if the total decays — otherwise three unrelated notches minutes
+ * apart add up to the same number as one push and the hint fires at someone who
+ * was only passing through, three times over. So the count resets once the wheel
+ * has been quiet, exactly like `createGestureGate`, and `thresholdPx` means
+ * "within one continuous push" rather than "ever".
+ *
+ * A hard cap rather than a cooldown for the repeat: after two tellings the reader
+ * either learned it or is doing something else, and an overlay that keeps
+ * reappearing over a diagram is worse than one that never did. The cap counts
+ * tellings, not triggers — `onHint` returns false when it merely extended a hint
+ * already on screen, which the reader experiences as one telling, so it does not
+ * spend one of the two.
+ *
+ * `now` is injectable because the thing worth testing here is the clock.
  */
 export function createZoomHintTrigger(
-  onHint: () => void,
-  { thresholdPx = 120, maxHints = 2 } = {},
+  onHint: () => boolean | void,
+  { thresholdPx = 120, maxHints = 2, quietMs = 500, now = () => Date.now() } = {},
 ): (event: WheelEvent, pageHeight: number) => void {
   let accumulated = 0;
+  let lastWheel = -Infinity;
   let hints = 0;
   return (event, pageHeight) => {
     if (hints >= maxHints) return;
+    const at = now();
+    if (at - lastWheel > quietMs) accumulated = 0;
+    lastWheel = at;
     accumulated += Math.abs(wheelDeltaPixels(event, pageHeight));
     if (accumulated < thresholdPx) return;
     accumulated = 0;
+    if (onHint() === false) return;
     hints += 1;
-    onHint();
   };
 }
 

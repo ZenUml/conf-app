@@ -194,9 +194,9 @@ export default {
       const startsGesture = createGestureGate();
       const step = createWheelStepper((direction) => {
         this.zoomBy(direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
-      // One event per gesture, not per step: the gate stays shut for the rest
-      // of a continuous scroll, so a wheel zoom costs the same one event as a
-      // button click and the two can be compared.
+        // One event per gesture, not per step: the gate stays shut for the
+        // rest of a continuous scroll, so a wheel zoom costs the same one event
+        // as a button click and the two can be compared.
         if (!startsGesture()) return;
         trackViewportControl({
           macroType: this.macroType,
@@ -205,7 +205,7 @@ export default {
           isDisplayMode: this.$store.getters.isDisplayMode,
         });
       });
-      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show());
+      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show() ?? false);
       this.wheelHandler = (event) => {
         // A plain wheel stays the page's to scroll; only Ctrl/Cmd (or a trackpad
         // pinch, which arrives as one) means zoom. See isZoomIntent.

@@ -70,9 +70,11 @@ describe('ViewportZoomHint', () => {
   it('extends rather than re-counts while it is already up', async () => {
     const wrapper = mountHint();
 
-    wrapper.vm.show();
+    // The return value is the caller's cue: true is a new telling, false only
+    // extended the one on screen, so its "told them twice" budget is untouched.
+    expect(wrapper.vm.show()).toBe(true);
     vi.advanceTimersByTime(2000);
-    wrapper.vm.show();
+    expect(wrapper.vm.show()).toBe(false);
     await wrapper.vm.$nextTick();
 
     // The reader is looking at the same message: one telling, not two.

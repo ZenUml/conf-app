@@ -35,6 +35,26 @@ describe('createZoomHintTrigger', () => {
     expect(onHint).toHaveBeenCalledTimes(1);
   });
 
+  it('forgets a notch the reader has moved on from', () => {
+    const onHint = vi.fn();
+    let clock = 0;
+    const trigger = createZoomHintTrigger(onHint, { now: () => clock });
+
+    // Half a push, then the reader goes and does something else for a while.
+    trigger(wheel({ deltaY: -100 }), 800);
+    clock += 5000;
+    trigger(wheel({ deltaY: -100 }), 800);
+
+    // Two passes-through are not a sustained push, however long apart: without
+    // the decay they would add up to the threshold and hint at someone who was
+    // never asking.
+    expect(onHint).not.toHaveBeenCalled();
+
+    // A push that really is continuous still gets there.
+    trigger(wheel({ deltaY: -100 }), 800);
+    expect(onHint).toHaveBeenCalledTimes(1);
+  });
+
   it('stops telling a reader who has been told twice', () => {
     const onHint = vi.fn();
     const trigger = createZoomHintTrigger(onHint);
@@ -44,6 +64,17 @@ describe('createZoomHintTrigger', () => {
     // After two tellings they either learned it or are doing something else;
     // an overlay that keeps reappearing is worse than one that never did.
     expect(onHint).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not spend a telling on a hint that only extended one already up', () => {
+    // false means "the overlay was already on screen": the reader saw one
+    // message, so the budget of two should be untouched.
+    const onHint = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const trigger = createZoomHintTrigger(onHint);
+
+    for (let i = 0; i < 20; i += 1) trigger(wheel({ deltaY: -200 }), 800);
+
+    expect(onHint).toHaveBeenCalledTimes(3);
   });
 });
 

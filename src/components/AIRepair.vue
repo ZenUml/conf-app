@@ -487,8 +487,8 @@ let repairStartedAt = 0;
 let pollCount = 0;
 const wasApplied = ref(false);
 const POLL_INTERVAL_MS = 1000;
-// The backend allows 100 seconds so a large full-document repair can finish all
-// validation attempts. Keep enough client-side headroom to receive the terminal
+// The backend allows 100 seconds for a large full-document repair attempt.
+// Keep enough client-side headroom to receive the terminal
 // Job update instead of replacing it with a polling timeout.
 const REPAIR_TIMEOUT_BUDGET_MS = 120_000;
 const macroType = computed(

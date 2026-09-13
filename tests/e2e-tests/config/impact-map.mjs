@@ -44,17 +44,17 @@ export const RUN_EVERYTHING = [
 /** glob → tags. A file matching several globs gets the union. */
 export const IMPACT = [
   // ── diagram types ──────────────────────────────────────────────────────
-  { glob: 'src/components/Sequence.vue', tags: ['@sequence', '@viewer', '@editor'] },
+  { glob: 'src/components/Sequence.vue', tags: ['@sequence', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/sequence/**', tags: ['@sequence', '@viewer', '@editor'] },
-  { glob: 'src/components/Mermaid.vue', tags: ['@mermaid', '@viewer', '@editor'] },
+  { glob: 'src/components/Mermaid.vue', tags: ['@mermaid', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/mermaid/**', tags: ['@mermaid', '@viewer', '@editor'] },
-  { glob: 'src/components/PlantUml.vue', tags: ['@plantuml', '@viewer', '@editor'] },
+  { glob: 'src/components/PlantUml.vue', tags: ['@plantuml', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/plantuml/**', tags: ['@plantuml', '@viewer', '@editor'] },
   { glob: 'src/components/Markdown.vue', tags: ['@viewer'] },
   { glob: 'src/utils/markdown/**', tags: ['@viewer'] },
   { glob: 'src/components/DrawIoExtension/**', tags: ['@graph', '@viewer', '@editor'] },
   { glob: 'src/forge-graph-*.ts', tags: ['@graph', '@viewer', '@editor'] },
-  { glob: 'src/components/Viewer/ForgeGraphViewer*.vue', tags: ['@graph', '@viewer'] },
+  { glob: 'src/components/Viewer/ForgeGraphViewer*.vue', tags: ['@graph', '@viewer', '@viewport'] },
   { glob: 'src/utils/graph/**', tags: ['@graph', '@viewer', '@editor'] },
   { glob: 'src/utils/drawio/**', tags: ['@graph', '@viewer', '@editor'] },
   { glob: 'public/drawio/**', tags: ['@graph', '@viewer', '@editor'] },
@@ -76,6 +76,12 @@ export const IMPACT = [
   { glob: 'src/components/DocumentList/**', tags: ['@embed', '@editor'] },
   { glob: 'src/utils/embedDeeplink.ts', tags: ['@embed', '@deeplink'] },
   // ── surfaces ───────────────────────────────────────────────────────────
+  // The pan/zoom viewport, shared by every diagram type. `src/utils/viewport/**`
+  // was unmapped when it was added, which cost a full unselective run.
+  { glob: 'src/components/Viewer/DiagramViewport*.vue', tags: ['@viewer', '@viewport'] },
+  { glob: 'src/components/Viewer/DiagramTransformViewport.vue', tags: ['@viewer', '@viewport'] },
+  { glob: 'src/components/Viewer/ViewportZoomHint.vue', tags: ['@viewer', '@viewport'] },
+  { glob: 'src/utils/viewport/**', tags: ['@viewer', '@editor', '@viewport'] },
   { glob: 'src/components/Viewer/**', tags: ['@viewer'] },
   { glob: 'src/utils/{viewerBootstrap,viewerLoadOutcome,loadFailedRetry}.ts', tags: ['@viewer'] },
   { glob: 'src/utils/renderGate/**', tags: ['@viewer'] },

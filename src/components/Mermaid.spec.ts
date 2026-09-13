@@ -288,11 +288,12 @@ describe('Mermaid fullscreen viewport controls', () => {
     expect(panZoomInstanceMock.zoomOut).toHaveBeenCalledTimes(zoomOutCalls + 1);
     expect(panZoomInstanceMock.zoomIn).toHaveBeenCalledTimes(zoomInCalls + 1);
     expect(panZoomInstanceMock.reset).toHaveBeenCalled();
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_viewport_control_used', {
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', {
       feature_area: 'macro',
       surface: 'fullscreen',
       macro_type: 'mermaid',
       viewport_action: 'zoom_in',
+      viewport_input: 'toolbar',
     });
   });
 
@@ -309,8 +310,8 @@ describe('Mermaid fullscreen viewport controls', () => {
       expect(svgPanZoomMock).toHaveBeenCalled();
     });
     expect(wrapper.find('[aria-label="Zoom in"]').exists()).toBe(true);
-    expect(wrapper.get('.mermaid-viewport').classes()).toContain('mermaid-viewport--interactive');
-    expect(wrapper.get('.mermaid-viewport').classes()).not.toContain('mermaid-viewport--fullscreen');
+    expect(wrapper.get('.diagram-viewport').classes()).toContain('diagram-viewport--interactive');
+    expect(wrapper.get('.diagram-viewport').classes()).not.toContain('diagram-viewport--fullscreen');
   });
 
   it('preserves the natural Mermaid height for the inline pan/zoom viewport', async () => {
@@ -334,11 +335,11 @@ describe('Mermaid fullscreen viewport controls', () => {
     const wrapper = mount(Mermaid, { global: { plugins: [store] } });
 
     await vi.waitFor(() => expect(svgPanZoomMock).toHaveBeenCalled());
-    expect(wrapper.get('.mermaid-viewport').attributes('style')).toContain('height: 200px');
+    expect(wrapper.get('.diagram-viewport').attributes('style')).toContain('height: 200px');
 
     clientWidthSpy.mockReturnValue(300);
-    wrapper.vm.syncInlineViewportHeight();
-    expect(wrapper.get('.mermaid-viewport').attributes('style')).toContain('height: 150px');
+    wrapper.vm.$refs.viewport.syncInlineHeight();
+    expect(wrapper.get('.diagram-viewport').attributes('style')).toContain('height: 150px');
 
     rectSpy.mockRestore();
     computedStyleSpy.mockRestore();

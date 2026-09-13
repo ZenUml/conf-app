@@ -542,11 +542,40 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
-  // Mermaid viewport controls in fullscreen, normal viewer, and editor preview.
-  // Fires for the two discrete toolbar
-  // actions only; wheel/pan/pinch are deliberately not emitted because their
-  // high-frequency callbacks would create noisy, expensive event streams.
-  | "mermaid_viewport_control_used"
+  // Diagram viewport (pan/zoom) controls in fullscreen, normal viewer, and editor
+  // preview. `macro_type` says which renderer was being zoomed, `viewport_input`
+  // which control did it.
+  //
+  // Still one event per act of intent, never per callback: a toolbar click is
+  // one, and a whole Ctrl/Cmd + scroll gesture is one (createGestureGate closes
+  // for the rest of the gesture), so the two are directly comparable and neither
+  // produces the high-frequency stream that kept wheel out of this event
+  // originally. Pan and pinch remain unemitted -- they have no discrete moment
+  // to attach to.
+  //
+  // Two changes worth knowing when reading a report across them:
+  //   2026-09-11 renamed from `mermaid_viewport_control_used`, which shipped
+  //     with the mermaid-only viewport and carries ~2 days of data. The property
+  //     shape was unchanged, so a report spanning it unions both names.
+  //   2026-09-13 wheel gestures started firing it, alongside the new
+  //     `viewport_input` property. Volume steps up on that date for reasons that
+  //     are not a behaviour change; filter `viewport_input == "toolbar"` for a
+  //     series comparable with what came before (older events carry no
+  //     `viewport_input` at all, so treat absent as toolbar).
+  | "viewport_control_used"
+  // Shown when a reader wheels over a diagram WITHOUT the Ctrl/Cmd modifier on a
+  // surface where a plain wheel has nowhere to go (fullscreen and the editor
+  // preview both set `overflow: hidden`), so the gesture did nothing and the
+  // overlay tells them the modifier. Not fired on the page viewer, where a plain
+  // wheel correctly scrolls the Confluence page.
+  //
+  // This is the discovery half of the wheel gate: `viewport_control_used`
+  // counts people who already know how to zoom, and this counts people who
+  // tried and could not. A hint count that stays high per user is the signal
+  // that the affordance is not landing. Fires at most twice per viewer instance
+  // (createZoomHintTrigger) — someone who has been told twice and keeps
+  // wheeling is scrolling, not searching for the zoom.
+  | "viewport_zoom_hint_shown"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).

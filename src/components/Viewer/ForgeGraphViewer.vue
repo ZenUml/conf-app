@@ -250,6 +250,16 @@ export default {
       // Panning starts only past mxGraph's drag tolerance, so a click still lands
       // on the cell underneath and GraphViewer's link handling is unaffected.
       graph.panningHandler.ignoreCell = true;
+      // The two flags above are ones GraphViewer already sets, and on their own
+      // they never pan here: GraphViewer's setup (viewer-static.min.js) replaces
+      // isForcePanningEvent with a gate that forces a left-button pan only while
+      // the container is overflow:auto, and this container stays overflow:hidden
+      // so zoom clips instead of growing the page. Instrumented on the sandbox
+      // graph-view preset: mousedown/move/up all reached the graph, the handler's
+      // start() never fired, and view.translate stayed put. Restoring the stock
+      // "any non-popup press" rule moves translate by exactly the drag delta.
+      // @ts-ignore - mxEvent is a DrawIO global, like mxUtils above
+      graph.panningHandler.isForcePanningEvent = (me) => !mxEvent.isPopupTrigger(me.getEvent());
     },
     /**
      * Ctrl/Cmd + wheel to zoom, the same rule the other three viewports follow —

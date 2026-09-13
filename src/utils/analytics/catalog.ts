@@ -543,14 +543,25 @@ export type AnalyticsEventName =
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
   // Diagram viewport (pan/zoom) controls in fullscreen, normal viewer, and editor
-  // preview. `macro_type` says which renderer the toolbar was driving. Fires for
-  // the two discrete toolbar actions only; wheel/pan/pinch are deliberately not
-  // emitted because their high-frequency callbacks would create noisy, expensive
-  // event streams.
+  // preview. `macro_type` says which renderer was being zoomed, `viewport_input`
+  // which control did it.
   //
-  // Renamed 2026-09-11 from `mermaid_viewport_control_used`, which shipped with
-  // the mermaid-only viewport and carries ~2 days of data. The property shape is
-  // unchanged, so a report spanning the rename has to union both names.
+  // Still one event per act of intent, never per callback: a toolbar click is
+  // one, and a whole Ctrl/Cmd + scroll gesture is one (createGestureGate closes
+  // for the rest of the gesture), so the two are directly comparable and neither
+  // produces the high-frequency stream that kept wheel out of this event
+  // originally. Pan and pinch remain unemitted -- they have no discrete moment
+  // to attach to.
+  //
+  // Two changes worth knowing when reading a report across them:
+  //   2026-09-11 renamed from `mermaid_viewport_control_used`, which shipped
+  //     with the mermaid-only viewport and carries ~2 days of data. The property
+  //     shape was unchanged, so a report spanning it unions both names.
+  //   2026-09-13 wheel gestures started firing it, alongside the new
+  //     `viewport_input` property. Volume steps up on that date for reasons that
+  //     are not a behaviour change; filter `viewport_input == "toolbar"` for a
+  //     series comparable with what came before (older events carry no
+  //     `viewport_input` at all, so treat absent as toolbar).
   | "viewport_control_used"
   // Shown when a reader wheels over a diagram WITHOUT the Ctrl/Cmd modifier on a
   // surface where a plain wheel has nowhere to go (fullscreen and the editor

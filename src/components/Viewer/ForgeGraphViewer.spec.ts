@@ -176,6 +176,7 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
         surface: 'viewer',
         macro_type: 'graph',
         viewport_action: 'zoom_in',
+        viewport_input: 'toolbar',
       });
     });
 

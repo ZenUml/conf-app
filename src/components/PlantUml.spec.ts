@@ -112,6 +112,7 @@ describe('PlantUml pan/zoom viewport', () => {
       surface: 'viewer',
       macro_type: 'plantuml',
       viewport_action: 'zoom_in',
+      viewport_input: 'toolbar',
     });
   });
 

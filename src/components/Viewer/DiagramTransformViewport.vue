@@ -37,7 +37,8 @@
  * tolerance and never swallows a plain click.
  */
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
-import { createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
 import ViewportZoomHint from '@/components/Viewer/ViewportZoomHint.vue';
 
@@ -190,8 +191,19 @@ export default {
     bindGestures() {
       const viewport = this.$refs.viewport;
       if (!viewport || this.wheelHandler) return;
+      const startsGesture = createGestureGate();
       const step = createWheelStepper((direction) => {
         this.zoomBy(direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+      // One event per gesture, not per step: the gate stays shut for the rest
+      // of a continuous scroll, so a wheel zoom costs the same one event as a
+      // button click and the two can be compared.
+        if (!startsGesture()) return;
+        trackViewportControl({
+          macroType: this.macroType,
+          viewportAction: direction > 0 ? 'zoom_in' : 'zoom_out',
+          viewportInput: 'wheel',
+          isDisplayMode: this.$store.getters.isDisplayMode,
+        });
       });
       const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show());
       this.wheelHandler = (event) => {

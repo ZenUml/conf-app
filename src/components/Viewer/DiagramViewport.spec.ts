@@ -2,6 +2,7 @@ import { mount, enableAutoUnmount } from '@vue/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 import svgPanZoom from 'svg-pan-zoom';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -151,6 +152,27 @@ describe('DiagramViewport wheel zoom', () => {
 
     const [, options] = vi.mocked(svgPanZoom).mock.calls[0];
     expect(options).toMatchObject({ mouseWheelZoomEnabled: false });
+  });
+
+  it('reports one event for a wheel gesture, not one per step', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+    const viewport = wrapper.get('.diagram-viewport').element;
+
+    // A trackpad emits a stream; this is six zoom steps in one continuous push.
+    for (let i = 0; i < 6; i += 1) wheel(viewport, { deltaY: -100, ctrlKey: true });
+
+    expect(panZoom.zoomIn).toHaveBeenCalledTimes(6);
+    const zooms = vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([name]) => name === 'viewport_control_used');
+    // One act of intent, costing the same one event as a button click.
+    expect(zooms).toHaveLength(1);
+    expect(zooms[0][1]).toMatchObject({
+      macro_type: 'plantuml',
+      viewport_action: 'zoom_in',
+      viewport_input: 'wheel',
+      surface: 'viewer',
+    });
   });
 
   it('zooms on Ctrl/Cmd + wheel', async () => {

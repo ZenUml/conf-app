@@ -293,6 +293,7 @@ describe('Mermaid fullscreen viewport controls', () => {
       surface: 'fullscreen',
       macro_type: 'mermaid',
       viewport_action: 'zoom_in',
+      viewport_input: 'toolbar',
     });
   });
 

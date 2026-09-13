@@ -19,8 +19,7 @@
  * the surface — only the thing being zoomed differs, so the parent handles the
  * emitted action and this stays presentational.
  */
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import { viewportSurface } from '@/utils/viewport/surface';
+import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
 
 /**
  * The wheel gesture, spelled for a tooltip. Both platforms in one string
@@ -49,19 +48,14 @@ export default {
   data() {
     return { WHEEL_SHORTCUT };
   },
-  computed: {
-    surface() {
-      return viewportSurface(this.$store.getters.isDisplayMode);
-    },
-  },
   methods: {
     emitAction(viewportAction) {
       this.$emit(viewportAction === 'zoom_in' ? 'zoom-in' : 'zoom-out');
-      trackAnalyticsEvent('viewport_control_used', {
-        feature_area: 'macro',
-        surface: this.surface,
-        macro_type: this.macroType,
-        viewport_action: viewportAction,
+      trackViewportControl({
+        macroType: this.macroType,
+        viewportAction,
+        viewportInput: 'toolbar',
+        isDisplayMode: this.$store.getters.isDisplayMode,
       });
     },
   },

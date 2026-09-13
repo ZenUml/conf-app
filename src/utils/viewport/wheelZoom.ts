@@ -79,3 +79,27 @@ export function createZoomHintTrigger(
     onHint();
   };
 }
+
+/**
+ * Collapses a wheel gesture to its first step, so it can be reported like a
+ * button click instead of a stream.
+ *
+ * A Ctrl/Cmd + scroll is one act of intent that arrives as a dozen callbacks.
+ * Reporting each would flood the event and make a wheel zoom look a dozen times
+ * more common than a click; reporting the first and staying shut until the wheel
+ * goes quiet makes the two comparable. The quiet window restarts on every step,
+ * so one long push is one gesture however far it travels.
+ *
+ * `now` is injectable because the thing worth testing here is the clock.
+ */
+export function createGestureGate(
+  { quietMs = 500, now = () => Date.now() } = {},
+): () => boolean {
+  let lastStep = -Infinity;
+  return () => {
+    const at = now();
+    const isNewGesture = at - lastStep > quietMs;
+    lastStep = at;
+    return isNewGesture;
+  };
+}

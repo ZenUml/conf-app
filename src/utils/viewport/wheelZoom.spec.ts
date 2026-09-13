@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { createGestureGate, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
 
 const wheel = (init: WheelEventInit) => new WheelEvent('wheel', init);
 
@@ -44,5 +44,48 @@ describe('createZoomHintTrigger', () => {
     // After two tellings they either learned it or are doing something else;
     // an overlay that keeps reappearing is worse than one that never did.
     expect(onHint).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('createGestureGate', () => {
+  /** A hand-cranked clock: what this gate does is entirely about time. */
+  function clock(start = 1_000) {
+    let t = start;
+    return { now: () => t, tick: (ms: number) => { t += ms; } };
+  }
+
+  it('opens on the first step of a gesture and shuts for the rest', () => {
+    const c = clock();
+    const startsGesture = createGestureGate({ now: c.now });
+
+    expect(startsGesture()).toBe(true);
+    // The dozen callbacks of one continuous scroll are one act of intent.
+    for (let i = 0; i < 12; i += 1) {
+      c.tick(30);
+      expect(startsGesture()).toBe(false);
+    }
+  });
+
+  it('keeps one long push as one gesture, however far it travels', () => {
+    const c = clock();
+    const startsGesture = createGestureGate({ now: c.now });
+
+    startsGesture();
+    // Each step restarts the quiet window, so steady scrolling never re-opens.
+    for (let i = 0; i < 40; i += 1) {
+      c.tick(400);
+      expect(startsGesture()).toBe(false);
+    }
+  });
+
+  it('opens again once the wheel has gone quiet', () => {
+    const c = clock();
+    const startsGesture = createGestureGate({ now: c.now });
+
+    startsGesture();
+    c.tick(600);
+
+    // A second deliberate scroll is a second zoom, and should count as one.
+    expect(startsGesture()).toBe(true);
   });
 });

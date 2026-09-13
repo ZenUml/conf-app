@@ -38,7 +38,8 @@ import svgPanZoom from 'svg-pan-zoom';
 import Hammer from 'hammerjs';
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
 import { hasSvgLayout } from '@/utils/mermaid/viewportLayout';
-import { createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
 import ViewportZoomHint from '@/components/Viewer/ViewportZoomHint.vue';
 
@@ -229,9 +230,20 @@ export default {
     bindWheelZoom() {
       const viewport = this.$refs.viewport;
       if (!viewport || !this.isInteractive || this.wheelHandler) return;
+      const startsGesture = createGestureGate();
       const step = createWheelStepper((direction) => {
         if (direction > 0) this.panZoom?.zoomIn();
         else this.panZoom?.zoomOut();
+      // One event per gesture, not per step: the gate stays shut for the rest
+      // of a continuous scroll, so a wheel zoom costs the same one event as a
+      // button click and the two can be compared.
+        if (!startsGesture()) return;
+        trackViewportControl({
+          macroType: this.macroType,
+          viewportAction: direction > 0 ? 'zoom_in' : 'zoom_out',
+          viewportInput: 'wheel',
+          isDisplayMode: this.isDisplayMode,
+        });
       });
       const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show());
       this.wheelHandler = (event) => {

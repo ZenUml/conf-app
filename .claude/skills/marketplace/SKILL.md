@@ -115,6 +115,8 @@ Unit check (no network, no credentials): `python3 .claude/skills/marketplace/scr
 
 `sync` stores each row's **raw JSON**, so with `--local` the `export()` layer hands every command the exact same dicts — `whois`/`client`/`revenue`/`overdue --local` all just work, ~17× faster (0.2s vs 3s). Use it for **batch** lookups (N domains) and **cross-source joins** (cloudId is the key to Mixpanel `macro_viewed` and D1 usage), NOT to shave time off a single live lookup.
 
+A refresh writes a separate database and replaces the current snapshot only after every export and metadata commit succeeds. A failed refresh preserves the previous snapshot; report its original age and the failed attempt separately.
+
 **Freshness is the catch:** cloudId↔domain identity is stable, but **billing (transactions, lifetime $, tier, status) is volatile** — a snapshot goes stale as renewals/cancellations land. `--local` prints the snapshot age on stderr and warns past 24h. For a "who is paying **right now**" answer, `sync` first (or just run live). The `.db` is gitignored (regenerable + client-sensitive).
 
 ## Reading the output — what the fields mean

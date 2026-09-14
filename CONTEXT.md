@@ -24,6 +24,24 @@ _Avoid_: engine, kind.
 **Variant**:
 A build flavour of the add-on: **lite** (free, paywalled), **full** (paid), **diagramly** (Diagramly-branded). All three are pure Forge.
 
+**Over-limit space**:
+A Confluence space on a **lite** tenant holding more than 100 macros (strictly `> 100`). Only over-limit, unpaid spaces on a non-exempt tenant can show the [[Paywall banner]]. There is no 85–99 "warning band" for the banner; the 85 threshold survives only as an inline editor hint.
+_Avoid_: saturated space, paywalled space (the paywall no longer blocks anything — see [[Paywall banner]]).
+
+**Paywall banner**:
+The non-blocking Confluence page banner shown on pages of an [[Over-limit space]]. Since 2026-09 it is the only in-app paywall surface: editing is never blocked. Audience is decided per browser from localStorage: a [[Recent author]] always qualifies; a [[Space admin]] qualifies only while the Lite Forge flag `paywall-admin-banner-enabled` is on. Dismissing it snoozes it for 7 days per tenant+space. Impressions taper per browser+tenant+space (decided 2026-09-07): 1st immediately, 2nd and 3rd at least 24 h apart, 4th onwards at least 7 days apart — about 7 impressions per person per month at most. The taper ships before the admin audience is switched on.
+_Avoid_: warning banner, upgrade modal (the modal is retired).
+
+**Recent author**:
+A user who created or edited a macro in a given space within the last 30 days, as recorded in that browser's localStorage. The original [[Paywall banner]] audience; in the 30 days to 2026-09-07 it excluded ~93% of the people viewing over-limit spaces.
+
+**Space admin**:
+A Confluence *space* administrator of the current space, resolved by a 30-day-throttled REST probe. Can buy the per-space Enterprise Bundle alone; is **not** a site admin and cannot buy the Marketplace Full plan.
+_Avoid_: admin (ambiguous with site/org admin).
+
+**Paywall exemption**:
+A tenant listed as `true` in the `PAYWALL_EXEMPTIONS` KV map (or the `"*"` wildcard). Exempt tenants see no paywall surface at all, including the admin-audience [[Paywall banner]] — the exemption is checked before any audience rule.
+_Avoid_: CSS / CUSTOMER_SUCCESS_SERVICE (now only the macro-count snapshot list, not the gate).
 **Surface**:
 Where a piece of UI is mounted inside Confluence — the closed union in `src/utils/analytics/catalog.ts` (`Surface`). UI-bearing values: `viewer`, `editor`, `modal`, `page_banner`, `dashboard`, `route`, `byline`, `byline_modal`, `fullscreen`. Non-UI values (`forge_trigger`, `scheduled_job`, `support_automation`) exist only to label backend events. Surface is the organising axis for the Storybook sidebar, so one word names the same thing in Mixpanel, in `CONTEXT.md`, and in the component tree. The sidebar groups are *derived* from the union rather than equal to it: `editor` is subdivided into the two independent editor shells (`Workspace.vue`, `DrawIoExtension.vue`), and the `route` catch-all is split into the real pages behind it. Enforced by `src/components/storyTitles.spec.ts`.
 _Avoid_: "screen", "page", "context" — and do not organise UI by component type (atom/molecule/layout), which cuts across this axis.

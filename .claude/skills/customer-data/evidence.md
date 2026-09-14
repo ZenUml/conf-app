@@ -44,3 +44,16 @@ Fact, inference and proposed action must be distinguishable. Query skills output
 Use existing Marketplace exports/snapshots, Forge install CLI, Mixpanel query runtime, configured read-only D1 routes and Gmail/JSM connectors/browser sessions. Do not create another credential store or infer public availability of customer data. The local CRM is a source of classification semantics and known coverage limits; simulated UI actions never establish production changes.
 
 Do not claim all sources checked when one is unavailable. Present partial useful findings and state the specific missing source, rather than turning access failures into empty results.
+
+## Structured cache and refresh policy
+
+Reuse source caches before exporting again: Marketplace SQLite, Forge JSON snapshots, and private query results. The active manifest is recorded in `private/operations/customer-evidence-cache.json`. Keep a private run manifest with source/query key, site/product scope, requested window and timezone, `queried_at`, source snapshot timestamp, read status, payload path, refresh policy and last refresh failure. Reusing a payload must retain its original timestamp.
+
+- **Site/product identity:** reuse verified mappings; invalidate on a conflicting identifier, site migration or product-registry change. Do not repeatedly look up unchanged IDs.
+- **Contact role/company context:** reuse the evidence and source date; recheck when a new referral, conflicting address or role-dependent action makes it material. A cached technical contact never becomes a verified admin.
+- **Licenses/payments:** a successful snapshot within 24 hours is a screening default; refresh the relevant subscription before payment/access/renewal claims or actions when the cached observation is insufficient. A trial deadline can trigger a refresh, not automatic outreach.
+- **Completed usage windows:** reuse the exact query/window/product/identity definition. Allow for late ingestion before treating recent windows as immutable; do not re-query an unchanged older window merely to regenerate a summary.
+- **Feedback/messages:** preserve original source IDs and text, query additions/updates since the last successful check where supported, and keep thread state separate from old message content. Re-read replies, drafts and scheduled messages immediately before the corresponding communication action.
+- **Refresh failures:** record the failed attempt separately, retain the last successful payload and timestamp, and label it stale where material. Never publish a partial refresh or treat a missing completion marker as successful-empty.
+
+These defaults guide an authorised run; they do not create a background refresh job or widen contact permission.

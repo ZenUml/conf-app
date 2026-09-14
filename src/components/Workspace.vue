@@ -4,7 +4,9 @@
       <div class="flex-shrink-0">
         <Header
           :ai-chat-open="showAIChat"
+          :code-panel-visible="showCodeEditor"
           @toggle-ai-chat="toggleAIChat"
+          @toggle-code-panel="toggleCodePanel"
         />
       </div>
       <div class="workspace flex-grow split" style="overflow: hidden; position: relative;">
@@ -88,6 +90,10 @@
         syntaxRepairRequestId: 0,
         aiChatOpenedAt: 0,
         splitInstance: null as ReturnType<typeof Split> | null,
+        // Last pane split the user actually had, so collapsing the code panel
+        // (or opening AI chat, which also tears the split down) and coming back
+        // restores their width instead of snapping to the 35/65 default.
+        splitSizes: [35, 65] as number[],
       }
     },
     computed: {
@@ -162,6 +168,18 @@
         }
         this.destroySplit()
       },
+      // The header's Code button. Same pane as AI chat's "Hide code" toggle,
+      // but its own event: this one is about giving the preview the full width
+      // while authoring, not about what AI chat needs on screen.
+      toggleCodePanel() {
+        this.toggleCodeEditor()
+        trackAnalyticsEvent('editor_code_panel_toggled', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: this.diagramType || 'none',
+          interaction_state: this.showCodeEditor ? 'shown' : 'hidden',
+        })
+      },
       applyAIChatCode(code: string) {
         const action = getStoreUpdateAction(this.diagramType)
         if (!action) return
@@ -186,10 +204,18 @@
         this.$nextTick(() => {
           if (!document.querySelector('#workspace-left') || !document.querySelector('#workspace-right')) return
           this.destroySplit()
-          this.splitInstance = Split(['#workspace-left', '#workspace-right'], { sizes: [35, 65] })
+          this.splitInstance = Split(['#workspace-left', '#workspace-right'], { sizes: this.splitSizes })
         })
       },
       destroySplit() {
+        if (this.splitInstance) {
+          // getSizes() is the only place the dragged widths live — split.js
+          // strips the inline styles on destroy(), so read them first.
+          const sizes = this.splitInstance.getSizes?.()
+          if (Array.isArray(sizes) && sizes.length === 2 && sizes.every(size => Number.isFinite(size) && size > 0)) {
+            this.splitSizes = sizes
+          }
+        }
         this.splitInstance?.destroy()
         this.splitInstance = null
       },

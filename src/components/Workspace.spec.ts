@@ -10,6 +10,19 @@ vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
 }));
 
+// Workspace only calls Split() when forgeIndex has set window.split, which no
+// test below does except the split-sizes one — so this mock is inert for the
+// rest of the file.
+const splitCalls: Array<{ sizes: number[] }> = [];
+const splitDestroy = vi.fn();
+let splitSizesFromDrag = [35, 65];
+vi.mock("split.js", () => ({
+  default: (_elements: string[], options: { sizes: number[] }) => {
+    splitCalls.push({ sizes: options.sizes });
+    return { getSizes: () => splitSizesFromDrag, destroy: splitDestroy };
+  },
+}));
+
 const ISSUE_373_REPRO = `@startuml
 autonumber
 actor Customer
@@ -233,5 +246,111 @@ describe("Workspace AI Chat integration", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('[data-testid="ai-chat-panel-stub"]').exists()).toBe(false);
+  });
+});
+
+// The left source pane is where the user types sequence / mermaid / plantuml
+// source; collapsing it hands the diagram preview the whole width. The state
+// and the split.js instance live in Workspace, the control lives in Header, so
+// this is the only place the two halves meet.
+describe("Workspace code-panel collapse", () => {
+  let wrapper;
+
+  const HeaderStub = defineComponent({
+    name: "HeaderStub",
+    props: { aiChatOpen: Boolean, codePanelVisible: Boolean },
+    emits: ["toggle-code-panel", "toggle-ai-chat"],
+    template: `
+      <header>
+        <span data-testid="header-code-panel-visible">{{ String(codePanelVisible) }}</span>
+        <button data-testid="header-toggle-code-panel" @click="$emit('toggle-code-panel')" />
+      </header>
+    `,
+  });
+
+  function mountWorkspace() {
+    return mount(Workspace, {
+      // initializeSplit() resolves its panes with document.querySelector, so
+      // the tree has to be in the document for split.js to be wired at all.
+      attachTo: document.body,
+      global: {
+        plugins: [store],
+        stubs: {
+          Header: HeaderStub,
+          Editor: { template: '<div data-testid="editor-stub" />' },
+          DiagramPortal: true,
+          SyntaxErrorBox: true,
+          ForeignDialectHint: true,
+          AIChatPanel: true,
+        },
+      },
+    });
+  }
+
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    splitCalls.length = 0;
+    splitDestroy.mockClear();
+    splitSizesFromDrag = [35, 65];
+    delete (window as any).split;
+    store.commit("updateDiagramType", DiagramType.Sequence);
+    store.commit("updateCode2", "A->B.method()");
+    wrapper = mountWorkspace();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = null;
+    delete (window as any).split;
+  });
+
+  it("collapses and restores the pane, reporting the state it moved into", async () => {
+    expect(wrapper.get('[data-testid="header-code-panel-visible"]').text()).toBe("true");
+    expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+
+    await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
+
+    expect(wrapper.get("#workspace-left").attributes("style")).toContain("display: none");
+    expect(wrapper.get(".workspace-main").classes()).toContain("code-editor-hidden");
+    expect(wrapper.get('[data-testid="header-code-panel-visible"]').text()).toBe("false");
+    // The editor itself stays mounted, so CodeMirror keeps its undo history
+    // and the unsaved buffer survives a collapse.
+    expect(wrapper.find('[data-testid="editor-stub"]').exists()).toBe(true);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("editor_code_panel_toggled", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: DiagramType.Sequence,
+      interaction_state: "hidden",
+    });
+
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
+
+    expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+    expect(wrapper.get(".workspace-main").classes()).not.toContain("code-editor-hidden");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("editor_code_panel_toggled", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: DiagramType.Sequence,
+      interaction_state: "shown",
+    });
+  });
+
+  it("restores the width the user dragged to, not the 35/65 default", async () => {
+    wrapper.unmount();
+    (window as any).split = true;
+    wrapper = mountWorkspace();
+    await wrapper.vm.$nextTick();
+    expect(splitCalls).toEqual([{ sizes: [35, 65] }]);
+
+    // The user drags the gutter, then collapses the pane.
+    splitSizesFromDrag = [20, 80];
+    await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
+    expect(splitDestroy).toHaveBeenCalled();
+
+    await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(splitCalls.at(-1)).toEqual({ sizes: [20, 80] });
   });
 });

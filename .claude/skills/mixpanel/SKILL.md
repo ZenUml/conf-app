@@ -1,6 +1,6 @@
 ---
 name: mixpanel
-description: Use when you need a Mixpanel fact or query path for the conf-app / ZenUML Confluence add-on — which project, which event name (and the 2026-04 rename), the internal-domain exclude filter, whether isForge/isLite/product_type is usable, MCP-vs-JQL, or how to authenticate. Canonical reference for Mixpanel project 3373228. Triggers on mixpanel, macro_viewed, view_macro, create_macro, edit_macro, JQL, is_internal_client_domain, product_type, isForge, "which mixpanel project", "how to query mixpanel". For churn/retention/growth/D1 analysis use the conf-app skill instead.
+description: Use when you need a Mixpanel fact or query path for the conf-app / ZenUML Confluence add-on — which project, which event name (and the 2026-04 rename), the internal-domain exclude filter, whether isForge/isLite/product_type is usable, MCP-vs-JQL, or how to authenticate. Canonical reference for Mixpanel project 3373228. Triggers on mixpanel, session replay, macro_viewed, view_macro, create_macro, edit_macro, JQL, is_internal_client_domain, product_type, isForge, "which mixpanel project", "how to query mixpanel". For churn/retention/growth/D1 analysis use the conf-app skill instead.
 ---
 
 # Mixpanel (conf-app)

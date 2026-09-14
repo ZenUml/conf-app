@@ -3,7 +3,6 @@ import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isCo
 import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
 import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
 import { decompress } from "@/utils/compress";
-import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -17,7 +16,7 @@ installRestoreDraftBanner();
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import EventBus from "./EventBus";
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
@@ -242,6 +241,12 @@ async function initializeMacro() {
   // autoConvert link, so the editor must resolve it the same way or it opens
   // a new blank diagram instead of the linked one.
   const customContentId = resolveEffectiveCustomContentId(context);
+  // The journey started before this resolved, so tell it what kind of session
+  // it is now that we know. Drives macro_authoring_ended's operation_mode.
+  setEditJourneyMeta({
+    macroType: 'graph',
+    operationMode: customContentId ? 'edit' : 'create',
+  });
   originalCustomContentId = customContentId;
   recoveryPageId = context.extension?.content?.id;
 
@@ -425,7 +430,12 @@ async function initializeMacro() {
     mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphEditor, contentProps);
   }
 
-  const isNew = await MacroUtil.isCreateNew();
+  // conf-app: MacroUtil.isCreateNew() reads only extension.config.customContentId
+  // (ApWrapper2.getMacroData), so an existing macro opened from the modal
+  // surface reported as a CREATE. Measured 2026-08-06..09-04: 58 graph and 37
+  // openapi "creates" ended in macro_save_succeeded, versus 1 for the DSL
+  // editor, which has always used the fuller resolver below.
+  const isNew = !customContentId;
   markEditorAuthoringStarted();
   trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',

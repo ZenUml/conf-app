@@ -275,6 +275,11 @@ jobs:
   # at t=0 under the deploys, with VITE_APP_VERSION already set to the tag —
   # the only build-time input that differs from the staging build — and
   # attached to the drafts, so release.yml deploys instead of rebuilding.
+  #
+  # The timestamp is AEST (UTC+10), the team's local time. Australia/Brisbane
+  # is fixed +10:00 with no daylight saving, so a tag never silently becomes
+  # AEDT in summer. Before 2026-09-15 the runner default (UTC) was used, so
+  # older tags such as v2026.09.142327 read 10 hours earlier than local time.
   version:
     name: "Version"
     if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -284,7 +289,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
     steps:
       - id: v
-        run: echo "version=$(date +'%Y.%m.%d%H%M')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(TZ=Australia/Brisbane date +'%Y.%m.%d%H%M')" >> "$GITHUB_OUTPUT"
 
   build-prod:
     name: "Build prod: ${{ matrix.variant }}"

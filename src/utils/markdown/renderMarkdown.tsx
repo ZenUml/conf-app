@@ -2,7 +2,7 @@ import React, { Children, isValidElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { loadMermaid } from '@/utils/mermaid/loadMermaid';
+import { renderMermaid } from '@/utils/mermaid/renderMermaid';
 
 let nextDocumentId = 0;
 
@@ -49,8 +49,7 @@ export async function renderMarkdown(source: string) {
   for (const block of blocks) {
     const container = template.content.querySelector(`[data-markdown-diagram="${block.id}"]`)!;
     try {
-      const mermaid = await loadMermaid();
-      const { svg } = await mermaid.render(block.id, block.source);
+      const { svg } = await renderMermaid(block.id, block.source);
       container.innerHTML = svg;
     } catch (error) {
       failedBlocks++;
@@ -65,8 +64,6 @@ export async function renderMarkdown(source: string) {
       const code = document.createElement('pre');
       code.textContent = block.source;
       container.append(message, reason, code);
-      // Mermaid can leave its error SVG in the document after rejecting.
-      document.getElementById(`d${block.id}`)?.remove();
     }
   }
   return { html: template.innerHTML, mermaidBlocks: blocks.length, failedBlocks };

@@ -57,9 +57,19 @@ vi.mock('@/utils/renderGate/documentLayout', () => ({
 const viewerLoadFailedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
 
-describe('Mermaid render-failure telemetry', () => {
-  enableAutoUnmount(afterEach);
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
+enableAutoUnmount(afterEach);
+
+describe('Mermaid render-failure telemetry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isDisplayModeMock.mockReturnValue(true);
@@ -90,6 +100,7 @@ describe('Mermaid render-failure telemetry', () => {
       failure_stage: 'render_crash',
       failure_reason: 'mermaid boom',
     });
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(false);
   });
 
   it('does not fire viewer_load_failed on a clean render', async () => {
@@ -184,6 +195,111 @@ describe('Mermaid render retry when the document has no layout', () => {
     // A syntax error is deterministic; retrying it only doubles the work.
     expect(render).toHaveBeenCalledTimes(1);
     expect(awaitLayoutMock).not.toHaveBeenCalled();
+  });
+
+  it('retries the transient detached-SVG failure even when the body has layout', async () => {
+    hasLayoutMock.mockReturnValue(true);
+    const render = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('svg element not in render tree'))
+      .mockResolvedValueOnce({ svg: '<svg>recovered</svg>' });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => {
+      expect(wrapper.vm.svg).toBe('<svg>recovered</svg>');
+    });
+
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('retries a transient non-invertible SVG matrix failure once', async () => {
+    const render = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('The matrix is not invertible.'))
+      .mockResolvedValueOnce({ svg: '<svg>recovered</svg>' });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(wrapper.vm.svg).toBe('<svg>recovered</svg>'));
+
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+});
+
+describe('Mermaid overlapping renders', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isDisplayModeMock.mockReturnValue(true);
+    hasLayoutMock.mockReturnValue(true);
+    awaitLayoutMock.mockResolvedValue(true);
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: '',
+    };
+  });
+
+  it('does not let an older failed render remove the newer render temporary SVG', async () => {
+    const first = deferred<{ svg: string }>();
+    const second = deferred<{ svg: string }>();
+    const render = vi.fn((id: string) => {
+      const temp = document.createElement('div');
+      temp.id = `d${id}`;
+      document.body.append(temp);
+      return render.mock.calls.length === 1 ? first.promise : second.promise;
+    });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    const firstResult = wrapper.vm.render('flowchart LR\nA-->B');
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+    const secondResult = wrapper.vm.render('flowchart LR\nA-->C');
+    await Promise.resolve();
+    // The newer request stays queued until the older request, including its
+    // ID-scoped cleanup, has completely finished.
+    expect(render).toHaveBeenCalledTimes(1);
+
+    first.reject(new Error('older render failed'));
+    await firstResult;
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
+    const secondId = render.mock.calls[1][0];
+
+    if (!document.getElementById(`d${secondId}`)) {
+      second.reject(new Error('svg element not in render tree'));
+    } else {
+      second.resolve({ svg: '<svg>newer</svg>' });
+    }
+
+    await expect(secondResult).resolves.toBe('<svg>newer</svg>');
+    expect(viewerLoadFailedCalls()).toHaveLength(1);
+    expect(viewerLoadFailedCalls()[0][1]).toMatchObject({
+      failure_reason: 'older render failed',
+    });
+  });
+
+  it('applies only the newest result when source changes while a render is queued', async () => {
+    const first = deferred<{ svg: string }>();
+    const second = deferred<{ svg: string }>();
+    const render = vi.fn((_id: string, source: string) =>
+      source.includes('A-->B') ? first.promise : second.promise);
+    loadMermaidMock.mockResolvedValue({ render });
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+
+    store.state.diagram.mermaidCode = 'flowchart LR\nA-->B';
+    await wrapper.vm.$nextTick();
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+
+    store.state.diagram.mermaidCode = 'flowchart LR\nA-->C';
+    await wrapper.vm.$nextTick();
+    first.resolve({ svg: '<svg>stale</svg>' });
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
+    expect(wrapper.vm.svg).not.toBe('<svg>stale</svg>');
+
+    second.resolve({ svg: '<svg>current</svg>' });
+    await vi.waitFor(() => expect(wrapper.vm.svg).toBe('<svg>current</svg>'));
   });
 });
 

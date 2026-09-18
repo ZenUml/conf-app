@@ -16,6 +16,8 @@ import { parseArgs } from "node:util";
 const APPS = {
   lite: { appId: "8ad26115-211f-4216-971b-0540f606303d", suffix: "-lite", connectKey: "com.zenuml.confluence-addon-lite", sequenceModule: "zenuml-sequence-macro", contentTypes: { sequence: "zenuml-content-sequence", graph: "zenuml-content-graph" }, environments: {
     development: { envId: "26ad8f7e-aa24-4afe-83a3-e8216f9e5220", envName: "DEVELOPMENT", sites: { "lite-dev": "lite-dev.atlassian.net" } },
+    // Personal dev environment (env ID verified via `forge environments list` 2026-09-18).
+    yanhui: { envId: "de60a8cb-4c03-48e5-bdb7-63226e9394c4", envName: "YANHUI", sites: { whimet4: "whimet4.atlassian.net" } },
     staging: { envId: "5ea0d957-4b7d-47e5-b8cc-7d5fb4fc2338", envName: "STAGING", sites: { "lite-stg": "lite-stg.atlassian.net", "zenuml-stg": "zenuml-stg.atlassian.net" } },
     production: { envId: "b28ee919-d73b-4f43-b7fd-45a3a881ec46", envName: "PRODUCTION", sites: { zenuml: "zenuml.atlassian.net" } },
   } },

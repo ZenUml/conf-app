@@ -186,17 +186,22 @@ export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 export type GalleryOpenTrigger = "auto_first_open" | "manual";
 
 // Which control the user reached for to hide/show the editor's left code
-// panel. 'header_button' = the toolbar's Code button; 'panel_footer' = the
-// collapse button in the panel's own bottom-left corner; 'gutter_drag' = the
-// user dragged the split gutter to the far left and the pane snapped shut.
-// Kept on one event (editor_code_panel_toggled) rather than split into three,
+// panel. Three of them close it — 'header_button' (the toolbar's Code
+// button), 'panel_footer' (the collapse button in the panel's own bottom-left
+// corner) and 'gutter_drag' (the split gutter dragged to the far left until
+// the pane snapped shut). One opens it again: 'restore_widget', the stub left
+// behind in that same bottom-left corner while the panel is hidden.
+// Kept on one event (editor_code_panel_toggled) rather than split per control,
 // because the question is "how often is the panel hidden", with "by which
-// affordance" as a breakdown — and a drag-collapse has no matching
-// drag-expand, so a per-control funnel would be asymmetric by construction.
+// affordance" as a breakdown. The values are deliberately NOT symmetric: a
+// drag closes the panel but nothing drags it back open, so a per-control
+// open/close funnel would be lopsided by construction — read the direction
+// off `interaction_state` instead.
 export type CodePanelToggleTrigger =
   | "header_button"
   | "panel_footer"
-  | "gutter_drag";
+  | "gutter_drag"
+  | "restore_widget";
 
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a macro create/edit start forced recording independently of the Forge

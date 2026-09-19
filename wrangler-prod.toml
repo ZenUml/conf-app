@@ -11,6 +11,10 @@ EXPECTED_FORGE_ENVIRONMENT_TYPE = "PRODUCTION"
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_PROD
 
 [env.production.vars]
+# Public OAuth client id of the "ZenUML Agent Link" 3LO app (developer console
+# app a7f2a21d-a28c-4155-af0f-df365b5b94ef). The secret pairs with it via
+# `wrangler pages secret put ATLASSIAN_OAUTH_CLIENT_SECRET`.
+ATLASSIAN_OAUTH_CLIENT_ID = "f1Q7H7v2bf0ax9ThXvL8n3aewQENg6hp"
 ENVIRONMENT = "production"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
 ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf,49017727-af19-4ab6-8d5a-7d28108936b6" # ZenUML Lite, Full, Diagramly and AsyncAPI
@@ -74,3 +78,12 @@ id = "fe9042cb20994651b0a2ef9e68f9037c"
 
 [env.production.ai]
 binding = "AI"
+
+# Agent Link headless OAuth — encrypted 3LO grant store (functions/agent-link/
+# oauth/tokenStore.ts). Refresh tokens are AES-GCM sealed with the
+# OAUTH_GRANT_SECRET Worker secret before they reach KV.
+# TODO(agent-link-oauth): create with `wrangler kv namespace create OAUTH_GRANT_KV` on the production project and paste the id
+[[env.production.kv_namespaces]]
+binding = "OAUTH_GRANT_KV"
+id = "REPLACE_WITH_NAMESPACE_ID"
+

@@ -5,6 +5,10 @@ name="confluence-plugin"
 pages_build_output_dir = "dist"
 
 [vars]
+# Public OAuth client id of the "ZenUML Agent Link" 3LO app (developer console
+# app a7f2a21d-a28c-4155-af0f-df365b5b94ef). The secret pairs with it via
+# `wrangler pages secret put ATLASSIAN_OAUTH_CLIENT_SECRET`.
+ATLASSIAN_OAUTH_CLIENT_ID = "f1Q7H7v2bf0ax9ThXvL8n3aewQENg6hp"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
 # Optional locally: EXPECTED_FORGE_ENVIRONMENT_TYPE=DEVELOPMENT. It is left
@@ -94,3 +98,20 @@ id = "fe9042cb20994651b0a2ef9e68f9037c"
 
 [ai]
 binding = "AI"
+
+# Agent Link headless OAuth — encrypted 3LO grant store (functions/agent-link/
+# oauth/tokenStore.ts). Refresh tokens are AES-GCM sealed with the
+# OAUTH_GRANT_SECRET Worker secret before they reach KV.
+# TODO(agent-link-oauth): local dev reuses the STAGING namespace (same precedent as DEEPLINK_KV above)
+[[env.production.kv_namespaces]]
+binding = "OAUTH_GRANT_KV"
+id = "REPLACE_WITH_NAMESPACE_ID"
+
+# Agent Link headless OAuth — encrypted 3LO grant store (functions/agent-link/
+# oauth/tokenStore.ts). Refresh tokens are AES-GCM sealed with the
+# OAUTH_GRANT_SECRET Worker secret before they reach KV.
+# TODO(agent-link-oauth): local dev reuses the STAGING namespace
+[[kv_namespaces]]
+binding = "OAUTH_GRANT_KV"
+id = "REPLACE_WITH_NAMESPACE_ID"
+

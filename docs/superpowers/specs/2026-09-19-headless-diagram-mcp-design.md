@@ -132,6 +132,25 @@ Two discrepancies with `create-test-page.mjs`'s `makeExtension()` to reconcile b
 
 **Scopes.** `read:page:confluence`, `write:page:confluence`, `read:custom-content:confluence`, `write:custom-content:confluence`. All four are available to 3LO apps — verified 2026-09-19 against Atlassian's *Scopes for OAuth 2.0 (3LO) and Forge apps* reference, which presents them in the granular-scopes table applicable to "apps using OAuth 2.0 authorization code grants (3LO) for authorization and Forge apps", with none marked Forge-only. All four are already declared in `manifest.yml`'s `permissions.scopes`, so the Forge app asks for nothing new — but the 3LO app is a **separate registration** in the developer console and consents separately.
 
+### 5.1 Two tokens, and why we must run an authorization server
+
+Phase 3 turned up a requirement this document originally understated. It described the OAuth work as "standard MCP OAuth: the client discovers the authorization server, user consents in a browser once, the server stores refresh tokens." The MCP authorization spec (2025-06-18, read 2026-09-19) is stricter than that, and the difference is structural.
+
+**There are two tokens, and they must never touch.**
+
+| | Issued by | Issued to | Audience |
+|---|---|---|---|
+| MCP token | **our** authorization server | the MCP client (Claude Code) | our MCP server |
+| Atlassian token | Atlassian | us, as an OAuth client | Confluence |
+
+The spec forbids collapsing them, twice over: *"MCP servers MUST only accept tokens specifically intended for themselves"*, and *"The MCP server MUST NOT pass through the token it received from the MCP client."* So we cannot simply point `authorization_servers` at `auth.atlassian.com` and let clients bring Atlassian tokens — that is token passthrough with a foreign audience, the exact confused-deputy shape the spec names.
+
+**Therefore we run an authorization server.** The MCP server itself is only a *resource server*: it implements RFC 9728 `/.well-known/oauth-protected-resource` (a MUST) and answers an unauthenticated call with a 401 whose `WWW-Authenticate` names that document (also a MUST). Something else must mint tokens whose audience is us, hold the Atlassian grant, and run OAuth 2.1 with PKCE, RFC 8414 metadata, and — per the spec's SHOULD, and in practice because MCP clients rely on it — Dynamic Client Registration.
+
+**And it needs its own consent screen.** *"MCP proxy servers using static client IDs MUST obtain user consent for each dynamically registered client before forwarding to third-party authorization servers."* That is precisely our shape: one static Atlassian client ID, many DCR-registered MCP clients. Without our own consent step, any client that registers dynamically inherits a previous user's Atlassian consent.
+
+This is materially more work than "wire up 3LO", and it is the decision in §12.6.
+
 **Site targeting.** `GET https://api.atlassian.com/oauth/token/accessible-resources` returns the `cloudId`s the consenting user can reach. This is what replaces "the page you have open" as the way an agent knows where to write.
 
 ---
@@ -241,7 +260,9 @@ Plus a `mode: 'relay' | 'headless'` property added to the existing `agent_link_d
 
 **Phase 2 — analytics.** §10, per the CLAUDE.md hard rule. The two identity events landed *ahead* of Phase 1's code rather than after it, since the rule is "first commit of the feature branch"; the rest follow their own phases. Note they are unemitted until Phase 4 wires a caller — if that stalls, delete them rather than leave them lying around, as was done for `agent_link_guardrail_rejected` on 2026-09-02.
 
-**Phase 3 — OAuth 3LO.** Register the app; implement the MCP OAuth flow (discovery, consent, refresh, revoke); token storage. This is the phase that decides whether users can install once and forget.
+**Phase 3 — OAuth.** Partially landed 2026-09-19 (`functions/agent-link/oauth/`, 70 tests): the Atlassian 3LO client, the encrypted grant store, RFC 9728 resource metadata and the audience check, and the reader that lets Phase 1's resolver run over a grant unchanged. These are the pieces common to every answer in §12.6.
+
+Still open, and blocked on §12.6: our authorization server — RFC 8414 metadata, DCR, PKCE, our own token issuance and validation, and the consent screen §5.1 requires. Also still human steps: registering the Atlassian OAuth app, and provisioning the KV binding and Worker secret the grant store needs.
 
 **Phase 4 — the headless writer.** Port `addToPage.ts`'s ADF logic into a shared module; implement read tools, then `update_diagram`, then `create_diagram` — with §9.1's server-side gate landing **before** `create_diagram` ships.
 
@@ -257,7 +278,13 @@ Plus a `mode: 'relay' | 'headless'` property added to the existing `agent_link_d
 2. **Token storage.** Where refresh tokens live, and under what retention. Needs a decision before Phase 3 and a corresponding update to the Marketplace Privacy & Security questionnaires for all four variants (see the `forge-ps-questionnaire` skill) — we would be declaring storage of a new class of end-user credential.
 3. **Does 3LO consent interact with the Forge app's install state at all?** They are separate registrations; a user could authorize 3LO on a site where our Forge app is not installed. §6's resolver refuses that case as a side effect, but the error message should say so plainly rather than blaming a missing macro.
 4. **Version-message attribution.** What identifies an agent edit in page history, and whether customers want it configurable.
-5. **Whether this warrants an ADR.** It reverses two locked decisions of a prior design; `docs/adr/0003-agent-link-mints-its-own-short-lived-token.md` is the closest existing record and is now partly superseded.
+5. **Which authorization server do we run?** (§5.1). Three answers, and this blocks the rest of Phase 3:
+   - **Build our own.** Most control, no new vendor, no third party holding end-user credentials. Also the most code: DCR, PKCE, token issuance and validation, a consent screen, and the operational burden of an AS we are now on the hook for.
+   - **A hosted provider** (Auth0 / WorkOS / Stytch) as our AS, with Atlassian upstream. Much less to build and they already do DCR. Costs a vendor, a bill, and a third party in the path of end-user authorization — which lands straight back in §12.2's P&S declaration.
+   - **Defer the AS and ship Phase 4's read tools against the live relay only.** Headless reads stay unavailable, but it unblocks everything else while this is decided.
+
+   No recommendation yet; it turns on how much we want to own versus how fast we want it, and I do not have the cost or appetite input to call it.
+6. **Whether this warrants an ADR.** It reverses two locked decisions of a prior design; `docs/adr/0003-agent-link-mints-its-own-short-lived-token.md` is the closest existing record and is now partly superseded.
 
 ---
 
@@ -280,5 +307,7 @@ Every load-bearing claim above, with its source, so a reviewer can check rather 
 | Agent Link has never shipped to users | `src/apis/aiTitleFeatureFlag.ts:131` — `checkFlag('agent-link-enabled', false)` |
 | Custom-content type is `ac:<connectKey>:<contentKey>`, carrying no appId/environment | `src/model/ApWrapper2.ts:242-263`; `CONNECT_KEY` in `package.json` `forge:deploy:*` |
 | Diagramly stores every diagram under one content key | `src/model/ApWrapper2.ts:40-47` (#524, observed production 2026-08-21) |
+| MCP server is a resource server; must implement RFC 9728 and the 401 challenge; must not pass through client tokens; proxy servers with static client IDs need their own consent | MCP authorization spec 2025-06-18, fetched 2026-09-19 |
+| Atlassian 3LO endpoints, rotating refresh tokens, 90-day inactivity window, `offline_access` | Atlassian *OAuth 2.0 (3LO) apps*, fetched 2026-09-19 |
 | Existing MCP tool surface is 6 tools, no `connect` | `functions/agent-link/mcpTools.ts:25` |
 | Session TTLs | `functions/agent-link/sessionToken.ts:51-52` — 10 min idle, 60 min absolute |

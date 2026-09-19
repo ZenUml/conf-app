@@ -74,6 +74,23 @@
             <DiagramPortal :hide-header="true" />
           </div>
         </div>
+        <!-- What is left of the code panel once it is hidden: a stub in the
+             same bottom-left corner its own Hide button occupied, so the pane
+             comes back from where it went instead of from across the toolbar.
+             Not rendered while AI chat is open — that panel owns this pane's
+             visibility then. -->
+        <button
+          v-if="!showCodeEditor && !showAIChat"
+          type="button"
+          class="code-panel-restore"
+          aria-label="Show code panel"
+          title="Show the code panel"
+          data-testid="code-panel-restore"
+          @click="showCodePanel('restore_widget')"
+        >
+          <ChevronDoubleRightIcon class="h-3.5 w-3.5" />
+          <span>Code</span>
+        </button>
       </div>
       <div
         v-show="!showAIChat"
@@ -97,6 +114,7 @@
   import ForeignDialectHint from '@/components/ForeignDialectHint.vue'
   import AIChatPanel from '@/components/AIChat/AIChatPanel.vue'
   import ChevronDoubleLeftIcon from '@heroicons/vue/24/outline/ChevronDoubleLeftIcon'
+  import ChevronDoubleRightIcon from '@heroicons/vue/24/outline/ChevronDoubleRightIcon'
   import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
   import type { CodePanelToggleTrigger } from '@/utils/analytics/catalog'
   import { DiagramType } from '@/model/Diagram/Diagram'
@@ -230,6 +248,10 @@
         if (!this.showCodeEditor) return
         this.toggleCodePanel(trigger)
       },
+      showCodePanel(trigger: CodePanelToggleTrigger) {
+        if (this.showCodeEditor) return
+        this.toggleCodePanel(trigger)
+      },
       // split.js has already snapped the pane to zero width by the time this
       // runs (minSize 0 + snapOffset below); closing it here is what turns
       // that into a real collapsed state rather than an invisible pane still
@@ -309,6 +331,7 @@
       ForeignDialectHint,
       AIChatPanel,
       ChevronDoubleLeftIcon,
+      ChevronDoubleRightIcon,
     }
   }
 </script>
@@ -348,6 +371,35 @@
 #workspace-right > .generic > .screen-capture-content {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* Sits in the corner the code pane collapsed into — same height and same
+   left inset as that pane's own Hide button, so hiding and showing happen in
+   one place. The workspace is position:relative, which anchors this. */
+.code-panel-restore {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 21px;
+  padding: 0 0.5rem;
+  border-top: 1px solid #e5e7eb;
+  border-right: 1px solid #e5e7eb;
+  border-top-right-radius: 0.25rem;
+  background-color: #f1f3f4;
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.code-panel-restore:hover {
+  background-color: #e5e7eb;
+  color: #374151;
 }
 
 .gutter {

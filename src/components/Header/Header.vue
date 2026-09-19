@@ -11,21 +11,16 @@
     </div>
     <div class="flex items-center gap-3 shrink-0 ml-auto">
       <!-- Collapses Workspace's left source pane so the diagram preview gets
-           the editor's full width. One icon in both states, distinguished by
-           the pressed background (the same grammar as the AI Chat button):
-           below 2xl this button is icon-only, and a lone directional chevron
-           there reads as a stray glyph rather than a control. -->
+           the editor's full width. Hide only: once the pane is closed the way
+           back is the stub Workspace leaves in the corner the pane collapsed
+           into, not a button up here, so the control that reopens the panel
+           sits where the panel went rather than across the toolbar. -->
       <button
         v-if="codePanelToggleAvailable"
         type="button"
-        class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-sm font-medium rounded-md whitespace-nowrap transition-colors duration-200"
-        :class="
-          codePanelVisible
-            ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-        "
-        :aria-label="codePanelVisible ? 'Hide code panel' : 'Show code panel'"
-        :title="codePanelVisible ? 'Hide the code panel and give the diagram the full width' : 'Show the code panel'"
+        class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-sm font-medium rounded-md whitespace-nowrap text-gray-500 transition-colors duration-200 hover:bg-gray-100 hover:text-gray-700"
+        aria-label="Hide code panel"
+        title="Hide the code panel and give the diagram the full width"
         data-testid="code-panel-toggle"
         @click="$emit('toggle-code-panel')"
       >
@@ -35,7 +30,7 @@
              reflows to two rows at 1280px and below, so 1280-1535px is a
              single crowded row). The label is therefore 2xl-and-up only;
              narrower, the icon plus aria-label/title carry the button. -->
-        <span class="hidden 2xl:inline">{{ codePanelVisible ? 'Hide code' : 'Show code' }}</span>
+        <span class="hidden 2xl:inline">Hide code</span>
       </button>
       <button
         v-if="aiChatAvailable"
@@ -258,7 +253,10 @@ export default {
     // button for the same pane, and two controls for one pane in view at once
     // reads as two different things.
     codePanelToggleAvailable: function () {
-      return !this.aiChatOpen;
+      // Nothing to offer when the pane is already hidden (Workspace's own
+      // stub reopens it), nor while AI chat is open — that panel carries its
+      // own Hide/Show code control for the same pane.
+      return !this.aiChatOpen && this.codePanelVisible;
     },
     aiChatAvailable: function () {
       return this.aiChatEnabled && this.diagramType !== DiagramType.Graph && this.diagramType !== DiagramType.Markdown;

@@ -220,10 +220,11 @@ export const AutoOpenStarterGallery: Story = {
 
 /**
  * The left source pane is collapsed, so the diagram preview has the editor's
- * full width. The toggle carries the inverse action ("Show code") and sits in
- * its pressed state; below the 2xl breakpoint the label drops and the icon
- * plus that pressed background carry it. `codePanelVisible` is owned by Workspace.vue — the header only
- * renders the control.
+ * full width — and the toolbar drops the Code button entirely. Hiding is a
+ * toolbar action; showing is not, because the control that brings the pane
+ * back lives in the corner the pane collapsed into (Workspace.vue renders it,
+ * outside this component). `codePanelVisible` is owned by Workspace.vue too —
+ * the header only renders the control and reports the click.
  */
 export const CodePanelCollapsed: Story = {
   args: { codePanelVisible: false },

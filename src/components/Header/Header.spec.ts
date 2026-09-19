@@ -76,7 +76,7 @@ describe('Header', () => {
     expect(wrapper.emitted('toggle-ai-chat')).toHaveLength(1)
   })
 
-  it('offers the code-panel toggle and emits it, labelled by the pane state', async () => {
+  it('offers the code-panel toggle and emits it', async () => {
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.isNew = false
     const wrapper = mount(Header, {
@@ -90,12 +90,23 @@ describe('Header', () => {
     expect(toggle.attributes('aria-label')).toBe('Hide code panel')
     await toggle.trigger('click')
     expect(wrapper.emitted('toggle-code-panel')).toHaveLength(1)
+  })
 
-    // Workspace owns the state, so the label only flips when it hands the new
-    // value back down.
+  it('withdraws the toggle once the pane is hidden, leaving the way back to Workspace', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, {
+      props: { codePanelVisible: true },
+      global: { plugins: [store] },
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(true)
+
+    // Workspace owns the state, so the header only reacts when it hands the
+    // new value back down. Hidden pane -> no toolbar control at all: the stub
+    // Workspace renders in the collapsed pane's corner is what reopens it.
     await wrapper.setProps({ codePanelVisible: false })
-    expect(wrapper.get('[data-testid="code-panel-toggle"]').text()).toBe('Show code')
-    expect(wrapper.get('[data-testid="code-panel-toggle"]').attributes('aria-label')).toBe('Show code panel')
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false)
   })
 
   it('hides the code-panel toggle while AI Chat owns that control', async () => {

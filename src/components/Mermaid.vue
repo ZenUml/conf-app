@@ -20,7 +20,7 @@
 </template>
 
 <script>
-import { loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { renderMermaid } from '@/utils/mermaid/renderMermaid'
 import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import EventBus from "@/EventBus";
@@ -38,7 +38,7 @@ export default {
   data() {
     return {
       svg: null,
-      renderId: null,
+      renderGeneration: 0,
     }
   },
   computed: {
@@ -50,28 +50,26 @@ export default {
     },
   },
   async mounted() {
-    if (!this.mermaidCode) return;
-    // Phase 0b: render_ms = loadMermaid + mermaid.render — exactly what an SVG
-    // cache (Lever D) would skip. Only the initial mount render is timed
-    // (renderPerf records once); the watch-driven re-render below is not.
-    this.svg = await renderPerf.time('render', () => this.render(this.mermaidCode));
-    await this.initializeViewport();
-    trackRenderTime('mermaid', this.isDisplayMode);
-    // Type may have switched during the async render — the gated computed
-    // would then be `false` and the store diagramType stale. Skip; the new
-    // type's component emits its own diagramLoaded.
-    if (this.mermaidCode) {
-      EventBus.$emit('diagramLoaded', this.mermaidCode, DiagramType.Mermaid);
+    const code = this.mermaidCode;
+    if (!code) return;
+    const applied = await this.renderAndApply(code, true);
+    if (applied) {
+      trackRenderTime('mermaid', this.isDisplayMode);
+      EventBus.$emit('diagramLoaded', code, DiagramType.Mermaid);
     }
     await globals.apWrapper.initializeContext();
+  },
+  beforeUnmount() {
+    // An already queued render may finish after this component is gone.
+    this.renderGeneration++;
   },
   watch: {
     async mermaidCode(newVal) {
       if (!newVal) {
+        this.renderGeneration++;
         this.svg = null;
       } else {
-        this.svg = await this.render(this.mermaidCode);
-        await this.initializeViewport();
+        await this.renderAndApply(newVal);
       }
     }
   },
@@ -80,68 +78,71 @@ export default {
     initializeViewport() {
       return this.$refs.viewport?.attach();
     },
+    async renderAndApply(code, measureInitialAttempt = false) {
+      const generation = ++this.renderGeneration;
+      const svg = await this.render(code, measureInitialAttempt);
+      // Latest request wins. This also prevents a queued result from writing
+      // into a component that changed diagram type or was unmounted.
+      if (!svg || generation !== this.renderGeneration || this.mermaidCode !== code) {
+        return false;
+      }
+      this.svg = svg;
+      await this.$nextTick();
+      if (generation !== this.renderGeneration || this.mermaidCode !== code) {
+        return false;
+      }
+      await this.initializeViewport();
+      return true;
+    },
     async runMermaid(code) {
-      // Generate a unique ID to avoid conflicts
-      this.renderId = `mermaid-${crypto.randomUUID()}`;
-      const mermaid = await loadMermaid();
+      const renderId = `mermaid-${crypto.randomUUID()}`;
       // Bodies stored before the save-time normalisation still carry pasted
       // U+00A0, which mermaid's Langium grammars refuse. Normalising here is
       // what makes those diagrams render again without a data migration.
       const source = normalizeMermaidWhitespace(code);
-      // Use the unique ID to render, avoiding creating extra elements in the body
-      const { svg } = await mermaid.render(this.renderId, source);
+      const { svg } = await renderMermaid(renderId, source);
       // A `useMaxWidth: false` diagram carries a fixed height that our flex
       // wrapper cannot shrink, which letterboxes the drawing. See
       // normalizeSvgSizing for the measurement.
       return normalizeSvgSizing(svg);
     },
-    removeTempNode() {
-      if (!this.renderId) return;
-      document.getElementById(`d${this.renderId}`)?.remove();
-    },
     reportCrash(error) {
       console.error('mermaid render error', error);
       // reliability-audit-2026-08-06 §3/§12.1: a mermaid.js exception used to
-      // be console.error-only — the blank result still got recorded as a
-      // successful macro_viewed by mounted()'s unconditional trackRenderTime.
-      // This adds the missing failure signal without changing that existing
-      // (silent-degrade) UX.
+      // be console.error-only and the blank result was recorded as a successful
+      // macro_viewed. This path runs only after any safe retry is exhausted;
+      // mounted() now records macro_viewed only when an SVG was actually applied.
       trackViewerRenderCrash('mermaid', this.isDisplayMode, error);
-      this.removeTempNode();
     },
-    async render(code) {
+    isTransientRenderError(error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      return message.includes('svg element not in render tree')
+        || /matrix (?:is )?(?:not |non[- ]?)invertible/i.test(message);
+    },
+    async render(code, measureInitialAttempt = false) {
+      const firstAttempt = () => measureInitialAttempt
+        ? renderPerf.time('render', () => this.runMermaid(code))
+        : this.runMermaid(code);
       try {
-        return await this.runMermaid(code);
+        return await firstAttempt();
       } catch (error) {
-        this.removeTempNode();
         // mermaid measures a temp node with getBBox. In a document with no
         // layout box that measurement throws `svg element not in render tree`
         // and the same input renders cleanly once the box exists (reproduced
         // against mermaid 11.12.2 in Chrome — see renderGate/documentLayout).
-        // Retry rather than leave the reader with a permanently blank diagram.
-        if (!hasLayout()) {
-          // Off the awaited path on purpose: the wait can last until a hidden
-          // iframe is shown, and folding that into the caller would report it
-          // as render_ms. The retry assigns this.svg when it lands.
-          this.retryAfterLayout(code);
+        // Production also showed this exact transient while body layout was
+        // present. Retry it once after the queue has cleaned up; deterministic
+        // parser errors still fail immediately.
+        if (hasLayout() && !this.isTransientRenderError(error)) {
+          this.reportCrash(error);
           return;
         }
-        // With a layout box present the failure is deterministic (bad syntax,
-        // an unsupported diagram type); a retry would only repeat it.
-        this.reportCrash(error);
-      }
-    },
-    async retryAfterLayout(code) {
-      await awaitLayout();
-      try {
-        const svg = await this.runMermaid(code);
-        // The diagram may have been edited or switched away during the wait.
-        if (this.mermaidCode === code) {
-          this.svg = svg;
-          await this.initializeViewport();
+        await awaitLayout();
+        try {
+          return await this.runMermaid(code);
+        } catch (retryError) {
+          this.reportCrash(retryError);
         }
-      } catch (error) {
-        this.reportCrash(error);
       }
     }
   }

@@ -266,9 +266,15 @@ export default defineConfig(({ command }) => ({
       { src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist' },
       // Mermaid is loaded at runtime from /vendor/mermaid/ via dynamic URL
       // import (see src/utils/mermaid/loadMermaid.ts) so it's excluded from
-      // the Rollup module graph. Copy the entire dist/ tree (entry +
-      // chunks/) so the relative imports inside the entry resolve.
-      { src: 'node_modules/mermaid/dist/*', dest: 'dist/vendor/mermaid' },
+      // the Rollup module graph. Copy only the production entry and its
+      // minified chunk family. The package also ships hundreds of declarations,
+      // tests and source maps; including those can exceed Forge's 5,000-file
+      // hosted-resource limit without providing anything used at runtime.
+      { src: 'node_modules/mermaid/dist/mermaid.esm.min.mjs', dest: 'dist/vendor/mermaid' },
+      {
+        src: 'node_modules/mermaid/dist/chunks/mermaid.esm.min/*.mjs',
+        dest: 'dist/vendor/mermaid/chunks/mermaid.esm.min',
+      },
       // AsyncAPI Studio assets ship with the variants that carry the AsyncAPI
       // macro (asyncapi, lite per ADR-0005). Studio is loaded as a nested
       // iframe from the AsyncAPI editor and uses localStorage to sync the

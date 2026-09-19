@@ -144,13 +144,21 @@ The scar tissue is recorded in `addToPage.ts:23-24`: a malformed key **rendered 
 
 The key is also not constant across our estate. The macro module key is `${SEQUENCE_MACRO_KEY}` in the manifest: `zenuml-sequence-macro` on lite/full, `gpt-diagram-macro` on diagramly, `zenuml-asyncapi-macro` on asyncapi — plus the `-lite` suffix on Lite. The `environmentId` differs per environment. So a headless writer serving all variants must resolve, per target site, *which of our apps is installed and in which environment*.
 
-**Decision: resolve empirically, never construct.** For a given `cloudId`:
+**Decision: resolve empirically, never construct.** Implemented in `functions/agent-link/macroIdentity.ts` (Phase 1, landed 2026-09-19).
 
-1. Find an existing ZenUML `extension` node anywhere on that site (CQL search for our custom-content types, then read the referencing page's ADF).
-2. Take its `extensionKey` **verbatim** and cache it against the `cloudId`.
-3. If no such node exists anywhere on the site, **refuse the write** and return a distinct reason (`unresolved_macro_key`, reusing the existing enum) telling the user to insert one diagram by hand first.
+The lever is the **custom-content type**, which turns out to carry neither an `appId` nor an environment: it is `ac:<connectKey>:<contentKey>` (`ApWrapper2.getCustomContentTypePrefix`, `src/model/ApWrapper2.ts:242`), and the connect key is a fixed per-variant constant from `package.json`'s `forge:deploy:*` scripts. There are exactly six such strings across the four variants, so a site can be *classified* before anything about it is known. For a given `cloudId`:
+
+1. Probe each variant's custom-content types (`GET /wiki/api/v2/custom-content?type=…`). The first that returns rows fixes the **variant**, and with it the `appId` and the macro keys. A 404 means "not this variant" and is information, not a failure — only a non-404 error is `probe_failed`, because reporting a 403 as an empty site would tell a user to go insert a diagram they already have.
+2. Follow up to three of those rows to their container pages, read the ADF, and lift the `<appId>/<environmentId>/static/` half of an `extension` node's `extensionKey` **verbatim**. Sampling more than one matters because orphaned custom content is a real state here (ZEN-1170) — one dead sample must not condemn the site.
+3. **Cross-check** the lifted `appId` against the one the custom-content type implies. Disagreement means something is wrong with our assumptions rather than with the page, so refuse (`app_id_mismatch`). Two independent signals agreeing is the headless equivalent of `resolveIdentity`'s `localId`-vs-`environmentId` check.
+4. Cache successes per `cloudId` for 30 days. **Never cache a refusal** — `no_macro_on_site` is fixed by the user inserting one diagram, and a cached no would outlive that by a month.
+5. With no identifiable macro anywhere on the site, **refuse the write** and say so, telling the user to insert one diagram by hand first.
+
+**Lift the prefix, compose the key.** The sampled node may be any macro (`zenuml-graph-macro` when the caller wants a sequence macro), so only the half we cannot derive — `appId`/`environmentId` — is lifted. The macro key is composed from the variant's own constants, mirroring `MACRO_KEY_BY_DIAGRAM_TYPE` in `addToPage.ts`. Lifting the whole string would bind every create to whichever macro type happened to be on the page we sampled.
 
 Refusing is the correct outcome, not a gap. A site with zero ZenUML macros is a site where we cannot prove which app is installed, and the failure mode for guessing wrong is a broken macro on a customer page.
+
+**Verified live, 2026-09-19.** Run against two staging sites, the resolver discovered `{appId, environmentId}` pairs matching the hand-maintained registry in `.claude/skills/create-test-page/scripts/create-test-page.mjs:19,27` exactly — lite staging `5ea0d957-4b7d-47e5-b8cc-7d5fb4fc2338`, diagramly staging `d9ad28ee-2933-45fc-8044-0002bc0609de`. That registry is independent of the resolver (hand-entered from `forge environments list`), so the agreement is evidence rather than a tautology.
 
 An `update_diagram` against an existing `contentId` needs none of this — it writes custom content only and never touches page ADF. **Only creation needs an `extensionKey`,** which usefully means the risky path is the narrower one.
 
@@ -229,9 +237,9 @@ Plus a `mode: 'relay' | 'headless'` property added to the existing `agent_link_d
 
 ## 11. Phases
 
-**Phase 1 — identity resolver.** §6, standalone and testable against real sites before any OAuth exists. Riskiest piece, and the only one with a prior customer-visible incident. Build it first so a failure here costs nothing.
+**Phase 1 — identity resolver.** ✅ Landed 2026-09-19 (`functions/agent-link/macroIdentity.ts`, 35 unit tests, live-verified per §6). Standalone and testable against real sites before any OAuth exists. Riskiest piece, and the only one with a prior customer-visible incident, so it went first — a failure here cost nothing because nothing calls it yet.
 
-**Phase 2 — analytics.** §10, per the CLAUDE.md hard rule.
+**Phase 2 — analytics.** §10, per the CLAUDE.md hard rule. The two identity events landed *ahead* of Phase 1's code rather than after it, since the rule is "first commit of the feature branch"; the rest follow their own phases. Note they are unemitted until Phase 4 wires a caller — if that stalls, delete them rather than leave them lying around, as was done for `agent_link_guardrail_rejected` on 2026-09-02.
 
 **Phase 3 — OAuth 3LO.** Register the app; implement the MCP OAuth flow (discovery, consent, refresh, revoke); token storage. This is the phase that decides whether users can install once and forget.
 
@@ -270,5 +278,7 @@ Every load-bearing claim above, with its source, so a reviewer can check rather 
 | D1 must not store diagram bodies | CLAUDE.md, *Content management*; 2026-08-23 analysis §5 |
 | Paywall gate is frontend-enforced | `src/utils/paywall/mountPaywallGate.ts:89`; `functions/api/space-status.ts` (auth via `validateContextToken`) |
 | Agent Link has never shipped to users | `src/apis/aiTitleFeatureFlag.ts:131` — `checkFlag('agent-link-enabled', false)` |
+| Custom-content type is `ac:<connectKey>:<contentKey>`, carrying no appId/environment | `src/model/ApWrapper2.ts:242-263`; `CONNECT_KEY` in `package.json` `forge:deploy:*` |
+| Diagramly stores every diagram under one content key | `src/model/ApWrapper2.ts:40-47` (#524, observed production 2026-08-21) |
 | Existing MCP tool surface is 6 tools, no `connect` | `functions/agent-link/mcpTools.ts:25` |
 | Session TTLs | `functions/agent-link/sessionToken.ts:51-52` — 10 min idle, 60 min absolute |

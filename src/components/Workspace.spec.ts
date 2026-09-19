@@ -320,7 +320,7 @@ describe("Workspace code-panel collapse", () => {
   it("collapses and restores the pane, reporting the state it moved into", async () => {
     expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
 
-    await wrapper.get('[data-testid="code-panel-collapse"]').trigger("click");
+    await wrapper.get('[data-testid="code-panel-toggle"]').trigger("click");
 
     expect(wrapper.get("#workspace-left").attributes("style")).toContain("display: none");
     expect(wrapper.get(".workspace-main").classes()).toContain("code-editor-hidden");
@@ -332,21 +332,20 @@ describe("Workspace code-panel collapse", () => {
       surface: "editor",
       macro_type: DiagramType.Sequence,
       interaction_state: "hidden",
-      code_panel_trigger: "panel_footer",
+      code_panel_trigger: "panel_button",
     });
 
     vi.mocked(trackAnalyticsEvent).mockClear();
-    await wrapper.get('[data-testid="code-panel-restore"]').trigger("click");
+    await wrapper.get('[data-testid="code-panel-toggle"]').trigger("click");
 
     expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
     expect(wrapper.get(".workspace-main").classes()).not.toContain("code-editor-hidden");
-    expect(wrapper.find('[data-testid="code-panel-restore"]').exists()).toBe(false);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith("editor_code_panel_toggled", {
       feature_area: "macro",
       surface: "editor",
       macro_type: DiagramType.Sequence,
       interaction_state: "shown",
-      code_panel_trigger: "restore_widget",
+      code_panel_trigger: "panel_button",
     });
   });
 
@@ -356,7 +355,7 @@ describe("Workspace code-panel collapse", () => {
     // event. Header.spec.ts covers the toolbar itself being empty of one.
     const header = wrapper.getComponent({ name: "HeaderStub" });
     expect(header.props()).not.toHaveProperty("codePanelVisible");
-    expect(wrapper.find('[data-testid="code-panel-collapse"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(true);
   });
 
   it("restores the width the user dragged to, not the 35/65 default", async () => {
@@ -368,34 +367,34 @@ describe("Workspace code-panel collapse", () => {
 
     // The user drags the gutter, then collapses the pane.
     dragGutterTo([20, 80]);
-    await wrapper.get('[data-testid="code-panel-collapse"]').trigger("click");
+    await wrapper.get('[data-testid="code-panel-toggle"]').trigger("click");
     expect(splitDestroy).toHaveBeenCalled();
 
-    await wrapper.get('[data-testid="code-panel-restore"]').trigger("click");
+    await wrapper.get('[data-testid="code-panel-toggle"]').trigger("click");
     await wrapper.vm.$nextTick();
 
     expect(splitCalls.at(-1)).toEqual({ sizes: [20, 80] });
   });
 
-  it("collapses from the control in the panel's own bottom-left corner", async () => {
-    await wrapper.get('[data-testid="code-panel-collapse"]').trigger("click");
+  it("keeps one control in one place, flipping its direction rather than moving", async () => {
+    const toggle = () => wrapper.get('[data-testid="code-panel-toggle"]');
 
+    expect(toggle().attributes("aria-label")).toBe("Hide code panel");
+    expect(toggle().attributes("aria-expanded")).toBe("true");
+
+    await toggle().trigger("click");
+    // Same element, same corner — only the action it offers has turned around.
     expect(wrapper.get("#workspace-left").attributes("style")).toContain("display: none");
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith("editor_code_panel_toggled", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: DiagramType.Sequence,
-      interaction_state: "hidden",
-      code_panel_trigger: "panel_footer",
-    });
+    expect(toggle().attributes("aria-label")).toBe("Show code panel");
+    expect(toggle().attributes("aria-expanded")).toBe("false");
 
-    // The stub in the same corner owns the way back.
-    await wrapper.get('[data-testid="code-panel-restore"]').trigger("click");
+    await toggle().trigger("click");
     expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+    expect(toggle().attributes("aria-label")).toBe("Hide code panel");
   });
 
   it("leaves the pane's visibility to AI chat while AI chat is open", async () => {
-    expect(wrapper.find('[data-testid="code-panel-collapse"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(true);
 
     (wrapper.vm as any).openAIChat("ai_prompt");
     (wrapper.vm as any).toggleCodeEditor();
@@ -404,14 +403,14 @@ describe("Workspace code-panel collapse", () => {
     // The pane is back on screen, but through AI chat's own toggle — so the
     // footer control (and its editor_code_panel_toggled event) stays out.
     expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
-    expect(wrapper.find('[data-testid="code-panel-collapse"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false);
 
     // ...and with the pane hidden again it is still AI chat's control, not
-    // ours: no stub either.
+    // ours.
     (wrapper.vm as any).toggleCodeEditor();
     await wrapper.vm.$nextTick();
     expect(wrapper.get("#workspace-left").attributes("style")).toContain("display: none");
-    expect(wrapper.find('[data-testid="code-panel-restore"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false);
   });
 
   it("lets the gutter be dragged to the far left, and closes the pane there", async () => {
@@ -440,7 +439,7 @@ describe("Workspace code-panel collapse", () => {
       code_panel_trigger: "gutter_drag",
     });
     // Whatever closed the pane, the stub is what reopens it.
-    expect(wrapper.find('[data-testid="code-panel-restore"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(true);
   });
 
   it("does not restore into the sliver a collapsing drag left behind", async () => {
@@ -455,7 +454,7 @@ describe("Workspace code-panel collapse", () => {
     dragGutterTo([0, 100]);
     await wrapper.vm.$nextTick();
 
-    await wrapper.get('[data-testid="code-panel-restore"]').trigger("click");
+    await wrapper.get('[data-testid="code-panel-toggle"]').trigger("click");
     await wrapper.vm.$nextTick();
 
     expect(splitCalls.at(-1)).toEqual({ sizes: [25, 75] });
@@ -477,8 +476,8 @@ describe("Workspace code-panel collapse", () => {
       expect.anything(),
     );
 
-    await wrapper.get('[data-testid="code-panel-collapse"]').trigger("click");
-    await wrapper.get('[data-testid="code-panel-restore"]').trigger("click");
+    await wrapper.get('[data-testid="code-panel-toggle"]').trigger("click");
+    await wrapper.get('[data-testid="code-panel-toggle"]').trigger("click");
     await wrapper.vm.$nextTick();
 
     expect(splitCalls.at(-1)).toEqual({ sizes: [45, 55] });

@@ -42,52 +42,34 @@
             class="editor flex flex-col flex-grow"
             style="overflow: hidden;"
           >
-            <div class="flex-grow overflow-auto" style="min-height: 0;">
+            <!-- The toggle floats over this corner, so the scroller keeps a
+                 gutter for it and no line of source ends up underneath. -->
+            <div class="code-pane-scroll flex-grow overflow-auto" style="min-height: 0;">
               <editor/>
-            </div>
-            <!-- The pane's own collapse control. The header button is at the
-                 far top-right, a whole editor away from where the eyes are
-                 while typing; this one sits where the pane ends. Hidden while
-                 AI chat is open, for the same reason the header button is:
-                 that panel owns this pane's visibility then, through its own
-                 toggle and its own event. -->
-            <div
-              v-if="!showAIChat"
-              class="code-panel-footer flex flex-shrink-0 items-center border-t border-gray-200 bg-[#F1F3F4] px-1"
-            >
-              <button
-                type="button"
-                class="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-gray-500 transition-colors duration-200 hover:bg-gray-200 hover:text-gray-700"
-                aria-label="Hide code panel"
-                title="Hide the code panel and give the diagram the full width"
-                data-testid="code-panel-collapse"
-                @click="collapseCodePanel('panel_footer')"
-              >
-                <ChevronDoubleLeftIcon class="h-3.5 w-3.5" />
-                <span>Hide</span>
-              </button>
             </div>
           </div>
           <div id="workspace-right" class="diagram min-w-0 overflow-auto" style="overflow: auto;">
             <DiagramPortal :hide-header="true" />
           </div>
         </div>
-        <!-- What is left of the code panel once it is hidden: a stub in the
-             same bottom-left corner its own Hide button occupied, so the pane
-             comes back from where it went instead of from across the toolbar.
-             Not rendered while AI chat is open — that panel owns this pane's
-             visibility then. -->
+        <!-- The code panel's own toggle: one button, anchored to the corner
+             the panel occupies, that both hides and shows it. It does not
+             move or swap between states — only the chevron turns around and
+             the tooltip names the next action — so the control is always
+             exactly where it was last used. Not rendered while AI chat is
+             open: that panel owns this pane's visibility then. -->
         <button
-          v-if="!showCodeEditor && !showAIChat"
+          v-if="!showAIChat"
           type="button"
-          class="code-panel-restore"
-          aria-label="Show code panel"
-          title="Show the code panel"
-          data-testid="code-panel-restore"
-          @click="showCodePanel('restore_widget')"
+          class="code-panel-toggle"
+          :aria-label="showCodeEditor ? 'Hide code panel' : 'Show code panel'"
+          :aria-expanded="showCodeEditor ? 'true' : 'false'"
+          :title="showCodeEditor ? 'Hide code panel' : 'Show code panel'"
+          data-testid="code-panel-toggle"
+          @click="toggleCodePanel('panel_button')"
         >
-          <ChevronDoubleRightIcon class="h-3.5 w-3.5" />
-          <span>Code</span>
+          <ChevronDoubleLeftIcon v-if="showCodeEditor" class="h-4 w-4" aria-hidden="true" />
+          <ChevronDoubleRightIcon v-else class="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
       <div
@@ -246,10 +228,6 @@
         if (!this.showCodeEditor) return
         this.toggleCodePanel(trigger)
       },
-      showCodePanel(trigger: CodePanelToggleTrigger) {
-        if (this.showCodeEditor) return
-        this.toggleCodePanel(trigger)
-      },
       // split.js has already snapped the pane to zero width by the time this
       // runs (minSize 0 + snapOffset below); closing it here is what turns
       // that into a real collapsed state rather than an invisible pane still
@@ -371,33 +349,38 @@
   min-height: 0;
 }
 
-/* Sits in the corner the code pane collapsed into — same height and same
-   left inset as that pane's own Hide button, so hiding and showing happen in
-   one place. The workspace is position:relative, which anchors this. */
-.code-panel-restore {
+.code-pane-scroll {
+  padding-bottom: 36px;
+}
+
+/* The code panel's toggle. A quiet square that sits in the panel's corner in
+   both states — the workspace is position:relative, which anchors it — so the
+   control never moves out from under the cursor when the panel opens or
+   closes. Icon only: the tooltip and aria-label carry the action. */
+.code-panel-toggle {
   position: absolute;
-  bottom: 0;
-  left: 0;
+  bottom: 8px;
+  left: 8px;
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  height: 21px;
-  padding: 0 0.5rem;
-  border-top: 1px solid #e5e7eb;
-  border-right: 1px solid #e5e7eb;
-  border-top-right-radius: 0.25rem;
-  background-color: #f1f3f4;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 0.375rem;
+  background-color: transparent;
   color: #6b7280;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.code-panel-restore:hover {
-  background-color: #e5e7eb;
+.code-panel-toggle:hover {
+  background-color: rgba(107, 114, 128, 0.14);
   color: #374151;
+}
+
+.code-panel-toggle:focus-visible {
+  outline: 2px solid #6b7280;
+  outline-offset: 1px;
 }
 
 .gutter {

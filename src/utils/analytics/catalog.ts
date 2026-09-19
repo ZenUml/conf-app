@@ -1002,6 +1002,16 @@ export type AnalyticsEventName =
   // this event is the only record that a user hit that wall.
   | "agent_link_identity_resolved"
   | "agent_link_identity_unresolved"
+  // W — headless authorization (design §5/§11 Phase 3). Backend-emitted like
+  // the identity pair above. `_authorized` fires once per completed consent,
+  // carrying how many Atlassian sites the grant reaches (`site_count`);
+  // `_refresh_failed` fires when a rotating refresh token no longer works,
+  // which is the signal that a user must re-consent and the only warning we
+  // get before every headless call for them starts failing; `_revoked` fires
+  // when a grant is dropped, whether the user asked or a refresh died.
+  | "agent_link_oauth_authorized"
+  | "agent_link_oauth_refresh_failed"
+  | "agent_link_oauth_revoked"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1165,6 +1175,12 @@ export type AgentLinkMacroKeySource = "cached" | "discovered";
 // the custom-content type implies; the two disagreeing means something is wrong
 // with our assumptions, not with the page, so we refuse rather than pick one.
 // 'probe_failed' = a Confluence call failed; retryable, unlike the three above.
+// Why an Atlassian grant ended (agent_link_oauth_revoked). 'user' = asked for
+// it; 'refresh_rejected' = the rotating refresh token was refused, so the grant
+// is dead whether the user knows it or not; 'reauthorized' = superseded by a
+// fresh consent for the same user.
+export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
+
 export type AgentLinkIdentityFailure =
   | "no_macro_on_site"
   | "no_extension_node"

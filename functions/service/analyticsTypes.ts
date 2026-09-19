@@ -56,6 +56,9 @@ export const CANONICAL_EVENT_NAME_LIST = [
   // none of). See 2026-09-19-headless-diagram-mcp-design.md §6/§10.
   "agent_link_identity_resolved",
   "agent_link_identity_unresolved",
+  "agent_link_oauth_authorized",
+  "agent_link_oauth_refresh_failed",
+  "agent_link_oauth_revoked",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

@@ -149,8 +149,9 @@ When the user asks Codex to start, own, monitor, or automatically diagnose the s
 # Diagramly checkout
 DATABASE_URL='<local-url>' pnpm dev
 
-# conf-app checkout
-npx wrangler pages dev --port 8789
+# conf-app checkout; keep `dist` as the Pages asset directory so Wrangler does
+# not scan the repository root and node_modules.
+PORT=8789 HOST=127.0.0.1 pnpm wrangler:serve:raw
 ngrok http --authtoken '<token>' --url '<domain>' 8789
 FORGE_TUNNEL=1 VERSION=latest PRODUCT_TYPE=diagramly pnpm exec vite dev --port 8080 --host 127.0.0.1
 forge tunnel

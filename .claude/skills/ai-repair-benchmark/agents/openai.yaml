@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Repair Benchmark"
+  short_description: "分四层统计 AI Repair 的质量、延迟、Token 与费用"
+  default_prompt: "使用 $ai-repair-benchmark 对这份 DSL 进行完整修复测试统计。"
+policy:
+  allow_implicit_invocation: true

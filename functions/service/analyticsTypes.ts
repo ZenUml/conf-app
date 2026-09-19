@@ -51,6 +51,11 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "extension_action_requested",
   "extension_action_succeeded",
   "extension_action_failed",
+  // Headless macro-identity resolution — backend-emitted, unlike every other
+  // agent_link_* event (those come from the macro, which a headless call has
+  // none of). See 2026-09-19-headless-diagram-mcp-design.md §6/§10.
+  "agent_link_identity_resolved",
+  "agent_link_identity_unresolved",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

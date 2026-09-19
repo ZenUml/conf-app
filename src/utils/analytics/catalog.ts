@@ -992,6 +992,16 @@ export type AnalyticsEventName =
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
   | "agent_link_list_performed"
+  // V — headless macro-identity resolution (design
+  // 2026-09-19-headless-diagram-mcp-design.md §6). Emitted by the BACKEND, not
+  // the macro: a headless create has no iframe to report from. `_resolved`
+  // carries `macro_key_source` so a cache-hit rate is readable; `_unresolved`
+  // carries the refusal in `reason` (AgentLinkIdentityFailure). The refusal is
+  // the load-bearing one — a site we cannot identify is a site where creating
+  // a macro would publish a broken extension, so the resolver declines and
+  // this event is the only record that a user hit that wall.
+  | "agent_link_identity_resolved"
+  | "agent_link_identity_unresolved"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1138,6 +1148,28 @@ export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "e
 // estate (no space/page filter). Search (agent_link_search_performed) is always
 // site-wide by design, so it has no scope field.
 export type AgentLinkListScope = "page" | "space" | "site";
+
+// Where a resolved headless macro identity came from (agent_link_identity_resolved).
+// 'cached' = reused a previously resolved identity for this cloudId; 'discovered'
+// = lifted fresh from an existing macro node on the site. A low 'discovered'
+// share means the cache is doing its job; a rising one means it is not.
+export type AgentLinkMacroKeySource = "cached" | "discovered";
+
+// Why the resolver refused to hand back an identity (agent_link_identity_unresolved).
+// 'no_macro_on_site' = the site has no ZenUML custom content to lift a key from,
+// so the variant and environment cannot be proven — the expected outcome on a
+// brand-new tenant, and a refusal rather than a guess by design.
+// 'no_extension_node' = custom content exists but no page ADF references it with
+// an extension node (orphaned content).
+// 'app_id_mismatch' = the lifted extensionKey names an appId that is not the one
+// the custom-content type implies; the two disagreeing means something is wrong
+// with our assumptions, not with the page, so we refuse rather than pick one.
+// 'probe_failed' = a Confluence call failed; retryable, unlike the three above.
+export type AgentLinkIdentityFailure =
+  | "no_macro_on_site"
+  | "no_extension_node"
+  | "app_id_mismatch"
+  | "probe_failed";
 
 // Graph (DrawIO) editor chrome. `diagram` is Atlas/standard; `board` is
 // Sketch. Unknown persisted values must normalize to `diagram`.

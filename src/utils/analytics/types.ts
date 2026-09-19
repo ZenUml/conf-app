@@ -22,6 +22,8 @@ import type {
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
+  AgentLinkMacroKeySource,
+  AgentLinkIdentityFailure,
   ActivationPath,
   GalleryOpenTrigger,
   SessionReplayEventSource,
@@ -694,7 +696,8 @@ export type AnalyticsProperties = {
     | string
     | AgentLinkDisconnectReason
     | AgentLinkGuardrailRejectReason
-    | AgentLinkSessionSuspendReason;
+    | AgentLinkSessionSuspendReason
+    | AgentLinkIdentityFailure;
   session_duration_ms?: number;
   edits_count?: number;
   // #314 (agent_link_session_expired only): true when the session had
@@ -742,6 +745,10 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  // V — headless macro-identity resolution (agent_link_identity_resolved only).
+  // The refusal side rides the shared `reason` field above as an
+  // AgentLinkIdentityFailure.
+  macro_key_source?: AgentLinkMacroKeySource;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

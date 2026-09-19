@@ -92,8 +92,8 @@ binding = "AI"
 # Agent Link headless OAuth — encrypted 3LO grant store (functions/agent-link/
 # oauth/tokenStore.ts). Refresh tokens are AES-GCM sealed with the
 # OAUTH_GRANT_SECRET Worker secret before they reach KV.
-# TODO(agent-link-oauth): create with `wrangler kv namespace create OAUTH_GRANT_KV` on the staging project and paste the id
+# Namespace "agent-link-oauth-grants-stg" (created 2026-09-19).
 [[env.production.kv_namespaces]]
 binding = "OAUTH_GRANT_KV"
-id = "REPLACE_WITH_NAMESPACE_ID"
+id = "bd0839878af744eb8057c8d094456dcb"
 

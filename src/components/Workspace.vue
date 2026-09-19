@@ -42,8 +42,6 @@
             class="editor flex flex-col flex-grow"
             style="overflow: hidden;"
           >
-            <!-- The toggle floats over this corner, so the scroller keeps a
-                 gutter for it and no line of source ends up underneath. -->
             <div class="code-pane-scroll flex-grow overflow-auto" style="min-height: 0;">
               <editor/>
             </div>
@@ -349,7 +347,12 @@
   min-height: 0;
 }
 
-.code-pane-scroll {
+/* The toggle floats over the pane's bottom-left corner, so the source gets
+   the same amount of trailing space and no line ends up under the button.
+   The padding goes on CodeMirror's own content, not on the pane around it:
+   put it on the pane and the gap falls outside .cm-editor, which is what
+   paints the editor background, leaving a bare strip under the dark theme. */
+.code-pane-scroll .cm-content {
   padding-bottom: 36px;
 }
 
@@ -368,13 +371,17 @@
   width: 28px;
   height: 28px;
   border-radius: 0.375rem;
-  background-color: transparent;
+  /* Unlike Claude's sidebar toggle this one sits over content, not over
+     chrome — dark CodeMirror on one side, the light diagram canvas on the
+     other — so it carries a quiet chip of its own to stay legible on both. */
+  border: 1px solid #e5e7eb;
+  background-color: rgba(255, 255, 255, 0.88);
   color: #6b7280;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .code-panel-toggle:hover {
-  background-color: rgba(107, 114, 128, 0.14);
+  background-color: #ffffff;
   color: #374151;
 }
 

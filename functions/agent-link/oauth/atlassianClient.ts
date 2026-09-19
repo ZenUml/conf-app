@@ -35,12 +35,21 @@ const ACCESSIBLE_RESOURCES_URL = 'https://api.atlassian.com/oauth/token/accessib
  * `offline_access` is what makes the grant outlive the browser: without it
  * Atlassian returns no refresh token, and "works with the page closed" would
  * last exactly one access-token lifetime.
+ *
+ * `read:me` is what lets the callback learn *who* consented. The grant store is
+ * keyed by Atlassian account id, and the only trustworthy source for that is
+ * `GET api.atlassian.com/me` with the new token — never the auth-code JWT's
+ * `sub`, which arrives unverified in a query string. Learned live 2026-09-19:
+ * without this scope /me answers 401 and the callback correctly refuses to
+ * file the grant. It lives under the console's separate "User identity API",
+ * not the Confluence API, so it has to be registered there too.
  */
 export const REQUIRED_SCOPES = [
   'read:page:confluence',
   'write:page:confluence',
   'read:custom-content:confluence',
   'write:custom-content:confluence',
+  'read:me',
   'offline_access',
 ] as const;
 

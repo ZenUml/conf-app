@@ -185,6 +185,19 @@ export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 // surfaces stay comparable on the same axis.
 export type GalleryOpenTrigger = "auto_first_open" | "manual";
 
+// Which control the user reached for to hide/show the editor's left code
+// panel. 'header_button' = the toolbar's Code button; 'panel_footer' = the
+// collapse button in the panel's own bottom-left corner; 'gutter_drag' = the
+// user dragged the split gutter to the far left and the pane snapped shut.
+// Kept on one event (editor_code_panel_toggled) rather than split into three,
+// because the question is "how often is the panel hidden", with "by which
+// affordance" as a breakdown — and a drag-collapse has no matching
+// drag-expand, so a per-control funnel would be asymmetric by construction.
+export type CodePanelToggleTrigger =
+  | "header_button"
+  | "panel_footer"
+  | "gutter_drag";
+
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a macro create/edit start forced recording independently of the Forge
 // flag cohort. See macro_create_started / macro_edit_started below.
@@ -1027,10 +1040,11 @@ export type AnalyticsEventName =
   // Editor code-panel collapse (the left source pane of the text-DSL editor:
   // sequence / mermaid / plantuml / markdown). The user hides the code to give
   // the diagram preview the full width, and shows it again to edit. Fires once
-  // per user-initiated toggle from the header's Code button;
+  // per user-initiated toggle, from any of the panel's collapse controls;
   // `interaction_state` carries the state the panel moved INTO ('hidden' on
   // collapse, 'shown' on expand), so collapse rate is a groupBy rather than a
-  // diff of two event names. The AI-chat panel's own code toggle keeps its
+  // diff of two event names, and `code_panel_trigger` carries which control
+  // did it (toolbar button / panel footer button / dragging the gutter shut). The AI-chat panel's own code toggle keeps its
   // existing `ai_chat_code_visibility_toggled` event — same underlying pane,
   // but a different surface and a different question ("does AI chat need the
   // code visible?"), so the two are not merged.

@@ -4,9 +4,7 @@
       <div class="flex-shrink-0">
         <Header
           :ai-chat-open="showAIChat"
-          :code-panel-visible="showCodeEditor"
           @toggle-ai-chat="toggleAIChat"
-          @toggle-code-panel="toggleCodePanel('header_button')"
         />
       </div>
       <div class="workspace flex-grow split" style="overflow: hidden; position: relative;">

@@ -214,30 +214,3 @@ export const AutoOpenStarterGallery: Story = {
   ],
 }
 
-// ---------------------------------------------------------------------------
-// Code panel collapsed
-// ---------------------------------------------------------------------------
-
-/**
- * The left source pane is collapsed, so the diagram preview has the editor's
- * full width — and the toolbar drops the Code button entirely. Hiding is a
- * toolbar action; showing is not, because the control that brings the pane
- * back lives in the corner the pane collapsed into (Workspace.vue renders it,
- * outside this component). `codePanelVisible` is owned by Workspace.vue too —
- * the header only renders the control and reports the click.
- */
-export const CodePanelCollapsed: Story = {
-  args: { codePanelVisible: false },
-  decorators: [
-    () => {
-      setupStore({
-        diagramType: DiagramType.Sequence,
-        title: 'Payment Flow',
-        code: 'Client->Server: pay()\nServer-->Client: receipt',
-        isNew: false,
-        id: 'cc-123456',
-      })
-      return { template: '<story />' }
-    },
-  ],
-}

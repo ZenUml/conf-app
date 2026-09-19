@@ -76,49 +76,18 @@ describe('Header', () => {
     expect(wrapper.emitted('toggle-ai-chat')).toHaveLength(1)
   })
 
-  it('offers the code-panel toggle and emits it', async () => {
+  it('carries no code-panel control at all — the panel owns its own', async () => {
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.isNew = false
-    const wrapper = mount(Header, {
-      props: { codePanelVisible: true },
-      global: { plugins: [store] },
-    })
+    const wrapper = mount(Header, { global: { plugins: [store] } })
     await flushPromises()
 
-    const toggle = wrapper.get('[data-testid="code-panel-toggle"]')
-    expect(toggle.text()).toBe('Hide code')
-    expect(toggle.attributes('aria-label')).toBe('Hide code panel')
-    await toggle.trigger('click')
-    expect(wrapper.emitted('toggle-code-panel')).toHaveLength(1)
-  })
-
-  it('withdraws the toggle once the pane is hidden, leaving the way back to Workspace', async () => {
-    store.commit('updateDiagramType', DiagramType.Sequence)
-    store.state.diagram.isNew = false
-    const wrapper = mount(Header, {
-      props: { codePanelVisible: true },
-      global: { plugins: [store] },
-    })
-    await flushPromises()
-    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(true)
-
-    // Workspace owns the state, so the header only reacts when it hands the
-    // new value back down. Hidden pane -> no toolbar control at all: the stub
-    // Workspace renders in the collapsed pane's corner is what reopens it.
-    await wrapper.setProps({ codePanelVisible: false })
+    // Hiding and showing the source pane both happen at the pane's own edge
+    // (Workspace.vue renders those controls). A toggle creeping back into the
+    // toolbar would put a third, distant control on the same state.
     expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false)
-  })
-
-  it('hides the code-panel toggle while AI Chat owns that control', async () => {
-    store.commit('updateDiagramType', DiagramType.Sequence)
-    store.state.diagram.isNew = false
-    const wrapper = mount(Header, {
-      props: { aiChatOpen: true, codePanelVisible: false },
-      global: { plugins: [store] },
-    })
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Hide code')
+    expect(wrapper.text()).not.toContain('Show code')
   })
 
   it('tracks each AI Chat button visibility transition without counting re-renders', async () => {

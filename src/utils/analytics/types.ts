@@ -24,6 +24,7 @@ import type {
   AgentLinkListScope,
   ActivationPath,
   GalleryOpenTrigger,
+  CodePanelToggleTrigger,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
   GraphEditorModeValue,
@@ -232,7 +233,15 @@ export type AnalyticsProperties = {
   turn_index?: number;
   input_source?: "typed" | "suggestion" | "syntax_repair";
   retry_after_failure?: boolean;
+  // Shared by the AI-chat open/close + code-visibility toggles and by
+  // editor_code_panel_toggled (the editor's left source pane). Always the
+  // state the surface moved INTO, never the state it came from.
   interaction_state?: "opened" | "closed" | "shown" | "hidden";
+  // editor_code_panel_toggled only: which affordance the user used. Separate
+  // from `interaction_state` because the two answer different questions — how
+  // often the panel is hidden vs. which control gets reached for — and only
+  // 'gutter_drag' is one-way (there is no drag-open).
+  code_panel_trigger?: CodePanelToggleTrigger;
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;
   version_number?: number;

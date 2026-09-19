@@ -185,6 +185,19 @@ export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 // surfaces stay comparable on the same axis.
 export type GalleryOpenTrigger = "auto_first_open" | "manual";
 
+// Which control the user reached for to hide/show the editor's left code
+// panel. 'panel_button' is the toggle pinned to the panel's bottom-left
+// corner — one button that both hides and shows, so it is not two values;
+// 'gutter_drag' is the split gutter dragged to the far left until the pane
+// snapped shut. Both live at the panel's edge: the toolbar carries no control
+// for this pane at all.
+// Kept on one event (editor_code_panel_toggled) rather than split per control,
+// because the question is "how often is the panel hidden", with "by which
+// affordance" as a breakdown. Which direction a given event went is
+// `interaction_state`, never the trigger — a drag only ever closes the panel,
+// so pairing the two values into a funnel would be lopsided by construction.
+export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
+
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a macro create/edit start forced recording independently of the Forge
 // flag cohort. See macro_create_started / macro_edit_started below.
@@ -1053,6 +1066,18 @@ export type AnalyticsEventName =
   // auto-open-on-empty-macro surface exists yet, so `trigger: 'auto_first_open'`
   // is reserved for when one is built.
   | "editor_starter_shown"
+  // Editor code-panel collapse (the left source pane of the text-DSL editor:
+  // sequence / mermaid / plantuml / markdown). The user hides the code to give
+  // the diagram preview the full width, and shows it again to edit. Fires once
+  // per user-initiated toggle, from any of the panel's collapse controls;
+  // `interaction_state` carries the state the panel moved INTO ('hidden' on
+  // collapse, 'shown' on expand), so collapse rate is a groupBy rather than a
+  // diff of two event names, and `code_panel_trigger` carries which control
+  // did it (toolbar button / panel footer button / dragging the gutter shut). The AI-chat panel's own code toggle keeps its
+  // existing `ai_chat_code_visibility_toggled` event — same underlying pane,
+  // but a different surface and a different question ("does AI chat need the
+  // code visible?"), so the two are not merged.
+  | "editor_code_panel_toggled"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A

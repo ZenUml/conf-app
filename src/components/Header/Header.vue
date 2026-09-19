@@ -218,6 +218,9 @@ export default {
       if (block) return PUBLISH_BLOCK_MESSAGES[block] || 'Publishing is unavailable for this diagram here.';
       return 'Add a diagram title to publish';
     },
+    // Hidden while AI chat is open: that panel carries its own Hide/Show code
+    // button for the same pane, and two controls for one pane in view at once
+    // reads as two different things.
     aiChatAvailable: function () {
       return this.aiChatEnabled && this.diagramType !== DiagramType.Graph && this.diagramType !== DiagramType.Markdown;
     },

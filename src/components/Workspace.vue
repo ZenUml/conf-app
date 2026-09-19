@@ -42,7 +42,7 @@
             class="editor flex flex-col flex-grow"
             style="overflow: hidden;"
           >
-            <div class="flex-grow overflow-auto" style="min-height: 0;">
+            <div class="code-pane-scroll flex-grow overflow-auto" style="min-height: 0;">
               <editor/>
             </div>
           </div>
@@ -50,6 +50,25 @@
             <DiagramPortal :hide-header="true" />
           </div>
         </div>
+        <!-- The code panel's own toggle: one button, anchored to the corner
+             the panel occupies, that both hides and shows it. It does not
+             move or swap between states — only the chevron turns around and
+             the tooltip names the next action — so the control is always
+             exactly where it was last used. Not rendered while AI chat is
+             open: that panel owns this pane's visibility then. -->
+        <button
+          v-if="!showAIChat"
+          type="button"
+          class="code-panel-toggle"
+          :aria-label="showCodeEditor ? 'Hide code panel' : 'Show code panel'"
+          :aria-expanded="showCodeEditor ? 'true' : 'false'"
+          :title="showCodeEditor ? 'Hide code panel' : 'Show code panel'"
+          data-testid="code-panel-toggle"
+          @click="toggleCodePanel('panel_button')"
+        >
+          <ChevronDoubleLeftIcon v-if="showCodeEditor" class="h-4 w-4" aria-hidden="true" />
+          <ChevronDoubleRightIcon v-else class="h-4 w-4" aria-hidden="true" />
+        </button>
       </div>
       <div
         v-show="!showAIChat"
@@ -72,9 +91,31 @@
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
   import ForeignDialectHint from '@/components/ForeignDialectHint.vue'
   import AIChatPanel from '@/components/AIChat/AIChatPanel.vue'
+  import ChevronDoubleLeftIcon from '@heroicons/vue/24/outline/ChevronDoubleLeftIcon'
+  import ChevronDoubleRightIcon from '@heroicons/vue/24/outline/ChevronDoubleRightIcon'
   import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+  import type { CodePanelToggleTrigger } from '@/utils/analytics/catalog'
   import { DiagramType } from '@/model/Diagram/Diagram'
   import { getCodeFromDiagram, getStoreUpdateAction } from '@/model/Diagram/DiagramTypeConfig'
+
+  // split.js reports pane sizes as percentages of the workspace width.
+  //
+  // A drag that ends with the code pane this narrow is a drag meant to close
+  // it: what is left is a few unreadable columns plus a gutter with nothing
+  // behind it, and the header button would still read "Hide code".
+  const CODE_PANEL_COLLAPSE_AT_PERCENT = 6
+  // A pane narrower than this is never remembered as the width to restore to
+  // — reopening into a sliver looks broken. The gap between the two numbers
+  // is deliberate: a pane dragged to 7-9% stays exactly where it was put,
+  // but reopening after a collapse returns to the last width worth having.
+  const MIN_RESTORABLE_CODE_PANEL_PERCENT = 10
+  // How close to the left edge (in px) the gutter has to get before split.js
+  // snaps the pane to its 0 minimum. Generous on purpose: this is the whole
+  // "drag it away" gesture, and the pane is closed for real on drag end.
+  const CODE_PANEL_SNAP_OFFSET_PX = 60
+  // The diagram keeps a usable width wherever the gutter is dropped. Only the
+  // code pane collapses; there is no symmetric "hide the diagram".
+  const MIN_DIAGRAM_PANEL_PX = 200
 
   export default {
     name: 'Workspace',
@@ -88,6 +129,10 @@
         syntaxRepairRequestId: 0,
         aiChatOpenedAt: 0,
         splitInstance: null as ReturnType<typeof Split> | null,
+        // Last pane split the user actually had, so collapsing the code panel
+        // (or opening AI chat, which also tears the split down) and coming back
+        // restores their width instead of snapping to the 35/65 default.
+        splitSizes: [35, 65] as number[],
       }
     },
     computed: {
@@ -162,6 +207,37 @@
         }
         this.destroySplit()
       },
+      // Every deliberate show/hide of the code pane funnels through here —
+      // the header's Code button, the pane's footer button, and a gutter
+      // dragged shut. Same pane as AI chat's "Hide code" toggle, but its own
+      // event: this one is about giving the preview the full width while
+      // authoring, not about what AI chat needs on screen.
+      toggleCodePanel(trigger: CodePanelToggleTrigger) {
+        this.toggleCodeEditor()
+        trackAnalyticsEvent('editor_code_panel_toggled', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: this.diagramType || 'none',
+          interaction_state: this.showCodeEditor ? 'shown' : 'hidden',
+          code_panel_trigger: trigger,
+        })
+      },
+      collapseCodePanel(trigger: CodePanelToggleTrigger) {
+        if (!this.showCodeEditor) return
+        this.toggleCodePanel(trigger)
+      },
+      // split.js has already snapped the pane to zero width by the time this
+      // runs (minSize 0 + snapOffset below); closing it here is what turns
+      // that into a real collapsed state rather than an invisible pane still
+      // holding a gutter.
+      onSplitDragEnd(sizes: number[]) {
+        if (!Array.isArray(sizes) || sizes.length !== 2) return
+        if (sizes[0] <= CODE_PANEL_COLLAPSE_AT_PERCENT) {
+          this.collapseCodePanel('gutter_drag')
+          return
+        }
+        this.rememberSplitSizes(sizes)
+      },
       applyAIChatCode(code: string) {
         const action = getStoreUpdateAction(this.diagramType)
         if (!action) return
@@ -186,12 +262,33 @@
         this.$nextTick(() => {
           if (!document.querySelector('#workspace-left') || !document.querySelector('#workspace-right')) return
           this.destroySplit()
-          this.splitInstance = Split(['#workspace-left', '#workspace-right'], { sizes: [35, 65] })
+          this.splitInstance = Split(['#workspace-left', '#workspace-right'], {
+            sizes: this.splitSizes,
+            // 0 lets the code pane be dragged all the way shut; the diagram
+            // keeps a floor so the gutter never ends up pinned to the right.
+            minSize: [0, MIN_DIAGRAM_PANEL_PX],
+            // Snapping only applies to the collapsible side.
+            snapOffset: [CODE_PANEL_SNAP_OFFSET_PX, 0],
+            onDragEnd: this.onSplitDragEnd,
+          })
         })
       },
       destroySplit() {
+        if (this.splitInstance) {
+          // getSizes() is the only place the dragged widths live — split.js
+          // strips the inline styles on destroy(), so read them first.
+          this.rememberSplitSizes(this.splitInstance.getSizes?.())
+        }
         this.splitInstance?.destroy()
         this.splitInstance = null
+      },
+      rememberSplitSizes(sizes: number[] | undefined) {
+        if (!Array.isArray(sizes) || sizes.length !== 2) return
+        if (!sizes.every(size => Number.isFinite(size))) return
+        // A collapsed (or nearly collapsed) pane is a state, not a width:
+        // remembering it would restore the panel into an unusable sliver.
+        if (sizes[0] < MIN_RESTORABLE_CODE_PANEL_PERCENT || sizes[1] <= 0) return
+        this.splitSizes = sizes
       },
     },
     async mounted () {
@@ -207,6 +304,8 @@
       SyntaxErrorBox,
       ForeignDialectHint,
       AIChatPanel,
+      ChevronDoubleLeftIcon,
+      ChevronDoubleRightIcon,
     }
   }
 </script>
@@ -246,6 +345,49 @@
 #workspace-right > .generic > .screen-capture-content {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* The toggle floats over the pane's bottom-left corner, so the source gets
+   the same amount of trailing space and no line ends up under the button.
+   The padding goes on CodeMirror's own content, not on the pane around it:
+   put it on the pane and the gap falls outside .cm-editor, which is what
+   paints the editor background, leaving a bare strip under the dark theme. */
+.code-pane-scroll .cm-content {
+  padding-bottom: 36px;
+}
+
+/* The code panel's toggle. A quiet square that sits in the panel's corner in
+   both states — the workspace is position:relative, which anchors it — so the
+   control never moves out from under the cursor when the panel opens or
+   closes. Icon only: the tooltip and aria-label carry the action. */
+.code-panel-toggle {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 0.375rem;
+  /* Unlike Claude's sidebar toggle this one sits over content, not over
+     chrome — dark CodeMirror on one side, the light diagram canvas on the
+     other — so it carries a quiet chip of its own to stay legible on both. */
+  border: 1px solid #e5e7eb;
+  background-color: rgba(255, 255, 255, 0.88);
+  color: #6b7280;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.code-panel-toggle:hover {
+  background-color: #ffffff;
+  color: #374151;
+}
+
+.code-panel-toggle:focus-visible {
+  outline: 2px solid #6b7280;
+  outline-offset: 1px;
 }
 
 .gutter {

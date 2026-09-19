@@ -283,8 +283,8 @@ Still open, and blocked on §12.6: our authorization server — RFC 8414 metadat
    - **A hosted provider** (Auth0 / WorkOS / Stytch) as our AS, with Atlassian upstream. Much less to build and they already do DCR. Costs a vendor, a bill, and a third party in the path of end-user authorization — which lands straight back in §12.2's P&S declaration.
    - **Defer the AS and ship Phase 4's read tools against the live relay only.** Headless reads stay unavailable, but it unblocks everything else while this is decided.
 
-   No recommendation yet; it turns on how much we want to own versus how fast we want it, and I do not have the cost or appetite input to call it.
-6. **Whether this warrants an ADR.** It reverses two locked decisions of a prior design; `docs/adr/0003-agent-link-mints-its-own-short-lived-token.md` is the closest existing record and is now partly superseded.
+   **Decided 2026-09-19: build our own, minimal.** See [ADR 0008](../../adr/0008-agent-link-runs-its-own-authorization-server.md) — the deciding factor is that a hosted AS becomes a second custodian of the Atlassian refresh tokens §12.2 already makes us declare, not the code cost.
+6. **Whether this warrants an ADR.** Yes — [ADR 0008](../../adr/0008-agent-link-runs-its-own-authorization-server.md) records the authorization-server decision and supersedes ADR 0003 Decision 3 for the headless actor only; Decisions 1–2 of 0003 stand for the live relay.
 
 ---
 

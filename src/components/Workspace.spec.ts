@@ -13,15 +13,30 @@ vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
 // Workspace only calls Split() when forgeIndex has set window.split, which no
 // test below does except the split-sizes one — so this mock is inert for the
 // rest of the file.
+type SplitOptions = {
+  sizes: number[];
+  minSize?: number[];
+  snapOffset?: number[];
+  onDragEnd?: (sizes: number[]) => void;
+};
 const splitCalls: Array<{ sizes: number[] }> = [];
+const splitOptions: SplitOptions[] = [];
 const splitDestroy = vi.fn();
 let splitSizesFromDrag = [35, 65];
 vi.mock("split.js", () => ({
-  default: (_elements: string[], options: { sizes: number[] }) => {
+  default: (_elements: string[], options: SplitOptions) => {
     splitCalls.push({ sizes: options.sizes });
+    splitOptions.push(options);
     return { getSizes: () => splitSizesFromDrag, destroy: splitDestroy };
   },
 }));
+
+// Drives split.js's own drag-end callback with the sizes the drag produced,
+// which is the only signal Workspace gets that the gutter was let go of.
+function dragGutterTo(sizes: number[]) {
+  splitSizesFromDrag = sizes;
+  splitOptions.at(-1)?.onDragEnd?.(sizes);
+}
 
 const ISSUE_373_REPRO = `@startuml
 autonumber
@@ -290,6 +305,7 @@ describe("Workspace code-panel collapse", () => {
   beforeEach(() => {
     vi.mocked(trackAnalyticsEvent).mockClear();
     splitCalls.length = 0;
+    splitOptions.length = 0;
     splitDestroy.mockClear();
     splitSizesFromDrag = [35, 65];
     delete (window as any).split;
@@ -321,6 +337,7 @@ describe("Workspace code-panel collapse", () => {
       surface: "editor",
       macro_type: DiagramType.Sequence,
       interaction_state: "hidden",
+      code_panel_trigger: "header_button",
     });
 
     vi.mocked(trackAnalyticsEvent).mockClear();
@@ -333,6 +350,7 @@ describe("Workspace code-panel collapse", () => {
       surface: "editor",
       macro_type: DiagramType.Sequence,
       interaction_state: "shown",
+      code_panel_trigger: "header_button",
     });
   });
 
@@ -344,7 +362,7 @@ describe("Workspace code-panel collapse", () => {
     expect(splitCalls).toEqual([{ sizes: [35, 65] }]);
 
     // The user drags the gutter, then collapses the pane.
-    splitSizesFromDrag = [20, 80];
+    dragGutterTo([20, 80]);
     await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
     expect(splitDestroy).toHaveBeenCalled();
 
@@ -352,5 +370,105 @@ describe("Workspace code-panel collapse", () => {
     await wrapper.vm.$nextTick();
 
     expect(splitCalls.at(-1)).toEqual({ sizes: [20, 80] });
+  });
+
+  it("collapses from the control in the panel's own bottom-left corner", async () => {
+    await wrapper.get('[data-testid="code-panel-collapse"]').trigger("click");
+
+    expect(wrapper.get("#workspace-left").attributes("style")).toContain("display: none");
+    expect(wrapper.get('[data-testid="header-code-panel-visible"]').text()).toBe("false");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("editor_code_panel_toggled", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: DiagramType.Sequence,
+      interaction_state: "hidden",
+      code_panel_trigger: "panel_footer",
+    });
+
+    // The header button still owns the way back.
+    await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
+    expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+  });
+
+  it("leaves the pane's visibility to AI chat while AI chat is open", async () => {
+    expect(wrapper.find('[data-testid="code-panel-collapse"]').exists()).toBe(true);
+
+    (wrapper.vm as any).openAIChat("ai_prompt");
+    (wrapper.vm as any).toggleCodeEditor();
+    await wrapper.vm.$nextTick();
+
+    // The pane is back on screen, but through AI chat's own toggle — so the
+    // footer control (and its editor_code_panel_toggled event) stays out.
+    expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+    expect(wrapper.find('[data-testid="code-panel-collapse"]').exists()).toBe(false);
+  });
+
+  it("lets the gutter be dragged to the far left, and closes the pane there", async () => {
+    wrapper.unmount();
+    (window as any).split = true;
+    wrapper = mountWorkspace();
+    await wrapper.vm.$nextTick();
+
+    // A code pane that cannot reach 0 cannot be dragged shut, and without the
+    // snap the user would have to land on the edge pixel-perfectly.
+    expect(splitOptions.at(-1)?.minSize?.[0]).toBe(0);
+    expect(splitOptions.at(-1)?.snapOffset?.[0]).toBeGreaterThan(0);
+    // ...while the diagram keeps a floor: only the code pane collapses.
+    expect(splitOptions.at(-1)?.minSize?.[1]).toBeGreaterThan(0);
+
+    dragGutterTo([0, 100]);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get("#workspace-left").attributes("style")).toContain("display: none");
+    expect(wrapper.get('[data-testid="header-code-panel-visible"]').text()).toBe("false");
+    expect(splitDestroy).toHaveBeenCalled();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("editor_code_panel_toggled", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: DiagramType.Sequence,
+      interaction_state: "hidden",
+      code_panel_trigger: "gutter_drag",
+    });
+  });
+
+  it("does not restore into the sliver a collapsing drag left behind", async () => {
+    wrapper.unmount();
+    (window as any).split = true;
+    wrapper = mountWorkspace();
+    await wrapper.vm.$nextTick();
+
+    // A real width first, so there is something to come back to.
+    dragGutterTo([25, 75]);
+    // Then the user drags the gutter away and the pane snaps shut.
+    dragGutterTo([0, 100]);
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(splitCalls.at(-1)).toEqual({ sizes: [25, 75] });
+  });
+
+  it("keeps an ordinary drag's width", async () => {
+    wrapper.unmount();
+    (window as any).split = true;
+    wrapper = mountWorkspace();
+    await wrapper.vm.$nextTick();
+
+    dragGutterTo([45, 55]);
+    await wrapper.vm.$nextTick();
+
+    // No collapse: the pane is still there.
+    expect(wrapper.get("#workspace-left").attributes("style")).not.toContain("display: none");
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      "editor_code_panel_toggled",
+      expect.anything(),
+    );
+
+    await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
+    await wrapper.get('[data-testid="header-toggle-code-panel"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(splitCalls.at(-1)).toEqual({ sizes: [45, 55] });
   });
 });

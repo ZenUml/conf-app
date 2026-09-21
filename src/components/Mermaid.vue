@@ -28,7 +28,7 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
-import { hasLayout, awaitLayout } from '@/utils/renderGate/documentLayout';
+import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 
@@ -39,6 +39,7 @@ export default {
     return {
       svg: null,
       renderGeneration: 0,
+      layoutWaitController: null,
     }
   },
   computed: {
@@ -62,11 +63,15 @@ export default {
   beforeUnmount() {
     // An already queued render may finish after this component is gone.
     this.renderGeneration++;
+    this.layoutWaitController?.abort();
+    this.layoutWaitController = null;
   },
   watch: {
     async mermaidCode(newVal) {
       if (!newVal) {
         this.renderGeneration++;
+        this.layoutWaitController?.abort();
+        this.layoutWaitController = null;
         this.svg = null;
       } else {
         await this.renderAndApply(newVal);
@@ -79,8 +84,18 @@ export default {
       return this.$refs.viewport?.attach();
     },
     async renderAndApply(code, measureInitialAttempt = false) {
+      this.layoutWaitController?.abort();
+      const layoutWaitController = new AbortController();
+      this.layoutWaitController = layoutWaitController;
       const generation = ++this.renderGeneration;
-      const svg = await this.render(code, measureInitialAttempt);
+      let svg;
+      try {
+        svg = await this.render(code, measureInitialAttempt, layoutWaitController.signal);
+      } finally {
+        if (this.layoutWaitController === layoutWaitController) {
+          this.layoutWaitController = null;
+        }
+      }
       // Latest request wins. This also prevents a queued result from writing
       // into a component that changed diagram type or was unmounted.
       if (!svg || generation !== this.renderGeneration || this.mermaidCode !== code) {
@@ -119,28 +134,31 @@ export default {
       return message.includes('svg element not in render tree')
         || /matrix (?:is )?(?:not |non[- ]?)invertible/i.test(message);
     },
-    async render(code, measureInitialAttempt = false) {
+    async render(code, measureInitialAttempt = false, signal) {
       const firstAttempt = () => measureInitialAttempt
         ? renderPerf.time('render', () => this.runMermaid(code))
         : this.runMermaid(code);
       try {
         return await firstAttempt();
       } catch (error) {
-        // mermaid measures a temp node with getBBox. In a document with no
-        // layout box that measurement throws `svg element not in render tree`
-        // and the same input renders cleanly once the box exists (reproduced
-        // against mermaid 11.12.2 in Chrome — see renderGate/documentLayout).
-        // Production also showed this exact transient while body layout was
-        // present. Retry it once after the queue has cleaned up; deterministic
-        // parser errors still fail immediately.
-        if (hasLayout() && !this.isTransientRenderError(error)) {
+        if (signal?.aborted) return;
+        // Parser and module-load failures are deterministic here. Waiting for
+        // layout cannot change them, so preserve the original failure signal.
+        if (!this.isTransientRenderError(error)) {
           this.reportCrash(error);
           return;
         }
-        await awaitLayout();
+        // Mermaid's own failure condition is a 0 x 0 SVG text getBBox(), not
+        // merely a missing body rect. Wait until that exact measurement works.
+        // There is deliberately no ten-second deadline: a collapsed or
+        // virtualised Confluence macro can stay hidden longer, and PR #691's
+        // timed retry produced the same guaranteed failure a second time.
+        const measurable = await awaitSvgTextLayout({ signal });
+        if (!measurable || signal?.aborted) return;
         try {
           return await this.runMermaid(code);
         } catch (retryError) {
+          if (signal?.aborted) return;
           this.reportCrash(retryError);
         }
       }

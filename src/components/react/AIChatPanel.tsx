@@ -31,6 +31,11 @@ import {
 } from "@/services/GenerateService";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import type { MacroTypeValue } from "@/utils/analytics/catalog";
+import {
+  AI_CHAT_MODEL_STORAGE_KEY,
+  DEFAULT_AI_CHAT_MODEL,
+  resolveConfiguredAiModel,
+} from "@/utils/aiModelConfig";
 import "@/assets/ai-chat.css";
 
 export type { AIChatMessage };
@@ -45,6 +50,7 @@ export interface AIChatPanelProps {
   diagramTitle?: string;
   diagramlyDiagramId?: string;
   initialMessages?: AIChatMessage[];
+  model?: string;
   onClose: () => void;
   onToggleCode?: () => void;
   onSend?: (prompt: string) => void;
@@ -136,6 +142,7 @@ export default function AIChatPanel({
   diagramTitle = "",
   diagramlyDiagramId = "",
   initialMessages = [],
+  model = DEFAULT_AI_CHAT_MODEL,
   onClose,
   onToggleCode,
   onSend,
@@ -166,6 +173,7 @@ export default function AIChatPanel({
   const activeStageRef = useRef<AIChatSessionStage | null>(null);
   const activeRequestStartedAtRef = useRef(0);
   const activeRequestKindRef = useRef<AIChatChangeKind | null>(null);
+  const activeRequestModelRef = useRef<string | undefined>(undefined);
   const activeDiagramIdRef = useRef(diagramlyDiagramId.trim());
   const activeCodeRef = useRef(currentCode);
   const activeVersionIdRef = useRef("");
@@ -391,6 +399,9 @@ export default function AIChatPanel({
           : 0,
         chat_message_count: messageCountRef.current,
         change_kind: activeRequestKindRef.current || "request",
+        ...(activeRequestModelRef.current
+          ? { ai_model: activeRequestModelRef.current }
+          : {}),
       });
     }
     if (restoreStartedAtRef.current && restoringVersionIdRef.current) {
@@ -410,6 +421,7 @@ export default function AIChatPanel({
     activeStageRef.current = null;
     activeRequestStartedAtRef.current = 0;
     activeRequestKindRef.current = null;
+    activeRequestModelRef.current = undefined;
     restoreStartedAtRef.current = 0;
     restoringVersionIdRef.current = "";
     restoringActionRef.current = null;
@@ -519,10 +531,15 @@ export default function AIChatPanel({
       ? "syntax_repair"
       : pendingInputSourceRef.current;
     const retryAfterFailure = lastPromptFailedRef.current;
+    const requestedModel = resolveConfiguredAiModel(
+      AI_CHAT_MODEL_STORAGE_KEY,
+      model,
+    );
     const controller = new AbortController();
     activeControllerRef.current = controller;
     activeRequestStartedAtRef.current = startedAt;
     activeRequestKindRef.current = kind;
+    activeRequestModelRef.current = requestedModel;
     setIsThinking(true);
     updateActiveStage(activeDiagramIdRef.current ? "queued" : "ensuring");
     messageCountRef.current = messages.length + 1;
@@ -541,6 +558,7 @@ export default function AIChatPanel({
       input_source: inputSource,
       retry_after_failure: retryAfterFailure,
       change_kind: kind,
+      ...(requestedModel ? { ai_model: requestedModel } : {}),
     });
     onSend?.(text);
 
@@ -556,6 +574,7 @@ export default function AIChatPanel({
         diagramType,
         prompt: text,
         title: diagramTitle,
+        ...(requestedModel ? { model: requestedModel } : {}),
         ...(kind === "syntax_repair" ? { errorMessage: syntaxError } : {}),
         signal: controller.signal,
         onStage(stage) {
@@ -592,6 +611,7 @@ export default function AIChatPanel({
           repair_attempts: result.repairAttempts,
           backend_duration_ms: result.backendDurationMs,
           backend_llm_duration_ms: result.backendLlmDurationMs,
+          ...(requestedModel ? { ai_model: requestedModel } : {}),
         });
         return true;
       }
@@ -643,6 +663,7 @@ export default function AIChatPanel({
         poll_count: result.pollCount || 0,
         lines_added: preview.diffLines.filter((line) => line.type === "add").length,
         lines_removed: preview.diffLines.filter((line) => line.type === "remove").length,
+        ...(requestedModel ? { ai_model: requestedModel } : {}),
       });
       onApplyCode?.(result.updatedCode);
       onApply?.(message);
@@ -666,6 +687,7 @@ export default function AIChatPanel({
         chat_message_count: messageCountRef.current,
         change_kind: kind,
         generation_source: kind === "syntax_repair" ? "syntax_repair" : "chat_panel",
+        ...(requestedModel ? { ai_model: requestedModel } : {}),
       });
       const detail = error instanceof Error ? error.message : "Unknown error";
       messageCountRef.current += 1;
@@ -686,6 +708,7 @@ export default function AIChatPanel({
         updateActiveStage(null);
         activeRequestStartedAtRef.current = 0;
         activeRequestKindRef.current = null;
+        activeRequestModelRef.current = undefined;
       }
     }
   }

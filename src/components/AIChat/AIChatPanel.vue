@@ -404,6 +404,11 @@ import {
 } from '@/services/GenerateService'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
+import {
+  AI_CHAT_MODEL_STORAGE_KEY,
+  DEFAULT_AI_CHAT_MODEL,
+  resolveConfiguredAiModel,
+} from '@/utils/aiModelConfig'
 
 type Props = {
   open: boolean
@@ -415,6 +420,7 @@ type Props = {
   diagramTitle?: string
   diagramlyDiagramId?: string
   initialMessages?: AIChatMessage[]
+  model?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -426,6 +432,7 @@ const props = withDefaults(defineProps<Props>(), {
   diagramTitle: '',
   diagramlyDiagramId: '',
   initialMessages: () => [],
+  model: DEFAULT_AI_CHAT_MODEL,
 })
 
 const emit = defineEmits<{
@@ -473,6 +480,7 @@ let versionLoadPromise: Promise<void> | null = null
 let messageSequence = 0
 let activeRequestStartedAt = 0
 let activeRequestKind: AIChatChangeKind | null = null
+let activeRequestModel: string | undefined
 let restoreStartedAt = 0
 let pendingInputSource: 'typed' | 'suggestion' = 'typed'
 let lastPromptFailed = false
@@ -742,6 +750,7 @@ function cancelActiveRequest(
       duration_ms: activeRequestStartedAt ? durationSince(activeRequestStartedAt) : 0,
       chat_message_count: messages.value.length,
       change_kind: activeRequestKind || 'request',
+      ...(activeRequestModel ? { ai_model: activeRequestModel } : {}),
     })
   }
   if (isRestoringVersion.value && restoringVersionId.value) {
@@ -765,6 +774,7 @@ function cancelActiveRequest(
   activeStage.value = null
   activeRequestStartedAt = 0
   activeRequestKind = null
+  activeRequestModel = undefined
   restoreStartedAt = 0
 }
 
@@ -818,10 +828,15 @@ async function submitPrompt(
   const startedAt = Date.now()
   const inputSource = kind === 'syntax_repair' ? 'syntax_repair' : pendingInputSource
   const retryAfterFailure = lastPromptFailed
+  const requestedModel = resolveConfiguredAiModel(
+    AI_CHAT_MODEL_STORAGE_KEY,
+    props.model,
+  )
   const controller = new AbortController()
   activeController = controller
   activeRequestStartedAt = startedAt
   activeRequestKind = kind
+  activeRequestModel = requestedModel
   isThinking.value = true
   activeStage.value = activeDiagramId.value ? 'queued' : 'ensuring'
   messages.value.push({ id: nextMessageId('user'), role: 'user', text })
@@ -840,6 +855,7 @@ async function submitPrompt(
     input_source: inputSource,
     retry_after_failure: retryAfterFailure,
     change_kind: kind,
+    ...(requestedModel ? { ai_model: requestedModel } : {}),
   })
   emit('send', text)
 
@@ -855,6 +871,7 @@ async function submitPrompt(
       diagramType: props.diagramType,
       prompt: text,
       title: props.diagramTitle,
+      ...(requestedModel ? { model: requestedModel } : {}),
       ...(kind === 'syntax_repair' ? { errorMessage: props.syntaxError } : {}),
       signal: controller.signal,
       onStage(stage) {
@@ -887,6 +904,7 @@ async function submitPrompt(
         repair_attempts: result.repairAttempts,
         backend_duration_ms: result.backendDurationMs,
         backend_llm_duration_ms: result.backendLlmDurationMs,
+        ...(requestedModel ? { ai_model: requestedModel } : {}),
       })
       return true
     }
@@ -937,6 +955,7 @@ async function submitPrompt(
       poll_count: result.pollCount || 0,
       lines_added: preview.diffLines.filter((line) => line.type === 'add').length,
       lines_removed: preview.diffLines.filter((line) => line.type === 'remove').length,
+      ...(requestedModel ? { ai_model: requestedModel } : {}),
     })
     emit('apply-code', result.updatedCode)
     emit('apply', message)
@@ -957,6 +976,7 @@ async function submitPrompt(
       chat_message_count: messages.value.length,
       change_kind: kind,
       generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',
+      ...(requestedModel ? { ai_model: requestedModel } : {}),
     })
     const detail = error instanceof Error ? error.message : 'Unknown error'
     messages.value.push({
@@ -973,6 +993,7 @@ async function submitPrompt(
       activeStage.value = null
       activeRequestStartedAt = 0
       activeRequestKind = null
+      activeRequestModel = undefined
     }
   }
 }

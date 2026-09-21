@@ -195,8 +195,12 @@ import * as Diff from 'diff';
 import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService";
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
-
-const AI_REPAIR_MODEL_STORAGE_KEY = 'ai_repair_model';
+import {
+  AI_REPAIR_MODEL_STORAGE_KEY,
+  AI_REPAIR_RETRY_MODEL,
+  DEFAULT_AI_REPAIR_MODEL,
+  resolveConfiguredAiModel,
+} from '@/utils/aiModelConfig';
 
 const props = defineProps({
   showDialog: Boolean,
@@ -205,7 +209,7 @@ const props = defineProps({
   error: [String, Object],
   model: {
     type: String,
-    default: 'openai/gpt-5.6-luna',
+    default: DEFAULT_AI_REPAIR_MODEL,
   },
   disableReasoning: {
     type: Boolean,
@@ -535,18 +539,16 @@ const backendAnalytics = (status?: RepairJobStatus) => {
 };
 
 let activeRepairModel = props.model;
+let activeRetryAfterFailure = false;
 
-const resolveRepairModel = () => {
-  try {
-    return window.localStorage.getItem(AI_REPAIR_MODEL_STORAGE_KEY)?.trim() || props.model;
-  } catch {
-    // localStorage may be unavailable in restrictive iframe/browser contexts.
-    return props.model;
-  }
-};
+const resolveRepairModel = () => resolveConfiguredAiModel(
+  AI_REPAIR_MODEL_STORAGE_KEY,
+  props.model,
+);
 
 const requestedConfigAnalytics = () => ({
   ...(typeof activeRepairModel === 'string' ? { ai_model: activeRepairModel } : {}),
+  retry_after_failure: activeRetryAfterFailure,
   ...(typeof props.disableReasoning === 'boolean'
     ? { reasoning_disabled: props.disableReasoning }
     : {}),
@@ -587,11 +589,14 @@ const failRepair = (
 const triggerAiRepair = async () => {
   stopPolling();
   const generation = pollingGeneration;
+  activeRetryAfterFailure = repairError.value !== null;
   repairError.value = null;
   repairResult.value = null;
   diffRows.value = [];
   currentJobId.value = null;
-  activeRepairModel = resolveRepairModel();
+  activeRepairModel = activeRetryAfterFailure
+    ? AI_REPAIR_RETRY_MODEL
+    : resolveRepairModel();
   repairStartedAt = Date.now();
   pollCount = 0;
   const deadlineMs = repairStartedAt + REPAIR_TIMEOUT_BUDGET_MS;
@@ -676,6 +681,7 @@ const startPolling = (jobId: string, generation: number, deadlineMs: number) => 
           poll_interval_ms: POLL_INTERVAL_MS,
           timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
           poll_count: pollCount,
+          ...requestedConfigAnalytics(),
           ...backendAnalytics(status),
         });
         stopPolling();

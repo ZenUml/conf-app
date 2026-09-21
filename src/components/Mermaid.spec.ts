@@ -47,11 +47,9 @@ const hammerManagerMock = vi.hoisted(() => ({
 }));
 vi.mock('hammerjs', () => ({ default: vi.fn(() => hammerManagerMock) }));
 
-const hasLayoutMock = vi.hoisted(() => vi.fn(() => true));
-const awaitLayoutMock = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
+const awaitSvgTextLayoutMock = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
 vi.mock('@/utils/renderGate/documentLayout', () => ({
-  hasLayout: hasLayoutMock,
-  awaitLayout: awaitLayoutMock,
+  awaitSvgTextLayout: awaitSvgTextLayoutMock,
 }));
 
 const viewerLoadFailedCalls = () =>
@@ -134,8 +132,7 @@ describe('Mermaid render retry when the document has no layout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isDisplayModeMock.mockReturnValue(true);
-    hasLayoutMock.mockReturnValue(true);
-    awaitLayoutMock.mockResolvedValue(true);
+    awaitSvgTextLayoutMock.mockResolvedValue(true);
     window.__macroLoadStart = 0;
     store.state.diagram = {
       ...NULL_DIAGRAM,
@@ -145,8 +142,6 @@ describe('Mermaid render retry when the document has no layout', () => {
   });
 
   it('renders on the second attempt once the document gains a layout box', async () => {
-    hasLayoutMock.mockReturnValue(false);
-    awaitLayoutMock.mockResolvedValue(true);
     const render = vi
       .fn()
       .mockRejectedValueOnce(new Error('svg element not in render tree'))
@@ -163,9 +158,7 @@ describe('Mermaid render retry when the document has no layout', () => {
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
 
-  it('reports the failure when the retry also fails', async () => {
-    hasLayoutMock.mockReturnValue(false);
-    awaitLayoutMock.mockResolvedValue(false);
+  it('reports the failure when the retry also fails after SVG text becomes measurable', async () => {
     const render = vi.fn(() => Promise.reject(new Error('svg element not in render tree')));
     loadMermaidMock.mockResolvedValue({ render });
 
@@ -182,8 +175,7 @@ describe('Mermaid render retry when the document has no layout', () => {
     });
   });
 
-  it('does not retry a failure raised while the document has layout', async () => {
-    hasLayoutMock.mockReturnValue(true);
+  it('does not retry a deterministic parser failure', async () => {
     const render = vi.fn(() => Promise.reject(new Error('Parse error on line 2')));
     loadMermaidMock.mockResolvedValue({ render });
 
@@ -194,11 +186,10 @@ describe('Mermaid render retry when the document has no layout', () => {
 
     // A syntax error is deterministic; retrying it only doubles the work.
     expect(render).toHaveBeenCalledTimes(1);
-    expect(awaitLayoutMock).not.toHaveBeenCalled();
+    expect(awaitSvgTextLayoutMock).not.toHaveBeenCalled();
   });
 
   it('retries the transient detached-SVG failure even when the body has layout', async () => {
-    hasLayoutMock.mockReturnValue(true);
     const render = vi
       .fn()
       .mockRejectedValueOnce(new Error('svg element not in render tree'))
@@ -211,6 +202,49 @@ describe('Mermaid render retry when the document has no layout', () => {
     });
 
     expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('does not force a retry while a long-hidden iframe still cannot measure SVG text', async () => {
+    const layoutReady = deferred<boolean>();
+    awaitSvgTextLayoutMock.mockReturnValueOnce(layoutReady.promise);
+    const render = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('svg element not in render tree'))
+      .mockResolvedValueOnce({ svg: '<svg>late</svg>' });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(awaitSvgTextLayoutMock).toHaveBeenCalledTimes(1));
+
+    // PR #691 retried after a fixed 10-second wait even when the iframe was
+    // still hidden. The replacement wait remains pending, so no false failure
+    // is emitted and no doomed second render starts.
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+
+    layoutReady.resolve(true);
+    await vi.waitFor(() => expect(wrapper.vm.svg).toBe('<svg>late</svg>'));
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('cancels a hidden-iframe wait on unmount without retrying or reporting a failure', async () => {
+    awaitSvgTextLayoutMock.mockImplementationOnce(({ signal }: { signal: AbortSignal }) =>
+      new Promise<boolean>((resolve) => {
+        signal.addEventListener('abort', () => resolve(false), { once: true });
+      }),
+    );
+    const render = vi.fn(() => Promise.reject(new Error('svg element not in render tree')));
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(awaitSvgTextLayoutMock).toHaveBeenCalledTimes(1));
+    wrapper.unmount();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(render).toHaveBeenCalledTimes(1);
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
 
@@ -233,8 +267,7 @@ describe('Mermaid overlapping renders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isDisplayModeMock.mockReturnValue(true);
-    hasLayoutMock.mockReturnValue(true);
-    awaitLayoutMock.mockResolvedValue(true);
+    awaitSvgTextLayoutMock.mockResolvedValue(true);
     store.state.diagram = {
       ...NULL_DIAGRAM,
       diagramType: DiagramType.Mermaid,
@@ -309,7 +342,7 @@ describe('Mermaid pasted-whitespace normalisation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isDisplayModeMock.mockReturnValue(true);
-    hasLayoutMock.mockReturnValue(true);
+    awaitSvgTextLayoutMock.mockResolvedValue(true);
     window.__macroLoadStart = 0;
   });
 
@@ -362,7 +395,7 @@ describe('Mermaid pasted-whitespace normalisation', () => {
 describe('Mermaid fullscreen viewport controls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    hasLayoutMock.mockReturnValue(true);
+    awaitSvgTextLayoutMock.mockResolvedValue(true);
     window.__macroLoadStart = 0;
     store.state.diagram = {
       ...NULL_DIAGRAM,

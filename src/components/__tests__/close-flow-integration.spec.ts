@@ -11,12 +11,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Override @forge/bridge BEFORE any module under test is imported.
 // The global test-setup mock already wires a stub; here we replace view.onClose
 // with a version that captures the handler so individual tests can invoke it.
+// Forge retains only one callback, replacing it when onClose is called again.
+// Do not clear this between mounts: the production dispatcher is registered
+// once for the iframe lifetime and continues to fan out new subscribers.
 const capturedCloseHandlers: Array<() => void | Promise<void>> = [];
 
 vi.mock('@forge/bridge', () => ({
   view: {
     onClose: vi.fn(async (handler: () => void | Promise<void>) => {
-      capturedCloseHandlers.push(handler);
+      capturedCloseHandlers.splice(0, capturedCloseHandlers.length, handler);
     }),
     getContext: vi.fn(async () => ({ cloudId: 'test-cloud' })),
     close: vi.fn(async () => {}),
@@ -81,7 +84,6 @@ const DRAFT_KEY = 'zenuml.draft.test-cloud.new:diagram';
 
 beforeEach(() => {
   localStorage.clear();
-  capturedCloseHandlers.length = 0;
   vi.clearAllMocks();
 });
 

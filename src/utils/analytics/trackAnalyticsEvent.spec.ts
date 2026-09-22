@@ -676,6 +676,23 @@ describe("trackAnalyticsEvent", () => {
     expect(properties).not.toHaveProperty("session_replay_percent", 100);
   });
 
+  it("captures attempt order and types before asynchronous enrichment, including beacon close", async () => {
+    let resolveConfig!: (config: { percent: number; source: string }) => void;
+    vi.mocked(getSessionReplayConfig).mockReturnValueOnce(new Promise(resolve => { resolveConfig = resolve as any; }));
+    const common = { feature_area: 'macro', surface: 'editor', operation_mode: 'create' } as const;
+    const started = _awaitableTrackAnalyticsEvent('macro_create_started', { ...common, macro_type: 'sequence' });
+    const switched = _awaitableTrackAnalyticsEvent('macro_type_changed', { ...common, macro_type: 'mermaid', from_macro_type: 'sequence', to_macro_type: 'mermaid' });
+    const closed = trackAnalyticsEventBeforeUnload('macro_create_cancelled', { ...common, macro_type: 'mermaid', close_source: 'host_close' });
+    expect(mixpanel.track).not.toHaveBeenCalled();
+    resolveConfig({ percent: 0, source: 'off' });
+    await Promise.all([started, switched, closed]);
+    const calls = vi.mocked(mixpanel.track).mock.calls;
+    const start = calls.find(([event]) => event === 'macro_create_started')![1] as any;
+    expect(start).toMatchObject({ initial_macro_type: 'sequence', final_macro_type: 'sequence', creation_event_index: 0 });
+    expect(calls.find(([event]) => event === 'macro_type_changed')![1]).toMatchObject({ creation_attempt_id: start.creation_attempt_id, final_macro_type: 'mermaid', creation_event_index: 1 });
+    expect(calls.find(([event]) => event === 'macro_create_cancelled')).toEqual(['macro_create_cancelled', expect.objectContaining({ creation_attempt_id: start.creation_attempt_id, initial_macro_type: 'sequence', final_macro_type: 'mermaid', creation_event_index: 2 }), { transport: 'sendBeacon' }]);
+  });
+
   it("forces replay when macro creation starts", async () => {
     // Authoring replay is sampled; pin the draw inside the rate so this test
     // asserts the recording path rather than the coin flip.
@@ -931,6 +948,29 @@ describe("trackAnalyticsEvent", () => {
       expect(mixpanel.track).toHaveBeenCalledWith(
         "agent_link_session_resumed",
         expect.objectContaining({ reason: "fullscreen_closed", resume_latency_ms: 4200 })
+      );
+    });
+
+    it("accepts agent_link_connection_diagnostic with transport-safe dimensions", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_connection_diagnostic", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        diagnostic_origin: "reconnect_succeeded",
+        close_code: 1006,
+        was_clean: false,
+        reconnect_attempt: 2,
+        reconnect_outcome: "succeeded",
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_connection_diagnostic",
+        expect.objectContaining({
+          diagnostic_origin: "reconnect_succeeded",
+          close_code: 1006,
+          was_clean: false,
+          reconnect_attempt: 2,
+          reconnect_outcome: "succeeded",
+        })
       );
     });
 

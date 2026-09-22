@@ -445,4 +445,39 @@ describe('ForgeGraphEditor Diagram/Board mode switch', () => {
     expect(doc.querySelector('.graph-mode-switch')?.textContent).toContain('Board')
     wrapper.unmount()
   })
+  it('reuses a pending title confirmation and starts only one upload for repeated Publish clicks', async () => {
+    let confirm!: (title: string) => void
+    let finishUpload!: (published: boolean) => void
+    const titleGate = new Promise<string>(resolve => { confirm = resolve })
+    const ensureTitle = vi.fn().mockImplementation(() => {
+      if (ensureTitle.mock.calls.length > 1) confirm('Complete title')
+      return titleGate
+    })
+    const previousEnsureTitle = window.ensureTitle
+    window.ensureTitle = ensureTitle
+    const saveGraphAndExit = vi.fn(() => new Promise<boolean>(resolve => { finishUpload = resolve }))
+    const wrapper = mountEditor({ saveGraphAndExit })
+    const publish = () => wrapper.vm.messageListener({ data: JSON.stringify({ event: 'save', xml: EDITED }) })
+    try {
+      const first = publish()
+      await flushPromises()
+      expect(saveGraphAndExit).not.toHaveBeenCalled()
+      const second = publish()
+      await flushPromises()
+      expect(saveGraphAndExit).toHaveBeenCalledTimes(1)
+      await publish()
+      expect(saveGraphAndExit).toHaveBeenCalledTimes(1)
+      finishUpload(false)
+      await Promise.all([first, second])
+      expect(wrapper.vm.publishing).toBe(false)
+      // A real failed upload remains retryable.
+      saveGraphAndExit.mockResolvedValueOnce(true)
+      await publish()
+      expect(saveGraphAndExit).toHaveBeenCalledTimes(2)
+    } finally {
+      wrapper.unmount()
+      window.ensureTitle = previousEnsureTitle
+    }
+  })
+
 })

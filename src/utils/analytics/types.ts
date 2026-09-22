@@ -232,6 +232,9 @@ export type AnalyticsProperties = {
   chat_message_count?: number;
   turn_index?: number;
   input_source?: "typed" | "suggestion" | "syntax_repair";
+  // AI Chat prompt submissions and AI Repair requests use this to distinguish
+  // an explicit user retry from the first attempt. Pair with ai_model to compare
+  // the normal model with the stronger repair fallback.
   retry_after_failure?: boolean;
   // Shared by the AI-chat open/close + code-visibility toggles and by
   // editor_code_panel_toggled (the editor's left source pane). Always the

@@ -411,6 +411,10 @@ export type AnalyticsEventName =
   | "ai_chat_opened"
   | "ai_chat_closed"
   | "ai_chat_suggestion_selected"
+  // Model attribution: prompt_submitted records the exact model requested from
+  // conf-app; no_change / change_applied / prompt_failed / prompt_cancelled
+  // repeat it so every terminal outcome can be grouped without joining client
+  // events. Never attach prompt or diagram text.
   | "ai_chat_prompt_submitted"
   // Ordinary chat only: the backend exhausted its validation attempts with an
   // unchanged diagram and completed the request as a benign no-change result.
@@ -443,7 +447,9 @@ export type AnalyticsEventName =
   | "ai_repair_button_shown"
   // AI Repair performance lifecycle. requested fires immediately before the
   // start request and carries poll_interval_ms + timeout_budget_ms plus the
-  // requested ai_model / reasoning_disabled overrides when supplied. succeeded /
+  // requested ai_model / reasoning_disabled overrides when supplied. A
+  // user-triggered retry repeats requested with retry_after_failure=true; that
+  // retry's ai_model is the stronger fallback selected by conf-app. succeeded /
   // failed close the same user-perceived interval with duration_ms, poll_count,
   // and any backend timing/attempt/config metadata returned by job-status.
   // backend_duration_ms covers the whole Diagramly worker interval, while

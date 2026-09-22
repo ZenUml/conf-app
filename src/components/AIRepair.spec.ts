@@ -120,6 +120,7 @@ describe('AIRepair analytics', () => {
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_requested', expect.objectContaining({
       ai_model: 'openai/gpt-5.6-luna',
+      retry_after_failure: false,
     }))
     wrapper.unmount()
   })
@@ -266,11 +267,26 @@ describe('AIRepair analytics', () => {
 
     expect(startFixDiagram).toHaveBeenCalledTimes(2)
     expect(getFixDiagramStatus).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(startFixDiagram as any).mock.calls[1]).toEqual([
+      ORIGINAL_CODE,
+      'syntax error on line 1',
+      'Sequence',
+      { model: 'anthropic/claude-sonnet-5' },
+    ])
     expect(wrapper.find('[data-testid="ai-repair-error"]').exists()).toBe(false)
     expect(wrapper.findAll('button').find(button => button.text().includes('Apply Code'))?.attributes('disabled')).toBeUndefined()
-    expect(
-      vi.mocked(trackAnalyticsEvent).mock.calls.filter(call => call[0] === 'ai_repair_requested'),
-    ).toHaveLength(2)
+    const requestedEvents = vi.mocked(trackAnalyticsEvent).mock.calls.filter(
+      call => call[0] === 'ai_repair_requested',
+    )
+    expect(requestedEvents).toHaveLength(2)
+    expect(requestedEvents[0][1]).toEqual(expect.objectContaining({
+      ai_model: 'openai/gpt-5.6-luna',
+      retry_after_failure: false,
+    }))
+    expect(requestedEvents[1][1]).toEqual(expect.objectContaining({
+      ai_model: 'anthropic/claude-sonnet-5',
+      retry_after_failure: true,
+    }))
     wrapper.unmount()
   })
 

@@ -32,6 +32,7 @@ const initialVersion = {
 
 describe('AIChatPanel core flow', () => {
   beforeEach(() => {
+    localStorage.clear()
     vi.mocked(trackAnalyticsEvent).mockClear()
     vi.mocked(runAIChatSession).mockReset()
     vi.mocked(getDiagramlyVersions).mockReset()
@@ -143,6 +144,7 @@ describe('AIChatPanel core flow', () => {
       diagramCode: 'A->B: original',
       diagramType: 'sequence',
       prompt: 'Update the message',
+      model: 'openai/gpt-5.6-luna',
       signal: expect.any(AbortSignal),
     }))
     expect(wrapper.emitted('send')).toEqual([['Update the message']])
@@ -164,6 +166,7 @@ describe('AIChatPanel core flow', () => {
         turn_index: 1,
         input_source: 'typed',
         retry_after_failure: false,
+        ai_model: 'openai/gpt-5.6-luna',
       }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
@@ -174,11 +177,42 @@ describe('AIChatPanel core flow', () => {
         poll_count: 2,
         lines_added: 1,
         lines_removed: 1,
+        ai_model: 'openai/gpt-5.6-luna',
       }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_diff_toggled',
       expect.objectContaining({ interaction_state: 'opened' }),
+    )
+  })
+
+  it('uses the ai_chat_model localStorage override for the request and analytics', async () => {
+    localStorage.setItem('ai_chat_model', ' anthropic/claude-sonnet-5 ')
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      diagramCreated: false,
+      updatedCode: 'A->B: original',
+      noChange: true,
+      jobId: 'job-model',
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramlyDiagramId: 'diagram-1',
+        currentCode: 'A->B: original',
+      },
+    })
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Keep it concise')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(runAIChatSession).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'anthropic/claude-sonnet-5',
+    }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_prompt_submitted',
+      expect.objectContaining({ ai_model: 'anthropic/claude-sonnet-5' }),
     )
   })
 

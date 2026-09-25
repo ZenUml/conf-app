@@ -2,14 +2,18 @@
 // refusals: a truncating update, a page someone else just edited, a diagram
 // already on the page, and a free space at its limit.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { callHeadlessTool, HeadlessToolError, type HeadlessContext } from './headlessTools';
 import { checkCreateAllowed, MACROS_LIMIT, type GateEnv } from './headlessGate';
 import { buildMacroNode, countExtensions, referencesCustomContent } from '../macroNode';
 import { saveGrant, type GrantStore } from './tokenStore';
+import { handleHeadlessRpc } from './headlessMcp';
+import { issueAccessToken } from './asStore';
+import { resourceFor } from './asMetadata';
 import type { FetchLike } from './atlassianClient';
 
 const ACCOUNT = '712020:abc';
+const ORIGIN = 'https://conf-stg-lite.zenuml.com';
 const CLOUD = 'cloud-1';
 const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const ENV_ID = '26ad8f7e-aa24-4afe-83a3-e8216f9e5220';
@@ -317,6 +321,103 @@ describe('create_diagram', () => {
     )) as { result: string; gate: string };
     expect(out.result).toBe('added');
     expect(out.gate).toBe('paid');
+  });
+});
+
+describe('write analytics', () => {
+  /**
+   * The gate's decision has to reach Mixpanel or the fail-open question (§9.1)
+   * stays unanswerable: the frontend's paywall_gate_evaluated never fires on
+   * this path, so `paywall_gate` here is the only record of whether the Lite
+   * limit was applied or skipped.
+   */
+  // mixpanelService posts with the GLOBAL fetch, not the injected one, so the
+  // only place to observe an emit is there.
+  function captureEvents() {
+    const events: Array<Record<string, any>> = [];
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: any, init: any) => {
+      const href = String(url);
+      if (href.includes('mixpanel.com')) {
+        try {
+          const parsed = JSON.parse(String(init?.body ?? '[]'));
+          for (const e of Array.isArray(parsed) ? parsed : [parsed]) events.push(e);
+        } catch {
+          // the identify call posts a different shape; not what we are counting
+        }
+        return new Response('1', { status: 200 });
+      }
+      return original(url, init);
+    });
+    return events;
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function rpcCreate(site: FakeSite, gateEnv: GateEnv) {
+    const { ctx } = await contextFor(site, gateEnv);
+    const events = captureEvents();
+    const fetchImpl = ctx.fetchImpl;
+    const token = await issueAccessToken(
+      ctx.store,
+      {
+        userId: ACCOUNT,
+        clientId: 'client-A',
+        scope: 'diagram.read diagram.write',
+        resource: resourceFor(ORIGIN),
+      },
+      Date.now(),
+    );
+    const env = {
+      ATLASSIAN_OAUTH_CLIENT_ID: 'c',
+      ATLASSIAN_OAUTH_CLIENT_SECRET: 's',
+      OAUTH_GRANT_KV: ctx.store,
+      OAUTH_GRANT_SECRET: 'grant-key',
+      MIXPANEL_TOKEN: 'mp-token',
+      ...gateEnv,
+    };
+    const request = new Request(`${ORIGIN}/agent-link/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token.token}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name: 'create_diagram',
+          arguments: { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' },
+        },
+      }),
+    });
+    const res = await handleHeadlessRpc(request, env, await request.clone().json(), { fetchImpl });
+    return { res, events: events.filter((e) => String(e.event).startsWith('agent_link_diagram_')) };
+  }
+
+  it('records which gate branch allowed the create', async () => {
+    const { res, events } = await rpcCreate(emptyPage(), {
+      confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: 3 } } }) },
+    });
+    expect(res.status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toBe('agent_link_diagram_created');
+    expect(events[0].properties.result).toBe('added');
+    expect(events[0].properties.paywall_gate).toBe('under_limit');
+  });
+
+  it('records the fail-open path distinctly, so its volume is measurable', async () => {
+    const { events } = await rpcCreate(emptyPage(), {
+      confluence_plugin_features: { get: async () => null },
+    });
+    expect(events[0].properties.paywall_gate).toBe('count_unknown');
+  });
+
+  it('records a refusal when the gate actually bites', async () => {
+    const { res, events } = await rpcCreate(emptyPage(), {
+      confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) },
+    });
+    expect(res.status).toBe(200); // a tool-level refusal, not a transport error
+    expect(events[0].properties.paywall_gate).toBe('limit_reached');
+    expect(events[0].properties.reason).toBe('limit_reached');
   });
 });
 

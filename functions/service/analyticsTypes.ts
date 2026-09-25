@@ -59,6 +59,12 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "agent_link_oauth_authorized",
   "agent_link_oauth_refresh_failed",
   "agent_link_oauth_revoked",
+  // Headless writes (design §10). `agent_link_diagram_created` carries the
+  // paywall gate's decision in `paywall_gate` — the only way to see how often
+  // the Lite limit is actually consulted rather than skipped on an unknown
+  // count, which is §9.1's fail-open path and the open question it leaves.
+  "agent_link_diagram_created",
+  "agent_link_diagram_updated",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

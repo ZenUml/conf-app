@@ -149,16 +149,20 @@ describe('headless authentication', () => {
 });
 
 describe('headless RPC', () => {
-  it('advertises a read-only tool surface', async () => {
+  it('advertises the read tools and the two write tools', async () => {
     const env = makeEnv();
     const token = await tokenFor(env.store);
     const res = await call(env, token, 'tools/list');
     const body = (await res.json()) as { result: { tools: Array<{ name: string }> } };
     const names = body.result.tools.map((t) => t.name).sort();
-    expect(names).toEqual(['get_status', 'list_diagrams', 'list_sites', 'read_diagram']);
-    // no write tool has slipped in before §9.1's gate exists
-    expect(names).not.toContain('update_diagram');
-    expect(names).not.toContain('create_diagram');
+    expect(names).toEqual([
+      'create_diagram',
+      'get_status',
+      'list_diagrams',
+      'list_sites',
+      'read_diagram',
+      'update_diagram',
+    ]);
   });
 
   it('answers initialize without an Atlassian round trip', async () => {

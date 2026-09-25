@@ -22,6 +22,7 @@ import {
   type HeadlessContext,
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
+import type { GateEnv } from './headlessGate';
 
 /** The relay's own token shape. Anything else is ours to answer. */
 const RELAY_TOKEN_RE = /^CL-[A-Z0-9]{4}-[A-Z0-9]{4}$/i;
@@ -72,7 +73,7 @@ function authMessage(reason: HeadlessAuthFailure): string {
   }
 }
 
-export interface HeadlessEnv extends OAuthEnv {
+export interface HeadlessEnv extends OAuthEnv, GateEnv {
   MIXPANEL_TOKEN?: string;
 }
 
@@ -136,6 +137,10 @@ export async function handleHeadlessRpc(
     fetchImpl,
     userId: auth.token.userId,
     nowMs: now,
+    // The gate reads its own KV bindings off the same env; passing the env
+    // through rather than the two namespaces keeps create_diagram's check in
+    // one place (headlessGate.ts) instead of spread across the endpoint.
+    gateEnv: env,
   };
 
   switch (body.method) {
@@ -145,7 +150,7 @@ export async function handleHeadlessRpc(
         capabilities: { tools: {} },
         serverInfo: { name: 'conf-agent-link-headless', version: '0.1.0' },
         instructions:
-          'These tools read ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId the other tools need. Editing is not available in this mode yet.',
+          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. Edits publish one version each, so page history can revert them.',
       });
 
     case 'tools/list':
@@ -159,10 +164,13 @@ export async function handleHeadlessRpc(
       if (!HEADLESS_TOOLS.some((t) => t.name === params.name)) {
         return error(200, id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${params.name}`);
       }
-      // Every tool here reads. When writes arrive they check diagram.write,
-      // and this is the check they will extend rather than replace.
-      if (!hasScope(auth.token, 'diagram.read')) {
-        return error(403, id, RPC_AUTH_ERROR, 'This token was not granted read access.');
+      // Reads need diagram.read; the two write tools need diagram.write. A
+      // client that asked for only one scope gets only that half of the
+      // surface, which is the point of having two.
+      const needsWrite = params.name === 'update_diagram' || params.name === 'create_diagram';
+      const required = needsWrite ? 'diagram.write' : 'diagram.read';
+      if (!hasScope(auth.token, required)) {
+        return error(403, id, RPC_AUTH_ERROR, `This token was not granted ${required} access.`);
       }
 
       try {

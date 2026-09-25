@@ -1,23 +1,35 @@
 // The headless tool surface: what an agent can do with the page closed.
 //
-// READ ONLY, deliberately. Design §11 Phase 4 puts `update_diagram` and
-// `create_diagram` behind the server-side gate of §9.1, and that gate does not
-// exist yet. Shipping reads first means the credential, the identity resolver
-// and the transport are all exercised by real use before anything can write to
-// a customer's page — and there is prior art for why that ordering matters
-// (the lite→full conversion incident in §6).
+// Every tool goes through the 3LO grant, so each call refreshes it if it has
+// to and acts strictly as the user who consented. Nothing takes a cloudId on
+// trust: a site must be one that `accessible-resources` returned for this
+// user's grant, or the call is refused before any Confluence request goes out.
 //
-// Every tool here goes through `confluenceReaderFor`, so each call refreshes
-// the Atlassian grant if it has to and acts strictly as the user who
-// consented. Nothing takes a cloudId on trust: a site must be one that
-// `accessible-resources` returned for this user's grant, or the call is
-// refused before any Confluence request goes out.
+// THE WRITE TOOLS carry three properties from the paths that already exist,
+// because each was paid for once already:
+//
+//   - `update_diagram` runs `guardUpdateDiagram` (parse + data-loss) against
+//     the diagram's CURRENT stored DSL before writing. The relay path runs the
+//     same guard; a headless write that skipped it would be the one way to
+//     truncate a diagram that the product otherwise prevents.
+//   - `create_diagram` treats `already_present` as success and `conflict` as a
+//     refusal, exactly as addToPage.ts does (design §7). An agent that retries
+//     must not duplicate a diagram, and an agent racing a human editor must
+//     lose.
+//   - `create_diagram` consults the server-side paywall gate first (§9.1,
+//     headlessGate.ts). The frontend's gate never runs for a headless call, so
+//     without this, creation here would be a revenue bypass.
 
 import { listAccessibleSites, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
 import { confluenceReaderFor } from './confluenceReader';
+import { confluenceRequestFor, type ConfluenceRequest } from './confluenceWriter';
+import { checkCreateAllowed, type GateEnv } from './headlessGate';
+import { buildMacroNode, countExtensions, referencesCustomContent } from '../macroNode';
+import { guardUpdateDiagram } from '../updateDiagramGuard';
 import { getAccessToken, type GrantStore } from './tokenStore';
 import {
   customContentTypesFor,
+  extensionKeyFor,
   resolveMacroIdentity,
   VARIANTS,
   type ConfluenceGet,
@@ -31,6 +43,8 @@ export interface HeadlessContext {
   /** The Atlassian account id the MCP token is bound to. Never from the request. */
   userId: string;
   nowMs?: () => number;
+  /** The KV bindings the paywall gate reads (design 9.1). Only create_diagram needs them. */
+  gateEnv?: GateEnv;
 }
 
 export interface HeadlessToolDescriptor {
@@ -79,12 +93,55 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
       'Which mode this connection is in, who it acts as, and which ZenUML app each reachable site runs. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'update_diagram',
+    description:
+      'Replace a diagram’s source with new DSL. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Publishes one new version, so page history can revert it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cloudId: { type: 'string', description: 'From list_sites.' },
+        contentId: { type: 'string', description: 'From list_diagrams.' },
+        dsl: { type: 'string', description: 'The complete new source. Not a patch.' },
+        summary: { type: 'string', description: 'Optional. Note for the version history.' },
+      },
+      required: ['cloudId', 'contentId', 'dsl'],
+    },
+  },
+  {
+    name: 'create_diagram',
+    description:
+      'Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cloudId: { type: 'string', description: 'From list_sites.' },
+        pageId: { type: 'string', description: 'The Confluence page to place it on.' },
+        type: {
+          type: 'string',
+          description: 'Sequence, Mermaid, PlantUml, Graph or OpenApi — what the DSL is written in.',
+        },
+        dsl: { type: 'string', description: 'The diagram source.' },
+        title: { type: 'string', description: 'Optional. Defaults to "Untitled diagram".' },
+      },
+      required: ['cloudId', 'pageId', 'type', 'dsl'],
+    },
+  },
 ];
 
 export class HeadlessToolError extends Error {
   constructor(
     message: string,
-    readonly code: 'no_grant' | 'unknown_site' | 'not_found' | 'upstream' | 'bad_params',
+    readonly code:
+      | 'no_grant'
+      | 'unknown_site'
+      | 'not_found'
+      | 'upstream'
+      | 'bad_params'
+      | 'forbidden'
+      | 'conflict'
+      | 'guardrail_rejected'
+      | 'limit_reached',
     readonly detail?: unknown,
   ) {
     super(message);
@@ -142,6 +199,85 @@ interface CustomContentRow {
   version?: { createdAt?: unknown; number?: unknown };
   pageId?: unknown;
   spaceId?: unknown;
+}
+
+/** The site row for `cloudId`, or a refusal. Every write path starts here. */
+async function assertReachable(ctx: HeadlessContext, cloudId: string) {
+  const sites = await sitesFor(ctx);
+  const site = sites.find((s) => s.cloudId === cloudId);
+  if (!site) {
+    throw new HeadlessToolError(
+      'That site is not one your authorization can reach. Call list_sites for the ones it can.',
+      'unknown_site',
+    );
+  }
+  return site;
+}
+
+function requestFor(ctx: HeadlessContext, cloudId: string): ConfluenceRequest {
+  return confluenceRequestFor({
+    store: ctx.store,
+    secret: ctx.secret,
+    app: ctx.app,
+    fetchImpl: ctx.fetchImpl,
+    userId: ctx.userId,
+    cloudId,
+    nowMs: ctx.nowMs,
+  });
+}
+
+/**
+ * The stored diagram body: `{title, code, diagramType}` JSON in a `raw` body.
+ *
+ * Tolerant on purpose. Older records and other variants have carried extra
+ * fields, and an update must preserve whatever it did not set rather than
+ * rewrite the record to this module's idea of the shape.
+ */
+function parseStoredDiagram(value: unknown): { raw: Record<string, unknown>; code?: string; diagramType?: string } {
+  if (typeof value !== 'string') return { raw: {} };
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return {
+      raw: parsed,
+      code: typeof parsed.code === 'string' ? parsed.code : undefined,
+      diagramType: typeof parsed.diagramType === 'string' ? parsed.diagramType : undefined,
+    };
+  } catch {
+    // Not JSON: treat the whole value as the source, which is what the
+    // earliest records were.
+    return { raw: {}, code: value };
+  }
+}
+
+/**
+ * The version message. §9.3: an agent's edit must be identifiable in page
+ * history, so the agent is always named even when the caller supplies a note.
+ */
+function summaryFor(summary: unknown, title?: string): string {
+  const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
+  return title ? `Added ZenUML diagram "${title}" via Agent Link${note}` : `Updated by ZenUML Agent Link${note}`;
+}
+
+/** The custom-content type this variant stores `diagramType` under. */
+function customContentTypeFor(identity: { variant: string; appId: string }, diagramType: string): string {
+  const profile = VARIANTS.find((v) => v.variant === identity.variant)!;
+  const types = customContentTypesFor(profile);
+  const folded = diagramType.toLowerCase();
+  // lite/full split sequence-family and graph across two types; diagramly and
+  // asyncapi store everything under one, so `find` falling through to the
+  // first entry is correct there rather than a guess.
+  const graph = types.find((t) => t.endsWith('-graph'));
+  if (folded === 'graph' && graph) return graph;
+  return types.find((t) => !t.endsWith('-graph')) ?? types[0];
+}
+
+/** The space key for a page's `spaceId` — what the paywall gate is keyed by. */
+async function spaceKeyFor(request: ConfluenceRequest, spaceId: unknown): Promise<string> {
+  if (typeof spaceId !== 'string' && typeof spaceId !== 'number') return '';
+  const res = await request(`/wiki/api/v2/spaces/${encodeURIComponent(String(spaceId))}`);
+  if (!res.ok) return '';
+  const key = (res.body as { key?: unknown })?.key;
+  return typeof key === 'string' ? key : '';
 }
 
 function diagramRow(row: CustomContentRow) {
@@ -273,6 +409,223 @@ export async function callHeadlessTool(
         // overwrite). Surfaced now so a reader can see what it would send.
         version: typeof body.version?.number === 'number' ? body.version.number : undefined,
         source: typeof body.body?.raw?.value === 'string' ? body.body.raw.value : '',
+      };
+    }
+
+    case 'update_diagram': {
+      const cloudId = typeof args.cloudId === 'string' ? args.cloudId : '';
+      const contentId = typeof args.contentId === 'string' ? args.contentId : '';
+      const dsl = typeof args.dsl === 'string' ? args.dsl : '';
+      if (!cloudId || !contentId || !dsl) {
+        throw new HeadlessToolError('cloudId, contentId and dsl are required.', 'bad_params');
+      }
+      await assertReachable(ctx, cloudId);
+      const request = requestFor(ctx, cloudId);
+
+      const read = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}?body-format=raw`);
+      if (read.status === 404) throw new HeadlessToolError('No diagram with that contentId.', 'not_found');
+      if (read.status === 403) throw new HeadlessToolError('You do not have permission to edit that diagram.', 'forbidden');
+      if (!read.ok) throw new HeadlessToolError('Could not read the diagram.', 'upstream', { status: read.status });
+
+      const current = read.body as {
+        id?: unknown;
+        type?: unknown;
+        status?: unknown;
+        pageId?: unknown;
+        title?: unknown;
+        version?: { number?: unknown };
+        body?: { raw?: { value?: unknown } };
+      };
+      const stored = parseStoredDiagram(current.body?.raw?.value);
+
+      // The guard, against the CURRENT stored DSL — the same check the relay
+      // path runs. A headless write that skipped it would be the one way to
+      // truncate a diagram that the product otherwise prevents.
+      const verdict = await guardUpdateDiagram(dsl, { diagramType: stored.diagramType, dsl: stored.code });
+      if (!verdict.ok) {
+        throw new HeadlessToolError(verdict.message, 'guardrail_rejected', {
+          reason: verdict.reason,
+          errors: verdict.errors,
+          input_len: verdict.input_len,
+          output_len: verdict.output_len,
+        });
+      }
+
+      const versionNumber = Number(current.version?.number);
+      const nextBody = { ...stored.raw, code: dsl };
+      const write = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}`, {
+        method: 'PUT',
+        body: {
+          id: String(current.id ?? contentId),
+          type: current.type,
+          status: typeof current.status === 'string' ? current.status : 'current',
+          pageId: current.pageId,
+          title: typeof current.title === 'string' ? current.title : 'Untitled diagram',
+          body: { value: JSON.stringify(nextBody), representation: 'raw' },
+          version: {
+            number: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
+            // §9.3: page history must show which edits an agent made.
+            message: summaryFor(args.summary),
+          },
+        },
+      });
+      if (write.status === 403) throw new HeadlessToolError('You do not have permission to edit that diagram.', 'forbidden');
+      // Confluence answers a stale version with 409 (or 400 "Version must be
+      // incremented"); either way somebody else wrote first and we do not
+      // force. The agent should re-read and decide, not retry blindly.
+      if (write.status === 409 || write.status === 400) {
+        throw new HeadlessToolError('Someone else changed this diagram first. Read it again before updating.', 'conflict', {
+          status: write.status,
+        });
+      }
+      if (!write.ok) throw new HeadlessToolError('Confluence refused the update.', 'upstream', { status: write.status });
+
+      return {
+        result: 'updated',
+        contentId,
+        version: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
+        diff: verdict.diff,
+        unvalidated: verdict.unvalidated,
+      };
+    }
+
+    case 'create_diagram': {
+      const cloudId = typeof args.cloudId === 'string' ? args.cloudId : '';
+      const pageId = typeof args.pageId === 'string' ? args.pageId : '';
+      const diagramType = typeof args.type === 'string' ? args.type : '';
+      const dsl = typeof args.dsl === 'string' ? args.dsl : '';
+      if (!cloudId || !pageId || !diagramType || !dsl) {
+        throw new HeadlessToolError('cloudId, pageId, type and dsl are required.', 'bad_params');
+      }
+      const site = await assertReachable(ctx, cloudId);
+      const request = requestFor(ctx, cloudId);
+      const get: ConfluenceGet = async (path) => {
+        const res = await request(path);
+        return { status: res.status, body: res.body };
+      };
+
+      const identity = await resolveMacroIdentity(get);
+      if (!identity.ok) {
+        throw new HeadlessToolError(
+          'Could not work out which ZenUML app that site runs, so the macro key cannot be built.',
+          'upstream',
+          identity.reason,
+        );
+      }
+      // Refuse rather than guess: a malformed extensionKey renders as an
+      // unknown extension on a customer's page (addToPage.ts, 2026-08-11).
+      const extensionKey = extensionKeyFor(identity.identity, diagramType);
+      if (!extensionKey) {
+        throw new HeadlessToolError(
+          `That site's ZenUML app (${identity.identity.variant}) has no macro for diagram type "${diagramType}".`,
+          'bad_params',
+        );
+      }
+
+      // Read the page BEFORE creating anything: a create followed by a
+      // forbidden page write would leave orphaned content the user never
+      // asked for and cannot see.
+      const pageRead = await request(
+        `/wiki/api/v2/pages/${encodeURIComponent(pageId)}?body-format=atlas_doc_format`,
+      );
+      if (pageRead.status === 403) throw new HeadlessToolError('You do not have permission to read that page.', 'forbidden');
+      if (pageRead.status === 404) throw new HeadlessToolError('No page with that id.', 'not_found');
+      if (!pageRead.ok) throw new HeadlessToolError('Could not read the page.', 'upstream', { status: pageRead.status });
+
+      const page = pageRead.body as {
+        title?: unknown;
+        spaceId?: unknown;
+        version?: { number?: unknown };
+        body?: { atlas_doc_format?: { value?: unknown } };
+      };
+      const rawAdf = page.body?.atlas_doc_format?.value;
+      const pageVersion = Number(page.version?.number);
+      if (typeof rawAdf !== 'string' || !Number.isFinite(pageVersion)) {
+        throw new HeadlessToolError('That page has no readable body.', 'upstream');
+      }
+      let adf: { content?: unknown[] };
+      try {
+        adf = JSON.parse(rawAdf);
+      } catch {
+        throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
+      }
+      if (!Array.isArray(adf.content)) throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
+
+      // §9.1, blocking: the frontend paywall never runs for a headless call.
+      const spaceKey = await spaceKeyFor(request, page.spaceId);
+      const gate = await checkCreateAllowed(ctx.gateEnv ?? {}, {
+        variant: identity.identity.variant,
+        cloudId,
+        clientDomain: new URL(site.url).host,
+        spaceKey,
+        accountId: ctx.userId,
+      });
+      if (!gate.allowed) {
+        throw new HeadlessToolError(
+          `This space is on the free plan and already has ${gate.macroCount} of ${gate.limit} diagrams. Upgrade the space to add more.`,
+          'limit_reached',
+          gate,
+        );
+      }
+
+      const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'Untitled diagram';
+      const created = await request('/wiki/api/v2/custom-content', {
+        method: 'POST',
+        body: {
+          type: customContentTypeFor(identity.identity, diagramType),
+          title,
+          pageId,
+          body: { value: JSON.stringify({ title, code: dsl, diagramType }), representation: 'raw' },
+        },
+      });
+      if (created.status === 403) throw new HeadlessToolError('You do not have permission to create content here.', 'forbidden');
+      if (!created.ok) throw new HeadlessToolError('Confluence refused to store the diagram.', 'upstream', { status: created.status });
+      const contentId = String((created.body as { id?: unknown })?.id ?? '');
+      if (!contentId) throw new HeadlessToolError('Confluence stored the diagram but returned no id.', 'upstream');
+
+      // Already there? Only possible on a retry that re-created content, but
+      // the check is cheap and `already_present` is a first-class success
+      // (design §7): an agent that retries must not duplicate a diagram.
+      if (referencesCustomContent(adf, contentId, cloudId)) {
+        return { result: 'already_present', contentId, pageId };
+      }
+
+      adf.content.push(buildMacroNode(extensionKey, contentId, (ctx.nowMs ?? Date.now)()));
+      const published = await request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}`, {
+        method: 'PUT',
+        body: {
+          id: String(pageId),
+          status: 'current',
+          title: page.title,
+          version: { number: pageVersion + 1, message: summaryFor(args.summary, title) },
+          body: { representation: 'atlas_doc_format', value: JSON.stringify(adf) },
+        },
+      });
+      if (published.status === 403) {
+        throw new HeadlessToolError('The diagram was saved, but you do not have permission to edit that page.', 'forbidden', {
+          contentId,
+        });
+      }
+      // Never force-publish over a concurrent edit (design §7): an agent
+      // racing a human editor must lose. The content is stored, so the user
+      // can still place it; the page is untouched.
+      if (published.status === 409 || published.status === 400) {
+        return { result: 'conflict', contentId, pageId, detail: 'the page changed while the diagram was being added' };
+      }
+      if (!published.ok) {
+        throw new HeadlessToolError('The diagram was saved, but the page update failed.', 'upstream', {
+          contentId,
+          status: published.status,
+        });
+      }
+
+      return {
+        result: 'added',
+        contentId,
+        pageId,
+        pageVersion: pageVersion + 1,
+        macroCount: countExtensions(adf),
+        gate: gate.reason,
       };
     }
 

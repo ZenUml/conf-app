@@ -1,7 +1,7 @@
 # 0008 — Agent Link runs its own OAuth authorization server for the headless path
 
 Date: 2026-09-19
-Status: proposed
+Status: accepted (2026-09-25 — implemented in `functions/agent-link/oauth/`: asMetadata, asStore, pkce, authServer, and the register/authorize/consent/token routes)
 Related: [docs/superpowers/specs/2026-09-19-headless-diagram-mcp-design.md](../superpowers/specs/2026-09-19-headless-diagram-mcp-design.md) §5.1 and §12.6, [0003-agent-link-mints-its-own-short-lived-token.md](0003-agent-link-mints-its-own-short-lived-token.md), `functions/agent-link/oauth/`
 Supersedes in part: ADR 0003 Decision 3 ("No OAuth")
 

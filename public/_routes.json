@@ -32,6 +32,8 @@
     "/feature-flags",
     "/ai-generate-title",
     "/agent-link/*",
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-authorization-server",
     "/d/*",
     "/i/*",
     "/deeplink-ticket",

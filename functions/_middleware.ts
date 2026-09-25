@@ -1,3 +1,4 @@
+import { oauthDiscoveryResponse } from "./agent-link/oauth/discovery";
 import authenticate from "./utils/authenticate";
 import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
@@ -83,6 +84,16 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     console.log('Function request url:', redactedRequestUrlForLogging(request.url));
 
     const { pathname } = new URL(request.url);
+
+    // The two OAuth discovery documents are served from here rather than from
+    // route files, because the Pages router ignores directories whose name
+    // starts with a dot — a probe function under functions/.well-known/ never
+    // received a request (verified 2026-09-25; the SPA answered instead).
+    // They are public by definition: a client that has never authenticated has
+    // to be able to read them to find out how to authenticate.
+    const discovery = oauthDiscoveryResponse(request.url);
+    if (discovery) return discovery;
+
     const isDeeplinkTicket = isDeeplinkTicketPath(pathname);
     if (isDeeplinkTicket && request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: DEEPLINK_TICKET_CORS_HEADERS });

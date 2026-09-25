@@ -32,8 +32,17 @@ import {
 import { saveGrant } from './tokenStore';
 
 export const STATE_COOKIE = 'agent_link_oauth_state';
-/** Long enough to read a consent screen, short enough that a stale cookie is not a standing hazard. */
-export const STATE_TTL_SECONDS = 10 * 60;
+/**
+ * Long enough to read a consent screen, short enough that a stale cookie is
+ * not a standing hazard.
+ *
+ * Was 10 minutes, which real use kept tripping: Atlassian's screen makes the
+ * user pick a site, and anyone who tabbed away mid-decision came back to "This
+ * link cannot be used" (observed twice on 2026-09-25). Thirty minutes is still
+ * inside Atlassian's own consent context lifetime, and the cookie is unchanged
+ * otherwise — HttpOnly, single-use, cleared on every outcome.
+ */
+export const STATE_TTL_SECONDS = 30 * 60;
 export const ME_URL = 'https://api.atlassian.com/me';
 
 export interface LegDeps {

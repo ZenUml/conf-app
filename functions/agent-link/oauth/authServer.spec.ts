@@ -248,7 +248,11 @@ describe('token endpoint', () => {
     return new Request(`${ORIGIN}/agent-link/oauth/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(body),
+      // Serialized, not the URLSearchParams object: under jsdom the Request
+      // constructor rejects a URLSearchParams from another realm. The wire
+      // format is a string anyway, so this is what a real client sends and
+      // request.formData() parses it identically.
+      body: new URLSearchParams(body).toString(),
     });
   }
 

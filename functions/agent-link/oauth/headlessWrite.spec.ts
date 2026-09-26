@@ -63,7 +63,12 @@ function fakeAtlassian(site: FakeSite) {
 
     for (const [key, status] of Object.entries(site.force ?? {})) {
       const [m, fragment] = key.split(' ');
-      if (m === method && url.includes(fragment)) return json(status, { error: 'forced' });
+      if (m === method && url.includes(fragment)) {
+        // A forced 409/400 stands in for Confluence's stale-version answer,
+        // whose body names the version; a plain forced 400 does not.
+        const body = status === 409 ? { message: 'Version must be incremented' } : { error: 'forced' };
+        return json(status, body);
+      }
     }
 
     if (url === 'https://api.atlassian.com/oauth/token/accessible-resources') {
@@ -117,6 +122,10 @@ function fakeAtlassian(site: FakeSite) {
         site.content.set(id, body);
         site.contentVersion.set(id, body.version.number);
         return json(200, { id, version: { number: body.version.number } });
+      }
+      if (method === 'DELETE') {
+        site.content.delete(id);
+        return new Response(null, { status: 204 });
       }
       return json(200, {
         id,
@@ -279,6 +288,27 @@ describe('the three blockers found in review', () => {
     // and it never calls the endpoint that 401s on our scopes
     expect(spaceKeyFromLinks({ webui: '/spaces/DESIGN/pages/480411697/Test+page' })).toBe('DESIGN');
     expect(spaceKeyFromLinks(undefined)).toBe('');
+  });
+
+  it('reports a validation 400 as an error, not as a conflict to retry', async () => {
+    const site = emptyPage();
+    // A 400 that says nothing about versions — a bad field, not a stale write.
+    site.force = { 'PUT /custom-content/cc-1': 400 };
+    const { ctx } = await contextFor(site);
+    await expect(
+      callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl: `${CURRENT_DSL}\nB.x()` }, ctx),
+    ).rejects.toMatchObject({ code: 'upstream' });
+  });
+
+  it('does not leave orphaned content when the page write is refused', async () => {
+    const site = emptyPage();
+    site.force = { 'PUT /pages/page-1': 403 };
+    const { ctx, writes } = await contextFor(site);
+    await expect(
+      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'sequence', dsl: 'A.b()' }, ctx),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    // it tried to take the content back rather than leaving it stranded
+    expect(writes.some((w) => w.method === 'DELETE' && w.url.includes('/custom-content/new-1'))).toBe(true);
   });
 
   it('refuses to rewrite custom content that is not a ZenUML diagram', async () => {

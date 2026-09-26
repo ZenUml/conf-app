@@ -17,6 +17,7 @@ import {
   type PendingAuthorization,
 } from './asStore';
 import { challengeFor } from './pkce';
+import { REGISTER_LIMIT } from './asStore';
 import { buildAuthServerMetadata, buildResourceMetadata, resourceFor } from './asMetadata';
 import { oauthDiscoveryResponse } from './discovery';
 
@@ -85,6 +86,36 @@ describe('dynamic client registration', () => {
     const { store } = memoryStore();
     const { res } = await registerClient(store, []);
     expect(res.status).toBe(400);
+  });
+
+  it('caps registrations per source so an unauthenticated loop cannot fill KV', async () => {
+    const { store, kv } = memoryStore();
+    const register = () =>
+      handleRegister(
+        new Request(`${ORIGIN}/agent-link/oauth/register`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.7' },
+          body: JSON.stringify({ redirect_uris: [REDIRECT] }),
+        }),
+        { store },
+      );
+
+    for (let i = 0; i < REGISTER_LIMIT; i += 1) expect((await register()).status).toBe(201);
+    const refused = await register();
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get('retry-after')).toBeTruthy();
+
+    // A different caller is unaffected.
+    const other = await handleRegister(
+      new Request(`${ORIGIN}/agent-link/oauth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.2' },
+        body: JSON.stringify({ redirect_uris: [REDIRECT] }),
+      }),
+      { store },
+    );
+    expect(other.status).toBe(201);
+    expect([...kv.keys()].filter((k) => k.includes('-client:'))).toHaveLength(REGISTER_LIMIT + 1);
   });
 });
 
@@ -277,7 +308,7 @@ describe('token endpoint', () => {
     const { store } = memoryStore();
     const code = await codeFor(store, await challengeFor(VERIFIER));
     const res = await handleToken(
-      tokenRequest({ grant_type: 'authorization_code', code, code_verifier: 'b'.repeat(64) }),
+      tokenRequest({ grant_type: 'authorization_code', code, code_verifier: 'b'.repeat(64), client_id: 'client-A' }),
       { store },
     );
     expect(res.status).toBe(400);
@@ -287,9 +318,9 @@ describe('token endpoint', () => {
   it('refuses to redeem a code twice', async () => {
     const { store } = memoryStore();
     const code = await codeFor(store, await challengeFor(VERIFIER));
-    const first = await handleToken(tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER }), { store });
+    const first = await handleToken(tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER, client_id: 'client-A' }), { store });
     expect(first.status).toBe(200);
-    const second = await handleToken(tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER }), { store });
+    const second = await handleToken(tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER, client_id: 'client-A' }), { store });
     expect(second.status).toBe(400);
   });
 
@@ -306,20 +337,41 @@ describe('token endpoint', () => {
   it('rotates the refresh token, killing the presented one', async () => {
     const { store } = memoryStore();
     const code = await codeFor(store, await challengeFor(VERIFIER));
-    const first = (await (await handleToken(tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER }), { store })).json()) as { refresh_token: string };
+    const first = (await (await handleToken(tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER, client_id: 'client-A' }), { store })).json()) as { refresh_token: string };
 
-    const refreshed = await handleToken(tokenRequest({ grant_type: 'refresh_token', refresh_token: first.refresh_token }), { store });
+    const refreshed = await handleToken(tokenRequest({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: 'client-A' }), { store });
     expect(refreshed.status).toBe(200);
     const next = (await refreshed.json()) as { refresh_token: string; access_token: string };
     expect(next.refresh_token).not.toBe(first.refresh_token);
 
-    const replay = await handleToken(tokenRequest({ grant_type: 'refresh_token', refresh_token: first.refresh_token }), { store });
+    const replay = await handleToken(tokenRequest({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: 'client-A' }), { store });
     expect(replay.status).toBe(400);
+  });
+
+  it('requires client_id, so the binding check cannot be skipped by omitting it', async () => {
+    const { store } = memoryStore();
+    const code = await codeFor(store, await challengeFor(VERIFIER));
+    const res = await handleToken(tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER }), { store });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('invalid_request');
+  });
+
+  it('requires client_id on a refresh too', async () => {
+    const { store } = memoryStore();
+    const code = await codeFor(store, await challengeFor(VERIFIER));
+    const first = (await (
+      await handleToken(
+        tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER, client_id: 'client-A' }),
+        { store },
+      )
+    ).json()) as { refresh_token: string };
+    const res = await handleToken(tokenRequest({ grant_type: 'refresh_token', refresh_token: first.refresh_token }), { store });
+    expect(res.status).toBe(400);
   });
 
   it('rejects an unsupported grant type', async () => {
     const { store } = memoryStore();
-    const res = await handleToken(tokenRequest({ grant_type: 'password', username: 'x', password: 'y' }), { store });
+    const res = await handleToken(tokenRequest({ grant_type: 'password', username: 'x', password: 'y', client_id: 'client-A' }), { store });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('unsupported_grant_type');
   });

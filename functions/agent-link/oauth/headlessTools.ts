@@ -337,6 +337,19 @@ export function spaceKeyFromLinks(links: unknown): string {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
+/**
+ * Does this 400 body say the version was the problem?
+ *
+ * Confluence reports a stale optimistic-lock version as 400 "Version must be
+ * incremented" as well as 409 (ADR 0003's context records the 400 form from a
+ * live probe). Every other 400 is a request we got wrong, and telling the
+ * agent to re-read and retry would loop forever on it.
+ */
+function mentionsVersionConflict(body: unknown): boolean {
+  const text = typeof body === 'string' ? body : JSON.stringify(body ?? '');
+  return /version/i.test(text) && /(increment|conflict|current|match)/i.test(text);
+}
+
 function diagramRow(row: CustomContentRow) {
   return {
     contentId: typeof row.id === 'string' ? row.id : String(row.id ?? ''),
@@ -378,7 +391,12 @@ export async function callHeadlessTool(
         // The account id, not a name or an email: it is what the grant is
         // keyed by, and it is the only identity we hold.
         actingAs: ctx.userId,
-        capabilities: ['read'],
+        // Derived from the tool list, not hardcoded: the first version said
+        // ['read'] and stayed that way after the write tools shipped, telling
+        // agents they could not do what they could.
+        capabilities: HEADLESS_TOOLS.some((t) => t.name === 'update_diagram' || t.name === 'create_diagram')
+          ? ['read', 'write']
+          : ['read'],
         sites: rows,
       };
     }
@@ -541,10 +559,12 @@ export async function callHeadlessTool(
         },
       });
       if (write.status === 403) throw new HeadlessToolError('You do not have permission to edit that diagram.', 'forbidden');
-      // Confluence answers a stale version with 409 (or 400 "Version must be
-      // incremented"); either way somebody else wrote first and we do not
-      // force. The agent should re-read and decide, not retry blindly.
-      if (write.status === 409 || write.status === 400) {
+      // 409 is unambiguous. 400 is only a conflict when Confluence says the
+      // version is the problem — it is also what a malformed body or a bad
+      // field returns, and reporting those as "someone else changed this"
+      // sends an agent into a re-read loop against an error re-reading cannot
+      // fix.
+      if (write.status === 409 || (write.status === 400 && mentionsVersionConflict(write.body))) {
         throw new HeadlessToolError('Someone else changed this diagram first. Read it again before updating.', 'conflict', {
           status: write.status,
         });
@@ -684,21 +704,48 @@ export async function callHeadlessTool(
           body: { representation: 'atlas_doc_format', value: JSON.stringify(adf) },
         },
       });
-      if (published.status === 403) {
-        throw new HeadlessToolError('The diagram was saved, but you do not have permission to edit that page.', 'forbidden', {
-          contentId,
+      // The content exists but nothing references it yet. Every exit below
+      // this point that is not a success has to deal with that, or it leaves
+      // a row the user cannot see, cannot reach, and did not ask for — one
+      // per retry.
+      const discardContent = async () => {
+        const deleted = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}`, {
+          method: 'DELETE',
         });
+        // Best effort: DELETE needs delete:custom-content:confluence, which
+        // REQUIRED_SCOPES does not ask for, so this is expected to 401 today
+        // (confirmed against a real site 2026-09-26). Reporting the orphan is
+        // then the honest thing to do — the id is in the response so a human
+        // can clean it up — rather than pretending nothing was written.
+        return deleted.ok;
+      };
+
+      if (published.status === 403) {
+        const discarded = await discardContent();
+        throw new HeadlessToolError(
+          'You do not have permission to edit that page, so the diagram was not placed.',
+          'forbidden',
+          { contentId, orphaned: !discarded },
+        );
       }
       // Never force-publish over a concurrent edit (design §7): an agent
-      // racing a human editor must lose. The content is stored, so the user
-      // can still place it; the page is untouched.
-      if (published.status === 409 || published.status === 400) {
-        return { result: 'conflict', contentId, pageId, detail: 'the page changed while the diagram was being added' };
+      // racing a human editor must lose.
+      if (published.status === 409 || (published.status === 400 && mentionsVersionConflict(published.body))) {
+        const discarded = await discardContent();
+        return {
+          result: 'conflict',
+          contentId,
+          pageId,
+          orphaned: !discarded,
+          detail: 'the page changed while the diagram was being added; nothing was placed',
+        };
       }
       if (!published.ok) {
-        throw new HeadlessToolError('The diagram was saved, but the page update failed.', 'upstream', {
+        const discarded = await discardContent();
+        throw new HeadlessToolError('The page update failed, so the diagram was not placed.', 'upstream', {
           contentId,
           status: published.status,
+          orphaned: !discarded,
         });
       }
 

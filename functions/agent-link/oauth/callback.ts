@@ -17,7 +17,7 @@
 // authServer.ts). No code is ever issued before it passes.
 
 import { handleCallback } from './atlassianLeg';
-import { completeAuthorization, consentUrl, hasConsent } from './authServer';
+import { completeAuthorization, consentCookie, consentUrl, hasConsent } from './authServer';
 import { loadPending, savePending } from './asStore';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
 import { mixpanelTrack } from '../../service/mixpanelService';
@@ -74,15 +74,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   // user rather than trusting anything the browser sends back.
   await savePending(store, pendingId, { ...pending, userId: outcome.accountId });
 
-  // Hand the browser to our consent screen. The state cookie that atlassianLeg
-  // set is cleared by `response`; the parked id travels in the URL, and it is
-  // useless without the Atlassian grant it is paired with.
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: consentUrl(url.origin, pendingId),
-      'set-cookie': response.headers.get('set-cookie') ?? '',
-      'cache-control': 'no-store',
-    },
+  // Hand the browser to our consent screen, binding the parked authorization
+  // to THIS browser on the way (authServer.consentCookie). The id also travels
+  // in the URL because the consent form has to name it, but the URL alone is
+  // no longer enough to complete a consent.
+  const headers = new Headers({
+    location: consentUrl(url.origin, pendingId),
+    'cache-control': 'no-store',
   });
+  // Two Set-Cookie headers: atlassianLeg's cleared state cookie, and ours.
+  const cleared = response.headers.get('set-cookie');
+  if (cleared) headers.append('set-cookie', cleared);
+  headers.append('set-cookie', consentCookie(pendingId, url));
+  return new Response(null, { status: 302, headers });
 };

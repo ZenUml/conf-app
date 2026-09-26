@@ -37,6 +37,7 @@ import {
 } from './asMetadata';
 import {
   ACCESS_TOKEN_TTL_SECONDS,
+  bumpRegisterCount,
   consumeCode,
   consumeRefreshToken,
   deletePending,
@@ -47,6 +48,8 @@ import {
   loadConsent,
   loadPending,
   randomToken,
+  REGISTER_LIMIT,
+  REGISTER_WINDOW_SECONDS,
   saveClient,
   saveConsent,
   savePending,
@@ -104,6 +107,19 @@ ul{padding-left:1.2rem}</style>
  * identity and nothing more.
  */
 export async function handleRegister(request: Request, deps: AsDeps): Promise<Response> {
+  // Open registration with no ceiling is an unauthenticated write into the
+  // namespace that also holds every user's encrypted Atlassian grant, one
+  // durable record per call. The cap is per source per hour and generous
+  // enough that no real client notices it.
+  const source = request.headers.get('cf-connecting-ip') ?? 'unknown';
+  const count = await bumpRegisterCount(deps.store, source, (deps.nowMs ?? Date.now)());
+  if (count > REGISTER_LIMIT) {
+    return new Response(
+      JSON.stringify({ error: 'too_many_requests', error_description: 'too many registrations; try again later' }),
+      { status: 429, headers: { ...JSON_HEADERS, 'retry-after': String(REGISTER_WINDOW_SECONDS) } },
+    );
+  }
+
   let body: { redirect_uris?: unknown; client_name?: unknown };
   try {
     body = (await request.json()) as typeof body;
@@ -253,6 +269,42 @@ export function consentUrl(origin: string, pendingId: string): string {
   return url.toString();
 }
 
+export const CONSENT_COOKIE = 'agent_link_consent';
+/** The consent screen is one hop away; it does not need the parking window. */
+export const CONSENT_COOKIE_TTL_SECONDS = 10 * 60;
+
+/**
+ * Bind the pending authorization to THIS browser for the consent hop.
+ *
+ * Without it the `auth` id in the consent URL is a bearer credential on its
+ * own: anyone who obtains it — from the address bar, history, a Referer, or a
+ * log — can POST decision=allow and complete an authorization the user never
+ * approved. The Atlassian state cookie cannot serve here because the callback
+ * clears it, by design, before redirecting.
+ */
+export function consentCookie(pendingId: string, requestUrl: URL, maxAge = CONSENT_COOKIE_TTL_SECONDS): string {
+  const secure = requestUrl.protocol === 'https:' ? '; Secure' : '';
+  // Strict, not Lax: every legitimate request to /consent is same-site (our
+  // redirect, then our own form POST), so nothing needs the cookie on a
+  // cross-site navigation — and Strict is what makes a cross-site POST fail.
+  return `${CONSENT_COOKIE}=${pendingId}; Path=${CONSENT_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure}`;
+}
+
+export function readCookie(header: string | null, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const [k, ...rest] = part.trim().split('=');
+    if (k === name) return rest.join('=');
+  }
+  return null;
+}
+
+/** Does this request carry the consent cookie for `pendingId`? */
+export function consentCookieMatches(request: Request, pendingId: string): boolean {
+  const cookie = readCookie(request.headers.get('cookie'), CONSENT_COOKIE);
+  return !!cookie && !!pendingId && cookie === pendingId;
+}
+
 export function renderConsent(
   client: RegisteredClient,
   pendingId: string,
@@ -390,9 +442,14 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
     if (!body.code) return oauthError(400, 'invalid_request', 'code is required');
     if (!body.code_verifier) return oauthError(400, 'invalid_request', 'code_verifier is required');
 
+    // Required, not optional: RFC 6749 §3.2.1 obliges a public client to
+    // identify itself here, and treating it as optional meant a client that
+    // simply omitted it skipped the binding check below entirely.
+    if (!body.client_id) return oauthError(400, 'invalid_request', 'client_id is required');
+
     const record = await consumeCode(deps.store, body.code);
     if (!record) return oauthError(400, 'invalid_grant', 'the code is unknown, used, or expired');
-    if (body.client_id && body.client_id !== record.clientId) {
+    if (body.client_id !== record.clientId) {
       return oauthError(400, 'invalid_grant', 'the code was issued to a different client');
     }
     if (body.redirect_uri && body.redirect_uri !== record.redirectUri) {
@@ -424,9 +481,11 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
 
   if (body.grant_type === 'refresh_token') {
     if (!body.refresh_token) return oauthError(400, 'invalid_request', 'refresh_token is required');
+    if (!body.client_id) return oauthError(400, 'invalid_request', 'client_id is required');
+
     const record = await consumeRefreshToken(deps.store, body.refresh_token);
     if (!record) return oauthError(400, 'invalid_grant', 'the refresh token is unknown, used, or expired');
-    if (body.client_id && body.client_id !== record.clientId) {
+    if (body.client_id !== record.clientId) {
       return oauthError(400, 'invalid_grant', 'the refresh token was issued to a different client');
     }
 

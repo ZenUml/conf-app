@@ -87,9 +87,22 @@ export interface HeadlessEnv extends OAuthEnv, GateEnv {
  * rather than applied. Nothing else answers that — the frontend's gate never
  * runs on this path, so its own paywall_gate_evaluated is silent here.
  *
- * Analytics never fails a write: the tool already succeeded by the time this
- * runs, and a Mixpanel outage must not turn a published diagram into an error.
+ * Analytics never fails a write and never delays one: the tool has already
+ * succeeded by the time this runs, so a slow or unreachable Mixpanel must not
+ * hold the response — or, worse, time the request out and make an agent retry
+ * a diagram it already created. The call is therefore bounded and its result
+ * is not awaited by the caller.
  */
+const ANALYTICS_TIMEOUT_MS = 2_000;
+
+/** Bound a fire-and-forget analytics call so it cannot outlive the request it describes. */
+function withTimeout(work: Promise<unknown>): Promise<void> {
+  return Promise.race([
+    work.then(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, ANALYTICS_TIMEOUT_MS)),
+  ]).catch(() => undefined);
+}
+
 async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value: unknown): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const out = (value ?? {}) as { result?: unknown; gate?: unknown };
@@ -101,7 +114,7 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
         : null;
   if (!event) return;
   try {
-    await mixpanelTrack(
+    await withTimeout(mixpanelTrack(
       {
         event,
         user_account_id: userId,
@@ -111,7 +124,7 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
       },
       env.MIXPANEL_TOKEN,
-    );
+    ));
   } catch {
     // analytics must never fail a write that already happened
   }
@@ -131,7 +144,7 @@ async function trackWriteRefusal(
   if (!env.MIXPANEL_TOKEN) return;
   if (tool !== 'create_diagram' && tool !== 'update_diagram') return;
   try {
-    await mixpanelTrack(
+    await withTimeout(mixpanelTrack(
       {
         event: tool === 'create_diagram' ? 'agent_link_diagram_created' : 'agent_link_diagram_updated',
         user_account_id: userId,
@@ -144,7 +157,7 @@ async function trackWriteRefusal(
         paywall_gate: failure.code === 'limit_reached' ? 'limit_reached' : undefined,
       },
       env.MIXPANEL_TOKEN,
-    );
+    ));
   } catch {
     // never fail the response on analytics
   }

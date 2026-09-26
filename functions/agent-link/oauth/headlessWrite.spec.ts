@@ -468,6 +468,7 @@ describe('write analytics', () => {
     const env = {
       ATLASSIAN_OAUTH_CLIENT_ID: 'c',
       ATLASSIAN_OAUTH_CLIENT_SECRET: 's',
+      ATLASSIAN_OAUTH_REDIRECT_URI: 'https://conf-stg-lite.zenuml.com/agent-link/oauth/callback',
       OAUTH_GRANT_KV: ctx.store,
       OAUTH_GRANT_SECRET: 'grant-key',
       MIXPANEL_TOKEN: 'mp-token',

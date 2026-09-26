@@ -9,6 +9,12 @@ pages_build_output_dir = "dist"
 # app a7f2a21d-a28c-4155-af0f-df365b5b94ef). The secret pairs with it via
 # `wrangler pages secret put ATLASSIAN_OAUTH_CLIENT_SECRET`.
 ATLASSIAN_OAUTH_CLIENT_ID = "f1Q7H7v2bf0ax9ThXvL8n3aewQENg6hp"
+# The redirect_uri sent to Atlassian. PINNED, not derived from the request
+# host: Atlassian requires a byte-for-byte match with a callback registered
+# on the console app, and a request arriving on any other host (127.0.0.1
+# where localhost is registered, a preview URL) would otherwise be bounced
+# to Atlassian's error page. Must stay in step with the console.
+ATLASSIAN_OAUTH_REDIRECT_URI = "http://localhost:8080/agent-link/oauth/callback"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
 # Optional locally: EXPECTED_FORGE_ENVIRONMENT_TYPE=DEVELOPMENT. It is left

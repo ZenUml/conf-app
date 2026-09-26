@@ -22,7 +22,13 @@
 //     the caller supplied, so a grant can never be filed under someone else's
 //     name.
 
-import { loadAppConfig, loadGrantStore, type OAuthEnv } from './appConfig';
+import {
+  loadAppConfig,
+  loadGrantStore,
+  OAuthConfigError,
+  OAuthRedirectHostMismatchError,
+  type OAuthEnv,
+} from './appConfig';
 import {
   buildAuthorizeUrl,
   exchangeCode,
@@ -69,6 +75,22 @@ function readCookie(header: string | null, name: string): string | null {
   return null;
 }
 
+/**
+ * Escape text bound for a page body.
+ *
+ * The mismatch message embeds the request's own origin, which comes from the
+ * Host header and is therefore attacker-influenced. authServer.ts keeps its own
+ * copy private; duplicating four replacements is cheaper than coupling these
+ * two modules together.
+ */
+function escapeText(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function html(status: number, title: string, body: string, extraHeaders: Record<string, string> = {}): Response {
   const page = `<!doctype html><meta charset="utf-8"><title>${title}</title>
 <style>body{font:16px/1.5 system-ui;max-width:36rem;margin:4rem auto;padding:0 1rem;color:#172b4d}code{background:#f4f5f7;padding:.1em .3em;border-radius:3px}</style>
@@ -82,7 +104,21 @@ function html(status: number, title: string, body: string, extraHeaders: Record<
 /** GET /agent-link/oauth/authorize — mint state, set the cookie, redirect to Atlassian. */
 export function handleAuthorize(request: Request, deps: LegDeps): Response {
   const url = new URL(request.url);
-  const app = loadAppConfig(deps.env, url);
+  let app;
+  try {
+    app = loadAppConfig(deps.env, url);
+  } catch (e) {
+    // Both of these are ours to explain, not Atlassian's to reject. Redirecting
+    // anyway would strand the user on an Atlassian error page with nothing here
+    // to say why (appConfig.ts header, 2026-09-26).
+    if (e instanceof OAuthRedirectHostMismatchError) {
+      return html(400, 'This address cannot be used to connect', `<p>${escapeText(e.message)}</p>`);
+    }
+    if (e instanceof OAuthConfigError) {
+      return html(503, 'Connecting is not available here', '<p>This environment is missing part of its ZenUML OAuth configuration. Nothing was stored.</p>');
+    }
+    throw e;
+  }
   const state = (deps.randomState ?? (() => crypto.randomUUID()))();
   return new Response(null, {
     status: 302,
@@ -96,7 +132,20 @@ export function handleAuthorize(request: Request, deps: LegDeps): Response {
 
 export type CallbackOutcome =
   | { ok: true; accountId: string; siteCount: number }
-  | { ok: false; reason: 'atlassian_denied' | 'state_mismatch' | 'missing_code' | 'exchange_failed' | 'me_failed' | 'sites_failed'; detail?: string };
+  | {
+      ok: false;
+      reason:
+        | 'atlassian_denied'
+        | 'state_mismatch'
+        | 'missing_code'
+        | 'exchange_failed'
+        | 'me_failed'
+        | 'sites_failed'
+        // This environment cannot complete the flow at all — a missing binding,
+        // or a host the console does not know. Nothing was stored.
+        | 'config';
+      detail?: string;
+    };
 
 /**
  * GET /agent-link/oauth/callback — the return from Atlassian.
@@ -137,7 +186,17 @@ export async function handleCallback(
       '<p>Atlassian returned without an authorization code. Nothing was stored.</p>');
   }
 
-  const app = loadAppConfig(deps.env, url);
+  let app;
+  try {
+    app = loadAppConfig(deps.env, url);
+  } catch (e) {
+    if (e instanceof OAuthRedirectHostMismatchError || e instanceof OAuthConfigError) {
+      return fail('config', 503, 'Authorization could not be completed',
+        '<p>This environment is missing part of its ZenUML OAuth configuration. Nothing was stored.</p>',
+        e.message);
+    }
+    throw e;
+  }
   const { store, secret } = loadGrantStore(deps.env);
   const now = deps.nowMs ?? Date.now;
   // Detached on purpose: calling `deps.fetchImpl(...)` would invoke the

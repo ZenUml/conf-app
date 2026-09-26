@@ -11,22 +11,40 @@
 //   OAUTH_GRANT_KV                 KV      — the encrypted grant store
 //   OAUTH_GRANT_SECRET             secret  — AES key material for that store
 //
-// The redirect URI is derived from the request origin rather than configured,
-// because the same code serves zenapi.zenuml.com, conf-stg-lite.zenuml.com and
-// localhost:8080 and Atlassian rejects a redirect_uri that is not byte-for-byte
-// one of the registered callbacks (atlassianClient.ts). Deriving it means a
-// host is either registered in the console or fails at authorize time, never
-// silently at exchange time with a mismatched value.
+//   ATLASSIAN_OAUTH_REDIRECT_URI   [vars]  — public; must be byte-for-byte one
+//                                             of the console's callbacks
+//
+// THE REDIRECT URI IS PINNED, NOT DERIVED. It used to be built from the request
+// origin, on the reasoning that an unregistered host would then "fail at
+// authorize time". Driving the flow with a real MCP client on 2026-09-26
+// disproved that: reached on 127.0.0.1:8080 the authorize endpoint returned a
+// perfectly happy 302 to Atlassian carrying
+// redirect_uri=http://127.0.0.1:8080/agent-link/oauth/callback, which is NOT a
+// registered callback (localhost:8080 is). The rejection then happens on
+// Atlassian's error page, after the user has left our app, with nothing in our
+// logs to explain it — the exact silent failure deriving was supposed to avoid.
+//
+// Two reasons to pin instead. Atlassian requires an exact match against a small,
+// known, per-environment set, which is the definition of configuration; and the
+// request's host comes from a header we do not control, so deriving let an
+// inbound Host decide what we send Atlassian (unexploitable only because
+// Atlassian rejects unregistered values, which is not a property to rely on).
+//
+// `requestUrl` is still passed in, now as a guard: when the host a request
+// arrived on cannot produce the configured callback, we refuse here with a
+// message naming both, instead of bouncing the user to a dead end.
 
 import type { AtlassianAppConfig } from './atlassianClient';
 import type { GrantStore } from './tokenStore';
 
-/** The path the registered callbacks share; the host is the request's. */
+/** The path every registered callback shares. Fixed by the console registration. */
 export const OAUTH_CALLBACK_PATH = '/agent-link/oauth/callback';
 
 export interface OAuthEnv {
   ATLASSIAN_OAUTH_CLIENT_ID?: string;
   ATLASSIAN_OAUTH_CLIENT_SECRET?: string;
+  /** Exactly one of the console's registered callbacks, for THIS environment. */
+  ATLASSIAN_OAUTH_REDIRECT_URI?: string;
   OAUTH_GRANT_KV?: GrantStore;
   OAUTH_GRANT_SECRET?: string;
 }
@@ -39,24 +57,69 @@ export class OAuthConfigError extends Error {
 }
 
 /**
- * Build the callback URI for the host this request arrived on.
+ * This request arrived on a host that cannot use the configured callback.
  *
- * Only the origin is used — path and query are dropped — so a callback
- * request and an authorize request from the same host produce the same value,
- * which is what the token exchange requires.
+ * Separate from OAuthConfigError because nothing is missing — the environment
+ * is configured, and this particular request simply came in somewhere the
+ * console does not know about (`127.0.0.1` where `localhost` is registered, a
+ * preview deployment URL, a proxy rewriting Host). Sending it onward would
+ * strand the user on Atlassian's error page, so it stops here.
+ */
+export class OAuthRedirectHostMismatchError extends Error {
+  constructor(
+    public readonly requestOrigin: string,
+    public readonly configuredOrigin: string,
+  ) {
+    super(
+      `agent-link OAuth: this request arrived on ${requestOrigin}, but the configured ` +
+        `callback is on ${configuredOrigin}. Reach the server on ${configuredOrigin}, or ` +
+        `register ${requestOrigin}${OAUTH_CALLBACK_PATH} and point ` +
+        `ATLASSIAN_OAUTH_REDIRECT_URI at it.`,
+    );
+    this.name = 'OAuthRedirectHostMismatchError';
+  }
+}
+
+/**
+ * The callback URI the host of `requestUrl` would imply.
+ *
+ * No longer the source of truth — see the header. Kept because the mismatch
+ * guard needs it to say what this host WOULD have produced, which is the
+ * sentence that tells a developer what to fix.
  */
 export function redirectUriFor(requestUrl: string | URL): string {
   const origin = new URL(requestUrl).origin;
   return `${origin}${OAUTH_CALLBACK_PATH}`;
 }
 
-/** Throws OAuthConfigError naming the first missing binding, so a half-configured environment fails loudly. */
-export function loadAppConfig(env: OAuthEnv, requestUrl: string | URL): AtlassianAppConfig {
+/**
+ * Throws OAuthConfigError naming the first missing binding, so a
+ * half-configured environment fails loudly; throws
+ * OAuthRedirectHostMismatchError when this request's host cannot use the
+ * configured callback.
+ *
+ * `requestUrl` is optional so the token exchange — which has no inbound host
+ * worth checking, only a code to redeem — can ask for the config without
+ * re-running the guard.
+ */
+export function loadAppConfig(env: OAuthEnv, requestUrl?: string | URL): AtlassianAppConfig {
   const clientId = env.ATLASSIAN_OAUTH_CLIENT_ID?.trim();
   if (!clientId) throw new OAuthConfigError('ATLASSIAN_OAUTH_CLIENT_ID');
   const clientSecret = env.ATLASSIAN_OAUTH_CLIENT_SECRET;
   if (!clientSecret) throw new OAuthConfigError('ATLASSIAN_OAUTH_CLIENT_SECRET');
-  return { clientId, clientSecret, redirectUri: redirectUriFor(requestUrl) };
+
+  const redirectUri = env.ATLASSIAN_OAUTH_REDIRECT_URI?.trim();
+  if (!redirectUri) throw new OAuthConfigError('ATLASSIAN_OAUTH_REDIRECT_URI');
+
+  if (requestUrl !== undefined) {
+    const configuredOrigin = new URL(redirectUri).origin;
+    const requestOrigin = new URL(requestUrl).origin;
+    if (requestOrigin !== configuredOrigin) {
+      throw new OAuthRedirectHostMismatchError(requestOrigin, configuredOrigin);
+    }
+  }
+
+  return { clientId, clientSecret, redirectUri };
 }
 
 export interface GrantStoreConfig {

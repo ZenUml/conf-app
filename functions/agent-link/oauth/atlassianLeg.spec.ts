@@ -17,6 +17,7 @@ function makeEnv() {
     env: {
       ATLASSIAN_OAUTH_CLIENT_ID: 'client-id',
       ATLASSIAN_OAUTH_CLIENT_SECRET: 'client-secret',
+      ATLASSIAN_OAUTH_REDIRECT_URI: 'https://conf-stg-lite.zenuml.com/agent-link/oauth/callback',
       OAUTH_GRANT_KV: store,
       OAUTH_GRANT_SECRET: 'grant-key',
     },
@@ -61,8 +62,35 @@ describe('handleAuthorize', () => {
     expect(cookie).toContain('Secure');
   });
 
-  it('omits Secure on the localhost callback so the cookie survives http://', () => {
+  it('refuses a mismatched host instead of redirecting to a dead end', () => {
+    // The whole point of pinning: a request on an unregistered host stops HERE,
+    // with an explanation, rather than 302-ing the user to Atlassian's error page.
     const { env } = makeEnv();
+    const res = handleAuthorize(
+      new Request('http://127.0.0.1:8080/agent-link/oauth/authorize'),
+      { env, fetchImpl: atlassianFetch().fetchImpl },
+    );
+    expect(res.status).toBe(400);
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('says 503 rather than 400 when the redirect URI is not configured at all', () => {
+    const { env } = makeEnv();
+    delete (env as { ATLASSIAN_OAUTH_REDIRECT_URI?: string }).ATLASSIAN_OAUTH_REDIRECT_URI;
+    const res = handleAuthorize(
+      new Request('https://conf-stg-lite.zenuml.com/agent-link/oauth/authorize'),
+      { env, fetchImpl: atlassianFetch().fetchImpl },
+    );
+    expect(res.status).toBe(503);
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('omits Secure on the localhost callback so the cookie survives http://', () => {
+    // The pinned callback has to be the localhost one here: with staging pinned,
+    // a localhost request is now a host mismatch and never reaches Atlassian.
+    const { env } = makeEnv();
+    env.ATLASSIAN_OAUTH_REDIRECT_URI = 'http://localhost:8080/agent-link/oauth/callback';
     const res = handleAuthorize(new Request('http://localhost:8080/agent-link/oauth/authorize'), { env, fetchImpl: atlassianFetch().fetchImpl });
     expect(res.headers.get('set-cookie')).not.toContain('Secure');
     expect(new URL(res.headers.get('location')!).searchParams.get('redirect_uri')).toBe('http://localhost:8080/agent-link/oauth/callback');

@@ -332,6 +332,26 @@ export async function onRequestOptions(): Promise<Response> {
   return new Response(null, { headers: CORS_HEADERS });
 }
 
+/**
+ * GET and DELETE belong to the parts of the Streamable HTTP transport we do
+ * not implement: GET opens a server-initiated SSE stream, DELETE ends a
+ * session. Every reply here rides its own POST response, so both get a clean
+ * 405 with `Allow`, which is how the spec says a server declines them.
+ *
+ * Without this they fell through the Pages router to the SPA, so a client
+ * opening a stream received an HTML page with status 200 — the kind of reply
+ * that makes a client hang rather than move on. Found while checking what
+ * Claude Desktop would see (2026-09-26).
+ */
+const METHOD_NOT_ALLOWED = () =>
+  new Response(JSON.stringify({ error: 'method_not_allowed', message: 'This MCP endpoint accepts POST.' }), {
+    status: 405,
+    headers: { ...JSON_HEADERS, Allow: 'POST, OPTIONS' },
+  });
+
+export const onRequestGet: PagesFunction<Env> = async () => METHOD_NOT_ALLOWED();
+export const onRequestDelete: PagesFunction<Env> = async () => METHOD_NOT_ALLOWED();
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const url = new URL(request.url);
   const token = extractToken(request, url);

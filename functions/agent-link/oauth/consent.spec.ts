@@ -67,11 +67,16 @@ function postForm(fields: Record<string, string>, cookie?: string) {
 }
 
 describe('the consent cookie', () => {
-  it('is HttpOnly, Strict and scoped to the consent path', () => {
+  it('is HttpOnly, Lax and scoped to the consent path', () => {
     const cookie = consentCookie(PENDING_ID, new URL(CONSENT));
     expect(cookie).toContain(`${CONSENT_COOKIE}=${PENDING_ID}`);
     expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('SameSite=Strict');
+    // Lax, NOT Strict: the redirect into /consent comes out of a navigation
+    // that started at Atlassian, and Strict withholds the cookie there —
+    // which broke every real consent on staging until 2026-09-26. Lax is
+    // still withheld from the cross-site POST this cookie exists to stop.
+    expect(cookie).toContain('SameSite=Lax');
+    expect(cookie).not.toContain('SameSite=Strict');
     expect(cookie).toContain('Secure');
     expect(cookie).toContain('Path=/agent-link/oauth/consent');
   });

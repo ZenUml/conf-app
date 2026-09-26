@@ -284,10 +284,16 @@ export const CONSENT_COOKIE_TTL_SECONDS = 10 * 60;
  */
 export function consentCookie(pendingId: string, requestUrl: URL, maxAge = CONSENT_COOKIE_TTL_SECONDS): string {
   const secure = requestUrl.protocol === 'https:' ? '; Secure' : '';
-  // Strict, not Lax: every legitimate request to /consent is same-site (our
-  // redirect, then our own form POST), so nothing needs the cookie on a
-  // cross-site navigation — and Strict is what makes a cross-site POST fail.
-  return `${CONSENT_COOKIE}=${pendingId}; Path=${CONSENT_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure}`;
+  // Lax, not Strict — the same reason atlassianLeg's state cookie is Lax. The
+  // request that must carry this cookie is the redirect into /consent, and
+  // that redirect is part of a navigation that STARTED cross-site, at
+  // Atlassian. Strict withholds the cookie there, so the consent screen saw
+  // no cookie and refused every real user (observed on staging 2026-09-26).
+  //
+  // Lax still does the job it was added for: it is withheld from a
+  // cross-site POST, which is the shape a CSRF against the consent form
+  // takes. The GET it now allows only renders the page.
+  return `${CONSENT_COOKIE}=${pendingId}; Path=${CONSENT_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
 export function readCookie(header: string | null, name: string): string | null {

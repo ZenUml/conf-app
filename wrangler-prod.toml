@@ -20,7 +20,22 @@ ATLASSIAN_OAUTH_CLIENT_ID = "f1Q7H7v2bf0ax9ThXvL8n3aewQENg6hp"
 # on the console app, and a request arriving on any other host (127.0.0.1
 # where localhost is registered, a preview URL) would otherwise be bounced
 # to Atlassian's error page. Must stay in step with the console.
-ATLASSIAN_OAUTH_REDIRECT_URI = "https://zenapi.zenuml.com/agent-link/oauth/callback"
+#
+# conf-lite, NOT zenapi. zenapi.zenuml.com is the asyncapi-confluence-prod
+# Connect Worker, which proxies only /forge-* and /api/* through to this
+# backend: /agent-link/* answers 404 there (probed 2026-09-26). A callback on
+# that host would strand every user on a 404 after they had already consented
+# at Atlassian. zenapi was chosen when the console app was first registered,
+# from the live relay's reasoning about the Forge egress allowlist
+# (2026-07-08 live-agent-link design §13.1) — which is about where the MACRO
+# may open a WebSocket, not about where Pages Functions are served.
+#
+# Lite is the single prod host. conf-full is a separate Pages project on a
+# separate hostname, and an MCP token's audience is the origin it was issued
+# for, so a token minted here is correctly refused there. Serving headless
+# MCP from Full too would mean registering that callback as well and asking
+# users to authorize twice.
+ATLASSIAN_OAUTH_REDIRECT_URI = "https://conf-lite.zenuml.com/agent-link/oauth/callback"
 ENVIRONMENT = "production"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
 ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf,49017727-af19-4ab6-8d5a-7d28108936b6" # ZenUML Lite, Full, Diagramly and AsyncAPI

@@ -119,7 +119,8 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
         pageId: { type: 'string', description: 'The Confluence page to place it on.' },
         type: {
           type: 'string',
-          description: 'Sequence, Mermaid, PlantUml, Graph or OpenApi — what the DSL is written in.',
+          description:
+            'What the DSL is written in: sequence, mermaid, plantuml, graph or openapi. Case-insensitive; anything else is refused.',
         },
         dsl: { type: 'string', description: 'The diagram source.' },
         title: { type: 'string', description: 'Optional. Defaults to "Untitled diagram".' },
@@ -258,6 +259,50 @@ function summaryFor(summary: unknown, title?: string): string {
   return title ? `Added ZenUML diagram "${title}" via Agent Link${note}` : `Updated by ZenUML Agent Link${note}`;
 }
 
+/**
+ * The exact `diagramType` strings the app stores and compares against.
+ *
+ * Mirrors the DiagramType enum in src/model/Diagram/Diagram.ts, duplicated for
+ * the same reason macroIdentity duplicates VARIANTS: this runs in a Worker,
+ * where importing the frontend model is not possible. Note the enum is NOT
+ * uniformly lowercase — 'OpenAPI' and 'AsyncAPI' are mixed case — and every
+ * consumer compares with `===` (GenericViewer.vue's switches,
+ * ApWrapper2.ts:454), so a value that differs only in case renders as
+ * DiagramType.Unknown.
+ *
+ * This is why the caller's `type` is normalised rather than stored verbatim:
+ * the first version wrote what the agent sent ('Sequence', 'Mermaid', as this
+ * tool's own description asked for), which matched nothing and produced
+ * macros that render as the wrong type.
+ */
+const DIAGRAM_TYPE_BY_FOLDED: Record<string, string> = {
+  sequence: 'sequence',
+  mermaid: 'mermaid',
+  markdown: 'markdown',
+  plantuml: 'plantuml',
+  graph: 'graph',
+  openapi: 'OpenAPI',
+  asyncapi: 'AsyncAPI',
+};
+
+/** The canonical stored value for a caller-supplied type, or null if we do not know it. */
+export function canonicalDiagramType(raw: string): string | null {
+  return DIAGRAM_TYPE_BY_FOLDED[raw.trim().toLowerCase()] ?? null;
+}
+
+/**
+ * Is this custom-content type one a ZenUML variant writes?
+ *
+ * Checked across ALL variants rather than the resolved one: a site can carry
+ * content from an earlier variant (a lite→full conversion leaves both), and
+ * refusing to edit a diagram we demonstrably wrote would be wrong. What this
+ * excludes is the content every OTHER app on the site stores.
+ */
+function isZenUmlContentType(type: unknown): boolean {
+  if (typeof type !== 'string') return false;
+  return VARIANTS.some((profile) => customContentTypesFor(profile).includes(type));
+}
+
 /** The custom-content type this variant stores `diagramType` under. */
 function customContentTypeFor(identity: { variant: string; appId: string }, diagramType: string): string {
   const profile = VARIANTS.find((v) => v.variant === identity.variant)!;
@@ -271,13 +316,25 @@ function customContentTypeFor(identity: { variant: string; appId: string }, diag
   return types.find((t) => !t.endsWith('-graph')) ?? types[0];
 }
 
-/** The space key for a page's `spaceId` — what the paywall gate is keyed by. */
-async function spaceKeyFor(request: ConfluenceRequest, spaceId: unknown): Promise<string> {
-  if (typeof spaceId !== 'string' && typeof spaceId !== 'number') return '';
-  const res = await request(`/wiki/api/v2/spaces/${encodeURIComponent(String(spaceId))}`);
-  if (!res.ok) return '';
-  const key = (res.body as { key?: unknown })?.key;
-  return typeof key === 'string' ? key : '';
+/**
+ * The space key for a page, read out of the page response we already have.
+ *
+ * NOT from `/wiki/api/v2/spaces/{id}`: that endpoint needs
+ * `read:space:confluence`, which REQUIRED_SCOPES deliberately does not ask
+ * for, so it answers 401 "scope does not match" every time (verified against
+ * a real site 2026-09-26). The first version of this called it anyway and
+ * swallowed the failure, which silently handed the paywall gate an empty
+ * space key — and an empty key misses both the licence lookup and the macro
+ * count, so §9.1's gate could never fire in production.
+ *
+ * `_links.webui` is `/spaces/<KEY>/pages/<id>/<slug>` and is covered by the
+ * page read itself.
+ */
+export function spaceKeyFromLinks(links: unknown): string {
+  const webui = (links as { webui?: unknown })?.webui;
+  if (typeof webui !== 'string') return '';
+  const match = /^\/spaces\/([^/]+)\//.exec(webui);
+  return match ? decodeURIComponent(match[1]) : '';
 }
 
 function diagramRow(row: CustomContentRow) {
@@ -436,6 +493,20 @@ export async function callHeadlessTool(
         version?: { number?: unknown };
         body?: { raw?: { value?: unknown } };
       };
+      // Ours, or nothing. A site's custom content is shared by every app on
+      // it, and without this check an agent handed (or guessing) a draw.io
+      // contentId would have its XML body replaced with our JSON — the user's
+      // drawing destroyed, under a version message naming Agent Link. The
+      // caller's own permissions do not protect them here: they can edit that
+      // content, they just never asked us to.
+      if (!isZenUmlContentType(current.type)) {
+        throw new HeadlessToolError(
+          'That content is not a ZenUML diagram. Use list_diagrams for the ones this tool can edit.',
+          'bad_params',
+          { type: typeof current.type === 'string' ? current.type : undefined },
+        );
+      }
+
       const stored = parseStoredDiagram(current.body?.raw?.value);
 
       // The guard, against the CURRENT stored DSL — the same check the relay
@@ -497,6 +568,17 @@ export async function callHeadlessTool(
       if (!cloudId || !pageId || !diagramType || !dsl) {
         throw new HeadlessToolError('cloudId, pageId, type and dsl are required.', 'bad_params');
       }
+      // Normalised before anything else: the stored value has to be one the
+      // viewer recognises, and an unknown type is a refusal rather than a
+      // macro that renders as Unknown on the user's page.
+      const storedType = canonicalDiagramType(diagramType);
+      if (!storedType) {
+        throw new HeadlessToolError(
+          `Unknown diagram type "${diagramType}". Use one of: sequence, mermaid, plantuml, graph, openapi.`,
+          'bad_params',
+        );
+      }
+
       const site = await assertReachable(ctx, cloudId);
       const request = requestFor(ctx, cloudId);
       const get: ConfluenceGet = async (path) => {
@@ -514,10 +596,10 @@ export async function callHeadlessTool(
       }
       // Refuse rather than guess: a malformed extensionKey renders as an
       // unknown extension on a customer's page (addToPage.ts, 2026-08-11).
-      const extensionKey = extensionKeyFor(identity.identity, diagramType);
+      const extensionKey = extensionKeyFor(identity.identity, storedType);
       if (!extensionKey) {
         throw new HeadlessToolError(
-          `That site's ZenUML app (${identity.identity.variant}) has no macro for diagram type "${diagramType}".`,
+          `That site's ZenUML app (${identity.identity.variant}) has no macro for diagram type "${storedType}".`,
           'bad_params',
         );
       }
@@ -537,6 +619,7 @@ export async function callHeadlessTool(
         spaceId?: unknown;
         version?: { number?: unknown };
         body?: { atlas_doc_format?: { value?: unknown } };
+        _links?: unknown;
       };
       const rawAdf = page.body?.atlas_doc_format?.value;
       const pageVersion = Number(page.version?.number);
@@ -552,7 +635,7 @@ export async function callHeadlessTool(
       if (!Array.isArray(adf.content)) throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
 
       // §9.1, blocking: the frontend paywall never runs for a headless call.
-      const spaceKey = await spaceKeyFor(request, page.spaceId);
+      const spaceKey = spaceKeyFromLinks(page._links);
       const gate = await checkCreateAllowed(ctx.gateEnv ?? {}, {
         variant: identity.identity.variant,
         cloudId,
@@ -572,10 +655,10 @@ export async function callHeadlessTool(
       const created = await request('/wiki/api/v2/custom-content', {
         method: 'POST',
         body: {
-          type: customContentTypeFor(identity.identity, diagramType),
+          type: customContentTypeFor(identity.identity, storedType),
           title,
           pageId,
-          body: { value: JSON.stringify({ title, code: dsl, diagramType }), representation: 'raw' },
+          body: { value: JSON.stringify({ title, code: dsl, diagramType: storedType }), representation: 'raw' },
         },
       });
       if (created.status === 403) throw new HeadlessToolError('You do not have permission to create content here.', 'forbidden');

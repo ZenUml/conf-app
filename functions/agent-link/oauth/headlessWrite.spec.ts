@@ -3,7 +3,13 @@
 // already on the page, and a free space at its limit.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { callHeadlessTool, HeadlessToolError, type HeadlessContext } from './headlessTools';
+import {
+  callHeadlessTool,
+  canonicalDiagramType,
+  HeadlessToolError,
+  spaceKeyFromLinks,
+  type HeadlessContext,
+} from './headlessTools';
 import { checkCreateAllowed, MACROS_LIMIT, type GateEnv } from './headlessGate';
 import { buildMacroNode, countExtensions, referencesCustomContent } from '../macroNode';
 import { saveGrant, type GrantStore } from './tokenStore';
@@ -39,6 +45,8 @@ interface FakeSite {
   /** contentId -> stored body JSON. */
   content: Map<string, Record<string, unknown>>;
   contentVersion: Map<string, number>;
+  /** contentId -> custom-content type; defaults to ours. */
+  contentTypes?: Map<string, string>;
   /** Statuses to force, by "METHOD path-fragment". */
   force?: Record<string, number>;
 }
@@ -85,6 +93,9 @@ function fakeAtlassian(site: FakeSite) {
         spaceId: 'space-1',
         version: { number: site.pageVersion },
         body: { atlas_doc_format: { value: JSON.stringify(site.pageAdf) } },
+        // Where the space key comes from now: /wiki/api/v2/spaces/{id} needs a
+        // scope we do not request and answers 401.
+        _links: { webui: '/spaces/DESIGN/pages/page-1/Design+notes' },
       });
     }
     if (method === 'PUT' && url.includes('/pages/page-1')) {
@@ -109,7 +120,7 @@ function fakeAtlassian(site: FakeSite) {
       }
       return json(200, {
         id,
-        type: 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
+        type: site.contentTypes?.get(id) ?? 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
         status: 'current',
         pageId: 'page-1',
         title: stored.title ?? 'Diagram',
@@ -226,6 +237,62 @@ describe('update_diagram', () => {
     await expect(
       callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl: `${CURRENT_DSL}\nB.x()` }, ctx),
     ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+});
+
+describe('the three blockers found in review', () => {
+  it('stores a diagramType the viewer actually recognises', async () => {
+    const site = emptyPage();
+    const { ctx } = await contextFor(site);
+    // The casing an agent naturally sends, and the casing this tool used to ask for.
+    await callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'Mermaid', dsl: 'graph TD\n A-->B' }, ctx);
+    const created = site.content.get('new-1') as { body: { value: string } };
+    const body = JSON.parse(created.body.value) as { diagramType: string };
+    // DiagramType.Mermaid is 'mermaid'; every consumer compares with ===
+    expect(body.diagramType).toBe('mermaid');
+  });
+
+  it('normalises the mixed-case enum values too, and refuses anything else', async () => {
+    expect(canonicalDiagramType('OPENAPI')).toBe('OpenAPI');
+    expect(canonicalDiagramType(' sequence ')).toBe('sequence');
+    expect(canonicalDiagramType('PlantUml')).toBe('plantuml');
+    expect(canonicalDiagramType('drawio')).toBeNull();
+
+    const site = emptyPage();
+    const { ctx, writes } = await contextFor(site);
+    await expect(
+      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'drawio', dsl: 'x' }, ctx),
+    ).rejects.toMatchObject({ code: 'bad_params' });
+    expect(writes).toHaveLength(0);
+  });
+
+  it('reads the space key off the page, not from an endpoint we lack the scope for', async () => {
+    const site = emptyPage();
+    const { ctx, writes } = await contextFor(site, {
+      // Keyed by the space the page's _links.webui names.
+      confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) },
+    });
+    await expect(
+      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'sequence', dsl: 'A.b()' }, ctx),
+    ).rejects.toMatchObject({ code: 'limit_reached' });
+    expect(writes).toHaveLength(0);
+    // and it never calls the endpoint that 401s on our scopes
+    expect(spaceKeyFromLinks({ webui: '/spaces/DESIGN/pages/480411697/Test+page' })).toBe('DESIGN');
+    expect(spaceKeyFromLinks(undefined)).toBe('');
+  });
+
+  it('refuses to rewrite custom content that is not a ZenUML diagram', async () => {
+    const site = emptyPage();
+    // A draw.io drawing, which sits in the same custom-content store.
+    site.content.set('cc-2', { xml: '<mxGraphModel>…</mxGraphModel>' });
+    site.contentVersion.set('cc-2', 5);
+    site.contentTypes = new Map([['cc-2', 'ac:com.mxgraph.confluence.plugins.diagramly:drawio-diagram']]);
+    const { ctx, writes } = await contextFor(site);
+    await expect(
+      callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-2', dsl: CURRENT_DSL }, ctx),
+    ).rejects.toMatchObject({ code: 'bad_params' });
+    expect(writes).toHaveLength(0);
+    expect(site.content.get('cc-2')).toEqual({ xml: '<mxGraphModel>…</mxGraphModel>' });
   });
 });
 

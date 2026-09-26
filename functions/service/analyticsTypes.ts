@@ -65,6 +65,10 @@ export const CANONICAL_EVENT_NAME_LIST = [
   // count, which is §9.1's fail-open path and the open question it leaves.
   "agent_link_diagram_created",
   "agent_link_diagram_updated",
+  // Headless PAGE writes. No paywall gate — a page is not a macro — so these
+  // carry the write guard's verdict instead.
+  "agent_link_page_created",
+  "agent_link_page_updated",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

@@ -51,6 +51,20 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "extension_action_requested",
   "extension_action_succeeded",
   "extension_action_failed",
+  // Headless macro-identity resolution — backend-emitted, unlike every other
+  // agent_link_* event (those come from the macro, which a headless call has
+  // none of). See 2026-09-19-headless-diagram-mcp-design.md §6/§10.
+  "agent_link_identity_resolved",
+  "agent_link_identity_unresolved",
+  "agent_link_oauth_authorized",
+  "agent_link_oauth_refresh_failed",
+  "agent_link_oauth_revoked",
+  // Headless writes (design §10). `agent_link_diagram_created` carries the
+  // paywall gate's decision in `paywall_gate` — the only way to see how often
+  // the Lite limit is actually consulted rather than skipped on an unknown
+  // count, which is §9.1's fail-open path and the open question it leaves.
+  "agent_link_diagram_created",
+  "agent_link_diagram_updated",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

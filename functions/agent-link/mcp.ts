@@ -34,8 +34,9 @@ import { getGuideByUri, listGuideResources, selectInstructions } from './dslGuid
 import { sessionRegistry } from './registrySingleton';
 import { effectiveExpiryMs } from './sessionToken';
 import type { SessionRecord, SessionState } from './sessionToken';
+import { handleHeadlessRpc, looksLikeRelayToken, type HeadlessEnv } from './oauth/headlessMcp';
 
-interface Env {
+interface Env extends HeadlessEnv {
   AGENT_LINK?: DurableObjectNamespace;
 }
 
@@ -341,7 +342,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // expired vs. live) is answered below by whichever backing store is live
   // in this environment.
   if (!token || token.trim().length === 0) {
-    return jsonRpcError(401, null, RPC_AUTH_ERROR, authErrorMessage('missing'), { code: 'missing' });
+    // Only the relay can answer a token-less request with a bare 401. If
+    // headless mode is configured, the 401 has to carry the RFC 9728
+    // challenge instead, which is what tells a first-time MCP client where to
+    // authorize — so that case falls through to handleHeadlessRpc below.
+    if (!env?.OAUTH_GRANT_KV) {
+      return jsonRpcError(401, null, RPC_AUTH_ERROR, authErrorMessage('missing'), { code: 'missing' });
+    }
   }
 
   // Body is parsed BEFORE auth (ordering change, spec 2026-07-13): computing
@@ -359,6 +366,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   if (!body || typeof body !== 'object' || typeof body.method !== 'string') {
     return jsonRpcError(400, body?.id ?? null, RPC_INVALID_REQUEST, 'Invalid Request: missing "method"');
+  }
+
+  // MODE SELECTION (design §11 Phase 5). One endpoint, two credentials: the
+  // relay's `CL-XXXX-XXXX` session token, which needs the macro's tab open,
+  // and an OAuth token we issued, which does not. The shapes are distinct, so
+  // the split costs no lookup and neither path has to fail first. A token of
+  // neither shape is headless's to answer, because its 401 is the one that
+  // carries the discovery challenge.
+  if (env?.OAUTH_GRANT_KV && !looksLikeRelayToken(token)) {
+    return handleHeadlessRpc(request, env, body);
   }
 
   // Bump-worthiness (spec 2026-07-13 §3): real work slides the idle window;

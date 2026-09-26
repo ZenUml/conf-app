@@ -1040,6 +1040,39 @@ export type AnalyticsEventName =
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
   | "agent_link_list_performed"
+  // V — headless macro-identity resolution (design
+  // 2026-09-19-headless-diagram-mcp-design.md §6). Emitted by the BACKEND, not
+  // the macro: a headless create has no iframe to report from. `_resolved`
+  // carries `macro_key_source` so a cache-hit rate is readable; `_unresolved`
+  // carries the refusal in `reason` (AgentLinkIdentityFailure). The refusal is
+  // the load-bearing one — a site we cannot identify is a site where creating
+  // a macro would publish a broken extension, so the resolver declines and
+  // this event is the only record that a user hit that wall.
+  | "agent_link_identity_resolved"
+  | "agent_link_identity_unresolved"
+  // W — headless authorization (design §5/§11 Phase 3). Backend-emitted like
+  // the identity pair above. `_authorized` fires once per completed consent,
+  // carrying how many Atlassian sites the grant reaches (`site_count`);
+  // `_refresh_failed` fires when a rotating refresh token no longer works,
+  // which is the signal that a user must re-consent and the only warning we
+  // get before every headless call for them starts failing; `_revoked` fires
+  // when a grant is dropped, whether the user asked or a refresh died.
+  | "agent_link_oauth_authorized"
+  | "agent_link_oauth_refresh_failed"
+  | "agent_link_oauth_revoked"
+  // X — headless writes (design §7/§10). Backend-emitted, for the same reason
+  // as the pair above. `_created` carries the AddToPageResult-shaped outcome
+  // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate
+  // decided it. That property is the load-bearing one: the gate fails OPEN
+  // when the space's macro count is unknown (the #302 shape, matching what the
+  // frontend does), so 'count_unknown' volume is the only measure of how often
+  // the limit is skipped rather than applied — the number the decision to fail
+  // closed, or not, has to be made on. `_updated` has no gate (updating an
+  // existing diagram consumes no limit, §9.1) and instead carries
+  // `guardrail_rejected`, so the write guard's refusal rate is readable on the
+  // headless path the way it already is on the relay.
+  | "agent_link_diagram_created"
+  | "agent_link_diagram_updated"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1198,6 +1231,51 @@ export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "e
 // estate (no space/page filter). Search (agent_link_search_performed) is always
 // site-wide by design, so it has no scope field.
 export type AgentLinkListScope = "page" | "space" | "site";
+
+// Where a resolved headless macro identity came from (agent_link_identity_resolved).
+// 'cached' = reused a previously resolved identity for this cloudId; 'discovered'
+// = lifted fresh from an existing macro node on the site. A low 'discovered'
+// share means the cache is doing its job; a rising one means it is not.
+export type AgentLinkMacroKeySource = "cached" | "discovered";
+
+// Why the resolver refused to hand back an identity (agent_link_identity_unresolved).
+// 'no_macro_on_site' = the site has no ZenUML custom content to lift a key from,
+// so the variant and environment cannot be proven — the expected outcome on a
+// brand-new tenant, and a refusal rather than a guess by design.
+// 'no_extension_node' = custom content exists but no page ADF references it with
+// an extension node (orphaned content).
+// 'app_id_mismatch' = the lifted extensionKey names an appId that is not the one
+// the custom-content type implies; the two disagreeing means something is wrong
+// with our assumptions, not with the page, so we refuse rather than pick one.
+// 'probe_failed' = a Confluence call failed; retryable, unlike the three above.
+// Why an Atlassian grant ended (agent_link_oauth_revoked). 'user' = asked for
+// it; 'refresh_rejected' = the rotating refresh token was refused, so the grant
+// is dead whether the user knows it or not; 'reauthorized' = superseded by a
+// fresh consent for the same user.
+export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
+
+// The outcome of a headless write (agent_link_diagram_created / _updated).
+// Mirrors AddToPageResult so the headless and byline paths are comparable:
+// 'already_present' is a SUCCESS (an agent retried; nothing was duplicated)
+// and 'conflict' is a deliberate refusal (a human edited the page first and
+// we never force-publish).
+export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "updated";
+
+// Which branch of the §9.1 Lite paywall gate decided a headless create.
+// 'paid' = a live space or user licence, or a non-Lite variant, so the limit
+// does not apply; 'under_limit' = counted and below the limit;
+// 'limit_reached' = counted and refused; 'count_unknown' = the space's macro
+// count could not be read, and the create was ALLOWED anyway. The last one is
+// the fail-open path (the #302 shape, matching the frontend's own behaviour on
+// an unknown count) and the reason this property exists: its share of creates
+// is what says whether failing open is a rounding error or the normal case.
+export type AgentLinkPaywallGate = "paid" | "under_limit" | "limit_reached" | "count_unknown";
+
+export type AgentLinkIdentityFailure =
+  | "no_macro_on_site"
+  | "no_extension_node"
+  | "app_id_mismatch"
+  | "probe_failed";
 
 // Graph (DrawIO) editor chrome. `diagram` is Atlas/standard; `board` is
 // Sketch. Unknown persisted values must normalize to `diagram`.

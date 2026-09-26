@@ -2,14 +2,24 @@
 // refusals: a truncating update, a page someone else just edited, a diagram
 // already on the page, and a free space at its limit.
 
-import { describe, it, expect } from 'vitest';
-import { callHeadlessTool, HeadlessToolError, type HeadlessContext } from './headlessTools';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import {
+  callHeadlessTool,
+  canonicalDiagramType,
+  HeadlessToolError,
+  spaceKeyFromLinks,
+  type HeadlessContext,
+} from './headlessTools';
 import { checkCreateAllowed, MACROS_LIMIT, type GateEnv } from './headlessGate';
 import { buildMacroNode, countExtensions, referencesCustomContent } from '../macroNode';
 import { saveGrant, type GrantStore } from './tokenStore';
+import { handleHeadlessRpc } from './headlessMcp';
+import { issueAccessToken } from './asStore';
+import { resourceFor } from './asMetadata';
 import type { FetchLike } from './atlassianClient';
 
 const ACCOUNT = '712020:abc';
+const ORIGIN = 'https://conf-stg-lite.zenuml.com';
 const CLOUD = 'cloud-1';
 const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const ENV_ID = '26ad8f7e-aa24-4afe-83a3-e8216f9e5220';
@@ -35,6 +45,8 @@ interface FakeSite {
   /** contentId -> stored body JSON. */
   content: Map<string, Record<string, unknown>>;
   contentVersion: Map<string, number>;
+  /** contentId -> custom-content type; defaults to ours. */
+  contentTypes?: Map<string, string>;
   /** Statuses to force, by "METHOD path-fragment". */
   force?: Record<string, number>;
 }
@@ -51,7 +63,12 @@ function fakeAtlassian(site: FakeSite) {
 
     for (const [key, status] of Object.entries(site.force ?? {})) {
       const [m, fragment] = key.split(' ');
-      if (m === method && url.includes(fragment)) return json(status, { error: 'forced' });
+      if (m === method && url.includes(fragment)) {
+        // A forced 409/400 stands in for Confluence's stale-version answer,
+        // whose body names the version; a plain forced 400 does not.
+        const body = status === 409 ? { message: 'Version must be incremented' } : { error: 'forced' };
+        return json(status, body);
+      }
     }
 
     if (url === 'https://api.atlassian.com/oauth/token/accessible-resources') {
@@ -81,6 +98,9 @@ function fakeAtlassian(site: FakeSite) {
         spaceId: 'space-1',
         version: { number: site.pageVersion },
         body: { atlas_doc_format: { value: JSON.stringify(site.pageAdf) } },
+        // Where the space key comes from now: /wiki/api/v2/spaces/{id} needs a
+        // scope we do not request and answers 401.
+        _links: { webui: '/spaces/DESIGN/pages/page-1/Design+notes' },
       });
     }
     if (method === 'PUT' && url.includes('/pages/page-1')) {
@@ -103,9 +123,13 @@ function fakeAtlassian(site: FakeSite) {
         site.contentVersion.set(id, body.version.number);
         return json(200, { id, version: { number: body.version.number } });
       }
+      if (method === 'DELETE') {
+        site.content.delete(id);
+        return new Response(null, { status: 204 });
+      }
       return json(200, {
         id,
-        type: 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
+        type: site.contentTypes?.get(id) ?? 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
         status: 'current',
         pageId: 'page-1',
         title: stored.title ?? 'Diagram',
@@ -225,6 +249,83 @@ describe('update_diagram', () => {
   });
 });
 
+describe('the three blockers found in review', () => {
+  it('stores a diagramType the viewer actually recognises', async () => {
+    const site = emptyPage();
+    const { ctx } = await contextFor(site);
+    // The casing an agent naturally sends, and the casing this tool used to ask for.
+    await callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'Mermaid', dsl: 'graph TD\n A-->B' }, ctx);
+    const created = site.content.get('new-1') as { body: { value: string } };
+    const body = JSON.parse(created.body.value) as { diagramType: string };
+    // DiagramType.Mermaid is 'mermaid'; every consumer compares with ===
+    expect(body.diagramType).toBe('mermaid');
+  });
+
+  it('normalises the mixed-case enum values too, and refuses anything else', async () => {
+    expect(canonicalDiagramType('OPENAPI')).toBe('OpenAPI');
+    expect(canonicalDiagramType(' sequence ')).toBe('sequence');
+    expect(canonicalDiagramType('PlantUml')).toBe('plantuml');
+    expect(canonicalDiagramType('drawio')).toBeNull();
+
+    const site = emptyPage();
+    const { ctx, writes } = await contextFor(site);
+    await expect(
+      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'drawio', dsl: 'x' }, ctx),
+    ).rejects.toMatchObject({ code: 'bad_params' });
+    expect(writes).toHaveLength(0);
+  });
+
+  it('reads the space key off the page, not from an endpoint we lack the scope for', async () => {
+    const site = emptyPage();
+    const { ctx, writes } = await contextFor(site, {
+      // Keyed by the space the page's _links.webui names.
+      confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) },
+    });
+    await expect(
+      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'sequence', dsl: 'A.b()' }, ctx),
+    ).rejects.toMatchObject({ code: 'limit_reached' });
+    expect(writes).toHaveLength(0);
+    // and it never calls the endpoint that 401s on our scopes
+    expect(spaceKeyFromLinks({ webui: '/spaces/DESIGN/pages/480411697/Test+page' })).toBe('DESIGN');
+    expect(spaceKeyFromLinks(undefined)).toBe('');
+  });
+
+  it('reports a validation 400 as an error, not as a conflict to retry', async () => {
+    const site = emptyPage();
+    // A 400 that says nothing about versions — a bad field, not a stale write.
+    site.force = { 'PUT /custom-content/cc-1': 400 };
+    const { ctx } = await contextFor(site);
+    await expect(
+      callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl: `${CURRENT_DSL}\nB.x()` }, ctx),
+    ).rejects.toMatchObject({ code: 'upstream' });
+  });
+
+  it('does not leave orphaned content when the page write is refused', async () => {
+    const site = emptyPage();
+    site.force = { 'PUT /pages/page-1': 403 };
+    const { ctx, writes } = await contextFor(site);
+    await expect(
+      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'sequence', dsl: 'A.b()' }, ctx),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    // it tried to take the content back rather than leaving it stranded
+    expect(writes.some((w) => w.method === 'DELETE' && w.url.includes('/custom-content/new-1'))).toBe(true);
+  });
+
+  it('refuses to rewrite custom content that is not a ZenUML diagram', async () => {
+    const site = emptyPage();
+    // A draw.io drawing, which sits in the same custom-content store.
+    site.content.set('cc-2', { xml: '<mxGraphModel>…</mxGraphModel>' });
+    site.contentVersion.set('cc-2', 5);
+    site.contentTypes = new Map([['cc-2', 'ac:com.mxgraph.confluence.plugins.diagramly:drawio-diagram']]);
+    const { ctx, writes } = await contextFor(site);
+    await expect(
+      callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-2', dsl: CURRENT_DSL }, ctx),
+    ).rejects.toMatchObject({ code: 'bad_params' });
+    expect(writes).toHaveLength(0);
+    expect(site.content.get('cc-2')).toEqual({ xml: '<mxGraphModel>…</mxGraphModel>' });
+  });
+});
+
 describe('create_diagram', () => {
   it('stores the diagram, appends one macro, and publishes one page version', async () => {
     const site = emptyPage();
@@ -317,6 +418,103 @@ describe('create_diagram', () => {
     )) as { result: string; gate: string };
     expect(out.result).toBe('added');
     expect(out.gate).toBe('paid');
+  });
+});
+
+describe('write analytics', () => {
+  /**
+   * The gate's decision has to reach Mixpanel or the fail-open question (§9.1)
+   * stays unanswerable: the frontend's paywall_gate_evaluated never fires on
+   * this path, so `paywall_gate` here is the only record of whether the Lite
+   * limit was applied or skipped.
+   */
+  // mixpanelService posts with the GLOBAL fetch, not the injected one, so the
+  // only place to observe an emit is there.
+  function captureEvents() {
+    const events: Array<Record<string, any>> = [];
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: any, init: any) => {
+      const href = String(url);
+      if (href.includes('mixpanel.com')) {
+        try {
+          const parsed = JSON.parse(String(init?.body ?? '[]'));
+          for (const e of Array.isArray(parsed) ? parsed : [parsed]) events.push(e);
+        } catch {
+          // the identify call posts a different shape; not what we are counting
+        }
+        return new Response('1', { status: 200 });
+      }
+      return original(url, init);
+    });
+    return events;
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function rpcCreate(site: FakeSite, gateEnv: GateEnv) {
+    const { ctx } = await contextFor(site, gateEnv);
+    const events = captureEvents();
+    const fetchImpl = ctx.fetchImpl;
+    const token = await issueAccessToken(
+      ctx.store,
+      {
+        userId: ACCOUNT,
+        clientId: 'client-A',
+        scope: 'diagram.read diagram.write',
+        resource: resourceFor(ORIGIN),
+      },
+      Date.now(),
+    );
+    const env = {
+      ATLASSIAN_OAUTH_CLIENT_ID: 'c',
+      ATLASSIAN_OAUTH_CLIENT_SECRET: 's',
+      OAUTH_GRANT_KV: ctx.store,
+      OAUTH_GRANT_SECRET: 'grant-key',
+      MIXPANEL_TOKEN: 'mp-token',
+      ...gateEnv,
+    };
+    const request = new Request(`${ORIGIN}/agent-link/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token.token}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name: 'create_diagram',
+          arguments: { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' },
+        },
+      }),
+    });
+    const res = await handleHeadlessRpc(request, env, await request.clone().json(), { fetchImpl });
+    return { res, events: events.filter((e) => String(e.event).startsWith('agent_link_diagram_')) };
+  }
+
+  it('records which gate branch allowed the create', async () => {
+    const { res, events } = await rpcCreate(emptyPage(), {
+      confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: 3 } } }) },
+    });
+    expect(res.status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toBe('agent_link_diagram_created');
+    expect(events[0].properties.result).toBe('added');
+    expect(events[0].properties.paywall_gate).toBe('under_limit');
+  });
+
+  it('records the fail-open path distinctly, so its volume is measurable', async () => {
+    const { events } = await rpcCreate(emptyPage(), {
+      confluence_plugin_features: { get: async () => null },
+    });
+    expect(events[0].properties.paywall_gate).toBe('count_unknown');
+  });
+
+  it('records a refusal when the gate actually bites', async () => {
+    const { res, events } = await rpcCreate(emptyPage(), {
+      confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) },
+    });
+    expect(res.status).toBe(200); // a tool-level refusal, not a transport error
+    expect(events[0].properties.paywall_gate).toBe('limit_reached');
+    expect(events[0].properties.reason).toBe('limit_reached');
   });
 });
 

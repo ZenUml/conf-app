@@ -16,7 +16,15 @@
 //     refresh token in tokenStore.ts is encrypted rather than hashed for the
 //     opposite reason — we have to be able to read it back.)
 //   - Authorization codes are SINGLE USE and short-lived. `consumeCode`
-//     deletes before it returns, so two racing redemptions cannot both win.
+//     deletes before it returns, so a second redemption finds nothing.
+//
+//     The honest limit: KV is eventually consistent, so a replay arriving at
+//     another edge inside the propagation window can still read a code we
+//     have deleted. PKCE is what actually stops that being a break — the
+//     replayer also needs the verifier, which never left the client that
+//     generated it — and the 60-second code TTL keeps the window small. If
+//     this ever needs to be airtight, the codes belong in a Durable Object,
+//     which is single-instance per id and therefore actually atomic.
 
 import type { GrantStore } from './tokenStore';
 
@@ -133,6 +141,30 @@ export async function saveClient(store: GrantStore, client: RegisteredClient): P
 
 export function loadClient(store: GrantStore, clientId: string): Promise<RegisteredClient | null> {
   return getJson<RegisteredClient>(store, clientKey(clientId));
+}
+
+// ----------------------------------------------------------- rate limit
+
+/** Registrations allowed from one source per window. Generous for a human, useless for a loop. */
+export const REGISTER_LIMIT = 20;
+export const REGISTER_WINDOW_SECONDS = 60 * 60;
+
+/**
+ * A coarse fixed-window counter, keyed by whatever the caller can be
+ * identified by (their IP).
+ *
+ * Deliberately crude: KV is eventually consistent, so a determined attacker
+ * racing many edges can exceed the limit. That is acceptable — the purpose is
+ * to stop an unauthenticated loop from filling the namespace that also holds
+ * every user's encrypted Atlassian grant, not to be a precise quota.
+ */
+export async function bumpRegisterCount(store: GrantStore, source: string, nowMs: number): Promise<number> {
+  const window = Math.floor(nowMs / (REGISTER_WINDOW_SECONDS * 1000));
+  const key = `${PREFIX}-reg-rate:${window}:${source}`;
+  const current = Number((await store.get(key)) ?? '0');
+  const next = Number.isFinite(current) ? current + 1 : 1;
+  await store.put(key, String(next), { expirationTtl: REGISTER_WINDOW_SECONDS });
+  return next;
 }
 
 // ------------------------------------------------------------ in-flight

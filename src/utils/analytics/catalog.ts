@@ -1012,6 +1012,19 @@ export type AnalyticsEventName =
   | "agent_link_oauth_authorized"
   | "agent_link_oauth_refresh_failed"
   | "agent_link_oauth_revoked"
+  // X — headless writes (design §7/§10). Backend-emitted, for the same reason
+  // as the pair above. `_created` carries the AddToPageResult-shaped outcome
+  // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate
+  // decided it. That property is the load-bearing one: the gate fails OPEN
+  // when the space's macro count is unknown (the #302 shape, matching what the
+  // frontend does), so 'count_unknown' volume is the only measure of how often
+  // the limit is skipped rather than applied — the number the decision to fail
+  // closed, or not, has to be made on. `_updated` has no gate (updating an
+  // existing diagram consumes no limit, §9.1) and instead carries
+  // `guardrail_rejected`, so the write guard's refusal rate is readable on the
+  // headless path the way it already is on the relay.
+  | "agent_link_diagram_created"
+  | "agent_link_diagram_updated"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1180,6 +1193,23 @@ export type AgentLinkMacroKeySource = "cached" | "discovered";
 // is dead whether the user knows it or not; 'reauthorized' = superseded by a
 // fresh consent for the same user.
 export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
+
+// The outcome of a headless write (agent_link_diagram_created / _updated).
+// Mirrors AddToPageResult so the headless and byline paths are comparable:
+// 'already_present' is a SUCCESS (an agent retried; nothing was duplicated)
+// and 'conflict' is a deliberate refusal (a human edited the page first and
+// we never force-publish).
+export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "updated";
+
+// Which branch of the §9.1 Lite paywall gate decided a headless create.
+// 'paid' = a live space or user licence, or a non-Lite variant, so the limit
+// does not apply; 'under_limit' = counted and below the limit;
+// 'limit_reached' = counted and refused; 'count_unknown' = the space's macro
+// count could not be read, and the create was ALLOWED anyway. The last one is
+// the fail-open path (the #302 shape, matching the frontend's own behaviour on
+// an unknown count) and the reason this property exists: its share of creates
+// is what says whether failing open is a rounding error or the normal case.
+export type AgentLinkPaywallGate = "paid" | "under_limit" | "limit_reached" | "count_unknown";
 
 export type AgentLinkIdentityFailure =
   | "no_macro_on_site"

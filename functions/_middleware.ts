@@ -67,10 +67,29 @@ function withDeeplinkTicketCors(response: Response): Response {
 // (docs/policies/client-privacy.md). Redact to just the path prefix.
 const UNLOGGED_PATH_PREFIXES = ['/d', '/i'];
 
+// Query parameters that are credentials in their own right, wherever they
+// appear. `code` is Atlassian's authorization code and ours; `auth` is the
+// parked-authorization id, which alone completes a consent; `state` binds a
+// flow to a browser; `token` is the relay's session token, which the MCP
+// endpoint still accepts in the query string. Logging any of them writes a
+// live credential into Cloudflare's logs and Sentry breadcrumbs — the OAuth
+// callback and consent hop did exactly that until 2026-09-26.
+const REDACTED_QUERY_PARAMS = ['code', 'auth', 'state', 'token', 'code_verifier', 'refresh_token'];
+
 export function redactedRequestUrlForLogging(url: string): string {
-  const { pathname, origin } = new URL(url);
+  const parsed = new URL(url);
+  const { pathname, origin } = parsed;
   const hit = UNLOGGED_PATH_PREFIXES.find((p) => pathname === p || pathname.startsWith(`${p}/`));
-  return hit ? `${origin}${hit} [redacted]` : url;
+  if (hit) return `${origin}${hit} [redacted]`;
+
+  let redacted = false;
+  for (const name of REDACTED_QUERY_PARAMS) {
+    if (parsed.searchParams.has(name)) {
+      parsed.searchParams.set(name, '[redacted]');
+      redacted = true;
+    }
+  }
+  return redacted ? parsed.toString() : url;
 }
 
 // Create a middleware function that handles authentication

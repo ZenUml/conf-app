@@ -25,6 +25,8 @@ import type {
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
   AgentLinkOAuthRevokeReason,
+  AgentLinkPaywallGate,
+  AgentLinkWriteResult,
   ActivationPath,
   GalleryOpenTrigger,
   SessionReplayEventSource,
@@ -755,6 +757,14 @@ export type AnalyticsProperties = {
   // Atlassian sites the grant reaches, from accessible-resources. The revoke
   // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason.
   site_count?: number;
+  // X — headless writes (agent_link_diagram_created / _updated). The outcome
+  // rides the shared `result` field above as an AgentLinkWriteResult.
+  // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,
+  // including 'count_unknown' for its fail-open path; `guardrail_rejected`
+  // marks an update the write guard refused (parse error or data loss) rather
+  // than one that reached Confluence.
+  paywall_gate?: AgentLinkPaywallGate;
+  guardrail_rejected?: boolean;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

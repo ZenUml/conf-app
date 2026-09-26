@@ -23,6 +23,7 @@ import {
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
 import type { GateEnv } from './headlessGate';
+import { mixpanelTrack } from '../../service/mixpanelService';
 
 /** The relay's own token shape. Anything else is ours to answer. */
 const RELAY_TOKEN_RE = /^CL-[A-Z0-9]{4}-[A-Z0-9]{4}$/i;
@@ -75,6 +76,91 @@ function authMessage(reason: HeadlessAuthFailure): string {
 
 export interface HeadlessEnv extends OAuthEnv, GateEnv {
   MIXPANEL_TOKEN?: string;
+}
+
+/**
+ * Emit the write events (design §10).
+ *
+ * The one that matters is `paywall_gate` on a create: the §9.1 gate fails OPEN
+ * when a space's macro count cannot be read, so the share of creates reporting
+ * 'count_unknown' is the only measure of how often the Lite limit is skipped
+ * rather than applied. Nothing else answers that — the frontend's gate never
+ * runs on this path, so its own paywall_gate_evaluated is silent here.
+ *
+ * Analytics never fails a write and never delays one: the tool has already
+ * succeeded by the time this runs, so a slow or unreachable Mixpanel must not
+ * hold the response — or, worse, time the request out and make an agent retry
+ * a diagram it already created. The call is therefore bounded and its result
+ * is not awaited by the caller.
+ */
+const ANALYTICS_TIMEOUT_MS = 2_000;
+
+/** Bound a fire-and-forget analytics call so it cannot outlive the request it describes. */
+function withTimeout(work: Promise<unknown>): Promise<void> {
+  return Promise.race([
+    work.then(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, ANALYTICS_TIMEOUT_MS)),
+  ]).catch(() => undefined);
+}
+
+async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value: unknown): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  const out = (value ?? {}) as { result?: unknown; gate?: unknown };
+  const event =
+    tool === 'create_diagram'
+      ? 'agent_link_diagram_created'
+      : tool === 'update_diagram'
+        ? 'agent_link_diagram_updated'
+        : null;
+  if (!event) return;
+  try {
+    await withTimeout(mixpanelTrack(
+      {
+        event,
+        user_account_id: userId,
+        feature_area: 'agent_link',
+        surface: 'backend',
+        result: typeof out.result === 'string' ? out.result : undefined,
+        paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
+      },
+      env.MIXPANEL_TOKEN,
+    ));
+  } catch {
+    // analytics must never fail a write that already happened
+  }
+}
+
+/**
+ * A refusal is as informative as a success here: 'limit_reached' is the gate
+ * actually biting, and `guardrail_rejected` is the write guard refusing a
+ * truncation. Both are invisible if only successes are counted.
+ */
+async function trackWriteRefusal(
+  env: HeadlessEnv,
+  tool: string,
+  userId: string,
+  failure: HeadlessToolError,
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  if (tool !== 'create_diagram' && tool !== 'update_diagram') return;
+  try {
+    await withTimeout(mixpanelTrack(
+      {
+        event: tool === 'create_diagram' ? 'agent_link_diagram_created' : 'agent_link_diagram_updated',
+        user_account_id: userId,
+        feature_area: 'agent_link',
+        surface: 'backend',
+        // The closed-vocabulary refusal code only — never the message, which
+        // can quote a Confluence error.
+        reason: failure.code,
+        guardrail_rejected: failure.code === 'guardrail_rejected' || undefined,
+        paywall_gate: failure.code === 'limit_reached' ? 'limit_reached' : undefined,
+      },
+      env.MIXPANEL_TOKEN,
+    ));
+  } catch {
+    // never fail the response on analytics
+  }
 }
 
 export interface HeadlessMcpDeps {
@@ -179,6 +265,7 @@ export async function handleHeadlessRpc(
           (params.arguments ?? {}) as Record<string, unknown>,
           ctx,
         );
+        await trackWrite(env, params.name, auth.token.userId, value);
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {
@@ -187,6 +274,7 @@ export async function handleHeadlessRpc(
         });
       } catch (e) {
         if (e instanceof HeadlessToolError) {
+          await trackWriteRefusal(env, params.name, auth.token.userId, e);
           // A dead grant is the one failure the user can act on, so it is a
           // 401 with the challenge rather than a tool-level error buried in a
           // 200 that a client will just print.

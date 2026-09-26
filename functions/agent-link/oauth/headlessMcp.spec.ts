@@ -150,7 +150,7 @@ describe('headless authentication', () => {
 });
 
 describe('headless RPC', () => {
-  it('advertises the read tools and the two write tools', async () => {
+  it('advertises the read tools and every write tool', async () => {
     const env = makeEnv();
     const token = await tokenFor(env.store);
     const res = await call(env, token, 'tools/list');
@@ -158,11 +158,14 @@ describe('headless RPC', () => {
     const names = body.result.tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'create_diagram',
+      'create_page',
       'get_status',
       'list_diagrams',
       'list_sites',
       'read_diagram',
+      'read_page',
       'update_diagram',
+      'update_page',
     ]);
   });
 

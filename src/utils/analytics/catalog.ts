@@ -1073,6 +1073,15 @@ export type AnalyticsEventName =
   // headless path the way it already is on the relay.
   | "agent_link_diagram_created"
   | "agent_link_diagram_updated"
+  // Y — headless PAGE writes, as distinct from the diagram writes above. A
+  // page is not a macro, so no §9.1 paywall gate applies and `paywall_gate`
+  // is absent here. What these carry instead is `guardrail_rejected`: a page
+  // body is replaced wholesale, so the accident worth counting is an agent
+  // truncating somebody's page. `result` uses the same AgentLinkWriteResult
+  // vocabulary, so page and diagram writes share one conflict/success
+  // breakdown.
+  | "agent_link_page_created"
+  | "agent_link_page_updated"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only

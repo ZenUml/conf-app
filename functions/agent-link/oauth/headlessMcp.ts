@@ -25,6 +25,14 @@ import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from '
 import type { GateEnv } from './headlessGate';
 import { mixpanelTrack } from '../../service/mixpanelService';
 
+/**
+ * The tools that change something in Confluence, and so need diagram.write.
+ *
+ * A set rather than a condition: the first version was an || of two names and
+ * silently left new write tools on the read scope when the page tools landed.
+ */
+const WRITE_TOOLS = new Set(['create_diagram', 'update_diagram', 'create_page', 'update_page']);
+
 /** The relay's own token shape. Anything else is ours to answer. */
 const RELAY_TOKEN_RE = /^CL-[A-Z0-9]{4}-[A-Z0-9]{4}$/i;
 
@@ -95,6 +103,14 @@ export interface HeadlessEnv extends OAuthEnv, GateEnv {
  */
 const ANALYTICS_TIMEOUT_MS = 2_000;
 
+/** Which event each write tool reports under. Absent = not a write, so nothing is emitted. */
+const WRITE_EVENT_BY_TOOL: Record<string, string | undefined> = {
+  create_diagram: 'agent_link_diagram_created',
+  update_diagram: 'agent_link_diagram_updated',
+  create_page: 'agent_link_page_created',
+  update_page: 'agent_link_page_updated',
+};
+
 /** Bound a fire-and-forget analytics call so it cannot outlive the request it describes. */
 function withTimeout(work: Promise<unknown>): Promise<void> {
   return Promise.race([
@@ -106,12 +122,7 @@ function withTimeout(work: Promise<unknown>): Promise<void> {
 async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value: unknown): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const out = (value ?? {}) as { result?: unknown; gate?: unknown };
-  const event =
-    tool === 'create_diagram'
-      ? 'agent_link_diagram_created'
-      : tool === 'update_diagram'
-        ? 'agent_link_diagram_updated'
-        : null;
+  const event = WRITE_EVENT_BY_TOOL[tool];
   if (!event) return;
   try {
     await withTimeout(mixpanelTrack(
@@ -142,11 +153,12 @@ async function trackWriteRefusal(
   failure: HeadlessToolError,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
-  if (tool !== 'create_diagram' && tool !== 'update_diagram') return;
+  const event = WRITE_EVENT_BY_TOOL[tool];
+  if (!event) return;
   try {
     await withTimeout(mixpanelTrack(
       {
-        event: tool === 'create_diagram' ? 'agent_link_diagram_created' : 'agent_link_diagram_updated',
+        event,
         user_account_id: userId,
         feature_area: 'agent_link',
         surface: 'backend',
@@ -253,7 +265,7 @@ export async function handleHeadlessRpc(
       // Reads need diagram.read; the two write tools need diagram.write. A
       // client that asked for only one scope gets only that half of the
       // surface, which is the point of having two.
-      const needsWrite = params.name === 'update_diagram' || params.name === 'create_diagram';
+      const needsWrite = WRITE_TOOLS.has(params.name);
       const required = needsWrite ? 'diagram.write' : 'diagram.read';
       if (!hasScope(auth.token, required)) {
         return error(403, id, RPC_AUTH_ERROR, `This token was not granted ${required} access.`);

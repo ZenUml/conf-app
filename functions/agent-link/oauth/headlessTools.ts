@@ -25,7 +25,11 @@ import { confluenceReaderFor } from './confluenceReader';
 import { confluenceRequestFor, type ConfluenceRequest } from './confluenceWriter';
 import { checkCreateAllowed, type GateEnv } from './headlessGate';
 import { buildMacroNode, countExtensions, referencesCustomContent } from '../macroNode';
-import { guardUpdateDiagram } from '../updateDiagramGuard';
+import {
+  DATA_LOSS_MIN_CURRENT_NONWS,
+  DATA_LOSS_MIN_RATIO,
+  guardUpdateDiagram,
+} from '../updateDiagramGuard';
 import { getAccessToken, type GrantStore } from './tokenStore';
 import {
   customContentTypesFor,
@@ -85,6 +89,56 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
         contentId: { type: 'string', description: 'From list_diagrams.' },
       },
       required: ['cloudId', 'contentId'],
+    },
+  },
+  {
+    name: 'read_page',
+    description:
+      'Read a Confluence page: its title, version, space, and body in Confluence storage format. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cloudId: { type: 'string', description: 'From list_sites.' },
+        pageId: { type: 'string', description: 'The Confluence page id.' },
+      },
+      required: ['cloudId', 'pageId'],
+    },
+  },
+  {
+    name: 'create_page',
+    description:
+      'Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML): paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cloudId: { type: 'string', description: 'From list_sites.' },
+        parentPageId: { type: 'string', description: 'The page to create this one under; it also fixes the space.' },
+        title: { type: 'string', description: 'Must be unique within the space, as Confluence requires.' },
+        body: { type: 'string', description: 'Confluence storage format (XHTML).' },
+        draft: { type: 'boolean', description: 'Optional. True creates it unpublished, for a human to review and publish.' },
+      },
+      required: ['cloudId', 'parentPageId', 'title', 'body'],
+    },
+  },
+  {
+    name: 'update_page',
+    description:
+      'Replace a page’s body, and optionally its title. Send the COMPLETE new body — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cloudId: { type: 'string', description: 'From list_sites.' },
+        pageId: { type: 'string', description: 'From read_page.' },
+        body: { type: 'string', description: 'The complete new body, in Confluence storage format.' },
+        title: { type: 'string', description: 'Optional. Leave out to keep the current title.' },
+        version: {
+          type: 'number',
+          description:
+            'The version you read. Supply it and the update is refused if the page moved on; omit it and the current version is used.',
+        },
+        summary: { type: 'string', description: 'Optional. Note for the version history.' },
+      },
+      required: ['cloudId', 'pageId', 'body'],
     },
   },
   {
@@ -348,6 +402,94 @@ export function spaceKeyFromLinks(links: unknown): string {
 function mentionsVersionConflict(body: unknown): boolean {
   const text = typeof body === 'string' ? body : JSON.stringify(body ?? '');
   return /version/i.test(text) && /(increment|conflict|current|match)/i.test(text);
+}
+
+interface PageRead {
+  title: string;
+  version: number;
+  spaceId?: string;
+  spaceKey: string;
+  url: string;
+  /** Storage-format body, or '' when the read did not ask for one. */
+  body: string;
+}
+
+/**
+ * One page, in the shape the page tools need.
+ *
+ * `bodyFormat: null` skips the body — worth it on the parent-page read in
+ * create_page, which only needs the space and the fact that the caller can
+ * see the page at all.
+ */
+async function readPage(
+  request: ConfluenceRequest,
+  pageId: string,
+  opts: { bodyFormat?: 'storage' | null } = {},
+): Promise<PageRead> {
+  const format = opts.bodyFormat === undefined ? 'storage' : opts.bodyFormat;
+  const query = format ? `?body-format=${format}` : '';
+  const res = await request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}${query}`);
+  if (res.status === 403) throw new HeadlessToolError('You do not have permission to read that page.', 'forbidden');
+  if (res.status === 404) throw new HeadlessToolError('No page with that id.', 'not_found');
+  if (!res.ok) throw new HeadlessToolError('Could not read the page.', 'upstream', { status: res.status });
+
+  const page = res.body as {
+    title?: unknown;
+    spaceId?: unknown;
+    version?: { number?: unknown };
+    body?: { storage?: { value?: unknown } };
+    _links?: unknown;
+  };
+  const version = Number(page.version?.number);
+  if (!Number.isFinite(version)) throw new HeadlessToolError('That page reports no version.', 'upstream');
+
+  return {
+    title: typeof page.title === 'string' ? page.title : '',
+    version,
+    spaceId: page.spaceId === undefined || page.spaceId === null ? undefined : String(page.spaceId),
+    spaceKey: spaceKeyFromLinks(page._links),
+    url: pageUrlFrom(page._links),
+    body: typeof page.body?.storage?.value === 'string' ? page.body.storage.value : '',
+  };
+}
+
+/** The page's own URL, assembled from the `_links` a v2 read returns. */
+function pageUrlFrom(links: unknown): string {
+  const l = (links ?? {}) as { base?: unknown; webui?: unknown };
+  if (typeof l.base !== 'string' || typeof l.webui !== 'string') return '';
+  return `${l.base}${l.webui}`;
+}
+
+/** Confluence's own words for a refusal, trimmed — never echoed into analytics. */
+function errorText(body: unknown): string {
+  const text = typeof body === 'string' ? body : JSON.stringify(body ?? '');
+  return text.slice(0, 200);
+}
+
+/**
+ * The truncation check for a page body.
+ *
+ * Deliberately the same shape and the same constants as the diagram guard's
+ * data-loss test (updateDiagramGuard.ts), because it is the same accident: an
+ * agent that meant to add a paragraph sending only that paragraph as the whole
+ * body. There is no parser here — storage format is XHTML, and "does it
+ * parse" is not the question — so this is the length test alone.
+ */
+function guardPageBody(current: string, next: string): { ok: true } | { ok: false; message: string } {
+  const nonWs = (s: string) => s.replace(/\s+/g, '').length;
+  const before = nonWs(current);
+  const after = nonWs(next);
+  if (before >= DATA_LOSS_MIN_CURRENT_NONWS && after < DATA_LOSS_MIN_RATIO * before) {
+    const pct = Math.round((1 - after / before) * 100);
+    return {
+      ok: false,
+      message:
+        `Rejected: the replacement is ${pct}% shorter than the current page (${before} -> ${after} non-whitespace characters). ` +
+        'This looks like accidental truncation, not an edit. Nothing was saved. If you really mean to replace the whole page, ' +
+        'read it first and send the complete new body.',
+    };
+  }
+  return { ok: true };
 }
 
 function diagramRow(row: CustomContentRow) {
@@ -757,6 +899,141 @@ export async function callHeadlessTool(
         macroCount: countExtensions(adf),
         gate: gate.reason,
       };
+    }
+
+    case 'read_page': {
+      const cloudId = typeof args.cloudId === 'string' ? args.cloudId : '';
+      const pageId = typeof args.pageId === 'string' ? args.pageId : '';
+      if (!cloudId || !pageId) throw new HeadlessToolError('cloudId and pageId are required.', 'bad_params');
+      await assertReachable(ctx, cloudId);
+      const request = requestFor(ctx, cloudId);
+      const page = await readPage(request, pageId);
+      return {
+        pageId,
+        title: page.title,
+        version: page.version,
+        spaceKey: page.spaceKey,
+        url: page.url,
+        body: page.body,
+      };
+    }
+
+    case 'create_page': {
+      const cloudId = typeof args.cloudId === 'string' ? args.cloudId : '';
+      const parentPageId = typeof args.parentPageId === 'string' ? args.parentPageId : '';
+      const title = typeof args.title === 'string' ? args.title.trim() : '';
+      const body = typeof args.body === 'string' ? args.body : '';
+      if (!cloudId || !parentPageId || !title || !body) {
+        throw new HeadlessToolError('cloudId, parentPageId, title and body are required.', 'bad_params');
+      }
+      await assertReachable(ctx, cloudId);
+      const request = requestFor(ctx, cloudId);
+
+      // The parent supplies the space. Asking for a space KEY instead would
+      // need /wiki/api/v2/spaces, which requires read:space:confluence — a
+      // scope we do not hold (see spaceKeyFromLinks). Reading the parent also
+      // proves the caller can see where they are about to write.
+      const parent = await readPage(request, parentPageId, { bodyFormat: null });
+      if (!parent.spaceId) throw new HeadlessToolError('That parent page reports no space.', 'upstream');
+
+      const created = await request('/wiki/api/v2/pages', {
+        method: 'POST',
+        body: {
+          spaceId: parent.spaceId,
+          status: args.draft === true ? 'draft' : 'current',
+          title,
+          parentId: parentPageId,
+          body: { representation: 'storage', value: body },
+        },
+      });
+      if (created.status === 403) {
+        throw new HeadlessToolError('You do not have permission to add pages in that space.', 'forbidden');
+      }
+      // Confluence rejects a duplicate title in a space with 400; say which,
+      // because "bad request" gives the agent nothing to fix.
+      if (created.status === 400) {
+        throw new HeadlessToolError(
+          'Confluence refused the page. A title must be unique within its space — try a different one.',
+          'bad_params',
+          { detail: errorText(created.body) },
+        );
+      }
+      if (!created.ok) {
+        throw new HeadlessToolError('Confluence refused to create the page.', 'upstream', { status: created.status });
+      }
+
+      const row = created.body as { id?: unknown; _links?: unknown };
+      return {
+        result: 'added',
+        pageId: String(row.id ?? ''),
+        parentPageId,
+        status: args.draft === true ? 'draft' : 'current',
+        url: pageUrlFrom(row._links),
+      };
+    }
+
+    case 'update_page': {
+      const cloudId = typeof args.cloudId === 'string' ? args.cloudId : '';
+      const pageId = typeof args.pageId === 'string' ? args.pageId : '';
+      const body = typeof args.body === 'string' ? args.body : '';
+      if (!cloudId || !pageId || !body) {
+        throw new HeadlessToolError('cloudId, pageId and body are required.', 'bad_params');
+      }
+      await assertReachable(ctx, cloudId);
+      const request = requestFor(ctx, cloudId);
+      const current = await readPage(request, pageId);
+
+      // The caller read version N and is writing against it. If the page has
+      // moved on, they are about to overwrite an edit they never saw — refuse
+      // rather than let last-writer-wins decide.
+      const expected = typeof args.version === 'number' ? args.version : undefined;
+      if (expected !== undefined && expected !== current.version) {
+        throw new HeadlessToolError(
+          `That page is now at version ${current.version}, not ${expected}. Read it again before updating.`,
+          'conflict',
+          { currentVersion: current.version },
+        );
+      }
+
+      // The same class of accident update_diagram guards: a body replaced
+      // wholesale, and an agent that meant to append sending only its
+      // addition. Not the DSL guard — there is nothing to parse here — but
+      // the same length test, which is what caught real truncations.
+      const verdict = guardPageBody(current.body, body);
+      if (!verdict.ok) {
+        throw new HeadlessToolError(verdict.message, 'guardrail_rejected', {
+          reason: 'data_loss',
+          input_len: current.body.length,
+          output_len: body.length,
+        });
+      }
+
+      const write = await request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}`, {
+        method: 'PUT',
+        body: {
+          id: String(pageId),
+          status: 'current',
+          title: typeof args.title === 'string' && args.title.trim() ? args.title.trim() : current.title,
+          body: { representation: 'storage', value: body },
+          version: { number: current.version + 1, message: summaryFor(args.summary) },
+        },
+      });
+      if (write.status === 403) {
+        throw new HeadlessToolError('You do not have permission to edit that page.', 'forbidden');
+      }
+      if (write.status === 409 || (write.status === 400 && mentionsVersionConflict(write.body))) {
+        throw new HeadlessToolError('Someone else changed this page first. Read it again before updating.', 'conflict', {
+          status: write.status,
+        });
+      }
+      if (!write.ok) {
+        throw new HeadlessToolError('Confluence refused the update.', 'upstream', {
+          status: write.status,
+          detail: errorText(write.body),
+        });
+      }
+
+      return { result: 'updated', pageId, version: current.version + 1, url: current.url };
     }
 
     default:

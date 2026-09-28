@@ -796,12 +796,6 @@ export type AnalyticsProperties = {
   // Atlassian sites the grant reaches, from accessible-resources. The revoke
   // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason.
   site_count?: number;
-  // X — MCP Apps. `ui_offered` rides the existing diagram events: true when the
-  // result carried `_meta.ui`, so the share of calls that could have rendered is
-  // readable without a second event. `ui_client` is the host's declared client
-  // name, to see which hosts negotiate the extension at all.
-  ui_offered?: boolean;
-  ui_client?: string;
   // X — headless writes (agent_link_diagram_created / _updated). The outcome
   // rides the shared `result` field above as an AgentLinkWriteResult.
   // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,

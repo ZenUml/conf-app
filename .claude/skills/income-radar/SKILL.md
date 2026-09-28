@@ -52,6 +52,8 @@ so it's ~$0 here — its paid layer is Stripe/KV, see `extend-space-license` / `
 **Payers only** — clients with lifetime vendor $ > 0. A never-paying trial or free install
 never shows up in either bucket.
 
+Before presenting these candidates as a paid cohort, verify explicit source-reported Paid/Fully paid status in raw transactions: the current helper's amount-based summaries do not perform that check. Open-only orders are purchase evidence with unconfirmed settlement, not received income. A historical payer's newer Open renewal is separate from an absent renewal; do not call that customer “not purchased” or automatically chase them. Overlapping invoices or unresolved refunds can make totals uncertain.
+
 One row **per (tenant, app) subscription** — a tenant that pays for both Full and Diagramly
 gets two rows (its two real renewals), but a tenant with a paid Full license plus a leftover
 free Lite listing gets one (the empty Lite bucket is $0 and drops out — this is why revenue
@@ -61,7 +63,7 @@ are excluded.
 
 ## Definitions
 
-- **`paid_thru`** — the latest `maintenanceEndDate` among a client's *paid* transactions.
+- **`paid_thru`** — the helper's latest positive-amount transaction end; verify raw status before calling it settled coverage. A future start is not coverage today. This is not a vendor payout date.
 - **expected amount** — the `vendorAmount` of that client's most recent *paid* transaction
   (the number most likely to repeat on the next cycle).
 - **INCOMING**: `today <= paid_thru <= today + N`.

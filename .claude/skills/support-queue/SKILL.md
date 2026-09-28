@@ -4,13 +4,13 @@ description: >
   Read and triage the ZEN service-desk queue on zenuml.atlassian.net — what tickets
   are open, who is waiting on a reply, which granted extensions are about to expire.
   Use for any QUEUE-shaped question: "any new tickets", "who is waiting on me",
-  "did <tenant> ever file a ticket", "what came in since <date>", "工单", "谁在等回复",
+  "did this tenant ever file a ticket", "what came in since a given date", "工单", "谁在等回复",
   "有没有新工单", or when a paywall/churn analysis needs the support-ticket signal.
   Read-only. To FULFIL a specific request (write the KV licence, draft the reply)
   use `extend-space-license` instead.
   Discriminator, one rule: the question names a specific ticket or hands over a
-  request to fulfil -> `extend-space-license`; the question is about the queue, a
-  time window, "anything new", or who is waiting -> this skill.
+  request to fulfil uses `extend-space-license`; the question is about the queue, a
+  time window, "anything new", or who is waiting uses this skill.
 ---
 
 # Support queue (ZEN service desk)
@@ -200,6 +200,8 @@ activity. **If the tenant is paying and inactive, propose no contact — not a
 reply, not a courtesy close, not a status update.** An unsolicited message to a
 dormant subscriber is a prompt to reconsider the subscription, and the ticket
 being old is not a reason to accept that risk.
+
+Read purchase and settlement separately: an effective commercial order with Open settlement is not a free prospect. Do not bypass this no-contact policy because `paying` is unknown or the latest invoice has not been confirmed settled; retain the commercial purchase context and any prior paid evidence.
 
 This overrides signal A and signal B: "we owe a reply" is a triage fact, not an
 instruction to send one. Report the ticket as **parked — inactive payer**, name

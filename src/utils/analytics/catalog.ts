@@ -1108,6 +1108,15 @@ export type AnalyticsEventName =
   | "agent_link_oauth_authorized"
   | "agent_link_oauth_refresh_failed"
   | "agent_link_oauth_revoked"
+  // X — MCP Apps (io.modelcontextprotocol/ui). Backend-emitted. The extension is
+  // bilateral: a host that did not declare it never sees `_meta.ui`, and a tool
+  // result then renders as plain text, which looks like a broken view but is
+  // not. `_view_requested` is the only proof the host actually fetched the view
+  // — without it we cannot tell "host does not support apps" from "host support
+  // negotiated but the iframe never rendered", which is a real open bug
+  // upstream (modelcontextprotocol/ext-apps#671).
+  | "agent_link_app_view_requested"
+  | "agent_link_app_view_failed"
   // X — headless writes (design §7/§10). Backend-emitted, for the same reason
   // as the pair above. `_created` carries the AddToPageResult-shaped outcome
   // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate
@@ -1309,6 +1318,12 @@ export type AgentLinkMacroKeySource = "cached" | "discovered";
 // it; 'refresh_rejected' = the rotating refresh token was refused, so the grant
 // is dead whether the user knows it or not; 'reauthorized' = superseded by a
 // fresh consent for the same user.
+// Why the MCP Apps view could not be served (agent_link_app_view_failed).
+// 'unknown_uri' = a ui:// URI we do not publish; 'fetch_failed' = the built
+// view asset did not come back from our own origin, which means the deploy is
+// incomplete rather than the host misbehaving.
+export type AgentLinkAppViewFailure = "unknown_uri" | "fetch_failed";
+
 export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
 
 // The outcome of a headless write (agent_link_diagram_created / _updated).

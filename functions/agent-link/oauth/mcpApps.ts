@@ -38,7 +38,25 @@ export const UI_MIME_TYPE = 'text/html;profile=mcp-app';
 /** The single view: one template renders every diagram type it supports. */
 export const DIAGRAM_VIEW_URI = 'ui://zenuml/diagram';
 
-/** Path of the built view inside the Pages deploy. A plain Vite HTML entry. */
+/**
+ * Path of the built view inside the Pages deploy.
+ *
+ * NOT YET BUILT. The view began as a root `mcp-app-view.html` Vite entry, which
+ * broke the Forge deploy: `Each resource can only have up to 5000 files`.
+ * Adding any entry makes Rollup re-split the WHOLE build — the 58 extra files
+ * were the app's own chunks re-hashed (AsyncApiMacroViewer, forge-asyncapi-*,
+ * mermaid's diagram chunks), not the view's — and `resources: path: dist/` in
+ * manifest.yml uploads all of it as one resource. Measured 2026-09-28: 4813
+ * files without the entry, 4871 with, and `build:studio` runs on top of both in
+ * CI.
+ *
+ * The renderers can only reach the view from the module graph (which causes
+ * that re-split) or from an external origin named in `_meta.ui.csp`. That is a
+ * choice about running third-party script over customer diagram source, so the
+ * entry is parked at docs/mcp-app-view.html.pending until it is made. Until
+ * then `readUiResource` answers 'fetch_failed', which is accurate: the asset
+ * genuinely is not deployed.
+ */
 export const DIAGRAM_VIEW_ASSET_PATH = '/mcp-app-view.html';
 
 /**

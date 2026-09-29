@@ -241,15 +241,19 @@ describe('headless RPC', () => {
     expect(body.error.data.reason).toBe('unknown_uri');
   });
 
-  it('reports 502 when our own view asset cannot be served', async () => {
+  it('reports a missing view asset in a 200 the client can actually read', async () => {
     // Ours to fix, not the host's — a deploy that shipped without the entry.
+    // The status is deliberately NOT 502: Cloudflare replaces a 502 from a
+    // Pages Function with its own plain-text error page, and the client then
+    // sees "error code: 502" instead of the reason (staging, 2026-09-29).
     const env = makeEnv();
     const token = await tokenFor(env.store);
     const res = await call(env, token, 'resources/read', { uri: 'ui://zenuml/diagram' }, async () =>
       new Response('', { status: 404 }));
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.error.data.reason).toBe('fetch_failed');
+    expect(body.error.code).toBe(-32003);
   });
 
   it('still requires a token for the view', async () => {

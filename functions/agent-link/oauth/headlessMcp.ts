@@ -302,8 +302,17 @@ export async function handleHeadlessRpc(
       if (!read.ok) {
         // 'unknown_uri' is the client's mistake; 'fetch_failed' is ours, and
         // saying which saves an hour of looking in the wrong place.
-        const code = read.reason === 'unknown_uri' ? RPC_INVALID_PARAMS : RPC_AUTH_ERROR;
-        return error(read.reason === 'unknown_uri' ? 400 : 502, id, code, read.reason, {
+        //
+        // NOT 502 for the second one, however true it feels: Cloudflare
+        // replaces a 502 from a Pages Function with its own plain-text error
+        // page, so the JSON-RPC body — the only thing carrying `reason` and
+        // `detail` — never reaches the client. Verified on staging
+        // 2026-09-29: the client saw `error code: 502`, 16 bytes, and nothing
+        // else. A resource the server cannot assemble is reported the way
+        // every other server-side tool failure here is, as a JSON-RPC error
+        // inside a 200.
+        const code = read.reason === 'unknown_uri' ? RPC_INVALID_PARAMS : RPC_TOOL_ERROR;
+        return error(read.reason === 'unknown_uri' ? 400 : 200, id, code, read.reason, {
           data: { reason: read.reason, detail: read.detail },
         });
       }

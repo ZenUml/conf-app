@@ -60,6 +60,16 @@ export const DIAGRAM_VIEW_URI = 'ui://zenuml/diagram';
 export const DIAGRAM_VIEW_ASSET_PATH = '/mcp-app-view.html';
 
 /**
+ * What proves the fetched html is the view and not something else.
+ *
+ * Cloudflare Pages answers an unknown path with the SPA shell and a 200, so
+ * there is no status code to distinguish "the view" from "the app". The entry
+ * carries this meta tag and `readUiResource` requires it; a build that drops
+ * the tag fails closed, which is the right way round.
+ */
+export const VIEW_MARKER = '<meta name="mcp-app" content="zenuml-diagram">';
+
+/**
  * Which tools carry a view.
  *
  * The two write tools are here deliberately: seeing what the agent actually
@@ -188,11 +198,21 @@ export async function readUiResource(
   if (!res.ok) return { ok: false, reason: 'fetch_failed', detail: `asset returned ${res.status}` };
 
   const text = await res.text();
-  // A Pages deploy that is missing the entry answers with the SPA shell rather
-  // than a 404, so an empty or non-HTML body is a deploy problem worth naming
-  // instead of handing the host something it cannot render.
-  if (!text.trim().toLowerCase().includes('<script')) {
-    return { ok: false, reason: 'fetch_failed', detail: 'asset carried no script tag — is mcp-app-view.html in the build?' };
+  // A Pages deploy that is missing the entry answers with the SPA SHELL and a
+  // 200 — not a 404 — so "is this html with a script in it?" is not the
+  // question. The shell is html full of scripts, and the first version of this
+  // check asked exactly that and passed it: staging served the Forge app as
+  // the diagram view, reported success, and left nothing to say so (found on
+  // a real deploy 2026-09-29).
+  //
+  // The view therefore carries a marker no other page in the build has, and
+  // nothing but that marker will do.
+  if (!text.includes(VIEW_MARKER)) {
+    return {
+      ok: false,
+      reason: 'fetch_failed',
+      detail: `asset did not carry ${VIEW_MARKER} — is mcp-app-view.html in the build, or did the SPA fallback answer?`,
+    };
   }
 
   return {

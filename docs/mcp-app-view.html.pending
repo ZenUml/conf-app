@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ZenUML diagram</title>
+    <!-- Proves to functions/agent-link/oauth/mcpApps.ts that it fetched THIS
+         page and not the SPA shell, which Cloudflare Pages serves with a 200
+         for any unknown path. Removing it disables the view. -->
+    <meta name="mcp-app" content="zenuml-diagram">
   </head>
   <body>
     <!-- The MCP Apps view (functions/agent-link/oauth/mcpApps.ts serves this

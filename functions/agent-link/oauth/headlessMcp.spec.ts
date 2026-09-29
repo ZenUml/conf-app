@@ -215,7 +215,11 @@ describe('headless RPC', () => {
   it('serves the built view for resources/read', async () => {
     const env = makeEnv();
     const token = await tokenFor(env.store);
-    const html = '<!doctype html><html><head></head><body><div id="app"></div><script src="./assets/v.js"></script></body></html>';
+    // The marker is what tells readUiResource this is the view and not the
+    // SPA shell Pages serves for an unknown path.
+    const html =
+      '<!doctype html><html><head><meta name="mcp-app" content="zenuml-diagram"></head>' +
+      '<body><div id="app"></div><script src="./assets/v.js"></script></body></html>';
     const res = await call(env, token, 'resources/read', { uri: 'ui://zenuml/diagram' }, async () =>
       new Response(html, { status: 200 }));
     const body = await res.json();

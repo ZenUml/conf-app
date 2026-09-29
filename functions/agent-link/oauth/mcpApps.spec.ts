@@ -16,7 +16,21 @@ import {
 } from './mcpApps';
 
 const ORIGIN = 'https://zenapi.zenuml.com';
-const VIEW_HTML = '<!doctype html><html><body><div id="app"></div><script type="module" src="/assets/mcp-app-view-abc123.js"></script></body></html>';
+const VIEW_HTML =
+  '<!doctype html><html><head><meta name="mcp-app" content="zenuml-diagram"></head>' +
+  '<body><div id="app"></div><script type="module" src="/assets/mcp-app-view-abc123.js"></script></body></html>';
+
+/**
+ * What Cloudflare Pages actually serves for an unknown path: the app's own
+ * shell, with a 200 and plenty of script tags. The first version of this
+ * fixture was a script-free fragment, which is why the guard that only looked
+ * for "<script" passed a real deploy and served the Forge app as the view.
+ */
+const SPA_SHELL =
+  '<!DOCTYPE html><html lang="en"><head>' +
+  '<script>window.__macroLoadStart = performance.now();</script>' +
+  '<title>ZenUML Forge Addon</title></head>' +
+  '<body><div id="app"></div><script type="module" src="./assets/index-BopBvdfd.js"></script></body></html>';
 
 function ok(body: string): Response {
   return new Response(body, { status: 200, headers: { 'content-type': 'text/html' } });
@@ -187,12 +201,23 @@ describe('readUiResource', () => {
   });
 
   it('reports fetch_failed when Pages answers with the SPA shell instead of the view', async () => {
-    // A deploy missing the entry returns index.html with a 200, which would hand
-    // the host a page that renders nothing. The missing <script> is the tell.
-    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () =>
-      ok('<!doctype html><html><body><div id="root"></div></body></html>'));
+    // Observed on staging 2026-09-29: the entry is not in the build, Pages
+    // answers /mcp-app-view.html with the app shell and a 200, and the host
+    // was handed the Forge app as the diagram view — reported as success.
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(SPA_SHELL));
     expect(res).toMatchObject({ ok: false, reason: 'fetch_failed' });
     expect(res.ok === false && res.detail).toMatch(/mcp-app-view\.html/);
+  });
+
+  it('refuses html that merely looks like a page — only the marker counts', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () =>
+      ok('<!doctype html><html><body><div id="app"></div><script src="/assets/anything.js"></script></body></html>'));
+    expect(res).toMatchObject({ ok: false, reason: 'fetch_failed' });
+  });
+
+  it('accepts the built view, which carries the marker', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(VIEW_HTML));
+    expect(res.ok).toBe(true);
   });
 
   it('reports fetch_failed rather than throwing when the fetch itself dies', async () => {

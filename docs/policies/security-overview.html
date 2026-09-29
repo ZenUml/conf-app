@@ -83,6 +83,7 @@
 
   <h2 id="access-control">6. Access control and internal security practices</h2>
   <ul>
+    <li><strong>Multi-factor authentication.</strong> MFA is required on all team accounts with access to our source code, Atlassian developer and Marketplace accounts, and cloud infrastructure (GitHub, Atlassian and Cloudflare).</li>
     <li><strong>Least privilege, role-based access.</strong> Access to production systems and customer data is limited to the core team members whose role requires it.</li>
     <li><strong>Scoped credentials.</strong> Service credentials and API tokens are scoped to the systems they need. Production secrets are stored in the platform secret stores (Cloudflare and GitHub Actions encrypted secrets), not in the source repository.</li>
     <li><strong>Minimal app permissions.</strong> The apps request only the Confluence scopes they need to render and store diagrams.</li>

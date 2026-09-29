@@ -36,11 +36,12 @@
           <p class="font-medium text-gray-800">AI Repair couldn't finish</p>
           <p class="mt-2 max-w-lg text-sm">{{ repairError }}</p>
           <button
+            v-if="!hasRetried"
             class="mt-5 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition-colors"
             data-testid="ai-repair-retry"
             @click="triggerAiRepair"
           >
-            Try again
+            Try a stronger fix
           </button>
         </div>
 
@@ -175,7 +176,7 @@
 
       <div class="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
         <button @click="closeDialog" class="px-5 py-2 rounded-md text-gray-600 hover:bg-gray-100 hover:text-gray-800 transition-all font-medium text-sm">
-          Discard
+          {{ repairError && hasRetried ? 'Continue editing' : 'Discard' }}
         </button>
         <button
           @click="applyRepair"
@@ -243,6 +244,7 @@ interface DiffRow {
 
 const repairResult = ref<string | null>(null);
 const repairError = ref<string | null>(null);
+const hasRetried = ref(false);
 const diffRows = ref<DiffRow[]>([]);
 
 const leftScrollRef = ref<HTMLElement | null>(null);
@@ -566,9 +568,11 @@ const failRepair = (
   console.error('[AIRepair] Repair error:', displayMessage);
   repairResult.value = null;
   diffRows.value = [];
-  repairError.value = failurePhase === 'timeout'
-    ? 'The repair ran out of time before producing a valid result. You can try again or continue editing manually.'
-    : displayMessage;
+  repairError.value = hasRetried.value
+    ? "We still couldn't repair this code. Please continue editing manually."
+    : failurePhase === 'timeout'
+      ? 'The repair ran out of time before producing a valid result. You can try again or continue editing manually.'
+      : displayMessage;
   repairStatus.value = `Error: ${displayMessage}`;
   trackAnalyticsEvent('ai_repair_failed', {
     feature_area: 'ai',
@@ -587,9 +591,12 @@ const failRepair = (
 };
 
 const triggerAiRepair = async () => {
+  if (hasRetried.value) return;
+
   stopPolling();
   const generation = pollingGeneration;
   activeRetryAfterFailure = repairError.value !== null;
+  hasRetried.value = activeRetryAfterFailure;
   repairError.value = null;
   repairResult.value = null;
   diffRows.value = [];
@@ -752,7 +759,11 @@ watch(repairResult, () => {
   }
 });
 
-watch([() => props.originalCode, () => props.showDialog], ([_code, show]) => {
+watch([() => props.originalCode, () => props.showDialog], ([_code, show], [_previousCode, wasShown]) => {
+  if (show && !wasShown) {
+    hasRetried.value = false;
+    repairError.value = null;
+  }
   if (show && !repairResult.value) triggerAiRepair();
 });
 

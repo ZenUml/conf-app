@@ -237,7 +237,17 @@ Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). 
 agent-browser --session conf-app --restore=stg <command>
 ```
 
-`--session conf-app --restore=stg` loads a saved login state from `~/.agent-browser/sessions/stg-conf-app.json` (robot1yanhui, `cloud.session.token` valid to 2026-09-15). Without it every invocation starts on a blank profile and lands on the Atlassian login page. The SSO token covers any `*.atlassian.net` site the account belongs to; a site's first visit costs one redirect, then its cookie is cached.
+`--session conf-app --restore=stg` loads a saved login state from `~/.agent-browser/sessions/stg-conf-app.json` (robot1yanhui) and re-saves it after every run; the id.atlassian.com session is valid to 2026-10-09 as of 2026-09-30. Keep this session name fixed — every new session name leaves another cookie file. Without it every invocation starts on a blank profile and lands on the Atlassian login page. The SSO token covers any `*.atlassian.net` site the account belongs to; a site's first visit costs one redirect, then its cookie is cached.
+
+Identity to mechanism:
+
+| Identity | Mechanism | Use for |
+|---|---|---|
+| robot1yanhui@aol.com (non-admin test user) | `agent-browser --session conf-app --restore=stg` | conf-app staging checks, customer-like view |
+| support@zenuml.com (org admin) | `agent-browser --session <name> --profile ~/.agent-browser/profiles/atlassian`, after `~/.claude/skills/browser-check/scripts/atlassian-warmup.zsh <site>...` (subdomains, e.g. `zenuml lite-stg`; exit 0 = signed in) | admin pages, JSM support queue, AsyncAPI |
+| eagle.xiao@gmail.com (`FORGE_EMAIL`) | `agent-browser --profile "Profile 8"` | forge tunnel only |
+
+JS inside a cross-origin macro iframe: `agent-browser --session S frame --url <substring>` (or `frame @eNNN` from a snapshot ref), then `eval -b <base64>` / `eval "<js>"`, then `frame main` to return. `localStorage` set/get works in the iframe's origin. When several frames match one `--url`, `eval` runs in one of them — use a more specific substring or a snapshot ref. Read and click inside iframes with snapshot refs (`click @eNNN`); use `keyboard type` for real keystrokes (`fill` bypasses input events). Playwright MCP is the fallback when agent-browser fails, and is still required for file upload inside a Forge iframe (untested with agent-browser).
 
 | Tool | OOPIF snapshot | OOPIF `eval` | OOPIF console | snapshot token |
 |---|---|---|---|---|
@@ -269,7 +279,7 @@ The DrawIO **instance** is a separate matter: the deployed build keeps its UI ob
 
 Kimi WebBridge cannot be used for Forge work at all: its snapshot omits OOPIF subtrees, and its `cdp` passthrough is `chrome.debugger`, which rejects `Target.getTargets` and `Target.attachToTarget` with `Not allowed`.
 
-**This section overrides the skills.** Twelve `.claude/skills/*/SKILL.md` files still spell their browser steps as `mcp__playwright__*` calls. Their *logic* (which page, which selector, which assertion) is still correct — translate the mechanics to agent-browser as you go:
+**This section overrides any skill that still spells browser steps as `mcp__playwright__*` calls.** Their *logic* (which page, which selector, which assertion) is correct — translate the mechanics to agent-browser as you go:
 
 | Playwright MCP | agent-browser (prefix every call with `--session conf-app --restore=stg`) |
 |---|---|

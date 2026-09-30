@@ -42,13 +42,13 @@ Which credential does what — the two are NOT interchangeable:
 Do not run a queue read through the Forge credential; its 403 reads as "no
 tickets" rather than as a permission error.
 
-**Browser path (Playwright MCP) is now the fallback**, for anything the REST API
-cannot do or when the token is rejected. Note that in-page `fetch` writes issued
+**The browser path is agent-browser with the support@ persistent profile**, for anything the REST API
+cannot do or when the token is rejected. Run the warm-up first (`~/.claude/skills/browser-check/scripts/atlassian-warmup.zsh zenuml`; exit 0 = signed in), then `agent-browser --session support --profile ~/.agent-browser/profiles/atlassian open https://zenuml.atlassian.net/jira/servicedesk/projects` and run queries with `eval`. Playwright MCP (below) is the last fallback. Note that in-page `fetch` writes issued
 through a browser JS tool can be refused by the Claude Code auto-mode classifier
 (observed 2026-08-16 on a `servicedeskapi` comment POST); the curl path is not
 subject to that.
 
-### Connecting the fallback browser
+### Connecting the last-fallback browser (Playwright MCP)
 
 ```zsh
 ~/.agents/skills/connect-playwright-profile/scripts/preflight.zsh --runtime claude

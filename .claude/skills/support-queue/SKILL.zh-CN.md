@@ -35,9 +35,9 @@ curl -s -u "$JSM_EMAIL:$JSM_API_TOKEN" -H "Accept: application/json" \
 
 不要使用 Forge 凭据读取队列；它返回的 403 会被误读为“没有工单”，而不是权限错误。
 
-**浏览器路径（Playwright MCP）现在是备用方案**，用于 REST API 无法完成的操作，或 token 被拒绝时。注意：通过浏览器 JS 工具发起的页面内 `fetch` 写操作可能被 Claude Code 自动模式分类器拒绝（2026-08-16 在 `servicedeskapi` 评论 POST 上观察到）；curl 路径不受此影响。
+**浏览器路径是 agent-browser 加 support@ 持久 profile**，用于 REST API 无法完成的操作，或 token 被拒绝时。先运行预热脚本（`~/.claude/skills/browser-check/scripts/atlassian-warmup.zsh zenuml`；退出码 0 表示已登录），再执行 `agent-browser --session support --profile ~/.agent-browser/profiles/atlassian open https://zenuml.atlassian.net/jira/servicedesk/projects`，用 `eval` 运行查询。Playwright MCP（见下）是最后的备用方案。注意：通过浏览器 JS 工具发起的页面内 `fetch` 写操作可能被 Claude Code 自动模式分类器拒绝（2026-08-16 在 `servicedeskapi` 评论 POST 上观察到）；curl 路径不受此影响。
 
-### 连接备用浏览器
+### 连接最后备用浏览器（Playwright MCP）
 
 ```zsh
 ~/.agents/skills/connect-playwright-profile/scripts/preflight.zsh --runtime claude

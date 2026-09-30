@@ -145,6 +145,21 @@ describe('Header', () => {
       expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
     });
 
+    it('applies before the AI Chat flag answers, not after its round trip', () => {
+      // The preference must land in mount's synchronous part. forgeIndex reads
+      // doc.diagramType (the same object as store.state.diagram) right after
+      // mountRoot to label macro_create_started, and the Sequence placeholder
+      // renders — firing macro_viewed(sequence) — while mounted() awaits. With
+      // the flag read ahead of this block, every new Lite diagram with a
+      // remembered Mermaid preference was counted as a sequence create and
+      // view from 2026-08-31 (v2026.08.302214-lite).
+      vi.mocked(isAiChatEnabled).mockReturnValue(new Promise(() => {}));
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
+      mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
     it('never overrules a type the user just picked', async () => {
       // The byline's picker (and a pasted /new/<type> link) seed the doc and set
       // typeRequested. Without this guard the preference won, so choosing

@@ -51,7 +51,7 @@ Read `.claude/skills/find-macros-on-page/scripts/fetch-source-snippet.js`. **Rep
 
 #### Getting the bytes out
 
-- **Via agent-browser** (primary): no output filter. `A eval "window.__macroBody" > /path/to/output.xml` writes the full string to a file.
+- **Via agent-browser** (primary): no output filter. `eval` prints strings JSON-quoted (`"a\nb"`), so decode before writing: `A eval "window.__macroBody" | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin))' > /path/to/output.xml`.
 - **Via Playwright MCP** (fallback): no output filter. `browser_evaluate(() => window.__macroBody)` returns the full string.
 - claude-in-chrome is not used here: its proxy blocks long base64-shaped output (`[BLOCKED: ...]`).
 

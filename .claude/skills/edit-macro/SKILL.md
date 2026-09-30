@@ -11,7 +11,7 @@ The goal is token-efficient automation: use `browser_evaluate` with known select
 
 ## Prerequisites
 
-- Playwright MCP connected (`mcp__playwright-conf-app__*` tools available)
+- agent-browser available (`agent-browser --session conf-app --restore=stg`); Playwright MCP (`mcp__playwright-conf-app__*`) is the fallback
 - User is logged in to the target Confluence instance
 - A page with an existing macro to edit
 

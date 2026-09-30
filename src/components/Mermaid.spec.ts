@@ -115,6 +115,28 @@ describe('Mermaid render-failure telemetry', () => {
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
 
+  // `mermaid.render()` on a body with no diagram text throws
+  // `No diagram type detected matching given configuration for text: `. An
+  // empty string is already skipped, but a whitespace-only body (blank lines,
+  // or only U+00A0 pasted in) is truthy, so it reached mermaid and every view
+  // of that macro fired viewer_load_failed (84 events in 7 days, one tenant).
+  it.each([
+    ['blank lines', '\n\n  \n'],
+    ['non-breaking spaces', '\u00a0\u00a0\n\u00a0'],
+  ])('does not call mermaid or report a crash for a %s-only body', async (_label, code) => {
+    const render = vi.fn(() => Promise.reject(new Error('No diagram type detected matching given configuration for text: ')));
+    loadMermaidMock.mockResolvedValue({ render });
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: code };
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(render).not.toHaveBeenCalled();
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+    expect(wrapper.text()).toContain('Start with Mermaid');
+  });
+
   // The isDisplayMode=false (editor-preview) gate itself is unit-tested in
   // trackViewerRenderCrash.spec.ts — the shared Vuex store singleton here
   // memoizes the `isDisplayMode` getter on first read (it has no reactive

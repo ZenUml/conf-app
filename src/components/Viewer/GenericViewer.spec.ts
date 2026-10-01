@@ -18,6 +18,7 @@ import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readCopyAttribution } from '@/utils/analytics/copyAttribution'
 import { magicSourceHash } from '@/utils/magic/artifact'
+import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 import { webcrypto } from 'node:crypto'
 import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFailedRetry'
 
@@ -198,6 +199,36 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
       expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Magic');
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_view_restored', expect.anything());
+    });
+
+    it('loads the actual Pi-produced artifact from a raw-body JSON round trip and rejects a stale edit', async () => {
+      // Confluence custom content stores the Diagram body as JSON. Exercise that
+      // shape without writing to a tenant or substituting a hand-drawn SVG.
+      const rawBody = JSON.stringify({
+        diagramType: DiagramType.Mermaid,
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+        magic: PI_MAGIC_SYNTHETIC_ARTIFACT,
+      });
+      const loaded = JSON.parse(rawBody);
+      expect(await magicSourceHash(loaded.mermaidCode)).toBe(PI_MAGIC_SYNTHETIC_ARTIFACT.sourceHash);
+      store.commit('updateMermaidCode', loaded.mermaidCode);
+      store.state.diagram.magic = loaded.magic;
+      const wrapper = await mountMagic();
+      await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('.screen-capture-content .diagram-viewport marker#arrow').exists()).toBe(true);
+      expect(wrapper.find('.screen-capture-content .diagram-viewport').text()).toContain('Start');
+      expect(wrapper.find('.screen-capture-content .diagram-viewport').text()).toContain('Finish');
+      expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Original');
+      await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
+      expect(wrapper.find('.original-diagram').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Magic');
+      store.commit('updateMermaidCode', loaded.mermaidCode + ' ');
+      await flushPromises();
+      await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[data-testid="magic-feedback"]').text()).toContain('earlier version');
+      expect(wrapper.find('.screen-capture-content .diagram-viewport marker#arrow').exists()).toBe(false);
     });
 
     it('rejects stale artifacts, and resets active Magic on source or type change', async () => {

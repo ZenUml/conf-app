@@ -367,6 +367,10 @@ export type AnalyticsEventName =
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
+  // Lite's scheduled byline property reconciliation emits one event per run
+  // from Forge through Mixpanel /import. Fires for skipped, unchanged,
+  // changed, and failed outcomes; no space IDs or diagram content are sent.
+  | "byline_visibility_sweep_completed"
   // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
   // (background + note/arrow/callout/watermark overlays), tracked separately
   // from the generic macro_export_* triple above (unused by any call site as

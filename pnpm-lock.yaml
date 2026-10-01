@@ -89,6 +89,9 @@ importers:
       '@forge/bridge':
         specifier: ^5.16.0
         version: 5.16.0(@types/react@18.3.31)(react@18.3.1)
+      '@forge/feature-flags':
+        specifier: ^2.0.7
+        version: 2.0.7(typescript@5.9.3)
       '@forge/resolver':
         specifier: ^1.6.13
         version: 1.7.1
@@ -1757,8 +1760,24 @@ packages:
   '@forge/api@6.4.3':
     resolution: {integrity: sha512-xwmJ+SWBur5LcxJ3dnN7Is4OidO4VV7lzPWkBhW73DtPQ8OLnMQqhi1W4dcQVeKwxDNoyVeoCDH+zdNg+3ZVrw==}
 
+  '@forge/api@8.2.0':
+    resolution: {integrity: sha512-gXvr7UjjGljUkkjM8JK6IuAh20RRWiMhgNn14o/ouvQWXu6ZZJcM2Ugc/OfVciUW9HFXD6aSuVnYPXYkXBkH6Q==}
+    peerDependencies:
+      typescript: '>=5.0.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   '@forge/auth@0.0.9':
     resolution: {integrity: sha512-3qZZNknFprzDkrXzBVKHqVD12r/b2K9cu/RJh9TP3QLiF18v7bdoD1fgZZbVavKJUmCNdQERk6NTVQLmmEszhg==}
+
+  '@forge/auth@1.0.0':
+    resolution: {integrity: sha512-lEwaTIS9lZAMeuf9TfuP/OyhoJz1SCoIt5ZbgbgPtG3SV/KYdI2qSW6xafnONy0iAaKJo5D3VDBEbm7K1d+qog==}
+    peerDependencies:
+      typescript: '>=5.0.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   '@forge/bridge@5.16.0':
     resolution: {integrity: sha512-LhRXE9by2PauTl0U2SSmUManXTgMJZCKdBKvEXVLNIIYbKe1CSyUKNWmrnkf9AimIDuV+UVs0aRTxNxPQ+x7HQ==}
@@ -1815,6 +1834,14 @@ packages:
       typescript:
         optional: true
 
+  '@forge/feature-flags@2.0.7':
+    resolution: {integrity: sha512-mImIBS2XaxmCxQXzjaasJ+o32wEEch7zRb5nVR8e0dKR+pxaedjbKFxztYECXyYdkenTrK3ml8Syt5/KFcE9ww==}
+    peerDependencies:
+      typescript: '>=5.0.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   '@forge/i18n@0.0.7':
     resolution: {integrity: sha512-EKrQApcuI4k4AkUSeERkZv1dQaGjWsmB8i7ciDPtpDARPRH1sOrU+FSEOoA7b9FQ15++7Q144m94w/aMLCg5Gg==}
 
@@ -1842,6 +1869,14 @@ packages:
 
   '@forge/manifest@13.4.0':
     resolution: {integrity: sha512-AoumTqjK3/pZFyVdqcCFZVVjXRLokiyqAsUhS8nUN4ww2VuXdrNhrEweWt4R43n5NoO5tKoojUf68XCByozNCA==}
+    peerDependencies:
+      typescript: '>=5.0.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  '@forge/manifest@13.6.0':
+    resolution: {integrity: sha512-LgapC/jjIibdinF1SueF8Ouv0gTc6M8L2trFfMeFDmNsHmXN17coY/G7zxSh7zhWGTtbzFdL2wOBWf6rigZesg==}
     peerDependencies:
       typescript: '>=5.0.0'
     peerDependenciesMeta:
@@ -12317,9 +12352,25 @@ snapshots:
       '@forge/storage': 2.0.3
       headers-utils: 3.0.2
 
+  '@forge/api@8.2.0(typescript@5.9.3)':
+    dependencies:
+      '@forge/auth': 1.0.0(typescript@5.9.3)
+      '@forge/egress': 3.0.0(typescript@5.9.3)
+      '@forge/i18n': 1.0.0(typescript@5.9.3)
+      '@forge/manifest': 13.6.0(typescript@5.9.3)
+      headers-utils: 3.0.2
+    optionalDependencies:
+      typescript: 5.9.3
+
   '@forge/auth@0.0.9':
     dependencies:
       tslib: 2.8.1
+
+  '@forge/auth@1.0.0(typescript@5.9.3)':
+    dependencies:
+      tslib: 2.8.1
+    optionalDependencies:
+      typescript: 5.9.3
 
   '@forge/bridge@5.16.0(@types/react@18.3.31)(react@18.3.1)':
     dependencies:
@@ -12527,6 +12578,12 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
 
+  '@forge/feature-flags@2.0.7(typescript@5.9.3)':
+    dependencies:
+      '@forge/api': 8.2.0(typescript@5.9.3)
+    optionalDependencies:
+      typescript: 5.9.3
+
   '@forge/i18n@0.0.7':
     dependencies:
       lodash: 4.18.1
@@ -12583,6 +12640,20 @@ snapshots:
       yaml: 2.8.4
 
   '@forge/manifest@13.4.0(typescript@5.9.3)':
+    dependencies:
+      '@forge/i18n': 1.0.0(typescript@5.9.3)
+      '@sentry/node': 7.106.0
+      ajv: 8.20.0
+      ajv-formats: 2.1.1(ajv@8.20.0)
+      cheerio: 1.2.0
+      glob: 10.5.0
+      lodash: 4.18.1
+      mime-types: 2.1.35
+      yaml: 2.8.4
+    optionalDependencies:
+      typescript: 5.9.3
+
+  '@forge/manifest@13.6.0(typescript@5.9.3)':
     dependencies:
       '@forge/i18n': 1.0.0(typescript@5.9.3)
       '@sentry/node': 7.106.0

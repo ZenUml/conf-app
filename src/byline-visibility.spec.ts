@@ -30,6 +30,19 @@ const forgeMocks = vi.hoisted(() => ({
     delete: vi.fn(),
   },
 }));
+const flagMocks = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  checkFlag: vi.fn(),
+  shutdown: vi.fn(),
+}));
+
+vi.mock('@forge/feature-flags', () => ({
+  FeatureFlags: class {
+    initialize = flagMocks.initialize;
+    checkFlag = flagMocks.checkFlag;
+    shutdown = flagMocks.shutdown;
+  },
+}));
 
 vi.mock('@forge/api', () => ({
   default: {
@@ -165,6 +178,7 @@ describe('scheduledHandler', () => {
     forgeMocks.getAppContext.mockReturnValue({
       installation: { contexts: [{ cloudId }] },
       appAri: { appId: opts.appId ?? LITE_APP },
+      environmentType: 'staging',
     });
   }
 
@@ -174,7 +188,80 @@ describe('scheduledHandler', () => {
     forgeMocks.storage.get.mockReset();
     forgeMocks.storage.set.mockReset();
     forgeMocks.storage.delete.mockReset();
+    flagMocks.initialize.mockReset().mockResolvedValue(undefined);
+    flagMocks.checkFlag.mockReset().mockReturnValue(true);
+    flagMocks.shutdown.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
+  it('leaves existing properties and marker untouched when reconciliation is disabled', async () => {
+    arrange(LITE_STG);
+    setProp(site, '11', KEY, { enabled: 'true' });
+    site.storage.set(STATE, 'enrolled');
+    flagMocks.checkFlag.mockReturnValue(false);
+
+    await scheduledHandler();
+
+    expect(site.calls).toEqual([]);
+    expect(forgeMocks.storage.get).not.toHaveBeenCalled();
+    expect(propOn(site, '11', KEY)?.value).toEqual({ enabled: 'true' });
+    expect(site.storage.get(STATE)).toBe('enrolled');
+    expect(flagMocks.checkFlag).toHaveBeenCalledWith(
+      {
+        identifiers: { installContext: `ari:cloud:confluence::site/${LITE_STG}` },
+        attributes: { installContext: `ari:cloud:confluence::site/${LITE_STG}` },
+      },
+      'byline-reconciliation-enabled',
+      false,
+    );
+    expect(flagMocks.shutdown).toHaveBeenCalledOnce();
+    expect(flagMocks.initialize).toHaveBeenCalledWith({ environment: 'staging' });
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('"outcome":"skipped"'));
+  });
+
+  it('skips the scan on flag initialization or evaluation error', async () => {
+    arrange(LITE_STG);
+    flagMocks.initialize.mockRejectedValueOnce(new Error('unavailable'));
+    await scheduledHandler();
+    expect(site.calls).toEqual([]);
+    expect(flagMocks.shutdown).toHaveBeenCalledOnce();
+
+    flagMocks.checkFlag.mockImplementationOnce(() => { throw new Error('unavailable'); });
+    await scheduledHandler();
+    expect(site.calls).toEqual([]);
+    expect(flagMocks.shutdown).toHaveBeenCalledTimes(2);
+    expect(forgeMocks.storage.get).not.toHaveBeenCalled();
+  });
+
+  it('logs changed, unchanged, and failed run summaries with counts and duration', async () => {
+    arrange(LITE_STG, { spaces: ['11'] });
+    await scheduledHandler();
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/"outcome":"changed".*"spaceCount":1,"changedCount":1,"failureCount":0/));
+
+    await scheduledHandler();
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/"outcome":"unchanged".*"spaceCount":1,"changedCount":0,"failureCount":0/));
+
+    forgeMocks.requestConfluence.mockImplementation(async () => ({ ok: false, status: 500, text: async () => '' }));
+    await scheduledHandler();
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/"outcome":"failed".*"failureCount":1/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/run started runId=/));
+  });
+
+  it('reports partial changes and failures in the same run', async () => {
+    arrange(LITE_STG, { spaces: ['11', '22'] });
+    const inner = fakeConfluence(site);
+    forgeMocks.requestConfluence.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url.includes('/spaces/22/properties')) {
+        return { ok: false, status: 500, text: async () => '' };
+      }
+      return inner(url, init);
+    });
+
+    await scheduledHandler();
+
+    expect(propOn(site, '11', KEY)?.value).toEqual({ enabled: 'true' });
+    expect(site.storage.get(STATE)).toBeUndefined();
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/"outcome":"failed".*"spaceCount":2,"changedCount":1,"failureCount":1/));
   });
 
   it('enrolment writes the space property to EVERY space and marks the state', async () => {
@@ -234,7 +321,7 @@ describe('scheduledHandler', () => {
     expect(site.calls).toEqual([]);
   });
 
-  it('un-enrolment sweeps the properties away, marks clean, and drops the legacy property', async () => {
+  it('an unidentifiable installation cannot evaluate a site-scoped flag and leaves properties intact', async () => {
     arrange(undefined);
     for (const spaceId of site.spaces) setProp(site, spaceId, KEY, { enabled: 'true' });
     site.storage.set(STATE, 'enrolled');
@@ -243,20 +330,21 @@ describe('scheduledHandler', () => {
     await scheduledHandler();
 
     for (const spaceId of site.spaces) {
-      expect(propOn(site, spaceId, KEY)).toBeUndefined();
+      expect(propOn(site, spaceId, KEY)).toBeDefined();
     }
-    expect(site.storage.get(STATE)).toBe('clean');
-    expect(site.appProps.has('byline-enabled')).toBe(false);
+    expect(site.storage.get(STATE)).toBe('enrolled');
+    expect(site.appProps.has('byline-enabled')).toBe(true);
+    expect(site.calls).toEqual([]);
   });
 
   // First tick after this code deploys: no storage state exists anywhere, so a
   // suppressed installation converges with ONE sweep (which also clears any
   // stale properties from earlier revisions) and is clean thereafter.
-  it('a suppressed site with unknown state converges to clean via one sweep', async () => {
+  it('an unidentifiable site with unknown state does not scan', async () => {
     arrange(undefined);
 
     await scheduledHandler();
-    expect(site.storage.get(STATE)).toBe('clean');
+    expect(site.storage.get(STATE)).toBeUndefined();
     site.calls.length = 0;
 
     await scheduledHandler();

@@ -435,8 +435,8 @@ export type AnalyticsProperties = {
     | "enrolled"
     | "not_enrolled"
     | "no_signal";
-  // Forge scheduled reconciliation, one event per run. `skipped` means the
-  // independent flag was off (or unavailable); counts are zero in that case.
+  // Reserved for the Forge scheduled reconciliation event; currently logged
+  // in Forge only. `skipped` means the flag was off or unavailable.
   byline_sweep_outcome?: "skipped" | "unchanged" | "changed" | "failed";
   byline_sweep_duration_ms?: number;
   byline_sweep_space_count?: number;

@@ -60,4 +60,38 @@ describe('Magic artifact contract', () => {
     expect(sanitized).toContain('aria-label="x &lt; 10; see https://example.invalid"');
     expect(sanitized).toContain('x &lt; 10');
   });
+
+  it('resolves supported CSS with presentation attributes, specificity, source order, inline style, and root matching', () => {
+    const prepared = `<svg xmlns="http://www.w3.org/2000/svg" class="canvas" fill="red">
+      <style>#special { fill: navy; } .node { fill: blue; } rect { fill: green; }
+        .node { stroke: orange; } .node { stroke: purple; }
+        .canvas { opacity: 0.7; }
+      </style>
+      <rect id="special" class="node" fill="yellow" x="1" y="2" width="10" height="10"/>
+      <rect id="inline" class="node" fill="yellow" style="fill: pink; stroke: black" x="20" y="2" width="10" height="10"/>
+    </svg>`;
+    const sanitized = sanitizeMagicSvg(prepared);
+    expect(sanitized).not.toBeNull();
+    const doc = new DOMParser().parseFromString(sanitized!, 'image/svg+xml');
+    expect(doc.documentElement.getAttribute('opacity')).toBe('0.7');
+    expect(doc.getElementById('special')?.getAttribute('fill')).toBe('navy');
+    expect(doc.getElementById('special')?.getAttribute('stroke')).toBe('purple');
+    expect(doc.getElementById('inline')?.getAttribute('fill')).toBe('pink');
+    expect(doc.getElementById('inline')?.getAttribute('stroke')).toBe('black');
+  });
+
+  it('fails closed on unsupported CSS priorities and variables even when selectors do not match', () => {
+    expect(sanitizeMagicSvg('<svg xmlns="http://www.w3.org/2000/svg"><style>.absent { fill: red !important; }</style><path d="M0 0"/></svg>')).toBeNull();
+    expect(sanitizeMagicSvg('<svg xmlns="http://www.w3.org/2000/svg"><style>.absent { fill: var(--color); }</style><path d="M0 0"/></svg>')).toBeNull();
+  });
+
+  it('keeps ID specificity above any number of class selectors', () => {
+    const openGroups = '<g class="a">'.repeat(10);
+    const selector = Array(11).fill('.a').join(' ');
+    const prepared = `<svg xmlns="http://www.w3.org/2000/svg"><style>#special { fill: navy; } ${selector} { fill: blue; }</style>${openGroups}<rect id="special" class="a" x="1" y="1" width="5" height="5"/>${'</g>'.repeat(10)}</svg>`;
+    const sanitized = sanitizeMagicSvg(prepared);
+    expect(sanitized).not.toBeNull();
+    const doc = new DOMParser().parseFromString(sanitized!, 'image/svg+xml');
+    expect(doc.getElementById('special')?.getAttribute('fill')).toBe('navy');
+  });
 });

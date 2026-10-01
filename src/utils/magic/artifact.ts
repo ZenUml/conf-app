@@ -37,11 +37,23 @@ const LOCAL_URL = /^url\(#[A-Za-z_][\w.-]*\)$/;
 
 function safeValue(value: string): boolean {
   return !/[<>;{}\\]/.test(value)
-    && !/(?:javascript:|data:|https?:|@import|expression\s*\()/i.test(value)
+    && !/(?:javascript:|data:|https?:|@import|!important|var\s*\(|expression\s*\()/i.test(value)
     && (!/url\s*\(/i.test(value) || LOCAL_URL.test(value.trim()));
 }
 
-function applyDeclarations(element: Element, css: string): boolean {
+type CssPriority = readonly [inline: number, ids: number, classes: number, elements: number];
+const INLINE_PRIORITY: CssPriority = [1, 0, 0, 0];
+const RULE_PRIORITY: CssPriority = [0, 0, 0, 0];
+
+function comparePriority(left: CssPriority, right: CssPriority): number {
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+function applyDeclarations(element: Element, css: string, priority: CssPriority,
+  priorities: WeakMap<Element, Map<string, CssPriority>>): boolean {
   for (const declaration of css.split(';')) {
     if (!declaration.trim()) continue;
     const separator = declaration.indexOf(':');
@@ -49,7 +61,19 @@ function applyDeclarations(element: Element, css: string): boolean {
     const property = declaration.slice(0, separator).trim();
     const value = declaration.slice(separator + 1).trim();
     if (!PRESENTATION.has(property) || !safeValue(value)) return false;
-    element.setAttribute(property, value);
+    let elementPriorities = priorities.get(element);
+    if (!elementPriorities) {
+      elementPriorities = new Map();
+      priorities.set(element, elementPriorities);
+    }
+    // Presentation attributes have lower priority than any stylesheet rule.
+    // CSS specificity is lexicographic, not a 100/10/1 sum; source order wins
+    // exact ties, and inline style outranks all supported selectors.
+    const previous = elementPriorities.get(property);
+    if (!previous || comparePriority(previous, priority) <= 0) {
+      element.setAttribute(property, value);
+      elementPriorities.set(property, priority);
+    }
   }
   return true;
 }
@@ -62,6 +86,7 @@ export function sanitizeMagicSvg(markup: string): string | null {
   if (root.localName !== 'svg' || root.namespaceURI !== SVG_NS || doc.querySelector('parsererror')) return null;
   let unsafe = false;
   const styleRules: Array<{ selector: string; declarations: string }> = [];
+  const priorities = new WeakMap<Element, Map<string, CssPriority>>();
   const clean = (node: Element): Element | null => {
     if (node.namespaceURI === SVG_NS && node.localName === 'style') {
       const css = (node.textContent ?? '').trim();
@@ -85,11 +110,15 @@ export function sanitizeMagicSvg(markup: string): string | null {
       return null;
     }
     const copy = document.createElementNS(SVG_NS, node.localName);
+    let inlineStyle: string | null = null;
     for (const attribute of Array.from(node.attributes)) {
       const { name, value } = attribute;
+      // createElementNS + XMLSerializer emits this automatically; copying the
+      // declaration would produce a duplicate xmlns and invalid XML.
+      if (name === 'xmlns') continue;
       if (name.startsWith('data-')) continue;
       if (name === 'style') {
-        if (!applyDeclarations(copy, value)) unsafe = true;
+        inlineStyle = value;
         continue;
       }
       // ARIA and role are inert text; XMLSerializer escapes punctuation.
@@ -101,6 +130,7 @@ export function sanitizeMagicSvg(markup: string): string | null {
       }
       copy.setAttribute(name, value);
     }
+    if (inlineStyle !== null && !applyDeclarations(copy, inlineStyle, INLINE_PRIORITY, priorities)) unsafe = true;
     for (const child of Array.from(node.childNodes)) {
       if (child.nodeType === Node.ELEMENT_NODE) {
         const safe = clean(child as Element);
@@ -115,8 +145,23 @@ export function sanitizeMagicSvg(markup: string): string | null {
   if (safe) {
     for (const { selector, declarations } of styleRules) {
       try {
-        for (const element of Array.from(safe.querySelectorAll(selector))) {
-          if (!applyDeclarations(element, declarations)) unsafe = true;
+        // Reject an unsafe declaration even if its selector matches nothing.
+        if (!applyDeclarations(document.createElementNS(SVG_NS, 'g'), declarations, RULE_PRIORITY, priorities)) {
+          unsafe = true;
+          continue;
+        }
+        // The supported selector grammar has only type, class, ID, and
+        // descendant tokens. Specificity is [ID, class, element], compared
+        // lexicographically. Include root, which querySelectorAll omits.
+        const specificity = selector.split(/\s+/).reduce<CssPriority>((score, token) => [
+          0,
+          score[1] + Number(token.startsWith('#')),
+          score[2] + Number(token.startsWith('.')),
+          score[3] + Number(!token.startsWith('#') && !token.startsWith('.')),
+        ], RULE_PRIORITY);
+        const matches = [...(safe.matches(selector) ? [safe] : []), ...Array.from(safe.querySelectorAll(selector))];
+        for (const element of matches) {
+          if (!applyDeclarations(element, declarations, specificity, priorities)) unsafe = true;
         }
       } catch { unsafe = true; }
     }

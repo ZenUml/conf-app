@@ -27,6 +27,15 @@ export type FeatureArea =
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 
+/** Magic's finite failure vocabulary; never send source, SVG, or hashes. */
+export type MagicFailureReason =
+  | "missing_artifact"
+  | "invalid_artifact"
+  | "stale_source"
+  | "unsafe_svg"
+  | "render_failed"
+  | "source_changed";
+
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
@@ -461,6 +470,14 @@ export type AnalyticsEventName =
   | "ai_repair_failed"
   | "ai_repair_applied"
   | "ai_repair_dismissed"
+  // Fullscreen Mermaid Magic: click, visible prepared SVG, rejected artifact,
+  // and return to the original renderer. Properties: feature_area=ai,
+  // surface=fullscreen, macro_type=mermaid, duration_ms on terminal events,
+  // magic_failure_reason only on failed. Never include diagram content.
+  | "magic_view_requested"
+  | "magic_view_succeeded"
+  | "magic_view_failed"
+  | "magic_view_restored"
   | "upgrade_modal_shown"
   | "paywall_triggered"
   | "paywall_blocked_create"

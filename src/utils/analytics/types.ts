@@ -40,6 +40,7 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  MagicFailureReason,
   FeedbackCaptureMethod,
   FeedbackDismissReason,
   FeedbackHandoffOutcome,
@@ -66,6 +67,8 @@ export type AnalyticsProperties = {
   // customContentId, or the custom-content GET failed), recorded explicitly
   // rather than omitted.
   macro_type?: MacroTypeValue;
+  /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
+  magic_failure_reason?: MagicFailureReason;
   // Diagram viewport pan/zoom. This is the user's explicit control intent, not
   // every intermediate wheel, drag, or pinch callback.
   viewport_action?: "zoom_in" | "zoom_out";

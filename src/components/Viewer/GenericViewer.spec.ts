@@ -215,19 +215,22 @@ describe('GenericViewer (chrome-less)', () => {
       store.state.diagram.magic = loaded.magic;
       const wrapper = await mountMagic();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
-      await flushPromises();
-      expect(wrapper.find('.screen-capture-content .diagram-viewport marker#arrow').exists()).toBe(true);
+      await vi.waitFor(() => {
+        expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Original');
+        expect(wrapper.find('.screen-capture-content .diagram-viewport marker#arrow').exists()).toBe(true);
+      });
       expect(wrapper.find('.screen-capture-content .diagram-viewport').text()).toContain('Start');
       expect(wrapper.find('.screen-capture-content .diagram-viewport').text()).toContain('Finish');
-      expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Original');
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
       expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Magic');
       store.commit('updateMermaidCode', loaded.mermaidCode + ' ');
       await flushPromises();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
-      await flushPromises();
-      expect(wrapper.find('[data-testid="magic-feedback"]').text()).toContain('earlier version');
+      await vi.waitFor(() => {
+        expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-busy')).toBe('false');
+        expect(wrapper.find('[data-testid="magic-feedback"]').text()).toContain('earlier version');
+      });
       expect(wrapper.find('.screen-capture-content .diagram-viewport marker#arrow').exists()).toBe(false);
     });
 
@@ -235,15 +238,19 @@ describe('GenericViewer (chrome-less)', () => {
       store.state.diagram.magic = { sourceHash: await magicSourceHash(source + ' '), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
       const wrapper = await mountMagic();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
-      await flushPromises();
+      await vi.waitFor(() => {
+        expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-busy')).toBe('false');
+        expect(wrapper.find('[data-testid="magic-feedback"]').text()).toContain('earlier version');
+      });
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_view_failed', expect.objectContaining({ magic_failure_reason: 'stale_source' }));
-      expect(wrapper.find('[data-testid="magic-feedback"]').text()).toContain('earlier version');
       store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
       await flushPromises();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
-      await flushPromises();
-      expect(wrapper.find('.diagram-viewport svg').exists()).toBe(true);
+      await vi.waitFor(() => {
+        expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Original');
+        expect(wrapper.find('.diagram-viewport svg').exists()).toBe(true);
+      });
       store.commit('updateMermaidCode', source + '\n');
       await flushPromises();
       expect(wrapper.find('.original-diagram').exists()).toBe(true);

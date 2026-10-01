@@ -435,6 +435,13 @@ export type AnalyticsProperties = {
     | "enrolled"
     | "not_enrolled"
     | "no_signal";
+  // Reserved for the Forge scheduled reconciliation event; currently logged
+  // in Forge only. `skipped` means the flag was off or unavailable.
+  byline_sweep_outcome?: "skipped" | "unchanged" | "changed" | "failed";
+  byline_sweep_duration_ms?: number;
+  byline_sweep_space_count?: number;
+  byline_sweep_changed_count?: number;
+  byline_sweep_failure_count?: number;
   // Byline thumbnails: how many of `diagram_count` resolved to a backup-PNG
   // attachment. Coverage is the whole question for this feature — diagrams
   // saved before the attachment backup existed, failed captures, and viewers

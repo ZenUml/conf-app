@@ -30,7 +30,7 @@ vi.mock('@forge/api', () => ({
     ),
 }));
 
-import { APPS } from '../../scripts/forge-wizard.mjs';
+import { APPS, getManifestEditYqArgs } from '../../scripts/forge-wizard.mjs';
 import {
   APP_SPACE_KEY_SUFFIXES,
   SPACE_PROP_BASE,
@@ -41,6 +41,19 @@ import { FULL_PRESENCE_KEY } from '../../src/full-presence';
 const manifest = readFileSync(resolve(__dirname, '../../manifest.yml'), 'utf8');
 
 describe('byline enrolment key: manifest ↔ wizard ↔ code', () => {
+  it('runs only one daily Lite trigger and strips that key from other variants', () => {
+    const schedule = manifest.match(/- key: byline-visibility-hourly\n\s+function: bylineVisibilityFn\n\s+interval: (\w+)/g);
+    expect(schedule).toHaveLength(1);
+    expect(schedule?.[0]).toContain('interval: day');
+    for (const variant of ['full', 'diagramly']) {
+      const edits = getManifestEditYqArgs(variant).map((edit: { expr: string }) => edit.expr).join('\n');
+      expect(edits, variant).toContain('byline-visibility-hourly');
+    }
+    expect(getManifestEditYqArgs('asyncapi').map((edit: { expr: string }) => edit.expr).join('\n'))
+      .toContain('del(.modules.scheduledTrigger)');
+    expect(getManifestEditYqArgs('lite').map((edit: { expr: string }) => edit.expr).join('\n'))
+      .not.toContain('byline-visibility-hourly');
+  });
   it('the manifest condition uses the templated key, not a hardcoded variant', () => {
     expect(manifest).toContain(`propertyKey: ${SPACE_PROP_BASE}\${LITE_KEY_SUFFIX}`);
     // The template replaced a hardcoded `zenuml-byline-lite`; a bare literal

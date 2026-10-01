@@ -401,22 +401,14 @@ modules:
     # only thing that can turn that entry on — the byline cannot repair its own
     # gate, because a hidden byline is never opened (src/byline-visibility.ts).
     #
-    # Steady-state cost per hourly tick: a SUPPRESSED installation pays one
-    # Forge-storage read and zero Confluence calls; an ENROLLED one pays the
-    # spaces listing plus one property GET per space (writes only on drift).
-    # The enrolled sweep cannot be short-circuited by the settled marker —
-    # it is also what enrols spaces CREATED after enrolment.
-    #
-    # AS OF 2026-08-22 the rollout is general (every identifiable installation
-    # is enrolled — src/byline-visibility.ts `decide`), so essentially EVERY
-    # install now takes the enrolled path rather than the one-storage-read
-    # suppressed path. That is the condition this comment previously named as
-    # the trigger for cheapening the sweep (daily full pass + hourly new-space
-    # check); it is now met, and the change is pending. Watch Forge Functions
-    # GB-seconds — see the forge-functions-cost skill.
+    # Independent byline-reconciliation-enabled Forge flag controls whether
+    # this background scan runs. Off/error means no space or property calls;
+    # existing display-condition properties remain as they were. The existing
+    # trigger key is retained while its interval changes so no second trigger
+    # can overlap the old hourly one. Enabled runs do one full pass each day.
     - key: byline-visibility-hourly
       function: bylineVisibilityFn
-      interval: hour
+      interval: day
     # Diagramly-only. CI yq-strips this entry for lite/full so it never runs
     # on those variants. Polls the enrollment KV and creates a demo page for
     # any enrolled space that doesn't yet have one. Interval is a safety net

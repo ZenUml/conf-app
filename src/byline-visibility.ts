@@ -1,4 +1,5 @@
 import api, { getAppContext, route, storage } from '@forge/api';
+import { FeatureFlags } from '@forge/feature-flags';
 import {
   emptyTally,
   ensureSpaceProperty,
@@ -19,10 +20,9 @@ import {
  * particular the byline itself cannot repair it, since a hidden byline is
  * never opened.
  *
- * CALLER: `byline-visibility-hourly` (manifest.yml `scheduledTrigger`),
- * Lite-only. Hourly is about the first write, not the steady state: the sweep
- * is idempotent, and the interval only bounds how long a newly installed
- * site waits with the wrong visibility.
+ * CALLER: `byline-visibility-hourly` (legacy trigger key in manifest.yml),
+ * Lite-only, now daily. The independent Forge flag controls this background
+ * work and does not change the byline display condition itself.
  *
  * SCOPE: every installation whose cloudId the runtime can resolve, materialised
  * as the enrolment space property on every space of that installation. An
@@ -32,23 +32,19 @@ import {
  * its own presence per space (`zenuml-full-active`, src/full-presence.ts) and
  * the manifest condition subtracts it with a `not entityPropertyExists` leg.
  *
- * COST: with the allowlist gone, EVERY Lite installation now runs the enrolled
- * path each tick — a spaces listing plus one property GET per space — where
- * all but two previously exited after a single storage read. The manifest's
- * `byline-visibility-hourly` comment flags exactly this as the point at which
- * the sweep wants cheapening (daily full pass + hourly new-space check).
+ * COST: enabled installs run one full pass per day. Disabled or unavailable
+ * flags leave all existing properties and the storage marker untouched.
  * Watch Forge Functions GB-seconds after this ships; see the
  * forge-functions-cost skill.
  *
  * STATE MARKER: whether a previous tick enrolled this site is remembered in
  * Forge app storage (`storage:app` scope, already granted), NOT in a
- * Confluence property. A suppressed installation must not pay a full space
- * sweep every hour just to prove there is nothing to clear — the marker makes
- * un-enrolment sweep exactly once and steady-state suppression cost one
- * storage read per tick, with no residue visible in the tenant's Confluence
- * data. An earlier revision kept this marker in the `byline-enabled` APP
- * property (the previous gate mechanism); that property is vestigial and is
- * DELETED on the next state transition — see `deleteLegacyAppProperty`.
+ * Confluence property. The original suppressed-state cleanup path remains
+ * below, but an invocation without a cloudId cannot evaluate the new
+ * site-scoped flag and skips before reaching it. A disabled flag never uses
+ * that cleanup path: it preserves the existing property and marker. The
+ * vestigial `byline-enabled` app property is deleted only on a successful
+ * state transition — see `deleteLegacyAppProperty`.
  */
 
 /**
@@ -104,6 +100,7 @@ export function spacePropertyKey(appId: string | undefined): string | undefined 
  */
 export const VISIBLE = 'true';
 export const HIDDEN = 'false';
+export const BYLINE_RECONCILIATION_FLAG = 'byline-reconciliation-enabled';
 
 const L = '[byline-visibility]';
 
@@ -221,8 +218,67 @@ function readContext(): { cloudId?: string; appId?: string } {
   }
 }
 
+/** A missing/failed flag skips the scan and never edits visibility state. */
+export async function isReconciliationEnabled(cloudId: string | undefined): Promise<boolean> {
+  if (!cloudId) return false;
+  const client = new FeatureFlags();
+  try {
+    const environment = String(getAppContext().environmentType ?? 'development').toLowerCase();
+    if (environment !== 'development' && environment !== 'staging' && environment !== 'production') {
+      return false;
+    }
+    await client.initialize({ environment });
+    const installContext = `ari:cloud:confluence::site/${cloudId}`;
+    return client.checkFlag(
+      { identifiers: { installContext }, attributes: { installContext } },
+      BYLINE_RECONCILIATION_FLAG,
+      false,
+    );
+  } catch (error) {
+    console.log(`${L} reconciliation flag unavailable: ${error instanceof Error ? error.name : 'unknown'}`);
+    return false;
+  } finally {
+    client.shutdown();
+  }
+}
+
+type RunOutcome = 'skipped' | 'unchanged' | 'changed' | 'failed';
+type RunSummary = { outcome: RunOutcome; tally: SweepTally };
+
+/** Forge logs are also the start signal if a hard timeout prevents completion. */
+async function reportRun(started: number, runId: string, summary: RunSummary): Promise<void> {
+  const durationMs = Date.now() - started;
+  const changed = summary.tally.created + summary.tally.updated + summary.tally.deleted;
+  console.log(`${L} run completed ${JSON.stringify({
+    runId,
+    outcome: summary.outcome,
+    durationMs,
+    spaceCount: summary.tally.spaces,
+    changedCount: changed,
+    failureCount: summary.tally.failed,
+  })}`);
+}
+
 export async function scheduledHandler() {
+  const started = Date.now();
+  const runId = crypto.randomUUID();
+  console.log(`${L} run started runId=${runId}`);
+  let summary: RunSummary = { outcome: 'failed', tally: emptyTally() };
+  try {
+    summary = await reconcile();
+  } catch (error) {
+    summary.tally.failed = 1;
+    console.log(`${L} unexpected failure runId=${runId} reason=${error instanceof Error ? error.name : 'unknown'}`);
+  }
+  await reportRun(started, runId, summary);
+}
+
+async function reconcile(): Promise<RunSummary> {
   const { cloudId, appId } = readContext();
+  if (!(await isReconciliationEnabled(cloudId))) {
+    console.log(`${L} scan skipped flag=off_or_unavailable`);
+    return { outcome: 'skipped', tally: emptyTally() };
+  }
   const { value: target, decision, reason } = decide(cloudId);
   console.log(
     `${L} evaluated cloudId=${cloudId ?? 'unknown'} ` +
@@ -232,7 +288,7 @@ export async function scheduledHandler() {
   const key = spacePropertyKey(appId);
   if (!key) {
     console.log(`${L} write result=failed appId=${appId ?? 'unknown'} — no property key mapping, writing nothing`);
-    return;
+    return { outcome: 'failed', tally: { ...emptyTally(), failed: 1 } };
   }
 
   const state = await readState();
@@ -249,7 +305,7 @@ export async function scheduledHandler() {
     console.log(
       `${L} write result=${tally.failed > 0 ? 'failed' : tally.created + tally.updated > 0 ? 'written' : 'unchanged'} ${formatTally(tally)}`,
     );
-    return;
+    return { outcome: tally.failed > 0 ? 'failed' : tally.created + tally.updated > 0 ? 'changed' : 'unchanged', tally };
   }
 
   // Suppressed: absence is the hidden state, so there is nothing to write —
@@ -260,7 +316,7 @@ export async function scheduledHandler() {
   // instead of stranding stale `enabled:"true"` properties forever.
   if (state === 'clean') {
     console.log(`${L} write result=unchanged state=clean`);
-    return;
+    return { outcome: 'unchanged', tally: emptyTally() };
   }
   const tally = await sweep((spaceId) => removeSpaceProperty(spaceId, key));
   if (tally.failed === 0) {
@@ -270,6 +326,7 @@ export async function scheduledHandler() {
   console.log(
     `${L} write result=${tally.failed > 0 ? 'failed' : 'cleared'} ${formatTally(tally)}`,
   );
+  return { outcome: tally.failed > 0 ? 'failed' : tally.deleted > 0 ? 'changed' : 'unchanged', tally };
 }
 
 /** Run `perSpace` over every space on the site, tallying outcomes. */

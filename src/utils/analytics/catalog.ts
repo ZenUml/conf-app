@@ -367,6 +367,10 @@ export type AnalyticsEventName =
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
+  // Reserved for Lite's scheduled byline reconciliation. Outbound emission
+  // awaits explicit approval of the aggregate run-metrics payload. Until then,
+  // the scheduled handler writes these outcomes to structured Forge logs.
+  | "byline_visibility_sweep_completed"
   // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
   // (background + note/arrow/callout/watermark overlays), tracked separately
   // from the generic macro_export_* triple above (unused by any call site as

@@ -273,6 +273,7 @@ function setupStore({
   diagram.recoveredFromOrphan = recoveredFromOrphan
   diagram.snapshotFallback = snapshotFallback
   diagram.snapshotAt = undefined
+  diagram.magic = undefined
 }
 
 /**
@@ -694,6 +695,46 @@ export const MermaidFullscreenPanZoom: Story = {
     await expect(canvas.queryByRole('button', { name: 'Reset view' })).toBeNull()
     await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  },
+}
+
+/** Synthetic prepared artifact using the same stored Mermaid source as Original. */
+export const MermaidFullscreenMagic: Story = {
+  name: 'Fullscreen — Magic prepared diagram',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Input to Result',
+        mermaidCode: 'graph LR\n  A[Input]-->B[Result]',
+        fullscreenMode: true,
+      })
+      ;(store.state as any).diagram.magic = {
+        sourceHash: 'e61cfef2fd3c5a53982b84c8dc2e615f6fb6c0286fb1a4b68748c1719837c8b5',
+        rulesVersion: 'magic-v1',
+        outcome: 'validated',
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 160" role="img" aria-label="Input leads to result">
+          <style>.node { fill: #e0f2fe; stroke: #0369a1; stroke-width: 1; } .edge { stroke: #0369a1; stroke-width: 1.5; } .label { fill: #0f172a; font-family: Arial; font-size: 16px; font-weight: 400; text-anchor: middle; }</style>
+          <defs><marker id="magic-arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#0369a1"/></marker></defs>
+          <rect class="node" x="40" y="48" rx="4" width="120" height="64"/><text class="label" x="100" y="85">Input</text>
+          <path class="edge" d="M160 80L240 80" marker-end="url(#magic-arrow)"/>
+          <rect class="node" x="240" y="48" rx="4" width="120" height="64"/><text class="label" x="300" y="85">Result</text>
+        </svg>`,
+      }
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    const magic = await canvas.findByRole('button', { name: 'Magic' })
+    await userEvent.click(magic)
+    await expect(await canvas.findByRole('button', { name: 'Original' })).toBeVisible()
+    await expect(canvas.getByRole('img', { name: 'Input leads to result' })).toBeVisible()
+    await userEvent.click(canvas.getByRole('button', { name: 'Original' }))
+    await expect(await canvas.findByRole('button', { name: 'Magic' })).toBeVisible()
   },
 }
 

@@ -83,6 +83,13 @@
                 </svg>
                 <span>Edit</span>
               </button>
+              <button v-if="isFullscreenMode && diagramType === 'mermaid'"
+                type="button" class="viewer-btn-ghost" data-testid="magic-toggle"
+                :disabled="!magicActive && (!diagram?.magic || magicPending)"
+                :title="!magicActive && !diagram?.magic ? 'Magic view is unavailable for this diagram' : magicActive ? 'Show original Mermaid diagram' : 'Show prepared Magic view'"
+                :aria-pressed="magicActive ? 'true' : 'false'" :aria-busy="magicPending ? 'true' : 'false'" @click="toggleMagic">
+                <span>{{ magicActive ? 'Original' : 'Magic' }}</span>
+              </button>
               <!-- View Source (#333): visible to ALL viewers, including users without
                    edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
               <button
@@ -196,6 +203,8 @@
             </div>
           </div>
 
+          <div v-if="magicFeedback" class="magic-feedback" role="status" aria-live="polite" data-testid="magic-feedback">{{ magicFeedback }}</div>
+
           <!--
             ZEN-1170 Defect 2b recovery banner. Always-visible, accessible
             explanation of how to actually edit the macro when its
@@ -271,7 +280,9 @@
               </div>
             </div>
             <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
-              <slot></slot>
+              <DiagramViewport v-if="magicActive" ref="magicViewport" macro-type="mermaid"
+                label="Magic" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
+              <slot v-else></slot>
             </div>
             <div
               v-if="!isLoadFailed && (diagramAttribution || (architectureTokensEnabled && showRelatedDiagrams))"
@@ -462,6 +473,8 @@ import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
 import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
+import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
+import { validateMagicArtifact } from '@/utils/magic/artifact'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -522,12 +535,19 @@ export default {
     // fails closed (no accountId, no match, no render).
     currentAccountId: null,
     retryOutcomeEmitted: false,
+    magicActive: false,
+    magicSvg: null,
+    magicPending: false,
+    magicGeneration: 0,
+    magicStartedAt: null,
+    magicFeedback: '',
   }),
   components: {
     Debug,
     ExportModal,
     OverflowMenu,
     CopyForAiMenu,
+    DiagramViewport,
     ViewSourcePanel,
     ConnectButton,
     ConnectPanel,
@@ -838,6 +858,9 @@ export default {
     },
   },
   watch: {
+    'diagram.mermaidCode'() { this.resetMagic(); },
+    diagramType() { this.resetMagic(); },
+    'diagram.magic'() { this.resetMagic(); },
     copyForAiImpressionEligible: {
       immediate: true,
       handler(eligible) {
@@ -1079,6 +1102,7 @@ export default {
     }
   },
   beforeUnmount() {
+    this.magicGeneration++;
     document.removeEventListener('keydown', this.onEscapeKeydown, true);
     EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
     EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
@@ -1097,6 +1121,71 @@ export default {
     }
   },
   methods: {
+    magicEvent(name, properties = {}) {
+      trackAnalyticsEvent(name, {
+        feature_area: 'ai', surface: 'fullscreen', macro_type: 'mermaid', ...properties,
+      });
+    },
+    resetMagic() {
+      if (this.magicPending && this.magicStartedAt != null) {
+        this.magicEvent('magic_view_failed', {
+          magic_failure_reason: 'source_changed',
+          duration_ms: Math.round(performance.now() - this.magicStartedAt),
+        });
+      }
+      this.magicGeneration++;
+      this.magicActive = false;
+      this.magicSvg = null;
+      this.magicPending = false;
+      this.magicStartedAt = null;
+      this.magicFeedback = '';
+    },
+    async toggleMagic() {
+      if (this.magicActive) {
+        this.resetMagic();
+        this.magicEvent('magic_view_restored');
+        return;
+      }
+      if (this.magicPending || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+      const started = performance.now();
+      this.magicStartedAt = started;
+      const generation = ++this.magicGeneration;
+      const source = this.diagram.mermaidCode ?? '';
+      const artifact = this.diagram.magic;
+      this.magicPending = true;
+      this.magicFeedback = '';
+      this.magicEvent('magic_view_requested');
+      try {
+        const result = await validateMagicArtifact(artifact, source);
+        if (generation !== this.magicGeneration || this.diagramType !== DiagramType.Mermaid
+          || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact) return;
+        if ('reason' in result) {
+          this.magicFeedback = result.reason === 'stale_source'
+            ? 'This prepared view is for an earlier version of the diagram.'
+            : 'Magic view could not be shown. The original diagram is still available.';
+          this.magicEvent('magic_view_failed', { magic_failure_reason: result.reason, duration_ms: Math.round(performance.now() - started) });
+          return;
+        }
+        this.magicSvg = result.svg;
+        this.magicActive = true;
+        await this.$nextTick();
+        if (generation !== this.magicGeneration) return;
+        if (!this.$refs.magicViewport?.$el?.querySelector('svg')) throw new Error('Magic SVG did not render');
+        await this.$refs.magicViewport.attach();
+        if (generation === this.magicGeneration) this.magicEvent('magic_view_succeeded', { duration_ms: Math.round(performance.now() - started) });
+      } catch {
+        if (generation !== this.magicGeneration) return;
+        this.magicActive = false;
+        this.magicSvg = null;
+        this.magicFeedback = 'Magic view could not be shown. The original diagram is still available.';
+        this.magicEvent('magic_view_failed', { magic_failure_reason: 'render_failed', duration_ms: Math.round(performance.now() - started) });
+      } finally {
+        if (generation === this.magicGeneration) {
+          this.magicPending = false;
+          this.magicStartedAt = null;
+        }
+      }
+    },
     // See the addEventListener comment in mounted() for why this is a
     // capture-phase listener. Yields to the Copy-for-AI menu while it is open
     // so one Escape dismisses one layer.
@@ -2038,6 +2127,14 @@ export default {
   transition: opacity 200ms ease;
 }
 .viewer-surface--hover .viewer-top-actions { opacity: 1; }
+
+.magic-feedback {
+  padding: 8px 20px;
+  color: #7c2d12;
+  background: #fff7ed;
+  border-bottom: 1px solid #fed7aa;
+  font-size: 12px;
+}
 
 .viewer-btn-ghost {
   display: inline-flex;

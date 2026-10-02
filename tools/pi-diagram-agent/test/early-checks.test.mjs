@@ -98,3 +98,16 @@ test('applyCoverage: route-node-intrusion is covered even for curves (sampled ac
   const out=applyCoverage([rf('route-node-intrusion',['A->B']),{...rf('legend',['legend']),severity:'minor'}],{audit:auditPass('routeNodeIntrusion',{endpointErrors:[],intrusions:[]}),svgText:edgesSvg('M0 0 Q50 50 100 0'),model});
   assert.equal(out[0].severity,'minor');assert.equal(out[1].severity,'minor');assert.equal(out[1].downgraded,undefined);
 });
+
+test('earlyFindings: a candidate with NO bindings (auditor says NOT-CHECKABLE: no neutral binding) is a blocking early finding; a source-parser limitation is not',()=>{
+  const audit={checks:{
+    nodeIdentity:{status:'NOT-CHECKABLE',evidence:'no neutral per-node semantic binding; SVG may still be visually valid'},
+    relations:{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'},
+    groups:{status:'NOT-CHECKABLE',evidence:'group geometry has no neutral binding'},
+  }};
+  const out=earlyFindings({svgText:svg(''),audit});
+  assert.deepEqual(out.map(x=>x.rule).sort(),['groups','nodeIdentity','relations']);
+  for(const x of out){assert.equal(x.severity,'blocking');assert.equal(x.source,'early');assert.match(x.evidence.measured,/no .*binding/i);assert.match(x.suggestion,/data-node|data-source|group/i)}
+  const parser={checks:{nodeIdentity:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish independent semantic bindings: UNSUPPORTED'}}};
+  assert.deepEqual(earlyFindings({svgText:svg(''),audit:parser}),[]);
+});

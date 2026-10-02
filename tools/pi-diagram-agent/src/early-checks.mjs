@@ -32,6 +32,11 @@ const FORBIDDEN_FIX={
   href:'Remove href/xlink:href attributes; the SVG must not link out.',
 };
 
+const BINDING_FIX={
+  nodeIdentity:'Wrap each node in g[data-node="<source id>"] so the auditor can bind it to the source.',
+  relations:'Give each relation path data-source="<id>" and data-target="<id>" so it binds to the source edge.',
+  groups:'Give each group container a neutral group id (g[data-group="<id>"]) so it binds to the source subgraph.',
+};
 /** Audit rules that count as early binding checks (reported at every inspect, not only at the gate). */
 export const EARLY_AUDIT_RULES=['nodeIdentity','relations','groups'];
 
@@ -42,6 +47,12 @@ export function earlyFindings({svgText,audit}){
     evidence:{measured:hits.map(h=>`${h.construct} x${h.count}`).join(', '),threshold:'0 occurrences of script, foreignObject, iframe, image, href, on* handlers, context-stroke, context-fill'},
     suggestion:hits.map(h=>FORBIDDEN_FIX[h.construct]).join(' ')}));
   for(const f of auditToFindings(audit))if(EARLY_AUDIT_RULES.includes(f.rule))out.push(makeFinding({...f,source:'early'}));
+  // No bindings at all is NOT-CHECKABLE for the auditor (it cannot FAIL what it cannot see), but for the gate it is a missing binding.
+  for(const rule of EARLY_AUDIT_RULES){
+    const c=audit?.checks?.[rule];
+    if(c?.status!=='NOT-CHECKABLE'||typeof c.evidence!=='string'||/source parser/i.test(c.evidence)||!/binding/i.test(c.evidence))continue;
+    out.push(makeFinding({source:'early',severity:'blocking',rule,elements:[],evidence:{measured:`no ${rule==='nodeIdentity'?'node':rule==='relations'?'relation':'group'} binding found in the SVG (${c.evidence})`,threshold:'every source node, relation and group is bound in the SVG'},suggestion:BINDING_FIX[rule]}));
+  }
   return out;
 }
 

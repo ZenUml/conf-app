@@ -782,9 +782,9 @@ export const MermaidFullscreenPiProducedMagic: Story = {
 
     // The artifact stays attached as a saved body would, but source edits make it stale.
     store.commit('updateMermaidCode', PI_MAGIC_SYNTHETIC_SOURCE + ' ')
-    await userEvent.click(magic)
-    await expect(await canvas.findByTestId('magic-feedback')).toHaveTextContent('earlier version')
-    await expect(magic).toHaveAttribute('aria-pressed', 'false')
+    await waitFor(() => expect(canvas.queryByTestId('magic-toggle')).toBeNull())
+    await expect(canvas.queryByTestId('original-toggle')).toBeNull()
+    await expect(document.querySelector('.screen-capture-content .diagram-viewport marker#arrow')).toBeNull()
   },
 }
 

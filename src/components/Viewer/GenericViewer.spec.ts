@@ -173,11 +173,10 @@ describe('GenericViewer (chrome-less)', () => {
       return wrapper;
     }
 
-    it('explains missing artifact with a disabled Magic button', async () => {
+    it('hides the version switch when the current diagram has no Magic artifact', async () => {
       const wrapper = await mountMagic();
-      const button = wrapper.find('[data-testid="magic-toggle"]');
-      expect(button.attributes('disabled')).toBeDefined();
-      expect(button.attributes('title')).toContain('unavailable');
+      expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="original-toggle"]').exists()).toBe(false);
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'missing_artifact' }));
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_unavailable' }));
@@ -204,7 +203,7 @@ describe('GenericViewer (chrome-less)', () => {
       expect(writeMagicPreference({ accountId: 'choice-user', cloudId: 'choice-site', contentId: '987654321', sourceHash }, 'original')).toBe(true);
       store.state.diagram.magic = { sourceHash, svg, rulesVersion: 'magic-v1', outcome: 'validated' };
       const wrapper = await mountMagic();
-      expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true');
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true'));
       await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'available' })));
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_preferred' }));
       expect((wrapper.vm as any).magicActive).toBe(false);
@@ -216,10 +215,21 @@ describe('GenericViewer (chrome-less)', () => {
       Object.defineProperty(globalThis, 'crypto', { value: { subtle: { digest: () => Promise.reject(new Error('digest unavailable')) } }, configurable: true });
       const wrapper = await mountMagic();
       await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'check_failed' })));
-      expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true');
+      expect(wrapper.find('[data-testid="original-toggle"]').exists()).toBe(false);
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_unavailable' }));
       expect(vi.mocked(trackAnalyticsEvent)).not.toHaveBeenCalledWith('magic_view_failed', expect.anything());
       Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
+    });
+
+    it('hides the version switch when an artifact contains unsafe SVG', async () => {
+      store.state.diagram.magic = { sourceHash: await magicSourceHash(source),
+        svg: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+        rulesVersion: 'magic-v1', outcome: 'validated' };
+      const wrapper = await mountMagic();
+      await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'unsafe_svg' })));
+      expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="original-toggle"]').exists()).toBe(false);
+      expect(wrapper.find('.original-diagram').exists()).toBe(true);
     });
 
     it('keeps Magic out of the inline Mermaid toolbar', async () => {
@@ -231,6 +241,7 @@ describe('GenericViewer (chrome-less)', () => {
     it('switches prepared SVG into the capture viewport and restores Original without changing source', async () => {
       store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
       const wrapper = await mountMagic();
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(true));
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
       await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
       expect(wrapper.find('.screen-capture-content .diagram-viewport svg').exists()).toBe(true);
@@ -287,6 +298,7 @@ describe('GenericViewer (chrome-less)', () => {
       store.commit('updateMermaidCode', loaded.mermaidCode);
       store.state.diagram.magic = loaded.magic;
       const wrapper = await mountMagic();
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(true));
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
       await vi.waitFor(() => {
         expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true');
@@ -299,28 +311,22 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('false');
       store.commit('updateMermaidCode', loaded.mermaidCode + ' ');
       await flushPromises();
-      await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
-      await vi.waitFor(() => {
-        expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-busy')).toBe('false');
-        expect(wrapper.find('[data-testid="magic-feedback"]').text()).toContain('earlier version');
-      });
+      expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="original-toggle"]').exists()).toBe(false);
       expect(wrapper.find('.screen-capture-content .diagram-viewport marker#arrow').exists()).toBe(false);
     });
 
     it('rejects stale artifacts, and resets active Magic on source or type change', async () => {
       store.state.diagram.magic = { sourceHash: await magicSourceHash(source + ' '), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
       const wrapper = await mountMagic();
-      await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
-      await vi.waitFor(() => {
-        expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-busy')).toBe('false');
-        expect(wrapper.find('[data-testid="magic-feedback"]').text()).toContain('earlier version');
-      });
+      await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'stale_source' })));
+      expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(false);
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'stale_source' }));
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_unavailable' }));
-      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_view_failed', expect.objectContaining({ magic_failure_reason: 'stale_source' }));
+      expect(vi.mocked(trackAnalyticsEvent)).not.toHaveBeenCalledWith('magic_view_failed', expect.objectContaining({ magic_failure_reason: 'stale_source' }));
       store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
-      await flushPromises();
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(true));
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
       await vi.waitFor(() => {
         expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true');
@@ -329,6 +335,7 @@ describe('GenericViewer (chrome-less)', () => {
       store.commit('updateMermaidCode', source + '\n');
       await flushPromises();
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(false);
       store.commit('updateDiagramType', DiagramType.Sequence);
       await flushPromises();
       expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(false);
@@ -364,6 +371,7 @@ describe('GenericViewer (chrome-less)', () => {
         .mockImplementation((...args: Parameters<typeof webcrypto.subtle.digest>) => webcrypto.subtle.digest(...args));
       Object.defineProperty(globalThis, 'crypto', { value: { subtle: { digest: digestOnce } }, configurable: true });
       const wrapper = await mountMagic();
+      expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(false);
       store.commit('updateMermaidCode', source + '\n');
       releaseDigest(Uint8Array.from(Buffer.from(hash, 'hex')).buffer);
       await flushPromises();

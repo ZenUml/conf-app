@@ -83,7 +83,7 @@
                 </svg>
                 <span>Edit</span>
               </button>
-              <div v-if="isFullscreenMode && diagramType === 'mermaid'" class="viewer-version-switch" role="group" aria-label="Diagram version">
+              <div v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-version-switch" role="group" aria-label="Diagram version">
                 <button type="button" class="viewer-version-option viewer-version-magic"
                   :class="{ 'viewer-version-option--selected': magicActive, 'viewer-version-magic--available': magicAvailable && !magicActive }"
                   data-testid="magic-toggle" :disabled="!magicActive && (!diagram?.magic || magicPending)"

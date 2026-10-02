@@ -264,18 +264,30 @@ test('measured geometry unavailable (browser error) does not block: the reviewer
   }finally{t.cleanup()}
 });
 
-test('reviewer instability: a new blocking finding on geometry unchanged since the previous review is downgraded, logged unstable, and does not hold the gate',async()=>{
+test('reviewer instability is logged but fails closed: a new blocking finding on geometry unchanged since the previous review still blocks',async()=>{
+  // Measured reviewer recall is ~67% per run: a defect missed in one review and caught in the next on the same bytes is common and real.
   const body=(ax,bx)=>`<g data-node="A"><rect x="${ax}" y="10" width="50" height="30"/></g><g data-node="B"><rect x="${bx}" y="100" width="50" height="30"/></g>`;
   const t=setup({budgets:{maxRounds:6},replies:[rv([rf('balance',['A'])]),rv([rf('detour',['B'])])]});try{
     t.write(svg('v1',body(10,400)));
     const r1=await t.out();assert.equal(r1.status,'REVISE');
     t.write(svg('v2',body(30,400))); // author fixes A; B untouched; reviewer now objects to B for the first time
     const r2=await t.out();
-    assert.equal(r2.status,'REVIEWED');
+    assert.equal(r2.status,'REVISE');
+    const f=r2.findings.find(x=>x.rule==='detour');assert.equal(f.severity,'blocking');
     const m=readRunManifest(t.job.runDir);
-    const e=m.ledger.find(x=>x.rule==='detour');assert.equal(e.severity,'minor');assert.equal(e.unstable,true);
+    const e=m.ledger.find(x=>x.rule==='detour');assert.equal(e.severity,'blocking');assert.equal(e.unstable,true);
     assert.equal(m.metrics.unstableFindings,1);
-    assert.ok(m.residual.some(x=>x.rule==='detour'&&x.unstable));
+  }finally{t.cleanup()}
+});
+
+test('stability baseline is the last kept review: a reverted round\'s review does not become the comparison for the next round',async()=>{
+  const body=(ax,bx)=>`<g data-node="A"><rect x="${ax}" y="10" width="50" height="30"/></g><g data-node="B"><rect x="${bx}" y="100" width="50" height="30"/></g>`;
+  const t=setup({budgets:{maxRounds:6,stagnationRounds:5},replies:[rv([rf('balance',['A'])]),rv([rf('balance',['A']),rf('detour',['B'])]),rv([rf('detour',['B'])])]});try{
+    t.write(svg('v1',body(10,400)));await t.out();
+    t.write(svg('v2',body(12,400)));const r2=await t.out();assert.equal(r2.reverted,true); // more blocking: reverted to v1
+    t.write(svg('v3',body(14,400)));const r3=await t.out();assert.equal(r3.reverted,undefined); // A fixed; B unchanged since the kept (v1) review, which never reported detour on B
+    const e=readRunManifest(t.job.runDir).ledger.find(x=>x.rule==='detour');
+    assert.equal(e.unstable,true);assert.equal(e.severity,'blocking');
   }finally{t.cleanup()}
 });
 

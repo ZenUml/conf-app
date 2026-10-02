@@ -126,7 +126,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     c.stage='review';
     const covered=applyCoverage(review.findings,{audit:c.audit,svgText:cand.text,model});
     c.findings.push(...applyStability(covered,{previous:lastReview,svgText:cand.text}));
-    lastReview={keys:new Set(review.findings.map(f=>f.key)),svgText:cand.text};
+    c.reviewSnapshot={keys:new Set(review.findings.map(f=>f.key)),svgText:cand.text}; // becomes the stability baseline only if this round is kept
     return c;
   }
 
@@ -206,6 +206,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       const svgText=c.text;
       ledger.update(round,c.findings,{sources:c.sources,sigOf:svgText?f=>regionSignature(svgText,f):null});
       c.score=score;base=c;
+      if(c.reviewSnapshot)lastReview=c.reviewSnapshot;
       const improved=!best||cmpPair(score,best.score)<0;
       if(c.bytes&&(!best||cmpTriple(score,best.score)<=0))best={...c,score};
       stagnant=improved?0:stagnant+1;

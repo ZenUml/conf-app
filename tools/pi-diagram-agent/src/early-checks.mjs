@@ -107,13 +107,14 @@ export function regionSignature(svgText,{elements=[],region=null}){
 }
 
 /** A reviewer blocking finding that is new in this review although the geometry it is about is unchanged since the previous review is reviewer
- *  instability (it appears in only one of two consecutive reviews). It is logged and downgraded so it cannot hold the gate closed on its own. */
+ *  instability (it appears in only one of two consecutive reviews). It is LOGGED, never downgraded: per-run reviewer recall is ~67%, so
+ *  "missed last time, caught now" is usually a real defect, and downgrading it would let the gate pass a defect the reviewer just named. */
 export function applyStability(findings,{previous,svgText}){
   if(!previous)return findings;
   return findings.map(f=>{
     if(f.source!=='review'||f.severity!=='blocking'||previous.keys.has(f.key))return f;
     if(regionSignature(previous.svgText,f)!==regionSignature(svgText,f))return f;
-    return {...f,severity:'minor',unstable:{reason:'reported in only one of two consecutive reviews on unchanged geometry'}};
+    return {...f,unstable:{reason:'reported in only one of two consecutive reviews on unchanged geometry'}};
   });
 }
 

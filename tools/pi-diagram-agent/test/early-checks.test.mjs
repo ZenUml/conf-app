@@ -121,15 +121,16 @@ test('regionSignature falls back to the whole SVG when a finding matches no elem
 
 const prevOf=(svgText,keys)=>({svgText,keys:new Set(keys)});
 const blockingReview=(rule,elements)=>makeFinding({source:'review',severity:'blocking',rule,elements,region:null,evidence:{measured:'m',threshold:'t'},suggestion:'s'});
-test('applyStability: a reviewer blocking finding that appears in only one of two consecutive reviews on unchanged geometry is downgraded and logged unstable',()=>{
+test('applyStability: a reviewer blocking finding new on unchanged geometry is logged unstable but stays blocking (fail closed)',()=>{
   const a=svg('<g data-node="A"><rect x="1" y="1" width="5" height="5"/></g><g data-node="B"><rect x="50" y="1" width="5" height="5"/></g>');
   const f=blockingReview('balance',['A']);
   const out=applyStability([f],{previous:prevOf(a,[]),svgText:a});
-  assert.equal(out[0].severity,'minor');assert.match(out[0].unstable.reason,/two consecutive reviews/);
-  // B changed, A did not: a finding about A is still unstable; a finding about B stands
+  assert.equal(out[0].severity,'blocking');assert.match(out[0].unstable.reason,/two consecutive reviews/);
+  // B changed, A did not: a finding about A is flagged unstable; a finding about B is not flagged
   const a2=a.replace('x="50"','x="60"');
-  assert.equal(applyStability([blockingReview('balance',['A'])],{previous:prevOf(a,[]),svgText:a2})[0].severity,'minor');
-  assert.equal(applyStability([blockingReview('balance',['B'])],{previous:prevOf(a,[]),svgText:a2})[0].severity,'blocking');
+  assert.ok(applyStability([blockingReview('balance',['A'])],{previous:prevOf(a,[]),svgText:a2})[0].unstable);
+  assert.equal(applyStability([blockingReview('balance',['B'])],{previous:prevOf(a,[]),svgText:a2})[0].unstable,undefined);
+  for(const x of [applyStability([blockingReview('balance',['A'])],{previous:prevOf(a,[]),svgText:a2})[0]])assert.equal(x.severity,'blocking');
 });
 test('applyStability leaves standing: persistent findings, first reviews, audit/early findings, minors',()=>{
   const a=svg('<g data-node="A"><rect x="1" y="1" width="5" height="5"/></g>');

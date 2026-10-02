@@ -142,3 +142,24 @@ test('through the extension with real rendering: inspect carries early checks, s
     }finally{s.cleanup()}
   });
 });
+
+test('hung author: past the wall-clock budget the extension aborts the author turn and finalises the run as CANDIDATE WALL_CLOCK',async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined,PI_DIAGRAM_MAX_WALL_MIN:'0.0005'},async()=>{
+    // Watchdog timer: no further author event is needed (a stuck stream emits none).
+    const f=fakePi();let aborted=0;f.ctx.abort=()=>{aborted++};ext(f.pi);const s=await start(f);
+    try{
+      await new Promise(r=>setTimeout(r,200));
+      assert.ok(aborted>=1,'author turn aborted by the watchdog');
+      const m=readRunManifest(s.runDir);assert.equal(m.status,'CANDIDATE');assert.match(m.statusReason,/WALL_CLOCK/);
+    }finally{s.cleanup()}
+    // message_end path: an author still streaming messages past the budget is aborted at the next message.
+    const g=fakePi();ext(g.pi);const s2=await start(g);
+    try{
+      await new Promise(r=>setTimeout(r,60));
+      let aborted2=0;
+      await g.handlers.get('message_end')({message:{role:'assistant',usage:{input:1,output:1}}},{abort:()=>{aborted2++}});
+      assert.ok(aborted2===1||readRunManifest(s2.runDir).status==='CANDIDATE');
+      assert.match(readRunManifest(s2.runDir).statusReason??'',/WALL_CLOCK/);
+    }finally{s2.cleanup()}
+  });
+});

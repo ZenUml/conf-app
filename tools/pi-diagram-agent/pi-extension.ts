@@ -75,6 +75,10 @@ export default function (pi: ExtensionAPI) {
           activeRun = run;
           activeStarted = false;
           runsByDir.set(safeRunDir(job.runDir), run);
+          // Watchdog: a hung or endless author turn emits no submit, so the budget cannot rely on diagram_submit alone.
+          const watchedRun = run;
+          const timer = setTimeout(() => { void expireRun(watchedRun, ctx); }, v2Budgets.maxWallMs + 50);
+          (timer as any).unref?.();
         } else inspector = createAgentVisualInspector(job);
         jobs.set(jobId, { inspect: thinking.wrap(inspector), renderSpec: createSpecRenderer(job), ...(run ? { submit: () => run.submit() } : {}) });
         let factsText: string | null = null;
@@ -116,12 +120,18 @@ export default function (pi: ExtensionAPI) {
       }
     },
   });
+  async function expireRun(run: any, ctx: any) {
+    if (!run || run.isFinal()) return;
+    try { ctx?.abort?.(); } catch { /* the session may already be idle */ }
+    try { await run.expireWallClock(); } catch { /* best effort: the manifest stays RUNNING if even the audit fails */ }
+  }
   if (v2On) {
-    pi.on?.('message_end', async (event: any) => {
+    pi.on?.('message_end', async (event: any, ctx: any) => {
       const message = event?.message;
       if (message?.role === 'assistant' && activeRun && !activeRun.isFinal()) {
         activeStarted = true;
         if (message.usage) activeRun.addAuthorUsage(message.usage);
+        if (activeRun.wallExceeded()) await expireRun(activeRun, ctx);
       }
     });
     pi.on?.('agent_end', async () => {

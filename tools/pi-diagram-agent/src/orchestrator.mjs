@@ -22,8 +22,9 @@ export const DEFAULT_BUDGETS=Object.freeze({maxRounds:4,maxWallMs:25*60_000,maxI
 export function budgetsFromEnv(env=process.env){
   const b={...DEFAULT_BUDGETS};
   const n=(k,min=1)=>{const v=Number(env[k]);return Number.isFinite(v)&&v>=min?v:null};
+  const wall=Number(env.PI_DIAGRAM_MAX_WALL_MIN);
   if(n('PI_DIAGRAM_MAX_ROUNDS'))b.maxRounds=n('PI_DIAGRAM_MAX_ROUNDS');
-  if(n('PI_DIAGRAM_MAX_WALL_MIN'))b.maxWallMs=n('PI_DIAGRAM_MAX_WALL_MIN')*60_000;
+  if(Number.isFinite(wall)&&wall>0)b.maxWallMs=wall*60_000;
   return b;
 }
 
@@ -190,7 +191,12 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   const reply=(body)=>({content:[{type:'text',text:JSON.stringify(body)}],details:body});
 
-  async function submit(){
+  // One operation at a time: a finalisation requested while a submit is running (agent_end, wall-clock watchdog) waits for it.
+  let queue=Promise.resolve();
+  const serial=fn=>{const p=queue.then(fn,fn);queue=p.then(()=>{},()=>{});return p};
+  const submit=()=>serial(submitNow);
+
+  async function submitNow(){
     if(finalResult)return finalResult;
     const begin=now();timings.authorMs+=begin-authorMark;
     round++;
@@ -244,9 +250,10 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     return result;
   }
 
-  async function finalizeWithoutSubmit(){
+  async function finalizeNow(kind){
     if(finalResult)return finalResult;
     timings.authorMs+=now()-authorMark;authorMark=now();
+    const wall=kind==='wall'?`WALL_CLOCK: exceeded ${Math.round(B.maxWallMs/1000)} s while the author was still working; `:'';
     if(!best){
       round++;
       const c=await evaluate(readCandidate(),{allowReview:false});
@@ -254,15 +261,19 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       ledger.update(round,c.findings,{sources:c.sources});
       if(c.bytes)best={...c};
       rounds.push(roundRecord(c,c.score));
-      return finalize('CANDIDATE','AUTHOR_DID_NOT_SUBMIT: the author ended without calling diagram_submit; the final bytes were audited but not reviewed');
+      return finalize('CANDIDATE',wall?`${wall}the final bytes were audited but not reviewed`:'AUTHOR_DID_NOT_SUBMIT: the author ended without calling diagram_submit; the final bytes were audited but not reviewed');
     }
-    return finalize('CANDIDATE','AUTHOR_STOPPED_AFTER_FEEDBACK: the author ended without a further diagram_submit; the best submitted candidate is returned');
+    return finalize('CANDIDATE',wall?`${wall}the best submitted candidate is returned`:'AUTHOR_STOPPED_AFTER_FEEDBACK: the author ended without a further diagram_submit; the best submitted candidate is returned');
   }
+  const finalizeWithoutSubmit=()=>serial(()=>finalizeNow('ended'));
+  /** Watchdog: the author's turn ran past the wall-clock budget without a final status (a hung or endless author). */
+  const expireWallClock=()=>serial(()=>finalizeNow('wall'));
+  const wallExceeded=()=>now()-startedAt>B.maxWallMs;
 
   persist(); // status RUNNING, before the first author turn
 
   return {
-    submit,finalizeWithoutSubmit,manifest:()=>lastManifest,manifestPath,
+    submit,finalizeWithoutSubmit,expireWallClock,wallExceeded,manifest:()=>lastManifest,manifestPath,
     addAuthorUsage:u=>{tokens.author=addUsage(tokens.author,u)},
     state:()=>({status,statusReason,round,rounds,ledger:ledger.snapshot(),oscillationsInReverted,best:best?{hash:best.hash,score:best.score}:null,manifest:lastManifest}),
     manifestSelfHash:()=>lastManifest?.selfHash??null,

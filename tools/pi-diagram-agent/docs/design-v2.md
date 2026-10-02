@@ -17,7 +17,7 @@ Implementation notes (deviations from the text below are listed here, not hidden
 - Measured-geometry checks (label gap > 25 units, route clearance < 12 units) report NOT-CHECKABLE (`labelDetachment`, `routeBorderClearance` in the manifest's `notCheckable` and in `diagram_inspect` early checks) when geometry is unavailable or a source-labelled edge has no measured label or route; they are never a silent PASS.
 - A reviewer error (malformed output twice, provider error) ends the run as CANDIDATE with `REVIEWER_ERROR`; it is never a pass and does not consume further author rounds.
 - Revert and best-candidate comparison use the lexicographic pair (audit-side blocking, reviewer blocking), then minor count. An audit failure outranks any number of reviewer opinions.
-- The author's turn cannot be interrupted, so the wall-clock budget is checked at each submit (and caps the run there), not mid-turn.
+- Wall clock: checked at each submit, and also enforced without one. A watchdog timer set at `/magic` (budget + 50 ms) and every author `message_end` past the budget call `ctx.abort()` on the author turn and finalise the run as CANDIDATE `WALL_CLOCK` (best submitted candidate, or the final bytes audited but not reviewed). Finalisation is serialised behind any in-flight submit, so it never races one. Not verified against a live Pi session: whether `abort()` on the command's context still stops the turn after the command handler has returned; the run's status is bounded either way, because later submits return the final status.
 
 ## Why v2
 

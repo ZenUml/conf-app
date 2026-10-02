@@ -451,3 +451,34 @@ test('measured-geometry checks are NOT-CHECKABLE (never silently passed) when ge
     assert.ok(r.notCheckable.includes('labelDetachment'));assert.ok(!r.notCheckable.includes('routeBorderClearance'));
   }finally{u.cleanup()}
 });
+
+test('wall clock: expireWallClock ends a run whose author never submits (hung author) as CANDIDATE WALL_CLOCK; later submits get the final status',async()=>{
+  const t=setup({replies:[rv([])]});try{
+    t.write(svg('v1'));
+    const r=JSON.parse((await t.run.expireWallClock()).content[0].text);
+    assert.equal(r.status,'CANDIDATE');assert.match(r.statusReason,/WALL_CLOCK/);
+    assert.equal(t.calls.reviewer.length,0);
+    assert.equal(readRunManifest(t.job.runDir).status,'CANDIDATE');
+    const again=await t.out();assert.equal(again.status,'CANDIDATE');assert.match(again.statusReason,/WALL_CLOCK/);
+  }finally{t.cleanup()}
+});
+
+test('finalisation waits for an in-flight submit instead of racing it: one round, one consistent final status',async()=>{
+  let release;const gate=new Promise(r=>{release=r});
+  const t=setup({replies:[rv([])],onReview:()=>{}});
+  const orig=t.calls;try{
+    t.write(svg('v1'));
+    // Slow reviewer: hold the first review until finalisation has been requested.
+    const slowRun=createV2Run(t.job,{deps:{render:async b=>({svgHash:hash(b),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200}}),
+      audit:async()=>({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'PASS',evidence:{missing:[],extra:[]}},relations:{status:'PASS'},groups:{status:'PASS'},semanticPreservation:{status:'PASS'}}}),
+      original:async()=>({rendered:{media:{full:rec('orig')}},svgBytes:Buffer.from('<svg/>')}),image:r=>({type:'image',data:r.sha256,mimeType:'image/png'}),geometry:async()=>null},
+      reviewerFactory:()=>({async prompt(_t,{images}){await gate;return {text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}},dispose(){}}),now:()=>0});
+    const sub=slowRun.submit();
+    await new Promise(r=>setTimeout(r,20));
+    const fin=slowRun.finalizeWithoutSubmit();
+    release();
+    const [a,b]=await Promise.all([sub,fin]);
+    assert.equal(a.details.status,'REVIEWED');assert.equal(b.details.status,'REVIEWED');
+    const m=readRunManifest(t.job.runDir);assert.equal(m.status,'REVIEWED');assert.equal(m.rounds.length,1);
+  }finally{t.cleanup()}
+});

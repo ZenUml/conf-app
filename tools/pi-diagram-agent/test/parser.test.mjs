@@ -299,3 +299,10 @@ test('an edge label opened with no space before the dashes continues over the li
   assert.deepEqual(m.edges.map(e=>[e.source,e.target,e.label]),[['A','B','first second'],['C','D','']]);
   assert.ok(node(m,'E'));
 });
+
+test('declaredGroupPath includes explicit subgraph re-parenting by bare reference; groupPath stays lexical',()=>{
+  const m=parseMermaid('flowchart LR\n subgraph A[Group A]\n a1[Node a1]\n end\n subgraph P[Group P]\n A\n end\n');
+  assert.deepEqual(m.nodes.find(n=>n.id==='a1').declaredGroupPath.slice().sort(),['A','P']);
+  assert.deepEqual(m.nodes.find(n=>n.id==='a1').groupPath,['A']);
+  assert.equal(m.nodes.find(n=>n.id==='a1').group,'A');
+});

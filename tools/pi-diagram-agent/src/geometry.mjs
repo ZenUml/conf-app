@@ -2,6 +2,7 @@
 // Numbers here feed two consumers: blocking early findings (label detachment, route-to-border clearance) and the reviewer's <geometry> block.
 import {createRequire} from 'node:module';
 import {makeFinding} from './findings.mjs';
+import {GROUP_SELECTOR} from './svg-selectors.mjs';
 const require=createRequire(import.meta.url);
 
 export const LABEL_MAX_GAP=25;        // units between an edge label box and its own route
@@ -136,7 +137,7 @@ export async function collectGeometry(svgBytes,{playwrightModulePath=process.env
   try{
     const page=await browser.newPage({javaScriptEnabled:false});
     await page.route('**/*',route=>route.abort('blockedbyclient'));
-    const raw=await page.evaluate(input=>{
+    const raw=await page.evaluate(([input,GROUP])=>{
       const doc=new DOMParser().parseFromString(input,'image/svg+xml');
       if(doc.querySelector('parsererror')||doc.documentElement.localName!=='svg')return null;
       const root=document.importNode(doc.documentElement,true);document.body.appendChild(root);
@@ -145,7 +146,7 @@ export async function collectGeometry(svgBytes,{playwrightModulePath=process.env
       const union=els=>{const bs=els.map(bb);if(!bs.length)return null;const x=Math.min(...bs.map(b=>b.x)),y=Math.min(...bs.map(b=>b.y)),x2=Math.max(...bs.map(b=>b.x+b.w)),y2=Math.max(...bs.map(b=>b.y+b.h));return {x,y,w:x2-x,h:y2-y}};
       const shapes=g=>[...g.querySelectorAll('rect,path,ellipse,polygon,circle')].filter(s=>s instanceof SVGGeometryElement);
       const nodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(g=>({id:g.getAttribute('data-node')??g.getAttribute('data-node-id'),box:union(shapes(g))??bb(g)}));
-      const groups=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].map(g=>{const rect=g.querySelector(':scope > rect');return {id:g.getAttribute('data-group')??g.getAttribute('data-container-id')??g.id.slice(6),box:rect?bb(rect):bb(g)}});
+      const groups=[...root.querySelectorAll(GROUP)].map(g=>{const rect=g.querySelector(':scope > rect');return {id:g.getAttribute('data-group')??g.getAttribute('data-container-id')??g.id.slice(6),box:rect?bb(rect):bb(g)}});
       const labels=[...root.querySelectorAll('g[data-edge-label-source][data-edge-label-target]')].map(g=>({source:g.getAttribute('data-edge-label-source'),target:g.getAttribute('data-edge-label-target'),box:bb(g)}));
       const untaggedLabels=[...root.querySelectorAll('.edge-label,[data-owner-edge]')].filter(g=>!(g.hasAttribute('data-edge-label-source')&&g.hasAttribute('data-edge-label-target'))&&!g.parentElement?.closest('.edge-label,[data-owner-edge],[data-edge-label-source]')).map(g=>({text:(g.textContent||'').replace(/\s+/g,' ').trim(),box:bb(g)}));
       const edges=[...root.querySelectorAll('[data-source][data-target]')].filter(e=>e instanceof SVGGeometryElement).map(e=>{
@@ -155,7 +156,7 @@ export async function collectGeometry(svgBytes,{playwrightModulePath=process.env
         return {source:e.getAttribute('data-source'),target:e.getAttribute('data-target'),points};
       });
       return {natural:{w:view?.width||root.getBoundingClientRect().width,h:view?.height||root.getBoundingClientRect().height},nodes,groups,labels,untaggedLabels,edges};
-    },Buffer.from(svgBytes).toString('utf8'));
+    },[Buffer.from(svgBytes).toString('utf8'),GROUP_SELECTOR]);
     if(!raw)throw Error('GEOMETRY_SVG_UNPARSEABLE');
     return {...raw,edges:raw.edges.map(e=>({...e,id:edgeId(e.source,e.target)}))};
   }finally{await browser.close()}

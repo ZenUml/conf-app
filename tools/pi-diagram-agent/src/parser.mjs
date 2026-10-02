@@ -284,8 +284,15 @@ export function parseMermaid(source) {
   const owner = id => completed.find(g => g.id !== id && g.refs.has(id)) ?? null;
   for (const g of completed) g.mermaidParentObj = owner(g.id);
   const mermaidPathOf = g => { const out = [], seen = new Set(); for (let c = g; c && !seen.has(c); c = c.mermaidParentObj) { seen.add(c); out.unshift(c.id); } return out; };
+  // declaredGroupPath (what the audit compares against) = lexical nesting plus explicit re-parenting (a subgraph named by a bare reference inside another subgraph). A node
+  // defined outside any subgraph and merely used inside one is NOT re-parented here: that stays an author-intent question.
+  const declaredPathOf = g => {
+    if (!g) return [];
+    const outer = mermaidPathOf(g).slice(0, -1), lexical = pathOf(g).slice(0, -1);
+    return [...new Set([...outer, ...lexical])].concat(g.id);
+  };
   for (const n of nodes.values()) {
-    n.groupPath = pathOf(n.declGroup); n.group = n.groupPath.at(-1) ?? null;
+    n.groupPath = pathOf(n.declGroup); n.declaredGroupPath = declaredPathOf(n.declGroup); n.group = n.groupPath.at(-1) ?? null;
     n.mermaidGroupPath = mermaidPathOf(owner(n.id));
     n.role = n.classes.at(-1) ?? 'neutral';
     if (n.role !== 'neutral' && !palette[n.role]) palette[n.role] = { fill: NEUTRAL.fill, stroke: NEUTRAL.stroke, text: '#17212b', meaning: n.role, declared: false };

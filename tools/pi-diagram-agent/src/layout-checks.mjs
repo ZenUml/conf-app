@@ -8,13 +8,13 @@ export const CONTRAST_MIN=4.5;
 const eps=1e-6;
 
 /** Runs inside Chromium (page.evaluate): self-contained, no outer references. Returns plain facts. */
-export const collectLayoutFacts=input=>{
+export const collectLayoutFacts=([input,GROUP])=>{
   const doc=new DOMParser().parseFromString(input,'image/svg+xml');
   if(doc.querySelector('parsererror')||doc.documentElement.localName!=='svg')return {parseError:true};
   const root=document.importNode(doc.documentElement,true);
   document.body.appendChild(root);
   try{
-    const NODE='g[data-node],g[data-node-id]',GROUP='g[data-group],g[data-container-id],g[id^="group-"]';
+    const NODE='g[data-node],g[data-node-id]';
     const nodeIdOf=el=>el.getAttribute('data-node')??el.getAttribute('data-node-id');
     const groupIdOf=el=>el.getAttribute('data-group')??el.getAttribute('data-container-id')??el.id?.slice(6);
     const hex2=n=>Math.round(n).toString(16).padStart(2,'0');

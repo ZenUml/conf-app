@@ -5,6 +5,7 @@ import {parseMermaid,NOT_CHECKABLE_SHAPES} from './parser.mjs';
 import {checkRouteLowerBend,attachCrossingRepairHints} from './route-lower-bend.mjs';
 import {attachNodeMoveHints} from './node-move-hints.mjs';
 import {checkRouteContainerClearance} from './route-clearance.mjs';
+import {GROUP_SELECTOR} from './svg-selectors.mjs';
 import {checkNodeHeadingClearance} from './node-heading-clearance.mjs';
 import {resolveLabels} from './geometry.mjs';
 import {collectLayoutFacts,layoutChecks,layoutChecksUnavailable} from './layout-checks.mjs';
@@ -108,7 +109,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   try{
     const page=await browser.newPage({javaScriptEnabled:false});
     await page.route('**/*',route=>route.abort('blockedbyclient'));
-    drawn=await page.evaluate(input=>{
+    drawn=await page.evaluate(([input,GROUP])=>{
       const doc=new DOMParser().parseFromString(input,'image/svg+xml');
       if(doc.querySelector('parsererror')||doc.documentElement.localName!=='svg')return {parseError:true};
       const root=document.importNode(doc.documentElement,true);
@@ -116,7 +117,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const box=el=>{const r=el.getBBox();return {x:r.x,y:r.y,w:r.width,h:r.height}};
       const nodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>({id:el.getAttribute('data-node')??el.getAttribute('data-node-id'),text:[...el.querySelectorAll('text')].map(t=>t.textContent).join(' '),shapeCount:el.querySelectorAll('rect,path,ellipse,polygon').length,box:box(el)}));
       const nodeShapes=new Map([...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>[el.getAttribute('data-node')??el.getAttribute('data-node-id'),[...el.querySelectorAll('rect,path,ellipse,polygon')].filter(shape=>shape instanceof SVGGeometryElement&&getComputedStyle(shape).fill!=='none')]));
-      const headingBoxes=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].flatMap(group=>[...group.querySelectorAll(':scope > text')].map(text=>({groupId:group.getAttribute('data-group')??group.getAttribute('data-container-id')??group.id?.slice(6),box:box(text)})));
+      const headingBoxes=[...root.querySelectorAll(GROUP)].flatMap(group=>[...group.querySelectorAll(':scope > text')].map(text=>({groupId:group.getAttribute('data-group')??group.getAttribute('data-container-id')??group.id?.slice(6),box:box(text)})));
       const edges=[...root.querySelectorAll('[data-source][data-target]')].map(el=>{
         const source=el.getAttribute('data-source'),target=el.getAttribute('data-target');
         const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end'),trunk:el.getAttribute('data-shared-trunk'),trunkLikeAttributes:[...el.attributes].filter(x=>/bus|trunk|merge|junction|shared/i.test(x.name)).map(x=>({name:x.name,value:x.value}))};
@@ -157,7 +158,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         result.geometry={length,step:length/count,startOnSource:touches(source,start),endOnTarget:touches(target,end),intrudedNodeIds:[...intruded],intrudedHeadingGroupIds:[...headingIntrusions]};
         return result;
       });
-      const groups=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].map(el=>{const shape=el.querySelector(':scope > rect,:scope > path,:scope > polygon');return {id:el.getAttribute('data-group')??el.getAttribute('data-container-id')??el.getAttribute('id')?.slice(6),box:shape?box(shape):null,outline:shape?.localName,cornerRadius:shape?.localName==='rect'?Math.max(Number(shape.getAttribute('rx')||0),Number(shape.getAttribute('ry')||0)):null,nestedNodeIds:[...el.querySelectorAll('g[data-node],g[data-node-id]')].map(n=>n.getAttribute('data-node')??n.getAttribute('data-node-id'))}});
+      const groups=[...root.querySelectorAll(GROUP)].map(el=>{const shape=el.querySelector(':scope > rect,:scope > path,:scope > polygon');return {id:el.getAttribute('data-group')??el.getAttribute('data-container-id')??el.getAttribute('id')?.slice(6),box:shape?box(shape):null,outline:shape?.localName,cornerRadius:shape?.localName==='rect'?Math.max(Number(shape.getAttribute('rx')||0),Number(shape.getAttribute('ry')||0)):null,nestedNodeIds:[...el.querySelectorAll('g[data-node],g[data-node-id]')].map(n=>n.getAttribute('data-node')??n.getAttribute('data-node-id'))}});
       // Geometry for textFit/labelClearance is measured in root user space so node transforms and the viewBox cannot change the 12-unit inset.
       const rootBox=el=>{
         const m=root.getScreenCTM().inverse().multiply(el.getScreenCTM()),r=el.getBBox();
@@ -226,7 +227,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const labelElements=[...root.querySelectorAll('g[data-edge-label-source][data-edge-label-target]')].map(el=>({source:el.getAttribute('data-edge-label-source'),target:el.getAttribute('data-edge-label-target'),label:`${el.getAttribute('data-edge-label-source')}->${el.getAttribute('data-edge-label-target')}`,parts:[...el.querySelectorAll('text,rect')].map(rootBox)})).filter(l=>l.parts.length);
       const outlineShapes=[
         ...[...root.querySelectorAll('g[data-node],g[data-node-id]')].flatMap(g=>[...g.querySelectorAll(shapeSelector)].map(shape=>({name:`node:${g.getAttribute('data-node')??g.getAttribute('data-node-id')}`,shape}))),
-        ...[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].flatMap(g=>[...g.querySelectorAll(':scope > rect,:scope > path,:scope > polygon')].map(shape=>({name:`group:${g.getAttribute('data-group')??g.getAttribute('data-container-id')??g.id?.slice(6)}`,shape})))
+        ...[...root.querySelectorAll(GROUP)].flatMap(g=>[...g.querySelectorAll(':scope > rect,:scope > path,:scope > polygon')].map(shape=>({name:`group:${g.getAttribute('data-group')??g.getAttribute('data-container-id')??g.id?.slice(6)}`,shape})))
       ];
       const labelViolations=[],labelUnsupported=[];
       for(const item of labelElements){
@@ -282,7 +283,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const end=s.getPointAtLength(total).matrixTransform(m);samples.push([end.x,end.y]);
         return {...result,kind:'shape',reason:null,samples};
       });
-      const lbGroups=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].map(el=>{
+      const lbGroups=[...root.querySelectorAll(GROUP)].map(el=>{
         const shape=el.querySelector(':scope > rect,:scope > path,:scope > polygon');
         return {id:el.getAttribute('data-group')??el.getAttribute('data-container-id')??el.getAttribute('id')?.slice(6),isNode:el.matches('g[data-node],g[data-node-id]'),outline:shape?.localName??null,box:shape?(({x,y,w,h})=>({x,y,w,h}))(rootBox(shape)):null,headings:[...el.querySelectorAll(':scope > text')].map(t=>(({x,y,w,h})=>({x,y,w,h}))(rootBox(t))),headingTexts:[...el.querySelectorAll('text')].filter(t=>t.closest('g[data-node],g[data-node-id],g[data-edge-label-source],g[data-group],g[data-container-id],g[id^="group-"]')===el||(t.getAttribute('data-role')==='heading'||t.getAttribute('data-role')==='subtitle')).map(t=>(({x,y,w,h})=>({x,y,w,h}))(rootBox(t)))};
       });
@@ -292,8 +293,8 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const textCount=root.querySelectorAll('text').length;
       root.remove();
       return {parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,boundLabels:labelElements.map(l=>l.label),labelViolations,labelUnsupported,lbNodes,lbGroups,labelBoxes,untaggedLabels};
-    },svgText);
-    layoutFacts=drawn.parseError?null:await page.evaluate(collectLayoutFacts,svgText);
+    },[svgText,GROUP_SELECTOR]);
+    layoutFacts=drawn.parseError?null:await page.evaluate(collectLayoutFacts,[svgText,GROUP_SELECTOR]);
     if(originalSvg!==null){
       const originalBytes=Buffer.isBuffer(originalSvg)?originalSvg:Buffer.from(originalSvg,'utf8');
       if(originalBytes.length===0||originalBytes.length>2_000_000)throw Error('ORIGINAL_SVG_SIZE_LIMIT');
@@ -451,7 +452,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       for(const sourceNode of model.nodes){
         const drawnNode=drawn.nodes.find(n=>n.id===sourceNode.id);
         const actual=drawn.groups.filter(g=>contains(g.box,drawnNode.box)).map(g=>g.id);
-        const expected=sourceNode.groupPath??(sourceNode.group?[sourceNode.group]:[]);
+        const expected=sourceNode.declaredGroupPath??sourceNode.groupPath??(sourceNode.group?[sourceNode.group]:[]);
         if(actual.length!==expected.length||actual.some(id=>!expected.includes(id)))mismatches.push(sourceNode.id);
       }
       groupMembership={status:mismatches.length?'FAIL':'PASS',evidence:{method:'browser getBBox of actual node drawings inside actual group outline; SVG data-parent ignored',mismatchedNodeIds:mismatches,checkedNodes:model.nodes.length}};
@@ -497,7 +498,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const oldGroups=model.groups.filter(g=>originalDrawn.groups.some(x=>x.id.endsWith(`-${g.id}`)&&contains(x.box,old[0].box))).map(g=>g.id);
         const newGroups=model.groups.filter(g=>drawn.groups.some(x=>x.id===g.id&&contains(x.box,current.box))).map(g=>g.id);
         if(oldGroups.length!==newGroups.length||oldGroups.some(g=>!newGroups.includes(g)))mismatches.push(node.id);
-        const declared=node.groupPath??(node.group?[node.group]:[]);
+        const declared=node.declaredGroupPath??node.groupPath??(node.group?[node.group]:[]);
         nodeMembership[node.id]={declared,rendered:oldGroups,candidate:newGroups};
         if(oldGroups.length!==declared.length||oldGroups.some(g=>!declared.includes(g)))sourceConflicts.push(node.id);
       }

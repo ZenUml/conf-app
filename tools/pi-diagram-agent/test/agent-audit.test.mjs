@@ -421,3 +421,35 @@ test('node shapes are never PASS: the auditor does not compare drawn shapes, and
   assert.deepEqual(r.checks.nodeShape?.evidence?.notCheckableShapeNodeIds,['A']);
   assert.equal((await auditAgentSvg(source,fitted)).checks.nodeShape?.status,'NOT-CHECKABLE');
 });
+
+// ---- group-selector shape: nodes that carry data-group are not containers; explicit subgraph re-parenting is declared nesting ----
+const tagNodeSvg=(groups,nodes)=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300">${groups}${nodes}</svg>`;
+const nodeG=(id,x,y,extra='')=>`<g data-node="${id}"${extra}><rect x="${x}" y="${y}" width="80" height="40"/><text x="${x+10}" y="${y+25}">${id}</text></g>`;
+const groupG=(id,x,y,w,h)=>`<g data-group="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="#999"/></g>`;
+
+test('groupMembership: node elements carrying data-group are not counted as group containers',{skip:!enabled},async()=>{
+  const src='flowchart LR\n subgraph G[Group]\n A[A]\n B[B]\n end\n';
+  const plain=tagNodeSvg(groupG('G',0,0,300,200),nodeG('A',20,30)+nodeG('B',150,30));
+  const tagged=tagNodeSvg(groupG('G',0,0,300,200),nodeG('A',20,30,' data-group="G"')+nodeG('B',150,30,' data-group="G"'));
+  assert.equal((await auditAgentSvg(src,plain)).checks.groupMembership.status,'PASS');
+  const result=await auditAgentSvg(src,tagged);
+  assert.equal(result.checks.groupMembership.status,'PASS',JSON.stringify(result.checks.groupMembership.evidence));
+  assert.deepEqual(result.checks.groupMembership.evidence.mismatchedNodeIds,[]);
+});
+
+test('groupMembership: a subgraph re-parented by a bare reference declares the outer nesting',{skip:!enabled},async()=>{
+  const src='flowchart LR\n subgraph A[Group A]\n a1[Node a1]\n end\n subgraph P[Group P]\n A\n end\n';
+  const nested=tagNodeSvg(groupG('P',0,0,300,200)+groupG('A',10,40,200,140),nodeG('a1',30,70));
+  const result=await auditAgentSvg(src,nested);
+  assert.equal(result.checks.groupMembership.status,'PASS',JSON.stringify(result.checks.groupMembership.evidence));
+  const flat=tagNodeSvg(groupG('P',320,0,200,200)+groupG('A',10,40,200,140),nodeG('a1',30,70));
+  const bad=await auditAgentSvg(src,flat);
+  assert.equal(bad.checks.groupMembership.status,'FAIL');
+  assert.deepEqual(bad.checks.groupMembership.evidence.mismatchedNodeIds,['a1']);
+});
+
+test('groupMembership: a top-level-defined node used inside a subgraph keeps its declared (empty) path',{skip:!enabled},async()=>{
+  const src='flowchart LR\n n1[Outside]\n subgraph G[Group G]\n n2[Inside]\n n1 --> n2\n end\n';
+  const model=(await import('../src/parser.mjs')).parseMermaid(src);
+  assert.deepEqual(model.nodes.find(n=>n.id==='n1').declaredGroupPath,[]);
+});

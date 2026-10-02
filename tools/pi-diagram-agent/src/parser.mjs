@@ -19,9 +19,14 @@ function decodeText(raw, line, what, markup = null) {
     (m, a, b, c, d, e) => (a || b) ? ENTITIES[(a || b).toLowerCase()] : String.fromCodePoint(Number(c ?? e ?? parseInt(d, 16))));
   return t;
 }
+/** Mermaid renders a "`...`" string as Markdown; the parser has no faithful text for it, so it refuses rather than keep the backticks. */
+const noMarkdown = (t, line) => { if (/^\s*`[\s\S]*`\s*$/.test(t)) fail(line, 'markdown string'); return t; };
 const unquote = s => { const t = s.trim(); return t.length >= 2 && t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t; };
 
 /** Shapes by opener. `closers` maps each accepted closer to the shape it yields. */
+/** Parsed shapes that the rules and the spec renderer have no notation for: no check may PASS a shape claim about them. */
+export const NOT_CHECKABLE_SHAPES = new Set(['stadium', 'circle', 'doublecircle', 'hexagon', 'parallelogram', 'parallelogram_alt', 'trapezoid', 'trapezoid_alt', 'asymmetric']);
+
 const SHAPES = [
   ['(((', { ')))': 'doublecircle' }], ['((', { '))': 'circle' }], ['([', { '])': 'stadium' }], ['[[', { ']]': 'subroutine' }],
   ['[(', { ')]': 'cylinder' }], ['{{', { '}}': 'hexagon' }],
@@ -30,7 +35,7 @@ const SHAPES = [
 ];
 
 /** An edge label that has begun (`-- text`, `== text`, `-. text`) but not reached its arrow continues over the line break, as in Mermaid's lexer. */
-const INLINE_OPEN = /(?:^|\s)(?:<?--|<?==)[ \t]+(?:(?!-{2,}[>ox-]|={2,}[>ox=]).)*$|(?:^|\s)<?-\.(?![-.])[ \t]*(?:(?!\.+-).)*$/s;
+const INLINE_OPEN = /(?<![-=.])(?:<?--|<?==)[ \t]+(?:(?!-{2,}[>ox-]|={2,}[>ox=]).)*$|(?<![-=.])<?-\.(?![-.])[ \t]*(?:(?!\.+-).)*$/s;
 
 function inlineOpen(cur) {
   let t = cur.replace(/"[^"]*"/g, '""');
@@ -38,14 +43,21 @@ function inlineOpen(cur) {
   return INLINE_OPEN.test(t);
 }
 
+/** An open edge label may continue over at most this many line breaks; each continuation rescans the statement, so the cap keeps splitting linear. */
+const MAX_LABEL_LINES = 64;
+
 /** Splits the source into statements: newline or `;` ends one unless it sits inside quotes, square brackets (multi-line node text),
  *  an `|edge label|`, or an entity such as `&amp;`. Full-line `%%` comments (including `%%{init}%%`) are dropped. */
 function splitStatements(text) {
-  const out = []; let cur = '', curLine = 1, line = 1, inQuote = false, depth = 0, started = false;
-  const flush = () => { if (cur.trim()) out.push({ text: cur.trim(), line: curLine }); cur = ''; started = false; };
+  const out = []; let cur = '', curLine = 1, line = 1, inQuote = false, depth = 0, started = false, continued = 0;
+  const flush = () => { if (cur.trim()) out.push({ text: cur.trim(), line: curLine }); cur = ''; started = false; continued = 0; };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (c === '\n') { if (inQuote || depth > 0 || (started && inlineOpen(cur))) { cur += c; line++; continue; } flush(); line++; continue; }
+    if (c === '\n') {
+      if (inQuote || depth > 0) { cur += c; line++; continue; }
+      if (started && inlineOpen(cur)) { if (++continued > MAX_LABEL_LINES) fail(curLine, 'edge label', `open over more than ${MAX_LABEL_LINES} lines`); cur += c; line++; continue; }
+      flush(); line++; continue;
+    }
     if (!started && !inQuote && depth === 0) {
       if (/\s/.test(c)) continue;
       if (c === '%' && text[i + 1] === '%') { while (i < text.length && text[i] !== '\n') i++; i--; continue; }
@@ -85,9 +97,9 @@ function subgraphHeader(rest, line) {
   const r = rest.trim();
   if (!r) return { id: null, title: '' };
   let m = r.match(/^([^\s\[\]"]+)\s*\[\s*(?:"([^"]*)"|(.*?))\s*\]$/);
-  if (m) return { id: m[1], title: decodeText(m[2] ?? m[3], line, 'subgraph title') };
+  if (m) return { id: m[1], title: decodeText(m[2] !== undefined ? noMarkdown(m[2], line) : m[3], line, 'subgraph title') };
   m = r.match(/^"([^"]*)"$/);
-  if (m) return { id: null, title: decodeText(m[1], line, 'subgraph title') };
+  if (m) return { id: null, title: decodeText(noMarkdown(m[1], line), line, 'subgraph title') };
   if (/^[^\s\[\]"]+$/.test(r)) return { id: r, title: r };
   if (!/[\[\]"]/.test(r)) return { id: null, title: decodeText(r, line, 'subgraph title') };
   return fail(line, 'subgraph header', snippet(r));
@@ -116,7 +128,7 @@ export function parseMermaid(source) {
   const groupIds = new Set();
   for (const st of body) { const m = st.text.match(/^subgraph(?:\s+(.*))?$/s); if (m) { const h = subgraphHeader(m[1] ?? '', st.line); if (h.id) { if (groupIds.has(h.id)) fail(st.line, 'duplicate subgraph id', h.id); groupIds.add(h.id); } } }
 
-  const nodes = new Map(), edges = [], groupEdges = [], layoutLinks = [], groupList = [], completed = [], stack = [], palette = Object.create(null), pendingClasses = [], notCheckable = [];
+  const nodes = new Map(), edges = [], groupEdges = [], layoutLinks = [], groupList = [], completed = [], stack = [], palette = Object.create(null), notCheckable = [], ignored = [], definitions = new Map();
   let subCount = 0;
 
   function touch(id, spec, line) {
@@ -125,7 +137,8 @@ export function parseMermaid(source) {
     if (!n) { n = { id, text: id, shape: 'rect', declGroup: top, role: 'neutral', classes: [], order: line, defined: false, markup: [] }; nodes.set(id, n); }
     if (top) top.refs.add(id);
     if (spec.text !== undefined) {
-      if (n.defined && n.text !== spec.text) fail(line, 'conflicting node text', id);
+      // Mermaid's addVertex keeps the LAST text and shape; a differing redefinition is kept as a recorded conflict, not refused.
+      (definitions.get(id) ?? definitions.set(id, []).get(id)).push({ line, text: spec.text, shape: spec.shape });
       n.text = spec.text; n.shape = spec.shape; n.declGroup = top; n.defined = true;
     }
     for (const t of spec.markup) if (!n.markup.includes(t)) n.markup.push(t);
@@ -148,13 +161,15 @@ export function parseMermaid(source) {
       const spec = { id, classes: [], markup: [] };
       let q = p; while (q < s.length && /[ \t]/.test(s[q])) q++;
       if (s.startsWith('@{', q)) fail(line, '@{ node attribute syntax');
+      if (s.startsWith('(-', q)) fail(line, 'ellipse node shape (-…-)');
+      if (s.startsWith('[|', q)) fail(line, 'node properties [|…|]');
       const opener = SHAPES.find(([o]) => s.startsWith(o, q) && (o !== '>' || q === p));
       if (opener) {
         const [o, closers] = opener; let t = q + o.length, text, closeAt = -1, closer;
         while (s[t] === ' ') t++;
         if (s[t] === '"') {
           const e = s.indexOf('"', t + 1); if (e < 0) fail(line, 'unterminated node text or quote');
-          text = s.slice(t + 1, e); t = e + 1; while (s[t] === ' ') t++;
+          text = noMarkdown(s.slice(t + 1, e), line); t = e + 1; while (s[t] === ' ') t++;
           closer = Object.keys(closers).find(c => s.startsWith(c, t)); closeAt = closer ? t : -1;
         } else {
           for (let k = t; k < s.length && closeAt < 0; k++) { closer = Object.keys(closers).find(c => s.startsWith(c, k)); if (closer) closeAt = k; }
@@ -163,8 +178,8 @@ export function parseMermaid(source) {
         if (closeAt < 0) fail(line, 'node text', `unclosed ${o}`);
         const markup = new Set(); spec.shape = closers[closer]; spec.text = decodeText(text.trim(), line, 'node text', markup); spec.markup = [...markup]; p = closeAt + closer.length;
       }
-      for (let m2; (m2 = /^:::([\w-]+)/.exec(s.slice(p)));) { spec.classes.push(m2[1]); p += m2[0].length; }
-      if (groupIds.has(id)) { if (spec.text !== undefined) fail(line, 'subgraph id used as a node', id); return { id, isGroup: true }; }
+      for (let m2; (m2 = /^:::((?:\w|-(?=\w))+)/.exec(s.slice(p)));) { spec.classes.push(m2[1]); p += m2[0].length; }
+      if (groupIds.has(id)) { if (spec.text !== undefined) fail(line, 'subgraph id used as a node', id); const top = stack.at(-1); if (top && top.id !== id) top.refs.add(id); return { id, isGroup: true }; }
       touch(id, spec, line);
       return { id, isGroup: false };
     }
@@ -174,7 +189,7 @@ export function parseMermaid(source) {
       ws(); if (s[p] !== '|') return null;
       let t = p + 1; while (s[t] === ' ') t++;
       let text, end;
-      if (s[t] === '"') { const q = s.indexOf('"', t + 1); end = q < 0 ? -1 : s.indexOf('|', q); text = q < 0 ? '' : s.slice(t + 1, q); }
+      if (s[t] === '"') { const q = s.indexOf('"', t + 1); end = q < 0 ? -1 : s.indexOf('|', q); text = q < 0 ? '' : noMarkdown(s.slice(t + 1, q), line); }
       else { end = s.indexOf('|', t); text = end < 0 ? '' : s.slice(t, end); }
       if (end < 0) fail(line, 'edge label', 'unterminated |label|');
       p = end + 1; return decodeText(text.trim(), line, 'edge label');
@@ -182,7 +197,7 @@ export function parseMermaid(source) {
     function inlineText(startRe, endRe, accept) {
       const sm = startRe.exec(rest()); if (!sm) return null;
       const from = p + sm[0].length; let text = null, scanFrom = from;
-      if (s[from] === '"') { const q = s.indexOf('"', from + 1); if (q < 0) fail(line, 'edge label', 'unterminated quote'); text = s.slice(from + 1, q); scanFrom = q + 1; }
+      if (s[from] === '"') { const q = s.indexOf('"', from + 1); if (q < 0) fail(line, 'edge label', 'unterminated quote'); text = noMarkdown(s.slice(from + 1, q), line); scanFrom = q + 1; }
       const g = new RegExp(endRe.source, 'g'); g.lastIndex = scanFrom; let m;
       while ((m = g.exec(s)) && !accept(m)) { if (!m[0]) g.lastIndex++; }
       if (!m || (text !== null && m.index !== scanFrom)) return null;
@@ -257,22 +272,32 @@ export function parseMermaid(source) {
     if (s === 'end') { if (!stack.length) fail(line, 'unmatched end'); const g = stack.pop(); g.id ??= `subGraph${subCount}`; subCount++; if (g.id && g.parentObj) g.parentObj.refs.add(g.id); completed.push(g); continue; }
     if ((m = s.match(/^direction\s+(\S+)$/))) { if (!stack.length) fail(line, 'direction outside a subgraph'); const d = dirOf(m[1]); if (!d) fail(line, 'direction', snippet(m[1])); stack.at(-1).direction = d; continue; }
     if ((m = s.match(/^classDef\s+(\S+)\s+(.+)$/))) { addClassDef(m[1], m[2], line); continue; }
-    if ((m = s.match(/^class\s+(\S+)\s+([\w-]+)$/))) { for (const id of m[1].split(',')) { if (groupIds.has(id)) continue; const n = nodes.get(id); if (n) n.classes.push(m[2]); else pendingClasses.push([id, m[2]]); } continue; }
-    if (/^(?:style|linkStyle|click)\s/.test(s) || /^(?:accTitle|accDescr)\s*[:{]/.test(s)) continue;
+    if ((m = s.match(/^class\s+(\S+)\s+([\w-]+)$/))) { for (const id of m[1].split(',')) { if (groupIds.has(id)) continue; const n = nodes.get(id); if (n) n.classes.push(m[2]); else ignored.push({ construct: 'class on a node not yet defined', line }); } continue; }
+    if ((m = s.match(/^(style|linkStyle|click)\s/))) { ignored.push({ construct: m[1], line }); continue; }
+    if (/^(?:accTitle|accDescr)\s*[:{]/.test(s)) continue;
     parseStatement(s, line);
   }
   if (stack.length) fail(stack.at(-1).line, 'unclosed subgraph', stack.at(-1).id ?? stack.at(-1).title);
-  for (const [id, c] of pendingClasses) nodes.get(id)?.classes.push(c);
 
   const pathOf = g => (g ? [...pathOf(g.parentObj), g.id] : []);
+  // Mermaid (flowDb.addSubGraph/makeUniq): a node or subgraph id belongs to the FIRST completed subgraph whose statements reference it.
+  const owner = id => completed.find(g => g.id !== id && g.refs.has(id)) ?? null;
+  for (const g of completed) g.mermaidParentObj = owner(g.id);
+  const mermaidPathOf = g => { const out = [], seen = new Set(); for (let c = g; c && !seen.has(c); c = c.mermaidParentObj) { seen.add(c); out.unshift(c.id); } return out; };
   for (const n of nodes.values()) {
     n.groupPath = pathOf(n.declGroup); n.group = n.groupPath.at(-1) ?? null;
-    n.mermaidGroupPath = pathOf(completed.find(g => g.refs.has(n.id)) ?? null);
+    n.mermaidGroupPath = mermaidPathOf(owner(n.id));
     n.role = n.classes.at(-1) ?? 'neutral';
     if (n.role !== 'neutral' && !palette[n.role]) palette[n.role] = { fill: NEUTRAL.fill, stroke: NEUTRAL.stroke, text: '#17212b', meaning: n.role, declared: false };
     delete n.declGroup;
   }
   if (!palette.neutral) palette.neutral = { ...NEUTRAL };
-  const groups = groupList.map(g => ({ id: g.id, label: g.title || g.id, parent: g.parentObj?.id ?? null, direction: g.direction, order: g.order, path: pathOf(g) }));
-  return { sourceHash: sha(source), direction, title, nodes: [...nodes.values()], edges, groupEdges, layoutLinks, groups, palette, notCheckable, sourceBytes: Buffer.byteLength(source, 'utf8') };
+  const groups = groupList.map(g => ({ id: g.id, label: g.title, parent: g.parentObj?.id ?? null, mermaidParent: g.mermaidParentObj?.id ?? null, direction: g.direction, order: g.order, path: pathOf(g) }));
+  const conflicts = [];
+  for (const [nodeId, defs] of definitions) {
+    const texts = defs.map(d => d.text), shapes = defs.map(d => d.shape);
+    const kinds = [...(new Set(texts).size > 1 ? ['text'] : []), ...(new Set(shapes).size > 1 ? ['shape'] : [])];
+    if (kinds.length) conflicts.push({ nodeId, kinds, lines: defs.map(d => d.line), texts, shapes });
+  }
+  return { sourceHash: sha(source), direction, title, nodes: [...nodes.values()], edges, groupEdges, layoutLinks, groups, palette, notCheckable, conflicts, ignored, sourceBytes: Buffer.byteLength(source, 'utf8') };
 }

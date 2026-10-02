@@ -241,3 +241,61 @@ test('front matter without a title leaves title null; an unterminated block is r
   assert.equal(ok('graph LR\nA-->B').title,null);
   unsupported('---\ntitle: x\ngraph LR\nA-->B',1,'front matter');
 });
+
+// --- review fixes (2026-10-02): differential against Mermaid 11.17 flowDb ---
+test('an edge label left open across many lines is bounded in time (no quadratic rescan)',()=>{
+  for(const src of ['flowchart LR\nA -. '+'x\n'.repeat(100000)+'.-> B','flowchart LR\nA -- '+'x\n'.repeat(100000)+'--> B']){
+    const t=performance.now();
+    try{parseMermaid(src)}catch(e){assert.match(e.message,/^PARSE_UNSUPPORTED/)}
+    assert.ok(performance.now()-t<1500,`took ${Math.round(performance.now()-t)} ms for ${src.length} bytes`);
+  }
+});
+test('a short multi-line edge label still continues over the line break',()=>{
+  const m=ok('flowchart LR\n  A -- first\n  second --> B');
+  assert.deepEqual(m.edges.map(e=>e.label),['first second']);
+});
+test('conflicting node definitions: Mermaid draws the last one; the conflict is recorded, not refused',()=>{
+  const m=ok('flowchart LR\n  A[one] --> B\n  A(two)\n  B[same]\n  B[same]');
+  assert.equal(node(m,'A').text,'two');
+  assert.equal(node(m,'A').shape,'capsule');
+  assert.deepEqual(m.conflicts,[{nodeId:'A',kinds:['text','shape'],lines:[2,3],texts:['one','two'],shapes:['rect','capsule']}]);
+});
+test('a model without conflicting definitions has an empty conflicts list',()=>{
+  assert.deepEqual(ok('flowchart LR\n  A[x] --> B\n  A[x]').conflicts,[]);
+});
+test('shapes the parser cannot map exactly are refused, never mis-mapped',()=>{
+  unsupported('flowchart LR\n  A(-ellipse-) --> B',2,'ellipse');
+  unsupported('flowchart LR\n  A[|borders:lt|text] --> B',2,'node properties');
+  unsupported('flowchart LR\n  A["`**bold**`"] --> B',2,'markdown string');
+  unsupported('flowchart LR\n  A --> B\n  subgraph S["`**x**`"]\n  B\n  end',3,'markdown string');
+});
+test(':::class directly followed by an arrow keeps the arrow',()=>{
+  const m=ok('flowchart LR\n  A:::hot-->B\n  classDef hot fill:#f00');
+  assert.deepEqual(pairs(m),['A>B']);
+  assert.equal(node(m,'A').role,'hot');
+});
+test('class applied before the node exists is ignored, as in Mermaid',()=>{
+  const m=ok('flowchart LR\n  class A hot\n  A --> B\n  classDef hot fill:#f00');
+  assert.equal(node(m,'A').role,'neutral');
+});
+test('subgraph id with an explicitly blank title keeps the blank title (Mermaid draws none)',()=>{
+  const m=ok('flowchart LR\n  subgraph S[ ]\n    A\n  end');
+  assert.equal(m.groups[0].id,'S');
+  assert.equal(m.groups[0].label,'');
+});
+test('a subgraph id referenced inside another subgraph is nested there by Mermaid',()=>{
+  const m=ok('flowchart LR\n  subgraph S\n    A\n  end\n  subgraph T\n    X --> S\n  end');
+  assert.deepEqual(node(m,'A').mermaidGroupPath,['T','S']);
+  assert.deepEqual(node(m,'A').groupPath,['S']);
+  assert.equal(m.groups.find(g=>g.id==='S').mermaidParent,'T');
+  assert.equal(m.groups.find(g=>g.id==='S').parent,null);
+});
+test('style, linkStyle and click are kept as ignored statements with their lines, not dropped silently',()=>{
+  const m=ok('flowchart LR\n  A --> B\n  style A fill:#f00\n  linkStyle 0 display:none\n  click A "https://example.com"');
+  assert.deepEqual(m.ignored,[{construct:'style',line:3},{construct:'linkStyle',line:4},{construct:'click',line:5}]);
+});
+test('an edge label opened with no space before the dashes continues over the line break, as in Mermaid',()=>{
+  const m=ok('flowchart LR\n  A-- first\n  second -->B\n  C --- D\n  E');
+  assert.deepEqual(m.edges.map(e=>[e.source,e.target,e.label]),[['A','B','first second'],['C','D','']]);
+  assert.ok(node(m,'E'));
+});

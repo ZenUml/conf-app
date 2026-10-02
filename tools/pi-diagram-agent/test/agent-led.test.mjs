@@ -113,3 +113,24 @@ test('visual tool returns original, candidate full/crops and viewer-fit images, 
       fs.rmSync(job.runDir,{recursive:true,force:true});
     }finally{fs.rmSync(root,{recursive:true,force:true})}
   });
+
+test('a resume loads the operator-supplied adjudications.json as one record or an array',()=>{
+  const {root,input}=fixture();
+  let job;
+  try{
+    job=prepareAgentTask(input);
+    assert.deepEqual(job.adjudications,[]);
+    fs.writeFileSync(job.outputPath,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>');
+    const record={nodeId:'A',declaredGroup:'G',renderedGroup:null,chosenGroup:null,authorisedBy:'owner@example.test',timestamp:'2026-10-02T00:00:00Z',sourceHash:job.sourceHash};
+    const file=path.join(job.runDir,'adjudications.json');
+    fs.writeFileSync(file,JSON.stringify(record));
+    assert.deepEqual(prepareAgentTask(input,{resumeRunDir:job.runDir}).adjudications,[record]);
+    fs.writeFileSync(file,JSON.stringify([record,{...record,nodeId:'B'}]));
+    assert.equal(prepareAgentTask(input,{resumeRunDir:job.runDir}).adjudications.length,2);
+    fs.writeFileSync(file,'not json');
+    assert.throws(()=>prepareAgentTask(input,{resumeRunDir:job.runDir}),/ADJUDICATIONS_UNREADABLE/);
+  }finally{
+    if(job)fs.rmSync(job.runDir,{recursive:true,force:true});
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});

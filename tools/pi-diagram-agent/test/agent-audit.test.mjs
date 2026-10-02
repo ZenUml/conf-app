@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {auditAgentSvg} from '../src/agent-audit.mjs';
 
 const enabled=!!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE;
@@ -7,9 +8,10 @@ const source='flowchart LR\n  A[Start] --> B[Finish]\n';
 const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="5"><path d="M0,0 L10,5 L0,10 Z" fill="black"/></marker></defs><g data-node="A"><rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text></g><g data-node="B"><rect x="400" y="50" width="100" height="60"/><text x="410" y="80">Finish</text></g><path data-source="A" data-target="B" d="M110 80 L400 80" stroke="black" fill="none" marker-end="url(#arrow)"/></svg>`;
 
 test('agent audit accepts historical-style neutral bindings without old data-box schema',{skip:!enabled},async()=>{
-  const result=await auditAgentSvg(source,svg);
+  // The shared fixture draws text 10 units from its box edge, which T2 (12-unit inset) rejects; fit it here so this test isolates binding.
+  const result=await auditAgentSvg(source,svg.replace('x="20" y="80">Start','x="30" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Finish'));
   assert.equal(result.status,'NOT-CHECKABLE');
-  for(const id of ['nodeIdentity','nodeText','relations'])assert.equal(result.checks[id].status,'PASS');
+  for(const id of ['nodeIdentity','nodeText','relations','textFit'])assert.equal(result.checks[id].status,'PASS');
   assert.equal(result.checks.routeGeometry.status,'NOT-CHECKABLE');
   assert.equal(result.checks.visualQuality.status,'NOT-CHECKABLE');
 });
@@ -147,4 +149,90 @@ test('conservative curve envelopes prove a clear bypass but leave a possible con
   assert.equal((await auditAgentSvg(grouped,bypass)).checks.routeUnrelatedContainerTransit.status,'PASS');
   const uncertain=drawn.replace('d="M110 80 L400 80"','d="M110 80 L180 80 Q250 0 320 80 L400 80"');
   assert.equal((await auditAgentSvg(grouped,uncertain)).checks.routeUnrelatedContainerTransit.status,'NOT-CHECKABLE');
+});
+
+// ---- textFit (T2 / labelBox) -------------------------------------------------
+test('textFit passes text inside a rectangular node inset by 12 units',{skip:!enabled},async()=>{
+  const fit=svg.replace('x="20" y="80">Start','x="30" y="85">Hi').replace('x="410" y="80">Finish','x="430" y="85">Ok');
+  const result=await auditAgentSvg(source,fit);
+  assert.equal(result.checks.textFit.status,'PASS');
+  assert.deepEqual(result.checks.textFit.evidence.overflows,[]);
+});
+
+test('textFit fails text running to its own box border and names node and amount',{skip:!enabled},async()=>{
+  // Node A text starts at the rect edge (x=10), so it overflows the 12-unit inset by 12 on the left.
+  const result=await auditAgentSvg(source,svg.replace('x="20" y="80">Start','x="10" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Ok'));
+  assert.equal(result.checks.textFit.status,'FAIL');
+  const [overflow]=result.checks.textFit.evidence.overflows;
+  assert.equal(overflow.nodeId,'A');
+  assert.ok(Math.abs(overflow.left-12)<0.5,`left overflow ${overflow.left}`);
+  assert.equal(result.status,'FAIL');
+});
+
+test('textFit is NOT-CHECKABLE for a non-rectangular node without a declared labelBox',{skip:!enabled},async()=>{
+  const diamond=svg.replace('<rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text>','<polygon points="60,40 120,80 60,120 0,80"/><text x="45" y="85">Hi</text>').replace('x="410" y="80">Finish','x="430" y="85">Ok');
+  const result=await auditAgentSvg(source,diamond);
+  assert.equal(result.checks.textFit.status,'NOT-CHECKABLE');
+  assert.deepEqual(result.checks.textFit.evidence.notCheckableNodeIds,['A']);
+  const declared=await auditAgentSvg(source,diamond.replace('<g data-node="A">','<g data-node="A" data-label-box="30 65 60 30">'));
+  assert.equal(declared.checks.textFit.status,'PASS');
+  const overflowing=await auditAgentSvg(source,diamond.replace('<g data-node="A">','<g data-node="A" data-label-box="50 65 8 30">'));
+  assert.equal(overflowing.checks.textFit.status,'FAIL');
+});
+
+// ---- labelClearance (B5) -----------------------------------------------------
+const labelSource='flowchart LR\n subgraph G[Group]\n A[Start]\n end\n A --> B[Finish]\n';
+const labelBase=svg.replace('<g data-node="A">','<g data-group="G"><rect x="0" y="20" width="200" height="130" stroke="black" fill="none"/></g><g data-node="A">');
+const label=(x,y,extra='')=>`<g data-edge-label-source="A" data-edge-label-target="B"><rect x="${x-3}" y="${y-16}" width="40" height="22" fill="white"/><text x="${x}" y="${y}">Go</text>${extra}</g>`;
+test('labelClearance passes an edge label in open space',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(labelSource,labelBase.replace('</svg>',`${label(260,70)}</svg>`));
+  assert.equal(result.checks.labelClearance.status,'PASS');
+  assert.deepEqual(result.checks.labelClearance.evidence.violations,[]);
+});
+
+test('labelClearance fails a label sitting on a container outline and on a node outline',{skip:!enabled},async()=>{
+  const onContainer=await auditAgentSvg(labelSource,labelBase.replace('</svg>',`${label(190,70)}</svg>`));
+  assert.equal(onContainer.checks.labelClearance.status,'FAIL');
+  assert.deepEqual(onContainer.checks.labelClearance.evidence.violations.map(v=>[v.label,v.outline]),[['A->B','group:G']]);
+  assert.equal(onContainer.status,'FAIL');
+  const onNode=await auditAgentSvg(labelSource,labelBase.replace('</svg>',`${label(395,70)}</svg>`).replace('<rect x="400" y="50" width="100" height="60"/>','<rect x="400" y="50" width="100" height="60" stroke="black"/>'));
+  assert.equal(onNode.checks.labelClearance.status,'FAIL');
+  assert.deepEqual(onNode.checks.labelClearance.evidence.violations.map(v=>[v.label,v.outline]),[['A->B','node:B']]);
+});
+
+test('labelClearance without bound edge labels is NOT-CHECKABLE when the source has labels',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(labelSource,labelBase);
+  assert.equal(result.checks.labelClearance.status,'PASS');
+  const unknown=await auditAgentSvg('flowchart LR\n A[Start] -->|Go| B[Finish]\n',svg);
+  assert.equal(unknown.checks.labelClearance.status,'NOT-CHECKABLE');
+});
+
+// ---- hash-bound adjudication of a declared-vs-rendered membership conflict ----
+const adjGrouped='flowchart LR\n subgraph G[Group]\n A[Start]\n end\n B[Finish]\n A --> B\n';
+const adjOriginal=`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><g class="cluster" id="old-G"><rect x="300" y="20" width="250" height="130"/></g><g class="node" id="old-flowchart-A-0"><rect x="10" y="50" width="100" height="60"/></g><g class="node" id="old-flowchart-B-1"><rect x="400" y="50" width="100" height="60"/></g></svg>`;
+// Candidate keeps the visible original grouping: B in G, A in none (declaration says the opposite).
+const adjCandidate=svg.replace('<g data-node="A">','<g data-group="G"><rect x="300" y="20" width="250" height="130"/></g><g data-node="A">');
+const adjHash=createHash('sha256').update(adjGrouped).digest('hex');
+const rec=(nodeId,declaredGroup,renderedGroup,chosenGroup,over={})=>({nodeId,declaredGroup,renderedGroup,chosenGroup,authorisedBy:'owner@example.test',timestamp:'2026-10-02T00:00:00Z',sourceHash:adjHash,...over});
+const records=()=>[rec('A','G',null,null),rec('B',null,'G','G')];
+
+test('a matching hash-bound adjudication yields ADJUDICATED, never PASS',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(adjGrouped,adjCandidate,{originalSvg:adjOriginal,adjudications:records()});
+  assert.equal(result.checks.semanticPreservation.status,'ADJUDICATED');
+  assert.deepEqual(result.checks.semanticPreservation.evidence.adjudications.map(r=>r.nodeId),['A','B']);
+  assert.equal(result.checks.semanticPreservation.evidence.adjudications[0].authorisedBy,'owner@example.test');
+  assert.notEqual(result.status,'PASS');
+});
+
+test('adjudication cannot rescue a missing, stale or non-matching record',{skip:!enabled},async()=>{
+  const none=await auditAgentSvg(adjGrouped,adjCandidate,{originalSvg:adjOriginal});
+  assert.equal(none.checks.semanticPreservation.status,'FAIL');
+  const stale=await auditAgentSvg(adjGrouped,adjCandidate,{originalSvg:adjOriginal,adjudications:records().map(r=>({...r,sourceHash:'0'.repeat(64)}))});
+  assert.equal(stale.checks.semanticPreservation.status,'FAIL');
+  assert.match(JSON.stringify(stale.checks.semanticPreservation.evidence.rejectedAdjudications),/sourceHash/);
+  // Chosen group G for A, but the candidate draws A outside G.
+  const wrongChoice=await auditAgentSvg(adjGrouped,adjCandidate,{originalSvg:adjOriginal,adjudications:[rec('A','G',null,'G'),rec('B',null,'G','G')]});
+  assert.equal(wrongChoice.checks.semanticPreservation.status,'FAIL');
+  const wrongRendered=await auditAgentSvg(adjGrouped,adjCandidate,{originalSvg:adjOriginal,adjudications:[rec('A','G','G',null),rec('B',null,'G','G')]});
+  assert.equal(wrongRendered.checks.semanticPreservation.status,'FAIL');
 });

@@ -221,3 +221,27 @@ test('legendCompleteness reads a data-legend-item entry (item name as caption, g
   const none=await run(fixture({nodeB:diamondB}));
   assert.equal(check(none,'legendCompleteness')?.status,'FAIL');
 });
+
+// T13: a shape key needs a swatch whose drawn geometry is that shape class; a caption word alone no longer counts.
+const hexNode=fixture().match(/<g data-node="B"[\s\S]*?<\/g>/)[0].replace('data-shape="rect"','data-shape="hexagon"');
+const hexSwatch=(x,cap)=>`<g data-legend="${cap}"><path d="M${x+6} 20 L${x+18} 20 L${x+24} 29 L${x+18} 38 L${x+6} 38 L${x} 29 Z" fill="#eaf3ff" stroke="#2f6fad" stroke-width="2"/><text x="${x+34}" y="29" font-size="16" font-weight="400" fill="#173a63">${cap}</text></g>`;
+test('legendCompleteness FAILs a rectangle swatch whose caption merely says decision (T12 f2 false PASS)',{skip:!enabled},async()=>{
+  const r=await run(fixture({nodeB:hexNode,body:legendFill('Workflow step / decision','#eaf3ff')}));
+  assert.equal(check(r,'legendCompleteness')?.status,'FAIL',JSON.stringify(check(r,'legendCompleteness')));
+  assert.deepEqual(check(r,'legendCompleteness')?.evidence?.missingKeys?.map(k=>[k.kind,k.value]),[['shape','decision']]);
+});
+test('legendCompleteness PASSes a hexagon swatch whatever its caption, and lists it as verified evidence',{skip:!enabled},async()=>{
+  const r=await run(fixture({nodeB:hexNode,body:hexSwatch(300,'Branch point')}));
+  assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
+  assert.deepEqual(check(r,'legendCompleteness').evidence.legendShapes,['decision']);
+});
+test('legendCompleteness: a single swatch cannot stand for two shape classes',{skip:!enabled},async()=>{
+  const r=await run(fixture({nodeB:cylinderB,shapeA:'diamond',body:hexSwatch(300,'Decision / store')}));
+  assert.equal(check(r,'legendCompleteness')?.status,'FAIL',JSON.stringify(check(r,'legendCompleteness')));
+  assert.deepEqual(check(r,'legendCompleteness')?.evidence?.missingKeys?.filter(k=>k.kind==='shape').map(k=>k.value),['cylinder']);
+});
+test('legendCompleteness is NOT-CHECKABLE when the swatch geometry cannot be classified',{skip:!enabled},async()=>{
+  const odd='<g data-legend="Decision"><path d="M300 20 L324 20 L330 29 L324 38 L300 38 Z" fill="#eaf3ff" stroke="#2f6fad" stroke-width="2"/><text x="340" y="29" font-size="16" font-weight="400" fill="#173a63">Decision</text></g>';
+  const r=await run(fixture({nodeB:hexNode,body:odd}));
+  assert.equal(check(r,'legendCompleteness')?.status,'NOT-CHECKABLE',JSON.stringify(check(r,'legendCompleteness')));
+});

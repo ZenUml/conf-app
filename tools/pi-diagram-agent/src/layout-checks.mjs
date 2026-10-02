@@ -114,7 +114,9 @@ export const collectLayoutFacts=input=>{
       if(g&&g.localName==='g'&&!g.matches(NODE+','+GROUP)&&!g.querySelector(NODE+',[data-source][data-target]'))scopes.add(g);else unscoped=true;
     }
     const legend={present:scopes.size>0||titled.length>0,scoped:scopes.size>0,fills:[],dataShapes:[],captions:[],marks:[],dashed:false};
+    let scopeIndex=-1;
     for(const scope of scopes){
+      scopeIndex++;
       for(const el of [scope,...scope.querySelectorAll('*')]){
         if(el.hasAttribute('data-shape'))legend.dataShapes.push(el.getAttribute('data-shape'));
         if(el.hasAttribute('data-legend-item'))legend.captions.push(norm(el.getAttribute('data-legend-item')));
@@ -124,7 +126,7 @@ export const collectLayoutFacts=input=>{
         if(st.fill!=='none'&&c&&c.alpha>0)legend.fills.push(c.hex);
         if(dash!=='none'&&(dash.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).some(v=>Number(v)>0))legend.dashed=true;
         const b=el.getBBox();
-        legend.marks.push({tag:el.localName,d:el.getAttribute('d'),points:el.getAttribute('points'),w:b.width,h:b.height,rx:Number(el.getAttribute('rx')||0)});
+        legend.marks.push({tag:el.localName,d:el.getAttribute('d'),points:el.getAttribute('points'),x:b.x,y:b.y,w:b.width,h:b.height,rx:Number(el.getAttribute('rx')||0),ry:Number(el.getAttribute('ry')||0),painted:st.fill!=='none'&&!!c&&c.alpha>0,scope:scopeIndex});
       }
     }
     legend.fills=[...new Set(legend.fills)];
@@ -341,20 +343,78 @@ function isVerticalBars(m){
   const subs=m.d.split(/[Mm]/).filter(x=>x.trim());
   return subs.length>=2&&subs.every(sub=>{const n=sub.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)?.map(Number)??[];return n.length>=4&&n.every((v,i)=>i%2===1||Math.abs(v-n[0])<1e-6)});
 }
-function markShape(m){
-  if(m.tag==='rect')return m.rx>0&&m.rx>=m.h/2-0.5?'capsule':null;
-  const n=m.points?(m.points.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).length/2:(()=>{
-    const d=m.d??'';
-    if(/[CcAa]/.test(d))return null;
-    const q=(d.match(/[Qq]/g)??[]).length;
-    if(q)return q;
-    return (d.match(/[Ll]/g)??[]).length+1;
-  })();
-  return n===4||n===6?'decision':null;
+const nums=str=>(String(str??'').match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).map(Number);
+/** Absolute-coordinate path parser (M L H V Q C A Z). Returns null for anything else so the caller reports "cannot classify". */
+function parsePath(d){
+  if(!d||/[^MLHVQCAZmlhvqcaz\d\s.,+-eE]/.test(d)||/[a-z]/.test(d.replace(/[eE]/g,'')))return null;
+  const segs=[];let cur=null,start=null;
+  for(const m of d.matchAll(/([MLHVQCAZ])([^MLHVQCAZ]*)/g)){
+    const c=m[1],n=nums(m[2]);
+    if(c==='Z'){if(cur&&start&&Math.hypot(cur[0]-start[0],cur[1]-start[1])>1e-6)segs.push({k:'L',from:cur,to:start,z:true});cur=start;continue}
+    let pts;
+    if(c==='M'){cur=start=[n[0],n[1]];continue}
+    if(c==='H')pts={k:'L',to:[n[0],cur[1]]};
+    else if(c==='V')pts={k:'L',to:[cur[0],n[0]]};
+    else if(c==='L')pts={k:'L',to:[n[0],n[1]]};
+    else if(c==='Q')pts={k:'Q',ctrl:[n[0],n[1]],to:[n[2],n[3]]};
+    else if(c==='C')pts={k:'C',to:[n[4],n[5]]};
+    else pts={k:'A',to:[n[5],n[6]]};
+    if(!cur||pts.to.some(v=>!Number.isFinite(v)))return null;
+    segs.push({...pts,from:cur});cur=pts.to;
+  }
+  return segs.length?segs:null;
+}
+/** Corner vertices of an all-straight/filleted path: line ends followed by a fillet are dropped, a fillet contributes its control point. */
+function cornersOf(segs){
+  const pts=[];
+  segs.forEach((g,i)=>{
+    if(g.k==='Q'){pts.push(g.ctrl);return}
+    if(g.k==='L'){if(g.z)return;const next=segs[i+1];if(next?.k!=='Q')pts.push(g.to);return}
+  });
+  const first=segs[0]?.from;
+  if(first&&segs[0].k!=='Q'&&!(segs.at(-1).k==='Q'&&Math.hypot(segs.at(-1).to[0]-first[0],segs.at(-1).to[1]-first[1])<1e-6))pts.unshift(first);
+  return pts.filter((p,i)=>i===0||Math.hypot(p[0]-pts[i-1][0],p[1]-pts[i-1][1])>1e-6).filter((p,i,a)=>!(i===a.length-1&&i>0&&Math.hypot(p[0]-a[0][0],p[1]-a[0][1])<1e-6));
+}
+/** The drawn shape class of one legend swatch (same classes shapeClass() gives data-shape values), from its geometry only. Returns null when it cannot be classified. */
+export function swatchGeometryClass(m){
+  if(m.tag==='circle')return 'circle';
+  if(m.tag==='ellipse')return Math.abs(m.w-m.h)<1?'circle':null;
+  if(m.tag==='rect')return m.rx>0&&m.rx>=m.h/2-0.5?'capsule':'rect';
+  if(m.tag==='polygon'||m.tag==='polyline'){
+    const n=nums(m.points);const pts=[];for(let i=0;i+1<n.length;i+=2)pts.push([n[i],n[i+1]]);
+    return polygonClass(pts);
+  }
+  if(m.tag!=='path')return null;
+  const segs=parsePath(m.d);
+  if(!segs)return null;
+  const curved=segs.filter(g=>g.k==='C'||g.k==='A');
+  if(!curved.length)return polygonClass(cornersOf(segs));
+  const straight=segs.filter(g=>g.k==='L'&&Math.hypot(g.to[0]-g.from[0],g.to[1]-g.from[1])>0.5);
+  const vertical=straight.filter(g=>Math.abs(g.to[0]-g.from[0])<0.5),horizontal=straight.filter(g=>Math.abs(g.to[1]-g.from[1])<0.5);
+  const wide=curved.some(g=>Math.abs(g.to[0]-g.from[0])>=0.7*m.w),tall=curved.some(g=>Math.abs(g.to[1]-g.from[1])>=0.7*m.h);
+  if(curved.length>=2&&vertical.length>=2&&wide&&!tall)return 'cylinder';
+  if(curved.length>=2&&horizontal.length>=2&&tall&&!wide)return 'capsule';
+  if(curved.length>=4&&!wide&&!tall&&vertical.length>=2&&horizontal.length>=2)return 'rect'; // arc-cornered rectangle
+  return null;
+}
+function polygonClass(pts){
+  if(pts.length===4)return pts.every((p,i)=>{const q=pts[(i+1)%4];return Math.abs(p[0]-q[0])<0.5||Math.abs(p[1]-q[1])<0.5})?'rect':'decision';
+  if(pts.length===6)return 'decision';
+  return null;
+}
+/** Classify every painted swatch in the legend; a rectangle swatch with vertical bars inside it is one subroutine glyph, not two things. */
+function classifySwatches(marks){
+  const bars=marks.filter(isVerticalBars);
+  const swatches=marks.filter(m=>!isVerticalBars(m)&&(m.painted||m.tag==='polygon'||m.tag==='circle'||m.tag==='ellipse'||(m.tag==='path'&&/z\s*$/i.test(m.d??''))));
+  return swatches.map(m=>{
+    let cls=swatchGeometryClass(m);
+    if(cls==='rect'&&bars.some(b=>b.scope===m.scope&&b.x>=m.x-1&&b.x+b.w<=m.x+m.w+1&&b.y>=m.y-1&&b.y+b.h<=m.y+m.h+1))cls='subroutine';
+    return {cls,mark:m};
+  });
 }
 
 export function legendCompleteness(facts){
-  const method='node fill roles (computed fill of the largest painted node shape), node shape classes (data-shape) and dashed connectors (computed stroke-dasharray) versus the keys in the legend (g[data-legend] entries or a group titled Legend/Key); a legend key is recognised by matching swatch fill, data-shape, caption word or mark geometry';
+  const method='node fill roles (computed fill of the largest painted node shape), node shape classes (data-shape) and dashed connectors (computed stroke-dasharray) versus the keys in the legend (g[data-legend] entries or a group titled Legend/Key); a legend shape key is recognised only by the drawn geometry of one swatch (one shape class per swatch; captions and data-shape claims do not count), a fill key by swatch fill, a dashed key by a dashed sample or a dash/dotted caption';
   const nodes=facts.nodes;
   if(!nodes.length)return unavailable('no node tagging (g[data-node]) to derive fill roles or shapes');
   const fillNodes=new Map();
@@ -373,17 +433,23 @@ export function legendCompleteness(facts){
     return {status:'PASS',evidence:{...base,note:'one fill role, only rectangular nodes and solid connectors: no legend required'}};
   }
   if(!facts.legend.scoped)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'a Legend/Key text exists but its entries cannot be delimited (tag entries g[data-legend] or group them with the title)'}};
-  const L=facts.legend,declared=new Set([...L.dataShapes.map(shapeClass),...L.marks.map(markShape)].filter(Boolean));
-  // The subroutine glyph: a rectangle with two vertical bars.
-  if(L.marks.some(m=>m.tag==='rect')&&L.marks.some(isVerticalBars))declared.add('subroutine');
-  for(const caption of L.captions)for(const [re,cls] of CAPTION_SHAPES)if(re.test(caption.toLowerCase()))declared.add(cls);
+  const L=facts.legend,swatches=classifySwatches(L.marks);
+  // A shape key is a swatch whose DRAWN geometry is that class. Captions and data-shape claims on the legend entry never satisfy it, and one swatch has exactly one class.
+  const declared=new Set(swatches.map(x=>x.cls).filter(Boolean));
+  const unclassified=swatches.filter(x=>!x.cls);
+  const claimed=new Set([...L.dataShapes.map(shapeClass),...L.captions.flatMap(c=>CAPTION_SHAPES.filter(([re])=>re.test(c.toLowerCase())).map(([,cls])=>cls))].filter(Boolean));
   const missingKeys=[];
   if(multiRole)for(const [fill,ids] of fillNodes)if(!L.fills.includes(fill))missingKeys.push({kind:'fill',value:fill,nodeIds:ids});
-  for(const [cls,ids] of shapeNodes)if(!declared.has(cls))missingKeys.push({kind:'shape',value:cls,nodeIds:ids});
+  const uncheckedShapes=[];
+  for(const [cls,ids] of shapeNodes)if(!declared.has(cls)){
+    // Not drawn as that class. If some swatch could not be classified and the legend claims the class, the check cannot rule it out; otherwise the key is missing.
+    if(unclassified.length&&claimed.has(cls))uncheckedShapes.push(cls);else missingKeys.push({kind:'shape',value:cls,nodeIds:ids});
+  }
   if(dashedEdges.length&&!(L.dashed||L.captions.some(c=>/dash|dotted/i.test(c))))missingKeys.push({kind:'dashed',value:'dashed',edge:dashedEdges});
   if(missingKeys.length)return {status:'FAIL',evidence:{...base,missingKeys,nodeIds:[...new Set(missingKeys.flatMap(k=>k.nodeIds??[]))],...(dashedEdges.length&&missingKeys.some(k=>k.kind==='dashed')?{edge:dashedEdges}:{}),legendFills:L.fills}};
+  if(uncheckedShapes.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:`legend swatch geometry cannot be classified, so the key for ${uncheckedShapes.join(', ')} is not verified (a caption alone does not count)`,unclassifiedSwatches:unclassified.length,uncheckedShapes}};
   if(untagged.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'nodes without data-shape: shape keys cannot be fully verified',untaggedNodeIds:untagged}};
-  return {status:'PASS',evidence:{...base,legendFills:L.fills,legendShapes:[...declared]}};
+  return {status:'PASS',evidence:{...base,legendFills:L.fills,legendShapes:[...declared].filter(c=>c!=='rect'),legendDashed:!!L.dashed,nodeShapes:Object.fromEntries(nodes.filter(n=>n.shape).map(n=>[n.id,shapeClass(n.shape)])),nodeFills:Object.fromEntries(nodes.filter(n=>n.fill).map(n=>[n.id,n.fill]))}};
 }
 
 /** All six checks from one browser fact collection. */

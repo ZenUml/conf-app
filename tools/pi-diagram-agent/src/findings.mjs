@@ -44,7 +44,7 @@ export function createLedger(){
     entries:()=>[...entries.values()],
     open:()=>[...entries.values()].filter(e=>e.state!=='fixed'),
     openBlocking:()=>[...entries.values()].filter(e=>e.state!=='fixed'&&e.finding.severity==='blocking'),
-    snapshot:()=>[...entries.values()].map(e=>({key:e.key,id:e.finding.id,source:e.finding.source,severity:e.finding.severity,rule:e.finding.rule,elements:e.finding.elements,state:e.state,firstRound:e.firstRound,lastSeenRound:e.lastSeenRound,oscillations:e.oscillations,falseBlockCandidate:e.falseBlockCandidate,history:e.history})),
+    snapshot:()=>[...entries.values()].map(e=>({key:e.key,id:e.finding.id,source:e.finding.source,severity:e.finding.severity,rule:e.finding.rule,elements:e.finding.elements,state:e.state,firstRound:e.firstRound,lastSeenRound:e.lastSeenRound,oscillations:e.oscillations,falseBlockCandidate:e.falseBlockCandidate,unstable:!!e.finding.unstable,history:e.history})),
   };
 }
 

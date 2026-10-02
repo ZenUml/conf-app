@@ -103,11 +103,22 @@ export function regionSignature(svgText,{elements=[],region=null}){
     lastMatched=match;
     if(match)parts.push(tok.replace(/\s+/g,' '));
   }
-  return sha(parts.join('\n'));
+  return parts.length?sha(parts.join('\n')):sha('whole:'+svgText); // nothing resolvable: any change to the SVG counts
+}
+
+/** A reviewer blocking finding that is new in this review although the geometry it is about is unchanged since the previous review is reviewer
+ *  instability (it appears in only one of two consecutive reviews). It is logged and downgraded so it cannot hold the gate closed on its own. */
+export function applyStability(findings,{previous,svgText}){
+  if(!previous)return findings;
+  return findings.map(f=>{
+    if(f.source!=='review'||f.severity!=='blocking'||previous.keys.has(f.key))return f;
+    if(regionSignature(previous.svgText,f)!==regionSignature(svgText,f))return f;
+    return {...f,severity:'minor',unstable:{reason:'reported in only one of two consecutive reviews on unchanged geometry'}};
+  });
 }
 
 // ---- reviewer findings vs auditor coverage -----------------------------------------------------
-export const REVIEW_RULES=['reading-order','label-ownership','detour','legend','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','label-clearance','other'];
+export const REVIEW_RULES=['reading-order','label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','label-clearance','other'];
 
 /** A reviewer rule is "covered" only for the geometry the named audit check measures. Everything not listed here is NOT covered and the finding stands.
  *  curveSafe=false: the check measures straight spans only (curves and fillets are outside it), so any curved named edge leaves the finding standing. */

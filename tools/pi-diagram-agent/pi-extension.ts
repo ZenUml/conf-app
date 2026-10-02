@@ -5,7 +5,7 @@ import * as piSdk from '@earendil-works/pi-coding-agent';
 import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { prepareAgentTask, createAgentVisualInspector, buildSourceFacts, composePrompt } from './src/agent-led.mjs';
 import { createV2Run, budgetsFromEnv } from './src/orchestrator.mjs';
-import { createPiReviewerFactory } from './src/reviewer.mjs';
+import { createPiReviewerFactory, reviewerConfigFromEnv } from './src/reviewer.mjs';
 import { acceptRun, safeRunDir } from './src/manifest.mjs';
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
 import { createSpecRenderer, SPEC_TOOL_DESCRIPTION } from './src/spec-tool.mjs';
@@ -61,10 +61,12 @@ export default function (pi: ExtensionAPI) {
         let v2Budgets: any = null;
         if (v2On) {
           v2Budgets = budgetsFromEnv();
+          const reviewerCfg = reviewerConfigFromEnv();
           inspector = createAgentVisualInspector(job, { maxInspections: v2Budgets.maxInspectionsPerRound, perRound: true, earlyChecks: true });
           run = createV2Run(job, {
-            reviewerFactory: createPiReviewerFactory(piSdk, { provider: selected.provider, modelId: selected.id }),
+            reviewerFactory: createPiReviewerFactory(piSdk, { provider: selected.provider, modelId: selected.id, thinkingLevel: reviewerCfg.thinking }),
             budgets: v2Budgets,
+            reviewer: reviewerCfg,
             onRoundEnd: () => inspector.resetRound(),
           });
           activeRun = run;

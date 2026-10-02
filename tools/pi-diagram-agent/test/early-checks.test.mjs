@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {scanForbidden,earlyFindings,regionSignature,applyCoverage,REVIEW_RULES} from '../src/early-checks.mjs';
+import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,REVIEW_RULES} from '../src/early-checks.mjs';
 import {makeFinding} from '../src/findings.mjs';
 
 const svg=(body)=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200">${body}</svg>`;
@@ -60,7 +60,7 @@ test('regionSignature changes when elements in the finding region or bound to it
 });
 
 test('REVIEW_RULES is the fixed reviewer vocabulary from the checklist',()=>{
-  for(const r of ['reading-order','label-ownership','detour','legend','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','label-clearance'])assert.ok(REVIEW_RULES.includes(r),r);
+  for(const r of ['reading-order','label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','label-clearance'])assert.ok(REVIEW_RULES.includes(r),r);
 });
 
 const rf=(rule,elements)=>makeFinding({source:'review',severity:'blocking',rule,elements,region:null,evidence:{measured:'m',threshold:'t'},suggestion:'s'});
@@ -110,4 +110,34 @@ test('earlyFindings: a candidate with NO bindings (auditor says NOT-CHECKABLE: n
   for(const x of out){assert.equal(x.severity,'blocking');assert.equal(x.source,'early');assert.match(x.evidence.measured,/no .*binding/i);assert.match(x.suggestion,/data-node|data-source|group/i)}
   const parser={checks:{nodeIdentity:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish independent semantic bindings: UNSUPPORTED'}}};
   assert.deepEqual(earlyFindings({svgText:svg(''),audit:parser}),[]);
+});
+
+test('regionSignature falls back to the whole SVG when a finding matches no element or region (any change counts as a change)',()=>{
+  const a=svg('<g data-node="A"><rect x="1" y="1" width="5" height="5"/></g>'),b=svg('<g data-node="A"><rect x="1" y="1" width="6" height="5"/></g>');
+  const legend={elements:['legend'],region:null};
+  assert.equal(regionSignature(a,legend),regionSignature(a,legend));
+  assert.notEqual(regionSignature(a,legend),regionSignature(b,legend));
+});
+
+const prevOf=(svgText,keys)=>({svgText,keys:new Set(keys)});
+const blockingReview=(rule,elements)=>makeFinding({source:'review',severity:'blocking',rule,elements,region:null,evidence:{measured:'m',threshold:'t'},suggestion:'s'});
+test('applyStability: a reviewer blocking finding that appears in only one of two consecutive reviews on unchanged geometry is downgraded and logged unstable',()=>{
+  const a=svg('<g data-node="A"><rect x="1" y="1" width="5" height="5"/></g><g data-node="B"><rect x="50" y="1" width="5" height="5"/></g>');
+  const f=blockingReview('balance',['A']);
+  const out=applyStability([f],{previous:prevOf(a,[]),svgText:a});
+  assert.equal(out[0].severity,'minor');assert.match(out[0].unstable.reason,/two consecutive reviews/);
+  // B changed, A did not: a finding about A is still unstable; a finding about B stands
+  const a2=a.replace('x="50"','x="60"');
+  assert.equal(applyStability([blockingReview('balance',['A'])],{previous:prevOf(a,[]),svgText:a2})[0].severity,'minor');
+  assert.equal(applyStability([blockingReview('balance',['B'])],{previous:prevOf(a,[]),svgText:a2})[0].severity,'blocking');
+});
+test('applyStability leaves standing: persistent findings, first reviews, audit/early findings, minors',()=>{
+  const a=svg('<g data-node="A"><rect x="1" y="1" width="5" height="5"/></g>');
+  const f=blockingReview('balance',['A']);
+  assert.equal(applyStability([f],{previous:prevOf(a,[f.key]),svgText:a})[0].severity,'blocking'); // reported twice: persistent
+  assert.equal(applyStability([f],{previous:null,svgText:a})[0].severity,'blocking'); // no earlier review to compare
+  const audit=makeFinding({source:'audit',severity:'blocking',rule:'textFit',elements:['A'],evidence:{},suggestion:''});
+  assert.equal(applyStability([audit],{previous:prevOf(a,[]),svgText:a})[0].severity,'blocking');
+  const minor=makeFinding({source:'review',severity:'minor',rule:'balance',elements:['A'],evidence:{},suggestion:''});
+  assert.equal(applyStability([minor],{previous:prevOf(a,[]),svgText:a})[0].unstable,undefined);
 });

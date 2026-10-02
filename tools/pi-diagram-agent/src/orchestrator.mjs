@@ -8,8 +8,9 @@ import {renderAgentSvg} from './agent-render.mjs';
 import {auditAgentSvg} from './agent-audit.mjs';
 import {ensureOriginal} from './agent-led.mjs';
 import {makeFinding,createLedger,selectForAuthor,formatForAuthor,auditToFindings} from './findings.mjs';
-import {scanForbidden,earlyFindings,regionSignature,applyCoverage,EARLY_AUDIT_RULES} from './early-checks.mjs';
-import {buildReviewerFacts,buildReviewerPrompt,runReviewer} from './reviewer.mjs';
+import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,EARLY_AUDIT_RULES} from './early-checks.mjs';
+import {collectGeometry,geometryFindings,geometryForReviewer} from './geometry.mjs';
+import {buildReviewerFacts,buildReviewerPrompt,runReviewer,selectReviewImages,reviewerConfigFromEnv} from './reviewer.mjs';
 import {auditGateReasons,evaluateGate} from './gate.mjs';
 import {writeRunManifest} from './manifest.mjs';
 
@@ -36,6 +37,7 @@ function defaultDeps(job){
     render:bytes=>renderAgentSvg(bytes,{outPrefix:path.join(job.runDir,'orch'),displayWidth:1200,displayHeight:710}),
     audit:(bytes,{originalSvg})=>auditAgentSvg(job.sourceBytes,bytes,{originalSvg,adjudications:job.manifest?job.manifest.adjudication?.records??[]:job.adjudications??[]}),
     original:()=>ensureOriginal(job),
+    geometry:bytes=>collectGeometry(bytes),
     image:rec=>{
       const file=rec.path??path.join(job.runDir,rec.file),bytes=fs.readFileSync(file);
       if(sha(bytes)!==rec.sha256)throw Error('IMAGE_HASH_CHANGED');
@@ -51,7 +53,8 @@ const cmpPair=(a,b)=>{const x=pair(a),y=pair(b);return x[0]-y[0]||x[1]-y[1]};
 const cmpTriple=(a,b)=>cmpPair(a,b)||a.minor-b.minor;
 
 /** @param job result of prepareAgentTask  @param opts {deps, reviewerFactory, budgets, now, onRoundEnd} */
-export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,now=Date.now,onRoundEnd=null}={}){
+export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null}={}){
+  const reviewerCfg=reviewer??reviewerConfigFromEnv();
   const d={...defaultDeps(job),...(deps??{})};
   const B={...DEFAULT_BUDGETS,...(budgets??{})};
   let model=null;try{model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'))}catch{}
@@ -60,7 +63,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,now=Date
   const timings={authorMs:0,reviewerMs:0,orchestratorMs:0};
   const tokens={author:{},reviewer:{}};
   const rounds=[];
-  let round=0,authorMark=startedAt,base=null,best=null,stagnant=0,finalResult=null,status='RUNNING',statusReason=null,finalDetail=null,oscillationsInReverted=0,lastManifest=null,extraResidual=[],reverts=0;
+  let lastReview=null,round=0,authorMark=startedAt,base=null,best=null,stagnant=0,finalResult=null,status='RUNNING',statusReason=null,finalDetail=null,oscillationsInReverted=0,lastManifest=null,extraResidual=[],reverts=0;
 
   const timed=async(fn)=>{const s=now();try{return await fn()}finally{timings.orchestratorMs+=now()-s}};
 
@@ -99,6 +102,13 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,now=Date
     }
     c.stage='audit';
     c.findings=[...earlyFindings({svgText:cand.text,audit:c.audit}),...auditToFindings(c.audit).filter(f=>!EARLY_AUDIT_RULES.includes(f.rule))];
+    if(model&&!c.findings.some(f=>f.severity==='blocking')){
+      // Measured geometry: deterministic label-detachment and route-clearance checks, and the coordinates the reviewer is given.
+      try{
+        const geo=await timed(()=>d.geometry(cand.bytes));
+        if(geo){c.geometry=geo;c.findings.push(...geometryFindings(geo,model))}else c.notes.push('GEOMETRY_UNAVAILABLE');
+      }catch(error){c.notes.push(`GEOMETRY_UNAVAILABLE: ${String(error?.message??error).slice(0,120)}`)}
+    }
     if(c.findings.some(f=>f.severity==='blocking'))return c;
     const reasons=auditGateReasons({audit:c.audit,forbidden:c.forbidden,sourceGroupCount:model.groups.length});
     if(!model){c.notes.push('SOURCE_NOT_PARSEABLE');return c}
@@ -106,24 +116,27 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,now=Date
     if(!allowReview)return c;
     // Independent review: images + audit summary + parser facts only.
     const original=await d.original();
-    const images=[d.image(original.rendered.media.full),d.image(c.render.full),...c.render.crops.map(x=>d.image(x)),d.image(c.render.fullscreen)];
-    const prompt=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:c.audit,imageCount:images.length});
+    const selected=selectReviewImages({originalFull:original.rendered.media.full,render:c.render,regions:ledger.open().map(e=>e.finding.region).filter(Boolean),mode:reviewerCfg.images});
+    const images=selected.map(x=>d.image(x.record));
+    const prompt=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:c.audit,geometry:c.geometry?geometryForReviewer(c.geometry,model):{unavailable:true},imageLabels:selected.map(x=>x.label)});
     const review=await runReviewer({factory:reviewerFactory,prompt,images,model,natural:c.render.natural,now});
     timings.reviewerMs+=review.ms;tokens.reviewer=addUsage(tokens.reviewer,review.usage);
-    c.review=review;c.sources.push('review');
+    c.review={...review,imageCount:images.length};c.sources.push('review');
     if(!review.ok){c.stage='reviewer-error';extraResidual.push({rule:'REVIEWER_ERROR',severity:'blocking',source:'review',detail:review.error});return c}
     c.stage='review';
-    c.findings.push(...applyCoverage(review.findings,{audit:c.audit,svgText:cand.text,model}));
+    const covered=applyCoverage(review.findings,{audit:c.audit,svgText:cand.text,model});
+    c.findings.push(...applyStability(covered,{previous:lastReview,svgText:cand.text}));
+    lastReview={keys:new Set(review.findings.map(f=>f.key)),svgText:cand.text};
     return c;
   }
 
   const notCheckable=audit=>audit?.checks?Object.entries(audit.checks).filter(([,v])=>v?.status==='NOT-CHECKABLE').map(([k])=>k):[];
-  const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.downgraded?{downgraded:f.downgraded}:{})});
+  const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{})});
 
   function roundRecord(c,score,extra={}){
     return {round:c.round,svgHash:c.hash,renderedHash:c.render?.svgHash??null,stage:c.stage,reverted:false,
       audit:c.audit?{status:c.audit.status,failedChecks:Object.entries(c.audit.checks??{}).filter(([,v])=>v?.status==='FAIL').map(([k])=>k)}:null,
-      review:c.review?{ok:c.review.ok,verdict:c.review.verdict??null,attempts:c.review.attempts,ms:c.review.ms,usage:c.review.usage,error:c.review.error??null,findings:(c.review.findings??[]).map(brief)}:null,
+      review:c.review?{ok:c.review.ok,verdict:c.review.verdict??null,imageCount:c.review.imageCount??null,attempts:c.review.attempts,ms:c.review.ms,usage:c.review.usage,error:c.review.error??null,findings:(c.review.findings??[]).map(brief)}:null,
       findings:c.findings.map(brief),gate:c.gate,counts:score,...extra};
   }
 
@@ -138,10 +151,10 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,now=Date
       adjudication:job.manifest?.adjudication?{sha256:job.manifest.adjudication.sha256,records:job.manifest.adjudication.records?.length??0}:null,
       finalSvgSha256:bestC?.hash??null,finalMedia,originalSvgHash:bestC?.audit?.originalSvgHash??null,
       rounds,ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC?.audit),
-      timings:{...timings,totalMs:now()-startedAt},tokens,budgets:{...B},
+      timings:{...timings,totalMs:now()-startedAt},tokens,budgets:{...B},reviewer:{...reviewerCfg},
       metrics:{rounds:rounds.length,gateStatus:status,authorSeconds:timings.authorMs/1000,reviewerSeconds:timings.reviewerMs/1000,
         authorTokens:{input:tokens.author.input??0,output:tokens.author.output??0},reviewerTokens:{input:tokens.reviewer.input??0,output:tokens.reviewer.output??0},
-        falseBlockCandidates:ledgerSnap.filter(e=>e.falseBlockCandidate).length,oscillations:ledgerSnap.reduce((n,e)=>n+e.oscillations,0)+oscillationsInReverted,reverts},
+        falseBlockCandidates:ledgerSnap.filter(e=>e.falseBlockCandidate).length,unstableFindings:ledgerSnap.filter(e=>e.unstable).length,oscillations:ledgerSnap.reduce((n,e)=>n+e.oscillations,0)+oscillationsInReverted,reverts},
       acceptance:null};
   }
   function persist(){lastManifest=writeRunManifest(job.runDir,buildManifest());return lastManifest}

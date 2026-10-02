@@ -6,6 +6,7 @@ import path from 'node:path';
 import {prepareAgentTask,createAgentVisualInspector,composePrompt} from '../src/agent-led.mjs';
 
 const rec=n=>({file:`${n}.png`,path:`/x/${n}.png`,sha256:n});
+let geoFor=()=>({natural:{w:10,h:10},nodes:[],groups:[],labels:[],edges:[]});
 function setup(candidate){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-v2-inspect-')),input=path.join(root,'s.mmd');fs.writeFileSync(input,'flowchart LR\n  A[Start] --> B[Finish]\n');
   const job=prepareAgentTask(input);fs.writeFileSync(job.outputPath,candidate);
@@ -15,6 +16,7 @@ function setup(candidate){
     render:async bytes=>({svgHash:'h',full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),containFit:{},textAudit:{}}),
     audit:async()=>audit,
     image:r=>({type:'image',data:r.sha256,mimeType:'image/png'}),
+    geometry:async()=>geoFor(),
   };
   return {job,deps,cleanup:()=>{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(job.runDir,{recursive:true,force:true})}};
 }
@@ -74,4 +76,13 @@ test('v2 prompt: submission protocol replaces the eight-inspection stop; v1 prom
     assert.match(v2,/Visual inspection job ID: J/);
     assert.ok(v2.startsWith(v1));
   }finally{t.cleanup()}
+});
+
+test('v2 inspect early checks include measured geometry: a label more than 25 units from its route is reported at inspect time',async()=>{
+  const t=setup(svg(''));
+  geoFor=()=>({natural:{w:600,h:200},nodes:[{id:'A',box:{x:0,y:0,w:100,h:60}},{id:'B',box:{x:300,y:0,w:100,h:60}}],groups:[],labels:[{source:'A',target:'B',box:{x:180,y:150,w:40,h:20}}],edges:[{id:'A->B',source:'A',target:'B',points:Array.from({length:101},(_,i)=>[100+2*i,30])}]});
+  try{
+    const r=body(await createAgentVisualInspector(t.job,{deps:t.deps,earlyChecks:true})());
+    assert.ok(r.earlyChecks.findings.some(f=>f.rule==='label-detached'&&/120/.test(f.evidence.measured)));
+  }finally{geoFor=()=>({natural:{w:10,h:10},nodes:[],groups:[],labels:[],edges:[]});t.cleanup()}
 });

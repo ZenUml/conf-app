@@ -251,6 +251,16 @@ export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
 /** Observable outcome when the saved report hands off to public support. */
 export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
 
+/** Which slash-command creation guide the viewer's Create button opened. */
+export type CreateGuideVariant = "zenuml" | "graph" | "api";
+
+/**
+ * How the creation guide modal closed. `button` / `escape` come from the guide's own
+ * controls (via view.close payload); `host` is any Confluence-side close (blanket click,
+ * Escape while focus is on Confluence's dialog element) that reaches onClose without one.
+ */
+export type CreateGuideCloseMethod = "button" | "escape" | "host";
+
 export type AnalyticsEventName =
   // Markdown: debounced document render starts/completes in editor or viewer.
   // Properties: feature_area=content, macro_type=markdown, source_length,
@@ -614,6 +624,16 @@ export type AnalyticsEventName =
   // diagram-only fallback (page context unavailable) and an outright
   // clipboard-write failure.
   | "copy_for_ai_clicked"
+  // Viewer "Create" slash-command guide. The top-actions Create button opens an
+  // untitled Forge medium modal that loops a silent video of: Edit the page ->
+  // place the caret -> type "/" + macro name -> pick the macro. impression fires
+  // once per eligible viewer instance (button rendered); opened on click;
+  // closed when the modal closes, with how and how long it was watched;
+  // open_failed when the Forge bridge rejects openModal.
+  | "create_guide_impression"
+  | "create_guide_opened"
+  | "create_guide_closed"
+  | "create_guide_open_failed"
   // Every accepted, user-attributed CodeMirror transaction that replaces at
   // least 95% of the editable OLD document. This is an operation signal; a
   // saved outcome is established separately by macro_save_succeeded carrying

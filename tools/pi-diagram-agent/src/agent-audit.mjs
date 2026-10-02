@@ -320,12 +320,12 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const layout=layoutFacts&&!layoutFacts.parseError?layoutChecks(layoutFacts,svgText):layoutChecksUnavailable('layout facts could not be collected');
   // T2/labelBox: rectangles and capsules use the node outline inset by 12 units; other shapes need an explicitly declared labelBox.
   const textFit=(()=>{
-    const inset=12,tolerance=0.01,clearance=4,overflows=[],notCheckableNodeIds=[],reasons={},structureOverlaps=[],labelBoxOverlaps=[],unknownStructureNodeIds=[];
+    const inset=12,tolerance=0.01,clearance=4,overflows=[],notCheckableNodeIds=[],reasons={},structureOverlaps=[],labelBoxWarnings=[],unknownStructureNodeIds=[];
     for(const node of drawn.fitNodes){
       // Structure is measured on the drawn path geometry independently of any label box; a label box cannot hide text that sits on the lid arc.
       const st=node.structure;
       if(st&&st.textGap!==null&&st.textGap<clearance)structureOverlaps.push({nodeId:node.id,gap:Math.round(st.textGap*100)/100,required:clearance,stroke:st.textStroke,reason:'text is closer than 4 units to a drawn outline or interior stroke'});
-      if(st?.labelBoxOverlap)labelBoxOverlaps.push({nodeId:node.id,stroke:st.labelBoxOverlap.stroke,reason:'label box overlaps shape structure (a drawn outline or interior stroke such as a cylinder lid or queue bar passes through the declared data-label-box)'});
+      if(st?.labelBoxOverlap)labelBoxWarnings.push({nodeId:node.id,stroke:st.labelBoxOverlap.stroke,blocking:false,reason:'label box overlaps shape structure (a drawn outline or interior stroke such as a cylinder lid or queue bar passes through the declared data-label-box); non-blocking because the actual text keeps its clearance'});
       if(st?.unknown)unknownStructureNodeIds.push(node.id);
       if(node.kind==='unsupported'){notCheckableNodeIds.push(node.id);reasons[node.id]=node.reason;continue}
       const box=node.kind==='rect'?{x:node.outline.x+inset,y:node.outline.y+inset,w:node.outline.w-2*inset,h:node.outline.h-2*inset}:node.labelBox;
@@ -334,9 +334,9 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       if(node.texts.length&&[left,top,right,bottom].some(v=>v>tolerance))overflows.push({nodeId:node.id,left,top,right,bottom});
     }
     for(const id of unknownStructureNodeIds)if(!notCheckableNodeIds.includes(id)){notCheckableNodeIds.push(id);reasons[id]='a drawn shape has no measurable geometry (structure unknown)'}
-    const method='browser getBBox of every text bound to the node versus the node outline inset by 12 units (rect/capsule) or its declared data-label-box; non-rect shapes without a declared labelBox are never inferred. Independently, every painted outline and interior stroke of the node (cylinder lid/bottom arcs, queue and subroutine bars, decision outline) is sampled at <=0.5-unit steps from the drawn path geometry: text bboxes must keep >= 4 units from the stroke edge and a declared labelBox must not contain any stroke (label box overlaps shape structure)';
-    const status=overflows.length||structureOverlaps.length||labelBoxOverlaps.length?'FAIL':notCheckableNodeIds.length||!drawn.fitNodes.length?'NOT-CHECKABLE':'PASS';
-    return {status,evidence:{method,inset,structureClearance:clearance,overflows,structureOverlaps,labelBoxOverlaps,notCheckableNodeIds,reasons,checkedNodes:drawn.fitNodes.length-notCheckableNodeIds.length}};
+    const method='browser getBBox of every text bound to the node versus the node outline inset by 12 units (rect/capsule) or its declared data-label-box; non-rect shapes without a declared labelBox are never inferred. Independently, every painted outline and interior stroke of the node (cylinder lid/bottom arcs, queue and subroutine bars, decision outline) is sampled at <=0.5-unit steps from the drawn path geometry: text bboxes must keep >= 4 units from the stroke edge and a declared labelBox that contains a stroke is reported as a non-blocking labelBoxWarnings entry (label box overlaps shape structure) and never fails the check on its own';
+    const status=overflows.length||structureOverlaps.length?'FAIL':notCheckableNodeIds.length||!drawn.fitNodes.length?'NOT-CHECKABLE':'PASS';
+    return {status,evidence:{method,inset,structureClearance:clearance,overflows,structureOverlaps,labelBoxWarnings,notCheckableNodeIds,reasons,checkedNodes:drawn.fitNodes.length-notCheckableNodeIds.length}};
   })();
   const nodeHeadingClearance=checkNodeHeadingClearance({nodes:drawn.lbNodes,groups:drawn.lbGroups});
   // B5: label text+background bbox versus every node/container outline stroke. Epsilon 0.5 units each side absorbs sub-pixel measurement; it is not a design clearance.

@@ -195,26 +195,33 @@ test('textFit fails text drawn over the cylinder lid arc and names the stroke ga
   assert.equal(result.status,'FAIL');
 });
 
-test('textFit fails a declared labelBox that overlaps the cylinder lid even when the text is clear',{skip:!enabled},async()=>{
+test('textFit reports a labelBox overlapping the cylinder lid as a non-blocking warning when the text is clear',{skip:!enabled},async()=>{
   const result=await auditAgentSvg(source,withCylinder('22 62 96 80',110)); // box top 62 is above the lid peak 72; text at y=110 is clear
+  assert.equal(result.checks.textFit.status,'PASS');
+  assert.deepEqual(result.checks.textFit.evidence.structureOverlaps,[]);
+  assert.deepEqual(result.checks.textFit.evidence.labelBoxWarnings.map(x=>x.nodeId),['A']);
+  assert.match(result.checks.textFit.evidence.labelBoxWarnings[0].reason,/label box overlaps shape structure/);
+});
+
+test('textFit still FAILs when the text is on the lid and also reports the labelBox warning',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(source,withCylinder('22 62 96 80',72));
   assert.equal(result.checks.textFit.status,'FAIL');
-  assert.deepEqual(result.checks.textFit.evidence.labelBoxOverlaps.map(x=>x.nodeId),['A']);
-  assert.match(result.checks.textFit.evidence.labelBoxOverlaps[0].reason,/label box overlaps shape structure/);
+  assert.ok(result.checks.textFit.evidence.structureOverlaps.length>0);
 });
 
 test('textFit passes a cylinder whose labelBox and text sit below the lid with 4 units clearance',{skip:!enabled},async()=>{
   const result=await auditAgentSvg(source,withCylinder('22 90 96 40',110));
   assert.equal(result.checks.textFit.status,'PASS');
   assert.deepEqual(result.checks.textFit.evidence.structureOverlaps,[]);
-  assert.deepEqual(result.checks.textFit.evidence.labelBoxOverlaps,[]);
+  assert.deepEqual(result.checks.textFit.evidence.labelBoxWarnings,[]);
 });
 
-test('textFit fails a queue labelBox that contains an inner bar',{skip:!enabled},async()=>{
+test('textFit warns (non-blocking) about a queue labelBox that contains an inner bar',{skip:!enabled},async()=>{
   const queue=(box)=>`<g data-node="A" data-shape="queue" data-label-box="${box}"><rect x="10" y="50" width="200" height="60" rx="4" fill="#fff" stroke="#000" stroke-width="2"/><line x1="26" y1="50" x2="26" y2="110" stroke="#000" stroke-width="2"/><line x1="194" y1="50" x2="194" y2="110" stroke="#000" stroke-width="2"/><text x="110" y="80" text-anchor="middle" dominant-baseline="central" font-size="16">Hi</text></g>`;
   const mk=box=>svg.replace(/<g data-node="A">.*?<\/g>/,queue(box)).replace('x="410" y="80">Finish','x="430" y="85">Ok');
   const bad=await auditAgentSvg(source,mk('22 62 176 36')); // left edge 22 is left of the bar at x=26
-  assert.equal(bad.checks.textFit.status,'FAIL');
-  assert.deepEqual(bad.checks.textFit.evidence.labelBoxOverlaps.map(x=>x.nodeId),['A']);
+  assert.equal(bad.checks.textFit.status,'PASS');
+  assert.deepEqual(bad.checks.textFit.evidence.labelBoxWarnings.map(x=>x.nodeId),['A']);
   const good=await auditAgentSvg(source,mk('34 62 152 36'));
   assert.equal(good.checks.textFit.status,'PASS');
 });

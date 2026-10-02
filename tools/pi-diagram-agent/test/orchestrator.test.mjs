@@ -423,3 +423,31 @@ test('authoritative manifest: written outside the run directory (0600, private d
     assert.equal(a.status,'REVIEWED');assert.equal(a.selfHash,t.run.manifestSelfHash());assert.equal(a.selfHash,readRunManifest(t.job.runDir).selfHash);
   }finally{fs.rmSync(path.join(MDIR,path.basename(t.job.runDir)+'.json'),{force:true});t.cleanup()}
 });
+
+test('a reviewer error does not mark earlier reviewer findings fixed: they stay open, count against the unreviewed candidate, and appear in the residual',async()=>{
+  const t=setup({replies:[rv([rf('label-ownership',['A->B'])]),'nope','still nope']});try{
+    t.write(svg('v1'));const r1=await t.out();assert.equal(r1.status,'REVISE');
+    t.write(svg('v2'));const r2=await t.out();
+    assert.equal(r2.status,'CANDIDATE');assert.match(r2.statusReason,/REVIEWER_ERROR/);
+    const m=readRunManifest(t.job.runDir);
+    assert.equal(m.ledger.find(e=>e.rule==='label-ownership').state,'open');
+    assert.ok(m.residual.some(x=>x.rule==='label-ownership'),JSON.stringify(m.residual));
+    assert.equal(m.rounds[1].counts.reviewBlocking,1);
+  }finally{t.cleanup()}
+});
+
+test('measured-geometry checks are NOT-CHECKABLE (never silently passed) when geometry is unavailable or a labelled edge has no measured label',async()=>{
+  const t=setup({replies:[rv([])],geometry:null});try{
+    t.write(svg('v1'));const r=await t.out();
+    assert.equal(r.status,'REVIEWED');
+    for(const k of ['labelDetachment','routeBorderClearance'])assert.ok(r.notCheckable.includes(k),k);
+    assert.match(r.message,/labelDetachment/);
+  }finally{t.cleanup()}
+  // Geometry measured, but the source label "ok" on A->B has no bound label box: its 25-unit check could not run.
+  const u=setup({replies:[rv([])],geometry:{natural:{w:600,h:200},nodes:[{id:'A',box:{x:0,y:0,w:100,h:60}},{id:'B',box:{x:300,y:0,w:100,h:60}}],groups:[],labels:[],
+    edges:[{id:'A->B',source:'A',target:'B',points:[[100,30],[200,30],[300,30]]}]}});try{
+    u.write(svg('v1'));const r=await u.out();
+    assert.equal(r.status,'REVIEWED');
+    assert.ok(r.notCheckable.includes('labelDetachment'));assert.ok(!r.notCheckable.includes('routeBorderClearance'));
+  }finally{u.cleanup()}
+});

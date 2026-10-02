@@ -52,6 +52,17 @@ export function geometryMeasurements(g,model){
   return {labels,clearances};
 }
 
+/** Which measured-geometry checks could not run (they are then NOT-CHECKABLE, never PASS). geometry=null means measurement failed or was skipped. */
+export function geometryNotCheckable(g,model){
+  if(!g)return ['labelDetachment','routeBorderClearance'];
+  const m=geometryMeasurements(g,model),out=[];
+  const gaps=new Map(m.labels.filter(l=>l.gap!==null&&Number.isFinite(l.gap)).map(l=>[l.edge,l.gap]));
+  if(model.edges.some(e=>e.label&&!gaps.has(edgeId(e.source,e.target))))out.push('labelDetachment');
+  const routed=new Set(g.edges.filter(e=>e.points?.length).map(e=>e.id));
+  if(model.edges.some(e=>!routed.has(edgeId(e.source,e.target))))out.push('routeBorderClearance');
+  return out;
+}
+
 export function geometryFindings(g,model){
   const m=geometryMeasurements(g,model),out=[];
   for(const l of m.labels)if(l.gap!==null&&l.gap>LABEL_MAX_GAP)out.push(makeFinding({source:'early',severity:'blocking',rule:'label-detached',elements:[l.edge],
@@ -74,14 +85,17 @@ function simplify(points){
   return out.map(p=>p.map(round));
 }
 
-/** Compact coordinates plus the measurements above, as data for the reviewer prompt. */
+/** Compact coordinates plus the measurements above, as data for the reviewer prompt. Every id here was read from author-written SVG
+ *  attributes, so only ids the source declares (nodes, groups, source->target edges) are passed on; anything else is dropped. */
 export function geometryForReviewer(g,model){
   const m=geometryMeasurements(g,model),clear=new Map(m.clearances.map(c=>[c.edge,c.nearest]));
   const gap=new Map(m.labels.map(l=>[l.edge,l.gap]));
+  const nodeIds=new Set(model.nodes.map(n=>n.id)),groupIds=new Set((model.groups??[]).map(x=>x.id)),edgeIds=new Set(model.edges.map(e=>edgeId(e.source,e.target)));
+  const nearest=n=>n&&(n.kind==='node'?nodeIds:groupIds).has(n.id)?n:null;
   return {units:'SVG user units, origin top-left, measured by code from the candidate SVG',canvas:g.natural,
-    nodes:g.nodes.map(n=>({id:n.id,box:boxArr(n.box)})),groups:(g.groups??[]).map(x=>({id:x.id,box:boxArr(x.box)})),
-    labels:g.labels.map(l=>({edge:edgeId(l.source,l.target),box:boxArr(l.box),gapToOwnEdge:gap.get(edgeId(l.source,l.target))})),
-    routes:g.edges.map(e=>({edge:e.id,vertices:simplify(e.points),nearestUnrelated:clear.get(e.id)??null}))};
+    nodes:g.nodes.filter(n=>nodeIds.has(n.id)).map(n=>({id:n.id,box:boxArr(n.box)})),groups:(g.groups??[]).filter(x=>groupIds.has(x.id)).map(x=>({id:x.id,box:boxArr(x.box)})),
+    labels:g.labels.filter(l=>edgeIds.has(edgeId(l.source,l.target))).map(l=>({edge:edgeId(l.source,l.target),box:boxArr(l.box),gapToOwnEdge:gap.get(edgeId(l.source,l.target))})),
+    routes:g.edges.filter(e=>edgeIds.has(e.id)).map(e=>({edge:e.id,vertices:simplify(e.points),nearestUnrelated:nearest(clear.get(e.id)??null)}))};
 }
 
 /** Browser measurement of the candidate SVG (same sandboxing as the auditor: JS disabled, network blocked). */

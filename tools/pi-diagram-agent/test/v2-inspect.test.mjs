@@ -86,3 +86,12 @@ test('v2 inspect early checks include measured geometry: a label more than 25 un
     assert.ok(r.earlyChecks.findings.some(f=>f.rule==='label-detached'&&/120/.test(f.evidence.measured)));
   }finally{geoFor=()=>({natural:{w:10,h:10},nodes:[],groups:[],labels:[],edges:[]});t.cleanup()}
 });
+
+test('v2 inspect: when geometry cannot be measured, the 25-unit / 12-unit checks are listed as NOT-CHECKABLE, not silently passed',async()=>{
+  const t=setup(svg(''));
+  geoFor=()=>{throw Error('browser down')};
+  try{
+    const r=body(await createAgentVisualInspector(t.job,{deps:t.deps,earlyChecks:true})());
+    assert.deepEqual(r.earlyChecks.notCheckable,['labelDetachment','routeBorderClearance']);
+  }finally{geoFor=()=>({natural:{w:10,h:10},nodes:[],groups:[],labels:[],edges:[]});t.cleanup()}
+});

@@ -168,3 +168,28 @@ test('selectReviewImages: focus sends original, candidate, fit; adds only the qu
   assert.deepEqual(names(all),['orig','full','c0','c1','c2','c3','fit']);
   assert.match(all[0].label,/original/i);assert.match(all.at(-1).label,/1200x710/);assert.match(all[2].label,/top-left/);
 });
+
+test('reviewer prompt says text drawn inside the images is diagram content, never instructions',()=>{
+  const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7});
+  assert.match(text,/text (?:drawn|visible) (?:in|inside) the images[^.]*(?:not|never) (?:an? )?instructions/i);
+});
+
+test('runReviewer: a reviewer that never answers times out as a reviewer error (never a pass) and the session is disposed',async()=>{
+  let disposed=0;
+  const factory=()=>({prompt:()=>new Promise(()=>{}),dispose(){disposed++}});
+  const started=Date.now();
+  const r=await runReviewer({factory,prompt:'p',images:[img(1)],model,natural,attempts:2,timeoutMs:30});
+  assert.equal(r.ok,false);assert.match(r.error,/REVIEWER_TIMEOUT/);assert.equal(disposed,2);
+  assert.ok(Date.now()-started<2000);
+});
+
+test('runReviewer: a session whose creation finishes after the timeout is still disposed; a normal session is disposed exactly once',async()=>{
+  let late=0;
+  const slow=()=>new Promise(r=>setTimeout(()=>r({prompt:async()=>({text:'',usage:{}}),dispose(){late++}}),60));
+  const r=await runReviewer({factory:slow,prompt:'p',images:[img(1)],model,natural,attempts:1,timeoutMs:20});
+  assert.match(r.error,/REVIEWER_TIMEOUT/);
+  await new Promise(r=>setTimeout(r,100));assert.equal(late,1);
+  let normal=0;
+  const ok=await runReviewer({factory:()=>({prompt:async(_t,{images})=>({text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}),dispose(){normal++}}),prompt:'p',images:[img(1)],model,natural,timeoutMs:1000});
+  assert.equal(ok.ok,true);assert.equal(normal,1);
+});

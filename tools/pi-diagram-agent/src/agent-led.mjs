@@ -11,7 +11,7 @@ import {collectOriginalLayout,formatSourceFacts} from './source-facts.mjs';
 import {specModeParagraph} from './spec-tool.mjs';
 import {earlyFindings} from './early-checks.mjs';
 import {formatForAuthor} from './findings.mjs';
-import {collectGeometry,geometryFindings} from './geometry.mjs';
+import {collectGeometry,geometryFindings,geometryNotCheckable} from './geometry.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const RULES_SHA='c790f138cafae94fb9e601d7b35c1460cf6eac276211a6341c39deb2227534ea';
@@ -155,12 +155,16 @@ export function createAgentVisualInspector(job,{mermaidBundlePath=process.env.PI
     const media=[rendered.full,...rendered.crops,rendered.fullscreen];
     const originalFull=original.media.full;
     const referenceMedia=reference?[reference.full,reference.fullscreen]:[];
-    let measured=[];
+    let measured=[],geoNotCheckable=[];
     if(earlyChecks){
       let model=null;try{model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'))}catch{}
-      if(model)try{const geo=await d.geometry(svgBytes);if(geo)measured=geometryFindings(geo,model)}catch{/* geometry is best effort at inspect time; the orchestrator reports its own failures */}
+      if(model){
+        let geo=null;try{geo=await d.geometry(svgBytes)}catch{/* best effort at inspect time; reported below as NOT-CHECKABLE */}
+        if(geo)measured=geometryFindings(geo,model);
+        geoNotCheckable=geometryNotCheckable(geo,model);
+      }
     }
-    const early=earlyChecks?(()=>{const f=formatForAuthor({sent:[...earlyFindings({svgText:svg,audit}),...measured].map(x=>({...x,state:'open'})),omittedBlocking:0,minorCount:0});return {findings:f.findings,blocking:f.findings.length}})():null;
+    const early=earlyChecks?(()=>{const f=formatForAuthor({sent:[...earlyFindings({svgText:svg,audit}),...measured].map(x=>({...x,state:'open'})),omittedBlocking:0,minorCount:0});return {findings:f.findings,blocking:f.findings.length,notCheckable:geoNotCheckable}})():null;
     const content=[{type:'text',text:JSON.stringify({status:'VISUAL_EVIDENCE_ONLY',round:inspections,sourceHash:job.sourceHash,svgHash,originalSvgHash:original.originalSvgHash,rulesHash:job.rulesHash,originalFull:originalFull.sha256,acceptedReference:reference?{svgHash:job.referenceHash,media:referenceMedia.map(x=>({file:x.file,sha256:x.sha256}))}:null,candidateMedia:media.map(x=>({file:x.file,sha256:x.sha256})),containFit:rendered.containFit,textAudit:rendered.textAudit,independentAudit:audit,...(early?{earlyChecks:early}:{}),warning:'Look at the original, accepted reference when supplied, candidate full image, viewer-fit image and crops. Screenshot capture and partial machine checks do not certify semantics, geometry, or visual quality.'})},
       d.image({...originalFull,path:path.join(job.runDir,originalFull.file)}),
       ...referenceMedia.map(x=>d.image(x)),

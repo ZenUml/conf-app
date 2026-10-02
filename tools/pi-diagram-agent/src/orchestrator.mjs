@@ -9,7 +9,7 @@ import {auditAgentSvg} from './agent-audit.mjs';
 import {ensureOriginal} from './agent-led.mjs';
 import {makeFinding,createLedger,selectForAuthor,formatForAuthor,auditToFindings} from './findings.mjs';
 import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,EARLY_AUDIT_RULES} from './early-checks.mjs';
-import {collectGeometry,geometryFindings,geometryForReviewer} from './geometry.mjs';
+import {collectGeometry,geometryFindings,geometryForReviewer,geometryNotCheckable} from './geometry.mjs';
 import {buildReviewerFacts,buildReviewerPrompt,runReviewer,selectReviewImages,reviewerConfigFromEnv} from './reviewer.mjs';
 import {auditGateReasons,evaluateGate} from './gate.mjs';
 import {writeManifests,authoritativeManifestPath,manifestDirFromEnv} from './manifest.mjs';
@@ -82,9 +82,14 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     suggestion:r.code==='SEMANTICS_NOT_ESTABLISHED'?'Make the original visible group membership and node/relation bindings checkable (data-node, data-source/data-target, group ids), or ask the user to adjudicate a membership conflict.':
       r.code==='HASH_MISMATCH'?'The candidate changed while it was being reviewed; do not edit candidate.svg while diagram_submit is running. Submit again.':'Resolve the named gate condition and submit again.'});
 
+  // A candidate the reviewer did not (successfully) review inherits the open reviewer blocking findings: absence of a review is not absence of defects.
+  function carryReview(c){
+    if(c.sources.includes('review')||!c.bytes)return;
+    c.carried=ledger.openBlocking().filter(e=>e.finding.source==='review').map(e=>({...e.finding,carried:true}));
+  }
   function summarise(c){
     const blocking=c.findings.filter(f=>f.severity==='blocking');
-    return {auditBlocking:blocking.filter(f=>f.source!=='review').length,reviewBlocking:blocking.filter(f=>f.source==='review').length,minor:c.findings.length-blocking.length};
+    return {auditBlocking:blocking.filter(f=>f.source!=='review').length,reviewBlocking:blocking.filter(f=>f.source==='review').length+(c.carried?.length??0),minor:c.findings.length-blocking.length};
   }
 
   async function evaluate(cand,{allowReview=true}={}){
@@ -121,16 +126,20 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const prompt=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:c.audit,geometry:c.geometry?geometryForReviewer(c.geometry,model):{unavailable:true},imageLabels:selected.map(x=>x.label)});
     const review=await runReviewer({factory:reviewerFactory,prompt,images,model,natural:c.render.natural,now});
     timings.reviewerMs+=review.ms;tokens.reviewer=addUsage(tokens.reviewer,review.usage);
-    c.review={...review,imageCount:images.length};c.sources.push('review');
+    c.review={...review,imageCount:images.length};
     if(!review.ok){c.stage='reviewer-error';extraResidual.push({rule:'REVIEWER_ERROR',severity:'blocking',source:'review',detail:review.error});return c}
-    c.stage='review';
+    c.stage='review';c.sources.push('review'); // only a review that actually ran may mark earlier review findings fixed
     const covered=applyCoverage(review.findings,{audit:c.audit,svgText:cand.text,model});
     c.findings.push(...applyStability(covered,{previous:lastReview,svgText:cand.text}));
     c.reviewSnapshot={keys:new Set(review.findings.map(f=>f.key)),svgText:cand.text}; // becomes the stability baseline only if this round is kept
     return c;
   }
 
-  const notCheckable=audit=>audit?.checks?Object.entries(audit.checks).filter(([,v])=>v?.status==='NOT-CHECKABLE').map(([k])=>k):[];
+  // Audit NOT-CHECKABLE checks plus the measured-geometry checks (25-unit label gap, 12-unit clearance) that could not run for this candidate.
+  const notCheckable=c=>{
+    const audit=c?.audit,out=audit?.checks?Object.entries(audit.checks).filter(([,v])=>v?.status==='NOT-CHECKABLE').map(([k])=>k):[];
+    return c&&model?[...out,...geometryNotCheckable(c.geometry??null,model)]:out;
+  };
   const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{})});
 
   function roundRecord(c,score,extra={}){
@@ -144,13 +153,13 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const bestC=best;
     const finalMedia=bestC?.render?{full:bestC.render.full?.sha256??null,fit:bestC.render.fullscreen?.sha256??null}:null;
     const ledgerSnap=ledger.snapshot();
-    const residual=[...(bestC?.findings??[]).map(brief),...extraResidual];
+    const residual=[...(bestC?.findings??[]).map(brief),...(bestC?.carried??[]).map(f=>({...brief(f),carried:true})),...extraResidual];
     return {schema:'pi-diagram-run/2',v2:true,status,statusReason,
       startedAt:new Date(startedAt).toISOString(),finishedAt:new Date(now()).toISOString(),
       sourceHash:job.sourceHash,rulesHash:job.rulesHash,rulesHistory:job.manifest?.rulesHistory??[],
       adjudication:job.manifest?.adjudication?{sha256:job.manifest.adjudication.sha256,records:job.manifest.adjudication.records?.length??0}:null,
       finalSvgSha256:bestC?.hash??null,finalMedia,originalSvgHash:bestC?.audit?.originalSvgHash??null,
-      rounds,ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC?.audit),
+      rounds,ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC),
       timings:{...timings,totalMs:now()-startedAt},tokens,budgets:{...B},reviewer:{...reviewerCfg},
       metrics:{rounds:rounds.length,gateStatus:status,authorSeconds:timings.authorMs/1000,reviewerSeconds:timings.reviewerMs/1000,
         authorTokens:{input:tokens.author.input??0,output:tokens.author.output??0},reviewerTokens:{input:tokens.reviewer.input??0,output:tokens.reviewer.output??0},
@@ -194,6 +203,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       c.gate=evaluateGate({reviewedHash:c.render.svgHash,finalHash:finalRead.ok?finalRead.hash:null,renderedHash:c.hash,audit:c.audit,forbidden:c.forbidden,review:c.review,openBlocking:0});
       if(!c.gate.pass)c.findings.push(...c.gate.reasons.map(gateFinding));
     }
+    carryReview(c);
     const score=summarise(c);
     let reverted=false;
     if(base&&(!c.bytes||cmpPair(score,base.score)>0)){
@@ -240,7 +250,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     if(!best){
       round++;
       const c=await evaluate(readCandidate(),{allowReview:false});
-      c.score=summarise(c);
+      carryReview(c);c.score=summarise(c);
       ledger.update(round,c.findings,{sources:c.sources});
       if(c.bytes)best={...c};
       rounds.push(roundRecord(c,c.score));

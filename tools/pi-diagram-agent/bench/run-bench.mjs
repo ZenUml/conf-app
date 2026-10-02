@@ -30,11 +30,12 @@ function parseArgs(argv){
     else if(a==='--magic-options')o.magicOptions=next();
     else if(a==='--timeout-min')o.timeoutMin=Number(next());
     else if(a==='--pi-bin')o.piBin=next();
+    else if(a==='--model')o.model=next();
     else if(a==='--auditor')o.auditor=next();
     else if(a==='--env'){const kv=next(),i=kv.indexOf('=');if(i<1)throw Error('--env expects KEY=VALUE');o.env[kv.slice(0,i)]=kv.slice(i+1)}
     else throw Error(`unknown argument ${a}`);
   }
-  if(!o.package||!o.out)throw Error('usage: run-bench.mjs --package <pkg root> --fixtures <glob|list> --reps N --concurrency K --out <dir outside repo> [--magic-options "..."] [--pi-bin <path>] [--timeout-min 15] [--env KEY=VALUE]...');
+  if(!o.package||!o.out)throw Error('usage: run-bench.mjs --package <pkg root> --fixtures <glob|list> --reps N --concurrency K --out <dir outside repo> [--magic-options "..."] [--pi-bin <path>] [--model <id>] [--timeout-min 15] [--env KEY=VALUE]...');
   if(!(o.reps>=1)||!(o.concurrency>=1))throw Error('--reps and --concurrency must be >= 1');
   return o;
 }
@@ -55,9 +56,9 @@ function resolveFixtures(spec){
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 
 /** Spawn `pi --mode rpc` exactly like driver-control.mjs and log events to eventFile. Resolves with the run's reduced events. */
-function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv={}}){
+function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv={},model='gpt-5.6-sol'}){
   return new Promise(resolve=>{
-    const args=['--mode','rpc','--provider','openai-codex','--model','gpt-5.6-sol','--thinking','high','--no-session','--no-skills','--no-context-files','--no-prompt-templates','--no-extensions','--extension',pkg+'/pi-extension.ts'];
+    const args=['--mode','rpc','--provider','openai-codex','--model',model,'--thinking','high','--no-session','--no-skills','--no-context-files','--no-prompt-templates','--no-extensions','--extension',pkg+'/pi-extension.ts'];
     const env={...process.env,...extraEnv};
     const child=spawn(piBin,args,{cwd:pkg,env});
     const events=[];const started=Date.now();const tracker=createRunTracker();let graceTimer=null;let buffer='',n=0,toolCalls=0,inspections=0,finished=false;
@@ -78,7 +79,7 @@ function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv=
         if(e.type==='tool_execution_end')log({kind:'tool-end',tool:e.toolName,isError:e.isError,contentTypes:e.result?.content?.map(c=>c.type),error:e.isError?e.result?.content?.filter(c=>c.type==='text').map(c=>c.text).join(' ').slice(0,300):undefined});
         if(e.type==='message_end'&&e.message?.role==='assistant'){
           const contents=e.message.content||[];
-          log({kind:'assistant',text:contents.filter(c=>c.type==='text').map(c=>c.text).join(' ').slice(0,600),usage:e.message.usage?{input:e.message.usage.input,output:e.message.usage.output,cacheRead:e.message.usage.cacheRead,cacheWrite:e.message.usage.cacheWrite}:undefined,stopReason:e.message.stopReason,errorMessage:e.message.errorMessage?String(e.message.errorMessage).slice(0,300):undefined});
+          log({kind:'assistant',model:e.message.model,text:contents.filter(c=>c.type==='text').map(c=>c.text).join(' ').slice(0,600),usage:e.message.usage?{input:e.message.usage.input,output:e.message.usage.output,cacheRead:e.message.usage.cacheRead,cacheWrite:e.message.usage.cacheWrite}:undefined,stopReason:e.message.stopReason,errorMessage:e.message.errorMessage?String(e.message.errorMessage).slice(0,300):undefined});
         }
         if(e.type==='agent_end'||e.type==='agent_settled'){
           log({kind:e.type});
@@ -127,7 +128,7 @@ async function main(){
   const auditFn=(s,v,opts)=>auditAgentSvg(s,v,opts);
   const jobs=[];for(const f of fixtures)for(let r=1;r<=o.reps;r++){const name=path.basename(f,'.mmd');jobs.push({fixture:name,source:f,id:`${name}-r${r}`})}
   const runs=[];let rateLimited=false,next=0;
-  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:'openai-codex gpt-5.6-sol, thinking high',magicOptions:o.magicOptions||'(none)',v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)==='0'?'off (PI_DIAGRAM_V2=0)':'on (default)',piBin:o.piBin,env:Object.keys(o.env).length?JSON.stringify(o.env):'(none)',startedAt:new Date().toISOString()};
+  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:`openai-codex ${o.model??'gpt-5.6-sol'}, thinking high`,magicOptions:o.magicOptions||'(none)',v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)==='0'?'off (PI_DIAGRAM_V2=0)':'on (default)',piBin:o.piBin,env:Object.keys(o.env).length?JSON.stringify(o.env):'(none)',startedAt:new Date().toISOString()};
   const writeSummary=()=>{
     const ordered=jobs.map(j=>runs.find(r=>r.id===j.id)).filter(Boolean);
     const summary={meta,...aggregate(ordered),runs:ordered};
@@ -140,7 +141,7 @@ async function main(){
       if(rateLimited){runs.push({id:job.id,fixture:job.fixture,doneReason:'SKIPPED_RATE_LIMIT',rateLimited:false,toolCalls:0,inspections:0,inputTokens:0,outputTokens:0});writeSummary();continue}
       const base=path.join(out,job.id),eventFile=base+'.jsonl';fs.rmSync(eventFile,{force:true});
       console.error(`[bench] start ${job.id}`);
-      const events=await runPi({pkg,source:job.source,eventFile,magicOptions:o.magicOptions,piBin:o.piBin,extraEnv:o.env,timeoutMs:o.timeoutMin*60_000});
+      const events=await runPi({pkg,source:job.source,eventFile,magicOptions:o.magicOptions,piBin:o.piBin,extraEnv:o.model?{...o.env,PI_DIAGRAM_CODEX_MODEL:o.model}:o.env,model:o.model??'gpt-5.6-sol',timeoutMs:o.timeoutMin*60_000});
       const r=reduceEvents(events);
       if(events.some(eventIsRateLimit)){rateLimited=true;console.error(`[bench] rate-limit text seen in ${job.id}: no further runs will start`)}
       const post=await postProcess({runDir:r.runDir,source:job.source,outBase:base,auditFn,v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)!=='0'});

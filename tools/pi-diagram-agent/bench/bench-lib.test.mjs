@@ -45,6 +45,15 @@ test('reduceEvents flags a real rate limit but not a timestamp',()=>{
   assert.equal(reduceEvents([...ev,{kind:'tool-end',tool:'bash',isError:false,tMs:429872}]).rateLimited,false);
   assert.equal(reduceEvents([...ev,{kind:'stderr',text:'429 Too Many Requests'}]).rateLimited,true);
 });
+test('a final assistant message with stopReason error makes the run AGENT_ERROR, not completed',()=>{
+  const bad=[{kind:'assistant',usage:{input:0,output:0},stopReason:'error',errorMessage:'WebSocket error',tMs:9879},{kind:'done',reason:'AGENT_END',elapsedMs:9881}];
+  const r=reduceEvents(bad);
+  assert.equal(r.doneReason,'AGENT_ERROR');assert.equal(r.agentError,'WebSocket error');assert.equal(r.rateLimited,false);
+  assert.equal(isCompleted({...r,rateLimited:false}),false);
+  // an error mid-run that the agent recovered from (later normal message) does not taint the run
+  const ok=reduceEvents([{kind:'assistant',stopReason:'error',errorMessage:'x',usage:{}},{kind:'assistant',stopReason:'stop',usage:{input:1,output:2}},{kind:'done',reason:'AGENT_END',elapsedMs:5}]);
+  assert.equal(ok.doneReason,'AGENT_END');
+});
 test('summariseAudit lists FAIL and NOT-CHECKABLE but skips the structural pair',()=>{
   const s=summariseAudit({status:'FAIL',checks:{a:{status:'PASS'},b:{status:'FAIL'},c:{status:'NOT-CHECKABLE'},routeGeometry:{status:'NOT-CHECKABLE'},visualQuality:{status:'NOT-CHECKABLE'}}});
   assert.deepEqual(s,{status:'FAIL',fail:['b'],notCheckable:['c'],error:null});

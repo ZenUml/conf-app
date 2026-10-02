@@ -424,13 +424,13 @@ def node(id: str, shape: str, x: float, y: float, label, *, fill: str, stroke: s
             raise ValueError(f"{id}: label box does not fit inside a {var} at tier {fit.tier}; use a hexagon or larger tier")
         outline = f'<path d="{_rounded_polygon(polygon)}" {paint} stroke-linejoin="round"/>'
     elif shape == "store":
-        w, h, lb, var = lw + 24, lh + 48, (x + 12, y + 24, lw, lh), "store"
+        w, h, lb, var = lw + 24, lh + 64, (x + 12, y + 32, lw, lh), "store"  # the lid arc dips to y+24: the label box starts 7 units below its stroke edge
         d = (f"M {_n(x)} {_n(y + 12)} C {_n(x)} {_n(y - 4)} {_n(x + w)} {_n(y - 4)} {_n(x + w)} {_n(y + 12)} "
              f"L {_n(x + w)} {_n(y + h - 12)} C {_n(x + w)} {_n(y + h + 4)} {_n(x)} {_n(y + h + 4)} {_n(x)} {_n(y + h - 12)} Z")
         cap = f"M {_n(x)} {_n(y + 12)} C {_n(x)} {_n(y + 28)} {_n(x + w)} {_n(y + 28)} {_n(x + w)} {_n(y + 12)}"
         outline = f'<path d="{d}" {paint}/><path d="{cap}" fill="none" stroke="{esc(stroke)}" stroke-width="{_n(stroke_width)}"/>'
     elif shape == "queue":
-        w, h, lb, var = lw + 48, lh + 24, (x + 24, y + 12, lw, lh), "queue"
+        w, h, lb, var = lw + 64, lh + 24, (x + 32, y + 12, lw, lh), "queue"  # the bar arc reaches x+w-24: the label box ends 7 units before its stroke edge
         d = (f"M {_n(x + 12)} {_n(y)} C {_n(x - 4)} {_n(y)} {_n(x - 4)} {_n(y + h)} {_n(x + 12)} {_n(y + h)} "
              f"L {_n(x + w - 12)} {_n(y + h)} C {_n(x + w + 4)} {_n(y + h)} {_n(x + w + 4)} {_n(y)} {_n(x + w - 12)} {_n(y)} Z")
         cap = f"M {_n(x + w - 12)} {_n(y)} C {_n(x + w - 28)} {_n(y)} {_n(x + w - 28)} {_n(y + h)} {_n(x + w - 12)} {_n(y + h)}"

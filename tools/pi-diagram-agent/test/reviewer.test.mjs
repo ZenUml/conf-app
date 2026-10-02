@@ -255,6 +255,18 @@ test('reviewer prompt tells the reviewer which layout rules the auditor measures
   assert.match(text,/NOT-CHECKABLE[^.]*judge/i);
 });
 
+test('reviewer facts carry the measured text-structure and node-heading clearances when the auditor PASSed them',()=>{
+  const measured={checks:{
+    textFit:{status:'PASS',evidence:{method:'m',checkedNodes:7,structureClearance:4,structureOverlaps:[],labelBoxOverlaps:[]}},
+    nodeHeadingClearance:{status:'PASS',evidence:{method:'m',checkedNodes:7,checkedGroups:3,headingTexts:3,violations:[]}},
+  }};
+  const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:measured,geometry,imageLabels:labels7});
+  const summary=JSON.parse(/<audit-summary>\n([\s\S]*?)\n<\/audit-summary>/.exec(text)[1]);
+  assert.deepEqual(summary.layoutMeasured.textFit,{checkedNodes:7,structureClearance:4});
+  assert.deepEqual(summary.layoutMeasured.nodeHeadingClearance,{checkedNodes:7,headingTexts:3,headingClearance:8,containerMargin:8});
+  assert.match(text,/node-to-heading clearance/);
+});
+
 test('reviewer prompt variant "report": visible defects are reported even when code can also measure them; the ledger (not the prompt) deduplicates',()=>{
   const skip=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7});
   const rep=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7,measured:'report'});

@@ -213,14 +213,14 @@ function layoutNode(n, roles, defaultRole) {
   if (n.rect) [x, y, w, h] = n.rect;
   else {
     const [lw, lh] = tier;
-    [w, h] = shape === 'decision' ? (variant === 'diamond' ? [2 * lw + 24, 2 * lh + 24] : [lw + 80, lh + 60]) : shape === 'store' ? [lw + 24, lh + 48] : shape === 'queue' ? [lw + 48, lh + 24] : [lw + 24, lh + 24];
+    [w, h] = shape === 'decision' ? (variant === 'diamond' ? [2 * lw + 24, 2 * lh + 24] : [lw + 80, lh + 60]) : shape === 'store' ? [lw + 24, lh + 64] : shape === 'queue' ? [lw + 64, lh + 24] : [lw + 24, lh + 24];
     x = n.centre[0] - w / 2; y = n.centre[1] - h / 2;
   }
   let lb;
   if (shape === 'decision' && variant === 'diamond') { const lw = (w - 24) / 2, lh = (h - 24) / 2; lb = [x + (w - lw) / 2, y + (h - lh) / 2, lw, lh]; }
   else if (shape === 'decision') lb = [x + 40, y + 30, w - 80, h - 60];
-  else if (shape === 'store') lb = [x + 12, y + 24, w - 24, h - 48];
-  else if (shape === 'queue') lb = [x + 24, y + 12, w - 48, h - 24];
+  else if (shape === 'store') lb = [x + 12, y + 32, w - 24, h - 64]; // the lid arc dips to y+24: keep the label box below its stroke
+  else if (shape === 'queue') lb = [x + 32, y + 12, w - 64, h - 24]; // the bar arc reaches x+w-24: keep the label box clear of its stroke
   else lb = [x + INSET, y + INSET, w - 2 * INSET, h - 2 * INSET];
   if (n.labelBox && shape !== 'rect' && shape !== 'capsule') lb = n.labelBox;
   let polygon = [];

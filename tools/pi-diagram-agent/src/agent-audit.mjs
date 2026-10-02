@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {parseMermaid,NOT_CHECKABLE_SHAPES} from './parser.mjs';
 import {checkRouteLowerBend,attachCrossingRepairHints} from './route-lower-bend.mjs';
 import {checkRouteContainerClearance} from './route-clearance.mjs';
+import {checkNodeHeadingClearance} from './node-heading-clearance.mjs';
 import {resolveLabels} from './geometry.mjs';
 import {collectLayoutFacts,layoutChecks,layoutChecksUnavailable} from './layout-checks.mjs';
 import {isAcceptedTrunkOverlap,summariseTrunks,checkTrunkSemantics,unrecognisedTrunkAttributes,TRUNK_HINT} from './trunk.mjs';
@@ -165,7 +166,8 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       };
       const union=boxes=>{const x=Math.min(...boxes.map(b=>b.x)),y=Math.min(...boxes.map(b=>b.y));return {x,y,w:Math.max(...boxes.map(b=>b.x+b.w))-x,h:Math.max(...boxes.map(b=>b.y+b.h))-y}};
       const shapeSelector='rect,path,ellipse,polygon,circle';
-      const fitNodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>{
+      const fitEls=[...root.querySelectorAll('g[data-node],g[data-node-id]')];
+      const fitNodes=fitEls.map(el=>{
         const id=el.getAttribute('data-node')??el.getAttribute('data-node-id');
         // Only painted shapes form an outline; an invisible larger rect must not widen the inset box.
         const painted=shape=>{const st=getComputedStyle(shape);return st.display!=='none'&&st.visibility==='visible'&&(st.fill!=='none'||st.stroke!=='none')};
@@ -186,6 +188,37 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const inShape=(x,y)=>shapes.some(shape=>{if(!(shape instanceof SVGGeometryElement))return false;const p=new DOMPoint(x,y).matrixTransform(root.getScreenCTM().inverse().multiply(shape.getScreenCTM()).inverse());return shape.isPointInFill(p)||shape.isPointInStroke(p)});
         const inside=[[labelBox.x,labelBox.y],[labelBox.x+labelBox.w,labelBox.y],[labelBox.x,labelBox.y+labelBox.h],[labelBox.x+labelBox.w,labelBox.y+labelBox.h]].every(([x,y])=>inShape(x,y));
         return inside?{id,texts,kind:'declared',labelBox}:{...result,reason:'declared labelBox lies outside its node shape'};
+      });
+      // T1/T2 structure: sample every painted outline and interior stroke (cylinder lid arcs, queue/subroutine bars, decision outline) in root user space.
+      // Nothing is inferred from a label box: the text bboxes and the declared labelBox are measured against the drawn path geometry itself.
+      const structureShapes='rect,path,ellipse,polygon,circle,line,polyline';
+      const rectGap=(p,r)=>Math.hypot(Math.max(r.x-p.x,0,p.x-(r.x+r.w)),Math.max(r.y-p.y,0,p.y-(r.y+r.h)));
+      fitNodes.forEach((result,i)=>{
+        const el=fitEls[i];
+        const structure={unknown:false,textGap:null,textStroke:null,labelBoxOverlap:null};
+        result.structure=structure;
+        if(!result.texts.length)return;
+        // A declared box is judged against the drawn structure for every shape class (a queue is a rect plus bar lines, so its outline kind is 'rect').
+        const decl=el.getAttribute('data-label-box')?.trim().split(/[\s,]+/).map(Number);
+        const labelBox=result.kind==='declared'?result.labelBox:decl?.length===4&&decl.every(Number.isFinite)&&decl[2]>0&&decl[3]>0?{x:decl[0],y:decl[1],w:decl[2],h:decl[3]}:null;
+        for(const shape of el.querySelectorAll(structureShapes)){
+          const st=getComputedStyle(shape);
+          if(st.display==='none'||st.visibility!=='visible')continue;
+          const sw=st.stroke!=='none'?Number.parseFloat(st.strokeWidth)||0:0;
+          if(st.stroke==='none'&&st.fill==='none')continue;
+          if(!(shape instanceof SVGGeometryElement)){structure.unknown=true;continue}
+          const total=shape.getTotalLength();
+          if(!(total>0)||total>100000){structure.unknown=true;continue}
+          const m=root.getScreenCTM().inverse().multiply(shape.getScreenCTM()),scale=Math.sqrt(Math.abs(m.a*m.d-m.b*m.c))||1,half=sw*scale/2;
+          const step=Math.max(0.5,total/4000);
+          for(let at=0;at<=total+step/2;at+=step){
+            const q=shape.getPointAtLength(Math.min(at,total)).matrixTransform(m);
+            let g=Infinity;for(const t of result.texts)g=Math.min(g,rectGap(q,t));
+            g-=half;
+            if(structure.textGap===null||g<structure.textGap){structure.textGap=g;structure.textStroke=shape.localName}
+            if(labelBox&&!structure.labelBoxOverlap&&rectGap(q,labelBox)<=half)structure.labelBoxOverlap={stroke:shape.localName,x:q.x,y:q.y};
+          }
+        }
       });
       // B5: an edge label is its text plus any background rect; outlines are node and container shape strokes.
       const labelEpsilon=0.5,sampleStep=0.5;
@@ -250,7 +283,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       });
       const lbGroups=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].map(el=>{
         const shape=el.querySelector(':scope > rect,:scope > path,:scope > polygon');
-        return {id:el.getAttribute('data-group')??el.getAttribute('data-container-id')??el.getAttribute('id')?.slice(6),outline:shape?.localName??null,box:shape?(({x,y,w,h})=>({x,y,w,h}))(rootBox(shape)):null,headings:[...el.querySelectorAll(':scope > text')].map(t=>(({x,y,w,h})=>({x,y,w,h}))(rootBox(t)))};
+        return {id:el.getAttribute('data-group')??el.getAttribute('data-container-id')??el.getAttribute('id')?.slice(6),outline:shape?.localName??null,box:shape?(({x,y,w,h})=>({x,y,w,h}))(rootBox(shape)):null,headings:[...el.querySelectorAll(':scope > text')].map(t=>(({x,y,w,h})=>({x,y,w,h}))(rootBox(t))),headingTexts:[...el.querySelectorAll('text')].filter(t=>t.closest('g[data-node],g[data-node-id],g[data-edge-label-source],g[data-group],g[data-container-id],g[id^="group-"]')===el||(t.getAttribute('data-role')==='heading'||t.getAttribute('data-role')==='subtitle')).map(t=>(({x,y,w,h})=>({x,y,w,h}))(rootBox(t)))};
       });
       const labelBoxes=labelElements.map(l=>({label:l.label,source:l.source,target:l.target,box:union(l.parts)}));
       // Untagged edge-label drawings (class edge-label / data-owner-edge): matched to a source label by text on the Node side (geometry.mjs resolveLabels).
@@ -287,18 +320,25 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const layout=layoutFacts&&!layoutFacts.parseError?layoutChecks(layoutFacts,svgText):layoutChecksUnavailable('layout facts could not be collected');
   // T2/labelBox: rectangles and capsules use the node outline inset by 12 units; other shapes need an explicitly declared labelBox.
   const textFit=(()=>{
-    const inset=12,tolerance=0.01,overflows=[],notCheckableNodeIds=[],reasons={};
+    const inset=12,tolerance=0.01,clearance=4,overflows=[],notCheckableNodeIds=[],reasons={},structureOverlaps=[],labelBoxOverlaps=[],unknownStructureNodeIds=[];
     for(const node of drawn.fitNodes){
+      // Structure is measured on the drawn path geometry independently of any label box; a label box cannot hide text that sits on the lid arc.
+      const st=node.structure;
+      if(st&&st.textGap!==null&&st.textGap<clearance)structureOverlaps.push({nodeId:node.id,gap:Math.round(st.textGap*100)/100,required:clearance,stroke:st.textStroke,reason:'text is closer than 4 units to a drawn outline or interior stroke'});
+      if(st?.labelBoxOverlap)labelBoxOverlaps.push({nodeId:node.id,stroke:st.labelBoxOverlap.stroke,reason:'label box overlaps shape structure (a drawn outline or interior stroke such as a cylinder lid or queue bar passes through the declared data-label-box)'});
+      if(st?.unknown)unknownStructureNodeIds.push(node.id);
       if(node.kind==='unsupported'){notCheckableNodeIds.push(node.id);reasons[node.id]=node.reason;continue}
       const box=node.kind==='rect'?{x:node.outline.x+inset,y:node.outline.y+inset,w:node.outline.w-2*inset,h:node.outline.h-2*inset}:node.labelBox;
       const left=Math.max(0,box.x-Math.min(...node.texts.map(t=>t.x))),top=Math.max(0,box.y-Math.min(...node.texts.map(t=>t.y)));
       const right=Math.max(0,Math.max(...node.texts.map(t=>t.x+t.w))-(box.x+box.w)),bottom=Math.max(0,Math.max(...node.texts.map(t=>t.y+t.h))-(box.y+box.h));
       if(node.texts.length&&[left,top,right,bottom].some(v=>v>tolerance))overflows.push({nodeId:node.id,left,top,right,bottom});
     }
-    const method='browser getBBox of every text bound to the node versus the node outline inset by 12 units (rect/capsule) or its declared data-label-box; non-rect shapes without a declared labelBox are never inferred';
-    const status=overflows.length?'FAIL':notCheckableNodeIds.length||!drawn.fitNodes.length?'NOT-CHECKABLE':'PASS';
-    return {status,evidence:{method,inset,overflows,notCheckableNodeIds,reasons,checkedNodes:drawn.fitNodes.length-notCheckableNodeIds.length}};
+    for(const id of unknownStructureNodeIds)if(!notCheckableNodeIds.includes(id)){notCheckableNodeIds.push(id);reasons[id]='a drawn shape has no measurable geometry (structure unknown)'}
+    const method='browser getBBox of every text bound to the node versus the node outline inset by 12 units (rect/capsule) or its declared data-label-box; non-rect shapes without a declared labelBox are never inferred. Independently, every painted outline and interior stroke of the node (cylinder lid/bottom arcs, queue and subroutine bars, decision outline) is sampled at <=0.5-unit steps from the drawn path geometry: text bboxes must keep >= 4 units from the stroke edge and a declared labelBox must not contain any stroke (label box overlaps shape structure)';
+    const status=overflows.length||structureOverlaps.length||labelBoxOverlaps.length?'FAIL':notCheckableNodeIds.length||!drawn.fitNodes.length?'NOT-CHECKABLE':'PASS';
+    return {status,evidence:{method,inset,structureClearance:clearance,overflows,structureOverlaps,labelBoxOverlaps,notCheckableNodeIds,reasons,checkedNodes:drawn.fitNodes.length-notCheckableNodeIds.length}};
   })();
+  const nodeHeadingClearance=checkNodeHeadingClearance({nodes:drawn.lbNodes,groups:drawn.lbGroups});
   // B5: label text+background bbox versus every node/container outline stroke. Epsilon 0.5 units each side absorbs sub-pixel measurement; it is not a design clearance.
   const labelClearance=(()=>{
     const method='browser bbox of edge-label text and background rect (g[data-edge-label-source][data-edge-label-target]) versus node and container outline strokes, 0.5-unit epsilon; rounded or non-rect outlines sampled at 0.5 units';
@@ -312,7 +352,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   })();
   if(!model){
     const unresolved={status:'NOT-CHECKABLE',evidence:`source parser cannot establish independent semantic bindings: ${modelError}`};
-    return {status:[textFit,labelClearance,...Object.values(layout)].some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,textFit,labelClearance,...layout,routeLowerBend:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeDetour:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeContainerClearance:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label boxes are unavailable'},routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
+    return {status:[textFit,labelClearance,nodeHeadingClearance,...Object.values(layout)].some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,textFit,labelClearance,nodeHeadingClearance,...layout,routeLowerBend:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeDetour:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeContainerClearance:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label boxes are unavailable'},routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
   }
   const expectedNodes=multiset(model.nodes.map(n=>n.id)),actualNodes=multiset(drawn.nodes.map(n=>n.id));
   const nodeIdentity=drawn.nodes.length?{status:equalSets(expectedNodes,actualNodes)?'PASS':'FAIL',evidence:{expected:model.nodes.length,drawn:drawn.nodes.length,missing:model.nodes.filter(n=>!actualNodes.has(n.id)).map(n=>n.id),extra:drawn.nodes.filter(n=>!expectedNodes.has(n.id)).map(n=>n.id)}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-node semantic binding; SVG may still be visually valid'};
@@ -513,7 +553,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const definitionConflicts=model.conflicts??[];
   const sourceDefinitionConflicts=definitionConflicts.length?{status:'FAIL',evidence:{method:'parser: a node defined more than once with different text or shape; Mermaid renders the last definition',nodeIds:definitionConflicts.map(c=>c.nodeId),conflicts:definitionConflicts}}:{status:'PASS',evidence:'every node has at most one distinct definition'};
   const nodeShape={status:'NOT-CHECKABLE',evidence:{reason:'the auditor does not compare drawn node shapes with source shapes; the reviewer judges shapes the rules define',notCheckableShapeNodeIds:model.nodes.filter(n=>NOT_CHECKABLE_SHAPES.has(n.shape)).map(n=>n.id)}};
-  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,nodeShape,sourceDefinitionConflicts,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,routeLowerBend,routeDetour,routeContainerClearance,...layout,
+  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,nodeShape,sourceDefinitionConflicts,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,nodeHeadingClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,routeLowerBend,routeDetour,routeContainerClearance,...layout,
     routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; routeLowerBend adds a witness search (see its limitations); continuous curved-path/label exclusion remains unproved'},
     visualQuality:{status:'NOT-CHECKABLE',evidence:'requires Pi to inspect original and candidate full images plus crops'}};
   const status=Object.values(checks).some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE';

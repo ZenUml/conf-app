@@ -40,7 +40,7 @@ const BINDING_FIX={
 /** Audit rules that count as early binding checks (reported at every inspect, not only at the gate). */
 export const EARLY_AUDIT_RULES=['nodeIdentity','relations','groups'];
 /** Layout and style rules the auditor measures from the drawn SVG (src/layout-checks.mjs); a FAIL is reported as an early finding at every inspect, not only at the gate. */
-export const EARLY_MEASURED_RULES=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness','routeDetour','routeContainerClearance'];
+export const EARLY_MEASURED_RULES=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness','routeDetour','routeContainerClearance','textFit','nodeHeadingClearance'];
 
 export function earlyFindings({svgText,audit}){
   const out=[];
@@ -121,13 +121,14 @@ export function applyStability(findings,{previous,svgText}){
 }
 
 // ---- reviewer findings vs auditor coverage -----------------------------------------------------
-export const REVIEW_RULES=['reading-order','label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','label-clearance','other'];
+export const REVIEW_RULES=['reading-order','label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','node-heading-clearance','label-clearance','other'];
 
 /** A reviewer rule is "covered" only for the geometry the named audit check measures. Everything not listed here is NOT covered and the finding stands.
  *  curveSafe=false: the check measures straight spans only (curves and fillets are outside it), so any curved named edge leaves the finding standing. */
 export const COVERAGE={
   'route-node-intrusion':{check:'routeNodeIntrusion',kind:'edge',curveSafe:true,count:'checkedEdges',total:m=>m.edges.length},
   'heading-overlap':{check:'routeHeadingClearance',kind:'edge',curveSafe:true,count:'checkedEdges',total:m=>m.edges.length},
+  'node-heading-clearance':{check:'nodeHeadingClearance',kind:'node',curveSafe:true,count:'checkedNodes',total:m=>m.nodes.length},
   'route-crossing':{check:'routeCrossings',kind:'edge',curveSafe:false,count:'checkedEdges',total:m=>m.edges.length},
   'label-clearance':{check:'labelClearance',kind:'edge',curveSafe:true,count:null},
   'text-overflow':{check:'textFit',kind:'node',curveSafe:true,count:'checkedNodes',total:m=>m.nodes.length},

@@ -182,6 +182,78 @@ test('textFit is NOT-CHECKABLE for a non-rectangular node without a declared lab
   assert.equal(overflowing.checks.textFit.status,'FAIL');
 });
 
+// ---- textFit vs drawn structure (cylinder lid, queue bars) -------------------
+const cylinderNode=(box,textY)=>`<g data-node="A" data-shape="store" data-label-box="${box}"><path d="M10 60 C10 44 130 44 130 60 L130 140 C130 156 10 156 10 140 Z" fill="#fff" stroke="#000" stroke-width="2"/><path d="M10 60 C10 76 130 76 130 60" fill="none" stroke="#000" stroke-width="2"/><text x="70" y="${textY}" text-anchor="middle" dominant-baseline="central" font-size="16">Hi</text></g>`;
+const withCylinder=(box,textY)=>svg.replace(/<g data-node="A">.*?<\/g>/,cylinderNode(box,textY)).replace('x="410" y="80">Finish','x="430" y="85">Ok');
+
+test('textFit fails text drawn over the cylinder lid arc and names the stroke gap',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(source,withCylinder('22 90 96 40',72)); // text centred on the lid arc (peak y=72)
+  assert.equal(result.checks.textFit.status,'FAIL');
+  const [hit]=result.checks.textFit.evidence.structureOverlaps;
+  assert.equal(hit.nodeId,'A');
+  assert.ok(hit.gap<4,`gap ${hit.gap}`);
+  assert.equal(result.status,'FAIL');
+});
+
+test('textFit fails a declared labelBox that overlaps the cylinder lid even when the text is clear',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(source,withCylinder('22 62 96 80',110)); // box top 62 is above the lid peak 72; text at y=110 is clear
+  assert.equal(result.checks.textFit.status,'FAIL');
+  assert.deepEqual(result.checks.textFit.evidence.labelBoxOverlaps.map(x=>x.nodeId),['A']);
+  assert.match(result.checks.textFit.evidence.labelBoxOverlaps[0].reason,/label box overlaps shape structure/);
+});
+
+test('textFit passes a cylinder whose labelBox and text sit below the lid with 4 units clearance',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(source,withCylinder('22 90 96 40',110));
+  assert.equal(result.checks.textFit.status,'PASS');
+  assert.deepEqual(result.checks.textFit.evidence.structureOverlaps,[]);
+  assert.deepEqual(result.checks.textFit.evidence.labelBoxOverlaps,[]);
+});
+
+test('textFit fails a queue labelBox that contains an inner bar',{skip:!enabled},async()=>{
+  const queue=(box)=>`<g data-node="A" data-shape="queue" data-label-box="${box}"><rect x="10" y="50" width="200" height="60" rx="4" fill="#fff" stroke="#000" stroke-width="2"/><line x1="26" y1="50" x2="26" y2="110" stroke="#000" stroke-width="2"/><line x1="194" y1="50" x2="194" y2="110" stroke="#000" stroke-width="2"/><text x="110" y="80" text-anchor="middle" dominant-baseline="central" font-size="16">Hi</text></g>`;
+  const mk=box=>svg.replace(/<g data-node="A">.*?<\/g>/,queue(box)).replace('x="410" y="80">Finish','x="430" y="85">Ok');
+  const bad=await auditAgentSvg(source,mk('22 62 176 36')); // left edge 22 is left of the bar at x=26
+  assert.equal(bad.checks.textFit.status,'FAIL');
+  assert.deepEqual(bad.checks.textFit.evidence.labelBoxOverlaps.map(x=>x.nodeId),['A']);
+  const good=await auditAgentSvg(source,mk('34 62 152 36'));
+  assert.equal(good.checks.textFit.status,'PASS');
+});
+
+// ---- nodeHeadingClearance (node outline vs group heading, own container margin) ----
+const headingSource='flowchart LR\n subgraph G[Group]\n A[Start]\n end\n B[Finish]\n A --> B\n';
+// Group G outline (0,0)-(260,160), heading text near the top-left; node A is the standard rect moved to y=nodeY. Text 14px high at y=heading baseline.
+const headed=({nodeY,nodeX=30,headingX=20})=>svg.replace('<g data-node="A">',`<g data-group="G"><rect x="0" y="0" width="260" height="170" fill="none" stroke="#999"/><text x="${headingX}" y="22" font-size="16">Heading</text></g><g data-node="A">`)
+  .replace('<rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text>',`<rect x="${nodeX}" y="${nodeY}" width="100" height="60"/><text x="${nodeX+20}" y="${nodeY+35}">Hi</text>`)
+  .replace('M110 80 L400 80',`M${nodeX+100} ${nodeY+30} L400 ${nodeY+30}`).replace('x="410" y="80">Finish','x="430" y="85">Ok');
+
+test('nodeHeadingClearance fails a node box pressed against its group heading and lists node, heading and gap',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(headingSource,headed({nodeY:32}));
+  assert.equal(result.checks.nodeHeadingClearance.status,'FAIL');
+  const [v]=result.checks.nodeHeadingClearance.evidence.violations;
+  assert.equal(v.nodeId,'A');assert.equal(v.groupId,'G');assert.equal(v.kind,'heading');
+  assert.ok(v.gap<8,`gap ${v.gap}`);
+  assert.equal(result.status,'FAIL');
+});
+
+test('nodeHeadingClearance passes with 8+ units from heading and the container border',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(headingSource,headed({nodeY:50}));
+  assert.equal(result.checks.nodeHeadingClearance.status,'PASS',JSON.stringify(result.checks.nodeHeadingClearance.evidence));
+  assert.ok(result.checks.nodeHeadingClearance.evidence.checkedNodes>=1);
+});
+
+test('nodeHeadingClearance fails a node that touches its own container border (B10)',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(headingSource,headed({nodeY:60,nodeX:3,headingX:150}));
+  assert.equal(result.checks.nodeHeadingClearance.status,'FAIL');
+  const [v]=result.checks.nodeHeadingClearance.evidence.violations;
+  assert.equal(v.kind,'container-border');assert.equal(v.groupId,'G');assert.ok(v.gap<8);
+});
+
+test('nodeHeadingClearance is NOT-CHECKABLE when a node outline cannot be measured',{skip:!enabled},async()=>{
+  const unmeasurable=headed({nodeY:50}).replace('<rect x="30" y="50" width="100" height="60"/>','<rect x="30" y="50" width="100" height="60" transform="rotate(5 80 80)"/>');
+  const result=await auditAgentSvg(headingSource,unmeasurable);
+  assert.notEqual(result.checks.nodeHeadingClearance.status,'PASS');
+});
+
 // ---- labelClearance (B5) -----------------------------------------------------
 const labelSource='flowchart LR\n subgraph G[Group]\n A[Start]\n end\n A --> B[Finish]\n';
 const labelBase=svg.replace('<g data-node="A">','<g data-group="G"><rect x="0" y="20" width="200" height="130" stroke="black" fill="none"/></g><g data-node="A">');

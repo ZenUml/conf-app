@@ -144,7 +144,7 @@ test('applyStability leaves standing: persistent findings, first reviews, audit/
 });
 
 // ---- layout checks (connectorStrokeWidth ... legendCompleteness) in the v2 loop
-const LAYOUT=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness','routeDetour','routeContainerClearance'];
+const LAYOUT=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness','routeDetour','routeContainerClearance','textFit','nodeHeadingClearance'];
 test('earlyFindings: a measured layout FAIL is a blocking early finding; NOT-CHECKABLE and PASS are not',()=>{
   const audit={checks:{
     textContrast:{status:'FAIL',evidence:{method:'m',failures:[{elementId:'B',foreground:'#aaaaaa',background:'#ffffff',ratio:2.32}]}},
@@ -202,4 +202,17 @@ test('applyCoverage: every downgrade carries finding key, covering check and evi
   const out=applyCoverage([rf('route-crossing',['A->B'])],{audit:auditPass('routeCrossings'),svgText:edgesSvg('M0 0 L100 0'),model});
   assert.equal(out[0].downgraded.check,'routeCrossings');assert.equal(out[0].downgraded.findingKey,out[0].key);
   assert.equal(out[0].downgraded.evidencePointer,'audit.checks.routeCrossings.evidence');
+});
+
+test('earlyFindings: textFit structure and nodeHeadingClearance FAILs are blocking early findings naming node, group and gap',()=>{
+  const audit={checks:{
+    textFit:{status:'FAIL',evidence:{method:'m',overflows:[],structureOverlaps:[{nodeId:'DB',gap:0,required:4,stroke:'path'}],labelBoxOverlaps:[]}},
+    nodeHeadingClearance:{status:'FAIL',evidence:{method:'m',violations:[{kind:'heading',nodeId:'CS',groupId:'CAP',gap:1.5,required:8}]}},
+  }};
+  const out=earlyFindings({svgText:svg(''),audit});
+  assert.deepEqual(out.map(x=>x.rule).sort(),['nodeHeadingClearance','textFit']);
+  assert.ok(out.every(x=>x.source==='early'&&x.severity==='blocking'));
+  assert.deepEqual(out.find(x=>x.rule==='nodeHeadingClearance').elements,['CAP','CS']);
+  assert.match(out.find(x=>x.rule==='nodeHeadingClearance').suggestion,/8 units/);
+  assert.match(out.find(x=>x.rule==='textFit').suggestion,/lid|structure|4 units/i);
 });

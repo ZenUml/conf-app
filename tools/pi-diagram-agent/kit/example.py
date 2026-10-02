@@ -12,7 +12,7 @@ style = dict(fill=tok["subtle_bg"], stroke=tok["border"], text_color=tok["subtle
 
 a = k.node("A", "rect", 20, 128, "Start", **style)
 b = k.node("B", "decision", 220, 108, "Ready", **style)
-c = k.node("C", "store", 520, 116, "Store", **style)
+c = k.node("C", "store", 520, 108, "Store", **style)
 d = k.node("D", "capsule", 520, 260, "Skip", **style)
 
 # Route points are decided here, from each node's own edge_point(face, t).

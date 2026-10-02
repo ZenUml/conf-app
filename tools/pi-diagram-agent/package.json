@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs && python3 -m unittest discover -s kit -p 'test_*.py'"
   },
   "engines": {"node": ">=22.19.0"},
   "peerDependencies": {

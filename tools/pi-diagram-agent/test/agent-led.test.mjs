@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
 import {prepareAgentTask,createAgentVisualInspector} from '../src/agent-led.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -21,6 +22,11 @@ test('agent prompt contains complete pinned rules and exact source, and directs 
     assert.ok(job.prompt.includes(source));
     assert.match(job.prompt,/call diagram_inspect/);
     assert.match(job.prompt,/Do not use layoutGraph/);
+    const kitDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'..','kit');
+    assert.ok(job.prompt.includes(`${kitDir}/svgkit.py`));
+    assert.ok(job.prompt.includes(`${kitDir}/README.md`));
+    assert.match(job.prompt,/You still own every position, port, route point and layout decision/);
+    assert.ok(fs.existsSync(path.join(kitDir,'svgkit.py')));
     assert.equal(fs.existsSync(job.outputPath),false);
     fs.rmSync(job.runDir,{recursive:true,force:true});
   }finally{fs.rmSync(root,{recursive:true,force:true})}

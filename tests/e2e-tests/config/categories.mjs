@@ -175,7 +175,7 @@ export const CATEGORIES = [
   },
   {
     "id": "cross-cutting",
-    "description": "Forge fullscreen modal chrome and lifecycle: maximize/restore, close button, Escape dismissal, focus and page scroll restoration, and draft recovery after closing editors.",
+    "description": "Forge fullscreen modal chrome and lifecycle: maximize/restore, close button, Escape dismissal, focus and page scroll restoration, and dirty draft persistence after closing and reopening editors.",
     "variants": [
       "lite",
       "full",
@@ -201,7 +201,7 @@ export const CATEGORIES = [
   },
   {
     "id": "csat-banner",
-    "description": "CSAT pageBanner. Verifies banner appears after macro creation; banner appears after macro edit; clicking a score expands inline text area; Send closes banner and suppresses for 3 months; Dismiss without score closes banner.",
+    "description": "CSAT pageBanner. Verifies banner appears after macro creation; banner appears after macro edit; clicking a score expands inline text area; Send closes banner and suppresses for 1 week; Dismiss without score closes banner.",
     "variants": [
       "lite",
       "full",
@@ -213,7 +213,7 @@ export const CATEGORIES = [
       "banner appears after macro creation",
       "banner appears after macro edit",
       "clicking a score expands inline text area",
-      "Send closes banner and suppresses for 3 months",
+      "Send closes banner and suppresses for 1 week",
       "Dismiss without score closes banner",
       "\u00d7 dismiss closes banner and suppresses"
     ],
@@ -388,7 +388,7 @@ export const CATEGORIES = [
   },
   {
     "id": "graph-create",
-    "description": "Graph (DrawIO) \u2014 Create flow. Verifies graph-create:0 \u2014 macro is findable in the element browser; graph-create:1 \u2014 modal opens at fullscreen viewport; graph-create:2 \u2014 DrawIO canvas and shape library mount; graph-create:4 \u2014 Publish closes modal and inserts the macro; graph-create:5 \u2014 clean editor: synthetic beforeunload is false; dirty draft recovery after header close.",
+    "description": "Graph (DrawIO) \u2014 Create flow. Verifies graph-create:0 \u2014 macro is findable in the element browser; graph-create:1 \u2014 modal opens at fullscreen viewport; graph-create:2 \u2014 DrawIO canvas and shape library mount; graph-create:4 \u2014 Publish closes modal and inserts the macro; graph-create:5 \u2014 clean editor: synthetic beforeunload is false; dirty draft persistence after header close and reopen.",
     "variants": [
       "lite",
       "full",
@@ -760,7 +760,7 @@ export const CATEGORIES = [
   },
   {
     "id": "sequence-create",
-    "description": "Sequence \u2014 Create flow. Verifies sequence-create:0 \u2014 macro is findable in the element browser; sequence-create:1 \u2014 modal opens at fullscreen viewport (header 70px); sequence-create:2 \u2014 Sequence tab selected by default with sample code; sequence-create:3 \u2014 Mermaid tab switches editor mode; sequence-create:4 \u2014 PlantUML tab switches editor mode; dirty draft recovery after header close.",
+    "description": "Sequence \u2014 Create flow. Verifies sequence-create:0 \u2014 macro is findable in the element browser; sequence-create:1 \u2014 modal opens at fullscreen viewport (header 70px); sequence-create:2 \u2014 Sequence tab selected by default with sample code; sequence-create:3 \u2014 Mermaid tab switches editor mode; sequence-create:4 \u2014 PlantUML tab switches editor mode; dirty draft persistence after header close and reopen.",
     "variants": [
       "lite",
       "full",
@@ -785,7 +785,7 @@ export const CATEGORIES = [
   },
   {
     "id": "sequence-edit",
-    "description": "Sequence \u2014 Edit flow. Verifies sequence-edit:0 \u2014 Edit button opens fullscreen modal with existing source; sequence-edit:1 \u2014 editor mounts with the saved source; sequence-edit:2 \u2014 typing in editor changes the buffer; sequence-edit:3 \u2014 Publish closes the modal after editing; sequence-edit:4 \u2014 re-open clean: synthetic beforeunload is false; dirty draft recovery after header close.",
+    "description": "Sequence \u2014 Edit flow. Verifies sequence-edit:0 \u2014 Edit button opens fullscreen modal with existing source; sequence-edit:1 \u2014 editor mounts with the saved source; sequence-edit:2 \u2014 typing in editor changes the buffer; sequence-edit:3 \u2014 Publish closes the modal after editing; sequence-edit:4 \u2014 re-open clean: synthetic beforeunload is false; dirty draft persistence after header close and reopen.",
     "variants": [
       "lite",
       "full",

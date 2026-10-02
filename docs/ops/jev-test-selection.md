@@ -4,8 +4,9 @@ PR classification now requests `--mode enabled`. Successful trusted decisions
 run **smoke + Jev-selected categories + the existing deterministic mapped tags**.
 PR discovery covers all normal live Lite projects plus the render project, so
 selected categories outside the old insert/render/graph scopes can run too.
-Variant applicability still applies: Full-only tests run in the Full main/daily
-lanes, not against the Lite PR deployment. The graph-only PR lane is skipped
+Variant applicability still applies: Full-only tests run in daily Full
+regression, not against the Lite PR deployment. Main retains its existing Full
+suite. The graph-only PR lane is skipped
 because its tests are included in the expanded live lane; main keeps its layout.
 The deterministic tags remain a coverage floor: Jev cannot remove tests that the
 previous selector would run. Shared or unmapped changes, human `test:all`, API

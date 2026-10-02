@@ -12,6 +12,7 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('staging-deploy')).toContain("github.workflow == 'Staging Deploy' && 'conf-app-staging'");
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });
+  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  evidence:')[1].split('  merge-reports:')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'test-selection-labels']) expect(workflow(name)).toContain('package-manager-cache: false'); });
   it('keeps classification and privileged publication on trusted code', () => {
     expect(workflow('build-test-deploy')).toContain('ref: ${{ github.event.pull_request.base.sha || github.sha }}');
     expect(workflow('build-test-deploy')).toContain('--mode observe');

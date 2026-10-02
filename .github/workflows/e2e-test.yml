@@ -502,6 +502,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
       - uses: actions/download-artifact@v7
         with:
           name: test-plan-${{ inputs.artifact-suffix }}

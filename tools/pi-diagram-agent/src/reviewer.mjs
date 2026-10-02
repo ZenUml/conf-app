@@ -16,11 +16,16 @@ export const REVIEWER_CHECKLIST=[
   {rule:'balance',text:'Overall balance at the 1200x710 fit: crowding, large empty areas, off-centre composition, unreadably small text.'},
 ];
 
+/** Shapes the rules and the spec renderer have no notation for: the shape-change check cannot be applied to them. */
+export const NOT_CHECKABLE_SHAPES=new Set(['stadium','circle','doublecircle','hexagon','parallelogram','parallelogram_alt','trapezoid','trapezoid_alt','asymmetric']);
+
 export function buildReviewerFacts(model){
-  return {direction:model.direction,
-    groups:model.groups.map(g=>({id:g.id,label:g.label})),
-    nodes:model.nodes.map(n=>({id:n.id,text:n.text,shape:n.shape,group:n.group??null})),
+  const facts={direction:model.direction,
+    groups:model.groups.map(g=>({id:g.id,label:g.label,...(g.parent?{parent:g.parent}:{})})),
+    nodes:model.nodes.map(n=>({id:n.id,text:n.text,shape:n.shape,group:n.group??null,...(n.groupPath?{groupPath:n.groupPath}:{}),...(NOT_CHECKABLE_SHAPES.has(n.shape)?{shapeCheck:'not-checkable'}:{})})),
     edges:model.edges.map(e=>({id:`${e.source}->${e.target}`,source:e.source,target:e.target,label:e.label||null,style:e.style}))};
+  if(model.groupEdges?.length)facts.groupEdges=model.groupEdges.map(e=>({id:`${e.source}->${e.target}`,source:e.source,target:e.target,sourceIsGroup:e.sourceIsGroup,targetIsGroup:e.targetIsGroup,label:e.label||null,style:e.style}));
+  return facts;
 }
 
 function auditSummary(audit){
@@ -52,7 +57,7 @@ ${JSON.stringify(auditSummary(audit))}
 The deterministic auditor already checks node/edge bindings, text fit, label clearance, route-node intrusion, heading clearance and straight-span crossings. Code also enforces and reports, so do not repeat them: an edge label more than 25 units from its own route, and a route closer than 12 units to the border of an unrelated node or container. Do not repeat checks the auditor passed unless the images plainly contradict it.
 
 Rules to apply:
-- Shapes: every node keeps its source notation shape. A decision node may be the normal diamond; the long-text variant, a horizontally extended hexagon with its points at the top and bottom, is ALLOWED by the rules and is not a shape change. Any other shape change is blocking under rule shape-change, for example a subroutine or queue drawn as a capsule, a cylinder drawn as a rectangle, a diamond turned into a rectangle.
+- Shapes: a node whose facts carry shapeCheck "not-checkable" has a source shape the rules have no notation for; never report shape-change for it. Otherwise every node keeps its source notation shape. A decision node may be the normal diamond; the long-text variant, a horizontally extended hexagon with its points at the top and bottom, is ALLOWED by the rules and is not a shape change. Any other shape change is blocking under rule shape-change, for example a subroutine or queue drawn as a capsule, a cylinder drawn as a rectangle, a diamond turned into a rectangle.
 - Legend: the legend must have colour, shape and line-style keys for whatever the diagram actually uses. Omitting a kind of key that is in use is blocking (rule legend); a diagram with one colour, one shape and one line style needs none.
 - Detours: a route is an avoidable detour (blocking, rule detour) only when its length exceeds 3x the Manhattan distance between its endpoints and no node or container forces the longer path.
 - Severity. "blocking" = a defect a maintainer would send back, for example a reversed group or section order, a label on the wrong edge, text overflowing its frame, a shape change that is not allowed, a missing legend key kind, a missing or invisible arrowhead, an avoidable detour as defined above. "minor" = acceptable to ship, for example pure restyling such as recolouring routes or arrowheads compared with the original, ragged container bottoms, a decision-node tip 10 units from a border, wording of legend entries, general balance preferences.

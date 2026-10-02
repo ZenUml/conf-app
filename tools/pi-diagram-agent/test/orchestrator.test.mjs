@@ -394,7 +394,7 @@ test('real auditor + real original render: a clean candidate for a group-less so
 test('a source the parser cannot read ends as CANDIDATE SOURCE_NOT_PARSEABLE instead of throwing out of diagram_submit',async()=>{
   const t=setup({replies:[rv([])]});
   try{
-    const input=path.join(path.dirname(t.job.sourcePath),'u.mmd');fs.writeFileSync(input,'flowchart LR\n  A --> B\n  classDef x fill:#f00\n');
+    const input=path.join(path.dirname(t.job.sourcePath),'u.mmd');fs.writeFileSync(input,'flowchart LR\n  A --> B\n  C@{ shape: cyl }\n');
     const job=prepareAgentTask(input);
     const run=createV2Run(job,{deps:{render:async b=>({svgHash:hash(b),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200}}),
       audit:async()=>({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish independent semantic bindings: x'}}}),

@@ -32,7 +32,7 @@ test('absence of source-binding metadata is unresolved, not a verdict on visual 
 });
 
 test('a Mermaid feature outside the narrow legacy parser cannot suppress visual evidence',{skip:!enabled},async()=>{
-  const labelled='flowchart LR\n  A[Start] -->|Go| B[Finish]\n';
+  const labelled='flowchart LR\n  A[Start] --> B[Finish]\n  A@{ shape: cyl }\n';
   const result=await auditAgentSvg(labelled,svg);
   assert.equal(result.checks.svgWellFormed.status,'PASS');
   assert.equal(result.checks.nodeIdentity.status,'NOT-CHECKABLE');
@@ -290,4 +290,23 @@ test('group-less source: vacuous PASS needs both facts — no original, or an or
   assert.equal(r.checks.originalGroupParity.status,'NOT-CHECKABLE');
   assert.match(JSON.stringify(r.checks.originalGroupParity.evidence),/cluster/);
   assert.equal(r.checks.semanticPreservation.status,'NOT-CHECKABLE');
+});
+
+const nestedSrc='flowchart LR\n subgraph O[Outer]\n  subgraph I[Inner]\n   A[Start]\n  end\n  B[Finish]\n end\n A --> B\n';
+const nestedSvg=(oW)=>svg.replace('<g data-node="A">',`<g data-group="O"><rect x="0" y="20" width="${oW}" height="130"/></g><g data-group="I"><rect x="0" y="30" width="150" height="110"/></g><g data-node="A">`);
+test('nested subgraphs: membership is the whole path, checked by actual containment',{skip:!enabled},async()=>{
+  const good=await auditAgentSvg(nestedSrc,nestedSvg(520));
+  assert.equal(good.checks.groups.status,'PASS');
+  assert.equal(good.checks.groupMembership.status,'PASS');
+  const wrong=await auditAgentSvg(nestedSrc,nestedSvg(300));
+  assert.equal(wrong.checks.groupMembership.status,'FAIL');
+  assert.deepEqual(wrong.checks.groupMembership.evidence.mismatchedNodeIds,['B']);
+});
+test('relations the auditor cannot verify (open link, group endpoint, bidirectional) are NOT-CHECKABLE, never PASS',{skip:!enabled},async()=>{
+  for(const src of ['flowchart LR\n  A[Start] --- B[Finish]\n','flowchart LR\n  A[Start] <--> B[Finish]\n','flowchart LR\n  subgraph G\n    A[Start]\n  end\n  G --> B[Finish]\n']){
+    const r=await auditAgentSvg(src,svg.replace('x="20" y="80">Start','x="30" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Finish'));
+    assert.equal(r.checks.relations.status,'NOT-CHECKABLE',src);
+    assert.match(JSON.stringify(r.checks.relations.evidence),/not checkable|NOT-CHECKABLE|cannot/i);
+    assert.notEqual(r.status,'PASS');
+  }
 });

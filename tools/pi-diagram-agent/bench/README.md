@@ -6,7 +6,7 @@ Small synthetic benchmark for the Pi `/magic` diagram agent: five generic Mermai
 
 ## Fixtures
 
-`fixtures/*.mmd` use only syntax `src/parser.mjs` supports; each has `<name>.expected.json` (node ids and text, directed edges with label and dashed flag, group membership).
+`fixtures/*.mmd` use only syntax `src/parser.mjs` supports (all synthetic); each has `<name>.expected.json` (node ids and text, directed edges with label and dashed flag, group membership).
 
 | fixture | covers |
 |---|---|
@@ -15,8 +15,11 @@ Small synthetic benchmark for the Pi `/magic` diagram agent: five generic Mermai
 | f3-groups | two subgraphs, a cross-group edge, one ungrouped node |
 | f4-stores | cylinder store, queue-like subroutine shape `[[...]]`, one dashed edge |
 | f5-converge-labels | three sources converge on one target, edge labels, one dashed relation |
+| f6-td-pipes | `flowchart TD`, pipe labels, a dashed and a thick relation |
+| f7-classes-shapes | `:::class` suffixes, stadium, subroutine, cylinder, circle and hexagon shapes |
+| f8-nested-groups | a subgraph inside a subgraph, `direction` inside a group, membership paths |
 
-Parser limits worth knowing when adding fixtures: edge labels must be written `-- "text" -->` or `-. "text" .->` (not `-->|text|`); no nested subgraphs; no HTML in text; a stadium shape `([...])` is not recognised (it would parse as a capsule whose text contains brackets), so the queue-like shape is `[[...]]`; a node belongs to a group only if its text is defined inside the `subgraph`.
+Parser limits worth knowing when adding fixtures: HTML other than `<br>` and formatting tags (`b i u s em strong code span small sub sup mark kbd`, text kept) is refused; a node declared twice with different text is refused (`conflicting node text`); the `@{ shape: ... }` node syntax and edge ids (`e1@-->`) are refused. Every refusal is `PARSE_UNSUPPORTED line N: <construct>`. A node's declared group is the subgraph where its text is defined, else where it is first referenced; `mermaidGroupPath` is where Mermaid itself places it (first completed subgraph that references the node).
 
 ## Run
 

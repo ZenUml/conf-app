@@ -1,0 +1,20 @@
+{
+  "name": "f8-nested-groups",
+  "direction": "TB",
+  "nodes": [
+    {"id": "A", "text": "Intake"}, {"id": "B", "text": "Cut"}, {"id": "C", "text": "Weld"},
+    {"id": "D", "text": "Inspect"}, {"id": "E", "text": "Ship"}
+  ],
+  "edges": [
+    {"source": "B", "target": "C", "label": "", "dashed": false},
+    {"source": "A", "target": "B", "label": "", "dashed": false},
+    {"source": "C", "target": "D", "label": "", "dashed": false},
+    {"source": "D", "target": "E", "label": "", "dashed": false}
+  ],
+  "paths": {"A": ["PLANT"], "B": ["PLANT", "LINE"], "C": ["PLANT", "LINE"], "D": [], "E": []},
+  "groups": [
+    {"id": "PLANT", "label": "Plant", "nodes": ["A"]},
+    {"id": "LINE", "label": "Line one", "nodes": ["B", "C"]}
+  ],
+  "ungrouped": ["D", "E"]
+}

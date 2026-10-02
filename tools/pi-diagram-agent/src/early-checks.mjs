@@ -39,6 +39,8 @@ const BINDING_FIX={
 };
 /** Audit rules that count as early binding checks (reported at every inspect, not only at the gate). */
 export const EARLY_AUDIT_RULES=['nodeIdentity','relations','groups'];
+/** Layout and style rules the auditor measures from the drawn SVG (src/layout-checks.mjs); a FAIL is reported as an early finding at every inspect, not only at the gate. */
+export const EARLY_MEASURED_RULES=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness'];
 
 export function earlyFindings({svgText,audit}){
   const out=[];
@@ -46,7 +48,7 @@ export function earlyFindings({svgText,audit}){
   if(hits.length)out.push(makeFinding({source:'early',severity:'blocking',rule:'forbidden-construct',elements:hits.map(h=>h.construct),
     evidence:{measured:hits.map(h=>`${h.construct} x${h.count}`).join(', '),threshold:'0 occurrences of script, foreignObject, iframe, image, href, on* handlers, context-stroke, context-fill'},
     suggestion:hits.map(h=>FORBIDDEN_FIX[h.construct]).join(' ')}));
-  for(const f of auditToFindings(audit))if(EARLY_AUDIT_RULES.includes(f.rule))out.push(makeFinding({...f,source:'early'}));
+  for(const f of auditToFindings(audit))if(EARLY_AUDIT_RULES.includes(f.rule)||EARLY_MEASURED_RULES.includes(f.rule))out.push(makeFinding({...f,source:'early'}));
   // No bindings at all is NOT-CHECKABLE for the auditor (it cannot FAIL what it cannot see), but for the gate it is a missing binding.
   for(const rule of EARLY_AUDIT_RULES){
     const c=audit?.checks?.[rule];
@@ -129,6 +131,8 @@ export const COVERAGE={
   'route-crossing':{check:'routeCrossings',kind:'edge',curveSafe:false,count:'checkedEdges',total:m=>m.edges.length},
   'label-clearance':{check:'labelClearance',kind:'edge',curveSafe:true,count:null},
   'text-overflow':{check:'textFit',kind:'node',curveSafe:true,count:'checkedNodes',total:m=>m.nodes.length},
+  // global: the check measures every node fill, shape and dashed connector against every legend key, so it covers the reviewer's legend finding whatever elements it names.
+  legend:{check:'legendCompleteness',kind:'global'},
 };
 
 function edgePathHasCurve(svgText,source,target){
@@ -144,12 +148,12 @@ function edgePathHasCurve(svgText,source,target){
 export function applyCoverage(findings,{audit,svgText,model}){
   return findings.map(f=>{
     const rule=COVERAGE[f.rule];
-    if(f.severity!=='blocking'||f.source!=='review'||!rule||!model||!f.elements.length)return f;
+    if(f.severity!=='blocking'||f.source!=='review'||!rule||!model||(rule.kind!=='global'&&!f.elements.length))return f;
     const check=audit?.checks?.[rule.check];
     if(check?.status!=='PASS')return f;
     const ev=typeof check.evidence==='object'?check.evidence:{};
     if(rule.count&&!(Number.isFinite(ev[rule.count])&&ev[rule.count]>=rule.total(model)))return f;
-    for(const id of f.elements){
+    for(const id of rule.kind==='global'?[]:f.elements){
       if(rule.kind==='node'){if(!model.nodes.some(n=>n.id===id))return f;continue}
       const m=/^(.+)->(.+)$/.exec(id);
       if(!m||!model.edges.some(e=>e.source===m[1]&&e.target===m[2]))return f;

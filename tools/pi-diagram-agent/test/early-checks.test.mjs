@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,REVIEW_RULES} from '../src/early-checks.mjs';
+import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,REVIEW_RULES,EARLY_MEASURED_RULES} from '../src/early-checks.mjs';
 import {makeFinding} from '../src/findings.mjs';
 
 const svg=(body)=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200">${body}</svg>`;
@@ -141,4 +141,28 @@ test('applyStability leaves standing: persistent findings, first reviews, audit/
   assert.equal(applyStability([audit],{previous:prevOf(a,[]),svgText:a})[0].severity,'blocking');
   const minor=makeFinding({source:'review',severity:'minor',rule:'balance',elements:['A'],evidence:{},suggestion:''});
   assert.equal(applyStability([minor],{previous:prevOf(a,[]),svgText:a})[0].unstable,undefined);
+});
+
+// ---- layout checks (connectorStrokeWidth ... legendCompleteness) in the v2 loop
+const LAYOUT=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness'];
+test('earlyFindings: a measured layout FAIL is a blocking early finding; NOT-CHECKABLE and PASS are not',()=>{
+  const audit={checks:{
+    textContrast:{status:'FAIL',evidence:{method:'m',failures:[{elementId:'B',foreground:'#aaaaaa',background:'#ffffff',ratio:2.32}]}},
+    filletUniformity:{status:'NOT-CHECKABLE',evidence:{reason:'non-orthogonal'}},
+    labelFontWeight:{status:'PASS',evidence:{method:'m'}},
+  }};
+  const out=earlyFindings({svgText:svg(''),audit});
+  assert.deepEqual(out.map(x=>[x.rule,x.source,x.severity]),[['textContrast','early','blocking']]);
+  assert.deepEqual(out[0].elements,['B']);
+  assert.ok(EARLY_MEASURED_RULES.every(r=>LAYOUT.includes(r))&&LAYOUT.every(r=>EARLY_MEASURED_RULES.includes(r)));
+});
+test('applyCoverage: a reviewer legend finding is downgraded only when legendCompleteness PASSed; other layout rules are not covered by it',()=>{
+  const legend=makeFinding({source:'review',severity:'blocking',rule:'legend',elements:['legend'],evidence:{measured:'m',threshold:'t'},suggestion:'s'});
+  const pass={checks:{legendCompleteness:{status:'PASS',evidence:{method:'fill roles, shapes, dashes versus legend keys'}}}};
+  const down=applyCoverage([legend],{audit:pass,svgText:svg(''),model});
+  assert.equal(down[0].severity,'minor');assert.equal(down[0].downgraded.by,'legendCompleteness');
+  const nc=applyCoverage([legend],{audit:{checks:{legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'x'}}}},svgText:svg(''),model});
+  assert.equal(nc[0].severity,'blocking');
+  const balance=makeFinding({source:'review',severity:'blocking',rule:'balance',elements:['canvas'],evidence:{measured:'m',threshold:'t'},suggestion:'s'});
+  assert.equal(applyCoverage([balance],{audit:pass,svgText:svg(''),model})[0].severity,'blocking');
 });

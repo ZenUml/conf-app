@@ -5,7 +5,7 @@ import {auditAgentSvg} from '../src/agent-audit.mjs';
 
 const enabled=!!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE;
 const source='flowchart LR\n  A[Start] --> B[Finish]\n';
-const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="5"><path d="M0,0 L10,5 L0,10 Z" fill="black"/></marker></defs><g data-node="A"><rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text></g><g data-node="B"><rect x="400" y="50" width="100" height="60"/><text x="410" y="80">Finish</text></g><path data-source="A" data-target="B" d="M110 80 L400 80" stroke="black" fill="none" marker-end="url(#arrow)"/></svg>`;
+const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><style>rect:not([fill]){fill:#fff}</style><marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10" refY="5"><path d="M0,0 L10,5 L0,10 Z" fill="black"/></marker></defs><g data-node="A"><rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text></g><g data-node="B"><rect x="400" y="50" width="100" height="60"/><text x="410" y="80">Finish</text></g><path data-source="A" data-target="B" d="M110 80 L400 80" stroke="black" fill="none" marker-end="url(#arrow)"/></svg>`;
 
 test('agent audit accepts historical-style neutral bindings without old data-box schema',{skip:!enabled},async()=>{
   // The shared fixture draws text 10 units from its box edge, which T2 (12-unit inset) rejects; fit it here so this test isolates binding.

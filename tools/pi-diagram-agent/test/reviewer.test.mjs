@@ -225,3 +225,18 @@ test('resolveReviewerModel: when no author model available, fallback records the
   const r=resolveReviewerModel({available,authorModel:null});
   assert.equal(r.requested,'gpt-6.1-sol');assert.deepEqual(r.fallback,{from:'none',reason:'unavailable'});
 });
+import {parseMermaid as parseNested} from '../src/parser.mjs';
+test('facts carry nesting paths, group parents, group-endpoint edges and not-checkable shapes, only when present',()=>{
+  const m=parseNested('flowchart TB\n  subgraph O\n    subgraph I\n      A([Stadium])\n    end\n  end\n  A --> O\n  B{{Hex}}\n  C[Plain]');
+  const facts=buildReviewerFacts(m);
+  assert.deepEqual(facts.nodes.find(n=>n.id==='A'),{id:'A',text:'Stadium',shape:'stadium',group:'I',groupPath:['O','I'],shapeCheck:'not-checkable'});
+  assert.deepEqual(facts.nodes.find(n=>n.id==='B'),{id:'B',text:'Hex',shape:'hexagon',group:null,groupPath:[],shapeCheck:'not-checkable'});
+  assert.deepEqual(facts.nodes.find(n=>n.id==='C'),{id:'C',text:'Plain',shape:'rect',group:null,groupPath:[]});
+  assert.deepEqual(facts.groups,[{id:'O',label:'O'},{id:'I',label:'I',parent:'O'}]);
+  assert.deepEqual(facts.groupEdges,[{id:'A->O',source:'A',target:'O',sourceIsGroup:false,targetIsGroup:true,label:null,style:'solid'}]);
+  assert.deepEqual(facts.edges,[]);
+});
+test('the reviewer prompt tells the model a not-checkable shape is never a shape-change finding',()=>{
+  const text=buildReviewerPrompt({facts:buildReviewerFacts(parseNested('flowchart TB\n  A([S])')),audit,geometry,imageLabels:labels7});
+  assert.match(text,/shapeCheck/);assert.match(text,/not-checkable[^.]*never[^.]*shape-change|never[^.]*shape-change[^.]*not-checkable/i);
+});

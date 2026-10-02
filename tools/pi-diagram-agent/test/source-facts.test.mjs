@@ -84,3 +84,23 @@ test('composePrompt: source facts block is appended after the source and labelle
   const p=composePrompt(job,{jobId:'J1',factsText:'<source-facts>\nreference only\n</source-facts>'});
   assert.ok(p.indexOf('</untrusted-mermaid-source>')<p.indexOf('<source-facts>'));
 }));
+
+test('nested groups: the membership path is listed and a matching rendered path is not a conflict',()=>{
+  const m=parseMermaid('flowchart TB\n  subgraph OUTER\n    subgraph INNER\n      A[Deep]\n    end\n    B[Shallow]\n  end\n  C[Free]');
+  const l={canvas:{w:10,h:10},nodes:{},groups:{},renderedGroups:{A:['OUTER','INNER'],B:['OUTER'],C:[]}};
+  const text=formatSourceFacts(m,l);
+  assert.match(text,/^A \| "Deep" \| rect \| neutral \| OUTER>INNER \| OUTER\+INNER \|/m);
+  assert.match(text,/^B \| "Shallow" \| rect \| neutral \| OUTER \| OUTER \|/m);
+  assert.match(text,/^C \| "Free" \| rect \| neutral \| - \| - \|/m);
+  assert.doesNotMatch(text,/conflict/i);
+  const l2=structuredClone(l);l2.renderedGroups.A=['OUTER'];
+  assert.match(formatSourceFacts(m,l2),/conflict.*A: declared OUTER>INNER, rendered OUTER/i);
+});
+test('group-endpoint edges, layout links, markup and a not-checkable note are listed',()=>{
+  const m=parseMermaid('flowchart TB\n  subgraph S\n    A["<b>Bold</b>"]\n  end\n  A --> S\n  S --- B\n  A ~~~ B');
+  const text=formatSourceFacts(m,{canvas:{w:10,h:10},nodes:{},groups:{},renderedGroups:{A:['S']}});
+  assert.match(text,/group edges: .*g1 \| A -> S \(group\)/s);
+  assert.match(text,/layout links \(invisible, not relations\): A ~~~ B/);
+  assert.match(text,/not checkable by the auditor: .*group-endpoint edge/);
+  assert.match(text,/^A \| "Bold" \| rect \|.*markup b/m);
+});

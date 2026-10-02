@@ -86,6 +86,10 @@ test('every fixture matches its expected.json under the package parser',()=>{
     assert.deepEqual(m.edges.map(e=>key({...e,dashed:e.style==='dashed'})).sort(),exp.edges.map(key).sort(),f);
     for(const g of exp.groups)assert.deepEqual(m.nodes.filter(n=>n.group===g.id).map(n=>n.id).sort(),[...g.nodes].sort(),f);
     assert.deepEqual(m.nodes.filter(n=>n.group===null).map(n=>n.id).sort(),[...exp.ungrouped].sort(),f);
+    if(exp.shapes)assert.deepEqual(Object.fromEntries(m.nodes.map(n=>[n.id,n.shape]).filter(([id])=>id in exp.shapes)),exp.shapes,f);
+    if(exp.roles)assert.deepEqual(Object.fromEntries(m.nodes.map(n=>[n.id,n.role]).filter(([id])=>id in exp.roles)),exp.roles,f);
+    if(exp.paths)assert.deepEqual(Object.fromEntries(m.nodes.map(n=>[n.id,n.groupPath])),exp.paths,f);
+    if(exp.thick)assert.deepEqual(m.edges.filter(e=>e.thick).map(e=>`${e.source}>${e.target}`),exp.thick,f);
     assert.ok(m.nodes.length>=4&&m.nodes.length<=8,f);
   }
 });

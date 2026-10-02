@@ -3,6 +3,7 @@ const require=createRequire(import.meta.url);
 
 const q=s=>JSON.stringify(String(s));
 const num=v=>`${Math.round(v*10)/10}`;
+const edgeStyle=e=>`${e.style}${e.thick?' thick':''}${e.arrow&&e.arrow!=='normal'?` arrow:${e.arrow}`:''}${e.bidirectional?' bidirectional':''}`;
 const box=b=>b?[b.x,b.y,b.w,b.h].map(num).join(','):'-';
 
 /** Compact, structured facts for the model: the parser's view of the source plus where the ORIGINAL Mermaid render put each element.
@@ -12,20 +13,28 @@ export function formatSourceFacts(model,layout){
   L.push('<source-facts>');
   L.push(`Reference only — do not copy this layout. These are the parser's facts about the source, plus where the ORIGINAL Mermaid render put each element (canvas ${num(layout.canvas.w)}x${num(layout.canvas.h)}, original SVG units, origin top-left). They save you the census; you still decide every coordinate, port and route of your own diagram.`);
   L.push(`direction: ${model.direction}`);
-  L.push(`groups: ${model.groups.length?model.groups.map(g=>`${g.id} ${q(g.label)}`).join('; '):'none'}`);
+  if(model.title)L.push(`title: ${q(model.title)}`);
+  L.push(`groups: ${model.groups.length?model.groups.map(g=>`${g.id} ${q(g.label)}${g.parent?` in ${g.parent}`:''}${g.direction?` direction ${g.direction}`:''}`).join('; '):'none'}`);
   if(model.groups.length)L.push(`group boxes in the original: ${model.groups.map(g=>`${g.id} ${box(layout.groups?.[g.id])}`).join('; ')}`);
   L.push(`palette roles: ${Object.entries(model.palette).map(([k,p])=>`${k}: fill ${p.fill} stroke ${p.stroke} text ${p.text}`).join('; ')}`);
-  L.push('nodes: id | text | shape | role | declared group | rendered group | original x,y,w,h');
+  L.push('nodes: id | text | shape | role | declared group (outer>inner) | rendered group | original x,y,w,h');
   const conflicts=[];
   for(const n of model.nodes){
     const rendered=layout.renderedGroups?.[n.id]??[];
     const renderedLabel=rendered.length?rendered.join('+'):'-';
-    if((n.group??null)!==(rendered[0]??null)||rendered.length>1)conflicts.push(`${n.id}: declared ${n.group??'none'}, rendered ${renderedLabel==='-'?'none':renderedLabel}`);
-    L.push(`${n.id} | ${q(n.text)} | ${n.shape} | ${n.role} | ${n.group??'-'} | ${renderedLabel} | ${box(layout.nodes?.[n.id])}`);
+    const path=n.groupPath??(n.group?[n.group]:[]);
+    if(path.length!==rendered.length||path.some(g=>!rendered.includes(g)))conflicts.push(`${n.id}: declared ${path.join('>')||'none'}, rendered ${renderedLabel==='-'?'none':rendered.join('>')}`);
+    L.push(`${n.id} | ${q(n.text)} | ${n.shape} | ${n.role} | ${path.join('>')||'-'} | ${renderedLabel} | ${box(layout.nodes?.[n.id])}${n.markup?.length?` | markup ${n.markup.join(',')}`:''}`);
   }
   if(conflicts.length)L.push(`conflict (declared group differs from the original render; the original visible membership is the default): ${conflicts.join('; ')}`);
-  L.push('edges: id | source -> target | label | style');
-  for(const e of model.edges)L.push(`${e.id} | ${e.source} -> ${e.target} | ${e.label?q(e.label):'-'} | ${e.style}`);
+  L.push('edges: id | source -> target | label | style (thick edges and arrowheads other than a normal arrow are marked)');
+  for(const e of model.edges)L.push(`${e.id} | ${e.source} -> ${e.target} | ${e.label?q(e.label):'-'} | ${edgeStyle(e)}`);
+  if(model.groupEdges?.length){
+    L.push('group edges: id | source -> target | label | style (an endpoint marked (group) is a subgraph, not a node)');
+    for(const e of model.groupEdges)L.push(`${e.id} | ${e.source}${e.sourceIsGroup?' (group)':''} -> ${e.target}${e.targetIsGroup?' (group)':''} | ${e.label?q(e.label):'-'} | ${edgeStyle(e)}`);
+  }
+  if(model.layoutLinks?.length)L.push(`layout links (invisible, not relations): ${model.layoutLinks.map(l=>`${l.source} ~~~ ${l.target}`).join('; ')}`);
+  if(model.notCheckable?.length)L.push(`not checkable by the auditor: ${model.notCheckable.map(c=>`${c.construct} (line ${c.line})`).join('; ')}`);
   L.push('</source-facts>');
   return L.join('\n');
 }

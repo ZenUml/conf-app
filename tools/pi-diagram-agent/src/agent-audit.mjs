@@ -272,7 +272,8 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const nodeText=nodeIdentity.status==='PASS'?{status:textMismatches.length?'FAIL':'PASS',evidence:{mismatchedNodeIds:textMismatches,method:'actual text descendants; whitespace-normalized'}}:{status:'NOT-CHECKABLE',evidence:'node identities unavailable or mismatched'};
   const expectedEdges=multiset(model.edges.map(e=>`${e.source}\0${e.target}`)),actualEdges=multiset(drawn.edges.map(e=>`${e.source}\0${e.target}`));
   const malformedEdges=drawn.edges.filter(e=>!['path','polyline','line'].includes(e.tag)||!e.path&&e.tag!=='line'||!e.marker).map(e=>`${e.source}->${e.target}`);
-  const relations=drawn.edges.length?{status:equalSets(expectedEdges,actualEdges)&&malformedEdges.length===0?'PASS':'FAIL',evidence:{expected:model.edges.length,drawn:drawn.edges.length,malformedEdges,method:'visible path/polyline/line elements with source-target bindings'}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
+  const caveats=model.notCheckable??[];
+  const relations=caveats.length?{status:'NOT-CHECKABLE',evidence:{reason:'the source has relations the auditor cannot verify against a drawn directed marker (not checkable)',constructs:[...new Set(caveats.map(c=>c.construct))],lines:caveats.map(c=>c.line)}}:drawn.edges.length?{status:equalSets(expectedEdges,actualEdges)&&malformedEdges.length===0?'PASS':'FAIL',evidence:{expected:model.edges.length,drawn:drawn.edges.length,malformedEdges,method:'visible path/polyline/line elements with source-target bindings'}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
   const relationStyle=relations.status==='PASS'?(()=>{
     const mismatches=[],ambiguous=[];
     for(const drawnEdge of drawn.edges){
@@ -340,7 +341,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       for(const sourceNode of model.nodes){
         const drawnNode=drawn.nodes.find(n=>n.id===sourceNode.id);
         const actual=drawn.groups.filter(g=>contains(g.box,drawnNode.box)).map(g=>g.id);
-        const expected=sourceNode.group?[sourceNode.group]:[];
+        const expected=sourceNode.groupPath??(sourceNode.group?[sourceNode.group]:[]);
         if(actual.length!==expected.length||actual.some(id=>!expected.includes(id)))mismatches.push(sourceNode.id);
       }
       groupMembership={status:mismatches.length?'FAIL':'PASS',evidence:{method:'browser getBBox of actual node drawings inside actual group outline; SVG data-parent ignored',mismatchedNodeIds:mismatches,checkedNodes:model.nodes.length}};
@@ -386,7 +387,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const oldGroups=model.groups.filter(g=>originalDrawn.groups.some(x=>x.id.endsWith(`-${g.id}`)&&contains(x.box,old[0].box))).map(g=>g.id);
         const newGroups=model.groups.filter(g=>drawn.groups.some(x=>x.id===g.id&&contains(x.box,current.box))).map(g=>g.id);
         if(oldGroups.length!==newGroups.length||oldGroups.some(g=>!newGroups.includes(g)))mismatches.push(node.id);
-        const declared=node.group?[node.group]:[];
+        const declared=node.groupPath??(node.group?[node.group]:[]);
         nodeMembership[node.id]={declared,rendered:oldGroups,candidate:newGroups};
         if(oldGroups.length!==declared.length||oldGroups.some(g=>!declared.includes(g)))sourceConflicts.push(node.id);
       }

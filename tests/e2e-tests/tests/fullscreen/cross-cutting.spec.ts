@@ -22,6 +22,7 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
 test.describe('Forge bridge fullscreen modal — cross-cutting chrome', { tag: ['@test:cross-cutting', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@modal', '@sequence'] }, () => {
@@ -71,11 +72,16 @@ test.describe('Forge bridge fullscreen modal — cross-cutting chrome', { tag: [
   });
 
   // cross:5 — Close (header X) — dirty state.
-  test('cross:5 — dirty state: synthetic beforeunload is preventDefault=true', async ({ page }) => {
-    await insertMacro(page, 'sequence');
+  test('cross:5 — dirty draft survives header close', async ({ page }) => {
+    const { editorPage, macroName } = await insertMacro(page, 'sequence');
     await dirtyEditor(page, 'sequence');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result, 'synthetic beforeunload on dirty editor').toBe(true);
+    // view.onClose replaced beforeunload; the draft protects unsaved work.
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
+    await clickHeaderClose(page, 'edit');
+    await expectModalClosed(page, 'edit');
+    await editorPage.clickInsertElements();
+    await editorPage.searchAndSelectMacro('diagram', macroName);
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
   });
 
   // cross:6 — Esc key behavior.

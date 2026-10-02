@@ -10,6 +10,7 @@ import {
   fillEditorTitle,
   clickEditorPublish,
   expectModalClosed,
+  clickHeaderClose,
   modalContentFrame,
 } from '../../helpers/FullscreenModalHelper.js';
 import { insertAndPublishMacro, openEditModal } from '../../helpers/MacroFlowHelper.js';
@@ -17,6 +18,7 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
 test.describe('Sequence — Edit flow', { tag: ['@test:sequence-edit', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@sequence'] }, () => {
@@ -80,11 +82,15 @@ test.describe('Sequence — Edit flow', { tag: ['@test:sequence-edit', '@variant
   });
 
   // sequence-edit:5 — Close dirty.
-  test('sequence-edit:5 — re-open dirty: synthetic beforeunload is true', async ({ page }) => {
+  test('sequence-edit:5 — dirty draft survives header close', async ({ page }) => {
     await seed(page, `seq-dirty-${Date.now()}`);
     await openEditModal(page, 'sequence');
     await dirtyEditor(page, 'sequence');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result).toBe(true);
+    // view.onClose replaced beforeunload; the draft protects unsaved work.
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
+    await clickHeaderClose(page, 'edit');
+    await expectModalClosed(page, 'edit');
+    await openEditModal(page, 'sequence');
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
   });
 });

@@ -167,7 +167,7 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: |
-            yq eval '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))' -i manifest.yml
+            yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))' -i manifest.yml
       - name: Remove the Lite diagrams byline entry from manifest.yml (Diagramly keeps newuser + aiaide)
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         uses: mikefarah/yq@master
@@ -224,8 +224,8 @@ jobs:
         with:
           cmd: |
             yq eval '
-              del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn"))
-              | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "byline-visibility-hourly"))
+              del(.modules.function[] | select(.key == "macroCountSnapshotFn"))
+              | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))
               | del(.modules.scheduledTrigger | select(length == 0))
             ' -i manifest.yml
       # The /new/<type> and /d/<type>/*/* matchers are the byline's

@@ -40,7 +40,7 @@ const BINDING_FIX={
 /** Audit rules that count as early binding checks (reported at every inspect, not only at the gate). */
 export const EARLY_AUDIT_RULES=['nodeIdentity','relations','groups'];
 /** Layout and style rules the auditor measures from the drawn SVG (src/layout-checks.mjs); a FAIL is reported as an early finding at every inspect, not only at the gate. */
-export const EARLY_MEASURED_RULES=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness'];
+export const EARLY_MEASURED_RULES=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness','routeDetour','routeContainerClearance'];
 
 export function earlyFindings({svgText,audit}){
   const out=[];

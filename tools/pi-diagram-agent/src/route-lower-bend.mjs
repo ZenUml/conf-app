@@ -166,6 +166,118 @@ function makeEvaluator(ctx){
   };
 }
 
+
+// ---- grid shortest-route witness (detour check only) ----------------------------------------------------------------------
+// Dijkstra over corners on the Hanan-style grid of obstacle edges (+-2), port anchors, channel mid-lines and 10-unit parallel offsets.
+// State = (grid point, axis of the next segment); a transition is one whole straight segment to another grid point, so segment-length rules
+// (first >= trim, middle >= 2*trim, last >= trim + marker axial + shaft) are enforced exactly. Blocked intervals per grid line come from
+// the same obstacles as the evaluator (conservative: a non-rectangular node blocks its bounding box); the winning path is then re-validated
+// by the full evaluator (crossings, parallel clearance, trunk pin) and discarded unless it is a certain "yes" witness.
+class MinHeap{
+  constructor(){this.a=[]}
+  push(k,v){const a=this.a;a.push([k,v]);let i=a.length-1;while(i>0){const p=(i-1)>>1;if(a[p][0]<=a[i][0])break;[a[p],a[i]]=[a[i],a[p]];i=p}}
+  pop(){const a=this.a,top=a[0],last=a.pop();if(a.length){a[0]=last;let i=0;for(;;){let l=2*i+1,r=l+1,m=i;if(l<a.length&&a[l][0]<a[m][0])m=l;if(r<a.length&&a[r][0]<a[m][0])m=r;if(m===i)break;[a[m],a[i]]=[a[i],a[m]];i=m}}return top}
+  get size(){return this.a.length}
+}
+const MAX_GRID=900;
+function gridWitness({fs0,ftList,valuesFor,ctx,boxes,evaluate,trim,axial,otherSpans,trunkFinals,GS,GT}){
+  const pointsOf=f=>valuesFor(f,false).map(v=>pointOn(f,v).map(round3));
+  const startPorts=fs0.flatMap(f=>pointsOf(f).map(p=>({f,p}))),endPorts=ftList.flatMap(f=>pointsOf(f).map(p=>({f,p})));
+  const xsRaw=[],ysRaw=[];
+  for(const b of boxes){xsRaw.push(b.x-GUARD-1,b.x,b.x+b.w,b.x+b.w+GUARD+1);ysRaw.push(b.y-GUARD-1,b.y,b.y+b.h,b.y+b.h+GUARD+1)}
+  for(const {p} of [...startPorts,...endPorts]){xsRaw.push(p[0]);ysRaw.push(p[1])}
+  const spans=otherSpans.filter(sp=>!trunkFinals.has(sp));
+  for(const sp of spans){const c=sp.fixed;if(sp.axis==='h')ysRaw.push(c-PARALLEL_CLEARANCE,c+PARALLEL_CLEARANCE);else xsRaw.push(c-PARALLEL_CLEARANCE,c+PARALLEL_CLEARANCE)}
+  const gaps=raw=>{const s=sortedUnique(raw),out=[...s];for(let i=0;i+1<s.length;i++)if(s[i+1]-s[i]>=2*(GUARD+1)+2)out.push((s[i]+s[i+1])/2);return sortedUnique(out)};
+  const X=gaps(xsRaw),Y=gaps(ysRaw);
+  if(X.length*Y.length>MAX_GRID*MAX_GRID)return null;
+  const xi=new Map(X.map((v,i)=>[v,i])),yi=new Map(Y.map((v,i)=>[v,i]));
+  const scanCache=new Map();
+  const rects=[...ctx.nodes.map(n=>[n.bbox,GUARD]),...ctx.unrelatedGroups.map(b=>[b,GUARD]),...ctx.headings.map(b=>[b,HEADING_GUARD]),...ctx.labels.map(b=>[b,GUARD])];
+  const rectIv=(r,g,axis,fixed)=>axis==='h'?(fixed>r.y-g&&fixed<r.y+r.h+g?[r.x-g,r.x+r.w+g]:null):(fixed>r.x-g&&fixed<r.x+r.w+g?[r.y-g,r.y+r.h+g]:null);
+  const scan=(axis,fixed)=>{
+    const key=axis+fixed;let iv=scanCache.get(key);if(iv)return iv;
+    iv=[];
+    for(const [r,g] of rects){const x=rectIv(r,g,axis,fixed);if(x)iv.push(x)}
+    for(const sp of spans){
+      if(sp.axis===axis){if(Math.abs(sp.fixed-fixed)<PARALLEL_CLEARANCE-EPS)iv.push([sp.lo,sp.hi])}
+      else if(fixed>sp.lo+EPS&&fixed<sp.hi-EPS)iv.push([sp.fixed-1e-3,sp.fixed+1e-3]);
+    }
+    scanCache.set(key,iv);return iv;
+  };
+  const endIv=(obs,axis,fixed)=>{const x=rectIv(obs.bbox,GUARD,axis,fixed);return x?[x]:[]};
+  const free=(axis,fixed,a,b,extra=[])=>{
+    const lo=Math.min(a,b),hi=Math.max(a,b);
+    for(const [p,q] of scan(axis,fixed))if(Math.min(hi,q)-Math.max(lo,p)>EPS)return false;
+    for(const [p,q] of extra)if(Math.min(hi,q)-Math.max(lo,p)>EPS)return false;
+    return true;
+  };
+  const sObs=ctx.source,tObs=ctx.target;
+  const NX=X.length,NY=Y.length,idx=(i,j,a)=>((i*NY+j)*2+a);
+  const dist=new Float64Array(NX*NY*2).fill(Infinity),prev=new Array(NX*NY*2).fill(null);
+  const heap=new MinHeap();
+  const AX={h:0,v:1};
+  const BEND=1e-3;
+  // first runs
+  for(const {f,p} of startPorts){
+    const axis=f.axis==='x'?'v':'h',dir=f.normal[axis==='v'?1:0],list=axis==='v'?Y:X,fixedCoord=axis==='v'?p[0]:p[1],at=axis==='v'?p[1]:p[0];
+    const extra=endIv(tObs,axis,fixedCoord);
+    let k=list.findIndex(v=>Math.abs(v-at)<1e-6);if(k<0)continue;
+    for(k+=dir;k>=0&&k<list.length;k+=dir){
+      const pos=list[k],L=Math.abs(pos-at);
+      if(!free(axis,fixedCoord,at,pos,extra))break;
+      if(L<trim-EPS)continue;
+      const cx=axis==='v'?fixedCoord:pos,cy=axis==='v'?pos:fixedCoord,i=xi.get(cx),j=yi.get(cy);
+      if(i===undefined||j===undefined)continue;
+      const n=idx(i,j,1-AX[axis]),c=L+BEND;
+      if(c<dist[n]){dist[n]=c;prev[n]={start:p,from:null};heap.push(c,n)}
+    }
+  }
+  // targets by (final axis, line coordinate)
+  const targets=new Map();
+  for(const {f,p} of endPorts){const axis=f.axis==='x'?'v':'h',key=axis+round3(axis==='v'?p[0]:p[1]);if(!targets.has(key))targets.set(key,[]);targets.get(key).push({f,p,axis})}
+  let best=null;
+  while(heap.size){
+    const [d,n]=heap.pop();
+    if(d>dist[n]+1e-9)continue;
+    if(best&&d>=best.cost)break;
+    const a=n&1,cell=n>>1,i=Math.floor(cell/NY),j=cell%NY,axis=a===0?'h':'v',x=X[i],y=Y[j];
+    const fixedCoord=axis==='h'?y:x,at=axis==='h'?x:y,list=axis==='h'?X:Y;
+    // finish: run into a target port
+    for(const t of targets.get(axis+round3(fixedCoord))??[]){
+      const pos=axis==='h'?t.p[0]:t.p[1],dirIn=-t.f.normal[axis==='h'?0:1];
+      if(Math.sign(pos-at)!==dirIn)continue;
+      const L=Math.abs(pos-at);
+      if(L<trim+axial+SHAFT-EPS)continue;
+      if(!free(axis,fixedCoord,at,pos,endIv(sObs,axis,fixedCoord)))continue;
+      const cost=d+L;
+      if(!best||cost<best.cost)best={cost,node:n,end:t.p};
+    }
+    // continue: one more straight segment to another corner
+    let k0=list.findIndex(v=>Math.abs(v-at)<1e-6);
+    for(const dir of [-1,1]){
+      for(let k=k0+dir;k>=0&&k<list.length;k+=dir){
+        const pos=list[k],L=Math.abs(pos-at);
+        if(!free(axis,fixedCoord,at,pos,[...endIv(sObs,axis,fixedCoord),...endIv(tObs,axis,fixedCoord)]))break;
+        if(L<2*trim-EPS)continue;
+        const ni=axis==='h'?xi.get(pos):i,nj=axis==='h'?j:yi.get(pos);
+        if(ni===undefined||nj===undefined)continue;
+        const m=idx(ni,nj,1-a),c=d+L+BEND;
+        if(c<dist[m]){dist[m]=c;prev[m]={from:n};heap.push(c,m)}
+      }
+    }
+  }
+  if(!best)return null;
+  const pts=[];let n=best.node;
+  for(;;){
+    const cell=n>>1;pts.push([X[Math.floor(cell/NY)],Y[cell%NY]]);
+    const pr=prev[n];if(pr.from===null){pts.push(pr.start);break}n=pr.from;
+  }
+  pts.reverse();pts.push(best.end);
+  const level=evaluate(pts);
+  return level===2?{points:pts,length:manhattan(pts)}:{invalid:true};
+}
+
 function values(face,extras,sweep=true){
   const lo=face.ilo,hi=face.ihi,clamp=v=>Math.min(hi,Math.max(lo,v)),out=[clamp(face.mid),lo,hi];
   for(const e of extras)if(Number.isFinite(e))out.push(clamp(e));
@@ -212,6 +324,13 @@ function enumerate(S,T,sFaces,tFaces,valuesFor,maxBends,channelsFor=()=>[]){
 
 const fmt=(c,midDist)=>({faces:{source:c.faces[0].name,target:c.faces[1].name},anchors:{source:c.points[0].map(round3),target:c.points.at(-1).map(round3)},segments:c.points.slice(0,-1).map((p,i)=>[p.map(round3),c.points[i+1].map(round3)]),bends:c.points.length-2,anchorOffsetFromMidpoints:round3(midDist)});
 
+export const DETOUR_RATIO=1.15,DETOUR_EXTRA=300;
+// A drawn route is an avoidable detour when it is longer than BOTH 1.15x and (shortest + 300) of the shortest feasible route.
+// Tuned on calibration (SVG units; the pipeline draws 224x104 nodes, so 300 is about 1.3 node widths): the originally proposed max(1.5x, +200)
+// missed both known canvas-edge detours (route/shortest 1.45 and 1.19, +460 and +552) while +200 alone also flags 1.13x loopbacks of long
+// links (+219) and short links doubled by one forced bend (+160). The 1.15x floor spares long links, the +300 floor spares short ones.
+const detourLimit=best=>Math.max(best*DETOUR_RATIO,best+DETOUR_EXTRA);
+const manhattan=pts=>pts.slice(1).reduce((n,p,i)=>n+Math.abs(p[0]-pts[i][0])+Math.abs(p[1]-pts[i][1]),0);
 const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
 
 /** @param input {nodes,groups,edges,labelBoxes,unboundLabels}
@@ -219,7 +338,7 @@ const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
  * groups: [{id,outline,box,headings:[box]}]
  * edges: [{source,target,tag,path,axialLength,spans,hulls,trunk}]  (spans/hulls from the audit's strict path readers)
  */
-export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]}){
+export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend'}={}){
   const relations=[],violations=[],notCheckable=[];
   const nodeById=new Map();for(const n of nodes)if(!nodeById.has(n.id))nodeById.set(n.id,n);
   const groupProblem=groups.find(g=>!g.box||g.outline!=='rect');
@@ -301,6 +420,32 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
       return sortedUnique(list).sort((a,b)=>Math.abs(a-centre)-Math.abs(b-centre)).slice(0,160);
     };
     const record={edge:id,drawnBends:route.bends,faces:{source:fsD.name,target:ftD.name},...(pinned?{trunk:me.trunk}:{})};
+    if(mode==='detour'){
+      // Avoidable detour: the drawn Manhattan length against the shortest feasible witness (same obstacles, clearances and trunk pin).
+      const drawnLength=manhattan(route.points);
+      const rectGap=(a,b)=>Math.max(a.x-(b.x+b.w),b.x-(a.x+a.w),0)+Math.max(a.y-(b.y+b.h),b.y-(a.y+a.h),0);
+      const lowerBound=rectGap(GS.bbox,GT.bbox);   // no route can be shorter than the Manhattan gap between the two shapes
+      if(!process.env.PI_DIAGRAM_DETOUR_CALIBRATE&&drawnLength<=detourLimit(lowerBound)+EPS){relations.push({edge:id,status:'PASS',drawnLength:round3(drawnLength),lowerBound:round3(lowerBound),basis:'drawn length is within the limit even against the straight Manhattan gap'});continue}
+      const cands=enumerate(GS,GT,fs0,tFacesFor,valuesFor,2,channelsFor).map(c=>({c,level:evaluate(c.points),length:manhattan(c.points)})).filter(x=>x.level>0);
+      const yes=cands.filter(x=>x.level===2).sort((a,b)=>a.length-b.length),maybe=cands.filter(x=>x.level===1).sort((a,b)=>a.length-b.length);
+      let w=yes[0]?{points:yes[0].c.points,length:yes[0].length,c:yes[0].c}:null;
+      if(!w||drawnLength<=detourLimit(w.length)+EPS){
+        // enumerated 0-2 bend routes did not already prove a detour: search every orthogonal route on the obstacle grid
+        const g=gridWitness({fs0,ftList:tFacesFor,valuesFor,ctx,evaluate,trim:route.trim,axial:e.axialLength,otherSpans:ctx.otherSpans,trunkFinals,GS,GT,
+          boxes:[GS.bbox,GT.bbox,...others.map(n=>n.bbox),...groups.map(x=>x.box),...ctx.headings,...labels].filter(Boolean)});
+        if(g&&g.points&&(!w||g.length<w.length-EPS))w={points:g.points,length:g.length,grid:true};
+      }
+      if(!w){nc(maybe.length?'no feasible witness: the only shorter candidates are blocked by unmeasured or uncertain geometry':'no feasible witness route found (0-2 bend candidates and an obstacle-grid search)');continue}
+      const limit=detourLimit(w.length);
+      if(drawnLength>limit+EPS){
+        const pts=w.points;
+        violations.push({...record,kind:'detour',drawnLength:round3(drawnLength),witnessLength:round3(w.length),limit:round3(limit),witnessBends:pts.length-2,witness:{anchors:{source:pts[0].map(round3),target:pts.at(-1).map(round3)},segments:pts.slice(0,-1).map((p,k)=>[p.map(round3),pts[k+1].map(round3)]),bends:pts.length-2}});
+        relations.push({edge:id,status:'FAIL',reason:`drawn length ${round3(drawnLength)} exceeds ${round3(limit)} (the limit over the shortest feasible route, ${round3(w.length)})`});continue;
+      }
+      const uncertain=maybe.find(x=>x.length<w.length&&drawnLength>detourLimit(x.length)+EPS);
+      if(uncertain){nc('a shorter route that would make this a detour is blocked only by unmeasured or uncertain geometry');continue}
+      relations.push({edge:id,status:'PASS',drawnLength:round3(drawnLength),witnessLength:round3(w.length),lowerBound:round3(lowerBound)});continue;
+    }
     // 1) lower-bend witness: straight (0), L (1) and, for drawings with 3+ bends, Z/U (2) candidates with fewer bends than drawn.
     const lower=route.bends>=1?enumerate(GS,GT,fs0,tFacesFor,valuesFor,Math.min(2,route.bends-1),channelsFor):[];
     const scored=lower.map(c=>({c,level:evaluate(c.points),bends:c.points.length-2,dist:midDist(c.faces[0],c.faces[1],c.points[0],c.points.at(-1))}));
@@ -340,6 +485,11 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
     relations.push({edge:id,status:'PASS',drawnBends:route.bends,...(pinned?{trunk:me.trunk}:{})});
   }
   const status=violations.length?'FAIL':notCheckable.length||!edges.length?'NOT-CHECKABLE':'PASS';
+  if(mode==='detour')return {status,evidence:{
+    method:`drawn Manhattan route length versus the shortest feasible witness from the same search as routeLowerBend (straight, L, Z/U candidates over face midpoints, alignment points and a face sweep; kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, long enough for fillet trim + marker + shaft, shared-trunk entry pinned); FAIL when the drawn length exceeds max(${DETOUR_RATIO}x, +${DETOUR_EXTRA} units) of the witness; NOT-CHECKABLE when no feasible witness exists`,
+    thresholds:{ratio:DETOUR_RATIO,extraUnits:DETOUR_EXTRA},relations,violations,notCheckable,
+    checkedRelations:relations.filter(r=>r.status!=='NOT-CHECKABLE').length,
+    limitations:'witness routes have at most 2 bends, so a relationship that can only be routed with 3 or more bends is NOT-CHECKABLE; the drawn route itself is never taken as its own witness; uncertain obstacles block witnesses but never support a PASS'}};
   return {status,evidence:{
     method:'actual SVG path reconstructed into logical bends (fillet = one bend); straight (0) and L (1) candidates, plus Z/U (2) candidates when the drawing has 3+ bends, over face midpoints, projected alignment points, drawn-anchor projections and a 4-unit face sweep, kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, and long enough for fillet trim + marker axial length + 8; ports of non-rectangular nodes are the apexes and flat faces measured on the sampled drawn outline; equal-bend midpoint comparison against enumerated L/straight candidates or anchor-shifted copies of the drawn route; a declared shared-trunk member is searched with its target anchor pinned to the trunk entry so every witness still merges validly',
     relations,violations,notCheckable,

@@ -8,6 +8,9 @@ import {prepareAgentTask} from '../src/agent-led.mjs';
 import {createV2Run} from '../src/orchestrator.mjs';
 import {readRunManifest,verifyManifest} from '../src/manifest.mjs';
 
+const MDIR=fs.mkdtempSync(path.join(os.tmpdir(),'pi-manifests-test-'));
+process.env.PI_DIAGRAM_MANIFEST_DIR=MDIR; // authoritative manifests: never the real ~ in tests
+process.on('exit',()=>fs.rmSync(MDIR,{recursive:true,force:true}));
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const SOURCE='flowchart LR\n  A[Start] -- "ok" --> B[Finish]\n';
 const svg=(marker='',body='')=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><!--${marker}-->${body}</svg>`;
@@ -391,4 +394,20 @@ test('a source the parser cannot read ends as CANDIDATE SOURCE_NOT_PARSEABLE ins
       assert.equal(r.status,'CANDIDATE');assert.match(r.statusReason,/SOURCE_NOT_PARSEABLE/);
     }finally{fs.rmSync(job.runDir,{recursive:true,force:true})}
   }finally{t.cleanup()}
+});
+
+test('authoritative manifest: written outside the run directory (0600, private dir) before any author turn, and final results point to it',async()=>{
+  const t=setup({replies:[rv([])]});
+  try{
+    const auth=path.join(MDIR,path.basename(t.job.runDir)+'.json');
+    assert.ok(fs.existsSync(auth),'written at construction, before the first submit');
+    assert.equal(JSON.parse(fs.readFileSync(auth,'utf8')).status,'RUNNING');
+    assert.equal(fs.statSync(auth).mode&0o777,0o600);assert.equal(fs.statSync(MDIR).mode&0o077,0);
+    assert.ok(!auth.startsWith(t.job.runDir));
+    t.write(svg('v1'));
+    const r=await t.out();
+    assert.equal(r.status,'REVIEWED');assert.equal(r.runManifest,auth);
+    const a=JSON.parse(fs.readFileSync(auth,'utf8'));
+    assert.equal(a.status,'REVIEWED');assert.equal(a.selfHash,t.run.manifestSelfHash());assert.equal(a.selfHash,readRunManifest(t.job.runDir).selfHash);
+  }finally{fs.rmSync(path.join(MDIR,path.basename(t.job.runDir)+'.json'),{force:true});t.cleanup()}
 });

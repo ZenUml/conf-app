@@ -10,12 +10,15 @@ import { acceptRun, safeRunDir } from './src/manifest.mjs';
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
 import { createSpecRenderer, SPEC_TOOL_DESCRIPTION } from './src/spec-tool.mjs';
 
+/** Quote-aware argument split shared by /magic and /magic-accept. */
+const tokenize = (args: string) => args.trim().match(/"[^"]*"|'[^']*'|\S+/g)?.map(value => value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_all, double, single) => double ?? single)) ?? [];
+
 export default function (pi: ExtensionAPI) {
   const jobs = new Map<string, { inspect: () => Promise<unknown>; renderSpec: () => Promise<unknown>; submit?: () => Promise<unknown> }>();
   // v2 (independent reviewer + deterministic gate) is the default; PI_DIAGRAM_V2=0 restores the single-session loop for benchmark comparability.
   const v2On = process.env.PI_DIAGRAM_V2 !== '0';
   const runsByDir = new Map<string, any>();
-  const sealedHashes = new Map<string, string>();
+  const acceptedManifests = new Map<string, any>();
   let activeRun: any = null;
   let activeStarted = false;
   // Opt-in experiments; both default off and leave the script-mode prompt and tool list unchanged.
@@ -24,7 +27,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand('magic', {
     description: 'Start a Pi-led, quality-first Mermaid-to-SVG improvement session',
     handler: async (args, ctx) => {
-      const parts = args.trim().match(/"[^"]*"|'[^']*'|\S+/g)?.map(value => value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_all, double, single) => double ?? single)) ?? [];
+      const parts = tokenize(args);
       const input = parts.shift();
       const options: Record<string, string | boolean> = {};
       const usage = 'Usage: /magic /absolute/source.mmd [--resume /absolute/run-dir] [--reference /absolute/accepted.svg] [--feedback /absolute/review.txt] [--adjudication /absolute/adjudication.json] [--upgrade-rules]';
@@ -94,7 +97,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand('magic-accept', {
     description: 'Human only: validate a REVIEWED /magic run for exactly one SVG hash. Usage: /magic-accept <runDir> <svgSha256>',
     handler: async (args, ctx) => {
-      const [dir, sha, ...rest] = args.trim().split(/\s+/);
+      const [dir, rawSha, ...rest] = tokenize(args);
+      const sha = rawSha?.toLowerCase();
       if (!dir || !sha || rest.length) {
         ctx.ui.notify('Usage: /magic-accept /absolute/run-dir <svg-sha256>', 'warning');
         return;
@@ -102,10 +106,11 @@ export default function (pi: ExtensionAPI) {
       try {
         const real = safeRunDir(dir, { cwd: ctx.cwd });
         const live = runsByDir.get(real);
-        const expected = sealedHashes.get(real) ?? live?.manifestSelfHash?.() ?? null;
-        const result = acceptRun(real, sha, { expectedSelfHash: expected, cwd: ctx.cwd });
-        sealedHashes.set(real, result.selfHash);
-        ctx.ui.notify(`VALIDATED ${result.svgSha256} (recorded in ${real}/run.json by ${result.acceptance.authorisedBy}).${expected ? '' : ' Manifest integrity was verified by its seal only: this process did not orchestrate the run.'}`, 'info');
+        // The in-memory manifest of a run this process orchestrated (or accepted) is the strongest reference; the author cannot reach it.
+        const expected = acceptedManifests.get(real) ?? live?.manifest?.() ?? null;
+        const result = acceptRun(real, sha, { expected, cwd: ctx.cwd });
+        acceptedManifests.set(real, result.manifest);
+        ctx.ui.notify(`VALIDATED ${result.svgSha256} (recorded in ${result.manifestPath}, mirrored to ${real}/run.json, by ${result.acceptance.authorisedBy}).${expected ? '' : ' This process did not orchestrate the run, so the manifest was checked against its authoritative copy outside the run directory, not an in-memory record.'}`, 'info');
       } catch (error) {
         ctx.ui.notify(`Not validated: ${String((error as Error).message)}`, 'warning');
       }

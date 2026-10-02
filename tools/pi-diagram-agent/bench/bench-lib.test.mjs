@@ -172,3 +172,17 @@ test('v2: loadV2Metrics reads a sealed run.json, reports absence and tampering, 
     const bad=await loadV2Metrics(dir,{waitMs:0});assert.equal(bad.v2,null);assert.match(bad.error,/MANIFEST_TAMPERED/);
   }finally{fs.rmSync(dir,{recursive:true,force:true})}
 });
+
+// The orchestrator now writes a RUNNING manifest before the first author turn; the benchmark must wait for the final status.
+test('v2: loadV2Metrics waits past a RUNNING manifest for the final one, and reports RUNNING only at the deadline',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pi-diagram-agent-'));
+  try{
+    writeRunManifest(dir,{...manifest(),status:'RUNNING',statusReason:null,schema:'pi-diagram-run/2'});
+    setTimeout(()=>writeRunManifest(dir,{...manifest(),schema:'pi-diagram-run/2'}),30);
+    const late=await loadV2Metrics(dir,{waitMs:2000,pollMs:10});
+    assert.equal(late.v2.gateStatus,'CANDIDATE');
+    writeRunManifest(dir,{...manifest(),status:'RUNNING',statusReason:null,schema:'pi-diagram-run/2'});
+    const stuck=await loadV2Metrics(dir,{waitMs:0});
+    assert.equal(stuck.v2.gateStatus,'RUNNING');assert.match(stuck.error,/still RUNNING/);
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});

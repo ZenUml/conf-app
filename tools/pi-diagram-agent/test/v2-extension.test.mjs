@@ -6,7 +6,10 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {register} from 'node:module';
-import {writeRunManifest,readRunManifest} from '../src/manifest.mjs';
+import {writeRunManifest,readRunManifest,writeManifests,readAuthoritativeManifest} from '../src/manifest.mjs';
+const MDIR=fs.mkdtempSync(path.join(os.tmpdir(),'pi-manifests-test-'));
+process.env.PI_DIAGRAM_MANIFEST_DIR=MDIR; // authoritative manifests: never the real ~ in tests
+process.on('exit',()=>fs.rmSync(MDIR,{recursive:true,force:true}));
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const stub=name=>pathToFileURL(path.join(here,'stubs',name)).href;
@@ -86,13 +89,15 @@ test('/magic-accept validates a REVIEWED run for exactly its hash; refuses every
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pi-diagram-agent-')),svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>';
     try{
       fs.writeFileSync(path.join(dir,'candidate.svg'),svg);
-      writeRunManifest(dir,{schema:'pi-diagram-run/2',status:'REVIEWED',sourceHash:'s'.repeat(64),finalSvgSha256:hash(svg),acceptance:null});
+      writeManifests(dir,{schema:'pi-diagram-run/2',status:'REVIEWED',sourceHash:'s'.repeat(64),finalSvgSha256:hash(svg),acceptance:null});
       const cmd=f.commands.get('magic-accept');
       await cmd.handler(`${dir}`,f.ctx);assert.match(f.notes.at(-1)[0],/Usage/);
       await cmd.handler(`${dir} ${'0'.repeat(64)}`,f.ctx);assert.equal(f.notes.at(-1)[1],'warning');assert.match(f.notes.at(-1)[0],/HASH_MISMATCH/);
       assert.equal(readRunManifest(dir).status,'REVIEWED');
-      await cmd.handler(`${dir} ${hash(svg)}`,f.ctx);assert.match(f.notes.at(-1)[0],/VALIDATED/);
-      assert.equal(readRunManifest(dir).status,'VALIDATED');
+      // Pasted hashes are often upper-case and surrounded by spaces; the path may be quoted.
+      await cmd.handler(`  "${dir}"   ${hash(svg).toUpperCase()} `,f.ctx);assert.match(f.notes.at(-1)[0],/VALIDATED/);
+      assert.equal(readRunManifest(dir).status,'VALIDATED');assert.equal(readAuthoritativeManifest(dir).status,'VALIDATED');
+      assert.match(f.notes.at(-1)[0],new RegExp(path.basename(dir)+'\\.json'));
       await cmd.handler(`${dir} ${hash(svg)}`,f.ctx);assert.match(f.notes.at(-1)[0],/RUN_NOT_REVIEWED/);
     }finally{fs.rmSync(dir,{recursive:true,force:true})}
   });
@@ -108,6 +113,10 @@ test('/magic-accept: a run.json the author re-sealed as REVIEWED is rejected for
       await f.handlers.get('agent_end')({});
       assert.equal(readRunManifest(s.runDir).status,'CANDIDATE');
       writeRunManifest(s.runDir,{schema:'pi-diagram-run/2',status:'REVIEWED',sourceHash:'x',finalSvgSha256:hash(svg),acceptance:null});
+      await f.commands.get('magic-accept').handler(`${s.runDir} ${hash(svg)}`,f.ctx);
+      assert.equal(f.notes.at(-1)[1],'warning');assert.match(f.notes.at(-1)[0],/MANIFEST_DISAGREES/);
+      // Forging the authoritative copy as well (same OS user) still fails against the live process's in-memory manifest.
+      writeManifests(s.runDir,{schema:'pi-diagram-run/2',status:'REVIEWED',sourceHash:'x',finalSvgSha256:hash(svg),acceptance:null});
       await f.commands.get('magic-accept').handler(`${s.runDir} ${hash(svg)}`,f.ctx);
       assert.equal(f.notes.at(-1)[1],'warning');assert.match(f.notes.at(-1)[0],/MANIFEST_TAMPERED/);
     }finally{s.cleanup()}

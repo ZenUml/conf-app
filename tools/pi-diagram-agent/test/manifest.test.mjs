@@ -8,10 +8,18 @@ import {sealManifest,verifyManifest,writeRunManifest,readRunManifest,acceptRun} 
 
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const SVG='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>';
+// Authoritative manifests go to a private directory outside every run directory (never the real ~ in tests).
+const MDIR=fs.mkdtempSync(path.join(os.tmpdir(),'pi-manifests-test-'));
+process.env.PI_DIAGRAM_MANIFEST_DIR=MDIR;
+process.on('exit',()=>fs.rmSync(MDIR,{recursive:true,force:true}));
+const authPath=dir=>path.join(MDIR,path.basename(dir)+'.json');
+const readAuth=dir=>JSON.parse(fs.readFileSync(authPath(dir),'utf8'));
+// What the orchestrator writes: the authoritative sealed manifest, plus the same bytes as run.json in the run directory.
 function runDir(status='REVIEWED',{svg=SVG,finalHash=hash(SVG)}={}){
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pi-diagram-agent-'));
   fs.writeFileSync(path.join(dir,'candidate.svg'),svg);
   const m=writeRunManifest(dir,{schema:'pi-diagram-run/2',status,sourceHash:'s'.repeat(64),finalSvgSha256:finalHash,acceptance:null});
+  fs.writeFileSync(authPath(dir),JSON.stringify(m,null,2),{mode:0o600});
   return {dir,m};
 }
 
@@ -59,12 +67,36 @@ test('acceptRun refuses: not REVIEWED, wrong hash, candidate changed since revie
     try{assert.throws(()=>acceptRun(other,hash(SVG),{user:'a'}),/UNSAFE_RUN_DIRECTORY/)}finally{fs.rmSync(other,{recursive:true,force:true})}}
 });
 
-test('acceptRun: a run forged by the author (re-sealed) is rejected when the live process knows the real manifest hash',()=>{
+test('acceptRun: a run.json the author re-sealed as REVIEWED is rejected because it disagrees with the authoritative manifest (no live process needed)',()=>{
+  const {dir}=runDir('CANDIDATE');
+  try{
+    writeRunManifest(dir,{schema:'pi-diagram-run/2',status:'REVIEWED',sourceHash:'s'.repeat(64),finalSvgSha256:hash(SVG),acceptance:null});
+    assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a',manifestDir:MDIR}),/MANIFEST_DISAGREES/);
+    assert.equal(readAuth(dir).status,'CANDIDATE');
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});
+
+test('acceptRun: an authoritative manifest re-sealed by the author is rejected when the live process holds the in-memory copy',()=>{
   const {dir,m}=runDir('CANDIDATE');
   try{
-    // The author rewrites run.json as a perfectly sealed REVIEWED manifest.
-    writeRunManifest(dir,{schema:'pi-diagram-run/2',status:'REVIEWED',sourceHash:'s'.repeat(64),finalSvgSha256:hash(SVG),acceptance:null});
-    assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a',expectedSelfHash:m.selfHash}),/MANIFEST_TAMPERED/);
-    assert.equal(acceptRun(dir,hash(SVG),{user:'a'}).status,'VALIDATED'); // without the in-memory record only the seal can be checked (documented limitation)
+    const forged=sealManifest({schema:'pi-diagram-run/2',status:'REVIEWED',sourceHash:'s'.repeat(64),finalSvgSha256:hash(SVG),acceptance:null});
+    fs.writeFileSync(authPath(dir),JSON.stringify(forged));writeRunManifest(dir,forged);
+    assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a',manifestDir:MDIR,expected:m}),/MANIFEST_TAMPERED/);
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});
+
+test('acceptRun: no authoritative manifest -> refused, even with a well-sealed REVIEWED run.json',()=>{
+  const {dir}=runDir();
+  try{fs.rmSync(authPath(dir));assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a',manifestDir:MDIR}),/AUTHORITATIVE_MANIFEST_MISSING/)}
+  finally{fs.rmSync(dir,{recursive:true,force:true})}
+});
+
+test('acceptRun: VALIDATED is written to the authoritative manifest and mirrored to run.json',()=>{
+  const {dir}=runDir();
+  try{
+    const r=acceptRun(dir,hash(SVG),{user:'a',manifestDir:MDIR});
+    assert.equal(readAuth(dir).status,'VALIDATED');assert.equal(readAuth(dir).selfHash,r.selfHash);
+    assert.equal(readRunManifest(dir).selfHash,r.selfHash);
+    assert.equal(fs.statSync(authPath(dir)).mode&0o777,0o600);
   }finally{fs.rmSync(dir,{recursive:true,force:true})}
 });

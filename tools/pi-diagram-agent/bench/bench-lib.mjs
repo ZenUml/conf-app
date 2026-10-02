@@ -67,8 +67,13 @@ export function summariseManifest(m){
 export async function loadV2Metrics(runDir,{waitMs=60_000,pollMs=500}={}){
   const deadline=Date.now()+waitMs;
   for(;;){
-    try{return {v2:summariseManifest(readRunManifest(runDir))}}
-    catch(error){
+    try{
+      const m=readRunManifest(runDir);
+      // A RUNNING manifest is written before the first author turn; keep waiting for the final status until the deadline.
+      if(m.status!=='RUNNING')return {v2:summariseManifest(m)};
+      if(Date.now()>=deadline)return {v2:summariseManifest(m),error:'manifest still RUNNING at the deadline'};
+      await new Promise(r=>setTimeout(r,pollMs));
+    }catch(error){
       const message=String(error?.message??error);
       if(message.startsWith('MANIFEST_TAMPERED'))return {v2:null,error:message};
       if(Date.now()>=deadline)return {v2:null,error:'no run.json'};

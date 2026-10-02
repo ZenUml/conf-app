@@ -12,7 +12,7 @@ import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability
 import {collectGeometry,geometryFindings,geometryForReviewer} from './geometry.mjs';
 import {buildReviewerFacts,buildReviewerPrompt,runReviewer,selectReviewImages,reviewerConfigFromEnv} from './reviewer.mjs';
 import {auditGateReasons,evaluateGate} from './gate.mjs';
-import {writeRunManifest} from './manifest.mjs';
+import {writeManifests,authoritativeManifestPath,manifestDirFromEnv} from './manifest.mjs';
 
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const HARD_FORBIDDEN=['script','foreignObject','iframe','image','href','event-handler']; // these make the renderer/auditor refuse the SVG, so it is never rendered
@@ -53,7 +53,7 @@ const cmpPair=(a,b)=>{const x=pair(a),y=pair(b);return x[0]-y[0]||x[1]-y[1]};
 const cmpTriple=(a,b)=>cmpPair(a,b)||a.minor-b.minor;
 
 /** @param job result of prepareAgentTask  @param opts {deps, reviewerFactory, budgets, now, onRoundEnd} */
-export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null}={}){
+export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null,manifestDir=manifestDirFromEnv()}={}){
   const reviewerCfg=reviewer??reviewerConfigFromEnv();
   const d={...defaultDeps(job),...(deps??{})};
   const B={...DEFAULT_BUDGETS,...(budgets??{})};
@@ -157,7 +157,9 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
         falseBlockCandidates:ledgerSnap.filter(e=>e.falseBlockCandidate).length,unstableFindings:ledgerSnap.filter(e=>e.unstable).length,oscillations:ledgerSnap.reduce((n,e)=>n+e.oscillations,0)+oscillationsInReverted,reverts},
       acceptance:null};
   }
-  function persist(){lastManifest=writeRunManifest(job.runDir,buildManifest());return lastManifest}
+  // Authoritative copy outside the run directory first, then the run.json mirror; lastManifest is the in-memory record /magic-accept compares against.
+  function persist(){lastManifest=writeManifests(job.runDir,buildManifest(),{manifestDir});return lastManifest}
+  const manifestPath=authoritativeManifestPath(job.runDir,{manifestDir});
 
   function finalize(newStatus,reason,{restoreBest=true}={}){
     status=newStatus;statusReason=reason;
@@ -171,7 +173,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const text=newStatus==='REVIEWED'
       ?`REVIEWED: passed the deterministic gate (reviewed, rendered and final SVG hashes are identical). This is not validation: rules ${m.notCheckable.join(', ')||'(none)'} are NOT-CHECKABLE and only a human can accept the result (/magic-accept ${job.runDir} ${m.finalSvgSha256}). Stop and report: candidate path, hash ${m.finalSvgSha256}, status REVIEWED, the NOT-CHECKABLE rules, and any minor residual findings. Do not edit candidate.svg again.`
       :`CANDIDATE: did not pass the gate (${reason}). The best candidate (fewest blocking, then fewest minor findings) is restored at ${job.outputPath}, hash ${m.finalSvgSha256}. Stop and report: candidate path, hash, status CANDIDATE, and the residual findings below. Do not claim it is reviewed or validated.`;
-    finalDetail={status:newStatus,statusReason:reason,round,svgHash:m.finalSvgSha256,candidatePath:job.outputPath,residual,notCheckable:m.notCheckable,runManifest:path.join(job.runDir,'run.json'),message:text,
+    finalDetail={status:newStatus,statusReason:reason,round,svgHash:m.finalSvgSha256,candidatePath:job.outputPath,residual,notCheckable:m.notCheckable,runManifest:manifestPath,message:text,
       findings:newStatus==='CANDIDATE'?formatForAuthor(selectForAuthor(ledger,{max:B.maxBlockingPerRound})).findings:[]};
     finalResult={content:[{type:'text',text:JSON.stringify(finalDetail)}],details:finalDetail};
     return finalResult;
@@ -246,8 +248,10 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     return finalize('CANDIDATE','AUTHOR_STOPPED_AFTER_FEEDBACK: the author ended without a further diagram_submit; the best submitted candidate is returned');
   }
 
+  persist(); // status RUNNING, before the first author turn
+
   return {
-    submit,finalizeWithoutSubmit,
+    submit,finalizeWithoutSubmit,manifest:()=>lastManifest,manifestPath,
     addAuthorUsage:u=>{tokens.author=addUsage(tokens.author,u)},
     state:()=>({status,statusReason,round,rounds,ledger:ledger.snapshot(),oscillationsInReverted,best:best?{hash:best.hash,score:best.score}:null,manifest:lastManifest}),
     manifestSelfHash:()=>lastManifest?.selfHash??null,

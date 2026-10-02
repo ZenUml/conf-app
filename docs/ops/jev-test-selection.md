@@ -1,8 +1,9 @@
 # Jev test selection and daily regression
 
-Selection starts in observation mode. Set the repository Actions variable
-`TEST_SELECTION_MODE` to `observe` (the default) to record Jev proposals while
-retaining conservative execution. `enabled` currently still runs conservatively: the checked-in
+The classifier workflow runs with `--mode observe`, recording Jev proposals
+while retaining conservative execution. `TEST_SELECTION_MODE` is reserved for
+a future activation workflow; setting that repository variable currently has
+no effect. `enabled` currently still runs conservatively: the checked-in
 `v1-uncalibrated` policy cannot narrow execution. Activation requires a reviewed
 catalog evaluation and a subsequent policy/code change establishing category
 recall and useful test-time savings. Three successful examples are not calibration. Review representative
@@ -18,7 +19,7 @@ messages. Regression verdicts are available in the Actions summary and
 - `TYPESAFE_API_KEY`: Actions secret containing the TypeSafe API key. Requests use
   TypeSafe usage billing, separate from an OpenAI subscription. Never publish the
   key or raw request bodies in artifacts. Missing access falls back to full tests.
-- `TEST_SELECTION_MODE`: Actions variable, `observe` or `enabled`.
+- `TEST_SELECTION_MODE`: reserved; not read by the current workflows.
 The following Slack settings are reserved for a later integration; they are not
 required by the current pipelines.
 
@@ -49,9 +50,15 @@ cancel a running full test run.
 
 Daily staging regression runs at 02:00 UTC and supports manual dispatch with a
 fixed target SHA. It deploys and tests the four variants under shared staging
-ownership, with complete live coverage regardless of Jev. Variant failures do
+ownership, with full coverage of the normal staging suites regardless of Jev. Variant failures do
 not stop the remaining transactions. Initially its verdict is advisory for
 production release; existing release validation and ordering remain authoritative.
+
+The on-demand Lite-to-Full converted-page gate uses a separate Playwright config
+and is outside the daily matrix: its `lite2full-render` category currently has
+no scheduled tests. The byline activation experiment is also excluded from the
+normal insert project unless its opt-in environment flag is set. Catalog tags
+describe these ad hoc tests without making them nightly coverage.
 
 ## Deferred notification result and recovery contract
 

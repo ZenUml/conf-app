@@ -72,14 +72,10 @@ export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 
   const modalFrame = modalContentFrame(page, 'fullscreen-viewer');
 
   const exportModal = modalFrame.locator('[data-testid="export-modal"], .export-modal').first();
-  if (await exportModal.isVisible({ timeout: 20_000 }).catch(() => false)) {
-    return { kind: 'export-modal' };
-  }
-  const exportHeading = modalFrame.getByText(/export settings/i).first();
-  if (await exportHeading.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    return { kind: 'export-modal' };
-  }
-  return { kind: 'unknown' };
+  // isVisible is an immediate snapshot; its timeout option does not wait for
+  // the fullscreen viewer's asynchronous export-entry initialization.
+  await expect(exportModal).toBeVisible({ timeout: 20_000 });
+  return { kind: 'export-modal' };
 }
 
 /**

@@ -4,7 +4,7 @@ import { expect } from '@playwright/test';
 const test = createMacroTest('openapi');
 test.describe.configure({ mode: 'serial' });
 
-test.describe('OpenAPI Diagram Tests', { tag: ['@viewer', '@fullscreen', '@openapi'] }, () => {
+test.describe('OpenAPI Diagram Tests', { tag: ['@test:openapi-render', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@viewer', '@fullscreen', '@openapi'] }, () => {
   test('should display OpenAPI diagram correctly', async ({ macroPage }) => {
     const openapiFrame = macroPage.getOpenApiMacroFrame();
     await macroPage.assertMacroContent(openapiFrame, '/users');

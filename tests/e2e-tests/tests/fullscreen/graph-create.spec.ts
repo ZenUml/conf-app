@@ -25,7 +25,7 @@ import {
   dirtyEditor,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Graph (DrawIO) — Create flow', { tag: ['@fullscreen', '@graph'] }, () => {
+test.describe('Graph (DrawIO) — Create flow', { tag: ['@test:graph-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@graph'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('graph'), 'graph not in profile');
 

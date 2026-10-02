@@ -19,7 +19,7 @@ import {
   dirtyEditor,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Sequence — Edit flow', { tag: ['@fullscreen', '@sequence'] }, () => {
+test.describe('Sequence — Edit flow', { tag: ['@test:sequence-edit', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@sequence'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence not in profile');
 

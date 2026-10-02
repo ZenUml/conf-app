@@ -131,7 +131,7 @@ async function expectBannerAbsent(page: Page): Promise<void> {
 // Tests
 // ---------------------------------------------------------------------------
 
-test.describe('CSAT pageBanner', { tag: ['@page-banner', '@fullscreen', '@csat'] }, () => {
+test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '@variant:full', '@variant:diagramly', '@page-banner', '@fullscreen', '@csat'] }, () => {
   test.skip(!testConfig.isForge, 'pageBanner is Forge-only');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');
 

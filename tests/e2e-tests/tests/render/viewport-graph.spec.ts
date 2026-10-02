@@ -18,7 +18,7 @@ import {
 const test = createMacroTest('graph');
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Graph pan/zoom viewport', { tag: ['@viewer', '@viewport', '@graph'] }, () => {
+test.describe('Graph pan/zoom viewport', { tag: ['@test:viewport-graph', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@viewport', '@graph'] }, () => {
   test('offers zoom controls on the rendered macro', async ({ macroPage }) => {
     await expectZoomControls(macroPage.getGraphMacroFrame(), 'Graph');
   });

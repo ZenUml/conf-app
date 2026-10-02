@@ -141,7 +141,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const audit=c?.audit,out=audit?.checks?Object.entries(audit.checks).filter(([,v])=>v?.status==='NOT-CHECKABLE').map(([k])=>k):[];
     return c&&model?[...out,...geometryNotCheckable(c.geometry??null,model)]:out;
   };
-  const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{})});
+  const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.downgradeRefused?{downgradeRefused:f.downgradeRefused}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{})});
 
   const checksWithStatus=(audit,status)=>audit?.checks?Object.entries(audit.checks??{}).filter(([,v])=>v?.status===status).map(([k])=>k):[];
 
@@ -157,6 +157,9 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       findings:c.findings.map(brief),gate:c.gate,counts:score,...extra};
   }
 
+  /** Every reviewer finding the early-check policy demoted, across all rounds: finding key, covering check, evidence pointer. */
+  const downgradeList=()=>rounds.flatMap(r=>(r.findings??[]).filter(f=>f.downgraded).map(f=>({round:r.round,findingKey:f.downgraded.findingKey??f.key,rule:f.rule,from:'blocking',to:'minor',check:f.downgraded.check??f.downgraded.by,evidencePointer:f.downgraded.evidencePointer??null,verified:f.downgraded.verified??null,reason:f.downgraded.reason})));
+
   function buildManifest(){
     const bestC=best;
     const finalMedia=bestC?.render?{full:bestC.render.full?.sha256??null,fit:bestC.render.fullscreen?.sha256??null}:null;
@@ -167,7 +170,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       sourceHash:job.sourceHash,rulesHash:job.rulesHash,rulesHistory:job.manifest?.rulesHistory??[],
       adjudication:job.manifest?.adjudication?{sha256:job.manifest.adjudication.sha256,records:job.manifest.adjudication.records?.length??0}:null,
       finalSvgSha256:bestC?.hash??null,finalMedia,originalSvgHash:bestC?.audit?.originalSvgHash??null,
-      rounds,ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC),
+      rounds,downgrades:downgradeList(),ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC),
       timings:{...timings,totalMs:now()-startedAt},tokens,budgets:{...B},reviewer:{...reviewerCfg},
       metrics:{rounds:rounds.length,gateStatus:status,authorSeconds:timings.authorMs/1000,reviewerSeconds:timings.reviewerMs/1000,
         authorTokens:{input:tokens.author.input??0,output:tokens.author.output??0},reviewerTokens:{input:tokens.reviewer.input??0,output:tokens.reviewer.output??0},
@@ -190,7 +193,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const text=newStatus==='REVIEWED'
       ?`REVIEWED: passed the deterministic gate (reviewed, rendered and final SVG hashes are identical). This is not validation: rules ${m.notCheckable.join(', ')||'(none)'} are NOT-CHECKABLE and only a human can accept the result (/magic-accept ${job.runDir} ${m.finalSvgSha256}). Stop and report: candidate path, hash ${m.finalSvgSha256}, status REVIEWED, the NOT-CHECKABLE rules, and any minor residual findings. Do not edit candidate.svg again.`
       :`CANDIDATE: did not pass the gate (${reason}). The best candidate (fewest blocking, then fewest minor findings) is restored at ${job.outputPath}, hash ${m.finalSvgSha256}. Stop and report: candidate path, hash, status CANDIDATE, and the residual findings below. Do not claim it is reviewed or validated.`;
-    finalDetail={status:newStatus,statusReason:reason,round,svgHash:m.finalSvgSha256,candidatePath:job.outputPath,residual,notCheckable:m.notCheckable,runManifest:manifestPath,message:text,
+    finalDetail={status:newStatus,statusReason:reason,round,svgHash:m.finalSvgSha256,candidatePath:job.outputPath,residual,notCheckable:m.notCheckable,runManifest:manifestPath,message:text,downgrades:m.downgrades,
       findings:newStatus==='CANDIDATE'?formatForAuthor(selectForAuthor(ledger,{max:B.maxBlockingPerRound})).findings:[]};
     finalResult={content:[{type:'text',text:JSON.stringify(finalDetail)}],details:finalDetail};
     return finalResult;
@@ -248,7 +251,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       persist();
       const sel=formatForAuthor(selectForAuthor(ledger,{max:B.maxBlockingPerRound}));
       const body={status:'REVISE',round,maxRounds:B.maxRounds,svgHash:reverted?base.hash:c.hash,...(reverted?{reverted:true,revertedTo:base.hash,discarded:{auditBlocking:score.auditBlocking,reviewBlocking:score.reviewBlocking,note:'your last edit increased blocking findings; candidate.svg was restored to the previous best bytes. Fix the findings below on top of that version.'}}:{}),
-        findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,
+        findings:sel.findings,downgrades:downgradeList(),omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,
         next:`Fix these findings (at most ${B.maxInspectionsPerRound} self-inspections with diagram_inspect this round), then call diagram_submit again. You have ${B.maxRounds-round} submit round(s) left.`};
       result=reply(body);
     }

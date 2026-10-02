@@ -145,6 +145,30 @@ function edgePathHasCurve(svgText,source,target){
   return null;
 }
 
+const SHAPE_WORDS=[[/diamond|decision|gateway|hexagon/i,'decision'],[/cylinder|database|data ?store|datastore|\bstore\b|storage/i,'cylinder'],[/queue/i,'queue'],[/capsule|stadium|terminator|pill/i,'capsule'],[/subroutine/i,'subroutine'],[/circle/i,'circle']];
+/** What a legend finding names: shape classes (by word, or via a node id the auditor mapped), fill colours, dashed connectors. */
+function legendCites(f,ev){
+  const text=[f.evidence?.measured,f.evidence?.threshold,f.suggestion,typeof f.evidence==='string'?f.evidence:'',...f.elements].filter(x=>typeof x==='string').join(' ');
+  const shapes=new Set(),fills=new Set();let dashed=/dash|dotted/i.test(text);
+  for(const [re,cls] of SHAPE_WORDS)if(re.test(text))shapes.add(cls);
+  for(const h of text.match(/#[0-9a-f]{6}\b/gi)??[])fills.add(h.toLowerCase());
+  for(const id of f.elements){
+    const cls=ev.nodeShapes?.[id];if(cls&&cls!=='rect')shapes.add(cls);
+    const fill=ev.nodeFills?.[id];if(fill)fills.add(fill.toLowerCase());
+  }
+  return {shapes,fills,dashed};
+}
+/** Verify each cited item against the auditor's verified swatches. Returns {verified} or {refused:reason}. */
+function verifyLegendCites(f,ev){
+  const c=legendCites(f,ev);
+  if(!c.shapes.size&&!c.fills.size&&!c.dashed)return {refused:'the finding names no shape, fill role or dashed connector, so no verified legend swatch can be matched to it'};
+  const shapes=new Set((ev.legendShapes??[]).map(String)),fills=new Set((ev.legendFills??[]).map(x=>String(x).toLowerCase())),verified=[],missing=[];
+  for(const s of c.shapes)(shapes.has(s)?verified:missing).push('shape:'+s);
+  for(const x of c.fills)(fills.has(x)?verified:missing).push('fill:'+x);
+  if(c.dashed)(ev.legendDashed===true?verified:missing).push('dashed');
+  return missing.length?{refused:`no verified legend swatch for ${missing.join(', ')}`}:{verified};
+}
+
 export function applyCoverage(findings,{audit,svgText,model}){
   return findings.map(f=>{
     const rule=COVERAGE[f.rule];
@@ -153,12 +177,19 @@ export function applyCoverage(findings,{audit,svgText,model}){
     if(check?.status!=='PASS')return f;
     const ev=typeof check.evidence==='object'?check.evidence:{};
     if(rule.count&&!(Number.isFinite(ev[rule.count])&&ev[rule.count]>=rule.total(model)))return f;
+    let verified;
+    if(rule.kind==='global'){
+      const v=verifyLegendCites(f,ev);
+      if(v.refused)return {...f,downgradeRefused:{check:rule.check,reason:v.refused}};
+      verified=v.verified;
+    }
     for(const id of rule.kind==='global'?[]:f.elements){
       if(rule.kind==='node'){if(!model.nodes.some(n=>n.id===id))return f;continue}
       const m=/^(.+)->(.+)$/.exec(id);
       if(!m||!model.edges.some(e=>e.source===m[1]&&e.target===m[2]))return f;
       if(!rule.curveSafe){const curved=edgePathHasCurve(svgText,m[1],m[2]);if(curved!==false)return f}
     }
-    return {...f,severity:'minor',downgraded:{by:rule.check,reason:`auditor ${rule.check} PASS on exactly these elements; method covers this geometry`}};
+    return {...f,severity:'minor',downgraded:{by:rule.check,check:rule.check,findingKey:f.key,evidencePointer:`audit.checks.${rule.check}.evidence`,
+      ...(verified?{verified}:{elements:f.elements}),reason:`auditor ${rule.check} PASS with evidence for the cited item(s); method covers this geometry`}};
   });
 }

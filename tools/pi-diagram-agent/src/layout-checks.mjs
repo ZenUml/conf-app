@@ -449,7 +449,7 @@ export function legendCompleteness(facts){
   if(missingKeys.length)return {status:'FAIL',evidence:{...base,missingKeys,nodeIds:[...new Set(missingKeys.flatMap(k=>k.nodeIds??[]))],...(dashedEdges.length&&missingKeys.some(k=>k.kind==='dashed')?{edge:dashedEdges}:{}),legendFills:L.fills}};
   if(uncheckedShapes.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:`legend swatch geometry cannot be classified, so the key for ${uncheckedShapes.join(', ')} is not verified (a caption alone does not count)`,unclassifiedSwatches:unclassified.length,uncheckedShapes}};
   if(untagged.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'nodes without data-shape: shape keys cannot be fully verified',untaggedNodeIds:untagged}};
-  return {status:'PASS',evidence:{...base,legendFills:L.fills,legendShapes:[...declared].filter(c=>c!=='rect'),legendDashed:!!L.dashed,nodeShapes:Object.fromEntries(nodes.filter(n=>n.shape).map(n=>[n.id,shapeClass(n.shape)])),nodeFills:Object.fromEntries(nodes.filter(n=>n.fill).map(n=>[n.id,n.fill]))}};
+  return {status:'PASS',evidence:{...base,legendFills:L.fills,legendShapes:[...declared].filter(c=>c!=='rect'),legendDashed:!!(L.dashed||L.captions.some(c=>/dash|dotted/i.test(c))),nodeShapes:Object.fromEntries(nodes.filter(n=>n.shape).map(n=>[n.id,shapeClass(n.shape)])),nodeFills:Object.fromEntries(nodes.filter(n=>n.fill).map(n=>[n.id,n.fill]))}};
 }
 
 /** All six checks from one browser fact collection. */

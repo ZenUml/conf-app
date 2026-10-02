@@ -202,6 +202,29 @@ test('downgrade does not apply to a curved edge: finding stands and blocks',asyn
   }finally{t.cleanup()}
 });
 
+const legendAudit=ev=>text=>{const a=setupClean();a.checks.legendCompleteness={status:'PASS',evidence:{method:'m',legendShapes:[],legendFills:[],legendDashed:false,nodeShapes:{},nodeFills:{},...ev}};return a};
+const setupClean=()=>({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'PASS',evidence:{missing:[],extra:[]}},relations:{status:'PASS'},groups:{status:'PASS'},semanticPreservation:{status:'PASS'},
+  textFit:{status:'PASS',evidence:{method:'m',checkedNodes:2,overflows:[]}},routeCrossings:{status:'PASS',evidence:{method:'m',checkedEdges:1,violations:[]}},routeNodeIntrusion:{status:'PASS',evidence:{method:'m',checkedEdges:1}},routeGeometry:{status:'NOT-CHECKABLE',evidence:'x'},visualQuality:{status:'NOT-CHECKABLE',evidence:'x'}}});
+const legendReview=()=>rv([{...rf('legend',['legend']),measured:'the hexagon decision node has no key'}]);
+test('legend downgrade is refused without a verified swatch for the cited shape; the finding blocks and the REVISE result says why',async()=>{
+  const t=setup({auditFor:legendAudit({legendShapes:[]}),replies:[legendReview()]});try{
+    t.write(svg('v1',STRAIGHT));
+    const r=await t.out();
+    assert.equal(r.status,'REVISE');assert.equal(r.findings[0].rule,'legend');assert.equal(r.findings[0].severity,'blocking');
+  }finally{t.cleanup()}
+});
+test('every downgrade is recorded in run.json and in the diagram_submit result',async()=>{
+  const t=setup({auditFor:legendAudit({legendShapes:['decision']}),replies:[legendReview()]});try{
+    t.write(svg('v1',STRAIGHT));
+    const r=await t.out();
+    assert.equal(r.status,'REVIEWED');
+    assert.equal(r.downgrades.length,1);assert.equal(r.downgrades[0].rule,'legend');assert.equal(r.downgrades[0].check,'legendCompleteness');
+    assert.equal(r.downgrades[0].evidencePointer,'audit.checks.legendCompleteness.evidence');assert.ok(r.downgrades[0].findingKey);
+    const m=readRunManifest(t.job.runDir);
+    assert.deepEqual(m.downgrades.map(d=>[d.round,d.findingKey,d.check,d.evidencePointer]),[[1,r.downgrades[0].findingKey,'legendCompleteness','audit.checks.legendCompleteness.evidence']]);
+  }finally{t.cleanup()}
+});
+
 test('reviewer error (malformed twice) is never a pass: CANDIDATE with REVIEWER_ERROR residual',async()=>{
   const t=setup({replies:['nope','still nope']});try{
     t.write(svg('v1'));

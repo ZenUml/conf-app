@@ -158,11 +158,48 @@ test('earlyFindings: a measured layout FAIL is a blocking early finding; NOT-CHE
 });
 test('applyCoverage: a reviewer legend finding is downgraded only when legendCompleteness PASSed; other layout rules are not covered by it',()=>{
   const legend=makeFinding({source:'review',severity:'blocking',rule:'legend',elements:['legend'],evidence:{measured:'m',threshold:'t'},suggestion:'s'});
-  const pass={checks:{legendCompleteness:{status:'PASS',evidence:{method:'fill roles, shapes, dashes versus legend keys'}}}};
+  const pass={checks:{legendCompleteness:{status:'PASS',evidence:{method:'fill roles, shapes, dashes versus legend keys',legendShapes:['decision'],legendFills:['#eaf3ff'],legendDashed:false,nodeShapes:{A:'decision'},nodeFills:{A:'#eaf3ff'}}}}};
+  legend.evidence.measured='the hexagon decision node has no key in the legend';
   const down=applyCoverage([legend],{audit:pass,svgText:svg(''),model});
   assert.equal(down[0].severity,'minor');assert.equal(down[0].downgraded.by,'legendCompleteness');
   const nc=applyCoverage([legend],{audit:{checks:{legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'x'}}}},svgText:svg(''),model});
   assert.equal(nc[0].severity,'blocking');
   const balance=makeFinding({source:'review',severity:'blocking',rule:'balance',elements:['canvas'],evidence:{measured:'m',threshold:'t'},suggestion:'s'});
   assert.equal(applyCoverage([balance],{audit:pass,svgText:svg(''),model})[0].severity,'blocking');
+});
+
+// T13: a downgrade needs auditor evidence for the SPECIFIC item the reviewer cites, and is always recorded.
+const legendF=(measured,elements=['legend'],suggestion='add a key')=>makeFinding({source:'review',severity:'blocking',rule:'legend',elements,evidence:{measured,threshold:'every shape has a key'},suggestion});
+const legPass=ev=>({checks:{legendCompleteness:{status:'PASS',evidence:{method:'m',legendShapes:[],legendFills:[],legendDashed:false,nodeShapes:{},nodeFills:{},...ev}}}});
+test('applyCoverage legend: a cited shape with no verified swatch stays blocking even though legendCompleteness PASSed (T12 false PASS)',()=>{
+  const out=applyCoverage([legendF('Request valid? is a hexagon decision but the legend has only one rectangle swatch')],{audit:legPass({legendShapes:[]}),svgText:svg(''),model});
+  assert.equal(out[0].severity,'blocking');assert.equal(out[0].downgraded,undefined);
+  assert.equal(out[0].downgradeRefused.check,'legendCompleteness');assert.match(out[0].downgradeRefused.reason,/decision/);
+});
+test('applyCoverage legend: a finding that names no shape, fill or dashed role cannot be matched to evidence and stays blocking',()=>{
+  const out=applyCoverage([legendF('legend is incomplete')],{audit:legPass({legendShapes:['decision']}),svgText:svg(''),model});
+  assert.equal(out[0].severity,'blocking');assert.ok(out[0].downgradeRefused);
+});
+test('applyCoverage legend: downgrade only when every cited item has a verified swatch, and the record names the finding key, check and evidence pointer',()=>{
+  const f=legendF('hexagon decision is not keyed; dashed lines unexplained');
+  const bad=applyCoverage([f],{audit:legPass({legendShapes:['decision'],legendDashed:false}),svgText:svg(''),model});
+  assert.equal(bad[0].severity,'blocking');
+  const ok=applyCoverage([f],{audit:legPass({legendShapes:['decision'],legendDashed:true}),svgText:svg(''),model});
+  assert.equal(ok[0].severity,'minor');
+  assert.equal(ok[0].downgraded.by,'legendCompleteness');assert.equal(ok[0].downgraded.check,'legendCompleteness');
+  assert.equal(ok[0].downgraded.findingKey,f.key);
+  assert.equal(ok[0].downgraded.evidencePointer,'audit.checks.legendCompleteness.evidence');
+  assert.deepEqual(ok[0].downgraded.verified.sort(),['dashed','shape:decision']);
+});
+test('applyCoverage legend: a cited node id is matched through the auditor node shape and fill map',()=>{
+  const f=legendF('node C has no key',['C']);
+  const none=applyCoverage([f],{audit:legPass({nodeShapes:{C:'decision'},legendShapes:[]}),svgText:svg(''),model});
+  assert.equal(none[0].severity,'blocking');
+  const yes=applyCoverage([f],{audit:legPass({nodeShapes:{C:'decision'},legendShapes:['decision']}),svgText:svg(''),model});
+  assert.equal(yes[0].severity,'minor');
+});
+test('applyCoverage: every downgrade carries finding key, covering check and evidence pointer',()=>{
+  const out=applyCoverage([rf('route-crossing',['A->B'])],{audit:auditPass('routeCrossings'),svgText:edgesSvg('M0 0 L100 0'),model});
+  assert.equal(out[0].downgraded.check,'routeCrossings');assert.equal(out[0].downgraded.findingKey,out[0].key);
+  assert.equal(out[0].downgraded.evidencePointer,'audit.checks.routeCrossings.evidence');
 });

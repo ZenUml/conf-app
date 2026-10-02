@@ -3,6 +3,14 @@ name: E2E Test
 on:
   workflow_call:
     inputs:
+      planned:
+        type: boolean
+        default: false
+        description: 'Use immutable concrete test plans and evidence (staging only)'
+      ref:
+        type: string
+        default: ''
+        description: 'Immutable source SHA (empty uses caller SHA)'
       app:
         type: string
         required: true
@@ -193,6 +201,53 @@ on:
 # passes '[1]' instead.
 
 jobs:
+  plan:
+    name: plan concrete tests
+    if: inputs.planned
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.shard-matrix }}
+      count: ${{ steps.plan.outputs.shard-count }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+      - run: cd tests/e2e-tests && pnpm install --ignore-workspace --frozen-lockfile
+      - name: Download Jev proposal when present
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: selection
+      - id: plan
+        name: Discover and plan concrete test identities
+        env:
+          APP: ${{ inputs.app }}
+          TEST_SUITE: ${{ inputs.suite }}
+          LEGACY_GREP: ${{ inputs.grep }}
+          MAX_SHARDS: ${{ fromJSON(inputs.shard-matrix)[0] == 1 && inputs.suite == 'render' && 1 || 5 }}
+          SHARD_MATRIX: ${{ inputs.shard-matrix }}
+          ATLASSIAN_OTP: ${{ secrets.otp }}
+          CI: true
+          # Preview modules are imported at collection; preview itself is excluded.
+          LOCAL_DEV_URL: http://127.0.0.1:1
+        run: |
+          MAX_SHARDS=$(node -e 'process.stdout.write(String(JSON.parse(process.env.SHARD_MATRIX).length))')
+          export MAX_SHARDS
+          [ ! -f selection/test-selection.json ] || export SELECTION_PATH="$PWD/selection/test-selection.json"
+          cd tests/e2e-tests
+          node ../../scripts/test-selection/prepare-plan.mjs
+      - uses: actions/upload-artifact@v6
+        with:
+          name: test-plan-${{ inputs.artifact-suffix }}
+          path: tests/e2e-tests/test-plan.json
+          retention-days: 30
+
   # Log in ONCE per run and publish the storageState so every shard reuses it
   # instead of doing its own (flaky) Atlassian OTP login.
   auth:
@@ -213,11 +268,11 @@ jobs:
 
   test:
     name: shard ${{ matrix.shard }}/${{ strategy.job-total }}
-    needs: auth
+    needs: [auth, plan]
     # `auth` is skipped (not failed) when `auth-artifact` is set, and a plain
     # `needs` would skip this job with it. A failed bootstrap still stops the
     # shards: nothing they could do without a session is worth a runner.
-    if: ${{ !cancelled() && (needs.auth.result == 'success' || needs.auth.result == 'skipped') }}
+    if: ${{ !cancelled() && (needs.auth.result == 'success' || needs.auth.result == 'skipped') && (!inputs.planned || (needs.plan.result == 'success' && needs.plan.outputs.count != '0')) }}
     runs-on: ubuntu-latest
     # Reap a wedged shard before a human would (a test stuck at the 300s test
     # timeout x3 retries = ~15 min), while leaving room for the SLOWEST legit
@@ -247,9 +302,11 @@ jobs:
         # literal list, so a single caller can opt out of sharding entirely
         # (pass '[1]') without touching this job or any other caller — see
         # the input's description and the note above `jobs:`.
-        shard: ${{ fromJSON(inputs.shard-matrix) }}
+        shard: ${{ fromJSON(inputs.planned && needs.plan.outputs.matrix || inputs.shard-matrix) }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
@@ -284,7 +341,38 @@ jobs:
         with:
           name: ${{ inputs.auth-artifact || format('auth-state-{0}', inputs.artifact-suffix) }}
           path: ./tests/e2e-tests/
+      - name: Download concrete plan
+        if: inputs.planned
+        uses: actions/download-artifact@v7
+        with:
+          name: test-plan-${{ inputs.artifact-suffix }}
+          path: tests/e2e-tests
+      - name: Execute planned tests
+        if: inputs.planned
+        env:
+          APP: ${{ inputs.app }}
+          CI: true
+          ZENUML_STAGE_USERNAME: ${{ secrets.username }}
+          ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
+          ATLASSIAN_OTP: ${{ secrets.otp }}
+          TEST_EVIDENCE_PATH: test-evidence.json
+          PLAN_SHARD: ${{ matrix.shard }}
+          RETRIES: ${{ inputs.retries }}
+        run: |
+          cd tests/e2e-tests
+          ARGS=()
+          [ -z "$RETRIES" ] || ARGS+=(--retries "$RETRIES")
+          node ../../scripts/test-selection/run.mjs --plan test-plan.json --shard "$PLAN_SHARD" "${ARGS[@]}"
+      - name: Upload concrete shard evidence
+        if: always() && inputs.planned
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-evidence-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
+          path: tests/e2e-tests/test-evidence.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Run tests
+        if: '!inputs.planned'
         run: |
           cd tests/e2e-tests
           # Build the project filter list per suite — same as the per-suite
@@ -336,6 +424,10 @@ jobs:
               # macro-create-edit (x2) — under the default 5 two shards were
               # empty.
               PROJECTS="--project=auth --project=asyncapi"
+              ;;
+            regression)
+              # Complete live suite inventory, excluding local preview and env-gated ad hoc specs.
+              PROJECTS="--project=auth --project=insert --project=feedback --project=syntax-validation --project=fullscreen --project=agent-link --project=asyncapi"
               ;;
             *)
               PROJECTS="--project=auth --project=pages --project=render --project=insert --project=feedback --project=syntax-validation"
@@ -398,6 +490,39 @@ jobs:
   # much on every main run (34602804979: last shard done 12m30s, draft cut
   # 13m12s). `!cancelled()` rather than `always()` so a human cancelling the
   # run also stops this.
+  evidence:
+    name: aggregate concrete evidence
+    needs: [plan, test]
+    if: ${{ !cancelled() && inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: test-plan-${{ inputs.artifact-suffix }}
+          path: evidence
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: test-evidence-${{ inputs.artifact-suffix }}-shard-*
+          path: evidence/shards
+      - name: Verify and aggregate actual coverage
+        run: |
+          REPORTS=$(find evidence/shards -name test-evidence.json -print | sort | paste -sd, -)
+          node scripts/test-selection/evidence.mjs --plan evidence/test-plan.json --reports "$REPORTS" --output test-evidence.json
+          node --input-type=module -e "import {readFileSync} from 'node:fs'; const e=JSON.parse(readFileSync('test-evidence.json')); if(!e.execution_succeeded) process.exit(1);"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: test-evidence-${{ inputs.artifact-suffix }}
+          path: test-evidence.json
+          retention-days: 30
+
   merge-reports:
     name: merge shard reports
     needs: test
@@ -414,6 +539,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5

@@ -1,0 +1,25 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {verifyPlan} from '../../scripts/test-selection/verify-plan.mjs';
+import {describe,it,expect} from 'vitest';
+import {createPlan} from '../../scripts/test-selection/plan.mjs';
+import {createEvidence,canReuse} from '../../scripts/test-selection/evidence.mjs';
+const selection={schema_version:1,tested_tree:'tree',category_version:'v1',policy_version:'v1',mode:'selected',execution_mode:'enabled',categories:{'mermaid-render':{selected:true}}};
+const spec=(id:string,tags:string[],file='a.ts')=>({id,file,title:id,tags,line:1,tests:[{projectName:'render'}]});
+const discovery={config:{projects:[{name:'render',dependencies:['pages']},{name:'pages',dependencies:['auth']},{name:'auth'}]},suites:[{title:'a.ts',specs:[spec('smoke',['@smoke','@test:sequence-render','@variant:lite'],'s.ts'),spec('mermaid',['@test:mermaid-render','@variant:lite']),spec('other',['@test:graph-render','@variant:lite']),spec('async',['@smoke','@test:asyncapi-dashboard-loads','@variant:asyncapi'])]}]};
+const plan=(overrides={})=>createPlan({selection,discovery,variant:'lite',tree:'tree',policy:'v1',shards:8,...overrides});
+describe('concrete test planning',()=>{
+ it('selects behavior plus smoke and transitive auth dependencies',()=>{const p=plan();expect(p.tests.map(t=>t.id)).toEqual(['smoke','mermaid']);expect(p.dependencies).toEqual(['auth','pages']);expect(p.shards.every(s=>s.test_ids.length)).toBe(true);});
+ it('retains auth and pages when actual JSON discovery omits dependency fields',()=>{const p=plan({discovery:{...discovery,config:{projects:[{name:'auth'},{name:'pages'},{name:'render'}]}}});expect(p.dependencies).toEqual(['auth','pages']);expect(p.tests.every(t=>t.dependencies.includes('pages'))).toBe(true);});
+ it('full mode runs applicable inventory',()=>expect(plan({selection:{...selection,mode:'all'}}).tests).toHaveLength(3));
+ it('unknown category and stale tree fail full',()=>{expect(plan({selection:{...selection,categories:{unknown:{selected:true}}}}).coverage).toBe('full');expect(plan({tree:'new'}).coverage).toBe('full');});
+ it('empty selection retains mandatory smoke',()=>expect(plan({selection:{...selection,categories:{}}}).tests.map(t=>t.id)).toEqual(['smoke']));
+ it('variant excludes other inventory',()=>expect(plan({variant:'asyncapi'}).tests.map(t=>t.id)).toEqual(['async']));
+ it('does not split file serial groups',()=>{const p=plan({selection:{...selection,mode:'all'}});expect(p.shards.find(s=>s.test_ids.includes('mermaid'))?.test_ids).toContain('other');});
+ it('rejects missing or unknown variants instead of dropping ambiguous tests',()=>{for(const tags of [['@test:mermaid-render'],['@test:mermaid-render','@variant:unknown']]) expect(()=>plan({discovery:{...discovery,suites:[{title:'a.ts',specs:[spec('bad',tags)]}]}})).toThrow('applicability');});
+ it('verifies fingerprints and the actual clean checkout tree',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'jev-tree-'));const git=(...args:string[])=>execFileSync('git',args,{cwd:dir,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();try{git('init');fs.writeFileSync(path.join(dir,'file'),'one');git('add','file');git('-c','user.name=Test','-c','user.email=test@example.com','commit','-m','fixture');const p=plan({tree:git('rev-parse','HEAD^{tree}')});expect(verifyPlan(p,dir)).toBe(true);expect(()=>verifyPlan({...p,variant:'full'},dir)).toThrow('fingerprint');const stale=plan({tree:'stale'});expect(()=>verifyPlan(stale,dir)).toThrow('checkout tree');fs.writeFileSync(path.join(dir,'file'),'two');expect(()=>verifyPlan(p,dir)).toThrow('modifications');}finally{fs.rmSync(dir,{recursive:true,force:true});}});
+ it('rejects absent smoke',()=>expect(()=>plan({discovery:{...discovery,suites:[]}})).toThrow('smoke'));
+ it('reuse requires complete concrete success and identical fingerprints',()=>{const p=plan();const e=createEvidence(p,p.tests.map(t=>({id:t.id,status:'passed'})));expect(canReuse(e,p)).toBe(true);expect(canReuse(e,{...p,tested_tree:'new'})).toBe(false);expect(createEvidence(p,[]).complete).toBe(false);expect(createEvidence(p,[{id:'smoke',status:'skipped'}]).complete).toBe(false);});
+});

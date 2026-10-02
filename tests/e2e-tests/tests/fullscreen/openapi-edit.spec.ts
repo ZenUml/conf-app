@@ -16,7 +16,7 @@ import {
   readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('OpenAPI / Swagger — Edit flow', { tag: ['@fullscreen', '@openapi'] }, () => {
+test.describe('OpenAPI / Swagger — Edit flow', { tag: ['@test:openapi-edit', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@fullscreen', '@openapi'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('openapi'), 'openapi not in profile');
 

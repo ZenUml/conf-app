@@ -39,7 +39,7 @@ function topLevelBlocks(source: string): Array<{ head: string; tags: string[] | 
     const tagMatch = details?.match(/tag:\s*(\[[^\]]*\]|'[^']*'|"[^"]*")/);
     out.push({
       head: m[0].slice(0, 80),
-      tags: tagMatch ? [...tagMatch[1].matchAll(/@[\w-]+/g)].map((t) => t[0]) : null,
+      tags: tagMatch ? [...tagMatch[1].matchAll(/@[\w:-]+/g)].map((t) => t[0]) : null,
     });
   }
   return out;
@@ -65,6 +65,10 @@ describe('E2E tag taxonomy', () => {
       for (const b of blocks) {
         expect(b.tags, `missing { tag: [...] } on: ${b.head}`).not.toBeNull();
         const tags = b.tags!;
+        if (!rel.startsWith('viewer-preview')) {
+          expect(tags.some(t => t.startsWith('@test:')), 'behavior category').toBe(true);
+          expect(tags.some(t => t.startsWith('@variant:')), 'variant applicability').toBe(true);
+        }
         expect(tags.filter((t) => !ALL_TAGS.includes(t)), `tags not in config/tags.ts on: ${b.head}`).toEqual([]);
         expect(tags.some((t) => (SURFACE_TAGS as readonly string[]).includes(t)), `no surface tag on: ${b.head}`).toBe(true);
         expect(

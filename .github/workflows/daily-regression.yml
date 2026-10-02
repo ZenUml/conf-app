@@ -1,0 +1,119 @@
+name: Daily Full Staging Regression
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      sha:
+        type: string
+        default: ''
+        description: 'Main commit SHA; empty selects current main'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: conf-app-staging
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - id: target
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+        run: |
+          if [ -n "$REQUESTED_SHA" ]; then
+            [[ "$REQUESTED_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
+            git merge-base --is-ancestor "$REQUESTED_SHA" HEAD
+            TARGET_SHA="$REQUESTED_SHA"
+          else
+            TARGET_SHA=$(git rev-parse HEAD)
+          fi
+          echo "sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          export TARGET_SHA
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('regression-target.json',JSON.stringify({sha:process.env.TARGET_SHA}));"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: regression-target-${{ github.run_id }}
+          path: regression-target.json
+          overwrite: true
+          retention-days: 30
+
+  lite:
+    name: Lite
+    needs: target
+    uses: ./.github/workflows/staging-transaction.yml
+    with:
+      variant: lite
+      ref: ${{ needs.target.outputs.sha }}
+    secrets: inherit
+
+  full:
+    name: Full
+    needs: [target, lite]
+    if: ${{ !cancelled() && needs.target.result == 'success' }}
+    uses: ./.github/workflows/staging-transaction.yml
+    with:
+      variant: full
+      ref: ${{ needs.target.outputs.sha }}
+    secrets: inherit
+
+  diagramly:
+    name: Diagramly
+    needs: [target, full]
+    if: ${{ !cancelled() && needs.target.result == 'success' }}
+    uses: ./.github/workflows/staging-transaction.yml
+    with:
+      variant: diagramly
+      ref: ${{ needs.target.outputs.sha }}
+    secrets: inherit
+
+  asyncapi:
+    name: AsyncAPI
+    needs: [target, diagramly]
+    if: ${{ !cancelled() && needs.target.result == 'success' }}
+    uses: ./.github/workflows/staging-transaction.yml
+    with:
+      variant: asyncapi
+      ref: ${{ needs.target.outputs.sha }}
+    secrets: inherit
+
+  summary:
+    needs: [target, lite, full, diagramly, asyncapi]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+      - name: Preserve full regression verdicts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          node scripts/test-selection/regression-results.mjs --run "$RUN_ID" --output regression-results.json
+          echo '## Full staging regression (advisory)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat regression-results.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: regression-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: regression-results.json
+          retention-days: 30

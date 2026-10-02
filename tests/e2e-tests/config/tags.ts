@@ -1,3 +1,4 @@
+import { CATEGORIES, VARIANTS } from './categories.mjs';
 /**
  * The closed tag taxonomy every E2E spec carries (ADR-0007 §5).
  *
@@ -63,4 +64,7 @@ export const CONCERN_TAGS = [
   '@viewport',
 ] as const;
 
-export const ALL_TAGS: readonly string[] = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS];
+export const BEHAVIOR_TAGS: string[] = CATEGORIES.map((c) => `@test:${c.id}`);
+export const VARIANT_TAGS: string[] = VARIANTS.map((v) => `@variant:${v}`);
+
+export const ALL_TAGS: readonly string[] = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS, ...BEHAVIOR_TAGS, ...VARIANT_TAGS];

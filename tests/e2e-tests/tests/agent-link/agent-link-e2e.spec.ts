@@ -102,7 +102,7 @@ async function forceReleaseLock(token: string): Promise<void> {
   }
 }
 
-test.describe('Live Agent Link — end to end', { tag: ['@viewer', '@fullscreen', '@ai'] }, () => {
+test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@fullscreen', '@ai'] }, () => {
   test('agent connects, reads the page + diagram, edits it live, and the macro shows connected', async ({
     page,
   }: {

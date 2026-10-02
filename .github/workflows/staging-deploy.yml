@@ -14,6 +14,12 @@ on:
         description: 'Variant to deploy to staging from this branch'
   workflow_call:
     inputs:
+      ref:
+        required: false
+        type: string
+        default: ''
+        description: 'Immutable source SHA for daily regression'
+
       variant:
         required: true
         type: string
@@ -30,6 +36,13 @@ on:
         required: true
         type: string
         description: 'GitHub environment name'
+
+# workflow_call inherits ownership from the caller. Only the standalone dispatch
+# acquires the shared lock; a nested same-group lock would deadlock.
+concurrency:
+  group: ${{ github.workflow == 'Staging Deploy' && 'conf-app-staging' || format('staging-inner-{0}-{1}', github.run_id, inputs.variant) }}
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   # workflow_dispatch supplies only `variant`; workflow_call supplies all four.
@@ -77,6 +90,8 @@ jobs:
       FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       # The asyncapi and lite builds (pnpm build:asyncapi / build:lite) need
       # vendor/asyncapi-studio checked out before scripts/build-studio.sh runs
       # (lite ships the AsyncAPI macro per ADR-0005). Init explicitly so
@@ -125,6 +140,7 @@ jobs:
           license: ${{ needs.resolve.outputs.license }}
           project: ${{ needs.resolve.outputs.project }}
           environment: stg
+          vite-app-version: ${{ inputs.ref != '' && format('ci-{0}-{1}', inputs.ref, inputs.variant) || '' }}
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
@@ -342,6 +358,11 @@ jobs:
       # in production consumes it), so the ~30s publish hides under the ~90s
       # Forge deploy. Both exit codes are checked; wrangler.toml (left by the
       # wrangler-publish action for this) is removed afterwards either way.
+      - name: Write deployed source identity
+        env:
+          VARIANT: ${{ needs.resolve.outputs.variant }}
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; import {execFileSync} from 'node:child_process'; writeFileSync('dist/__ci-version.json', JSON.stringify({sha:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),variant:process.env.VARIANT}));"
       - name: Deploy to Forge Staging (Pages publish in parallel)
         env:
           MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}

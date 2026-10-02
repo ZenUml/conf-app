@@ -1,3 +1,4 @@
+import {resolveAccessibleTestSpace} from '../../helpers/parentFixture.js';
 import { test as setup, type APIRequestContext } from '@playwright/test';
 import { PageCreator } from '../../utils/page-creator.js';
 import { testConfig } from '../../config/test-config.js';
@@ -120,6 +121,9 @@ setup('create diagram test pages', async ({ page }) => {
     // Navigate to Confluence to ensure authenticated session (page.request
     // below inherits this same authenticated context — no separate
     // credential needed for the liveness GET).
+    if (testConfig.productType === 'asyncapi' && !testConfig.isProd) {
+      await resolveAccessibleTestSpace(page.request, testConfig);
+    }
     await page.goto(testConfig.baseUrl);
 
     for (const macroType of RENDER_MACRO_TYPES) {

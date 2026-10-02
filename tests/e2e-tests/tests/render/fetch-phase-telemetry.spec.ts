@@ -25,7 +25,7 @@ const CASES = [
   { macroType: 'openapi' as const, expectFetchChildren: true },
 ];
 
-test.describe('macro_viewed fetch phase', { tag: ['@viewer', '@analytics'] }, () => {
+test.describe('macro_viewed fetch phase', { tag: ['@test:fetch-phase-telemetry', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@analytics'] }, () => {
   for (const { macroType, expectFetchChildren } of CASES) {
     test(`${macroType} reports fetch_ms for a real viewer render`, async ({ page, context }) => {
       test.skip(

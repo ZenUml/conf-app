@@ -1,0 +1,62 @@
+name: Publish Test Selection Labels
+
+on:
+  workflow_run:
+    workflows: ['Build, Test and Draft Release']
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  labels:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Never execute code from the source PR with a label-writing token.
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+      - name: Check trusted publisher availability
+        id: publisher
+        run: |
+          if [ -f scripts/test-selection/labels.mjs ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Trusted default branch predates label publisher; proposal remains available in source run artifacts." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Download immutable proposal
+        id: proposal
+        continue-on-error: true
+        if: steps.publisher.outputs.available == 'true'
+        uses: actions/download-artifact@v7
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: test-selection-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: selection
+      - name: Publish current-head category labels
+        if: steps.publisher.outputs.available == 'true' && steps.proposal.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ASSOCIATED_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+        run: |
+          PR=$(node -e 'const p=JSON.parse(process.env.ASSOCIATED_PRS); if(p.length===1)process.stdout.write(String(p[0].number))')
+          if [ -z "$PR" ]; then
+            echo 'No unambiguous source PR association; labels not published.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node scripts/test-selection/labels.mjs --selection selection/test-selection.json --repo "$REPO" --pr "$PR"
+      - name: Explain missing proposal
+        if: steps.publisher.outputs.available == 'true' && steps.proposal.outcome != 'success'
+        run: echo 'Source run has no selection artifact; existing labels preserved.' >> "$GITHUB_STEP_SUMMARY"

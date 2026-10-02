@@ -33,7 +33,10 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   if (tests.some(t => !t.tags.some(x => x.startsWith('@test:') && known.has(x.slice(6))) || !t.tags.some(x => VARIANTS.includes(x.replace('@variant:', ''))))) reasons.push('incomplete-inventory');
   const applicable = tests.filter(t => t.tags.includes(`@variant:${variant}`));
   if (['all','insert','asyncapi'].includes(scope) && !applicable.some(t => t.tags.includes('@smoke'))) throw new Error(`No smoke tests for ${variant}`);
-  const full = reasons.length > 0 || selection.mode === 'all' || selection.execution_mode !== 'enabled';
+  // Guarded activation already resolved the union into discovery's grep.
+  // Raw Jev categories must never re-filter away the deterministic floor
+  // (or the deliberately widened auxiliary scope).
+  const full = policy === 'v2-guarded-uncalibrated' || reasons.length > 0 || selection.mode === 'all' || selection.execution_mode !== 'enabled';
   const selected = applicable.filter(t => full || t.tags.includes('@smoke') || [...changedFiles, ...(selection?.changed_tests ?? [])].some(f => f.endsWith(t.file)) || t.tags.some(tag => tag.startsWith('@test:') && selection.categories?.[tag.slice(6)]?.selected));
   // File groups conservatively retain serial suites and file-scoped shared state.
   if (!selected.length) throw new Error('Empty test plan');

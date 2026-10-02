@@ -36,9 +36,12 @@ catch (error) {
 }
 const tree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim();
 let selection = null;
-if (process.env.SELECTION_PATH) selection = JSON.parse(readFileSync(process.env.SELECTION_PATH));
-// Observation proposal is never an execution permission. The legacy-filtered
-// discovery remains the authority until a calibrated policy is shipped.
+if (process.env.SELECTION_PATH) {
+  try { selection = JSON.parse(readFileSync(process.env.SELECTION_PATH)); }
+  catch { /* Invalid or missing raw artifacts cannot narrow discovery. */ }
+}
+// Resolved union grep is the execution authority for guarded activation.
+// createPlan retains every discovered test; raw Jev must not narrow it again.
 const plan = createPlan({ selection, discovery, variant, tree, policy: POLICY_VERSION,
   shards: Number(process.env.MAX_SHARDS || 1), scope: suite === 'regression' ? 'all' : suite === 'regression-render' ? 'render' : suite, legacyGrep });
 writeFileSync('test-plan.json', JSON.stringify(plan, null, 2));

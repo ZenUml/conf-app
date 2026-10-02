@@ -1,14 +1,28 @@
 # Jev test selection and daily regression
 
-The classifier workflow runs with `--mode observe`, recording Jev proposals
-while retaining conservative execution. `TEST_SELECTION_MODE` is reserved for
-a future activation workflow; setting that repository variable currently has
-no effect. `enabled` currently still runs conservatively: the checked-in
-`v1-uncalibrated` policy cannot narrow execution. Activation requires a reviewed
-catalog evaluation and a subsequent policy/code change establishing category
-recall and useful test-time savings. Three successful examples are not calibration. Review representative
-narrow, multi-area, shared infrastructure, renamed and deleted changes; record
-missed categories, selected concrete tests and observed durations before activation.
+PR classification now requests `--mode enabled`. Successful trusted decisions
+run **smoke + Jev-selected categories + the existing deterministic mapped tags**.
+PR discovery covers all normal live Lite projects plus the render project, so
+selected categories outside the old insert/render/graph scopes can run too.
+Variant applicability still applies: Full-only tests run in the Full main/daily
+lanes, not against the Lite PR deployment. The graph-only PR lane is skipped
+because its tests are included in the expanded live lane; main keeps its layout.
+The deterministic tags remain a coverage floor: Jev cannot remove tests that the
+previous selector would run. Shared or unmapped changes, human `test:all`, API
+failure, missing artifacts, malformed decisions, or stale tree/policy metadata
+run the full normal suite. Main and daily regression also retain full coverage.
+
+The policy is `v2-guarded-uncalibrated`. Category recall and time savings have not
+been established; the 0.1 probability threshold is provisional. The floor makes
+activation conservative and may limit savings. Removing that floor requires a
+reviewed catalog evaluation across representative narrow, multi-area, shared,
+renamed and deleted changes, including missed categories, concrete test IDs and
+observed durations. Three successful examples are not calibration.
+
+Classifier and resolver code execute from the trusted PR base. The activation
+PR itself therefore runs full coverage; subsequent PRs use the new policy.
+`TEST_SELECTION_MODE` is reserved and has no effect. To restore observation,
+change the workflow classifier mode to `observe`; the resolver then fails full.
 
 Slack integration is deferred at the user’s request. No workflow sends Slack
 messages. Regression verdicts are available in the Actions summary and

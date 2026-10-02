@@ -259,3 +259,40 @@ test('a spec with groups passes group identity and membership in the audit',
     const result=await auditAgentSvg(src,Buffer.from(r.svg));
     for(const id of ['groups','groupMembership','textFit','labelClearance'])assert.equal(result.checks[id].status,'PASS',`${id}: ${JSON.stringify(result.checks[id].evidence)}`);
   });
+
+// ---- shared trunk (rule 10): optional edge.trunk, same contract as the auditor ----
+const trunkSpec=(t1,t2,e2End=[500,142])=>({
+  canvas:{w:700,h:300,title:'Synthetic trunk',desc:'Two synthetic sources converging.'},
+  palette:{step:{fill:'#e8f1fb',stroke:'#2563a8',text:'#12355b',meaning:'Process step'}},
+  nodes:[{id:'S1',shape:'rect',rect:[20,20,120,64],text:'One',role:'step'},{id:'S2',shape:'rect',rect:[20,200,120,64],text:'Two',role:'step'},{id:'T',shape:'rect',rect:[500,110,120,64],text:'Target',role:'step'}],
+  edges:[{id:'e1',source:'S1',target:'T',...(t1?{trunk:t1}:{}),points:[[140,52],[300,52],[300,142],[500,142]]},
+         {id:'e2',source:'S2',target:'T',...(t2?{trunk:t2}:{}),points:[[140,232],[300,232],[300,142],e2End]}],
+  legend:{x:20,y:120,entries:[{kind:'node',role:'step',label:'Process step'}]}});
+
+test('undeclared coincident final legs still raise parallel-clearance',()=>{
+  const r=renderSpec(trunkSpec());
+  assert.equal(find(r,'parallel-clearance').length,1,JSON.stringify(r.findings));
+});
+
+test('a declared trunk with one id on same-target connectors is accepted and tagged in the SVG',()=>{
+  const r=renderSpec(trunkSpec('t1','t1'));
+  assert.equal(find(r,'parallel-clearance').length,0,JSON.stringify(r.findings));
+  assert.equal((r.svg.match(/data-shared-trunk="t1"/g)||[]).length,2);
+});
+
+test('mismatched trunk ids or a missing id still raise parallel-clearance',()=>{
+  assert.equal(find(renderSpec(trunkSpec('t1','t2')),'parallel-clearance').length,1);
+  assert.equal(find(renderSpec(trunkSpec('t1',null)),'parallel-clearance').length,1);
+});
+
+test('trunk must be a non-empty string',()=>{
+  const s=trunkSpec('t1','t1');s.edges[0].trunk=5;
+  assert.throws(()=>renderSpec(s),SpecError);
+});
+
+test('a spec-rendered trunk passes the independent auditor',{skip:!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE},async()=>{
+  const r=renderSpec(trunkSpec('t1','t1'));
+  const a=await auditAgentSvg('flowchart LR\n S1[One] --> T[Target]\n S2[Two] --> T\n',r.svg);
+  assert.equal(a.checks.routePairClearance.status,'PASS',JSON.stringify(a.checks.routePairClearance.evidence));
+  assert.equal(a.checks.routePairClearance.evidence.trunks[0].id,'t1');
+});

@@ -2,6 +2,8 @@
 // what the spec says and measures it against the Diagram Rules. It NEVER repairs, moves or reroutes anything and NEVER
 // throws on a rule violation: violations come back as findings. Only malformed JSON or schema errors throw (SpecError).
 
+import { isAcceptedTrunkOverlap } from './trunk.mjs';
+
 export class SpecError extends Error {
   constructor(errors) {
     super(errors.map(e => `${e.path}: ${e.message}`).join('\n'));
@@ -66,7 +68,7 @@ const KEYS = {
   role: ['fill', 'stroke', 'text', 'meaning'],
   group: ['id', 'label', 'rect', 'role', 'subtitle'],
   node: ['id', 'group', 'shape', 'rect', 'centre', 'tier', 'text', 'role', 'align', 'font', 'variant', 'labelBox'],
-  edge: ['id', 'source', 'target', 'points', 'dashed', 'role', 'label'],
+  edge: ['id', 'source', 'target', 'points', 'dashed', 'role', 'label', 'trunk'],
   label: ['text', 'x', 'y'],
   legend: ['x', 'y', 'direction', 'gap', 'entries'],
   entry: ['kind', 'role', 'label', 'shape', 'dashed', 'x', 'y', 'length'],
@@ -152,6 +154,7 @@ export function validateSpec(spec) {
         else e.points.forEach((pt, j) => point(`${p}.points[${j}]`, pt));
         if (e.dashed !== undefined && typeof e.dashed !== 'boolean') E(`${p}.dashed`, 'must be true or false');
         roleCheck(`${p}.role`, e.role);
+        if (e.trunk !== undefined) str(`${p}.trunk`, e.trunk);
         if (e.label !== undefined) {
           if (!isObj(e.label)) E(`${p}.label`, 'must be {text, x, y} (x, y = centre of the label pill)');
           else { keys(`${p}.label`, e.label, KEYS.label); str(`${p}.label.text`, e.label.text); num(`${p}.label.x`, e.label.x); num(`${p}.label.y`, e.label.y); }
@@ -292,7 +295,7 @@ function analyseRoute(raw, add, id) {
     const a = out[i], b = out[i + 1], s = Math.sign(ax === 'h' ? b[0] - a[0] : b[1] - a[1]);
     const start = (ax === 'h' ? a[0] : a[1]) + s * trim[i], end = (ax === 'h' ? b[0] : b[1]) - s * trim[i + 1];
     const lo = Math.min(start, end), hi = Math.max(start, end);
-    if (hi - lo > 1e-6) spans.push({axis: ax, fixed: ax === 'h' ? a[1] : a[0], lo, hi});
+    if (hi - lo > 1e-6) spans.push({axis: ax, fixed: ax === 'h' ? a[1] : a[0], lo, hi, end});
   }
   return {pts: out, d, spans, bends: isBend.filter(Boolean).length, lastTrim: trim[n - 2] ?? 0, legAxis, len};
 }
@@ -383,7 +386,7 @@ export function renderSpec(input, {model = null} = {}) {
     const id = e.id ?? `e${i + 1}`, source = byId.get(e.source), target = byId.get(e.target);
     const roleName = e.role ?? target.roleName, role = roles[roleName];
     const route = analyseRoute(e.points, add, id);
-    return {id, e, source, target, role, roleName, route, raw: e.points};
+    return {id, e, source, target, role, roleName, route, raw: e.points, trunk: e.trunk ?? null};
   });
 
   // R1/R7/R13: endpoints, ports, final leg
@@ -412,7 +415,7 @@ export function renderSpec(input, {model = null} = {}) {
     for (const a of A.route.spans) for (const b of B.route.spans) {
       if (a.axis === b.axis) {
         const overlap = Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo), sep = Math.abs(a.fixed - b.fixed);
-        if (overlap > 1e-6 && sep < PARALLEL - 1e-6) add('parallel-clearance', 'blocking', [A.id, B.id], regionOf([[a.axis === 'h' ? Math.max(a.lo, b.lo) : a.fixed, a.axis === 'h' ? a.fixed : Math.max(a.lo, b.lo)], [a.axis === 'h' ? Math.min(a.hi, b.hi) : b.fixed, a.axis === 'h' ? b.fixed : Math.min(a.hi, b.hi)]]), `${a.axis === 'h' ? 'horizontal' : 'vertical'} spans ${r1(sep)} apart over ${r1(overlap)} units${sep < 1e-6 ? ' (coincident; the auditor exempts no shared trunk)' : ''}`, `centreline separation >= ${PARALLEL} (rule 14)`, `move one span by ${r1(PARALLEL - sep)} or more, or route them apart`);
+        if (overlap > 1e-6 && sep < PARALLEL - 1e-6 && !isAcceptedTrunkOverlap({trunk: A.trunk, target: A.target.id, spans: A.route.spans}, {trunk: B.trunk, target: B.target.id, spans: B.route.spans}, a, b)) add('parallel-clearance', 'blocking', [A.id, B.id], regionOf([[a.axis === 'h' ? Math.max(a.lo, b.lo) : a.fixed, a.axis === 'h' ? a.fixed : Math.max(a.lo, b.lo)], [a.axis === 'h' ? Math.min(a.hi, b.hi) : b.fixed, a.axis === 'h' ? b.fixed : Math.min(a.hi, b.hi)]]), `${a.axis === 'h' ? 'horizontal' : 'vertical'} spans ${r1(sep)} apart over ${r1(overlap)} units${sep < 1e-6 ? ' (coincident; only a final portion shared at one target by connectors with the same trunk id is exempt)' : ''}`, `centreline separation >= ${PARALLEL} (rule 14)`, `move one span by ${r1(PARALLEL - sep)} or more, or route them apart`);
       } else {
         const h = a.axis === 'h' ? a : b, v = a.axis === 'v' ? a : b;
         if (v.fixed > h.lo + 1e-6 && v.fixed < h.hi - 1e-6 && h.fixed > v.lo + 1e-6 && h.fixed < v.hi - 1e-6) add('crossing', 'blocking', [A.id, B.id], regionOf([[v.fixed - 5, h.fixed - 5], [v.fixed + 5, h.fixed + 5]]), `${A.id} and ${B.id} cross at (${r1(v.fixed)}, ${r1(h.fixed)})`, 'no crossings (rule 12)', 'reroute one of them around the other, or reorder ports/nodes to remove the crossing');
@@ -516,7 +519,7 @@ export function renderSpec(input, {model = null} = {}) {
   const colours = new Set();
   for (const e of edges) if (e.route) {
     colours.add(e.role.stroke);
-    parts.push(`<path id="${esc(e.id)}" data-edge="${esc(e.id)}" data-source="${esc(e.source.id)}" data-target="${esc(e.target.id)}" d="${e.route.d}" fill="none" stroke="${e.role.stroke}" stroke-width="1"${e.e.dashed ? ` stroke-dasharray="${DASH}"` : ''} marker-end="url(#arrow-${hex6(e.role.stroke)})"/>`);
+    parts.push(`<path id="${esc(e.id)}" data-edge="${esc(e.id)}" data-source="${esc(e.source.id)}" data-target="${esc(e.target.id)}"${e.trunk ? ` data-shared-trunk="${esc(e.trunk)}"` : ''} d="${e.route.d}" fill="none" stroke="${e.role.stroke}" stroke-width="1"${e.e.dashed ? ` stroke-dasharray="${DASH}"` : ''} marker-end="url(#arrow-${hex6(e.role.stroke)})"/>`);
   }
   for (const n of nodes) parts.push(nodeSvg(n));
   for (const p of pills) parts.push(`<g data-edge-label-source="${esc(p.edge.source.id)}" data-edge-label-target="${esc(p.edge.target.id)}"><rect x="${n3(p.box[0])}" y="${n3(p.box[1])}" width="${p.w}" height="${p.h}" rx="${p.h / 2}" fill="${p.bg}"/><text x="${n3(p.box[0] + p.w / 2)}" y="${n3(p.box[1] + p.h / 2)}" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="400" fill="${p.edge.role.text}">${esc(p.text)}</text></g>`);

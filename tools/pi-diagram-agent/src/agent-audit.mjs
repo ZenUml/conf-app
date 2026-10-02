@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
 import {parseMermaid} from './parser.mjs';
+import {isAcceptedTrunkOverlap,summariseTrunks,unrecognisedTrunkAttributes,TRUNK_HINT} from './trunk.mjs';
 
 const require=createRequire(import.meta.url);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -31,7 +32,7 @@ function actualStraightSpans(d){
       if(!axis)return null;
       const lo=axis==='h'?Math.min(point[0],next[0]):Math.min(point[1],next[1]);
       const hi=axis==='h'?Math.max(point[0],next[0]):Math.max(point[1],next[1]);
-      if(hi-lo>eps)spans.push({axis,fixed:axis==='h'?point[1]:point[0],lo,hi,length:hi-lo});
+      if(hi-lo>eps)spans.push({axis,fixed:axis==='h'?point[1]:point[0],lo,hi,length:hi-lo,end:axis==='h'?next[0]:next[1]});
     }
     point=next;
   }
@@ -105,7 +106,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const headingBoxes=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].flatMap(group=>[...group.querySelectorAll(':scope > text')].map(text=>({groupId:group.getAttribute('data-group')??group.getAttribute('data-container-id')??group.id?.slice(6),box:box(text)})));
       const edges=[...root.querySelectorAll('[data-source][data-target]')].map(el=>{
         const source=el.getAttribute('data-source'),target=el.getAttribute('data-target');
-        const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end')};
+        const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end'),trunk:el.getAttribute('data-shared-trunk'),trunkLikeAttributes:[...el.attributes].filter(x=>/bus|trunk|merge|junction|shared/i.test(x.name)).map(x=>({name:x.name,value:x.value}))};
         const dash=getComputedStyle(el).strokeDasharray;
         result.dashed=dash!=='none'&&(dash.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).some(value=>Number(value)>0);
         const markerId=/^url\(#([^()]+)\)$/.exec(result.marker??'')?.[1];
@@ -296,16 +297,20 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   })():{status:'NOT-CHECKABLE',evidence:'actual path or group heading bounds unavailable'};
   const routeSpans=drawn.edges.map(e=>({edge:`${e.source}->${e.target}`,spans:actualStraightSpans(e.path)}));
   const routePairClearance=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{
-    const violations=[];
-    for(let i=0;i<routeSpans.length;i++)for(let j=i+1;j<routeSpans.length;j++){
-      for(const a of routeSpans[i].spans)for(const b of routeSpans[j].spans){
+    const violations=[],accepted=[];
+    const routes=routeSpans.map((e,i)=>({edge:e.edge,spans:e.spans,lastCommand:e.spans.lastCommand,trunk:drawn.edges[i].trunk||null,target:drawn.edges[i].target}));
+    for(let i=0;i<routes.length;i++)for(let j=i+1;j<routes.length;j++){
+      for(const a of routes[i].spans)for(const b of routes[j].spans){
         if(a.axis!==b.axis)continue;
         const overlap=Math.min(a.hi,b.hi)-Math.max(a.lo,b.lo);
         const separation=Math.abs(a.fixed-b.fixed);
-        if(overlap>eps&&separation<10-eps)violations.push({edgeA:routeSpans[i].edge,edgeB:routeSpans[j].edge,separation,overlap});
+        if(!(overlap>eps&&separation<10-eps))continue;
+        if(isAcceptedTrunkOverlap(routes[i],routes[j],a,b)){accepted.push({id:routes[i].trunk,target:routes[i].target,edgeA:routes[i].edge,edgeB:routes[j].edge,overlap});continue}
+        violations.push({edgeA:routes[i].edge,edgeB:routes[j].edge,separation,overlap});
       }
     }
-    return {status:violations.length?'FAIL':'PASS',evidence:{method:'strict M/L/Q/A parser of actual SVG d; every drawn straight centerline span pair after curve trims; no bus exception inferred',violations,checkedEdges:routeSpans.length}};
+    const unrecognisedTrunkAttributes_=drawn.edges.flatMap(e=>unrecognisedTrunkAttributes(e.trunkLikeAttributes??[]).map(a=>({edge:`${e.source}->${e.target}`,attribute:a.name,value:a.value})));
+    return {status:violations.length?'FAIL':'PASS',evidence:{method:'strict M/L/Q/A parser of actual SVG d; every drawn straight centerline span pair after curve trims; coincident or sub-10 spans are accepted only as the final portion shared at one target by connectors carrying the same data-shared-trunk id; no other bus exception inferred',violations,trunks:summariseTrunks(accepted),unrecognisedTrunkAttributes:unrecognisedTrunkAttributes_,...(unrecognisedTrunkAttributes_.length?{hint:TRUNK_HINT}:{}),checkedEdges:routeSpans.length}};
   })():{status:'NOT-CHECKABLE',evidence:'edge drawing uses unsupported SVG path grammar or exact relation binding unavailable'};
   const routeCrossings=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{
     const violations=[];

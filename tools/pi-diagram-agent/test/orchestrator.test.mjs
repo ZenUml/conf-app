@@ -318,7 +318,7 @@ test('manifest: hashes, per-round results, per-role timings and tokens, NOT-CHEC
     assert.equal(m.timings.reviewerMs,1400);assert.equal(m.timings.orchestratorMs,300);assert.equal(m.timings.authorMs,7000);
     assert.equal(m.tokens.author.input,110);assert.equal(m.tokens.author.output,55);assert.equal(m.tokens.reviewer.input,20);assert.equal(m.tokens.reviewer.output,10);
     assert.ok(m.notCheckable.includes('routeGeometry')&&m.notCheckable.includes('visualQuality'));
-    assert.deepEqual(m.reviewer,{images:'focus',thinking:'medium',prompt:'skip'});assert.equal(m.rounds[0].review.imageCount,3);assert.equal(m.metrics.rounds,2);assert.equal(m.metrics.gateStatus,'REVIEWED');assert.equal(m.metrics.falseBlockCandidates,0);assert.equal(m.metrics.oscillations,0);
+    assert.deepEqual(m.reviewer,{images:'focus',thinking:'medium',prompt:'report'});assert.equal(m.rounds[0].review.imageCount,3);assert.equal(m.metrics.rounds,2);assert.equal(m.metrics.gateStatus,'REVIEWED');assert.equal(m.metrics.falseBlockCandidates,0);assert.equal(m.metrics.oscillations,0);
     assert.equal(m.budgets.maxRounds,4);assert.equal(m.budgets.maxInspectionsPerRound,3);
   }finally{t.cleanup()}
 });

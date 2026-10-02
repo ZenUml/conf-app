@@ -62,7 +62,7 @@ export function formatForAuthor(selection){
 }
 
 // ---- audit -> findings -------------------------------------------------------------------------
-const ID_KEYS=new Set(['nodeId','nodeIds','edge','edgeA','edgeB','groupId','groupIds','missing','extra','mismatchedNodeIds','mismatchedEdges','unadjudicatedNodeIds','unboundLabels','malformedEdges','intrudedNodeIds','source','target','elementId','markerId']);
+const ID_KEYS=new Set(['nodeId','nodeIds','edge','edgeA','edgeB','groupId','groupIds','missing','extra','mismatchedNodeIds','mismatchedEdges','unadjudicatedNodeIds','edges','unboundLabels','malformedEdges','intrudedNodeIds','source','target','elementId','markerId']);
 function collectIds(value,out,key=null){
   if(value==null)return;
   if(typeof value==='string'){if(key&&ID_KEYS.has(key)&&value.length<=120)out.add(value);return}
@@ -89,7 +89,7 @@ const SUGGESTIONS={
   routeHeadingClearance:'Re-route the edge away from the group heading text (2-unit guard).',
   routeUnrelatedContainerTransit:'Re-route the edge so it does not cross a container that contains neither endpoint.',
   markerDrawing:'Give the arrowhead marker a visible fill matching the edge stroke (no context-stroke).',
-  routePairClearance:'Separate the listed parallel route spans to at least the required clearance.',
+  routePairClearance:'Separate the listed parallel route spans to at least the required clearance. A declared shared trunk must carry one relation style (dash, width, colour), no edge label on or within 4 units of the shared run, and every member entering from the same side; otherwise give each connector its own port or route (no head-on T-junction between two sources).',
   routeCrossings:'Re-route so the listed edges do not cross; move a bend or port.',
   connectorStrokeWidth:'Draw every connector at stroke-width 1; a heavier line needs a data-emphasis role whose meaning is written in the SVG palette comment.',
   filletUniformity:'Round every connector bend with one uniform r=5 fillet (a Q/A corner with 5-unit legs); no sharp 90-degree corners, no other radii.',

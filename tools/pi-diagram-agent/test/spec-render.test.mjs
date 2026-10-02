@@ -290,9 +290,16 @@ test('trunk must be a non-empty string',()=>{
   assert.throws(()=>renderSpec(s),SpecError);
 });
 
-test('a spec-rendered trunk passes the independent auditor',{skip:!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE},async()=>{
-  const r=renderSpec(trunkSpec('t1','t1'));
+const sameSide=()=>{const s=trunkSpec('t1','t1');s.nodes[1].rect=[20,90,120,40];s.edges[1].points=[[140,110],[250,110],[250,142],[500,142]];return s};
+test('a spec-rendered same-side trunk passes the independent auditor',{skip:!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE},async()=>{
+  const r=renderSpec(sameSide());
   const a=await auditAgentSvg('flowchart LR\n S1[One] --> T[Target]\n S2[Two] --> T\n',r.svg);
   assert.equal(a.checks.routePairClearance.status,'PASS',JSON.stringify(a.checks.routePairClearance.evidence));
   assert.equal(a.checks.routePairClearance.evidence.trunks[0].id,'t1');
+});
+test('a spec-rendered opposite-side trunk is rejected by the independent auditor',{skip:!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE},async()=>{
+  const r=renderSpec(trunkSpec('t1','t1'));
+  const a=await auditAgentSvg('flowchart LR\n S1[One] --> T[Target]\n S2[Two] --> T\n',r.svg);
+  assert.equal(a.checks.routePairClearance.status,'FAIL');
+  assert.deepEqual(a.checks.routePairClearance.evidence.violations.map(v=>v.kind),['opposite-side merge']);
 });

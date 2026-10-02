@@ -6,7 +6,7 @@ import {checkRouteLowerBend} from './route-lower-bend.mjs';
 import {checkRouteContainerClearance} from './route-clearance.mjs';
 import {resolveLabels} from './geometry.mjs';
 import {collectLayoutFacts,layoutChecks,layoutChecksUnavailable} from './layout-checks.mjs';
-import {isAcceptedTrunkOverlap,summariseTrunks,unrecognisedTrunkAttributes,TRUNK_HINT} from './trunk.mjs';
+import {isAcceptedTrunkOverlap,summariseTrunks,checkTrunkSemantics,unrecognisedTrunkAttributes,TRUNK_HINT} from './trunk.mjs';
 
 const require=createRequire(import.meta.url);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -21,7 +21,7 @@ function actualStraightSpans(d){
   const tokens=[];let at=0;
   const token=/\s*,?\s*([MLQA]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/y;
   while(at<d.length){if(!d.slice(at).trim())break;token.lastIndex=at;const m=token.exec(d);if(!m)return null;tokens.push(m[1]);at=token.lastIndex}
-  const spans=[];let point=null,lastCommand=null;
+  const spans=[];let point=null,lastCommand=null,pending=null;
   for(let i=0;i<tokens.length;){
     const command=tokens[i++],arity={M:2,L:2,Q:4,A:7}[command];
     lastCommand=command;
@@ -29,14 +29,20 @@ function actualStraightSpans(d){
     const args=tokens.slice(i,i+arity).map(Number);i+=arity;
     if(!args.every(Number.isFinite))return null;
     const next=command==='A'?[args[5],args[6]]:[args.at(-2),args.at(-1)];
-    if(command==='M'){point=next;continue}
+    if(command==='M'){point=next;pending=null;continue}
     if(!point)return null;
+    // A fillet's control point is the logical corner of the straight span before it.
+    if(command==='Q'&&pending)pending.corner=pending.axis==='h'?args[0]:args[1];
+    pending=null;
     if(command==='L'){
       const axis=Math.abs(point[1]-next[1])<eps?'h':Math.abs(point[0]-next[0])<eps?'v':null;
       if(!axis)return null;
       const lo=axis==='h'?Math.min(point[0],next[0]):Math.min(point[1],next[1]);
       const hi=axis==='h'?Math.max(point[0],next[0]):Math.max(point[1],next[1]);
-      if(hi-lo>eps)spans.push({axis,fixed:axis==='h'?point[1]:point[0],lo,hi,length:hi-lo,end:axis==='h'?next[0]:next[1]});
+      if(hi-lo>eps){
+        const start=axis==='h'?point[0]:point[1],end=axis==='h'?next[0]:next[1];
+        spans.push(pending={axis,fixed:axis==='h'?point[1]:point[0],lo,hi,length:hi-lo,start,end,dir:Math.sign(end-start),corner:end});
+      }
     }
     point=next;
   }
@@ -112,6 +118,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const source=el.getAttribute('data-source'),target=el.getAttribute('data-target');
         const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end'),trunk:el.getAttribute('data-shared-trunk'),trunkLikeAttributes:[...el.attributes].filter(x=>/bus|trunk|merge|junction|shared/i.test(x.name)).map(x=>({name:x.name,value:x.value}))};
         const dash=getComputedStyle(el).strokeDasharray;
+        result.style={dash:dash==='none'?'':dash.replace(/\s+/g,''),width:Number.parseFloat(getComputedStyle(el).strokeWidth),stroke:getComputedStyle(el).stroke};
         result.dashed=dash!=='none'&&(dash.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).some(value=>Number(value)>0);
         const markerId=/^url\(#([^()]+)\)$/.exec(result.marker??'')?.[1];
         const marker=markerId?root.querySelector(`marker#${CSS.escape(markerId)}`):null;
@@ -341,7 +348,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const routeSpans=drawn.edges.map(e=>({edge:`${e.source}->${e.target}`,spans:actualStraightSpans(e.path)}));
   const routePairClearance=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{
     const violations=[],accepted=[];
-    const routes=routeSpans.map((e,i)=>({edge:e.edge,spans:e.spans,lastCommand:e.spans.lastCommand,trunk:drawn.edges[i].trunk||null,target:drawn.edges[i].target}));
+    const routes=routeSpans.map((e,i)=>({edge:e.edge,spans:e.spans,lastCommand:e.spans.lastCommand,trunk:drawn.edges[i].trunk||null,target:drawn.edges[i].target,style:drawn.edges[i].style}));
     for(let i=0;i<routes.length;i++)for(let j=i+1;j<routes.length;j++){
       for(const a of routes[i].spans)for(const b of routes[j].spans){
         if(a.axis!==b.axis)continue;
@@ -352,8 +359,10 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         violations.push({edgeA:routes[i].edge,edgeB:routes[j].edge,separation,overlap});
       }
     }
+    // A declared trunk is accepted only if its members read as one connector family: same style, no label on the shared run, one entry side.
+    violations.push(...checkTrunkSemantics({routes,labelBoxes:drawn.labelBoxes??[]}));
     const unrecognisedTrunkAttributes_=drawn.edges.flatMap(e=>unrecognisedTrunkAttributes(e.trunkLikeAttributes??[]).map(a=>({edge:`${e.source}->${e.target}`,attribute:a.name,value:a.value})));
-    return {status:violations.length?'FAIL':'PASS',evidence:{method:'strict M/L/Q/A parser of actual SVG d; every drawn straight centerline span pair after curve trims; coincident or sub-10 spans are accepted only as the final portion shared at one target by connectors carrying the same data-shared-trunk id; no other bus exception inferred',violations,trunks:summariseTrunks(accepted),unrecognisedTrunkAttributes:unrecognisedTrunkAttributes_,...(unrecognisedTrunkAttributes_.length?{hint:TRUNK_HINT}:{}),checkedEdges:routeSpans.length}};
+    return {status:violations.length?'FAIL':'PASS',evidence:{method:'strict M/L/Q/A parser of actual SVG d; every drawn straight centerline span pair after curve trims; coincident or sub-10 spans are accepted only as the final portion shared at one target by connectors carrying the same data-shared-trunk id with one relation style, no edge label on or within 4 units of the shared run and one entry side (else mixed-style trunk / label on shared trunk / opposite-side merge); head-on collinear legs of two connectors into one target within 10.5 units are an ambiguous junction; no other bus exception inferred',violations,trunks:summariseTrunks(accepted),unrecognisedTrunkAttributes:unrecognisedTrunkAttributes_,...(unrecognisedTrunkAttributes_.length?{hint:TRUNK_HINT}:{}),checkedEdges:routeSpans.length}};
   })():{status:'NOT-CHECKABLE',evidence:'edge drawing uses unsupported SVG path grammar or exact relation binding unavailable'};
   const routeCrossings=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{
     const violations=[];

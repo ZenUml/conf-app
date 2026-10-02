@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
 import {parseMermaid,NOT_CHECKABLE_SHAPES} from './parser.mjs';
+import {checkRouteLowerBend} from './route-lower-bend.mjs';
 import {collectLayoutFacts,layoutChecks,layoutChecksUnavailable} from './layout-checks.mjs';
 import {isAcceptedTrunkOverlap,summariseTrunks,unrecognisedTrunkAttributes,TRUNK_HINT} from './trunk.mjs';
 
@@ -211,9 +212,40 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
           if(hit)labelViolations.push({label:item.label,outline:name,labelBox:box});
         }
       }
+      // routeLowerBend inputs, all in root user space: node outlines/bounds, container outlines and heading text, edge-label boxes.
+      const lbNodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>{
+        const id=el.getAttribute('data-node')??el.getAttribute('data-node-id');
+        const painted=shape=>{const st=getComputedStyle(shape);return st.display!=='none'&&st.visibility==='visible'&&(st.fill!=='none'||st.stroke!=='none')};
+        const shapes=[...el.querySelectorAll(shapeSelector)].filter(painted),parts=[...shapes,...el.querySelectorAll('text')].map(rootBox);
+        const result={id,kind:'unsupported',reason:'no node shape',bbox:parts.length?union(parts):null};
+        if(!shapes.length)return result;
+        const sized=shapes.map(s=>({s,box:rootBox(s)})).sort((x,y)=>y.box.w*y.box.h-x.box.w*x.box.h);
+        const {s,box}=sized[0];
+        if(sized.some(r=>!r.box.axisAligned))return {...result,reason:s.localName==='rect'?'transformed rectangle':'transformed shape'};
+        const inside=r=>r.box.x>=box.x-0.25&&r.box.y>=box.y-0.25&&r.box.x+r.box.w<=box.x+box.w+0.25&&r.box.y+r.box.h<=box.y+box.h+0.25;
+        const rectOnly=sized.every(r=>r.s.localName==='rect');
+        // Decoration inside the outline (subroutine bars, a cylinder's top-ellipse line) is allowed; a second outline elsewhere is not.
+        if(!rectOnly&&!sized.every(inside))return {...result,reason:'several separate shapes'};
+        const local=s.getBBox(),scale=local.width>0?box.w/local.width:1;
+        const corner=s.localName==='rect'?Math.max(Number(s.getAttribute('rx')||0),Number(s.getAttribute('ry')||0))*scale:0;
+        if(s.localName==='rect'&&corner<Math.min(box.w,box.h)/2-0.01)return {...result,kind:'rect',reason:null,outline:{x:box.x,y:box.y,w:box.w,h:box.h},cornerRadius:corner};
+        // Any other outline: sample the drawn geometry in root user space; the Node side derives ports and a convex obstacle.
+        if(!(s instanceof SVGGeometryElement))return {...result,reason:'outline is not a geometry element'};
+        const total=s.getTotalLength();
+        if(!(total>0)||total>100000)return {...result,reason:'outline length unavailable'};
+        const m=root.getScreenCTM().inverse().multiply(s.getScreenCTM()),step=Math.max(0.5,total/2000),samples=[];
+        for(let at=0;at<total;at+=step){const p=s.getPointAtLength(at).matrixTransform(m);samples.push([p.x,p.y])}
+        const end=s.getPointAtLength(total).matrixTransform(m);samples.push([end.x,end.y]);
+        return {...result,kind:'shape',reason:null,samples};
+      });
+      const lbGroups=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].map(el=>{
+        const shape=el.querySelector(':scope > rect,:scope > path,:scope > polygon');
+        return {id:el.getAttribute('data-group')??el.getAttribute('data-container-id')??el.getAttribute('id')?.slice(6),outline:shape?.localName??null,box:shape?(({x,y,w,h})=>({x,y,w,h}))(rootBox(shape)):null,headings:[...el.querySelectorAll(':scope > text')].map(t=>(({x,y,w,h})=>({x,y,w,h}))(rootBox(t)))};
+      });
+      const labelBoxes=labelElements.map(l=>({label:l.label,box:union(l.parts)}));
       const textCount=root.querySelectorAll('text').length;
       root.remove();
-      return {parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,boundLabels:labelElements.map(l=>l.label),labelViolations,labelUnsupported};
+      return {parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,boundLabels:labelElements.map(l=>l.label),labelViolations,labelUnsupported,lbNodes,lbGroups,labelBoxes};
     },svgText);
     layoutFacts=drawn.parseError?null:await page.evaluate(collectLayoutFacts,svgText);
     if(originalSvg!==null){
@@ -268,7 +300,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   })();
   if(!model){
     const unresolved={status:'NOT-CHECKABLE',evidence:`source parser cannot establish independent semantic bindings: ${modelError}`};
-    return {status:[textFit,labelClearance,...Object.values(layout)].some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,textFit,labelClearance,...layout,routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
+    return {status:[textFit,labelClearance,...Object.values(layout)].some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,textFit,labelClearance,...layout,routeLowerBend:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
   }
   const expectedNodes=multiset(model.nodes.map(n=>n.id)),actualNodes=multiset(drawn.nodes.map(n=>n.id));
   const nodeIdentity=drawn.nodes.length?{status:equalSets(expectedNodes,actualNodes)?'PASS':'FAIL',evidence:{expected:model.nodes.length,drawn:drawn.nodes.length,missing:model.nodes.filter(n=>!actualNodes.has(n.id)).map(n=>n.id),extra:drawn.nodes.filter(n=>!expectedNodes.has(n.id)).map(n=>n.id)}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-node semantic binding; SVG may still be visually valid'};
@@ -334,6 +366,10 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     const failures=routeSpans.flatMap((e,i)=>{const required=drawn.edges[i].markerDrawing.axialLength+8;return e.spans.at(-1).length<required-eps?[{edge:e.edge,drawnLastShaft:e.spans.at(-1).length,required}]:[]});
     return {status:failures.length?'FAIL':'PASS',evidence:{method:'actual post-curve final straight segment >= measured simple marker axial length + 8-unit visible shaft; complex viewBox marker stays unresolved',failures,checkedEdges:routeSpans.length}};
   })():{status:'NOT-CHECKABLE',evidence:'actual final straight span or simple marker axial geometry unavailable'};
+  const routeLowerBend=drawn.edges.length?checkRouteLowerBend({
+    nodes:drawn.lbNodes,groups:drawn.lbGroups,labelBoxes:drawn.labelBoxes,unboundLabels:labelClearance.evidence.unboundLabels??[],
+    edges:drawn.edges.map((e,i)=>({source:e.source,target:e.target,tag:e.tag,path:e.path,trunk:e.trunk||null,axialLength:e.markerDrawing?.axialLength,spans:routeSpans[i].spans,hulls:e.tag==='path'?actualCurveEnvelopes(e.path):null}))
+  }):{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
   const groupIds=new Set(drawn.groups.map(g=>g.id)),expectedGroupIds=new Set(model.groups.map(g=>g.id));
   const groups=drawn.groups.length?{status:groupIds.size===expectedGroupIds.size&&[...expectedGroupIds].every(x=>groupIds.has(x))?'PASS':'FAIL',evidence:{expected:[...expectedGroupIds],drawn:[...groupIds],method:'actual container elements with neutral group ID'}}:{status:model.groups.length?'NOT-CHECKABLE':'PASS',evidence:'group geometry has no neutral binding'};
   let groupMembership={status:'PASS',evidence:'source has no groups'};
@@ -450,8 +486,8 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const definitionConflicts=model.conflicts??[];
   const sourceDefinitionConflicts=definitionConflicts.length?{status:'FAIL',evidence:{method:'parser: a node defined more than once with different text or shape; Mermaid renders the last definition',nodeIds:definitionConflicts.map(c=>c.nodeId),conflicts:definitionConflicts}}:{status:'PASS',evidence:'every node has at most one distinct definition'};
   const nodeShape={status:'NOT-CHECKABLE',evidence:{reason:'the auditor does not compare drawn node shapes with source shapes; the reviewer judges shapes the rules define',notCheckableShapeNodeIds:model.nodes.filter(n=>NOT_CHECKABLE_SHAPES.has(n.shape)).map(n=>n.id)}};
-  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,nodeShape,sourceDefinitionConflicts,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,...layout,
-    routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; continuous curved-path/label exclusion and finite lower-bend/midpoint optimality witnesses remain unproved'},
+  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,nodeShape,sourceDefinitionConflicts,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,routeLowerBend,...layout,
+    routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; routeLowerBend adds a witness search (see its limitations); continuous curved-path/label exclusion remains unproved'},
     visualQuality:{status:'NOT-CHECKABLE',evidence:'requires Pi to inspect original and candidate full images plus crops'}};
   const status=Object.values(checks).some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE';
   return {status,sourceHash:model.sourceHash,svgHash:hash(svgBytes),originalSvgHash,checks,drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};

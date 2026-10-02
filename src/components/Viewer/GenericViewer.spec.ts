@@ -190,6 +190,7 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = await mountMagic();
       await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'available' }));
+      await vi.waitFor(() => expect((wrapper.vm as any).magicDefaultReported).toHaveLength(1));
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'magic_shown' }));
       await (wrapper.vm as any).initializeMagic();
       expect((wrapper.vm as any).magicAvailabilityReported).toHaveLength(1);

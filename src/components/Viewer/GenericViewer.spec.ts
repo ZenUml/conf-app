@@ -201,14 +201,21 @@ describe('GenericViewer (chrome-less)', () => {
       const sourceHash = await magicSourceHash(source);
       const previousContext = forgeRuntime.forgeContext;
       forgeRuntime.forgeContext = { ...window.forgeGlobal!.forgeContext, accountId: 'choice-user', cloudId: 'choice-site' };
-      expect(writeMagicPreference({ accountId: 'choice-user', cloudId: 'choice-site', contentId: '987654321', sourceHash }, 'original')).toBe(true);
-      store.state.diagram.magic = { sourceHash, svg, rulesVersion: 'magic-v1', outcome: 'validated' };
-      const wrapper = await mountMagic();
-      await vi.waitFor(() => expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true'));
-      await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'available' })));
-      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_preferred' }));
-      expect((wrapper.vm as any).magicActive).toBe(false);
-      forgeRuntime.forgeContext = previousContext;
+      // Restore in finally: a leaked 'choice-site' cloudId breaks later tests
+      // in this file (Copy diagram link) whenever an assertion here fails.
+      try {
+        expect(writeMagicPreference({ accountId: 'choice-user', cloudId: 'choice-site', contentId: '987654321', sourceHash }, 'original')).toBe(true);
+        store.state.diagram.magic = { sourceHash, svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+        const wrapper = await mountMagic();
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true'));
+        await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'available' })));
+        // The default outcome follows an async feedback digest, so it can land
+        // after the availability event under load.
+        await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_preferred' })));
+        expect((wrapper.vm as any).magicActive).toBe(false);
+      } finally {
+        forgeRuntime.forgeContext = previousContext;
+      }
     });
 
     it('records an automatic verification failure as unavailable without a display error', async () => {

@@ -41,9 +41,9 @@ currently satisfied. A blocked gate is an outcome to report, not a reason to hid
 
 For each requested variant, preflight must:
 
-1. Select the newest matching draft that is within the normal 24-hour freshness window and verify
-   the source build's relevant deploy and draft jobs. If no usable draft exists, report that there
-   is no exact candidate; do not dispatch a workflow or invent a payload from local `HEAD`.
+1. Select the candidate with `scripts/select-draft.sh <variant>` (see 1.1) and verify the source
+   build's relevant deploy and draft jobs. If it prints `NONE:`, report that there is no exact
+   candidate; do not dispatch a workflow or invent a payload from local `HEAD`.
 2. Resolve the draft tag/version and pinned commit SHA, then find the previous published tag for
    the same variant and compute the complete commit delta between them. Read diffs where the commit
    subject is not enough to establish product intent.
@@ -125,26 +125,41 @@ In normal release mode, three steps are required: **(1)** get a green build that
 
 The build (`build-test-deploy.yml` on `main`) deploys all variants to staging, runs E2E, and creates the draft releases you publish in Step 2. Most of the time a recent merge already ran it — reuse those drafts; don't push a fake commit to re-trigger.
 
-#### 1.1 Reuse a fresh draft (normal path)
+#### 1.1 Select the draft (normal path)
 
 For each requested variant:
 
 ```bash
-gh release list --repo ZenUml/conf-app --limit 20 \
-  | awk '$2=="Draft" && $1 ~ /-{variant}$/ {print $1; exit}'
+.claude/skills/release-app/scripts/select-draft.sh "<variant>"
 ```
 
-If a draft tag is returned, confirm it's recent (within the last 24 hours) and that its source workflow run succeeded:
+It prints `SELECT: <tag> <sha>` (plus one `SKIP:` line per newer draft it passed over) or
+`NONE: <reason>`. Use the selected tag for every later step — **never "the newest draft"**:
+
+- **diagramly / asyncapi** — the newest draft. Confirm it is recent (within the last 24 hours).
+- **lite / full** — the newest draft whose commit matches a **published** prerequisite release
+  (Diagramly for Lite, Lite for Full). Merges after the canary keep producing newer drafts that no
+  prerequisite validated; those are the `SKIP:` lines. No 24-hour freshness rule applies: a Full
+  draft that has passed the 7-day soak is necessarily a week old.
+- Drafts older than the variant's latest **published** release are never candidates — publishing
+  one would roll production back.
+
+_(2026-10-02: after Lite `v2026.10.021754` shipped `ab173d6f`, a test-only merge produced
+`v2026.10.021856-*` drafts. "Newest draft" would have picked a Full draft no Lite had validated,
+and a naive "matches a published Diagramly" walk picked a 22 Sep Lite draft — a rollback.)_
+
+Then confirm the draft's source workflow run succeeded:
 
 ```bash
 # Get the run that produced the draft (drafts are created at the end of build-test-deploy.yml)
-gh run list --repo ZenUml/conf-app --workflow=build-test-deploy.yml --branch=main --limit 1 \
-  --json databaseId,status,conclusion,createdAt
+gh run list --repo ZenUml/conf-app --workflow=build-test-deploy.yml --branch=main --limit 10 \
+  --json databaseId,headSha,status,conclusion,createdAt   # pick the run whose headSha = <sha>
 ```
 
 - If `status=completed` and `conclusion=success` for the relevant variant's `Deploy: {Variant}` and `Draft: {Variant}` jobs → **go to Step 2** and publish that draft.
 - If `status=in_progress` → **wait for it (1.3)**, then publish.
-- If no fresh draft exists (last drafts are stale or absent) → fall back to **1.2** to trigger a fresh build.
+- If `NONE:` for diagramly/asyncapi (or its draft is stale) → fall back to **1.2** to trigger a fresh build.
+- If `NONE:` for lite/full → **stop and report**: the prerequisite for any newer commit has not shipped yet. A fresh build cannot fix that; release the prerequisite variant first.
 
 Use `gh run view <run-id> --json jobs` to inspect per-variant job conclusions when there's any doubt.
 
@@ -187,9 +202,7 @@ never treat preflight as an override and never publish from it.
 Find this variant's draft tag and its previous **published** tag, then list the commits between them. **This single delta feeds both the release notes (2.3) and the spot check (2.6) — compute it once, here.**
 
 ```bash
-# This release's draft tag
-gh release list --repo ZenUml/conf-app --limit 30 --json tagName,isDraft \
-  -q "[.[]|select(.isDraft and (.tagName|test(\"-{variant}\$\")))][0].tagName"
+# This release's draft tag: the one 1.1 selected (select-draft.sh), never the newest draft
 
 # Previous PUBLISHED tag for the same variant (the delta's "since" point)
 gh release list --repo ZenUml/conf-app --exclude-drafts --limit 30 --json tagName \
@@ -419,7 +432,7 @@ Summarize each released variant:
 
 - **Never release by default.** If no variant is named, ASK. Release only the variant(s) the user explicitly names; an explicit variant does NOT authorize any other tier (releasing lite does not license releasing full afterward).
 - **Never publish the placeholder body (2.3).** Always replace the auto-draft `"This is a draft release…"` body with delta-derived notes before `--draft=false`. Notes and spot check share the one delta from 2.2.
-- **Always check for a fresh draft first (1.1).** A merge to main that completed in the last 24 hours may already have produced the drafts you need — reuse them. A manual dispatch when fresh drafts exist wastes ~15 min of CI and gains nothing.
+- **Always select the draft with `select-draft.sh` first (1.1).** For diagramly/asyncapi a merge in the last 24 hours may already have produced the draft you need — reuse it; a manual dispatch then wastes ~15 min of CI. For lite/full the right draft is the one matching the published prerequisite commit, never simply the newest.
 - **Preflight is read-only.** It previews the exact candidate payload and derived notes/checks for today; it never dispatches CI, edits a draft, publishes, opens a browser, or runs PVT/spot checks.
 - The build workflow supports `workflow_dispatch`; use it on `main` only when no usable draft exists.
 - Draft releases are only created on `main` (not on PRs or other branches).

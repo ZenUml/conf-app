@@ -83,6 +83,24 @@
                 </svg>
                 <span class="viewer-btn-label">Edit</span>
               </button>
+              <div v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-version-switch" role="group" aria-label="Diagram version">
+                <button type="button" class="viewer-version-option viewer-version-magic"
+                  :class="{ 'viewer-version-option--selected': magicActive, 'viewer-version-magic--available': magicAvailable && !magicActive }"
+                  data-testid="magic-toggle" :disabled="!magicActive && (!diagram?.magic || magicPending)"
+                  :title="!diagram?.magic ? 'Magic view is unavailable for this diagram' : magicActive ? 'Magic diagram selected' : magicAvailable ? 'Show prepared Magic view' : 'Magic view is unavailable for the current diagram'"
+                  :aria-pressed="magicActive ? 'true' : 'false'" :aria-busy="magicPending ? 'true' : 'false'"
+                  @click="!magicActive && toggleMagic('manual')">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="viewer-magic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m4.5 19.5 11-11 2 2-11 11a1.4 1.4 0 0 1-2-2Z" />
+                    <path d="m18 2 .55 1.75L20.3 4.3l-1.75.55L18 6.6l-.55-1.75-1.75-.55 1.75-.55L18 2ZM21 10l.35 1.15L22.5 11.5l-1.15.35L21 13l-.35-1.15-1.15-.35 1.15-.35L21 10Z" />
+                  </svg>
+                  <span>Magic</span>
+                </button>
+                <button type="button" class="viewer-version-option"
+                  :class="{ 'viewer-version-option--selected': !magicActive }" data-testid="original-toggle"
+                  :aria-pressed="!magicActive ? 'true' : 'false'" title="Show original Mermaid diagram"
+                  @click="magicActive && toggleMagic('manual')">Original</button>
+              </div>
               <!-- View Source (#333): visible to ALL viewers, including users without
                    edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
               <button
@@ -212,6 +230,18 @@
             </div>
           </div>
 
+          <div v-if="magicFeedback" class="magic-feedback" role="status" aria-live="polite" data-testid="magic-feedback">{{ magicFeedback }}</div>
+          <div v-if="isFullscreenMode && magicFeedbackGeneration && (magicActive || magicAvailable)" class="magic-disclosure" data-testid="magic-disclosure">
+            <span v-if="magicActive">Same diagram, cleaner layout.</span>
+            <div class="magic-layout-feedback" role="group" aria-label="Which layout do you prefer?" data-testid="magic-layout-feedback">
+              <span>Which layout do you prefer?</span>
+              <button v-for="option in [{ value: 'magic', label: 'Magic' }, { value: 'original', label: 'Original' }, { value: 'no_preference', label: 'No preference' }]" :key="option.value" type="button"
+                :aria-pressed="magicLayoutFeedback === option.value ? 'true' : 'false'"
+                @click="selectMagicLayoutFeedback(option.value)">{{ option.label }}</button>
+              <span v-if="magicFeedbackThanked" role="status" aria-live="polite">Thanks for sharing. You can change this anytime.</span>
+            </div>
+          </div>
+
           <!--
             ZEN-1170 Defect 2b recovery banner. Always-visible, accessible
             explanation of how to actually edit the macro when its
@@ -287,7 +317,9 @@
               </div>
             </div>
             <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
-              <slot></slot>
+              <DiagramViewport v-if="magicActive" ref="magicViewport" macro-type="mermaid"
+                label="Magic" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
+              <slot v-else></slot>
             </div>
             <div
               v-if="!isLoadFailed && (diagramAttribution || (architectureTokensEnabled && showRelatedDiagrams))"
@@ -480,6 +512,9 @@ import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
 import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
+import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
+import { validateMagicArtifact } from '@/utils/magic/artifact'
+import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -542,12 +577,33 @@ export default {
     // fails closed (no accountId, no match, no render).
     currentAccountId: null,
     retryOutcomeEmitted: false,
+    magicActive: false,
+    magicSvg: null,
+    magicPending: false,
+    magicGeneration: 0,
+    magicStartedAt: null,
+    magicFeedback: '',
+    magicAvailable: false,
+    magicCloudId: null,
+    magicIdentityReady: false,
+    magicInitializing: false,
+    magicInitializeAttempt: 0,
+    magicAvailabilityReported: [],
+    magicDefaultReported: [],
+    magicSessionChoice: null,
+    magicSessionChoiceKey: null,
+    magicLayoutFeedback: null,
+    magicPreviousFeedback: null,
+    magicFeedbackGeneration: null,
+    magicFeedbackThanked: false,
+    magicFeedbackPrompted: {},
   }),
   components: {
     Debug,
     ExportModal,
     OverflowMenu,
     CopyForAiMenu,
+    DiagramViewport,
     ViewSourcePanel,
     ConnectButton,
     ConnectPanel,
@@ -889,6 +945,9 @@ export default {
         });
       },
     },
+    'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
+    diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
+    'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     copyForAiImpressionEligible: {
       immediate: true,
       handler(eligible) {
@@ -1017,8 +1076,12 @@ export default {
       // as "not the creator".
       const ctx = await getContext();
       this.currentAccountId = ctx?.accountId ?? null;
+      this.magicCloudId = ctx?.cloudId ?? null;
     } catch (e) {
       console.error('Failed to resolve current accountId:', e);
+    } finally {
+      this.magicIdentityReady = true;
+      this.initializeMagic();
     }
     try {
       this.agentLinkFeatureEnabled = await isAgentLinkEnabled();
@@ -1131,6 +1194,7 @@ export default {
     }
   },
   beforeUnmount() {
+    this.magicGeneration++;
     document.removeEventListener('keydown', this.onEscapeKeydown, true);
     EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
     EventBus.$off('viewerRenderSettled', this.onDiagramLoadedOpenExport);
@@ -1149,6 +1213,190 @@ export default {
     }
   },
   methods: {
+    magicIdentity(sourceHash) {
+      return { accountId: this.currentAccountId, cloudId: this.magicCloudId,
+        contentId: this.diagram?.id, sourceHash };
+    },
+    magicSessionKey(sourceHash) {
+      const id = this.magicIdentity(sourceHash);
+      return JSON.stringify([id.accountId, id.cloudId, id.contentId, id.sourceHash]);
+    },
+    persistMagicChoice(choice, sourceHash) {
+      this.magicSessionChoice = choice;
+      this.magicSessionChoiceKey = this.magicSessionKey(sourceHash);
+      const persistent = writeMagicPreference(this.magicIdentity(sourceHash), choice);
+      this.magicEvent('magic_preference_changed', {
+        magic_preference: choice, magic_preference_storage: persistent ? 'persistent' : 'session',
+      });
+    },
+    reportMagicAssessment(eventName, propertyName, value, source, artifact) {
+      if (this.diagramType !== DiagramType.Mermaid || (this.diagram?.mermaidCode ?? '') !== source
+        || this.diagram?.magic !== artifact) return;
+      const reported = eventName === 'magic_availability_checked'
+        ? this.magicAvailabilityReported : this.magicDefaultReported;
+      const contentId = this.diagram?.id;
+      if (reported.some(item => item.source === source && item.artifact === artifact && item.contentId === contentId)) return;
+      reported.push({ source, artifact, contentId });
+      this.magicEvent(eventName, { [propertyName]: value });
+    },
+    async initializeMagic() {
+      if (!this.magicIdentityReady || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid
+        || this.magicActive || this.magicPending || this.magicInitializing) return;
+      const generation = this.magicGeneration;
+      const attempt = ++this.magicInitializeAttempt;
+      const source = this.diagram.mermaidCode ?? '';
+      const artifact = this.diagram.magic;
+      if (!artifact) {
+        this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'missing_artifact', source, artifact);
+        this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
+        return;
+      }
+      this.magicInitializing = true;
+      try {
+        const result = await validateMagicArtifact(artifact, source);
+        if (generation !== this.magicGeneration || this.diagramType !== DiagramType.Mermaid
+          || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact) return;
+        if ('reason' in result) {
+          this.reportMagicAssessment('magic_availability_checked', 'magic_availability', result.reason, source, artifact);
+          this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
+          return;
+        }
+        this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'available', source, artifact);
+        this.magicAvailable = true;
+        await this.loadMagicFeedback(artifact, source);
+        if (generation !== this.magicGeneration || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact) return;
+        const persisted = readMagicPreference(this.magicIdentity(artifact.sourceHash));
+        const session = this.magicSessionChoiceKey === this.magicSessionKey(artifact.sourceHash) ? this.magicSessionChoice : null;
+        if ((persisted ?? session) === 'original') {
+          this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_preferred', source, artifact);
+          return;
+        }
+        await this.showMagic('automatic', result);
+        if (this.magicGeneration === generation + 1) {
+          this.reportMagicAssessment('magic_default_resolved', 'magic_default_result',
+            this.magicActive ? 'magic_shown' : 'original_render_failed', source, artifact);
+        }
+      } catch {
+        if (generation === this.magicGeneration && this.diagram.mermaidCode === source && this.diagram.magic === artifact) {
+          this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'check_failed', source, artifact);
+          this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
+        }
+      } finally {
+        if (attempt === this.magicInitializeAttempt) this.magicInitializing = false;
+      }
+    },
+    magicEvent(name, properties = {}) {
+      trackAnalyticsEvent(name, {
+        feature_area: 'ai', surface: 'fullscreen', macro_type: 'mermaid', ...properties,
+      });
+    },
+    resetMagic(preserveAvailable = false) {
+      const wasAvailable = this.magicAvailable;
+      if (this.magicPending && this.magicStartedAt != null) {
+        this.magicEvent('magic_view_failed', {
+          magic_failure_reason: 'source_changed',
+          duration_ms: Math.round(performance.now() - this.magicStartedAt),
+        });
+      }
+      this.magicGeneration++;
+      this.magicInitializeAttempt++;
+      this.magicActive = false;
+      this.magicSvg = null;
+      this.magicPending = false;
+      this.magicStartedAt = null;
+      this.magicFeedback = '';
+      this.magicAvailable = preserveAvailable && wasAvailable;
+      if (!preserveAvailable) {
+        this.magicLayoutFeedback = null;
+        this.magicPreviousFeedback = null;
+        this.magicFeedbackGeneration = null;
+        this.magicFeedbackThanked = false;
+      }
+      this.magicInitializing = false;
+    },
+    async toggleMagic(activation = 'manual') {
+      if (this.magicActive) {
+        this.persistMagicChoice('original', this.diagram.magic.sourceHash);
+        this.resetMagic(true);
+        this.magicEvent('magic_view_restored');
+        return;
+      }
+      if (this.magicPending || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+      await this.showMagic(activation);
+    },
+    async showMagic(activation = 'manual', validated = null) {
+      const started = performance.now();
+      this.magicStartedAt = started;
+      const generation = ++this.magicGeneration;
+      const source = this.diagram.mermaidCode ?? '';
+      const artifact = this.diagram.magic;
+      this.magicPending = true;
+      this.magicFeedback = '';
+      this.magicEvent('magic_view_requested', { magic_activation: activation });
+      try {
+        const result = validated ?? await validateMagicArtifact(artifact, source);
+        if (generation !== this.magicGeneration || this.diagramType !== DiagramType.Mermaid
+          || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact) return;
+        if ('reason' in result) {
+          this.magicAvailable = false;
+          this.magicFeedback = result.reason === 'stale_source'
+            ? 'This prepared view is for an earlier version of the diagram.'
+            : 'Magic view could not be shown. The original diagram is still available.';
+          this.magicEvent('magic_view_failed', { magic_failure_reason: result.reason, duration_ms: Math.round(performance.now() - started) });
+          return;
+        }
+        this.magicSvg = result.svg;
+        this.magicAvailable = true;
+        this.magicActive = true;
+        await this.$nextTick();
+        if (generation !== this.magicGeneration) return;
+        if (!this.$refs.magicViewport?.$el?.querySelector('svg')) throw new Error('Magic SVG did not render');
+        await this.$refs.magicViewport.attach();
+        if (generation === this.magicGeneration) {
+          if (activation === 'manual') this.persistMagicChoice('magic', artifact.sourceHash);
+          this.magicEvent('magic_view_succeeded', { magic_activation: activation, duration_ms: Math.round(performance.now() - started) });
+          await this.loadMagicFeedback(artifact, source);
+        }
+      } catch {
+        if (generation !== this.magicGeneration) return;
+        this.magicActive = false;
+        this.magicAvailable = false;
+        this.magicSvg = null;
+        this.magicFeedback = 'Magic view could not be shown. The original diagram is still available.';
+        this.magicEvent('magic_view_failed', { magic_failure_reason: 'render_failed', duration_ms: Math.round(performance.now() - started) });
+      } finally {
+        if (generation === this.magicGeneration) {
+          this.magicPending = false;
+          this.magicStartedAt = null;
+        }
+      }
+    },
+    async loadMagicFeedback(artifact, source) {
+      try {
+        const generation = await magicGenerationKey(artifact);
+        if (this.diagram?.magic !== artifact || this.diagram?.mermaidCode !== source) return;
+        this.magicFeedbackGeneration = generation;
+        const sessionKey = this.magicSessionKey(artifact.sourceHash) + ':' + generation;
+        this.magicPreviousFeedback = readMagicFeedback(this.magicIdentity(artifact.sourceHash), generation);
+        if (!this.magicFeedbackPrompted[sessionKey]) {
+          this.magicFeedbackPrompted[sessionKey] = true;
+          this.magicEvent('magic_layout_feedback_prompt_shown');
+        }
+      } catch {
+        // Optional browser-local feedback must not affect diagram rendering.
+      }
+    },
+    selectMagicLayoutFeedback(choice) {
+      if ((!this.magicActive && !this.magicAvailable) || !this.magicFeedbackGeneration
+        || !['magic', 'original', 'no_preference'].includes(choice)) return;
+      const previous = this.magicLayoutFeedback ?? this.magicPreviousFeedback;
+      if (this.magicLayoutFeedback === choice) return;
+      this.magicLayoutFeedback = choice;
+      this.magicPreviousFeedback = choice;
+      this.magicFeedbackThanked = true;
+      writeMagicFeedback(this.magicIdentity(this.diagram.magic.sourceHash), this.magicFeedbackGeneration, choice);
+      this.magicEvent(previous == null ? 'magic_layout_feedback_submitted' : 'magic_layout_feedback_updated', { magic_layout_preference: choice });
+    },
     // See the addEventListener comment in mounted() for why this is a
     // capture-phase listener. Yields to the Copy-for-AI menu while it is open
     // so one Escape dismisses one layer.
@@ -1735,6 +1983,20 @@ export default {
 <style scoped>
 /* ----- chrome-less viewer surface --------------------------------------- */
 .viewer-frame {
+  /* DESIGN.md tokens are not loaded globally in this viewer. Keep scoped,
+     documented fallbacks so the Magic controls resolve in Forge and Storybook. */
+  --magic-primary: var(--color-blue-600, #2563EB);
+  --magic-primary-hover: var(--color-blue-700, #1D4ED8);
+  --magic-surface: var(--bg1, #FFFFFF);
+  --magic-subtle: var(--gray-50, #F9FAFB);
+  --magic-hover: var(--gray-100, #F3F4F6);
+  --magic-border: var(--gray-200, #E5E7EB);
+  --magic-border-strong: var(--gray-300, #D1D5DB);
+  --magic-text: var(--gray-700, #374151);
+  --magic-text-soft: var(--gray-600, #4B5563);
+  --magic-on-primary: var(--fg-on-primary, #FFFFFF);
+  --magic-danger: var(--color-danger, #CA3521);
+  --magic-radius: var(--radius-md, 6px);
   position: relative;
   display: block;
   background: #fff;
@@ -2111,6 +2373,44 @@ export default {
 }
 .viewer-btn-create:hover { background: #DEEBFF; border-color: #85B8FF; }
 
+
+.magic-feedback {
+  padding: 8px 20px;
+  color: var(--magic-danger);
+  background: var(--magic-subtle);
+  border-bottom: 1px solid var(--magic-border);
+  font-size: 12px;
+}
+
+.magic-disclosure {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--magic-border);
+  background: var(--magic-subtle);
+  color: var(--magic-text);
+  font-size: 12px;
+}
+.magic-layout-feedback { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.magic-layout-feedback button {
+  min-height: 24px; padding: 2px 8px; border: 1px solid var(--magic-border-strong); border-radius: var(--magic-radius);
+  color: var(--magic-text); background: var(--magic-surface);
+}
+.magic-layout-feedback button[aria-pressed="true"] { color: var(--magic-on-primary); background: var(--magic-primary); border-color: var(--magic-primary); }
+.magic-layout-feedback button[aria-pressed="true"]:hover { background: var(--magic-primary-hover); }
+.magic-layout-feedback button:focus-visible, .viewer-version-option:focus-visible { outline: 2px solid var(--magic-primary); outline-offset: 2px; }
+
+.viewer-version-switch { display: inline-flex; align-items: stretch; border: 1px solid var(--magic-border-strong); border-radius: var(--magic-radius); overflow: hidden; background: var(--magic-surface); }
+.viewer-version-option { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 0; background: transparent; color: var(--magic-text-soft); font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; cursor: pointer; transition: background-color 200ms ease, color 200ms ease; }
+.viewer-version-option + .viewer-version-option { border-left: 1px solid var(--magic-border-strong); }
+.viewer-version-option:hover:not(:disabled):not(.viewer-version-option--selected) { background: var(--magic-hover); }
+.viewer-version-option--selected, .viewer-version-option--selected:hover { background: var(--magic-primary); color: var(--magic-on-primary); }
+.viewer-version-option--selected:hover { background: var(--magic-primary-hover); }
+.viewer-version-magic--available { color: var(--magic-primary); background: var(--magic-subtle); }
+.viewer-version-option:disabled { opacity: .5; cursor: not-allowed; }
+.viewer-magic-icon { width: 16px; height: 16px; flex: none; }
 
 .viewer-btn-ghost {
   display: inline-flex;

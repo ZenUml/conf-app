@@ -144,7 +144,7 @@ test('applyStability leaves standing: persistent findings, first reviews, audit/
 });
 
 // ---- layout checks (connectorStrokeWidth ... legendCompleteness) in the v2 loop
-const LAYOUT=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness'];
+const LAYOUT=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness','routeDetour','routeContainerClearance'];
 test('earlyFindings: a measured layout FAIL is a blocking early finding; NOT-CHECKABLE and PASS are not',()=>{
   const audit={checks:{
     textContrast:{status:'FAIL',evidence:{method:'m',failures:[{elementId:'B',foreground:'#aaaaaa',background:'#ffffff',ratio:2.32}]}},

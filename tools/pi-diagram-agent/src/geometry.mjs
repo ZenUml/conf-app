@@ -115,7 +115,7 @@ export function geometryForReviewer(g,model){
   return {units:'SVG user units, origin top-left, measured by code from the candidate SVG',canvas:g.natural,
     nodes:g.nodes.filter(n=>nodeIds.has(n.id)).map(n=>({id:n.id,box:boxArr(n.box)})),groups:(g.groups??[]).filter(x=>groupIds.has(x.id)).map(x=>({id:x.id,box:boxArr(x.box)})),
     labels:resolveLabels(g,model).filter(l=>edgeIds.has(edgeId(l.source,l.target))).map(l=>({edge:edgeId(l.source,l.target),box:boxArr(l.box),gapToOwnEdge:gap.get(edgeId(l.source,l.target))})),
-    routes:g.edges.filter(e=>edgeIds.has(e.id)).map(e=>({edge:e.id,vertices:simplify(e.points),nearestUnrelated:nearest(clear.get(e.id)??null)}))};
+    routes:g.edges.filter(e=>edgeIds.has(e.id)).map(e=>{const vertices=simplify(e.points);return {edge:e.id,vertices,manhattanLength:round(vertices.slice(1).reduce((n,p,i)=>n+Math.abs(p[0]-vertices[i][0])+Math.abs(p[1]-vertices[i][1]),0)),nearestUnrelated:nearest(clear.get(e.id)??null)}})};
 }
 
 /** Browser measurement of the candidate SVG (same sandboxing as the auditor: JS disabled, network blocked). */

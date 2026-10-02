@@ -212,6 +212,11 @@ function enumerate(S,T,sFaces,tFaces,valuesFor,maxBends,channelsFor=()=>[]){
 
 const fmt=(c,midDist)=>({faces:{source:c.faces[0].name,target:c.faces[1].name},anchors:{source:c.points[0].map(round3),target:c.points.at(-1).map(round3)},segments:c.points.slice(0,-1).map((p,i)=>[p.map(round3),c.points[i+1].map(round3)]),bends:c.points.length-2,anchorOffsetFromMidpoints:round3(midDist)});
 
+export const DETOUR_RATIO=1.5,DETOUR_EXTRA=200;
+// A drawn route is an avoidable detour when it is longer than BOTH 1.5x and (shortest + 200) of the shortest feasible route: the ratio spares
+// short links where a few bends legitimately double the length, the 200-unit floor spares long links where 1.5x is already a large absolute detour.
+const detourLimit=best=>Math.max(best*DETOUR_RATIO,best+DETOUR_EXTRA);
+const manhattan=pts=>pts.slice(1).reduce((n,p,i)=>n+Math.abs(p[0]-pts[i][0])+Math.abs(p[1]-pts[i][1]),0);
 const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
 
 /** @param input {nodes,groups,edges,labelBoxes,unboundLabels}
@@ -219,7 +224,7 @@ const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
  * groups: [{id,outline,box,headings:[box]}]
  * edges: [{source,target,tag,path,axialLength,spans,hulls,trunk}]  (spans/hulls from the audit's strict path readers)
  */
-export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]}){
+export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend'}={}){
   const relations=[],violations=[],notCheckable=[];
   const nodeById=new Map();for(const n of nodes)if(!nodeById.has(n.id))nodeById.set(n.id,n);
   const groupProblem=groups.find(g=>!g.box||g.outline!=='rect');
@@ -301,6 +306,21 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
       return sortedUnique(list).sort((a,b)=>Math.abs(a-centre)-Math.abs(b-centre)).slice(0,160);
     };
     const record={edge:id,drawnBends:route.bends,faces:{source:fsD.name,target:ftD.name},...(pinned?{trunk:me.trunk}:{})};
+    if(mode==='detour'){
+      // Avoidable detour: the drawn Manhattan length against the shortest feasible witness (0-2 bends, same obstacles, clearances and trunk pin).
+      const drawnLength=manhattan(route.points);
+      const cands=enumerate(GS,GT,fs0,tFacesFor,valuesFor,2,channelsFor).map(c=>({c,level:evaluate(c.points),length:manhattan(c.points)})).filter(x=>x.level>0);
+      const yes=cands.filter(x=>x.level===2).sort((a,b)=>a.length-b.length),maybe=cands.filter(x=>x.level===1).sort((a,b)=>a.length-b.length);
+      if(!yes.length){nc(maybe.length?'no feasible witness: the only shorter candidates are blocked by unmeasured or uncertain geometry':'no feasible witness route found among straight, L, Z and U candidates (a feasible route may need 3 or more bends)');continue}
+      const w=yes[0],limit=detourLimit(w.length);
+      if(drawnLength>limit+EPS){
+        violations.push({...record,kind:'detour',drawnLength:round3(drawnLength),witnessLength:round3(w.length),limit:round3(limit),witnessBends:w.c.points.length-2,witness:fmt(w.c,0)});
+        relations.push({edge:id,status:'FAIL',reason:`drawn length ${round3(drawnLength)} exceeds ${round3(limit)} (the larger of 1.5x and +${DETOUR_EXTRA} over the shortest feasible route, ${round3(w.length)})`});continue;
+      }
+      const uncertain=maybe.find(x=>x.length<w.length&&drawnLength>detourLimit(x.length)+EPS);
+      if(uncertain){nc('a shorter route that would make this a detour is blocked only by unmeasured or uncertain geometry');continue}
+      relations.push({edge:id,status:'PASS',drawnLength:round3(drawnLength),witnessLength:round3(w.length)});continue;
+    }
     // 1) lower-bend witness: straight (0), L (1) and, for drawings with 3+ bends, Z/U (2) candidates with fewer bends than drawn.
     const lower=route.bends>=1?enumerate(GS,GT,fs0,tFacesFor,valuesFor,Math.min(2,route.bends-1),channelsFor):[];
     const scored=lower.map(c=>({c,level:evaluate(c.points),bends:c.points.length-2,dist:midDist(c.faces[0],c.faces[1],c.points[0],c.points.at(-1))}));
@@ -340,6 +360,11 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
     relations.push({edge:id,status:'PASS',drawnBends:route.bends,...(pinned?{trunk:me.trunk}:{})});
   }
   const status=violations.length?'FAIL':notCheckable.length||!edges.length?'NOT-CHECKABLE':'PASS';
+  if(mode==='detour')return {status,evidence:{
+    method:`drawn Manhattan route length versus the shortest feasible witness from the same search as routeLowerBend (straight, L, Z/U candidates over face midpoints, alignment points and a face sweep; kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, long enough for fillet trim + marker + shaft, shared-trunk entry pinned); FAIL when the drawn length exceeds max(${DETOUR_RATIO}x, +${DETOUR_EXTRA} units) of the witness; NOT-CHECKABLE when no feasible witness exists`,
+    thresholds:{ratio:DETOUR_RATIO,extraUnits:DETOUR_EXTRA},relations,violations,notCheckable,
+    checkedRelations:relations.filter(r=>r.status!=='NOT-CHECKABLE').length,
+    limitations:'witness routes have at most 2 bends, so a relationship that can only be routed with 3 or more bends is NOT-CHECKABLE; the drawn route itself is never taken as its own witness; uncertain obstacles block witnesses but never support a PASS'}};
   return {status,evidence:{
     method:'actual SVG path reconstructed into logical bends (fillet = one bend); straight (0) and L (1) candidates, plus Z/U (2) candidates when the drawing has 3+ bends, over face midpoints, projected alignment points, drawn-anchor projections and a 4-unit face sweep, kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, and long enough for fillet trim + marker axial length + 8; ports of non-rectangular nodes are the apexes and flat faces measured on the sampled drawn outline; equal-bend midpoint comparison against enumerated L/straight candidates or anchor-shifted copies of the drawn route; a declared shared-trunk member is searched with its target anchor pinned to the trunk entry so every witness still merges validly',
     relations,violations,notCheckable,

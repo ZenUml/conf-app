@@ -1,4 +1,7 @@
 // Pure helpers for run-bench.mjs. No network, no model, no browser: unit-tested in bench-lib.test.mjs.
+import fs from 'node:fs';
+import path from 'node:path';
+import {createHash} from 'node:crypto';
 import {readRunManifest} from '../src/manifest.mjs';
 
 /** Text a rate-limit matcher may look at. Matched on error TEXT only; never on numbers such as tMs timestamps. */
@@ -82,15 +85,16 @@ export async function loadV2Metrics(runDir,{waitMs=60_000,pollMs=500}={}){
   }
 }
 
-/** Split an audit result into FAIL checks and NOT-CHECKABLE checks (excluding the structural pair). */
+/** Split an audit result into FAIL checks, ADJUDICATED checks, and NOT-CHECKABLE checks (excluding the structural pair). */
 export function summariseAudit(audit){
-  if(!audit||!audit.checks)return {status:audit?.status??'NO-AUDIT',fail:[],notCheckable:[],error:audit?.error??null};
-  const fail=[],notCheckable=[];
+  if(!audit||!audit.checks)return {status:audit?.status??'NO-AUDIT',fail:[],notCheckable:[],adjudicated:[],error:audit?.error??null};
+  const fail=[],notCheckable=[],adjudicated=[];
   for(const [name,c] of Object.entries(audit.checks)){
     if(c?.status==='FAIL')fail.push(name);
+    else if(c?.status==='ADJUDICATED')adjudicated.push(name);
     else if(c?.status==='NOT-CHECKABLE'&&!STRUCTURAL_NOT_CHECKABLE.includes(name))notCheckable.push(name);
   }
-  return {status:audit.status,fail,notCheckable,error:null};
+  return {status:audit.status,fail,notCheckable,adjudicated,error:null};
 }
 
 /** A run is "completed" when the agent ended on its own and no rate limit hit it. Only these enter the timing statistics. */
@@ -160,4 +164,46 @@ export function renderMarkdown(summary,{meta={}}={}){
   if(summary.rateLimitedRuns.length)L.push('',`Rate-limit signals (error text only): ${summary.rateLimitedRuns.join(', ')}`);
   L.push('');
   return L.join('\n');
+}
+
+const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+
+/** Parse adjudication records from a file path (used in --magic-options or env). */
+export function loadAdjudications(adjudicationPath){
+  if(!adjudicationPath)return [];
+  try{
+    const file=fs.realpathSync(adjudicationPath);
+    const item=fs.statSync(file);
+    if(!item.isFile()||item.size===0||item.size>64_000)return [];
+    const bytes=fs.readFileSync(file);
+    const parsed=JSON.parse(bytes.toString('utf8'));
+    return Array.isArray(parsed)?parsed:[parsed];
+  }catch{
+    return [];
+  }
+}
+
+/** Re-audit the final SVG with optional adjudication records passed to the auditor. */
+export async function postProcess({runDir,source,outBase,auditFn,adjudications=[],v2=true}){
+  const res={finalSvgSha256:null,finalSvgInspected:null,audit:null};
+  if(v2&&runDir&&fs.existsSync(runDir)){const m=await loadV2Metrics(runDir);if(m.v2){res.v2=m.v2;fs.copyFileSync(path.join(runDir,'run.json'),outBase+'.run.json')}else res.v2Error=m.error}
+  if(!runDir||!fs.existsSync(runDir))return {...res,audit:{status:'NO-AUDIT',fail:[],notCheckable:[],adjudicated:[],error:'run directory missing'}};
+  const cand=path.join(runDir,'candidate.svg');
+  if(!fs.existsSync(cand))return {...res,finalSvgInspected:false,audit:{status:'NO-AUDIT',fail:[],notCheckable:[],adjudicated:[],error:'no candidate.svg'}};
+  const bytes=fs.readFileSync(cand);res.finalSvgSha256=sha(bytes);
+  fs.copyFileSync(cand,outBase+'.candidate.svg');
+  // diagram_inspect writes candidate.<first 12 hex of SVG sha256>.<role>.png: its presence means this exact SVG was rendered for inspection.
+  res.finalSvgInspected=fs.readdirSync(runDir).some(f=>f.startsWith(`candidate.${res.finalSvgSha256.slice(0,12)}.`)&&f.endsWith('.png'));
+  const orig=fs.readdirSync(runDir).find(f=>f.startsWith('source.original.')&&f.endsWith('.svg'));
+  try{
+    const audit=await auditFn(fs.readFileSync(source),bytes,{originalSvg:orig?fs.readFileSync(path.join(runDir,orig)):undefined,adjudications});
+    fs.writeFileSync(outBase+'.audit.json',JSON.stringify(audit,null,2));
+    res.audit=summariseAudit(audit);res.audit.originalRenderFound=!!orig;
+  }catch(error){res.audit={status:'NO-AUDIT',fail:[],notCheckable:[],adjudicated:[],error:String(error?.message??error)}}
+  return res;
+}
+
+/** Detect when the gate marked a run REVIEWED but the post-hoc audit says FAIL. */
+export function gateAuditMismatch(run){
+  return run?.v2?.gateStatus==='REVIEWED'&&run?.audit?.status==='FAIL';
 }

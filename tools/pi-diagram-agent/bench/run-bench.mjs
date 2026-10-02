@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {reduceEvents,summariseAudit,aggregate,renderMarkdown,eventIsRateLimit,createRunTracker,loadV2Metrics} from './bench-lib.mjs';
+import {reduceEvents,summariseAudit,aggregate,renderMarkdown,eventIsRateLimit,createRunTracker,loadV2Metrics,postProcess,gateAuditMismatch,loadAdjudications} from './bench-lib.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const worktreePkg=path.resolve(here,'..');
@@ -55,6 +55,12 @@ function resolveFixtures(spec){
 
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 
+/** Extract --adjudication <path> from magic options string. */
+function extractAdjudicationPath(magicOptions){
+  const match=/--adjudication\s+(\S+)/.exec(magicOptions);
+  return match?match[1]:null;
+}
+
 /** Spawn `pi --mode rpc` exactly like driver-control.mjs and log events to eventFile. Resolves with the run's reduced events. */
 function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv={},model='gpt-5.6-sol'}){
   return new Promise(resolve=>{
@@ -96,25 +102,6 @@ function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv=
   });
 }
 
-async function postProcess({runDir,source,outBase,auditFn,v2=true}){
-  const res={finalSvgSha256:null,finalSvgInspected:null,audit:null};
-  if(v2&&runDir&&fs.existsSync(runDir)){const m=await loadV2Metrics(runDir);if(m.v2){res.v2=m.v2;fs.copyFileSync(path.join(runDir,'run.json'),outBase+'.run.json')}else res.v2Error=m.error}
-  if(!runDir||!fs.existsSync(runDir))return {...res,audit:{status:'NO-AUDIT',fail:[],notCheckable:[],error:'run directory missing'}};
-  const cand=path.join(runDir,'candidate.svg');
-  if(!fs.existsSync(cand))return {...res,finalSvgInspected:false,audit:{status:'NO-AUDIT',fail:[],notCheckable:[],error:'no candidate.svg'}};
-  const bytes=fs.readFileSync(cand);res.finalSvgSha256=sha(bytes);
-  fs.copyFileSync(cand,outBase+'.candidate.svg');
-  // diagram_inspect writes candidate.<first 12 hex of SVG sha256>.<role>.png: its presence means this exact SVG was rendered for inspection.
-  res.finalSvgInspected=fs.readdirSync(runDir).some(f=>f.startsWith(`candidate.${res.finalSvgSha256.slice(0,12)}.`)&&f.endsWith('.png'));
-  const orig=fs.readdirSync(runDir).find(f=>f.startsWith('source.original.')&&f.endsWith('.svg'));
-  try{
-    const audit=await auditFn(fs.readFileSync(source),bytes,{originalSvg:orig?fs.readFileSync(path.join(runDir,orig)):undefined});
-    fs.writeFileSync(outBase+'.audit.json',JSON.stringify(audit,null,2));
-    res.audit=summariseAudit(audit);res.audit.originalRenderFound=!!orig;
-  }catch(error){res.audit={status:'NO-AUDIT',fail:[],notCheckable:[],error:String(error?.message??error)}}
-  return res;
-}
-
 async function main(){
   const o=parseArgs(process.argv.slice(2));
   const pkg=fs.realpathSync(path.resolve(o.package));
@@ -125,10 +112,12 @@ async function main(){
   if(realOut===repoRoot||realOut.startsWith(repoRoot+path.sep))throw Error('--out must be outside the repository: outputs are never committed');
   const fixtures=resolveFixtures(o.fixtures);
   const {auditAgentSvg}=await import(pathToFileURL(path.resolve(o.auditor)).href);
+  const adjudicationPath=extractAdjudicationPath(o.magicOptions);
+  const adjudications=adjudicationPath?loadAdjudications(adjudicationPath):[];
   const auditFn=(s,v,opts)=>auditAgentSvg(s,v,opts);
   const jobs=[];for(const f of fixtures)for(let r=1;r<=o.reps;r++){const name=path.basename(f,'.mmd');jobs.push({fixture:name,source:f,id:`${name}-r${r}`})}
   const runs=[];let rateLimited=false,next=0;
-  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:`openai-codex ${o.model??'gpt-5.6-sol'}, thinking high`,magicOptions:o.magicOptions||'(none)',v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)==='0'?'off (PI_DIAGRAM_V2=0)':'on (default)',piBin:o.piBin,env:Object.keys(o.env).length?JSON.stringify(o.env):'(none)',startedAt:new Date().toISOString()};
+  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:`openai-codex ${o.model??'gpt-5.6-sol'}, thinking high`,magicOptions:o.magicOptions||'(none)',adjudication:adjudicationPath?{path:adjudicationPath,records:adjudications.length}:'(none)',v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)==='0'?'off (PI_DIAGRAM_V2=0)':'on (default)',piBin:o.piBin,env:Object.keys(o.env).length?JSON.stringify(o.env):'(none)',startedAt:new Date().toISOString()};
   const writeSummary=()=>{
     const ordered=jobs.map(j=>runs.find(r=>r.id===j.id)).filter(Boolean);
     const summary={meta,...aggregate(ordered),runs:ordered};
@@ -144,9 +133,12 @@ async function main(){
       const events=await runPi({pkg,source:job.source,eventFile,magicOptions:o.magicOptions,piBin:o.piBin,extraEnv:o.model?{...o.env,PI_DIAGRAM_CODEX_MODEL:o.model}:o.env,model:o.model??'gpt-5.6-sol',timeoutMs:o.timeoutMin*60_000});
       const r=reduceEvents(events);
       if(events.some(eventIsRateLimit)){rateLimited=true;console.error(`[bench] rate-limit text seen in ${job.id}: no further runs will start`)}
-      const post=await postProcess({runDir:r.runDir,source:job.source,outBase:base,auditFn,v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)!=='0'});
-      runs.push({id:job.id,fixture:job.fixture,...r,...post});
-      console.error(`[bench] done ${job.id} ${r.doneReason} ${(r.elapsedMs/1000).toFixed(0)}s out=${r.outputTokens} audit=${post.audit?.status}${post.v2?` gate=${post.v2.gateStatus} rounds=${post.v2.rounds}`:''}`);
+      const post=await postProcess({runDir:r.runDir,source:job.source,outBase:base,auditFn,adjudications,v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)!=='0'});
+      const mismatch=gateAuditMismatch(post);
+      const auditGatePair=`audit=${post.audit?.status}${post.v2?` gate=${post.v2.gateStatus}`:''}`+(mismatch?` ⚠️ MISMATCH`:'');
+      runs.push({id:job.id,fixture:job.fixture,...r,...post,auditGateMismatch:mismatch});
+      console.error(`[bench] done ${job.id} ${r.doneReason} ${(r.elapsedMs/1000).toFixed(0)}s out=${r.outputTokens} ${auditGatePair}${post.v2?` rounds=${post.v2.rounds}`:''}`);
+      if(mismatch)console.error(`[bench] MISMATCH ${job.id}: gate status is REVIEWED but post-hoc audit is FAIL`);
       writeSummary();
     }
   }

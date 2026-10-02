@@ -534,3 +534,25 @@ test('a measured layout FAIL (textContrast) reaches the author once, as an early
     assert.equal(t.calls.reviewer.length,0);
   }finally{t.cleanup()}
 });
+
+test('manifest round audit record includes adjudicatedChecks and notCheckableChecks alongside failedChecks',async()=>{
+  const t=setup({auditFor:(text)=>{
+    const a=({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'PASS',evidence:{missing:[],extra:[]}},relations:{status:'PASS'},groups:{status:'PASS'},semanticPreservation:{status:'ADJUDICATED',evidence:{adjudications:[]}},
+      textFit:{status:'PASS',evidence:{method:'getBBox vs outline',checkedNodes:2,overflows:[]}},routeCrossings:{status:'FAIL',evidence:{method:'straight spans',checkedEdges:1,violations:[{edgeA:'A->B',edgeB:'routeCrossings->Z'}]}},
+      routeNodeIntrusion:{status:'NOT-CHECKABLE',evidence:'x'},routeGeometry:{status:'NOT-CHECKABLE',evidence:'x'},visualQuality:{status:'NOT-CHECKABLE',evidence:'x'}}});
+    return a;
+  }});try{
+    t.write(svg('test'));
+    const r=await t.out();
+    assert.equal(r.status,'REVISE');
+    const m=readRunManifest(t.job.runDir);
+    const roundAudit=m.rounds[0].audit;
+    assert.ok(roundAudit,'round 0 should have audit record');
+    assert.ok(Array.isArray(roundAudit.failedChecks),'failedChecks should be an array');
+    assert.ok(Array.isArray(roundAudit.adjudicatedChecks),'adjudicatedChecks should be an array');
+    assert.ok(Array.isArray(roundAudit.notCheckableChecks),'notCheckableChecks should be an array');
+    assert.deepEqual(roundAudit.failedChecks,['routeCrossings']);
+    assert.deepEqual(roundAudit.adjudicatedChecks,['semanticPreservation']);
+    assert.ok(roundAudit.notCheckableChecks.includes('routeNodeIntrusion'));
+  }finally{t.cleanup()}
+});

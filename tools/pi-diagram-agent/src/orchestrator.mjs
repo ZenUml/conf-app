@@ -143,9 +143,16 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   };
   const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{})});
 
+  const checksWithStatus=(audit,status)=>audit?.checks?Object.entries(audit.checks??{}).filter(([,v])=>v?.status===status).map(([k])=>k):[];
+
   function roundRecord(c,score,extra={}){
+    const auditRecord=c.audit?{
+      status:c.audit.status,
+      failedChecks:checksWithStatus(c.audit,'FAIL'),
+      adjudicatedChecks:checksWithStatus(c.audit,'ADJUDICATED'),
+      notCheckableChecks:checksWithStatus(c.audit,'NOT-CHECKABLE')}:null;
     return {round:c.round,svgHash:c.hash,renderedHash:c.render?.svgHash??null,stage:c.stage,reverted:false,
-      audit:c.audit?{status:c.audit.status,failedChecks:Object.entries(c.audit.checks??{}).filter(([,v])=>v?.status==='FAIL').map(([k])=>k)}:null,
+      audit:auditRecord,
       review:c.review?{ok:c.review.ok,verdict:c.review.verdict??null,imageCount:c.review.imageCount??null,attempts:c.review.attempts,ms:c.review.ms,usage:c.review.usage,error:c.review.error??null,modelId:c.review.modelId??null,findings:(c.review.findings??[]).map(brief)}:null,
       findings:c.findings.map(brief),gate:c.gate,counts:score,...extra};
   }

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {reduceEvents,summariseAudit,aggregate,renderMarkdown,eventIsRateLimit,createRunTracker} from './bench-lib.mjs';
+import {reduceEvents,summariseAudit,aggregate,renderMarkdown,eventIsRateLimit,createRunTracker,loadV2Metrics} from './bench-lib.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const worktreePkg=path.resolve(here,'..');
@@ -95,8 +95,9 @@ function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv=
   });
 }
 
-async function postProcess({runDir,source,outBase,auditFn}){
+async function postProcess({runDir,source,outBase,auditFn,v2=true}){
   const res={finalSvgSha256:null,finalSvgInspected:null,audit:null};
+  if(v2&&runDir&&fs.existsSync(runDir)){const m=await loadV2Metrics(runDir);if(m.v2){res.v2=m.v2;fs.copyFileSync(path.join(runDir,'run.json'),outBase+'.run.json')}else res.v2Error=m.error}
   if(!runDir||!fs.existsSync(runDir))return {...res,audit:{status:'NO-AUDIT',fail:[],notCheckable:[],error:'run directory missing'}};
   const cand=path.join(runDir,'candidate.svg');
   if(!fs.existsSync(cand))return {...res,finalSvgInspected:false,audit:{status:'NO-AUDIT',fail:[],notCheckable:[],error:'no candidate.svg'}};
@@ -126,7 +127,7 @@ async function main(){
   const auditFn=(s,v,opts)=>auditAgentSvg(s,v,opts);
   const jobs=[];for(const f of fixtures)for(let r=1;r<=o.reps;r++){const name=path.basename(f,'.mmd');jobs.push({fixture:name,source:f,id:`${name}-r${r}`})}
   const runs=[];let rateLimited=false,next=0;
-  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:'openai-codex gpt-5.6-sol, thinking high',magicOptions:o.magicOptions||'(none)',piBin:o.piBin,env:Object.keys(o.env).length?JSON.stringify(o.env):'(none)',startedAt:new Date().toISOString()};
+  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:'openai-codex gpt-5.6-sol, thinking high',magicOptions:o.magicOptions||'(none)',v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)==='0'?'off (PI_DIAGRAM_V2=0)':'on (default)',piBin:o.piBin,env:Object.keys(o.env).length?JSON.stringify(o.env):'(none)',startedAt:new Date().toISOString()};
   const writeSummary=()=>{
     const ordered=jobs.map(j=>runs.find(r=>r.id===j.id)).filter(Boolean);
     const summary={meta,...aggregate(ordered),runs:ordered};
@@ -142,9 +143,9 @@ async function main(){
       const events=await runPi({pkg,source:job.source,eventFile,magicOptions:o.magicOptions,piBin:o.piBin,extraEnv:o.env,timeoutMs:o.timeoutMin*60_000});
       const r=reduceEvents(events);
       if(events.some(eventIsRateLimit)){rateLimited=true;console.error(`[bench] rate-limit text seen in ${job.id}: no further runs will start`)}
-      const post=await postProcess({runDir:r.runDir,source:job.source,outBase:base,auditFn});
+      const post=await postProcess({runDir:r.runDir,source:job.source,outBase:base,auditFn,v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)!=='0'});
       runs.push({id:job.id,fixture:job.fixture,...r,...post});
-      console.error(`[bench] done ${job.id} ${r.doneReason} ${(r.elapsedMs/1000).toFixed(0)}s out=${r.outputTokens} audit=${post.audit?.status}`);
+      console.error(`[bench] done ${job.id} ${r.doneReason} ${(r.elapsedMs/1000).toFixed(0)}s out=${r.outputTokens} audit=${post.audit?.status}${post.v2?` gate=${post.v2.gateStatus} rounds=${post.v2.rounds}`:''}`);
       writeSummary();
     }
   }

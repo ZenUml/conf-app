@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {matchesRateLimit,eventIsRateLimit,median,reduceEvents,summariseAudit,aggregate,renderMarkdown,isCompleted} from './bench-lib.mjs';
+import {matchesRateLimit,eventIsRateLimit,median,reduceEvents,summariseAudit,aggregate,renderMarkdown,isCompleted,summariseManifest} from './bench-lib.mjs';
 import {parseMermaid} from '../src/parser.mjs';
 
 test('rate-limit matcher matches error text and never numbers',()=>{
@@ -131,4 +131,44 @@ test('reduceEvents records spec-mode use, source facts and output tokens before 
     {kind:'tool-start',tool:'diagram_inspect',tMs:50},
     {kind:'assistant',usage:{input:1,output:999},tMs:60},{kind:'done',reason:'AGENT_END',elapsedMs:100}]);
   assert.equal(r.specRenders,1);assert.equal(r.sourceFactsIncluded,true);assert.equal(r.specModeOffered,true);assert.equal(r.outputTokensBeforeFirstInspection,500);assert.equal(r.outputTokens,1499);
+});
+
+test('v2: reduceEvents counts diagram_submit calls',()=>{
+  const r=reduceEvents([{kind:'tool-start',tool:'diagram_inspect',tMs:1},{kind:'tool-start',tool:'diagram_submit',tMs:2},{kind:'tool-start',tool:'diagram_submit',tMs:3},{kind:'done',reason:'AGENT_SETTLED',elapsedMs:9}]);
+  assert.equal(r.submits,2);assert.equal(r.inspections,1);
+});
+const manifest=()=>({status:'CANDIDATE',statusReason:'ROUNDS_EXHAUSTED: 4 submit rounds used',finalSvgSha256:'f'.repeat(64),
+  rounds:[{round:1,stage:'review',review:{ok:true,findings:[{severity:'blocking'},{severity:'minor'}]}},{round:2,stage:'audit',review:null},{round:3,stage:'review',reverted:true,review:{ok:true,findings:[{severity:'blocking'}]}}],
+  timings:{authorMs:120000,reviewerMs:30000,orchestratorMs:5000,totalMs:160000},tokens:{author:{input:1000,output:500},reviewer:{input:200,output:80}},
+  metrics:{rounds:3,gateStatus:'CANDIDATE',falseBlockCandidates:1,oscillations:2,reverts:1},notCheckable:['routeGeometry']});
+test('v2: summariseManifest extracts the benchmark metrics and rejects absent or unsealed manifests',()=>{
+  const v=summariseManifest(manifest());
+  assert.deepEqual(v,{gateStatus:'CANDIDATE',statusReason:'ROUNDS_EXHAUSTED',rounds:3,reverts:1,authorSeconds:120,reviewerSeconds:30,authorTokens:{input:1000,output:500},reviewerTokens:{input:200,output:80},
+    reviewerBlockingFindings:2,falseBlockCandidates:1,oscillations:2,finalSvgSha256:'f'.repeat(64)});
+  assert.equal(summariseManifest(null),null);
+  assert.equal(summariseManifest({status:'REVIEWED'}).rounds,0);
+});
+test('v2: markdown has a v2 section only when runs carry v2 metrics',()=>{
+  const base={totalRuns:1,completedRuns:1,rateLimitedRuns:[],nonCompletedRuns:[],overall:{elapsedMs:stats0(),outputTokens:stats0(),firstInspectionStartMs:stats0()},fixtures:[]};
+  const withV2=renderMarkdown({...base,runs:[{id:'f2-r1',doneReason:'AGENT_SETTLED',toolCalls:3,inspections:2,v2:summariseManifest(manifest())}]},{meta:{}});
+  assert.match(withV2,/## v2 loop/);assert.match(withV2,/f2-r1 \| CANDIDATE \| 3 \| 1 \| 120s \| 30s/);
+  const without=renderMarkdown({...base,runs:[{id:'f2-r1',doneReason:'AGENT_SETTLED',toolCalls:3,inspections:2}]},{meta:{}});
+  assert.doesNotMatch(without,/## v2 loop/);
+});
+function stats0(){return {n:0,median:null,min:null,max:null}}
+
+import os from 'node:os';
+import path from 'node:path';
+import {loadV2Metrics} from './bench-lib.mjs';
+import {writeRunManifest} from '../src/manifest.mjs';
+test('v2: loadV2Metrics reads a sealed run.json, reports absence and tampering, and waits for a late manifest',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pi-diagram-agent-'));
+  try{
+    assert.deepEqual(await loadV2Metrics(dir,{waitMs:0}),{v2:null,error:'no run.json'});
+    setTimeout(()=>writeRunManifest(dir,{...manifest(),schema:'pi-diagram-run/2'}),30);
+    const late=await loadV2Metrics(dir,{waitMs:2000,pollMs:10});
+    assert.equal(late.v2.gateStatus,'CANDIDATE');assert.equal(late.error,undefined);
+    const j=JSON.parse(fs.readFileSync(path.join(dir,'run.json'),'utf8'));j.status='VALIDATED';fs.writeFileSync(path.join(dir,'run.json'),JSON.stringify(j));
+    const bad=await loadV2Metrics(dir,{waitMs:0});assert.equal(bad.v2,null);assert.match(bad.error,/MANIFEST_TAMPERED/);
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
 });

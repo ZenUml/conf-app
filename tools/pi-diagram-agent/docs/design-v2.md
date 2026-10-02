@@ -1,6 +1,16 @@
 # Pi diagram agent — design v2 (draft)
 
-Status: draft r2 — revised after Opus critique (private review record design-v2-review.md). Supersedes the single-session loop described in `agent-loop.md` once implemented.
+Status: implemented MVP, K=1 (design r2, revised after Opus critique). `/magic` runs this loop by default; `PI_DIAGRAM_V2=0` restores the single-session loop described in `agent-loop.md`. Parallel authors (`--authors K`) and reviewer thinking-level tuning are not implemented.
+
+Implementation notes (deviations from the text below are listed here, not hidden):
+
+- Code: `src/orchestrator.mjs` (rounds, ledger, revert, budgets, manifest), `src/findings.mjs`, `src/early-checks.mjs` (forbidden constructs, binding checks, region signatures, reviewer-vs-auditor coverage table), `src/reviewer.mjs`, `src/gate.mjs`, `src/manifest.mjs`; wiring in `pi-extension.ts`.
+- Missing bindings: the auditor reports a candidate with no `data-node` / `data-source` / group ids as NOT-CHECKABLE (it cannot FAIL what it cannot see). The early checks treat that as a blocking finding.
+- Audit-derived findings carry element ids but `region: null`; only reviewer findings have a region (a fraction of the full image, converted to SVG units).
+- `run.json` is sealed with a self hash and lives in the run directory, which the author can still write until the author is sandboxed. `/magic-accept` verifies the seal and, for a run orchestrated by the same Pi process, the in-memory manifest hash; for any other run only the seal is verifiable.
+- A reviewer error (malformed output twice, provider error) ends the run as CANDIDATE with `REVIEWER_ERROR`; it is never a pass and does not consume further author rounds.
+- Revert and best-candidate comparison use the lexicographic pair (audit-side blocking, reviewer blocking), then minor count. An audit failure outranks any number of reviewer opinions.
+- The author's turn cannot be interrupted, so the wall-clock budget is checked at each submit (and caps the run there), not mid-turn.
 
 ## Why v2
 

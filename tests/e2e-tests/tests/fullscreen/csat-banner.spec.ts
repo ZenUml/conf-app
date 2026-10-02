@@ -46,9 +46,9 @@ import { clickEditorPublish, expectModalClosed } from '../../helpers/FullscreenM
  * Run `page.locator('iframe').all()` in a debugger session after deploying
  * the module to find the correct selector.
  */
-// The CSAT survey now renders inside the single shared host module
-// (`zenuml-page-banner`), which picks paywall-warning > CSAT. CSAT tests create
-// a fresh low-macro page so paywall is never eligible → the host shows CSAT.
+// The shared host picks paywall-warning before CSAT. Eligibility is space-wide,
+// so a fresh page can still show the warning in an over-limit staging space.
+// The setup dismisses that warning through its UI before checking CSAT.
 // The host iframe lives under div[data-testid="forge-page-banner-wrapper"]
 // (confirmed via the feat/page-banner-host spot-check; there is no data-module-key).
 const BANNER_IFRAME_SELECTOR = '[data-testid="forge-page-banner-wrapper"] iframe, [data-testid*="page-banner"] iframe';
@@ -118,7 +118,21 @@ async function clearCsatState(page: Page): Promise<void> {
  */
 async function prepareCsatBannerFlow(page: Page): Promise<void> {
   await insertAndPublishMacro(page, 'sequence');
+  // Publishing can reuse Confluence's existing page-banner iframe. CSAT reads
+  // its newly armed signal on a page load, so reload the published page.
+  await page.reload();
+  const frame = csatBannerFrame(page);
+  const warningDismiss = frame.getByTestId('paywall-banner-dismiss');
+  const rating = frame.locator('.pb-face-btn').first();
+  await expect(warningDismiss.or(rating)).toBeVisible({ timeout: 20_000 });
+  if (await warningDismiss.isVisible()) {
+    // Follow the user's normal snooze path; preserve targeting and policy.
+    await warningDismiss.click();
+    await expectBannerAbsent(page);
+    await page.reload();
+  }
 }
+
 
 /** Assert the CSAT banner is absent (closed via view.close()). */
 async function expectBannerAbsent(page: Page): Promise<void> {
@@ -199,7 +213,7 @@ test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '
   // Submit: Send closes banner and sets suppression state
   // -------------------------------------------------------------------------
 
-  test('Send closes banner and suppresses for 3 months', async ({ page }) => {
+  test('Send closes banner and suppresses for 1 week', async ({ page }) => {
     await prepareCsatBannerFlow(page);
 
     const frame = csatBannerFrame(page);
@@ -240,11 +254,13 @@ test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '
       const entries = Object.values(users) as Array<{ expires: string }>;
       if (!entries.length) return false;
       const expires = new Date(entries[0].expires);
-      const threeMonthsFromNow = new Date();
-      threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
-      return expires > new Date() && expires < new Date(threeMonthsFromNow.getTime() + 86_400_000);
+      // Match the product's seven calendar days, including DST changes.
+      const expectedExpiry = new Date();
+      expectedExpiry.setDate(expectedExpiry.getDate() + 7);
+      const deltaMs = expectedExpiry.getTime() - expires.getTime();
+      return deltaMs >= 0 && deltaMs < 60_000;
     });
-    expect(suppressed, 'CSAT suppression state should be set for ~3 months').toBe(true);
+    expect(suppressed, 'CSAT suppression state should last one week').toBe(true);
   });
 
   // -------------------------------------------------------------------------
@@ -313,8 +329,11 @@ test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '
     // Simulate another save by setting csatPending in the Forge iframe's
     // localStorage (same origin as the banner — different from Confluence's).
     const bannerFrame = page.frames().find(f => f.url().includes('cdn.prod.atlassian-dev.net'));
-    await bannerFrame?.evaluate(() => {
-      localStorage.setItem('csatPending', String(Date.now()));
+    if (!bannerFrame) throw new Error('No Forge Custom UI iframe available to arm CSAT');
+    await bannerFrame.evaluate(() => {
+      const stateKey = Object.keys(localStorage).find(k => k.startsWith('csat_state-'));
+      if (!stateKey) throw new Error('CSAT suppression state missing after dismissal');
+      localStorage.setItem(`csatPending-${stateKey.slice('csat_state-'.length)}`, String(Date.now()));
     });
 
     // Reload — suppression state should prevent banner from showing.

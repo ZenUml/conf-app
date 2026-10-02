@@ -132,6 +132,7 @@ describe('GenericViewer (chrome-less)', () => {
     // left in sessionStorage would make one of them report a retry outcome
     // against the NEXT test's state change.
     sessionStorage.clear()
+    localStorage.clear()
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.source = DataSource.CustomContent
     store.state.diagram.isCopy = false
@@ -190,15 +191,46 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = await mountMagic();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
       await flushPromises();
-      expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Original');
+      expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true');
       expect(wrapper.find('.screen-capture-content .diagram-viewport svg').exists()).toBe(true);
       expect(wrapper.find('.original-diagram').exists()).toBe(false);
       expect(store.state.diagram.mermaidCode).toBe(source);
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_view_succeeded', expect.objectContaining({ surface: 'fullscreen', macro_type: 'mermaid' }));
-      await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
+      await wrapper.find('[data-testid="original-toggle"]').trigger('click');
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Magic');
+      expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('false');
+      expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true');
+      expect(wrapper.find('[data-testid="magic-toggle"]').attributes('title')).toBe('Show prepared Magic view');
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_view_restored', expect.anything());
+    });
+
+    it('keeps comparative feedback unselected until a vote in either view', async () => {
+      (window.forgeGlobal!.forgeContext as any).accountId = 'feedback-user';
+      (window.forgeGlobal!.forgeContext as any).cloudId = 'feedback-site';
+      store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+      const wrapper = await mountMagic();
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
+      const choices = () => wrapper.findAll('[data-testid="magic-layout-feedback"] button');
+      expect(choices().map(button => button.attributes('aria-pressed'))).toEqual(['false', 'false', 'false']);
+      await wrapper.find('[data-testid="original-toggle"]').trigger('click');
+      expect(wrapper.find('[data-testid="magic-layout-feedback"]').exists()).toBe(true);
+      expect(choices().map(button => button.attributes('aria-pressed'))).toEqual(['false', 'false', 'false']);
+      expect(vi.mocked(trackAnalyticsEvent)).not.toHaveBeenCalledWith('magic_layout_feedback_submitted', expect.anything());
+      await choices()[0].trigger('click');
+      expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true');
+      expect(choices().map(button => button.attributes('aria-pressed'))).toEqual(['true', 'false', 'false']);
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_layout_feedback_submitted', expect.objectContaining({ magic_layout_preference: 'magic' }));
+      await choices()[2].trigger('click');
+      expect(choices().map(button => button.attributes('aria-pressed'))).toEqual(['false', 'false', 'true']);
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_layout_feedback_updated', expect.objectContaining({ magic_layout_preference: 'no_preference' }));
+      await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
+      await flushPromises();
+      expect(choices().map(button => button.attributes('aria-pressed'))).toEqual(['false', 'false', 'true']);
+      wrapper.unmount();
+      const reopened = await mountMagic();
+      await vi.waitFor(() => expect(reopened.find('[data-testid="magic-layout-feedback"]').exists()).toBe(true));
+      expect(reopened.findAll('[data-testid="magic-layout-feedback"] button').map(button => button.attributes('aria-pressed')))
+        .toEqual(['false', 'false', 'false']);
     });
 
     it('loads the actual Pi-produced artifact from a raw-body JSON round trip and rejects a stale edit', async () => {
@@ -216,14 +248,14 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = await mountMagic();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
       await vi.waitFor(() => {
-        expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Original');
+        expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true');
         expect(wrapper.find('.screen-capture-content .diagram-viewport marker#arrow').exists()).toBe(true);
       });
       expect(wrapper.find('.screen-capture-content .diagram-viewport').text()).toContain('Start');
       expect(wrapper.find('.screen-capture-content .diagram-viewport').text()).toContain('Finish');
-      await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
+      await wrapper.find('[data-testid="original-toggle"]').trigger('click');
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Magic');
+      expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('false');
       store.commit('updateMermaidCode', loaded.mermaidCode + ' ');
       await flushPromises();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
@@ -248,7 +280,7 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
       await vi.waitFor(() => {
-        expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Original');
+        expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true');
         expect(wrapper.find('.diagram-viewport svg').exists()).toBe(true);
       });
       store.commit('updateMermaidCode', source + '\n');
@@ -263,6 +295,8 @@ describe('GenericViewer (chrome-less)', () => {
       const hash = await magicSourceHash(source);
       store.state.diagram.magic = { sourceHash: hash, svg, rulesVersion: 'magic-v1', outcome: 'validated' };
       const wrapper = await mountMagic();
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
+      await wrapper.find('[data-testid="original-toggle"]').trigger('click');
       let releaseDigest!: (value: ArrayBuffer) => void;
       const digest = new Promise<ArrayBuffer>(resolve => { releaseDigest = resolve; });
       Object.defineProperty(globalThis, 'crypto', { value: { subtle: { digest: () => digest } }, configurable: true });
@@ -275,6 +309,23 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
       expect(wrapper.find('.diagram-viewport svg').exists()).toBe(false);
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_view_failed', expect.objectContaining({ magic_failure_reason: 'source_changed' }));
+      Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
+    });
+
+    it('drops an automatic validation result after source changes before it resolves', async () => {
+      const hash = await magicSourceHash(source);
+      store.state.diagram.magic = { sourceHash: hash, svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+      let releaseDigest!: (value: ArrayBuffer) => void;
+      const digest = new Promise<ArrayBuffer>(resolve => { releaseDigest = resolve; });
+      const digestOnce = vi.fn().mockImplementationOnce(() => digest)
+        .mockImplementation((...args: Parameters<typeof webcrypto.subtle.digest>) => webcrypto.subtle.digest(...args));
+      Object.defineProperty(globalThis, 'crypto', { value: { subtle: { digest: digestOnce } }, configurable: true });
+      const wrapper = await mountMagic();
+      store.commit('updateMermaidCode', source + '\n');
+      releaseDigest(Uint8Array.from(Buffer.from(hash, 'hex')).buffer);
+      await flushPromises();
+      expect(wrapper.find('.original-diagram').exists()).toBe(true);
+      expect(wrapper.find('.diagram-viewport svg').exists()).toBe(false);
       Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
     });
   });

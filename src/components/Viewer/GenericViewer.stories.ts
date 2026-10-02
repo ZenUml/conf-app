@@ -149,12 +149,13 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
 // ---------------------------------------------------------------------------
 
 /** No real Forge bridge — same shape Header.stories.ts / GetStarted.stories.ts use. */
-function stubForge(moduleKey?: string, architectureTokensEnabled = false, customContentId?: string) {
+function stubForge(moduleKey?: string, architectureTokensEnabled = false, customContentId?: string, accountId = 'storybook-user') {
   forgeGlobal.isForge = architectureTokensEnabled
   forgeGlobal.isLite = true
   forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.invalid'
   forgeGlobal.forgeContext = {
-    accountId: 'storybook-user',
+    accountId,
+    cloudId: 'storybook-cloud',
     // isEmbedded (GenericViewer.vue) reads forgeContext.moduleKey directly —
     // set only by the Embedded story below.
     moduleKey,
@@ -303,10 +304,11 @@ function configureStory(options: {
   architectureTokensEnabled?: boolean
   customContentId?: string
   displayMode?: boolean
+  accountId?: string
 } = {}) {
   resetStubResponses()
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
-  stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId)
+  stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId, options.accountId)
   if (options.architectureTokensEnabled) {
     stubResponses.remote = [
       { match: '/api/architecture-tokens/related', body: ARCHITECTURE_TOKENS_RESPONSE },
@@ -730,12 +732,14 @@ export const MermaidFullscreenMagic: Story = {
   render: (args: Args) => renderMermaidViewer(args),
   play: async () => {
     const canvas = within(document.body)
-    const magic = await canvas.findByRole('button', { name: 'Magic' })
-    await userEvent.click(magic)
-    await expect(await canvas.findByRole('button', { name: 'Original' })).toBeVisible()
+    const magic = await canvas.findByTestId('magic-toggle')
+    if (magic.getAttribute('aria-pressed') !== 'true') await userEvent.click(magic)
+    await waitFor(() => expect(magic).toHaveAttribute('aria-pressed', 'true'))
+    await waitFor(() => expect(magic).toHaveAttribute('aria-busy', 'false'))
     await expect(canvas.getByRole('img', { name: 'Input leads to result' })).toBeVisible()
-    await userEvent.click(canvas.getByRole('button', { name: 'Original' }))
-    await expect(await canvas.findByRole('button', { name: 'Magic' })).toBeVisible()
+    await userEvent.click(canvas.getByTestId('original-toggle'))
+    await expect(magic).toHaveAttribute('aria-pressed', 'false')
+    await expect(magic).toHaveAttribute('title', 'Show prepared Magic view')
   },
 }
 
@@ -759,25 +763,28 @@ export const MermaidFullscreenPiProducedMagic: Story = {
   render: (args: Args) => renderMermaidViewer(args),
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByRole('button', { name: 'Magic' })).toBeEnabled()
-    await userEvent.click(canvas.getByRole('button', { name: 'Magic' }))
+    const magic = await canvas.findByTestId('magic-toggle')
+    await expect(magic).toBeEnabled()
+    if (magic.getAttribute('aria-pressed') !== 'true') await userEvent.click(magic)
     await waitFor(() => {
       const svg = document.querySelector('.screen-capture-content .diagram-viewport svg')
       if (!svg?.querySelector('marker#arrow') || !svg.textContent?.includes('Start') || !svg.textContent?.includes('Finish')) {
         throw new Error('Pi-produced SVG is not visible in the Magic viewport')
       }
     })
-    await expect(canvas.getByRole('button', { name: 'Original' })).toHaveAttribute('aria-pressed', 'true')
-    await userEvent.click(canvas.getByRole('button', { name: 'Original' }))
-    await expect(await canvas.findByRole('button', { name: 'Magic' })).toHaveAttribute('aria-pressed', 'false')
+    await expect(magic).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(magic).toHaveAttribute('aria-busy', 'false'))
+    await userEvent.click(canvas.getByTestId('original-toggle'))
+    await expect(magic).toHaveAttribute('aria-pressed', 'false')
+    await expect(magic).toHaveAttribute('title', 'Show prepared Magic view')
     await expect(document.querySelector('.screen-capture-content .diagram-viewport marker#arrow')).toBeNull()
     await expect((store.state as any).diagram.mermaidCode).toBe(PI_MAGIC_SYNTHETIC_SOURCE)
 
     // The artifact stays attached as a saved body would, but source edits make it stale.
     store.commit('updateMermaidCode', PI_MAGIC_SYNTHETIC_SOURCE + ' ')
-    await userEvent.click(canvas.getByRole('button', { name: 'Magic' }))
+    await userEvent.click(magic)
     await expect(await canvas.findByTestId('magic-feedback')).toHaveTextContent('earlier version')
-    await expect(canvas.getByRole('button', { name: 'Magic' })).toHaveAttribute('aria-pressed', 'false')
+    await expect(magic).toHaveAttribute('aria-pressed', 'false')
   },
 }
 
@@ -793,11 +800,57 @@ export const MermaidFullscreenPiProducedMagicDisplay: Story = {
         title: 'Start to Finish',
         mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
         fullscreenMode: true,
+        accountId: 'storybook-layout-demo-user',
       })
       ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
       return { template: '<story />' }
     },
   ],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** Same saved diagram under another Forge account; only the local choice differs. */
+export const MermaidFullscreenPiProducedMagicOtherUser: Story = {
+  name: 'Fullscreen — Magic for another user',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true, accountId: 'storybook-user-b' })
+    ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** A newer producer generation for the same exact Mermaid source. */
+export const MermaidFullscreenPiProducedMagicNewGeneration: Story = {
+  name: 'Fullscreen — regenerated Magic',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true })
+    ;(store.state as any).diagram.magic = {
+      ...PI_MAGIC_SYNTHETIC_ARTIFACT,
+      generatedAt: '2026-10-02T00:00:00.000Z',
+    }
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** An edited source leaves the prepared artifact stale and opens Original. */
+export const MermaidFullscreenPiProducedMagicStale: Story = {
+  name: 'Fullscreen — stale Magic opens Original',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE + ' ', fullscreenMode: true })
+    ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+    return { template: '<story />' }
+  }],
   render: (args: Args) => renderMermaidViewer(args),
 }
 

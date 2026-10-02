@@ -319,3 +319,22 @@ test('legendCompleteness classifies a subroutine swatch drawn as an outline path
   const r=await legendStatus({nodeB:subroutineB,body});
   assert.equal(r.status,'PASS',JSON.stringify(r));
 });
+
+// T17 calibration round 2 (shapes named "cyl"/"start", double-border subroutine swatch, legend built as a group of nodes).
+test('shapeClass maps abbreviated names (cyl, start/end) onto the canonical classes',async()=>{
+  const {shapeClass}=await import('../src/layout-checks.mjs');
+  assert.equal(shapeClass('cyl'),'cylinder');
+  assert.equal(shapeClass('start'),'capsule');
+  assert.equal(shapeClass('end'),'capsule');
+});
+test('legendCompleteness classifies a subroutine swatch drawn as a rectangle with an inset inner rectangle',{skip:!enabled},async()=>{
+  const body=`<g><text x="300" y="14" font-size="16">Shape key</text><rect x="300" y="24" width="34" height="22" rx="3" fill="#eaf3ff" stroke="#2f6fad"/><rect x="305" y="28" width="24" height="14" fill="none" stroke="#2f6fad"/><text x="344" y="35" font-size="16">Cluster</text></g>`;
+  const r=await legendStatus({nodeB:subroutineB,body});
+  assert.equal(r.status,'PASS',JSON.stringify(r));
+});
+test('legendCompleteness reads a legend built as a group named legend whose entries are tagged nodes',{skip:!enabled},async()=>{
+  const entry=(id,x,fill,cap)=>`<g data-node="${id}" data-node-id="${id}" data-parent-group="legend" data-shape="rect"><rect x="${x}" y="24" width="60" height="22" fill="${fill}" stroke="#2f6fad"/><text x="${x+30}" y="35" text-anchor="middle" font-size="12">${cap}</text></g>`;
+  const body=`<g data-group="legend" data-container-id="legend"><rect x="290" y="4" width="200" height="50" fill="#ffffff" stroke="#999"/><text x="298" y="18" font-size="12">LEGEND</text></g>${entry('lA',300,'#eaf3ff','Process')}${entry('lB',380,'#fff4d6','Store')}`;
+  const r=await legendStatus({...two2,body});
+  assert.equal(r.status,'PASS',JSON.stringify(r));
+});

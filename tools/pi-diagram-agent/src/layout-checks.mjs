@@ -110,13 +110,22 @@ export const collectLayoutFacts=input=>{
     const HEADING=/^(?:(?:(?:diagram|colou?r|shape|line|flow|connector|node|arrow|edge|symbol|notation)s?\s+)?(?:legend|key)|notation|symbols?|how to read(?:\s+(?:this|the)(?:\s+diagram)?)?|reading guide)\s*:?$/i;
     const ELSEWHERE=NODE+','+GROUP+',g[data-edge-label-source],[data-source][data-target]';
     const inEls=(el,list)=>list.some(s=>s.els.some(x=>x===el||x.contains(el)));
+    const isGeom=el=>el instanceof SVGGeometryElement&&!inDefs(el);
+    const isGeomLate=isGeom;
     const scopes=[];// {els:[container or element], via, authoritative}
     for(const el of root.querySelectorAll('[data-legend],[data-legend-item]'))scopes.push({els:[el],via:'tag',authoritative:true});
+    // a legend drawn as a group (its entries are tagged nodes whose data-parent-group names it)
+    for(const gr of root.querySelectorAll(GROUP)){
+      const gid=groupIdOf(gr)??'';
+      const head=[...gr.querySelectorAll(':scope > text')].some(t=>HEADING.test(norm(t.textContent)));
+      if(!(/(?:^|[\s_-])(?:legend|key)(?:[\s_-]|$)/i.test(gid)||head))continue;
+      const members=gid?[...root.querySelectorAll(NODE)].filter(n=>n.getAttribute('data-parent-group')===gid):[];
+      if(members.length||[...gr.querySelectorAll('*')].some(isGeomLate))scopes.push({els:[gr,...members],via:'group',authoritative:true});
+    }
     for(const el of root.querySelectorAll('g[id],g[aria-label],g[class]')){
       if(inDefs(el)||el.matches(ELSEWHERE)||el.closest(ELSEWHERE)||inEls(el,scopes))continue;
       if([el.getAttribute('id'),el.getAttribute('aria-label'),el.getAttribute('class')].some(v=>/(?:^|[\s_-])(?:legend|key)(?:[\s_-]|$)/i.test(v??'')))scopes.push({els:[el],via:'tag',authoritative:true});
     }
-    const isGeom=el=>el instanceof SVGGeometryElement&&!inDefs(el);
     const titled=[...root.querySelectorAll('text')].filter(t=>!inDefs(t)&&!t.closest(NODE)&&!t.closest('g[data-edge-label-source]')&&HEADING.test(norm(t.textContent)));
     const headingTexts=[];
     for(const t of titled){
@@ -375,9 +384,9 @@ export function shapeClass(name){
   if(!s)return null;
   if(RECT_LIKE.test(s))return 'rect';
   if(/diamond|decision|gateway|hexagon/.test(s))return 'decision';
-  if(/cylinder|store|database|^db$/.test(s))return 'cylinder';
+  if(/cylinder|^cyl$|store|database|^db$/.test(s))return 'cylinder';
   if(/queue|subroutine/.test(s))return 'subroutine'; // [[x]] is drawn as a rectangle with two bars; the diagrams call it queue or subroutine
-  if(/capsule|stadium|pill|terminator/.test(s))return 'capsule';
+  if(/capsule|stadium|pill|terminator|^(?:start|end)$/.test(s))return 'capsule';
   return s;
 }
 const CAPTION_SHAPES=[[/diamond|decision|gateway|hexagon/,'decision'],[/cylinder|database|data ?store|datastore|storage|\bstore\b/,'cylinder'],[/queue|subroutine/,'subroutine'],[/capsule|stadium|terminator/,'capsule']];
@@ -462,6 +471,7 @@ function classifySwatches(marks){
   return swatches.map(m=>{
     let cls=swatchGeometryClass(m);
     if(cls==='ellipse'&&marks.some(p=>p!==m&&p.scope===m.scope&&p.tag==='path'&&!p.painted&&Math.abs(p.x-m.x)<1.5&&Math.abs(p.w-m.w)<1.5&&swatchBodyIsCylinder(p)))cls='cylinder'; // lid ellipse + open body path
+    if(cls==='rect'&&marks.some(o=>o!==m&&o.scope===m.scope&&o.tag==='rect'&&o.x>m.x+1&&o.y>m.y+1&&o.x+o.w<m.x+m.w-1&&o.y+o.h<m.y+m.h-1&&o.x-m.x<=8&&o.y-m.y<=8&&m.x+m.w-o.x-o.w<=8&&m.y+m.h-o.y-o.h<=8))cls='subroutine'; // double-border rectangle
     if(cls==='rect'&&bars.some(b=>b.scope===m.scope&&b.x>=m.x-1&&b.x+b.w<=m.x+m.w+1&&b.y>=m.y-1&&b.y+b.h<=m.y+m.h+1))cls='subroutine';
     return {cls,mark:m};
   });

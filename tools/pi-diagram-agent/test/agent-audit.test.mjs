@@ -310,3 +310,27 @@ test('relations the auditor cannot verify (open link, group endpoint, bidirectio
     assert.notEqual(r.status,'PASS');
   }
 });
+
+// --- review fixes (2026-10-02) ---
+const fitted=svg.replace('x="20" y="80">Start','x="30" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Finish');
+test('a node defined twice with different text or shape FAILs sourceDefinitionConflicts (Mermaid draws the last one)',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg('flowchart LR\n  A[Start] --> B[Other]\n  B(Finish)\n',fitted);
+  assert.equal(r.checks.nodeText.status,'PASS');
+  assert.equal(r.checks.sourceDefinitionConflicts?.status,'FAIL');
+  assert.deepEqual(r.checks.sourceDefinitionConflicts?.evidence.nodeIds,['B']);
+  assert.equal(r.status,'FAIL');
+  const clean=await auditAgentSvg(source,fitted);
+  assert.equal(clean.checks.sourceDefinitionConflicts?.status,'PASS');
+});
+test('a thick source edge makes relationStyle NOT-CHECKABLE: the auditor compares dashing only',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg('flowchart LR\n  A[Start] ==> B[Finish]\n',fitted);
+  assert.equal(r.checks.relations.status,'PASS');
+  assert.equal(r.checks.relationStyle.status,'NOT-CHECKABLE');
+  assert.match(JSON.stringify(r.checks.relationStyle.evidence),/thick/);
+});
+test('node shapes are never PASS: the auditor does not compare drawn shapes, and lists shapes the rules have no notation for',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg('flowchart LR\n  A([Start]) --> B[Finish]\n',fitted);
+  assert.equal(r.checks.nodeShape?.status,'NOT-CHECKABLE');
+  assert.deepEqual(r.checks.nodeShape?.evidence?.notCheckableShapeNodeIds,['A']);
+  assert.equal((await auditAgentSvg(source,fitted)).checks.nodeShape?.status,'NOT-CHECKABLE');
+});

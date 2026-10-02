@@ -26,6 +26,7 @@ export function formatSourceFacts(model,layout){
     if(path.length!==rendered.length||path.some(g=>!rendered.includes(g)))conflicts.push(`${n.id}: declared ${path.join('>')||'none'}, rendered ${renderedLabel==='-'?'none':rendered.join('>')}`);
     L.push(`${n.id} | ${q(n.text)} | ${n.shape} | ${n.role} | ${path.join('>')||'-'} | ${renderedLabel} | ${box(layout.nodes?.[n.id])}${n.markup?.length?` | markup ${n.markup.join(',')}`:''}`);
   }
+  if(model.conflicts?.length)L.push(`conflicting definitions (Mermaid draws the last one; the source is ambiguous and the audit FAILs it): ${model.conflicts.map(c=>`${c.nodeId}: ${c.texts.map((t,i)=>`${q(t)}${c.shapes[i]!==c.shapes[0]||c.kinds.includes('shape')?` ${c.shapes[i]}`:''} (line ${c.lines[i]})`).join(', ')}`).join('; ')}`);
   if(conflicts.length)L.push(`conflict (declared group differs from the original render; the original visible membership is the default): ${conflicts.join('; ')}`);
   L.push('edges: id | source -> target | label | style (thick edges and arrowheads other than a normal arrow are marked)');
   for(const e of model.edges)L.push(`${e.id} | ${e.source} -> ${e.target} | ${e.label?q(e.label):'-'} | ${edgeStyle(e)}`);
@@ -34,6 +35,7 @@ export function formatSourceFacts(model,layout){
     for(const e of model.groupEdges)L.push(`${e.id} | ${e.source}${e.sourceIsGroup?' (group)':''} -> ${e.target}${e.targetIsGroup?' (group)':''} | ${e.label?q(e.label):'-'} | ${edgeStyle(e)}`);
   }
   if(model.layoutLinks?.length)L.push(`layout links (invisible, not relations): ${model.layoutLinks.map(l=>`${l.source} ~~~ ${l.target}`).join('; ')}`);
+  if(model.ignored?.length)L.push(`ignored statements (styling, links and interaction are not drawn semantics here): ${model.ignored.map(x=>`${x.construct} (line ${x.line})`).join('; ')}`);
   if(model.notCheckable?.length)L.push(`not checkable by the auditor: ${model.notCheckable.map(c=>`${c.construct} (line ${c.line})`).join('; ')}`);
   L.push('</source-facts>');
   return L.join('\n');

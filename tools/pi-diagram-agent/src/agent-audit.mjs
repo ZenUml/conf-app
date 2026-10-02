@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
-import {parseMermaid} from './parser.mjs';
+import {parseMermaid,NOT_CHECKABLE_SHAPES} from './parser.mjs';
 import {isAcceptedTrunkOverlap,summariseTrunks,unrecognisedTrunkAttributes,TRUNK_HINT} from './trunk.mjs';
 
 const require=createRequire(import.meta.url);
@@ -281,7 +281,9 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       if(expected.length!==1){ambiguous.push(`${drawnEdge.source}->${drawnEdge.target}`);continue}
       if(drawnEdge.dashed!==(expected[0].style==='dashed'))mismatches.push(`${drawnEdge.source}->${drawnEdge.target}`);
     }
-    return {status:mismatches.length?'FAIL':ambiguous.length?'NOT-CHECKABLE':'PASS',evidence:{method:'source Mermaid edge style against actual computed SVG stroke-dasharray; parallel same-endpoint relations require independent ID binding',mismatches,ambiguous,checkedEdges:drawn.edges.length-ambiguous.length}};
+    const thick=model.edges.filter(e=>e.thick).map(e=>`${e.source}->${e.target}`);
+    // Only dashing is measured; a thick source relation drawn thin must not PASS by default.
+    return {status:mismatches.length?'FAIL':ambiguous.length||thick.length?'NOT-CHECKABLE':'PASS',evidence:{method:'source Mermaid edge style against actual computed SVG stroke-dasharray; parallel same-endpoint relations require independent ID binding',mismatches,ambiguous,checkedEdges:drawn.edges.length-ambiguous.length,...(thick.length?{thickEdges:thick,reason:'thick source relations: stroke weight is not compared (not checkable)'}:{})}};
   })():{status:'NOT-CHECKABLE',evidence:'directed relation binding unavailable'};
   const markerDrawing=relations.status==='PASS'?(()=>{
     const mismatches=drawn.edges.filter(e=>!e.markerDrawing?.found||e.markerDrawing.shapeCount!==1||!e.markerDrawing.visible||!e.markerDrawing.colorMatches).map(e=>`${e.source}->${e.target}`);
@@ -440,7 +442,11 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     const resolution=resolveNodes(originalGroupParity.evidence.mismatchedNodeIds,originalGroupParity.evidence.nodeMembership,originalGroupParity.evidence.sourceDeclarationConflictNodeIds);
     if(!resolution.unresolved.length)originalGroupParity={status:'ADJUDICATED',evidence:{...originalGroupParity.evidence,adjudications:resolution.adjudicated}};
   }
-  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,
+  // Mermaid draws the LAST of several differing definitions of one node; the source is ambiguous, so this is a semantic FAIL like an unadjudicated group conflict.
+  const definitionConflicts=model.conflicts??[];
+  const sourceDefinitionConflicts=definitionConflicts.length?{status:'FAIL',evidence:{method:'parser: a node defined more than once with different text or shape; Mermaid renders the last definition',nodeIds:definitionConflicts.map(c=>c.nodeId),conflicts:definitionConflicts}}:{status:'PASS',evidence:'every node has at most one distinct definition'};
+  const nodeShape={status:'NOT-CHECKABLE',evidence:{reason:'the auditor does not compare drawn node shapes with source shapes; the reviewer judges shapes the rules define',notCheckableShapeNodeIds:model.nodes.filter(n=>NOT_CHECKABLE_SHAPES.has(n.shape)).map(n=>n.id)}};
+  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,nodeShape,sourceDefinitionConflicts,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,
     routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; continuous curved-path/label exclusion and finite lower-bend/midpoint optimality witnesses remain unproved'},
     visualQuality:{status:'NOT-CHECKABLE',evidence:'requires Pi to inspect original and candidate full images plus crops'}};
   const status=Object.values(checks).some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE';

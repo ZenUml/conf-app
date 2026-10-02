@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {makeFinding} from './findings.mjs';
 import {REVIEW_RULES} from './early-checks.mjs';
+import {NOT_CHECKABLE_SHAPES} from './parser.mjs';
 
 export const REVIEWER_CHECKLIST=[
   {rule:'reading-order',text:'Group/section reading order: do groups and sections read in the same order as the source (left-to-right or top-to-bottom per its direction), with nothing reversed?'},
@@ -16,14 +17,14 @@ export const REVIEWER_CHECKLIST=[
   {rule:'balance',text:'Overall balance at the 1200x710 fit: crowding, large empty areas, off-centre composition, unreadably small text.'},
 ];
 
-/** Shapes the rules and the spec renderer have no notation for: the shape-change check cannot be applied to them. */
-export const NOT_CHECKABLE_SHAPES=new Set(['stadium','circle','doublecircle','hexagon','parallelogram','parallelogram_alt','trapezoid','trapezoid_alt','asymmetric']);
+export {NOT_CHECKABLE_SHAPES};
 
 export function buildReviewerFacts(model){
   const facts={direction:model.direction,
     groups:model.groups.map(g=>({id:g.id,label:g.label,...(g.parent?{parent:g.parent}:{})})),
     nodes:model.nodes.map(n=>({id:n.id,text:n.text,shape:n.shape,group:n.group??null,...(n.groupPath?{groupPath:n.groupPath}:{}),...(NOT_CHECKABLE_SHAPES.has(n.shape)?{shapeCheck:'not-checkable'}:{})})),
     edges:model.edges.map(e=>({id:`${e.source}->${e.target}`,source:e.source,target:e.target,label:e.label||null,style:e.style}))};
+  if(model.conflicts?.length)facts.conflicts=model.conflicts;
   if(model.groupEdges?.length)facts.groupEdges=model.groupEdges.map(e=>({id:`${e.source}->${e.target}`,source:e.source,target:e.target,sourceIsGroup:e.sourceIsGroup,targetIsGroup:e.targetIsGroup,label:e.label||null,style:e.style}));
   return facts;
 }

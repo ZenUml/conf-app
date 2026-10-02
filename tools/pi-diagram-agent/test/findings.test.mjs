@@ -112,3 +112,9 @@ test('auditToFindings: svgWellFormed failure and an unparseable audit still prod
   assert.equal(out.length,1);assert.equal(out[0].rule,'svgWellFormed');assert.match(out[0].evidence.measured,/rejected/);
   assert.deepEqual(auditToFindings(null),[]);
 });
+
+test('a source definition conflict finding tells the author what Mermaid draws and that the source needs the user',()=>{
+  const [f]=auditToFindings({checks:{sourceDefinitionConflicts:{status:'FAIL',evidence:{nodeIds:['A'],conflicts:[]}}}});
+  assert.deepEqual(f.elements,['A']);
+  assert.match(f.suggestion,/last definition/);assert.match(f.suggestion,/user/);
+});

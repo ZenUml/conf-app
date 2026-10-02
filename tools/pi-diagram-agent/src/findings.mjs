@@ -82,6 +82,7 @@ const SUGGESTIONS={
   groupMembership:'Move the listed nodes inside their group outline, or outside it if they are not members.',
   originalGroupParity:'Keep the original render\'s visible group membership; or ask the user for an adjudication.',
   semanticPreservation:'Keep the original visible group membership for the listed nodes (the user has not adjudicated a change).',
+  sourceDefinitionConflicts:'The source defines the listed nodes more than once with different text or shape. Draw the last definition, as Mermaid does; the ambiguity stays a failure until the user fixes the source.',
   textFit:'Enlarge the node or shorten line breaks so all text sits inside the outline inset by 12 units.',
   labelClearance:'Move the edge label so its box does not touch any node or container outline.',
   routeNodeIntrusion:'Re-route the edge so it stays out of unrelated nodes and starts/ends on its own node outlines.',

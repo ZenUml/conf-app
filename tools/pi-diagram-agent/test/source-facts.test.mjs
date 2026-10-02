@@ -104,3 +104,15 @@ test('group-endpoint edges, layout links, markup and a not-checkable note are li
   assert.match(text,/not checkable by the auditor: .*group-endpoint edge/);
   assert.match(text,/^A \| "Bold" \| rect \|.*markup b/m);
 });
+
+test('source facts list conflicting node definitions and ignored statements, so nothing is dropped without trace',()=>{
+  const m=parseMermaid('flowchart LR\n  A[one] --> B\n  A[two]\n  style B fill:#f00\n');
+  const text=formatSourceFacts(m,{canvas:{w:100,h:100},nodes:{},groups:{},renderedGroups:{}});
+  assert.match(text,/conflicting definitions[^\n]*A: "one" \(line 2\), "two" \(line 3\)/);
+  assert.match(text,/ignored statements[^\n]*style \(line 4\)/);
+});
+test('reviewer facts carry definition conflicts only when present',async()=>{
+  const {buildReviewerFacts}=await import('../src/reviewer.mjs');
+  assert.deepEqual(buildReviewerFacts(parseMermaid('flowchart LR\n  A[one] --> B\n  A[two]')).conflicts,[{nodeId:'A',kinds:['text'],lines:[2,3],texts:['one','two'],shapes:['rect','rect']}]);
+  assert.equal(buildReviewerFacts(parseMermaid('flowchart LR\n  A --> B')).conflicts,undefined);
+});

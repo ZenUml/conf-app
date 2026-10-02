@@ -27,6 +27,15 @@ export type FeatureArea =
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 
+/** Magic's finite failure vocabulary; never send source, SVG, or hashes. */
+export type MagicFailureReason =
+  | "missing_artifact"
+  | "invalid_artifact"
+  | "stale_source"
+  | "unsafe_svg"
+  | "render_failed"
+  | "source_changed";
+
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
@@ -461,6 +470,25 @@ export type AnalyticsEventName =
   | "ai_repair_failed"
   | "ai_repair_applied"
   | "ai_repair_dismissed"
+  // Fullscreen Mermaid Magic: requested on manual click or automatic default,
+  // succeeded only after the prepared SVG is visible, failed on validation or
+  // render rejection, restored on an explicit Original click. All use
+  // feature_area=ai, surface=fullscreen, macro_type=mermaid;
+  // magic_availability_checked counts one current source/artifact assessment,
+  // including absent/stale artifacts, without treating those as user-facing
+  // errors. magic_default_resolved records the initial view decision. Both
+  // exclude obsolete async attempts. magic_activation distinguishes automatic
+  // from manual show requests. No source, SVG, hashes, or comment text.
+  | "magic_availability_checked"
+  | "magic_default_resolved"
+  | "magic_view_requested"
+  | "magic_view_succeeded"
+  | "magic_view_failed"
+  | "magic_view_restored"
+  | "magic_preference_changed"
+  | "magic_layout_feedback_prompt_shown"
+  | "magic_layout_feedback_submitted"
+  | "magic_layout_feedback_updated"
   | "upgrade_modal_shown"
   | "paywall_triggered"
   | "paywall_blocked_create"

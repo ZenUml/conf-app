@@ -18,6 +18,7 @@ import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
 import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 
 // Header.stories.ts's `{ template: '<story/>', app: (app) => app.use(store) }`
 // decorator idiom does NOT install the plugin on @storybook/vue3-vite 10.4's
@@ -148,12 +149,13 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
 // ---------------------------------------------------------------------------
 
 /** No real Forge bridge — same shape Header.stories.ts / GetStarted.stories.ts use. */
-function stubForge(moduleKey?: string, architectureTokensEnabled = false, customContentId?: string) {
+function stubForge(moduleKey?: string, architectureTokensEnabled = false, customContentId?: string, accountId = 'storybook-user') {
   forgeGlobal.isForge = architectureTokensEnabled
   forgeGlobal.isLite = true
   forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.invalid'
   forgeGlobal.forgeContext = {
-    accountId: 'storybook-user',
+    accountId,
+    cloudId: 'storybook-cloud',
     // isEmbedded (GenericViewer.vue) reads forgeContext.moduleKey directly —
     // set only by the Embedded story below.
     moduleKey,
@@ -273,6 +275,7 @@ function setupStore({
   diagram.recoveredFromOrphan = recoveredFromOrphan
   diagram.snapshotFallback = snapshotFallback
   diagram.snapshotAt = undefined
+  diagram.magic = undefined
 }
 
 /**
@@ -301,10 +304,11 @@ function configureStory(options: {
   architectureTokensEnabled?: boolean
   customContentId?: string
   displayMode?: boolean
+  accountId?: string
 } = {}) {
   resetStubResponses()
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
-  stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId)
+  stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId, options.accountId)
   if (options.architectureTokensEnabled) {
     stubResponses.remote = [
       { match: '/api/architecture-tokens/related', body: ARCHITECTURE_TOKENS_RESPONSE },
@@ -695,6 +699,159 @@ export const MermaidFullscreenPanZoom: Story = {
     await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
   },
+}
+
+/** Synthetic prepared artifact using the same stored Mermaid source as Original. */
+export const MermaidFullscreenMagic: Story = {
+  name: 'Fullscreen — Magic prepared diagram',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Input to Result',
+        mermaidCode: 'graph LR\n  A[Input]-->B[Result]',
+        fullscreenMode: true,
+      })
+      ;(store.state as any).diagram.magic = {
+        sourceHash: 'e61cfef2fd3c5a53982b84c8dc2e615f6fb6c0286fb1a4b68748c1719837c8b5',
+        rulesVersion: 'magic-v1',
+        outcome: 'validated',
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 160" role="img" aria-label="Input leads to result">
+          <style>.node { fill: #e0f2fe; stroke: #0369a1; stroke-width: 1; } .edge { stroke: #0369a1; stroke-width: 1.5; } .label { fill: #0f172a; font-family: Arial; font-size: 16px; font-weight: 400; text-anchor: middle; }</style>
+          <defs><marker id="magic-arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#0369a1"/></marker></defs>
+          <rect class="node" x="40" y="48" rx="4" width="120" height="64"/><text class="label" x="100" y="85">Input</text>
+          <path class="edge" d="M160 80L240 80" marker-end="url(#magic-arrow)"/>
+          <rect class="node" x="240" y="48" rx="4" width="120" height="64"/><text class="label" x="300" y="85">Result</text>
+        </svg>`,
+      }
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    const magic = await canvas.findByTestId('magic-toggle')
+    if (magic.getAttribute('aria-pressed') !== 'true') await userEvent.click(magic)
+    await waitFor(() => expect(magic).toHaveAttribute('aria-pressed', 'true'))
+    await waitFor(() => expect(magic).toHaveAttribute('aria-busy', 'false'))
+    await expect(canvas.getByRole('img', { name: 'Input leads to result' })).toBeVisible()
+    await userEvent.click(canvas.getByTestId('original-toggle'))
+    await expect(magic).toHaveAttribute('aria-pressed', 'false')
+    await expect(magic).toHaveAttribute('title', 'Show prepared Magic view')
+  },
+}
+
+/** The literal validated SVG from the local Pi producer, paired with its exact source bytes. */
+export const MermaidFullscreenPiProducedMagic: Story = {
+  name: 'Fullscreen — Pi-produced Magic artifact',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Start to Finish',
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+        fullscreenMode: true,
+      })
+      ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    const magic = await canvas.findByTestId('magic-toggle')
+    await expect(magic).toBeEnabled()
+    if (magic.getAttribute('aria-pressed') !== 'true') await userEvent.click(magic)
+    await waitFor(() => {
+      const svg = document.querySelector('.screen-capture-content .diagram-viewport svg')
+      if (!svg?.querySelector('marker#arrow') || !svg.textContent?.includes('Start') || !svg.textContent?.includes('Finish')) {
+        throw new Error('Pi-produced SVG is not visible in the Magic viewport')
+      }
+    })
+    await expect(magic).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(magic).toHaveAttribute('aria-busy', 'false'))
+    await userEvent.click(canvas.getByTestId('original-toggle'))
+    await expect(magic).toHaveAttribute('aria-pressed', 'false')
+    await expect(magic).toHaveAttribute('title', 'Show prepared Magic view')
+    await expect(document.querySelector('.screen-capture-content .diagram-viewport marker#arrow')).toBeNull()
+    await expect((store.state as any).diagram.mermaidCode).toBe(PI_MAGIC_SYNTHETIC_SOURCE)
+
+    // The artifact stays attached as a saved body would, but source edits make it stale.
+    store.commit('updateMermaidCode', PI_MAGIC_SYNTHETIC_SOURCE + ' ')
+    await waitFor(() => expect(canvas.queryByTestId('magic-toggle')).toBeNull())
+    await expect(canvas.queryByTestId('original-toggle')).toBeNull()
+    await expect(document.querySelector('.screen-capture-content .diagram-viewport marker#arrow')).toBeNull()
+  },
+}
+
+/** Browser-visible producer artifact without an automated transition, for manual visual review. */
+export const MermaidFullscreenPiProducedMagicDisplay: Story = {
+  name: 'Fullscreen — Pi-produced Magic display',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Start to Finish',
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+        fullscreenMode: true,
+        accountId: 'storybook-layout-demo-user',
+      })
+      ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** Same saved diagram under another Forge account; only the local choice differs. */
+export const MermaidFullscreenPiProducedMagicOtherUser: Story = {
+  name: 'Fullscreen — Magic for another user',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true, accountId: 'storybook-user-b' })
+    ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** A newer producer generation for the same exact Mermaid source. */
+export const MermaidFullscreenPiProducedMagicNewGeneration: Story = {
+  name: 'Fullscreen — regenerated Magic',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true })
+    ;(store.state as any).diagram.magic = {
+      ...PI_MAGIC_SYNTHETIC_ARTIFACT,
+      generatedAt: '2026-10-02T00:00:00.000Z',
+    }
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** An edited source leaves the prepared artifact stale and opens Original. */
+export const MermaidFullscreenPiProducedMagicStale: Story = {
+  name: 'Fullscreen — stale Magic opens Original',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE + ' ', fullscreenMode: true })
+    ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
 }
 
 /** Normal Confluence page viewer with the same two-button viewport controls. */

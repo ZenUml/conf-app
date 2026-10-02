@@ -219,13 +219,24 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const shapes=[...el.querySelectorAll(shapeSelector)].filter(painted),parts=[...shapes,...el.querySelectorAll('text')].map(rootBox);
         const result={id,kind:'unsupported',reason:'no node shape',bbox:parts.length?union(parts):null};
         if(!shapes.length)return result;
-        if(shapes.some(s=>s.localName!=='rect'))return {...result,reason:'non-rectangular shape'};
-        const rects=shapes.map(s=>({s,box:rootBox(s)}));
-        if(rects.some(r=>!r.box.axisAligned))return {...result,reason:'transformed rectangle'};
-        const {s,box}=rects.sort((a,b)=>b.box.w*b.box.h-a.box.w*a.box.h)[0],local=s.getBBox();
-        const scale=local.width>0?box.w/local.width:1,corner=Math.max(Number(s.getAttribute('rx')||0),Number(s.getAttribute('ry')||0))*scale;
-        if(corner>=Math.min(box.w,box.h)/2-0.01)return {...result,reason:'capsule outline'};
-        return {...result,kind:'rect',reason:null,outline:{x:box.x,y:box.y,w:box.w,h:box.h},cornerRadius:corner};
+        const sized=shapes.map(s=>({s,box:rootBox(s)})).sort((x,y)=>y.box.w*y.box.h-x.box.w*x.box.h);
+        const {s,box}=sized[0];
+        if(sized.some(r=>!r.box.axisAligned))return {...result,reason:s.localName==='rect'?'transformed rectangle':'transformed shape'};
+        const inside=r=>r.box.x>=box.x-0.25&&r.box.y>=box.y-0.25&&r.box.x+r.box.w<=box.x+box.w+0.25&&r.box.y+r.box.h<=box.y+box.h+0.25;
+        const rectOnly=sized.every(r=>r.s.localName==='rect');
+        // Decoration inside the outline (subroutine bars, a cylinder's top-ellipse line) is allowed; a second outline elsewhere is not.
+        if(!rectOnly&&!sized.every(inside))return {...result,reason:'several separate shapes'};
+        const local=s.getBBox(),scale=local.width>0?box.w/local.width:1;
+        const corner=s.localName==='rect'?Math.max(Number(s.getAttribute('rx')||0),Number(s.getAttribute('ry')||0))*scale:0;
+        if(s.localName==='rect'&&corner<Math.min(box.w,box.h)/2-0.01)return {...result,kind:'rect',reason:null,outline:{x:box.x,y:box.y,w:box.w,h:box.h},cornerRadius:corner};
+        // Any other outline: sample the drawn geometry in root user space; the Node side derives ports and a convex obstacle.
+        if(!(s instanceof SVGGeometryElement))return {...result,reason:'outline is not a geometry element'};
+        const total=s.getTotalLength();
+        if(!(total>0)||total>100000)return {...result,reason:'outline length unavailable'};
+        const m=root.getScreenCTM().inverse().multiply(s.getScreenCTM()),step=Math.max(0.5,total/2000),samples=[];
+        for(let at=0;at<total;at+=step){const p=s.getPointAtLength(at).matrixTransform(m);samples.push([p.x,p.y])}
+        const end=s.getPointAtLength(total).matrixTransform(m);samples.push([end.x,end.y]);
+        return {...result,kind:'shape',reason:null,samples};
       });
       const lbGroups=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].map(el=>{
         const shape=el.querySelector(':scope > rect,:scope > path,:scope > polygon');
@@ -357,7 +368,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   })():{status:'NOT-CHECKABLE',evidence:'actual final straight span or simple marker axial geometry unavailable'};
   const routeLowerBend=drawn.edges.length?checkRouteLowerBend({
     nodes:drawn.lbNodes,groups:drawn.lbGroups,labelBoxes:drawn.labelBoxes,unboundLabels:labelClearance.evidence.unboundLabels??[],
-    edges:drawn.edges.map((e,i)=>({source:e.source,target:e.target,tag:e.tag,path:e.path,axialLength:e.markerDrawing?.axialLength,spans:routeSpans[i].spans,hulls:e.tag==='path'?actualCurveEnvelopes(e.path):null}))
+    edges:drawn.edges.map((e,i)=>({source:e.source,target:e.target,tag:e.tag,path:e.path,trunk:e.trunk||null,axialLength:e.markerDrawing?.axialLength,spans:routeSpans[i].spans,hulls:e.tag==='path'?actualCurveEnvelopes(e.path):null}))
   }):{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
   const groupIds=new Set(drawn.groups.map(g=>g.id)),expectedGroupIds=new Set(model.groups.map(g=>g.id));
   const groups=drawn.groups.length?{status:groupIds.size===expectedGroupIds.size&&[...expectedGroupIds].every(x=>groupIds.has(x))?'PASS':'FAIL',evidence:{expected:[...expectedGroupIds],drawn:[...groupIds],method:'actual container elements with neutral group ID'}}:{status:model.groups.length?'NOT-CHECKABLE':'PASS',evidence:'group geometry has no neutral binding'};

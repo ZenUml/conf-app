@@ -6,6 +6,17 @@
 // uncertain obstacles, "maybe" when feasible against certain obstacles only. FAIL needs a "yes" witness; PASS needs
 // that no candidate is even "maybe"; anything between is NOT-CHECKABLE. Overall status can therefore never become
 // PASS because of an unmeasured obstacle.
+//
+// Shapes: rectangles use their four faces (inset by the corner radius); any other node supplies sampled outline points and its
+// ports come from shape-ports.mjs (apex points / flat faces read from the drawn outline). Unsupported silhouettes make that
+// relationship NOT-CHECKABLE. A non-rectangular unrelated node blocks a leg only through its convex hull; a leg that only
+// touches its bounding box is "maybe" (never a PASS), and a node with no usable outline falls back to its bounding box as "maybe".
+//
+// Shared trunks (rule 10): when a connector is an accepted member of a declared data-shared-trunk (its final span coincides with a
+// partner's, same target and end), its witness must keep that trunk, so the target anchor is pinned to the drawn trunk entry and the
+// final leg may coincide with partners' final spans. A witness that would leave the trunk is not a witness.
+import {derivePorts,hullSpanAt} from './shape-ports.mjs';
+import {isAcceptedTrunkOverlap} from './trunk.mjs';
 const EPS=1e-6;
 const GUARD=1;                 // clearance (units) kept between a candidate leg and a node/container/label rectangle
 const HEADING_GUARD=2;         // matches the existing heading-clearance guard
@@ -104,6 +115,16 @@ const hits=(seg,r,g,lo=Math.min(seg.s0,seg.s1),hi=Math.max(seg.s0,seg.s1))=>seg.
   ?seg.fixed>r.y-g&&seg.fixed<r.y+r.h+g&&Math.min(hi,r.x+r.w+g)-Math.max(lo,r.x-g)>EPS
   :seg.fixed>r.x-g&&seg.fixed<r.x+r.w+g&&Math.min(hi,r.y+r.h+g)-Math.max(lo,r.y-g)>EPS;
 
+// 0 = clear, 1 = touches only uncertain geometry (bounding box of a non-rectangular node), 2 = certain hit.
+function nodeHit(seg,node,g){
+  if(!hits(seg,node.bbox,g))return 0;
+  if(node.kind==='rect')return 2;
+  if(!node.hull)return 1;
+  const span=hullSpanAt(node.hull,seg.axis,seg.fixed,g);
+  const lo=Math.min(seg.s0,seg.s1),hi=Math.max(seg.s0,seg.s1);
+  return span&&Math.min(hi,span[1])-Math.max(lo,span[0])>EPS?2:1;
+}
+
 function makeEvaluator(ctx){
   const {trim,axial}=ctx;
   return points=>{
@@ -118,16 +139,20 @@ function makeEvaluator(ctx){
       const a=s.s0+(i>0?s.dir*trim:0),b=s.s1-(i<n-1?s.dir*trim:0);
       return {axis:s.axis,fixed:s.fixed,lo:Math.min(a,b),hi:Math.max(a,b)};
     });
+    let soft=false;
+    const touch=(s,node)=>{const h=nodeHit(s,node,GUARD);if(h===2)return true;if(h===1)soft=true;return false};
     for(let i=0;i<n;i++){
       const s=segs[i];
-      for(const node of ctx.nodes)if(hits(s,node,GUARD))return 0;
-      if(i>0&&hits(s,ctx.source,GUARD))return 0;
-      if(i<n-1&&hits(s,ctx.target,GUARD))return 0;
+      for(const node of ctx.nodes)if(touch(s,node))return 0;
+      if(i>0&&touch(s,ctx.source))return 0;
+      if(i<n-1&&touch(s,ctx.target))return 0;
       for(const box of ctx.unrelatedGroups)if(hits(s,box,GUARD))return 0;
       for(const box of ctx.headings)if(hits(s,box,HEADING_GUARD))return 0;
       for(const box of ctx.labels)if(hits(s,box,GUARD))return 0;
     }
-    for(const a of trimmed)for(const b of ctx.otherSpans){
+    for(let i=0;i<trimmed.length;i++)for(const b of ctx.otherSpans){
+      const a=trimmed[i];
+      if(i===trimmed.length-1&&ctx.trunkFinals.has(b))continue;   // the shared final portion of a declared trunk
       if(a.axis===b.axis){
         if(Math.min(a.hi,b.hi)-Math.max(a.lo,b.lo)>EPS&&Math.abs(a.fixed-b.fixed)<PARALLEL_CLEARANCE-EPS)return 0;
       }else{
@@ -135,32 +160,45 @@ function makeEvaluator(ctx){
         if(v.fixed>h.lo+EPS&&v.fixed<h.hi-EPS&&h.fixed>v.lo+EPS&&h.fixed<v.hi-EPS)return 0;
       }
     }
-    let level=ctx.unknown?1:2;
+    let level=ctx.unknown||soft?1:2;
     if(level===2)for(const s of segs)for(const hull of ctx.hulls)if(hits(s,hull,0)){level=1;break}
     return level;
   };
 }
 
-function values(face,extras){
+function values(face,extras,sweep=true){
   const lo=face.ilo,hi=face.ihi,clamp=v=>Math.min(hi,Math.max(lo,v)),out=[clamp(face.mid),lo,hi];
   for(const e of extras)if(Number.isFinite(e))out.push(clamp(e));
-  if(hi-lo>EPS){const step=Math.max(SAMPLE_STEP,(hi-lo)/MAX_SAMPLES);for(let v=lo;v<hi-EPS;v+=step)out.push(v)}
+  if(sweep&&hi-lo>EPS){const step=Math.max(SAMPLE_STEP,(hi-lo)/MAX_SAMPLES);for(let v=lo;v<hi-EPS;v+=step)out.push(v)}
   return [...new Set(out.map(round3))].sort((a,b)=>a-b);
 }
 
-function enumerate(S,T,sFaces,tFaces,extrasFor,maxBends){
+function enumerate(S,T,sFaces,tFaces,valuesFor,maxBends,channelsFor=()=>[]){
   const out=[];
   for(const fs of sFaces)for(const ft of tFaces){
     if(fs.axis===ft.axis){
-      if(maxBends<0||fs.normal[0]!==-ft.normal[0]||fs.normal[1]!==-ft.normal[1])continue;
-      const k=fs.axis==='x'?1:0;
-      if((ft.fixed-fs.fixed)*fs.normal[k]<=EPS)continue;
-      const lo=Math.max(fs.ilo,ft.ilo),hi=Math.min(fs.ihi,ft.ihi);
-      if(lo>hi+EPS)continue;
-      const cands=[...values(fs,extrasFor(fs)),...values(ft,extrasFor(ft)),(lo+hi)/2].filter(v=>v>=lo-EPS&&v<=hi+EPS).map(round3);
-      for(const v of new Set(cands))out.push({faces:[fs,ft],points:[pointOn(fs,v),pointOn(ft,v)]});
+      const opposite=fs.normal[0]===-ft.normal[0]&&fs.normal[1]===-ft.normal[1],k=fs.axis==='x'?1:0;
+      if(maxBends>=0&&opposite&&(ft.fixed-fs.fixed)*fs.normal[k]>EPS){
+        const lo=Math.max(fs.ilo,ft.ilo),hi=Math.min(fs.ihi,ft.ihi);
+        if(lo<=hi+EPS){
+          const cands=[...valuesFor(fs),...valuesFor(ft),(lo+hi)/2].filter(v=>v>=lo-EPS&&v<=hi+EPS).map(round3);
+          for(const v of new Set(cands))out.push({faces:[fs,ft],points:[pointOn(fs,v),pointOn(ft,v)]});
+        }
+      }
+      if(maxBends>=2){
+        // Z (opposite faces) and U (same-side faces): leave fs, run along a channel, arrive at ft.
+        for(const a of valuesFor(fs,false))for(const b of valuesFor(ft,false)){
+          if(Math.abs(a-b)<EPS)continue;
+          for(const m of channelsFor(fs.axis)){
+            const P0=pointOn(fs,a),P3=pointOn(ft,b),P1=fs.axis==='x'?[a,m]:[m,a],P2=fs.axis==='x'?[b,m]:[m,b];
+            const d0=[P1[0]-P0[0],P1[1]-P0[1]],d2=[P3[0]-P2[0],P3[1]-P2[1]];
+            if(d0[0]*fs.normal[0]+d0[1]*fs.normal[1]<=EPS||d2[0]*ft.normal[0]+d2[1]*ft.normal[1]>=-EPS)continue;
+            out.push({faces:[fs,ft],points:[P0,P1,P2,P3]});
+          }
+        }
+      }
     }else if(maxBends>=1){
-      const sv=values(fs,extrasFor(fs)),tv=values(ft,extrasFor(ft));
+      const sv=valuesFor(fs),tv=valuesFor(ft);
       for(const a of sv)for(const b of tv){
         const P0=pointOn(fs,a),P2=pointOn(ft,b),P1=fs.axis==='y'?[b,a]:[a,b];
         const d0=[P1[0]-P0[0],P1[1]-P0[1]],d1=[P2[0]-P1[0],P2[1]-P1[1]];
@@ -174,10 +212,12 @@ function enumerate(S,T,sFaces,tFaces,extrasFor,maxBends){
 
 const fmt=(c,midDist)=>({faces:{source:c.faces[0].name,target:c.faces[1].name},anchors:{source:c.points[0].map(round3),target:c.points.at(-1).map(round3)},segments:c.points.slice(0,-1).map((p,i)=>[p.map(round3),c.points[i+1].map(round3)]),bends:c.points.length-2,anchorOffsetFromMidpoints:round3(midDist)});
 
+const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
+
 /** @param input {nodes,groups,edges,labelBoxes,unboundLabels}
- * nodes: [{id,kind:'rect'|'unsupported',reason,outline,cornerRadius,bbox}]
+ * nodes: [{id,kind:'rect'|'shape'|'unsupported',reason,outline,cornerRadius,samples,bbox}]  ('shape' carries sampled outline points)
  * groups: [{id,outline,box,headings:[box]}]
- * edges: [{source,target,tag,path,axialLength,spans,hulls}]  (spans/hulls from the audit's strict path readers)
+ * edges: [{source,target,tag,path,axialLength,spans,hulls,trunk}]  (spans/hulls from the audit's strict path readers)
  */
 export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]}){
   const relations=[],violations=[],notCheckable=[];
@@ -186,68 +226,106 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
   const routes=edges.map(e=>e.tag==='path'?parseOrthogonalRoute(e.path):{error:'relationship is not a path element'});
   const unboundKeys=new Set(unboundLabels);
   const labels=labelBoxes.map(l=>l.box).filter(Boolean);
+  // Per-node geometry: rect faces, or ports derived from the drawn outline. Obstacles use the same knowledge.
+  const geoCache=new Map();
+  const geoOf=n=>{
+    if(geoCache.has(n.id))return geoCache.get(n.id);
+    let g;
+    if(n.kind==='rect')g={kind:'rect',outline:n.outline,faces:owner=>facesOf(n.outline,n.cornerRadius,owner),bbox:n.bbox};
+    else if(n.kind==='shape'){
+      const d=derivePorts(n.samples);
+      g=d.error?{error:d.error,kind:'unsupported',bbox:n.bbox}:{kind:'shape',outline:d.bbox,faces:owner=>d.faces.map(f=>({...f,owner})),bbox:n.bbox??d.bbox,hull:d.hull,descriptor:d.descriptor};
+    }else g={error:n.reason||'unsupported shape',kind:'unsupported',bbox:n.bbox};
+    geoCache.set(n.id,g);return g;
+  };
+  const obstacle=n=>{const g=geoOf(n);return {kind:g.kind==='unsupported'?'unsupported':g.kind,bbox:g.bbox,hull:g.hull}};
   for(let i=0;i<edges.length;i++){
     const e=edges[i],id=`${e.source}->${e.target}`,route=routes[i];
     const nc=reason=>{relations.push({edge:id,status:'NOT-CHECKABLE',reason});notCheckable.push({edge:id,reason})};
     const S=nodeById.get(e.source),T=nodeById.get(e.target);
     if(!S||!T){nc('endpoint node is not drawn');continue}
     if(e.source===e.target){nc('self relationship');continue}
-    if(S.kind!=='rect'||T.kind!=='rect'){nc(`unsupported endpoint shape: ${[S,T].filter(n=>n.kind!=='rect').map(n=>`${n.id} (${n.reason})`).join('; ')}`);continue}
+    const GS=geoOf(S),GT=geoOf(T);
+    if(GS.error||GT.error){nc(`unsupported endpoint shape: ${[[S,GS],[T,GT]].filter(([,g])=>g.error).map(([n,g])=>`${n.id} (${g.error})`).join('; ')}`);continue}
     if(route.error){nc(route.error);continue}
     if(unboundKeys.has(id)){nc('edge label is not tagged, so label exclusion bounds are unavailable');continue}
     if(!Number.isFinite(e.axialLength)){nc('marker axial length unavailable');continue}
     if(groupProblem){nc(`container ${groupProblem.id} has no measurable rectangular outline`);continue}
     const others=nodes.filter(n=>n.id!==e.source&&n.id!==e.target);
     if(others.some(n=>!n.bbox)){nc('an unrelated node has no measurable geometry');continue}
-    const fs0=facesOf(S.outline,S.cornerRadius,'S'),ft0=facesOf(T.outline,T.cornerRadius,'T');
+    const fs0=GS.faces('S'),ft0=GT.faces('T');
     const p0=route.points[0],pn=route.points.at(-1),dIn=unit(p0,route.points[1]),dOut=unit(route.points.at(-2),pn);
     const near=(f,p)=>Math.abs((f.axis==='x'?p[1]:p[0])-f.fixed)<=1&&alongOf(f,p)>=f.lo-1&&alongOf(f,p)<=f.hi+1;
     const fsD=fs0.find(f=>near(f,p0)&&f.normal[0]===dIn[0]&&f.normal[1]===dIn[1]);
     const ftD=ft0.find(f=>near(f,pn)&&f.normal[0]===-dOut[0]&&f.normal[1]===-dOut[1]);
-    if(!fsD||!ftD){nc('drawn route does not leave the source and arrive at the target perpendicular to a rectangular face');continue}
-    const others2=edges.map((o,j)=>({o,j,route:routes[j]})).filter(x=>x.j!==i);
+    if(!fsD||!ftD){nc('drawn route does not leave the source and arrive at the target perpendicular to a supported face or port');continue}
+    const others2=edges.map((o,j)=>({o,j})).filter(x=>x.j!==i);
     const otherSpans=[],hulls=[];let unknown=unboundLabels.length>0;
     for(const {o} of others2){
       if(!o.spans||!o.hulls){unknown=true;continue}
       otherSpans.push(...o.spans);hulls.push(...o.hulls);
     }
-    const ancestor=g=>contains(g.box,S.outline)||contains(g.box,T.outline);
-    const ctx={source:S.bbox,target:T.bbox,nodes:others.map(n=>n.bbox),unrelatedGroups:groups.filter(g=>!ancestor(g)).map(g=>g.box),headings:groups.flatMap(g=>g.headings),labels,otherSpans,hulls,unknown,trim:route.trim,axial:e.axialLength};
+    // Shared trunk: accepted membership pins the target anchor to the drawn trunk entry and exempts the shared final portion.
+    const me={trunk:e.trunk||null,target:e.target,spans:e.spans,lastCommand:e.spans?.lastCommand};
+    const trunkFinals=new Set();
+    if(me.trunk&&e.spans?.length)for(const {o} of others2){
+      if(o.spans?.length&&isAcceptedTrunkOverlap(me,{trunk:o.trunk||null,target:o.target,spans:o.spans,lastCommand:o.spans.lastCommand},e.spans.at(-1),o.spans.at(-1)))trunkFinals.add(o.spans.at(-1));
+    }
+    const pinned=trunkFinals.size>0,pinValue=round3(alongOf(ftD,pn));
+    const ancestor=g=>contains(g.box,GS.outline)||contains(g.box,GT.outline);
+    const ctx={source:obstacle(S),target:obstacle(T),nodes:others.map(obstacle),unrelatedGroups:groups.filter(g=>!ancestor(g)).map(g=>g.box),headings:groups.flatMap(g=>g.headings),labels,otherSpans,hulls,unknown,trim:route.trim,axial:e.axialLength,trunkFinals};
     const evaluate=makeEvaluator(ctx);
     const midDist=(fs,ft,a,b)=>Math.abs(alongOf(fs,a)-fs.mid)+Math.abs(alongOf(ft,b)-ft.mid);
     const drawnDist=midDist(fsD,ftD,p0,pn);
     // Projected alignment points: the other node's centre and extremes plus both drawn anchors, along this face's axis.
     const extrasFor=face=>{
-      const ax=face.axis==='x'?0:1,other=(face.owner==='S'?T:S).outline;
+      const ax=face.axis==='x'?0:1,other=(face.owner==='S'?GT:GS).outline;
       const lo=ax===0?other.x:other.y,len=ax===0?other.w:other.h;
       return [lo+len/2,lo,lo+len,p0[ax],pn[ax]];
     };
-    const record={edge:id,drawnBends:route.bends,faces:{source:fsD.name,target:ftD.name}};
-    // 1) lower-bend witness: straight (0) and L (1) candidates with fewer bends than drawn.
-    const lower=route.bends>=1?enumerate(S.outline,T.outline,fs0,ft0,extrasFor,Math.min(1,route.bends-1)):[];
+    // A pinned trunk entry is a target face collapsed to the single drawn anchor, so every candidate type must end exactly there.
+    const ftSearch=pinned?{...ftD,ilo:pinValue,ihi:pinValue}:ftD;
+    const valuesFor=(face,sweep=true)=>values(face,extrasFor(face),sweep);
+    const tFacesFor=pinned?[ftSearch]:ft0;
+    // Channel coordinates for the middle leg of a Z/U: the middle of the gap between the endpoint faces, every obstacle boundary
+    // pushed just clear of it, the middle of each gap between boundaries, and the offsets that keep 10 from a parallel span.
+    const channelsFor=axis=>{
+      const k=axis==='x'?1:0,boxes=[GS.bbox,GT.bbox,...others.map(n=>n.bbox),...groups.map(g=>g.box),...ctx.headings,...labels].filter(Boolean);
+      const edgesAt=boxes.flatMap(b=>k===1?[b.y,b.y+b.h]:[b.x,b.x+b.w]);
+      const list=[(fsD.fixed+ftD.fixed)/2,...route.points.slice(1,-1).map(p=>p[k])];
+      for(const c of edgesAt)list.push(c-GUARD-1,c+GUARD+1,c-PARALLEL_CLEARANCE,c+PARALLEL_CLEARANCE);
+      const sorted=sortedUnique(edgesAt);
+      for(let q=0;q+1<sorted.length;q++)if(sorted[q+1]-sorted[q]>=2*(GUARD+1))list.push((sorted[q]+sorted[q+1])/2);
+      for(const sp of otherSpans)if((k===1)===(sp.axis==='h'))list.push(sp.fixed-PARALLEL_CLEARANCE,sp.fixed+PARALLEL_CLEARANCE);
+      const centre=(fsD.fixed+ftD.fixed)/2;
+      return sortedUnique(list).sort((a,b)=>Math.abs(a-centre)-Math.abs(b-centre)).slice(0,160);
+    };
+    const record={edge:id,drawnBends:route.bends,faces:{source:fsD.name,target:ftD.name},...(pinned?{trunk:me.trunk}:{})};
+    // 1) lower-bend witness: straight (0), L (1) and, for drawings with 3+ bends, Z/U (2) candidates with fewer bends than drawn.
+    const lower=route.bends>=1?enumerate(GS,GT,fs0,tFacesFor,valuesFor,Math.min(2,route.bends-1),channelsFor):[];
     const scored=lower.map(c=>({c,level:evaluate(c.points),bends:c.points.length-2,dist:midDist(c.faces[0],c.faces[1],c.points[0],c.points.at(-1))}));
     const best=list=>list.sort((a,b)=>a.bends-b.bends||a.dist-b.dist)[0];
     const yes=scored.filter(x=>x.level===2),maybe=scored.filter(x=>x.level===1);
     if(yes.length){
       const w=best(yes);
       violations.push({...record,kind:'lowerBend',drawnBends:route.bends,witnessBends:w.bends,witness:fmt(w.c,w.dist)});
-      relations.push({edge:id,status:'FAIL',reason:`feasible ${w.bends}-bend route exists for a ${route.bends}-bend drawing`});continue;
+      relations.push({edge:id,status:'FAIL',reason:`feasible ${w.bends}-bend route exists for a ${route.bends}-bend drawing${pinned?' (keeps the declared shared trunk)':''}`});continue;
     }
-    if(maybe.length){nc('a lower-bend route is blocked only by unmeasured or uncertain geometry (curve hull, unparsed route or unbound label)');continue}
+    if(maybe.length){nc('a lower-bend route is blocked only by unmeasured or uncertain geometry (curve hull, unparsed route, unbound label or non-rectangular node bounds)');continue}
     // 2) midpoint closeness among equal-bend candidates (needs a crossing-free drawn route for equal-crossing comparison).
     const drawnSegs=toSegs(route.points),n=drawnSegs.length;
     const drawnTrimmed=drawnSegs.map((s,k)=>{const a=s.s0+(k>0?s.dir*route.trim:0),b=s.s1-(k<n-1?s.dir*route.trim:0);return {axis:s.axis,fixed:s.fixed,lo:Math.min(a,b),hi:Math.max(a,b)}});
     const drawnCrosses=drawnTrimmed.some(a=>otherSpans.some(b=>a.axis!==b.axis&&(()=>{const h=a.axis==='h'?a:b,v=a.axis==='v'?a:b;return v.fixed>h.lo+EPS&&v.fixed<h.hi-EPS&&h.fixed>v.lo+EPS&&h.fixed<v.hi-EPS})()));
     if(drawnCrosses){nc('drawn route crosses another route, so the equal-crossing midpoint comparison is undefined');continue}
     let equal;
-    if(route.bends<=1)equal=enumerate(S.outline,T.outline,fs0,ft0,extrasFor,route.bends).filter(c=>c.points.length-2===route.bends);
+    if(route.bends<=1)equal=enumerate(GS,GT,fs0,tFacesFor,valuesFor,route.bends).filter(c=>c.points.length-2===route.bends);
     else{
       equal=[];
       const ia=fsD.axis==='x'?0:1,ib=ftD.axis==='x'?0:1,P=route.points,m=P.length;
-      for(const a of values(fsD,extrasFor(fsD)))for(const b of values(ftD,extrasFor(ftD))){
+      for(const a of valuesFor(fsD))for(const b of valuesFor(ftSearch)){
         const pts=P.map(p=>[...p]);pts[0][ia]=a;pts[1][ia]=a;pts[m-1][ib]=b;pts[m-2][ib]=b;
         const same=pts.slice(0,-1).every((p,k)=>{const u=unit(p,pts[k+1]),v=unit(P[k],P[k+1]);return u[0]===v[0]&&u[1]===v[1]});
-        if(same)equal.push({faces:[fsD,ftD],points:pts});
+        if(same)equal.push({faces:[fsD,ftSearch],points:pts});
       }
     }
     const eq=equal.map(c=>({c,level:evaluate(c.points),bends:route.bends,dist:midDist(c.faces[0],c.faces[1],c.points[0],c.points.at(-1))})).filter(x=>x.level>0&&x.dist<drawnDist-MIDPOINT_TOLERANCE);
@@ -258,13 +336,14 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
       relations.push({edge:id,status:'FAIL',reason:'a feasible route with the same bends has anchors closer to the face midpoints'});continue;
     }
     if(eq.length){nc('a closer-to-midpoint route is blocked only by unmeasured or uncertain geometry');continue}
-    relations.push({edge:id,status:'PASS',drawnBends:route.bends});
+    if(route.bends>=4){nc('drawn route has 4 or more bends and 3-bend candidates are not searched, so absence of a 0-2 bend witness does not prove minimality');continue}
+    relations.push({edge:id,status:'PASS',drawnBends:route.bends,...(pinned?{trunk:me.trunk}:{})});
   }
   const status=violations.length?'FAIL':notCheckable.length||!edges.length?'NOT-CHECKABLE':'PASS';
   return {status,evidence:{
-    method:'actual SVG path reconstructed into logical bends (fillet = one bend); straight (0) and L (1) candidates over face midpoints, projected alignment points, drawn-anchor projections and a 4-unit face sweep, kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, and long enough for fillet trim + marker axial length + 8; equal-bend midpoint comparison against enumerated L/straight candidates or anchor-shifted copies of the drawn route',
+    method:'actual SVG path reconstructed into logical bends (fillet = one bend); straight (0) and L (1) candidates, plus Z/U (2) candidates when the drawing has 3+ bends, over face midpoints, projected alignment points, drawn-anchor projections and a 4-unit face sweep, kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, and long enough for fillet trim + marker axial length + 8; ports of non-rectangular nodes are the apexes and flat faces measured on the sampled drawn outline; equal-bend midpoint comparison against enumerated L/straight candidates or anchor-shifted copies of the drawn route; a declared shared-trunk member is searched with its target anchor pinned to the trunk entry so every witness still merges validly',
     relations,violations,notCheckable,
     checkedRelations:relations.filter(r=>r.status!=='NOT-CHECKABLE').length,
-    limitations:'only rectangular nodes; bend counts below drawn are tried for 0 and 1 bends only (no 2-bend Z/U candidates when the drawing has 3+); equal-bend midpoint for 2+ bends shifts the drawn route anchors only; declared port order, badge exclusions and other relationship-specific constraints are not read; uncertain obstacles block witnesses but never support a PASS'
+    limitations:'supported node silhouettes: rectangle (incl. rounded), diamond, long-text decision hexagon, cylinder/store, queue, subroutine, capsule/stadium, circle/ellipse (convex outline with a centred apex or flat face per side); any other shape is NOT-CHECKABLE for its relationships; Z/U channels are a finite candidate set; drawings with 4+ bends can fail on a 0-2 bend witness but never PASS (3-bend candidates are not searched); a trunk member is judged with its trunk entry fixed, so a better route that moves the entry is not proposed; equal-bend midpoint for 2+ bends shifts the drawn route anchors only; declared port order, badge exclusions and other relationship-specific constraints are not read; uncertain obstacles block witnesses but never support a PASS'
   }};
 }

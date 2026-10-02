@@ -30,6 +30,7 @@ export function checkNodeHeadingClearance({nodes,groups}){
     if(!extent(node)){notCheckableNodeIds.push(node.id);reasons[node.id]=node.reason??'outline not measurable';continue}
     measured.push(node);
   }
+  groups=groups.filter(g=>!g.isNode); // a node element may carry data-group membership metadata; it is not a container
   const usable=groups.filter(g=>g.box&&g.box.w>0&&g.box.h>0);
   const headingsOf=g=>(g.headingTexts??g.headings??[]).filter(h=>h&&h.w>0&&h.h>0);
   for(const node of measured){

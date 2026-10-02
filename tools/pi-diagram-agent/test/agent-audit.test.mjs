@@ -248,6 +248,12 @@ test('nodeHeadingClearance fails a node that touches its own container border (B
   assert.equal(v.kind,'container-border');assert.equal(v.groupId,'G');assert.ok(v.gap<8);
 });
 
+test('nodeHeadingClearance ignores a node element that carries data-group membership metadata (it is not a container)',{skip:!enabled},async()=>{
+  const tagged=headed({nodeY:50}).replace('<g data-node="A">','<g data-node="A" data-group="G">');
+  const result=await auditAgentSvg(headingSource,tagged);
+  assert.equal(result.checks.nodeHeadingClearance.status,'PASS',JSON.stringify(result.checks.nodeHeadingClearance.evidence.violations));
+});
+
 test('nodeHeadingClearance is NOT-CHECKABLE when a node outline cannot be measured',{skip:!enabled},async()=>{
   const unmeasurable=headed({nodeY:50}).replace('<rect x="30" y="50" width="100" height="60"/>','<rect x="30" y="50" width="100" height="60" transform="rotate(5 80 80)"/>');
   const result=await auditAgentSvg(headingSource,unmeasurable);

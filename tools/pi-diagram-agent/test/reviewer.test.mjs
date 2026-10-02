@@ -284,3 +284,16 @@ test('reviewer config: the report prompt is the default; delegate (alias skip) r
   assert.equal(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'skip'}).prompt,'skip');
   assert.equal(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'bogus'}).prompt,'report');
 });
+
+test('reviewer prompt states the line-style legend rule explicitly and includes the count of distinct connector styles',()=>{
+  const singleStyle={direction:'LR',groups:[],nodes:[{id:'A',text:'Start',shape:'rect'},{id:'B',text:'End',shape:'rect'}],edges:[{id:'e1',source:'A',target:'B',style:'solid'},{id:'e2',source:'A',target:'B',style:'solid'}]};
+  const text=buildReviewerPrompt({facts:buildReviewerFacts(singleStyle),audit,geometry,imageLabels:labels7});
+  assert.match(text,/line-?style[^.]*key[^.]*required only when[^.]*more than one/i);
+  assert.match(text,/distinct.*style|style.*count|connector.*style.*(\d+)/i);
+});
+
+test('reviewer prompt correctly identifies when multiple connector styles are used',()=>{
+  const multiStyle={direction:'LR',groups:[],nodes:[{id:'A',text:'Start',shape:'rect'},{id:'B',text:'End',shape:'rect'}],edges:[{id:'e1',source:'A',target:'B',style:'solid'},{id:'e2',source:'A',target:'B',style:'dashed'}]};
+  const text=buildReviewerPrompt({facts:buildReviewerFacts(multiStyle),audit,geometry,imageLabels:labels7});
+  assert.match(text,/line-?style[^.]*key|connector.*style/i);
+});

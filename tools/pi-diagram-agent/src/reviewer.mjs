@@ -63,6 +63,15 @@ const MEASURED_REPORT=`The deterministic auditor and code also measure node/edge
 
 export function buildReviewerPrompt({facts,audit,geometry,imageLabels,measured='skip'}){
   const rules=REVIEW_RULES.join(', ');
+
+  // Calculate distinct connector styles from facts
+  const distinctStyles=new Set(facts.edges?.map(e=>e.style).filter(s=>s)||[]);
+  const distinctStylesCount=distinctStyles.size;
+
+  const styleRule=distinctStylesCount===1
+    ? `- Line-style keys: A line-style key is required only when the diagram uses more than one connector style. This diagram uses 1 connector style (${[...distinctStyles][0]}), so no line-style key is required.`
+    : `- Line-style keys: A line-style key is required only when the diagram uses more than one connector style. This diagram uses ${distinctStylesCount} distinct connector styles: ${[...distinctStyles].join(', ')}. A line-style legend key is required and must distinguish each of these.`;
+
   return `You are an independent diagram reviewer. You have no tools and cannot read files. Attached are ${imageLabels.length} PNG images of ONE candidate diagram (and the original Mermaid render for comparison). Judge only what is visible, and use the measured numbers below.
 
 Images, in order:
@@ -83,6 +92,7 @@ ${measured==='report'?MEASURED_REPORT:MEASURED_SKIP}
 Rules to apply:
 - Shapes: a node whose facts carry shapeCheck "not-checkable" has a source shape the rules have no notation for; never report shape-change for it. Otherwise every node keeps its source notation shape. A decision node may be the normal diamond; the long-text variant, a horizontally extended hexagon with its points at the top and bottom, is ALLOWED by the rules and is not a shape change. Any other shape change is blocking under rule shape-change, for example a subroutine or queue drawn as a capsule, a cylinder drawn as a rectangle, a diamond turned into a rectangle.
 - Legend: the legend must have colour, shape and line-style keys for whatever the diagram actually uses. Omitting a kind of key that is in use is blocking (rule legend); a diagram with one colour, one shape and one line style needs none.
+${styleRule}
 - Detours: a route is an avoidable detour (blocking, rule detour) only when its length exceeds 3x the Manhattan distance between its endpoints and no node or container forces the longer path.
 - Severity. "blocking" = a defect a maintainer would send back, for example a reversed group or section order, a label on the wrong edge, text overflowing its frame, a shape change that is not allowed, a missing legend key kind, a missing or invisible arrowhead, an avoidable detour as defined above. "minor" = acceptable to ship, for example pure restyling such as recolouring routes or arrowheads compared with the original, ragged container bottoms, a decision-node tip 10 units from a border, wording of legend entries, general balance preferences.
 

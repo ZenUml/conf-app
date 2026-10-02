@@ -279,3 +279,15 @@ test('regression across rounds is tracked: a finding fixed then returning is "re
     assert.equal(t.run.state().oscillationsInReverted,1);
   }finally{t.cleanup()}
 });
+
+test('group-less source whose audit leaves semanticPreservation NOT-CHECKABLE (auditor default) still reaches the reviewer and can be REVIEWED',async()=>{
+  const t=setup({replies:[rv([])],auditFor:text=>{
+    const a={status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'PASS',evidence:{missing:[],extra:[]}},nodeText:{status:'PASS'},relations:{status:'PASS'},relationStyle:{status:'PASS'},groups:{status:'PASS'},
+      originalGroupParity:{status:'NOT-CHECKABLE',evidence:'original rendered SVG was not supplied'},semanticPreservation:{status:'NOT-CHECKABLE',evidence:'original rendered membership comparison unavailable'},
+      routeGeometry:{status:'NOT-CHECKABLE'},visualQuality:{status:'NOT-CHECKABLE'}}};return a}});
+  try{
+    t.write(svg('v1'));
+    const r=await t.out();
+    assert.equal(r.status,'REVIEWED');assert.equal(t.calls.reviewer.length,1);
+  }finally{t.cleanup()}
+});

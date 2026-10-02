@@ -100,7 +100,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,now=Date
     c.stage='audit';
     c.findings=[...earlyFindings({svgText:cand.text,audit:c.audit}),...auditToFindings(c.audit).filter(f=>!EARLY_AUDIT_RULES.includes(f.rule))];
     if(c.findings.some(f=>f.severity==='blocking'))return c;
-    const reasons=auditGateReasons({audit:c.audit,forbidden:c.forbidden});
+    const reasons=auditGateReasons({audit:c.audit,forbidden:c.forbidden,sourceGroupCount:model.groups.length});
     if(!model){c.notes.push('SOURCE_NOT_PARSEABLE');return c}
     if(reasons.length){c.findings.push(...reasons.map(gateFinding));return c}
     if(!allowReview)return c;
@@ -176,7 +176,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,now=Date
     let reasonOverride=null;
     if(c.stage==='review'&&!c.findings.some(f=>f.severity==='blocking')){
       const finalRead=readCandidate();
-      c.gate=evaluateGate({reviewedHash:c.render.svgHash,finalHash:finalRead.ok?finalRead.hash:null,renderedHash:c.hash,audit:c.audit,forbidden:c.forbidden,review:c.review,openBlocking:0});
+      c.gate=evaluateGate({reviewedHash:c.render.svgHash,finalHash:finalRead.ok?finalRead.hash:null,renderedHash:c.hash,audit:c.audit,forbidden:c.forbidden,review:c.review,openBlocking:0,sourceGroupCount:model.groups.length});
       if(!c.gate.pass)c.findings.push(...c.gate.reasons.map(gateFinding));
     }
     const score=summarise(c);

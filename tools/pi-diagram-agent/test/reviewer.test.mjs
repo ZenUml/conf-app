@@ -109,3 +109,17 @@ test('createPiReviewerFactory: unknown model is an error, not a fallback to anot
   const sdk={getAgentDir:()=>'/a',SessionManager:{inMemory:()=>({})},DefaultResourceLoader:class{async reload(){}},ModelRuntime:{create:async()=>({getModel:()=>undefined})},createAgentSession:async()=>{throw Error('must not be called')}};
   await assert.rejects(()=>createPiReviewerFactory(sdk,{provider:'openai-codex',modelId:'gpt-5.6-sol',cwd:'/w'})(),/REVIEWER_MODEL_UNAVAILABLE/);
 });
+
+test('createPiReviewerFactory without a cwd runs the reviewer in a fresh EMPTY directory (never the author-writable run directory)',async()=>{
+  const calls={};
+  const sdk={getAgentDir:()=>'/agent',SessionManager:{inMemory:()=>({})},DefaultResourceLoader:class{constructor(o){calls.loader=o}async reload(){}},
+    ModelRuntime:{create:async()=>({getModel:(p,id)=>({provider:p,id})})},
+    createAgentSession:async o=>{calls.create=o;return {session:{messages:[],getLastAssistantText:()=>'',prompt:async()=>{},dispose(){}}}}};
+  const make=createPiReviewerFactory(sdk,{provider:'openai-codex',modelId:'m'});
+  await make();await make();
+  const fs=await import('node:fs');
+  assert.equal(calls.create.cwd,calls.loader.cwd);
+  assert.ok(fs.existsSync(calls.create.cwd));assert.deepEqual(fs.readdirSync(calls.create.cwd),[]);
+  assert.doesNotMatch(calls.create.cwd,/pi-diagram-agent-/);
+  fs.rmSync(calls.create.cwd,{recursive:true,force:true});
+});

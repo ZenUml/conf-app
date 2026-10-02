@@ -8,6 +8,8 @@ Implementation notes (deviations from the text below are listed here, not hidden
 - Missing bindings: the auditor reports a candidate with no `data-node` / `data-source` / group ids as NOT-CHECKABLE (it cannot FAIL what it cannot see). The early checks treat that as a blocking finding.
 - Audit-derived findings carry element ids but `region: null`; only reviewer findings have a region (a fraction of the full image, converted to SVG units).
 - `run.json` is sealed with a self hash and lives in the run directory, which the author can still write until the author is sandboxed. `/magic-accept` verifies the seal and, for a run orchestrated by the same Pi process, the in-memory manifest hash; for any other run only the seal is verifiable.
+- Semantics for a source without groups: the auditor leaves `originalGroupParity` and `semanticPreservation` NOT-CHECKABLE when the source declares no groups (found by the first live smoke; no membership exists to compare). The gate accepts that case only when `nodeIdentity`, `nodeText`, `relations` and `relationStyle` all PASS; a source with groups still needs PASS or ADJUDICATED.
+- The reviewer session runs in a fresh empty temp directory, never the author-writable run directory.
 - A reviewer error (malformed output twice, provider error) ends the run as CANDIDATE with `REVIEWER_ERROR`; it is never a pass and does not consume further author rounds.
 - Revert and best-candidate comparison use the lexicographic pair (audit-side blocking, reviewer blocking), then minor count. An audit failure outranks any number of reviewer opinions.
 - The author's turn cannot be interrupted, so the wall-clock budget is checked at each submit (and caps the run there), not mid-turn.

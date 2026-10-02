@@ -63,7 +63,7 @@ export default function (pi: ExtensionAPI) {
           v2Budgets = budgetsFromEnv();
           inspector = createAgentVisualInspector(job, { maxInspections: v2Budgets.maxInspectionsPerRound, perRound: true, earlyChecks: true });
           run = createV2Run(job, {
-            reviewerFactory: createPiReviewerFactory(piSdk, { provider: selected.provider, modelId: selected.id, cwd: job.runDir }),
+            reviewerFactory: createPiReviewerFactory(piSdk, { provider: selected.provider, modelId: selected.id }),
             budgets: v2Budgets,
             onRoundEnd: () => inspector.resetRound(),
           });

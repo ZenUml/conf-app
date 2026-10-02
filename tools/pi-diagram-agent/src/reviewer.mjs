@@ -1,5 +1,8 @@
 // Independent reviewer: a separate, tool-less, fresh-context model session that sees images, an audit summary and source facts only.
 // It never receives SVG text, run-directory content or the author's messages (all author-controlled, hence an injection channel).
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {makeFinding} from './findings.mjs';
 import {REVIEW_RULES} from './early-checks.mjs';
 
@@ -98,15 +101,17 @@ export async function runReviewer({factory,prompt,images,model,natural,now=Date.
 }
 
 /** Factory for real Pi sessions (Pi >= 1.0 SDK passed in, so this module needs no Pi dependency). Same native provider/model as the author; auth is read, never changed. */
-export function createPiReviewerFactory(sdk,{provider,modelId,cwd,thinkingLevel=process.env.PI_DIAGRAM_REVIEWER_THINKING||'high'}){
+export function createPiReviewerFactory(sdk,{provider,modelId,cwd=null,thinkingLevel=process.env.PI_DIAGRAM_REVIEWER_THINKING||'high'}){
   return async()=>{
+    // The reviewer never touches the run directory: by default its working directory is a fresh empty one.
+    const workDir=cwd??fs.mkdtempSync(path.join(os.tmpdir(),'pi-reviewer-'));
     const modelRuntime=await sdk.ModelRuntime.create();
     const model=modelRuntime.getModel(provider,modelId);
     if(!model)throw bad('MODEL_UNAVAILABLE',`${provider}/${modelId}`);
-    const resourceLoader=new sdk.DefaultResourceLoader({cwd,agentDir:sdk.getAgentDir(),noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,noContextFiles:true,
+    const resourceLoader=new sdk.DefaultResourceLoader({cwd:workDir,agentDir:sdk.getAgentDir(),noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,noContextFiles:true,
       systemPromptOverride:()=>'You are a strict visual reviewer of diagrams. You have no tools. Output only the requested JSON.',appendSystemPromptOverride:()=>[]});
     await resourceLoader.reload();
-    const {session}=await sdk.createAgentSession({cwd,model,thinkingLevel,modelRuntime,resourceLoader,sessionManager:sdk.SessionManager.inMemory(),noTools:'all'});
+    const {session}=await sdk.createAgentSession({cwd:workDir,model,thinkingLevel,modelRuntime,resourceLoader,sessionManager:sdk.SessionManager.inMemory(),noTools:'all'});
     return {
       async prompt(text,{images}){
         await session.prompt(text,{images});

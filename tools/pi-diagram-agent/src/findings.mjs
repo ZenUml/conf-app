@@ -99,7 +99,7 @@ const SUGGESTIONS={
   labelFontWeight:'Use font-weight 400 for node labels and descriptions; express hierarchy with size. Only group headings may be heavier.',
   legendCompleteness:'Add a legend key for every node fill role, every non-rectangular node shape and dashed lines in use (or draw a legend if there is none).',
   routeDetour:'Shorten the listed route: a much shorter feasible route exists (see the witness in the evidence); do not wrap a connector around other nodes or the canvas when a direct leg is free; move a node or the port if needed.',
-  routeContainerClearance:'Move the listed route or edge label so it keeps at least 8 units from every container border it does not need to cross (routes may only cross a border at its entry or exit point), and keep edge labels at least 4 units from a container border; widen a narrow gutter between containers.',
+  routeContainerClearance:'Move the listed route or edge label so it keeps at least 8 units (at least 12 units for a run longer than 100) from every container border it does not need to cross (routes may only cross a border at its entry or exit point), and keep edge labels at least 4 units from a container border; widen a narrow gutter between containers.',
   arrowShaft:'Lengthen the final straight segment before the arrowhead to the required visible shaft.',
 };
 const fallbackSuggestion=rule=>`Resolve the ${rule} failure shown in the evidence, then re-render.`;

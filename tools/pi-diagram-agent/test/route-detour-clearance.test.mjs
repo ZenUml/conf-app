@@ -85,6 +85,20 @@ test('routeContainerClearance counts riding along the inside of the source conta
   assert.equal(r.evidence.violations[0].side,'bottom');
 });
 
+test('routeContainerClearance fails a LONG run 10 units inside the border of its own target container (the 8-unit band misses it), passes a short one and a 14-unit one',{skip:!enabled},async()=>{
+  const nodes=[node('A',400,450,60,40),node('B',100,50,60,40)];
+  // x=10 rides 10 units inside the left border (x=0) of G, which holds only the target B, from y=400 up to y=70: 330 units.
+  const long=await check(src,doc(group('G',0,0,300,400),...nodes,edge('A','B','M400 470 L10 470 L10 70 L100 70')),'routeContainerClearance');
+  assert.equal(long.status,'FAIL');
+  const v=long.evidence.violations.find(x=>x.side==='left');
+  assert.ok(v,JSON.stringify(long.evidence.violations));
+  assert.equal(v.relation,'target-ancestor');assert.equal(v.distance,10);assert.ok(v.length>300);
+  const short=await check(src,doc(group('G',0,0,300,400),...nodes,edge('A','B','M400 470 L10 470 L10 380 L10 330 L50 330 L50 70 L100 70')),'routeContainerClearance');
+  assert.equal(short.evidence.violations.filter(x=>x.side==='left').length,0);
+  const wide=await check(src,doc(group('G',0,0,300,400),...nodes,edge('A','B','M400 470 L14 470 L14 70 L100 70')),'routeContainerClearance');
+  assert.equal(wide.evidence.violations.filter(x=>x.side==='left').length,0);
+});
+
 test('routeContainerClearance allows the crossing point of an ancestor border but not the run beyond it',{skip:!enabled},async()=>{
   const nodes=[node('A',20,20,60,40),node('B',400,230,60,40)];
   // leaves G through the bottom border at x=50, turns 6 units below it and runs 30 units: only 18 units lie outside the +-12 crossing allowance.

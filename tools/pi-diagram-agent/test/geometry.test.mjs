@@ -42,6 +42,19 @@ test('geometryFindings: label farther than 25 units from its own edge is a block
   assert.deepEqual(geometryFindings(near,model),[]);
 });
 
+test('geometryFindings: a label nearer a DIFFERENT route than its own is label-ambiguous; equal distances (shared trunk) and clear separation are not',()=>{
+  const m3={nodes:[{id:'A'},{id:'B'},{id:'C'},{id:'D'}],edges:[{source:'A',target:'B',label:'ok'},{source:'C',target:'D',label:''}],groups:[]};
+  const base=(box)=>({natural:{w:600,h:300},nodes:[{id:'A',box:R(0,0,100,60)},{id:'B',box:R(500,0,100,60)},{id:'C',box:R(0,200,100,60)},{id:'D',box:R(500,200,100,60)}],groups:[],
+    labels:[{source:'A',target:'B',box}],edges:[{id:'A->B',source:'A',target:'B',points:line(100,30,500)},{id:'C->D',source:'C',target:'D',points:line(100,100,500)}]});
+  // box y 36..56: 6 units under its own route (y=30) but the other route y=100 is 44 away -> not ambiguous
+  assert.deepEqual(geometryFindings(base(R(250,36,40,20)),m3).filter(x=>x.rule==='label-ambiguous'),[]);
+  // the other route (y=100) at 0 units, own route 18 above (within 25): ambiguous
+  const f=geometryFindings({...base(R(250,84,40,16)),edges:[{id:'A->B',source:'A',target:'B',points:line(100,66,500)},{id:'C->D',source:'C',target:'D',points:line(100,100,500)}]},m3).find(x=>x.rule==='label-ambiguous');
+  assert.ok(f);assert.equal(f.severity,'blocking');assert.deepEqual(f.elements,['A->B','C->D']);assert.match(f.evidence.measured,/A->B/);assert.match(f.evidence.measured,/C->D/);
+  // shared trunk: both routes touch the label equally
+  assert.deepEqual(geometryFindings({...base(R(250,90,40,20)),edges:[{id:'A->B',source:'A',target:'B',points:line(100,100,500)},{id:'C->D',source:'C',target:'D',points:line(100,100,500)}]},m3).filter(x=>x.rule==='label-ambiguous'),[]);
+});
+
 test('geometryFindings: a route closer than 12 units to an UNRELATED node border is blocking; own endpoints, inside points and far nodes are not',()=>{
   const near=geo({nodes:[...geo().nodes,{id:'D',box:R(150,40,40,30)}]}); // top at y=40, route y=30 -> 10 units
   const m2={...model,nodes:[...model.nodes,{id:'D'}]};

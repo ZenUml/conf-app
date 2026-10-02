@@ -772,9 +772,14 @@ export default {
       return createGuideVariant(this.diagramType);
     },
     // Lite only: the recorded guides show the Lite macro titles. Users who cannot edit the
-    // page cannot insert a macro, so the guide would teach a dead end.
+    // page cannot insert a macro, so the guide would teach a dead end. The first three gates are
+    // the action row's own, so the impression never counts a viewer whose row is not rendered
+    // (editor preview, macro configuration, load failure).
     showCreateGuide() {
-      return (this.createGuideFeatureEnabled || import.meta.env.DEV)
+      return this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed
+        && (this.createGuideFeatureEnabled || import.meta.env.DEV)
         && !!forgeGlobal.isLite
         && this.createGuideVariant !== null
         && !!this.canUserEdit

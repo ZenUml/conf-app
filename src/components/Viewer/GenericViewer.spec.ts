@@ -400,34 +400,45 @@ describe('GenericViewer (chrome-less)', () => {
   // can edit, on diagram types that have a recorded guide, never inside Fullscreen.
   describe('Create guide button', () => {
     const createButton = (wrapper: ReturnType<typeof mountViewer>) => wrapper.find('button[aria-label="Create"]')
+    // Unmount after each test: a still-mounted viewer reacts to the next test's store setup
+    // (e.g. AsyncAPI -> Sequence) and would report its own impression into that test.
+    const mounted: ReturnType<typeof mountViewer>[] = []
+    const mountGuideViewer = () => {
+      const wrapper = mountViewer()
+      mounted.push(wrapper)
+      return wrapper
+    }
 
     beforeEach(() => {
       vi.stubEnv('DEV', false)
+      // A non-display mount re-applies variant flags from PRODUCT_TYPE; keep it a Lite build.
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
       forgeRuntime.isLite = true
       vi.mocked(isCreateGuideEnabled).mockResolvedValue(true)
     })
 
     afterEach(() => {
+      mounted.splice(0).forEach((wrapper) => wrapper.unmount())
       vi.unstubAllEnvs()
       forgeRuntime.isLite = undefined
       vi.mocked(isCreateGuideEnabled).mockResolvedValue(false)
     })
 
     it('shows Create for a Lite user who can edit once the flag resolves on', async () => {
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       expect(createButton(wrapper).exists()).toBe(true)
     })
 
     it('keeps the row visible at rest when Create shows, so only the other buttons wait for hover', async () => {
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       expect(wrapper.find('.viewer-top-actions').classes()).toContain('viewer-top-actions--with-create')
     })
 
     it('leaves the row exactly as before when Create is not shown', async () => {
       vi.mocked(isCreateGuideEnabled).mockResolvedValue(false)
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       expect(createButton(wrapper).exists()).toBe(false)
       expect(wrapper.find('.viewer-top-actions').classes()).not.toContain('viewer-top-actions--with-create')
@@ -436,28 +447,28 @@ describe('GenericViewer (chrome-less)', () => {
     it('shows Create in a dev build even while the flag is off', async () => {
       vi.stubEnv('DEV', true)
       vi.mocked(isCreateGuideEnabled).mockResolvedValue(false)
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       expect(createButton(wrapper).exists()).toBe(true)
     })
 
     it('hides Create outside the Lite app, whose guide names Lite macros', async () => {
       forgeRuntime.isLite = false
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       expect(createButton(wrapper).exists()).toBe(false)
     })
 
     it('hides Create from users who cannot edit', async () => {
       vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false)
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       expect(createButton(wrapper).exists()).toBe(false)
     })
 
     it('hides Create for a diagram type without a guide', async () => {
       store.commit('updateDiagramType', DiagramType.AsyncApi)
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       expect(createButton(wrapper).exists()).toBe(false)
     })
@@ -465,14 +476,14 @@ describe('GenericViewer (chrome-less)', () => {
     it('hides Create in Fullscreen', async () => {
       // @ts-expect-error — see the beforeEach above
       window.forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } } as any
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       expect(createButton(wrapper).exists()).toBe(false)
     })
 
     it('opens the guide for the viewed diagram type when clicked', async () => {
       store.commit('updateDiagramType', DiagramType.Graph)
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       await createButton(wrapper).trigger('click')
       expect(vi.mocked(openCreateGuide)).toHaveBeenCalledWith({ variant: 'graph', macroType: 'graph', hasEditPermission: true })
@@ -480,15 +491,35 @@ describe('GenericViewer (chrome-less)', () => {
 
     it('shows Create on the OpenAPI viewer, whose runtime type is lowercase openapi', async () => {
       store.commit('updateDiagramType', 'openapi')
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       await createButton(wrapper).trigger('click')
       expect(vi.mocked(openCreateGuide)).toHaveBeenCalledWith({ variant: 'api', macroType: 'openapi', hasEditPermission: true })
     })
 
+    // isDisplayMode is a non-reactive store getter cached for the whole file, so these cases use
+    // the row's other gates: the chrome-less preview (hideHeader) and a failed load.
+    it('tracks no impression for a chrome-less viewer, whose action row is not rendered', async () => {
+      const wrapper = mount(GenericViewer, { props: { hideHeader: true }, global: { plugins: [store] } })
+      mounted.push(wrapper)
+      await flushPromises()
+      expect(wrapper.find('.viewer-top-actions').exists()).toBe(false)
+      const impressions = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'create_guide_impression')
+      expect(impressions).toEqual([])
+    })
+
+    it('tracks no impression when the diagram failed to load and the row is replaced', async () => {
+      store.state.viewerLoadState = 'failed_without_source'
+      const wrapper = mountGuideViewer()
+      await flushPromises()
+      expect(createButton(wrapper).exists()).toBe(false)
+      const impressions = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'create_guide_impression')
+      expect(impressions).toEqual([])
+    })
+
     it('tracks one create_guide_impression per viewer when Create shows', async () => {
       store.commit('updateDiagramType', DiagramType.Mermaid)
-      const wrapper = mountViewer()
+      const wrapper = mountGuideViewer()
       await flushPromises()
       await wrapper.vm.$forceUpdate()
       await flushPromises()

@@ -338,3 +338,10 @@ test('legendCompleteness reads a legend built as a group named legend whose entr
   const r=await legendStatus({...two2,body});
   assert.equal(r.status,'PASS',JSON.stringify(r));
 });
+
+test('legendCompleteness: a loose swatch+caption pair sitting in the row of tagged legend entries belongs to that legend',{skip:!enabled},async()=>{
+  const hexNodeB=fixture().match(/<g data-node="B"[\s\S]*?<\/g>/)[0].replace('data-shape="rect"','data-shape="hexagon"');
+  const body=legendFill('Process','#eaf3ff',300)+`<g aria-label="Decision"><path d="M436 20 L452 20 L460 29 L452 38 L436 38 L428 29 Z" fill="#eaf3ff" stroke="#2f6fad" stroke-width="2"/><text x="472" y="29" font-size="16" fill="#173a63">Decision</text></g>`;
+  const r=await legendStatus({nodeB:hexNodeB,body});
+  assert.equal(r.status,'PASS',JSON.stringify(r));
+});

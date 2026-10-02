@@ -167,6 +167,13 @@ export const collectLayoutFacts=input=>{
       for(const t of headingUnscoped){const tb=boxOf(t);if(tb){const g=gap(tb,cb);if(g.dx<=150&&g.dy<=60){els.push(t);heading=true}}}
       scopes.push({els,via:heading?'heading+structure':'structure',authoritative:heading});
     }
+    // a loose pair beside a tagged/titled legend (same row or column, within reach) is one of its entries
+    for(const p of pairs){
+      if(used.has(p))continue;
+      const pb=pbox(p);
+      const host=scopes.find(sc=>sc.authoritative&&sc.els.some(e=>{const eb=boxOf(e);if(!eb)return false;const g=gap(pb,eb);return g.dx<=100&&g.dy<=40}));
+      if(host){host.els.push(p.sw.el,p.text.el,...decorOf(p.sw).map(d=>d.el));used.add(p)}
+    }
     const looseSwatches=prim.filter(m=>!pairs.some(p=>p.sw===m&&used.has(p))).length;
     const legend={present:scopes.length>0||titled.length>0,scoped:scopes.length>0,authoritative:scopes.some(s=>s.authoritative),via:[...new Set(scopes.map(s=>s.via))],headings:headingTexts.slice(0,4),ambiguousSwatches:looseSwatches,fills:[],dataShapes:[],captions:[],marks:[],dashed:false};
     let scopeIndex=-1;

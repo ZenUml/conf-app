@@ -120,3 +120,15 @@ test('all three agent-finished reasons count as completed; timeouts do not',()=>
   assert.ok(!isCompleted({doneReason:'TIME_LIMIT',rateLimited:false}));
   assert.ok(!isCompleted({doneReason:'AGENT_SETTLED',rateLimited:true}));
 });
+
+test('reduceEvents records spec-mode use, source facts and output tokens before the first inspection',()=>{
+  const r=reduceEvents([
+    {kind:'notify',text:'Source facts included in the prompt (original render positions, reference only)',tMs:1},
+    {kind:'notify',text:'Layout spec mode on: layout.json + diagram_render_spec offered',tMs:2},
+    {kind:'assistant',usage:{input:1,output:300},tMs:10},
+    {kind:'tool-start',tool:'diagram_render_spec',tMs:20},{kind:'tool-end',tool:'diagram_render_spec',isError:false,tMs:30},
+    {kind:'assistant',usage:{input:1,output:200},tMs:40},
+    {kind:'tool-start',tool:'diagram_inspect',tMs:50},
+    {kind:'assistant',usage:{input:1,output:999},tMs:60},{kind:'done',reason:'AGENT_END',elapsedMs:100}]);
+  assert.equal(r.specRenders,1);assert.equal(r.sourceFactsIncluded,true);assert.equal(r.specModeOffered,true);assert.equal(r.outputTokensBeforeFirstInspection,500);assert.equal(r.outputTokens,1499);
+});

@@ -19,7 +19,7 @@ const ENV_DEFAULTS={
 for(const [k,v] of Object.entries(ENV_DEFAULTS))process.env[k]??=v; // the in-process auditor reads these too
 
 function parseArgs(argv){
-  const o={reps:1,concurrency:1,timeoutMin:15,magicOptions:'',piBin:'pi',auditor:path.join(worktreePkg,'src/agent-audit.mjs')};
+  const o={env:{},reps:1,concurrency:1,timeoutMin:15,magicOptions:'',piBin:'pi',auditor:path.join(worktreePkg,'src/agent-audit.mjs')};
   for(let i=0;i<argv.length;i++){
     const a=argv[i],next=()=>{if(i+1>=argv.length)throw Error(`missing value for ${a}`);return argv[++i]};
     if(a==='--package')o.package=next();
@@ -31,7 +31,7 @@ function parseArgs(argv){
     else if(a==='--timeout-min')o.timeoutMin=Number(next());
     else if(a==='--pi-bin')o.piBin=next();
     else if(a==='--auditor')o.auditor=next();
-    else if(a==='--env'){const kv=next(),i2=kv.indexOf('=');if(i2<1)throw Error('--env expects KEY=VALUE');(o.env??={})[kv.slice(0,i2)]=kv.slice(i2+1)}
+    else if(a==='--env'){const kv=next(),i=kv.indexOf('=');if(i<1)throw Error('--env expects KEY=VALUE');o.env[kv.slice(0,i)]=kv.slice(i+1)}
     else throw Error(`unknown argument ${a}`);
   }
   if(!o.package||!o.out)throw Error('usage: run-bench.mjs --package <pkg root> --fixtures <glob|list> --reps N --concurrency K --out <dir outside repo> [--magic-options "..."] [--pi-bin <path>] [--timeout-min 15] [--env KEY=VALUE]...');
@@ -126,7 +126,7 @@ async function main(){
   const auditFn=(s,v,opts)=>auditAgentSvg(s,v,opts);
   const jobs=[];for(const f of fixtures)for(let r=1;r<=o.reps;r++){const name=path.basename(f,'.mmd');jobs.push({fixture:name,source:f,id:`${name}-r${r}`})}
   const runs=[];let rateLimited=false,next=0;
-  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:'openai-codex gpt-5.6-sol, thinking high',magicOptions:o.magicOptions||'(none)',env:o.env||'(none)',piBin:o.piBin,startedAt:new Date().toISOString()};
+  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:'openai-codex gpt-5.6-sol, thinking high',magicOptions:o.magicOptions||'(none)',piBin:o.piBin,env:Object.keys(o.env).length?JSON.stringify(o.env):'(none)',startedAt:new Date().toISOString()};
   const writeSummary=()=>{
     const ordered=jobs.map(j=>runs.find(r=>r.id===j.id)).filter(Boolean);
     const summary={meta,...aggregate(ordered),runs:ordered};

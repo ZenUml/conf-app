@@ -106,18 +106,64 @@ export const collectLayoutFacts=input=>{
       const fills=[...g.querySelectorAll(shapeSelector)].filter(s=>s instanceof SVGGeometryElement).map(s=>{const st=getComputedStyle(s),c=parseColor(st.fill),b=s.getBBox();return st.fill!=='none'&&c&&c.alpha>0?{hex:c.hex,area:b.width*b.height}:null}).filter(Boolean).sort((a,b)=>b.area-a.area);
       return {id:nodeIdOf(g),shape:g.getAttribute('data-shape')?.trim()||null,fill:fills[0]?.hex??null};
     });
-    const titled=[...root.querySelectorAll('text')].filter(t=>!inDefs(t)&&!t.closest(NODE)&&!t.closest('g[data-edge-label-source]')&&/^(?:legend|key)\s*:?$/i.test(norm(t.textContent)));
-    const scopes=new Set([...root.querySelectorAll('[data-legend],[data-legend-item]')]);
-    let unscoped=false;
-    for(const t of titled){
-      const g=t.parentElement;
-      if(g&&g.localName==='g'&&!g.matches(NODE+','+GROUP)&&!g.querySelector(NODE+',[data-source][data-target]'))scopes.add(g);else unscoped=true;
+    // ---- legend detection: (a) explicit tag, (b) a heading from the legend vocabulary, (c) structure (a cluster of >=2 swatch+caption pairs)
+    const HEADING=/^(?:(?:(?:diagram|colou?r|shape|line|flow|connector|node|arrow|edge|symbol|notation)s?\s+)?(?:legend|key)|notation|symbols?|how to read(?:\s+(?:this|the)(?:\s+diagram)?)?|reading guide)\s*:?$/i;
+    const ELSEWHERE=NODE+','+GROUP+',g[data-edge-label-source],[data-source][data-target]';
+    const inEls=(el,list)=>list.some(s=>s.els.some(x=>x===el||x.contains(el)));
+    const scopes=[];// {els:[container or element], via, authoritative}
+    for(const el of root.querySelectorAll('[data-legend],[data-legend-item]'))scopes.push({els:[el],via:'tag',authoritative:true});
+    for(const el of root.querySelectorAll('g[id],g[aria-label],g[class]')){
+      if(inDefs(el)||el.matches(ELSEWHERE)||el.closest(ELSEWHERE)||inEls(el,scopes))continue;
+      if([el.getAttribute('id'),el.getAttribute('aria-label'),el.getAttribute('class')].some(v=>/(?:^|[\s_-])(?:legend|key)(?:[\s_-]|$)/i.test(v??'')))scopes.push({els:[el],via:'tag',authoritative:true});
     }
-    const legend={present:scopes.size>0||titled.length>0,scoped:scopes.size>0,fills:[],dataShapes:[],captions:[],marks:[],dashed:false};
+    const isGeom=el=>el instanceof SVGGeometryElement&&!inDefs(el);
+    const titled=[...root.querySelectorAll('text')].filter(t=>!inDefs(t)&&!t.closest(NODE)&&!t.closest('g[data-edge-label-source]')&&HEADING.test(norm(t.textContent)));
+    const headingTexts=[];
+    for(const t of titled){
+      if(inEls(t,scopes)){headingTexts.push(norm(t.textContent));continue}
+      const g=t.parentElement;
+      if(g&&g.localName==='g'&&!g.matches(ELSEWHERE+',svg')&&!g.querySelector(ELSEWHERE)&&[...g.querySelectorAll('*')].some(isGeom)){scopes.push({els:[g],via:'heading',authoritative:true});headingTexts.push(norm(t.textContent))}
+      else headingTexts.push(norm(t.textContent));
+    }
+    const headingUnscoped=titled.filter(t=>!inEls(t,scopes));
+    // free marks and captions: everything outside nodes, groups, edges, edge labels, defs and the scopes above
+    const free=el=>!inDefs(el)&&!el.closest(ELSEWHERE)&&!inEls(el,scopes);
+    const boxOf=el=>{try{return rootBox(el)}catch{return null}};
+    const freeGeom=[...root.querySelectorAll('path,rect,circle,ellipse,polygon,polyline,line')].filter(el=>isGeom(el)&&free(el)).map(el=>({el,b:boxOf(el)})).filter(m=>m.b);
+    const freeText=[...root.querySelectorAll('text')].filter(t=>free(t)&&norm(t.textContent)&&norm(t.textContent).length<=48).map(el=>({el,b:boxOf(el)})).filter(m=>m.b);
+    const contains=(o,i)=>o!==i&&i.b.x>=o.b.x-1&&i.b.y>=o.b.y-1&&i.b.x+i.b.w<=o.b.x+o.b.w+1&&i.b.y+i.b.h<=o.b.y+o.b.h+1&&(o.b.w*o.b.h>i.b.w*i.b.h||o.b.w>i.b.w||o.b.h>i.b.h);
+    const sampleLine=m=>m.b.w>=12&&m.b.w<=140&&m.b.h<=2.5;
+    const swatchOk=m=>m.b.w<=90&&m.b.h<=60&&(m.b.w>=4||sampleLine(m))&&(m.b.h>=4||sampleLine(m));
+    const prim=freeGeom.filter(m=>swatchOk(m)&&!freeGeom.some(o=>o!==m&&swatchOk(o)&&contains(o,m)));
+    const decorOf=m=>freeGeom.filter(d=>d!==m&&contains(m,d));
+    const taken=new Set(),pairs=[];
+    for(const sw of prim){
+      const cy=sw.b.y+sw.b.h/2;
+      const cands=freeText.filter(t=>!taken.has(t)&&t.b.x>=sw.b.x+sw.b.w-3&&t.b.x<=sw.b.x+sw.b.w+70&&Math.abs(t.b.y+t.b.h/2-cy)<=Math.max(12,sw.b.h*0.75)).sort((a,b)=>a.b.x-b.b.x);
+      if(cands[0]){taken.add(cands[0]);pairs.push({sw,text:cands[0]})}
+    }
+    const gap=(a,b)=>({dx:Math.max(0,Math.max(a.x,b.x)-Math.min(a.x+a.w,b.x+b.w)),dy:Math.max(0,Math.max(a.y,b.y)-Math.min(a.y+a.h,b.y+b.h))});
+    const pbox=p=>{const x=Math.min(p.sw.b.x,p.text.b.x),y=Math.min(p.sw.b.y,p.text.b.y);return {x,y,w:Math.max(p.sw.b.x+p.sw.b.w,p.text.b.x+p.text.b.w)-x,h:Math.max(p.sw.b.y+p.sw.b.h,p.text.b.y+p.text.b.h)-y}};
+    const comp=pairs.map((_,i)=>i);const find=i=>comp[i]===i?i:(comp[i]=find(comp[i]));
+    for(let i=0;i<pairs.length;i++)for(let j=i+1;j<pairs.length;j++){const g=gap(pbox(pairs[i]),pbox(pairs[j]));if(g.dx<=100&&g.dy<=60)comp[find(i)]=find(j)}
+    const clusters=new Map();pairs.forEach((p,i)=>{const r=find(i);if(!clusters.has(r))clusters.set(r,[]);clusters.get(r).push(p)});
+    const used=new Set();
+    for(const group of clusters.values()){
+      if(group.length<2)continue;
+      const els=[];
+      for(const p of group){els.push(p.sw.el,p.text.el,...decorOf(p.sw).map(d=>d.el));used.add(p)}
+      // a vocabulary heading just above or beside the cluster belongs to it
+      const cb=group.map(pbox).reduce((a,b)=>({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.max(a.x+a.w,b.x+b.w)-Math.min(a.x,b.x),h:Math.max(a.y+a.h,b.y+b.h)-Math.min(a.y,b.y)}));
+      let heading=false;
+      for(const t of headingUnscoped){const tb=boxOf(t);if(tb){const g=gap(tb,cb);if(g.dx<=150&&g.dy<=60){els.push(t);heading=true}}}
+      scopes.push({els,via:heading?'heading+structure':'structure',authoritative:heading});
+    }
+    const looseSwatches=prim.filter(m=>!pairs.some(p=>p.sw===m&&used.has(p))).length;
+    const legend={present:scopes.length>0||titled.length>0,scoped:scopes.length>0,authoritative:scopes.some(s=>s.authoritative),via:[...new Set(scopes.map(s=>s.via))],headings:headingTexts.slice(0,4),ambiguousSwatches:looseSwatches,fills:[],dataShapes:[],captions:[],marks:[],dashed:false};
     let scopeIndex=-1;
     for(const scope of scopes){
       scopeIndex++;
-      for(const el of [scope,...scope.querySelectorAll('*')]){
+      for(const top of scope.els)for(const el of [top,...top.querySelectorAll('*')]){
         if(el.hasAttribute('data-shape'))legend.dataShapes.push(el.getAttribute('data-shape'));
         if(el.hasAttribute('data-legend-item'))legend.captions.push(norm(el.getAttribute('data-legend-item')));
         if(el.localName==='text'){legend.captions.push(norm(el.textContent));continue}
@@ -130,7 +176,6 @@ export const collectLayoutFacts=input=>{
       }
     }
     legend.fills=[...new Set(legend.fills)];
-    if(unscoped&&!legend.scoped)legend.present=true;
     return {parseError:false,edges,markers,texts,nodeTexts,headings,nodes,legend};
   }finally{root.remove()}
 };
@@ -336,11 +381,13 @@ export function shapeClass(name){
   return s;
 }
 const CAPTION_SHAPES=[[/diamond|decision|gateway|hexagon/,'decision'],[/cylinder|database|data ?store|datastore|storage|\bstore\b/,'cylinder'],[/queue|subroutine/,'subroutine'],[/capsule|stadium|terminator/,'capsule']];
-/** A path made only of M/L vertical lines, at least two subpaths (the bars of a subroutine glyph). */
+/** A path made only of M/L vertical lines (one or more bars of a subroutine glyph). */
 function isVerticalBars(m){
+  if(m.tag==='line')return m.w<1&&m.h>0.5; // a bar drawn as its own <line>
+  if(m.tag==='rect')return m.w<=3&&m.h>5;  // or as a thin rectangle
   if(m.tag!=='path'||!m.d||/[^MLHVZmlhvz\d\s.,+-]/.test(m.d))return false;
   const segs=parsePath(m.d);
-  return !!segs&&segs.length>=2&&segs.every(g=>g.k==='L'&&!g.z&&Math.abs(g.to[0]-g.from[0])<1e-6&&Math.abs(g.to[1]-g.from[1])>0.5);
+  return !!segs&&segs.length>=1&&segs.every(g=>g.k==='L'&&!g.z&&Math.abs(g.to[0]-g.from[0])<1e-6&&Math.abs(g.to[1]-g.from[1])>0.5);
 }
 const nums=str=>(String(str??'').match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).map(Number);
 /** Absolute-coordinate path parser (M L H V Q C A Z). Returns null for anything else so the caller reports "cannot classify". */
@@ -421,7 +468,7 @@ function classifySwatches(marks){
 }
 
 export function legendCompleteness(facts){
-  const method='node fill roles (computed fill of the largest painted node shape), node shape classes (data-shape) and dashed connectors (computed stroke-dasharray) versus the keys in the legend (g[data-legend] entries or a group titled Legend/Key); a legend shape key is recognised only by the drawn geometry of one swatch (one shape class per swatch; captions and data-shape claims do not count), a fill key by swatch fill, a dashed key by a dashed sample or a dash/dotted caption';
+  const method='node fill roles (computed fill of the largest painted node shape), node shape classes (data-shape) and dashed connectors (computed stroke-dasharray) versus the keys in the legend (an explicit g[data-legend] tag, a heading such as Legend/Key/Notation/Colour key/Diagram key, or a structural cluster of two or more swatch+caption pairs); a legend shape key is recognised only by the drawn geometry of one swatch (one shape class per swatch; captions and data-shape claims do not count), a fill key by swatch fill, a dashed key by a dashed sample or a dash/dotted caption';
   const nodes=facts.nodes;
   if(!nodes.length)return unavailable('no node tagging (g[data-node]) to derive fill roles or shapes');
   const fillNodes=new Map();
@@ -434,12 +481,15 @@ export function legendCompleteness(facts){
   const needs=[...(multiRole?[`${fillNodes.size} node fill roles`]:[]),...(shapeNodes.size?[`non-rectangular shapes: ${[...shapeNodes.keys()].join(', ')}`]:[]),...(dashedEdges.length?[`${dashedEdges.length} dashed connector(s)`]:[])];
   const base={method,fillRoles:[...fillNodes.keys()],specialShapes:[...shapeNodes.keys()],dashedEdges};
   const neededKeys=[...(multiRole?[...fillNodes].map(([value,nodeIds])=>({kind:'fill',value,nodeIds})):[]),...[...shapeNodes].map(([value,nodeIds])=>({kind:'shape',value,nodeIds})),...(dashedEdges.length?[{kind:'dashed',value:'dashed',edge:dashedEdges}]:[])];
-  if(!facts.legend.present){
+  const ambiguous=!!facts.legend.ambiguousSwatches&&!facts.legend.authoritative;
+  const ambiguousResult=()=>({status:'NOT-CHECKABLE',evidence:{...base,reason:`legend detection is ambiguous: ${facts.legend.ambiguousSwatches} loose swatch-like mark(s) outside any tagged, titled or clustered legend, so a missing key cannot be asserted`,looseSwatches:facts.legend.ambiguousSwatches}});
+  if(!facts.legend.present||(!facts.legend.scoped&&ambiguous)){
+    if(needs.length&&ambiguous)return ambiguousResult();
     if(needs.length)return {status:'FAIL',evidence:{...base,missingKeys:neededKeys,reason:`no legend while the diagram uses ${needs.join('; ')}`,nodeIds:[...new Set(neededKeys.flatMap(k=>k.nodeIds??[]))],...(dashedEdges.length?{edge:dashedEdges}:{})}};
     if(untagged.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'nodes without data-shape: special shapes cannot be ruled out',untaggedNodeIds:untagged}};
     return {status:'PASS',evidence:{...base,note:'one fill role, only rectangular nodes and solid connectors: no legend required'}};
   }
-  if(!facts.legend.scoped)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'a Legend/Key text exists but its entries cannot be delimited (tag entries g[data-legend] or group them with the title)'}};
+  if(!facts.legend.scoped)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'a legend heading exists but its swatch+caption entries cannot be delimited (tag entries g[data-legend] or group them with the title)'}};
   const L=facts.legend,swatches=classifySwatches(L.marks);
   // A shape key is a swatch whose DRAWN geometry is that class. Captions and data-shape claims on the legend entry never satisfy it, and one swatch has exactly one class.
   const declared=new Set(swatches.map(x=>x.cls).filter(Boolean));
@@ -453,7 +503,8 @@ export function legendCompleteness(facts){
     if(unclassified.length&&claimed.has(cls))uncheckedShapes.push(cls);else missingKeys.push({kind:'shape',value:cls,nodeIds:ids});
   }
   if(dashedEdges.length&&!(L.dashed||L.captions.some(c=>/dash|dotted/i.test(c))))missingKeys.push({kind:'dashed',value:'dashed',edge:dashedEdges});
-  if(missingKeys.length)return {status:'FAIL',evidence:{...base,missingKeys,nodeIds:[...new Set(missingKeys.flatMap(k=>k.nodeIds??[]))],...(dashedEdges.length&&missingKeys.some(k=>k.kind==='dashed')?{edge:dashedEdges}:{}),legendFills:L.fills}};
+  if(missingKeys.length&&ambiguous)return ambiguousResult();
+  if(missingKeys.length)return {status:'FAIL',evidence:{...base,detection:L.via,missingKeys,nodeIds:[...new Set(missingKeys.flatMap(k=>k.nodeIds??[]))],...(dashedEdges.length&&missingKeys.some(k=>k.kind==='dashed')?{edge:dashedEdges}:{}),legendFills:L.fills}};
   if(uncheckedShapes.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:`legend swatch geometry cannot be classified, so the key for ${uncheckedShapes.join(', ')} is not verified (a caption alone does not count)`,unclassifiedSwatches:unclassified.length,uncheckedShapes}};
   if(untagged.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'nodes without data-shape: shape keys cannot be fully verified',untaggedNodeIds:untagged}};
   return {status:'PASS',evidence:{...base,legendFills:L.fills,legendShapes:[...declared].filter(c=>c!=='rect'),legendDashed:!!(L.dashed||L.captions.some(c=>/dash|dotted/i.test(c))),nodeShapes:Object.fromEntries(nodes.filter(n=>n.shape).map(n=>[n.id,shapeClass(n.shape)])),nodeFills:Object.fromEntries(nodes.filter(n=>n.fill).map(n=>[n.id,n.fill]))}};

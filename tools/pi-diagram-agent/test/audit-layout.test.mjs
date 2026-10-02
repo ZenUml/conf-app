@@ -269,3 +269,53 @@ test('legendCompleteness: a plain oval is not a cylinder key',{skip:!enabled},as
   const r=await run(fixture({nodeB:cylinderB,body:legendFill('Process','#eaf3ff',100)+sw(oval,'Store')}));
   assert.equal(check(r,'legendCompleteness')?.status,'FAIL');
 });
+
+// T17: legend detection beyond g[data-legend] and a bare "Legend" text (false positives seen on real candidate output).
+const two2={fillB:'#fff4d6',textFillB:'#4d3a00'};
+const pair=(x,y,fill,cap)=>`<rect x="${x}" y="${y}" width="24" height="18" rx="4" fill="${fill}" stroke="#2f6fad" stroke-width="2"/><text x="${x+34}" y="${y+9}" font-size="16" font-weight="400" dominant-baseline="central" fill="#173a63">${cap}</text>`;
+const legendStatus=async(opts)=>check(await run(fixture(opts)),'legendCompleteness');
+for(const title of ['Diagram key','Shape key','Notation','Colour key','Flow key','Connector key','Symbols','How to read this diagram','Legend:']){
+  test(`legendCompleteness recognises a legend titled "${title}" (heading vocabulary, grouped)`,{skip:!enabled},async()=>{
+    const g=`<g><text x="300" y="14" font-size="16" font-weight="600" fill="#173a63">${title}</text>${pair(300,24,'#eaf3ff','Process')}${pair(300,52,'#fff4d6','Store')}</g>`;
+    const r=await legendStatus({...two2,body:g});
+    assert.equal(r.status,'PASS',JSON.stringify(r));
+  });
+}
+test('legendCompleteness recognises a titled legend whose heading and swatches are loose siblings of the root (not grouped)',{skip:!enabled},async()=>{
+  const body=`<text x="300" y="14" font-size="16" font-weight="600" fill="#173a63">Notation</text>${pair(300,24,'#eaf3ff','Process')}${pair(300,52,'#fff4d6','Store')}`;
+  const ok=await legendStatus({...two2,body});
+  assert.equal(ok.status,'PASS',JSON.stringify(ok));
+  const missing=await legendStatus({...two2,body:`<text x="300" y="14" font-size="16" fill="#173a63">Notation</text>${pair(300,24,'#eaf3ff','Process')}${pair(300,52,'#eaf3ff','Other')}`});
+  assert.equal(missing.status,'FAIL',JSON.stringify(missing));
+  assert.deepEqual(missing.evidence.missingKeys.map(k=>k.value),['#fff4d6']);
+});
+test('legendCompleteness recognises an untitled legend that is a cluster of swatch+caption pairs',{skip:!enabled},async()=>{
+  const body=`<g>${pair(300,24,'#eaf3ff','Process')}${pair(300,52,'#fff4d6','Store')}</g>`;
+  const ok=await legendStatus({...two2,body});
+  assert.equal(ok.status,'PASS',JSON.stringify(ok));
+  const loose=await legendStatus({...two2,body:pair(300,24,'#eaf3ff','Process')+pair(300,52,'#fff4d6','Store')});
+  assert.equal(loose.status,'PASS',JSON.stringify(loose));
+  const missing=await legendStatus({...two2,body:pair(300,24,'#eaf3ff','Process')+pair(300,52,'#eaf3ff','Other')});
+  assert.equal(missing.status,'FAIL',JSON.stringify(missing));
+});
+test('legendCompleteness is NOT-CHECKABLE (never FAIL) when only one loose swatch+caption exists',{skip:!enabled},async()=>{
+  const r=await legendStatus({...two2,body:pair(300,24,'#eaf3ff','Process')});
+  assert.equal(r.status,'NOT-CHECKABLE',JSON.stringify(r));
+});
+test('legendCompleteness: edge labels and node text are never mistaken for a swatch+caption cluster',{skip:!enabled},async()=>{
+  const label='<g data-edge-label-source="A" data-edge-label-target="B"><rect x="200" y="140" width="40" height="18" rx="9" fill="#ffffff"/><text x="206" y="149" font-size="14">yes</text></g><g data-edge-label-source="B" data-edge-label-target="A"><rect x="200" y="170" width="40" height="18" rx="9" fill="#ffffff"/><text x="206" y="179" font-size="14">no</text></g>';
+  const r=await legendStatus({...two2,body:label});
+  assert.equal(r.status,'FAIL',JSON.stringify(r));
+  assert.match(r.evidence.reason,/no legend/i);
+});
+test('legendCompleteness classifies a subroutine swatch whose bars are <line> elements',{skip:!enabled},async()=>{
+  const swatch=`<rect x="300" y="52" width="34" height="22" rx="3" fill="#eaf3ff" stroke="#2f6fad"/><line x1="305" y1="52" x2="305" y2="74" stroke="#2f6fad"/><line x1="329" y1="52" x2="329" y2="74" stroke="#2f6fad"/><text x="344" y="63" font-size="16" fill="#173a63">Job</text>`;
+  const r=await legendStatus({nodeB:subroutineB,body:`<g><text x="300" y="14" font-size="16">Diagram key</text>${pair(300,20,'#eaf3ff','Step').replace('y="20"','y="22"')}${swatch}</g>`});
+  assert.equal(r.status,'PASS',JSON.stringify(r));
+  assert.ok(r.evidence.legendShapes.includes('subroutine'));
+});
+test('legendCompleteness classifies a subroutine swatch drawn as an outline path with bar paths and a differently named caption',{skip:!enabled},async()=>{
+  const body=`<g aria-label="Reading guide"><text x="300" y="14" font-size="16">Shape key</text><rect x="300" y="24" width="34" height="22" fill="#eaf3ff" stroke="#2f6fad"/><path d="M305 24 L305 46" stroke="#2f6fad" fill="none"/><path d="M329 24 L329 46" stroke="#2f6fad" fill="none"/><text x="344" y="35" font-size="16">Background job</text></g>`;
+  const r=await legendStatus({nodeB:subroutineB,body});
+  assert.equal(r.status,'PASS',JSON.stringify(r));
+});

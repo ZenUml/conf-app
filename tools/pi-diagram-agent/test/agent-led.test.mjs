@@ -208,3 +208,25 @@ test('diagram_inspect keeps the original render it produced even if the run-dire
       fs.rmSync(root,{recursive:true,force:true});
     }
   });
+
+test('adjudication records reach the model prompt as explicit user-authorised group instructions',()=>{
+  const {root,input}=fixture();
+  let job;
+  try{
+    const base=prepareAgentTask(input);
+    fs.rmSync(base.runDir,{recursive:true,force:true});
+    const outside=path.join(root,'adjudication.json');
+    fs.writeFileSync(outside,JSON.stringify([{nodeId:'A',declaredGroup:'G1',renderedGroup:'G2',chosenGroup:'G1',authorisedBy:'owner@example.test',timestamp:'2026-10-02T00:00:00Z',sourceHash:base.sourceHash}]));
+    job=prepareAgentTask(input,{adjudicationPath:outside});
+    assert.match(job.prompt,/User-authorised group adjudications/);
+    assert.match(job.prompt,/node "A": declared group "G1", rendered group "G2", chosen group "G1"/);
+    assert.match(job.prompt,/user authorised drawing node "A" in "G1"/);
+    assert.match(job.prompt,/ADJUDICATED/);
+    const none=prepareAgentTask(input);
+    assert.doesNotMatch(none.prompt,/User-authorised group adjudications/);
+    fs.rmSync(none.runDir,{recursive:true,force:true});
+  }finally{
+    if(job)fs.rmSync(job.runDir,{recursive:true,force:true});
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});

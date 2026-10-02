@@ -76,12 +76,12 @@
                 :expires-at="agentLinkExpiresAt"
               />
             </div>
-            <div v-if="!isLoadFailed" class="viewer-top-actions">
-              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
+            <div v-if="!isLoadFailed" class="viewer-top-actions" :class="{ 'viewer-top-actions--with-create': showCreateGuide }">
+              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                 </svg>
-                <span>Edit</span>
+                <span class="viewer-btn-label">Edit</span>
               </button>
               <div v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-version-switch" role="group" aria-label="Diagram version">
                 <button type="button" class="viewer-version-option viewer-version-magic"
@@ -106,7 +106,7 @@
               <button
                 v-if="showViewSource"
                 type="button"
-                class="viewer-btn-ghost"
+                class="viewer-btn-ghost viewer-act-source"
                 aria-label="Source"
                 title="View source"
                 data-testid="view-source-btn"
@@ -116,7 +116,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
                 </svg>
-                <span>Source</span>
+                <span class="viewer-btn-label">Source</span>
               </button>
               <!-- Copy for AI split button: primary segment (one click = copy
                    with the generic prompt, job: 'generic') + chevron segment
@@ -127,7 +127,7 @@
                    differs by job. Same gate as View Source (text-DSL types
                    only) — not restricted by edit permission or fullscreen,
                    mirroring that button's audience. -->
-              <div v-if="showViewSource" class="copy-for-ai-split">
+              <div v-if="showViewSource" class="copy-for-ai-split viewer-act-copy">
                 <button
                   type="button"
                   class="viewer-btn-ghost copy-for-ai-split-primary"
@@ -158,7 +158,7 @@
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
                       </svg>
-                      <span>Copy for AI</span>
+                      <span class="viewer-btn-label">Copy for AI</span>
                     </span>
                     <span
                       class="copy-for-ai-label-cell"
@@ -204,12 +204,28 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
-              <ConnectButton v-if="showAgentLinkConnect" @connect="connectToAgent" />
-              <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" class="viewer-btn-primary">
+              <ConnectButton v-if="showAgentLinkConnect" class="viewer-act-connect" @connect="connectToAgent" />
+              <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" title="Fullscreen" class="viewer-btn-primary viewer-act-fullscreen">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
                 </svg>
-                <span>Fullscreen</span>
+                <span class="viewer-btn-label">Fullscreen</span>
+              </button>
+              <!-- Create: opens the slash-command creation guide (src/features/createGuide).
+                   Last in the row and visible without hover — a discovery affordance. -->
+              <button
+                v-if="showCreateGuide"
+                type="button"
+                class="viewer-btn-ghost viewer-btn-create viewer-act-create"
+                aria-label="Create"
+                title="Add a diagram to this page"
+                aria-haspopup="dialog"
+                @click="openCreateGuide"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="viewer-icon">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                <span class="viewer-btn-label">Create</span>
               </button>
             </div>
           </div>
@@ -483,7 +499,9 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
+import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
@@ -548,6 +566,8 @@ export default {
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
     architectureTokensEnabled: false,
+    createGuideFeatureEnabled: false,
+    createGuideImpressionTracked: false,
     agentLinkSession: null,
     loadFailedTelemetryEmitted: false,
     // Onboarding funnel "second diagram" prompt (SecondDiagramPrompt.vue):
@@ -804,6 +824,24 @@ export default {
     showAgentLinkConnect() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
     },
+    createGuideVariant() {
+      return createGuideVariant(this.diagramType);
+    },
+    // Lite only: the recorded guides show the Lite macro titles. Users who cannot edit the
+    // page cannot insert a macro, so the guide would teach a dead end. The first three gates are
+    // the action row's own, so the impression never counts a viewer whose row is not rendered
+    // (editor preview, macro configuration, load failure).
+    showCreateGuide() {
+      return this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed
+        && (this.createGuideFeatureEnabled || import.meta.env.DEV)
+        && !!forgeGlobal.isLite
+        && this.createGuideVariant !== null
+        && !!this.canUserEdit
+        && !this.hideEdit
+        && !this.isFullscreenMode;
+    },
     // Collapsed (non-fullscreen) "● live" indicator (design §3 decision #8).
     showAgentLinkBadge() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
@@ -894,6 +932,19 @@ export default {
     },
   },
   watch: {
+    showCreateGuide: {
+      immediate: true,
+      handler(shown) {
+        if (!shown || this.createGuideImpressionTracked) return;
+        this.createGuideImpressionTracked = true;
+        trackAnalyticsEvent('create_guide_impression', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: this.diagramType ?? 'none',
+          create_guide_variant: this.createGuideVariant,
+        });
+      },
+    },
     'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
@@ -1043,6 +1094,7 @@ export default {
     } catch {
       this.architectureTokensEnabled = false;
     }
+    this.createGuideFeatureEnabled = await isCreateGuideEnabled();
     // Live Agent Link real bridge (design §4.2/§4.4): once the flag resolves
     // ON and a real Forge-bridge context (globals.apWrapper) is available,
     // swap the placeholder for the ApWrapper2-backed bridge so writeDiagram
@@ -1597,6 +1649,13 @@ export default {
         return;
       }
       this.fullscreen({ openExport: true });
+    },
+    openCreateGuide() {
+      openCreateGuide({
+        variant: this.createGuideVariant,
+        macroType: this.diagramType ?? 'none',
+        hasEditPermission: !!this.canUserEdit,
+      });
     },
     fullscreen(options = {}) {
       const openExport = options.openExport === true;
@@ -2296,10 +2355,24 @@ export default {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* The title truncates instead; a squeezed row wrapped "Connect to Agent" onto two lines. */
+  flex-shrink: 0;
   opacity: 0;
   transition: opacity 200ms ease;
 }
 .viewer-surface--hover .viewer-top-actions { opacity: 1; }
+/* With Create present the row stays visible and its other buttons take over the hover
+   reveal, so Create is discoverable at rest without unhiding the rest of the row. */
+.viewer-top-actions--with-create { opacity: 1; }
+.viewer-top-actions--with-create > :not(.viewer-btn-create) { opacity: 0; transition: opacity 200ms ease; }
+.viewer-surface--hover .viewer-top-actions--with-create > * { opacity: 1; }
+.viewer-btn-create {
+  color: #0052CC;
+  background: #F0F6FF;
+  border-color: #B3D4FF;
+}
+.viewer-btn-create:hover { background: #DEEBFF; border-color: #85B8FF; }
+
 
 .magic-feedback {
   padding: 8px 20px;
@@ -2412,6 +2485,37 @@ export default {
 .viewer-btn-primary:active { background: #064395; }
 
 .viewer-icon { width: 16px; height: 16px; }
+
+/* Responsive header. The query container is the whole viewer, not .viewer-edge-top: an
+   auto frame is fit-content, and containment there would drop the header's width from the
+   frame and shrink every small diagram's card. Each breakpoint leaves the title ~120px.
+   Kept after the button rules: they set display at the same specificity.
+   Order: Source/Copy for AI/Connect labels → Edit/Fullscreen labels → Create label → Copy for AI
+   and Connect hidden → Source hidden. Edit, Fullscreen and Create always stay. */
+.generic.viewer { container: viewer-header / inline-size; }
+@container viewer-header (max-width: 659px) {
+  .viewer-act-source .viewer-btn-label,
+  .viewer-act-copy .viewer-btn-label,
+  .viewer-act-connect :deep(.agent-link-connect-btn__label) { display: none; }
+  /* Icon-only Copy for AI drops the constant-width sizer: inactive cells would keep the
+     button as wide as "Nothing to copy". A transient state shows its text briefly. */
+  .viewer-act-copy .copy-for-ai-label-cell[data-active="false"] { display: none; }
+}
+@container viewer-header (max-width: 529px) {
+  .viewer-act-edit .viewer-btn-label,
+  .viewer-act-fullscreen .viewer-btn-label { display: none; }
+}
+@container viewer-header (max-width: 429px) {
+  .viewer-act-create .viewer-btn-label { display: none; }
+}
+@container viewer-header (max-width: 379px) {
+  /* ConnectButton styles its own root in another stylesheet; outrank it. */
+  .viewer-act-copy,
+  .viewer-top-actions .viewer-act-connect { display: none; }
+}
+@container viewer-header (max-width: 319px) {
+  .viewer-act-source { display: none; }
+}
 
 .viewer-load-failed {
   display: flex;

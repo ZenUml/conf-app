@@ -44,6 +44,8 @@ import type {
   FeedbackCaptureMethod,
   FeedbackDismissReason,
   FeedbackHandoffOutcome,
+  CreateGuideVariant,
+  CreateGuideCloseMethod,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -285,6 +287,11 @@ export type AnalyticsProperties = {
   feedback_has_screenshot?: boolean;
   feedback_dismiss_reason?: FeedbackDismissReason;
   feedback_handoff_outcome?: FeedbackHandoffOutcome;
+  // Viewer Create slash-command guide (create_guide_*).
+  create_guide_variant?: CreateGuideVariant;
+  create_guide_close_method?: CreateGuideCloseMethod;
+  /** Milliseconds from the modal opening to it closing. */
+  create_guide_watched_ms?: number;
   // Content
   content_id?: string;
   content_type?: string;

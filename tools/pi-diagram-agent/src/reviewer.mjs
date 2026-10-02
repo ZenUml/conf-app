@@ -35,7 +35,25 @@ function auditSummary(audit){
     checks[name]=c?.status;
     if(c?.status==='PASS'&&typeof c.evidence?.method==='string')measuredBy[name]=c.evidence.method.slice(0,240);
   }
-  return {checks,measuredBy};
+  return {checks,measuredBy,layoutMeasured:layoutMeasured(audit)};
+}
+
+/** Measured facts for the layout rules the auditor PASSed, so the reviewer does not re-litigate them. NOT-CHECKABLE and FAIL checks carry none: the reviewer judges NOT-CHECKABLE ones, FAIL ones are the author's to fix. */
+const LAYOUT_FACTS={
+  connectorStrokeWidth:ev=>({checkedEdges:ev.checkedEdges,emphasised:ev.emphasised?.length??0}),
+  filletUniformity:ev=>({radii:ev.radii,checkedBends:ev.checkedBends}),
+  markerUniformity:ev=>({checkedMarkers:ev.checkedMarkers}),
+  textContrast:ev=>({checkedTexts:ev.checkedTexts,threshold:ev.threshold}),
+  labelFontWeight:ev=>({checkedTexts:ev.checkedTexts}),
+  legendCompleteness:ev=>({fillRoles:ev.fillRoles?.length,specialShapes:ev.specialShapes,dashedConnectors:ev.dashedEdges?.length}),
+};
+function layoutMeasured(audit){
+  const out={};
+  for(const [name,pick] of Object.entries(LAYOUT_FACTS)){
+    const c=audit?.checks?.[name];
+    if(c?.status==='PASS'&&c.evidence&&typeof c.evidence==='object')out[name]=pick(c.evidence);
+  }
+  return out;
 }
 
 export function buildReviewerPrompt({facts,audit,geometry,imageLabels}){
@@ -55,7 +73,7 @@ ${JSON.stringify(geometry)}
 <audit-summary>
 ${JSON.stringify(auditSummary(audit))}
 </audit-summary>
-The deterministic auditor already checks node/edge bindings, text fit, label clearance, route-node intrusion, heading clearance and straight-span crossings. Code also enforces and reports, so do not repeat them: an edge label more than 25 units from its own route, and a route closer than 12 units to the border of an unrelated node or container. Do not repeat checks the auditor passed unless the images plainly contradict it.
+The deterministic auditor already checks node/edge bindings, text fit, label clearance, route-node intrusion, heading clearance and straight-span crossings. It also measures connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight and legend completeness from the drawn SVG: a PASS for one of these (see layoutMeasured) is final, so do not report it again; if one is NOT-CHECKABLE, judge it yourself from the images. Code also enforces and reports, so do not repeat them: an edge label more than 25 units from its own route, and a route closer than 12 units to the border of an unrelated node or container. Do not repeat checks the auditor passed unless the images plainly contradict it.
 
 Rules to apply:
 - Shapes: a node whose facts carry shapeCheck "not-checkable" has a source shape the rules have no notation for; never report shape-change for it. Otherwise every node keeps its source notation shape. A decision node may be the normal diamond; the long-text variant, a horizontally extended hexagon with its points at the top and bottom, is ALLOWED by the rules and is not a shape change. Any other shape change is blocking under rule shape-change, for example a subroutine or queue drawn as a capsule, a cylinder drawn as a rectangle, a diamond turned into a rectangle.

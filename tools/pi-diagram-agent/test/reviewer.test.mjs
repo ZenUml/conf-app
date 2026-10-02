@@ -240,3 +240,17 @@ test('the reviewer prompt tells the model a not-checkable shape is never a shape
   const text=buildReviewerPrompt({facts:buildReviewerFacts(parseNested('flowchart TB\n  A([S])')),audit,geometry,imageLabels:labels7});
   assert.match(text,/shapeCheck/);assert.match(text,/not-checkable[^.]*never[^.]*shape-change|never[^.]*shape-change[^.]*not-checkable/i);
 });
+
+test('reviewer prompt tells the reviewer which layout rules the auditor measures and carries their measured facts',()=>{
+  const measured={checks:{
+    connectorStrokeWidth:{status:'PASS',evidence:{method:'computed stroke-width',checkedEdges:3,emphasised:[]}},
+    filletUniformity:{status:'PASS',evidence:{method:'bend radii',radii:[5],checkedBends:4}},
+    textContrast:{status:'PASS',evidence:{method:'wcag',checkedTexts:9,threshold:4.5}},
+    legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'untagged shapes'}},
+  }};
+  const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:measured,geometry,imageLabels:labels7});
+  assert.match(text,/connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight and legend completeness/);
+  const summary=JSON.parse(/<audit-summary>\n([\s\S]*?)\n<\/audit-summary>/.exec(text)[1]);
+  assert.deepEqual(summary.layoutMeasured,{connectorStrokeWidth:{checkedEdges:3,emphasised:0},filletUniformity:{radii:[5],checkedBends:4},textContrast:{checkedTexts:9,threshold:4.5}});
+  assert.match(text,/NOT-CHECKABLE[^.]*judge/i);
+});

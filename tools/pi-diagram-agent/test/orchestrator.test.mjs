@@ -384,7 +384,7 @@ test('real auditor + real original render: a clean candidate for a group-less so
   const job=prepareAgentTask(input);let reviews=0;
   const run=createV2Run(job,{reviewerFactory:()=>({async prompt(_t,{images}){reviews++;return {text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}},dispose(){}})});
   try{
-    fs.writeFileSync(job.outputPath,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#333"/></marker></defs><g data-node="A"><rect x="10" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="34" y="86">Start</text></g><g data-node="B"><rect x="400" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="424" y="86">Finish</text></g><path data-source="A" data-target="B" d="M130 80 L400 80" stroke="#333" fill="none" marker-end="url(#arrow)"/></svg>');
+    fs.writeFileSync(job.outputPath,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#333"/></marker></defs><g data-node="A"><rect x="10" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="34" y="86">Start</text></g><g data-node="B"><rect x="400" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="424" y="86">Finish</text></g><path data-source="A" data-target="B" d="M130 80 L400 80" stroke="#333" fill="none" marker-end="url(#arrow)"/></svg>');
     const r=JSON.parse((await run.submit()).content[0].text);
     assert.equal(reviews,1,JSON.stringify(r.findings));
     assert.equal(r.status,'REVIEWED');
@@ -522,5 +522,15 @@ test('reviewer model: fallback to author model is recorded when requested model 
     const m=readRunManifest(t.job.runDir);
     assert.deepEqual(m.reviewer.model,{provider:'openai-codex',id:'gpt-5.6-sol',requested:'gpt-6.1-sol',fallback:{from:'gpt-6.1-sol',reason:'unavailable'}});
     assert.equal(m.rounds[0].review.modelId,'gpt-5.6-sol');
+  }finally{t.cleanup()}
+});
+
+test('a measured layout FAIL (textContrast) reaches the author once, as an early finding, and blocks the gate',async()=>{
+  const t=setup();try{
+    t.write(svg('FAIL:textContrast'));
+    const r=await t.out();
+    assert.equal(r.status,'REVISE');
+    assert.deepEqual(r.findings.map(f=>[f.rule,f.source,f.severity]),[['textContrast','early','blocking']]);
+    assert.equal(t.calls.reviewer.length,0);
   }finally{t.cleanup()}
 });

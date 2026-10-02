@@ -62,7 +62,7 @@ export function formatForAuthor(selection){
 }
 
 // ---- audit -> findings -------------------------------------------------------------------------
-const ID_KEYS=new Set(['nodeId','nodeIds','edge','edgeA','edgeB','groupId','groupIds','missing','extra','mismatchedNodeIds','mismatchedEdges','unadjudicatedNodeIds','unboundLabels','malformedEdges','intrudedNodeIds','source','target']);
+const ID_KEYS=new Set(['nodeId','nodeIds','edge','edgeA','edgeB','groupId','groupIds','missing','extra','mismatchedNodeIds','mismatchedEdges','unadjudicatedNodeIds','unboundLabels','malformedEdges','intrudedNodeIds','source','target','elementId','markerId']);
 function collectIds(value,out,key=null){
   if(value==null)return;
   if(typeof value==='string'){if(key&&ID_KEYS.has(key)&&value.length<=120)out.add(value);return}
@@ -91,6 +91,12 @@ const SUGGESTIONS={
   markerDrawing:'Give the arrowhead marker a visible fill matching the edge stroke (no context-stroke).',
   routePairClearance:'Separate the listed parallel route spans to at least the required clearance.',
   routeCrossings:'Re-route so the listed edges do not cross; move a bend or port.',
+  connectorStrokeWidth:'Draw every connector at stroke-width 1; a heavier line needs a data-emphasis role whose meaning is written in the SVG palette comment.',
+  filletUniformity:'Round every connector bend with one uniform r=5 fillet (a Q/A corner with 5-unit legs); no sharp 90-degree corners, no other radii.',
+  markerUniformity:'Use one arrowhead marker geometry for every connector: markerUnits="userSpaceOnUse", identical markerWidth/markerHeight and path, refX at the tip, explicit hex fill (no context-stroke).',
+  textContrast:'Change the listed text or its background to a documented subtle/bold pair that reaches 4.5:1, keeping the semantic hue.',
+  labelFontWeight:'Use font-weight 400 for node labels and descriptions; express hierarchy with size. Only group headings may be heavier.',
+  legendCompleteness:'Add a legend key for every node fill role, every non-rectangular node shape and dashed lines in use (or draw a legend if there is none).',
   arrowShaft:'Lengthen the final straight segment before the arrowhead to the required visible shaft.',
 };
 const fallbackSuggestion=rule=>`Resolve the ${rule} failure shown in the evidence, then re-render.`;

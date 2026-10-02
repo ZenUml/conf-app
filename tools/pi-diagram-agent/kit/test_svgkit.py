@@ -55,15 +55,82 @@ class Fillet(unittest.TestCase):
         self.assertTrue(k.check_route([(0, 0), (0, 40), (8, 40), (8, 90), (60, 90)]))
 
 
+class Review(unittest.TestCase):
+    """Defects found in review: rule-violating input must raise, never be repaired or let through."""
+
+    def test_reversal_is_rejected_not_drawn_as_a_bend(self):
+        with self.assertRaises(ValueError):
+            k.fillet_path([(0, 0), (0, 50), (0, 20)])
+        self.assertTrue(k.check_route([(0, 0), (0, 50), (0, 20)]))
+        with self.assertRaises(ValueError):
+            k.connector("A", "B", [(0, 0), (0, 80), (0, 30)], stroke="#000000")
+
+    def test_connector_has_no_non_strict_escape(self):
+        with self.assertRaises(TypeError):
+            k.connector("A", "B", [(0, 0), (0, 50), (10, 50)], stroke="#000000", strict=False)
+
+    def test_no_context_stroke_and_one_marker_per_colour_with_identical_geometry(self):
+        red = k.connector("A", "B", [(0, 0), (60, 0)], stroke="#C00000")
+        red2 = k.connector("B", "C", [(0, 20), (60, 20)], stroke="#c00000")
+        blue = k.connector("C", "D", [(0, 40), (60, 40)], stroke="#1f4e9a")
+        line = k.legend_line(0, 60, 48, "Flow", stroke="#1f4e9a", text_color="#111111", canvas="#ffffff")
+        tok = k.palette_token("t", subtle_bg="#ffffff", subtle_text="#111111", border="#333333", meaning="m")
+        doc = k.svg_document(200, 100, [red, red2, blue, line], title="T", desc="D", tokens=[tok])
+        self.assertNotIn("context-stroke", doc)
+        root = ET.fromstring(doc)
+        markers = root.findall(".//s:marker", NS)
+        self.assertEqual(sorted(m.get("id") for m in markers), ["arrow-1f4e9a", "arrow-c00000"])
+        geometry = set()
+        for m in markers:
+            path = m.find("s:path", NS)
+            self.assertEqual(path.get("fill"), "#" + m.get("id")[len("arrow-"):])
+            geometry.add((tuple(sorted((a, v) for a, v in m.attrib.items() if a != "id")), path.get("d")))
+        self.assertEqual(len(geometry), 1)
+        refs = [(el.get("marker-end"), el.get("stroke").lower()) for el in root.iter() if el.get("marker-end")]
+        self.assertEqual(len(refs), 4)
+        for ref, stroke in refs:
+            self.assertEqual(ref, "url(#arrow-" + stroke.lstrip("#") + ")")
+
+    def test_marker_def_has_no_default_colour(self):
+        with self.assertRaises(TypeError):
+            k.marker_def()
+
+    def test_document_requires_a_palette_declaration_and_tokens_need_meaning(self):
+        with self.assertRaises(ValueError):
+            k.svg_document(100, 100, [], title="t", desc="d")
+        with self.assertRaises((TypeError, ValueError)):
+            k.palette_token("t", subtle_bg="#ffffff", subtle_text="#111111", border="#333333")
+        with self.assertRaises(ValueError):
+            k.palette_token("t", subtle_bg="#ffffff", subtle_text="#111111", border="#333333", meaning="  ")
+
+    def test_text_contrast_is_enforced_by_every_text_primitive(self):
+        with self.assertRaises(ValueError):
+            k.node("A", "rect", 0, 0, "Start", fill="#ffffff", stroke="#333333", text_color="#bbbbbb")
+        with self.assertRaises(ValueError):
+            k.edge_label("A", "B", "Yes", 0, 0, text_color="#bbbbbb", canvas="#ffffff")
+        with self.assertRaises(ValueError):
+            k.container("G", 0, 0, 300, 200, "Heading", fill="#ffffff", stroke="#999999", text_color="#bbbbbb")
+        with self.assertRaises(ValueError):
+            k.legend_swatch(0, 0, "Key", fill="#ffffff", stroke="#333333", text_color="#bbbbbb", canvas="#ffffff")
+        with self.assertRaises(ValueError):
+            k.legend_line(0, 0, 40, "Key", stroke="#333333", text_color="#bbbbbb", canvas="#ffffff")
+
+    def test_measure_text_is_an_upper_bound_of_measured_browser_glyphs(self):
+        # Largest Chromium getBBox width per glyph (em) over font sizes 12-24, kit font stack, 2026-10-02.
+        measured = {'0': 0.6302, '1': 0.4648, '2': 0.6042, '3': 0.6276, '4': 0.6445, '5': 0.6185, '6': 0.6367, '7': 0.5857, '8': 0.6393, '9': 0.6367, ' ': 0.2812, '!': 0.3112, '"': 0.4779, '#': 0.6302, '$': 0.6302, '%': 0.9258, '&': 0.7122, "'": 0.2969, '(': 0.3828, ')': 0.3828, '*': 0.4727, '+': 0.6302, ',': 0.2969, '-': 0.4727, '.': 0.2969, '/': 0.3047, ':': 0.2969, ';': 0.2969, '<': 0.6302, '=': 0.6302, '>': 0.6302, '?': 0.513, '@': 0.918, 'A': 0.6745, 'B': 0.6576, 'C': 0.7161, 'D': 0.7266, 'E': 0.5964, 'F': 0.5729, 'G': 0.7474, 'H': 0.7422, 'I': 0.2682, 'J': 0.5391, 'K': 0.6589, 'L': 0.569, 'M': 0.875, 'N': 0.7422, 'O': 0.7721, 'P': 0.6354, 'Q': 0.7721, 'R': 0.6536, 'S': 0.638, 'T': 0.6341, 'U': 0.7383, 'V': 0.6745, 'W': 0.9688, 'X': 0.6797, 'Y': 0.6562, 'Z': 0.6628, '[': 0.3828, '\\': 0.3047, ']': 0.3828, '^': 0.6302, '_': 0.5846, '`': 0.5033, 'a': 0.5521, 'b': 0.6146, 'c': 0.5599, 'd': 0.6146, 'e': 0.5716, 'f': 0.362, 'g': 0.6094, 'h': 0.5885, 'i': 0.2474, 'j': 0.2581, 'k': 0.543, 'l': 0.2539, 'm': 0.8711, 'n': 0.5846, 'o': 0.5911, 'p': 0.6107, 'q': 0.6094, 'r': 0.3891, 's': 0.5234, 't': 0.3633, 'u': 0.5846, 'v': 0.543, 'w': 0.7747, 'x': 0.5247, 'y': 0.543, 'z': 0.5391, '{': 0.3828, '|': 0.2591, '}': 0.3828, '~': 0.6302}
+        under = {c: (k.measure_text(c, 1), w) for c, w in measured.items() if k.measure_text(c, 1) < w}
+        self.assertEqual(under, {})
+
+
 class Marker(unittest.TestCase):
     def test_single_marker_user_space_with_tip_ref(self):
-        root = parse(k.marker_def())
+        root = parse(k.marker_def("#123456"))
         markers = root.findall(".//s:marker", NS)
         self.assertEqual(len(markers), 1)
         m = markers[0]
         self.assertEqual(m.get("markerUnits"), "userSpaceOnUse")
         self.assertEqual(m.get("refX"), "10")
-        self.assertEqual(m.get("id"), k.MARKER_ID)
+        self.assertEqual(m.get("id"), k.marker_id("#123456"))
         self.assertTrue(m.find("s:path", NS).get("d").startswith("M0,0 L10,5 L0,10"))
 
     def test_connector_attributes(self):
@@ -71,7 +138,7 @@ class Marker(unittest.TestCase):
         self.assertEqual(el.get("data-source"), "A")
         self.assertEqual(el.get("data-target"), "B")
         self.assertEqual(el.get("stroke-width"), "1")
-        self.assertEqual(el.get("marker-end"), f"url(#{k.MARKER_ID})")
+        self.assertEqual(el.get("marker-end"), f"url(#{k.marker_id('#123456')})")
         self.assertTrue(el.get("stroke-dasharray"))
         solid = parse(k.connector("A", "B", [(0, 0), (60, 0)], stroke="#123456"))[0]
         self.assertIsNone(solid.get("stroke-dasharray"))
@@ -220,13 +287,14 @@ class Pieces(unittest.TestCase):
         self.assertIsNotNone(g.find("s:rect", NS))
 
     def test_legend_items_do_not_bind_edges(self):
-        sw = parse(k.legend_swatch(0, 0, "Customer", fill="#eef", stroke="#00f", text_color="#111"))
-        ln = parse(k.legend_line(0, 0, 60, "Dashed", stroke="#444", text_color="#111", dashed=True))
+        sw = parse(k.legend_swatch(0, 0, "Customer", fill="#eef", stroke="#00f", text_color="#111", canvas="#fff"))
+        ln = parse(k.legend_line(0, 0, 60, "Dashed", stroke="#444", text_color="#111", canvas="#fff", dashed=True))
         for root in (sw, ln):
             self.assertEqual(root.findall(".//*[@data-source]"), [])
 
     def test_document_has_one_marker_and_is_well_formed(self):
-        doc = k.svg_document(200, 100, ["<g/>"], title="T", desc="D", canvas="#ffffff")
+        line = k.connector("A", "B", [(0, 0), (60, 0)], stroke="#123456")
+        doc = k.svg_document(200, 100, ["<g/>", line], title="T", desc="D", canvas="#ffffff", comment="palette")
         root = ET.fromstring(doc)
         self.assertEqual(len(root.findall(".//s:marker", NS)), 1)
         self.assertEqual(root.get("viewBox"), "0 0 200 100")

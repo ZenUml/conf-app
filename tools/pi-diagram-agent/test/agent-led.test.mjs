@@ -26,6 +26,10 @@ test('agent prompt contains complete pinned rules and exact source, and directs 
     assert.ok(job.prompt.includes(`${kitDir}/svgkit.py`));
     assert.ok(job.prompt.includes(`${kitDir}/README.md`));
     assert.match(job.prompt,/You still own every position, port, route point and layout decision/);
+    const kitParagraph=job.prompt.split('\n\n').find(p=>p.includes('svgkit.py'));
+    assert.match(kitParagraph,/optional/i);
+    assert.match(kitParagraph,/You may/);
+    assert.doesNotMatch(kitParagraph,/instead of|template|example\.py|context-stroke/i);
     assert.ok(fs.existsSync(path.join(kitDir,'svgkit.py')));
     assert.equal(fs.existsSync(job.outputPath),false);
     fs.rmSync(job.runDir,{recursive:true,force:true});

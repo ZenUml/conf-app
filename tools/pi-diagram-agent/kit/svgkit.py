@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 # Rule constants (Diagram Rules): node r=4, connector fillet r=5, decision fillet 10,
-# label box inset 12, four fixed label-box tiers, one marker, stroke-width 1 connectors.
+# label box inset 12, four fixed label-box tiers, one marker geometry (one copy per colour), stroke-width 1 connectors.
 TIERS = ((96, 40), (200, 80), (320, 120), (480, 160))
 NODE_RADIUS = 4
 CONNECTOR_RADIUS = 5
@@ -56,27 +56,32 @@ def _comment(text: str) -> str:
 
 # ---------------------------------------------------------------- text measure and tiers
 
-_NARROW = set("iljtfI.,:;'!|()[]/\\ -")
-_WIDE = set("mwMW@%")
+# Per-glyph widths in em: the largest Chromium getBBox width per glyph over font sizes 12-24 (runs of
+# 1, 2 and 6, kit font stack, 2026-10-02), rounded up, so at those sizes the sum is an upper bound of
+# the rendered width the auditor measures. It can overstate by ~10%; prefer explicit lines if a label
+# lands one tier up only because of that margin.
+_EM = {
+    ' ': 0.29, '!': 0.32, '"': 0.48, '#': 0.64, '$': 0.64, '%': 0.93, '&': 0.72, "'": 0.3, '(': 0.39, ')': 0.39,
+    '*': 0.48, '+': 0.64, ',': 0.3, '-': 0.48, '.': 0.3, '/': 0.31, '0': 0.64, '1': 0.47, '2': 0.61, '3': 0.63,
+    '4': 0.65, '5': 0.62, '6': 0.64, '7': 0.59, '8': 0.64, '9': 0.64, ':': 0.3, ';': 0.3, '<': 0.64, '=': 0.64,
+    '>': 0.64, '?': 0.52, '@': 0.92, 'A': 0.68, 'B': 0.66, 'C': 0.72, 'D': 0.73, 'E': 0.6, 'F': 0.58, 'G': 0.75,
+    'H': 0.75, 'I': 0.27, 'J': 0.54, 'K': 0.66, 'L': 0.57, 'M': 0.88, 'N': 0.75, 'O': 0.78, 'P': 0.64, 'Q': 0.78,
+    'R': 0.66, 'S': 0.64, 'T': 0.64, 'U': 0.74, 'V': 0.68, 'W': 0.97, 'X': 0.68, 'Y': 0.66, 'Z': 0.67, '[': 0.39,
+    '\\': 0.31, ']': 0.39, '^': 0.64, '_': 0.59, '`': 0.51, 'a': 0.56, 'b': 0.62, 'c': 0.56, 'd': 0.62, 'e': 0.58,
+    'f': 0.37, 'g': 0.61, 'h': 0.59, 'i': 0.25, 'j': 0.26, 'k': 0.55, 'l': 0.26, 'm': 0.88, 'n': 0.59, 'o': 0.6,
+    'p': 0.62, 'q': 0.61, 'r': 0.39, 's': 0.53, 't': 0.37, 'u': 0.59, 'v': 0.55, 'w': 0.78, 'x': 0.53, 'y': 0.55,
+    'z': 0.54, '{': 0.39, '|': 0.26, '}': 0.39, '~': 0.64,
+}
+_EM_OTHER = 0.95  # unmeasured Latin/symbol glyphs: as wide as the widest measured glyph
+_EM_CJK = 1.0
 
 
 def measure_text(text: str, font_size: float = 18) -> float:
-    """Deterministic width estimate in SVG units (conservative for common sans fonts)."""
+    """Deterministic width estimate in SVG units: an upper bound of the measured browser glyph
+    widths for printable ASCII (per-glyph table), wide fallbacks for anything else."""
     total = 0.0
     for ch in str(text):
-        if ch in _NARROW:
-            em = 0.30
-        elif ch in _WIDE:
-            em = 0.85
-        elif ch.isupper():
-            em = 0.64
-        elif ch.isdigit():
-            em = 0.56
-        elif ord(ch) > 0x2E80:
-            em = 1.0
-        else:
-            em = 0.54
-        total += em
+        total += _EM.get(ch, _EM_CJK if ord(ch) > 0x2E80 else _EM_OTHER)
     return total * font_size
 
 
@@ -133,6 +138,11 @@ def _rgb(color: str):
     return tuple(int(c[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
 
+def _hex(color: str) -> str:
+    """Canonical lowercase 6-digit hex (no #) of a #rgb/#rrggbb colour; anything else raises."""
+    return "".join(f"{round(v * 255):02x}" for v in _rgb(color))
+
+
 def _luminance(color: str) -> float:
     r, g, b = (v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in _rgb(color))
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -151,10 +161,12 @@ def check_contrast(fg: str, bg: str, minimum: float = 4.5) -> float:
     return ratio
 
 
-def palette_token(name: str, *, subtle_bg: str, subtle_text: str, border: str, meaning: str = "",
+def palette_token(name: str, *, subtle_bg: str, subtle_text: str, border: str, meaning: str,
                   bold_bg: str | None = None, inverse_text: str | None = None) -> dict:
     """One semantic role: subtle background + dark text, optional bold background + inverse text.
-    Every pair is checked at 4.5:1; a failing pair raises."""
+    Every pair is checked at 4.5:1; a failing pair raises. `meaning` is required (C1)."""
+    if not str(meaning).strip():
+        raise ValueError(f"palette role {name!r} needs a meaning (C1)")
     check_contrast(subtle_text, subtle_bg)
     if (bold_bg is None) != (inverse_text is None):
         raise ValueError("bold_bg and inverse_text come as a pair")
@@ -191,11 +203,13 @@ def _legs(points):
         a, b = out[-1], p
         if a[0] != b[0] and a[1] != b[1]:
             raise ValueError(f"leg {a}->{b} is not orthogonal")
-        # merge a collinear continuation so only true bends remain
+        # A collinear same-direction continuation is the same leg (a split corner stays one bend);
+        # a collinear reversal doubles back over itself and is refused, never drawn as a bend.
         if len(out) >= 2:
             o = out[-2]
-            if (o[0] == a[0] == b[0] or o[1] == a[1] == b[1]) and \
-                    (a[0] - o[0]) * (b[0] - a[0]) + (a[1] - o[1]) * (b[1] - a[1]) > 0:
+            if o[0] == a[0] == b[0] or o[1] == a[1] == b[1]:
+                if (a[0] - o[0]) * (b[0] - a[0]) + (a[1] - o[1]) * (b[1] - a[1]) < 0:
+                    raise ValueError(f"route reverses on itself at {a}")
                 out[-1] = b
                 continue
         out.append(b)
@@ -242,25 +256,31 @@ def fillet_path(points, r: float = CONNECTOR_RADIUS) -> str:
     return d + f" L {_n(pts[-1][0])},{_n(pts[-1][1])}"
 
 
-def marker_def(fill: str = "context-stroke") -> str:
-    """The single arrowhead: userSpaceOnUse, one size, tip at refX=10. fill defaults to the
-    line's own stroke colour, so one marker serves every semantic colour."""
-    return (f'<marker id="{MARKER_ID}" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" '
-            f'refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="{esc(fill)}"/></marker>')
+def marker_id(color: str) -> str:
+    """id of the arrowhead marker for one connector colour: arrow-<rrggbb>."""
+    return f"{MARKER_ID}-{_hex(color)}"
+
+
+def marker_def(color: str) -> str:
+    """The arrowhead for one connector colour: userSpaceOnUse, one fixed size, tip at refX=10.
+    Every colour gets an identical marker except its fill; `context-stroke` is not used because
+    WebKit/Safari paints it black. svg_document emits one per colour your connectors use."""
+    return (f'<marker id="{marker_id(color)}" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" '
+            f'refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#{_hex(color)}"/></marker>')
 
 
 def connector(source: str, target: str, points, *, stroke: str, dashed: bool = False,
-              edge_id: str | None = None, r: float = CONNECTOR_RADIUS, strict: bool = True) -> str:
+              edge_id: str | None = None, r: float = CONNECTOR_RADIUS) -> str:
     """One logical relationship as one complete path along the points YOU give (source boundary
-    to target boundary). Binds data-source/data-target; stroke-width 1; marker-end."""
-    if strict:
-        problems = check_route(points, r)
-        if problems:
-            raise ValueError(f"route {source}->{target}: " + "; ".join(problems))
+    to target boundary). Binds data-source/data-target; stroke-width 1; marker-end in the stroke
+    colour. A route that breaks a rule raises; it is never repaired."""
+    problems = check_route(points, r)
+    if problems:
+        raise ValueError(f"route {source}->{target}: " + "; ".join(problems))
     ident = f' id="{esc(edge_id)}"' if edge_id else ""
     dash = f' stroke-dasharray="{DASH}"' if dashed else ""
     return (f'<path{ident} data-source="{esc(source)}" data-target="{esc(target)}" d="{fillet_path(points, r)}" '
-            f'fill="none" stroke="{esc(stroke)}" stroke-width="1"{dash} marker-end="url(#{MARKER_ID})"/>')
+            f'fill="none" stroke="#{_hex(stroke)}" stroke-width="1"{dash} marker-end="url(#{marker_id(stroke)})"/>')
 
 
 # ---------------------------------------------------------------- shapes
@@ -375,6 +395,7 @@ def node(id: str, shape: str, x: float, y: float, label, *, fill: str, stroke: s
     long-text hexagon (points top/bottom) otherwise; pass variant="diamond"|"hexagon" to override.
     The smallest label tier that fits is used unless `tier`/`min_tier` say otherwise. The label box,
     declared in data-label-box, is the tier rectangle (12-unit inset for rect/capsule)."""
+    check_contrast(text_color, fill)
     fit = fit_label(label, font_size, min_tier=min_tier or tier)
     if tier and tuple(tier) != fit.tier:
         raise ValueError(f"{id}: label needs tier {fit.tier}, not {tuple(tier)}")
@@ -439,6 +460,7 @@ def edge_label(source: str, target: str, text: str, x: float, y: float, *, text_
                font_size: float = 15) -> Label:
     """Pill with the canvas colour behind the text, top-left at the (x, y) you give. Bound to the
     relationship with data-edge-label-source/target."""
+    check_contrast(text_color, canvas)
     w = 2 * math.ceil((measure_text(text, font_size) + 16) / 2)
     h = 24
     svg = (f'<g data-edge-label-source="{esc(source)}" data-edge-label-target="{esc(target)}">'
@@ -452,6 +474,7 @@ def container(group_id: str, x: float, y: float, w: float, h: float, title: str,
               text_color: str, subtitle: str | None = None, title_size: float = 18, subtitle_size: float = 15) -> str:
     """Container outline with heading (and optional subtitle) as direct children, in the top
     HEADING_HEIGHT units of the box you give. Draw it before its nodes."""
+    check_contrast(text_color, fill)
     sub = (f'<text x="{_n(x + 16)}" y="{_n(y + 46)}" font-size="{_n(subtitle_size)}" font-weight="400" '
            f'dominant-baseline="central" fill="{esc(text_color)}">{esc(subtitle)}</text>') if subtitle else ""
     return (f'<g data-group="{esc(group_id)}" data-container-id="{esc(group_id)}">'
@@ -461,9 +484,11 @@ def container(group_id: str, x: float, y: float, w: float, h: float, title: str,
             f'dominant-baseline="central" fill="{esc(text_color)}">{esc(title)}</text>{sub}</g>')
 
 
-def legend_swatch(x: float, y: float, label: str, *, fill: str, stroke: str, text_color: str,
+def legend_swatch(x: float, y: float, label: str, *, fill: str, stroke: str, text_color: str, canvas: str,
                   shape: str = "rect", font_size: float = 16) -> str:
-    """Legend key for a node colour/shape at the (x, y) you give (24x18 swatch, caption to its right)."""
+    """Legend key for a node colour/shape at the (x, y) you give (24x18 swatch, caption to its right
+    on `canvas`)."""
+    check_contrast(text_color, canvas)
     if shape == "decision":
         pts = [(x + 12, y), (x + 24, y + 9), (x + 12, y + 18), (x, y + 9)]
         mark = f'<path d="{_rounded_polygon(pts, 4)}" fill="{esc(fill)}" stroke="{esc(stroke)}" stroke-width="2"/>'
@@ -475,12 +500,13 @@ def legend_swatch(x: float, y: float, label: str, *, fill: str, stroke: str, tex
             f'font-weight="400" dominant-baseline="central" fill="{esc(text_color)}">{esc(label)}</text></g>')
 
 
-def legend_line(x: float, y: float, length: float, label: str, *, stroke: str, text_color: str,
+def legend_line(x: float, y: float, length: float, label: str, *, stroke: str, text_color: str, canvas: str,
                 dashed: bool = False, font_size: float = 16) -> str:
-    """Legend key for a connector style: horizontal sample at (x, y), caption to its right."""
+    """Legend key for a connector style: horizontal sample at (x, y), caption to its right on `canvas`."""
+    check_contrast(text_color, canvas)
     dash = f' stroke-dasharray="{DASH}"' if dashed else ""
     return (f'<g data-legend="{esc(label)}"><path d="M {_n(x)},{_n(y)} L {_n(x + length)},{_n(y)}" fill="none" '
-            f'stroke="{esc(stroke)}" stroke-width="1"{dash} marker-end="url(#{MARKER_ID})"/>'
+            f'stroke="#{_hex(stroke)}" stroke-width="1"{dash} marker-end="url(#{marker_id(stroke)})"/>'
             f'<text x="{_n(x + length + 12)}" y="{_n(y)}" font-size="{_n(font_size)}" font-weight="400" '
             f'dominant-baseline="central" fill="{esc(text_color)}">{esc(label)}</text></g>')
 
@@ -490,13 +516,18 @@ def legend_line(x: float, y: float, length: float, label: str, *, stroke: str, t
 def svg_document(width: float, height: float, parts: Sequence[str], *, title: str, desc: str,
                  canvas: str = "#ffffff", comment: str | None = None, tokens: Sequence[dict] | None = None,
                  font_family: str = DEFAULT_FONT) -> str:
-    """Assemble the standalone SVG: title/desc, palette comment, the single marker, canvas, then
-    your parts in the order you give them (containers, connectors, nodes, labels, legend)."""
+    """Assemble the standalone SVG: title/desc, palette comment (C1, required: pass tokens or
+    comment), one identical marker per connector colour used in parts, canvas, then your parts in
+    the order you give them (containers, connectors, nodes, labels, legend)."""
     note = comment if comment is not None else (palette_comment(tokens) if tokens else None)
-    head = f"<!-- {_comment(note)} -->" if note else ""
+    if not note or not str(note).strip():
+        raise ValueError("declare the semantic palette (C1): pass tokens=[palette_token(...)] or comment=")
+    head = f"<!-- {_comment(note)} -->"
+    colours = sorted(set(re.findall(rf"url\(#{MARKER_ID}-([0-9a-f]{{6}})\)", "".join(parts))))
+    markers = "".join(marker_def("#" + c) for c in colours)
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{_n(width)}" height="{_n(height)}" '
             f'viewBox="0 0 {_n(width)} {_n(height)}" role="img">'
             f'<title>{esc(title)}</title><desc>{esc(desc)}</desc>{head}'
-            f'<defs><style>text{{font-family:{font_family.replace("<", "").replace("&", "")}}}</style>{marker_def()}</defs>'
+            f'<defs><style>text{{font-family:{font_family.replace("<", "").replace("&", "")}}}</style>{markers}</defs>'
             f'<rect width="{_n(width)}" height="{_n(height)}" fill="{esc(canvas)}"/>'
             + "\n".join(parts) + "</svg>\n")

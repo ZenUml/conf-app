@@ -27,8 +27,8 @@ parts = [
     k.connector("B", "D", bd, stroke=tok["border"], dashed=True),
     a.svg, b.svg, c.svg, d.svg,
     k.edge_label("B", "C", "Yes", 460, 128, text_color=tok["subtle_text"], canvas=CANVAS).svg,
-    k.legend_swatch(20, 20, "Process step", **style),
-    k.legend_line(240, 29, 48, "Dashed relation", stroke=tok["border"], text_color=tok["subtle_text"], dashed=True),
+    k.legend_swatch(20, 20, "Process step", **style, canvas=CANVAS),
+    k.legend_line(240, 29, 48, "Dashed relation", stroke=tok["border"], text_color=tok["subtle_text"], canvas=CANVAS, dashed=True),
 ]
 print(k.svg_document(700, 380, parts, title="Synthetic flow", desc="Three relationships between four synthetic nodes.",
                      canvas=CANVAS, tokens=[tok]))

@@ -80,3 +80,34 @@ test('every fixture matches its expected.json under the package parser',()=>{
     assert.ok(m.nodes.length>=4&&m.nodes.length<=8,f);
   }
 });
+
+// --- RPC completion: finish on agent_settled (Pi >= 1.0 docs/rpc.md), agent_end alone is not final ---
+import {createRunTracker,SETTLE_GRACE_MS} from './bench-lib.mjs';
+
+test('tracker finishes on agent_settled and ignores everything before it',()=>{
+  const t=createRunTracker();
+  assert.deepEqual(t.onEvent('message_end'),{});
+  assert.deepEqual(t.onEvent('agent_settled'),{finish:'AGENT_SETTLED'});
+});
+test('agent_end arms the grace timer instead of finishing; settle inside grace finishes AGENT_SETTLED',()=>{
+  const t=createRunTracker();
+  assert.deepEqual(t.onEvent('agent_end'),{armGraceMs:SETTLE_GRACE_MS});
+  assert.deepEqual(t.onEvent('agent_settled'),{finish:'AGENT_SETTLED'});
+  assert.equal(t.onGraceTimeout(),null,'a stale timer after settle must not finish again');
+});
+test('grace expiry without agent_settled finishes AGENT_END_NO_SETTLE',()=>{
+  const t=createRunTracker({graceMs:1234});
+  assert.deepEqual(t.onEvent('agent_end'),{armGraceMs:1234});
+  assert.equal(t.onGraceTimeout(),'AGENT_END_NO_SETTLE');
+});
+test('a second agent_end does not re-arm; grace timeout before any agent_end is ignored',()=>{
+  const t=createRunTracker();
+  assert.equal(t.onGraceTimeout(),null);
+  t.onEvent('agent_end');
+  assert.deepEqual(t.onEvent('agent_end'),{});
+});
+test('all three agent-finished reasons count as completed; timeouts do not',()=>{
+  for(const doneReason of ['AGENT_END','AGENT_SETTLED','AGENT_END_NO_SETTLE'])assert.ok(isCompleted({doneReason,rateLimited:false}),doneReason);
+  assert.ok(!isCompleted({doneReason:'TIME_LIMIT',rateLimited:false}));
+  assert.ok(!isCompleted({doneReason:'AGENT_SETTLED',rateLimited:true}));
+});

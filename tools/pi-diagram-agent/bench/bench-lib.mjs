@@ -59,7 +59,26 @@ export function summariseAudit(audit){
 }
 
 /** A run is "completed" when the agent ended on its own and no rate limit hit it. Only these enter the timing statistics. */
-export const isCompleted=run=>run.doneReason==='AGENT_END'&&!run.rateLimited;
+export const AGENT_DONE_REASONS=['AGENT_SETTLED','AGENT_END_NO_SETTLE','AGENT_END'];
+export const isCompleted=run=>AGENT_DONE_REASONS.includes(run.doneReason)&&!run.rateLimited;
+
+/** Pi RPC clients should wait for `agent_settled` (docs/rpc.md, Pi >= 1.0); `agent_end` is not final. Pure state machine for that rule:
+ *  agent_settled -> finish AGENT_SETTLED; agent_end -> arm a grace timer, expiry -> finish AGENT_END_NO_SETTLE (Pi 0.84.x never emits agent_settled). */
+export const SETTLE_GRACE_MS=5000;
+export function createRunTracker({graceMs=SETTLE_GRACE_MS}={}){
+  let ended=false,settled=false,graceFired=false;
+  return {
+    onEvent(type){
+      if(type==='agent_settled'&&!settled){settled=true;return {finish:'AGENT_SETTLED'}}
+      if(type==='agent_end'&&!ended&&!settled){ended=true;return {armGraceMs:graceMs}}
+      return {};
+    },
+    onGraceTimeout(){
+      if(!ended||settled||graceFired)return null;
+      graceFired=true;return 'AGENT_END_NO_SETTLE';
+    }
+  };
+}
 
 export function aggregate(runs){
   const byFixture={};

@@ -124,7 +124,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const original=await d.original();
     const selected=selectReviewImages({originalFull:original.rendered.media.full,render:c.render,regions:ledger.open().map(e=>e.finding.region).filter(Boolean),mode:reviewerCfg.images});
     const images=selected.map(x=>d.image(x.record));
-    const prompt=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:c.audit,geometry:c.geometry?geometryForReviewer(c.geometry,model):{unavailable:true},imageLabels:selected.map(x=>x.label)});
+    const prompt=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:c.audit,geometry:c.geometry?geometryForReviewer(c.geometry,model):{unavailable:true},imageLabels:selected.map(x=>x.label),measured:reviewerCfg.prompt});
     const review=await runReviewer({factory:reviewerFactory,prompt,images,model,natural:c.render.natural,now});
     timings.reviewerMs+=review.ms;tokens.reviewer=addUsage(tokens.reviewer,review.usage);
     c.review={...review,imageCount:images.length};

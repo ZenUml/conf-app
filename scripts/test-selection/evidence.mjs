@@ -1,3 +1,4 @@
+import {verifyPlan} from './verify-plan.mjs';
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 export function createEvidence(plan, results) {
@@ -11,8 +12,9 @@ export function canReuse(evidence, plan) {
 }
 export default class EvidenceReporter {
   results = new Map();
+  onBegin() {if (process.env.TEST_PLAN_PATH) verifyPlan(JSON.parse(fs.readFileSync(process.env.TEST_PLAN_PATH)));}
   onTestEnd(test,result) {this.results.set(test.id,{id:test.id,status:result.status,duration_ms:result.duration,retry:result.retry,setup:['auth','pages'].includes(test.parent.project().name)});}
-  onEnd(result) {if (!process.env.TEST_PLAN_PATH) return; const plan=JSON.parse(fs.readFileSync(process.env.TEST_PLAN_PATH)); const evidence=createEvidence(plan,[...this.results.values()]); evidence.run_status=result.status; evidence.complete &&= result.status==='passed'; fs.writeFileSync(process.env.TEST_EVIDENCE_PATH ?? 'test-evidence.json',JSON.stringify(evidence,null,2));}
+  onEnd(result) {if (!process.env.TEST_PLAN_PATH) return; const plan=JSON.parse(fs.readFileSync(process.env.TEST_PLAN_PATH)); verifyPlan(plan); const evidence=createEvidence(plan,[...this.results.values()]); evidence.run_status=result.status; evidence.complete &&= result.status==='passed'; fs.writeFileSync(process.env.TEST_EVIDENCE_PATH ?? 'test-evidence.json',JSON.stringify(evidence,null,2));}
 }
 if (process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) {
  const args=Object.fromEntries(process.argv.slice(2).reduce((a,x,i,all)=>x.startsWith('--')?[...a,[x.slice(2),all[i+1]]]:a,[]));

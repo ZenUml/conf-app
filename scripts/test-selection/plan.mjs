@@ -26,6 +26,7 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   walk(discovery.suites);
   if (tests.some(t => !t.id || !t.file || !t.project) || new Set(tests.map(t=>t.id)).size !== tests.length) throw new Error('Invalid test identities');
   const known = new Set(CATEGORIES.map(c => c.id));
+  if (tests.some(t => !t.tags.some(x => x.startsWith('@variant:')) || t.tags.filter(x => x.startsWith('@variant:')).some(x => !VARIANTS.includes(x.slice(9))))) throw new Error('Invalid or missing variant applicability');
   const reasons = [];
   if (!selection || selection.schema_version !== 1 || selection.tested_tree !== tree || selection.category_version !== CATEGORY_VERSION || selection.policy_version !== policy) reasons.push('invalid-or-stale-selection');
   if (Object.keys(selection?.categories ?? {}).some(c => !known.has(c))) reasons.push('unknown-category');

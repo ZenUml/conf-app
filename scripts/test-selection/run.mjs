@@ -1,9 +1,11 @@
+import {verifyPlan} from './verify-plan.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {spawnSync} from 'node:child_process';
 const a=Object.fromEntries(process.argv.slice(2).reduce((r,x,i,all)=>x.startsWith('--')?[...r,[x.slice(2),all[i+1]]]:r,[]));
 const plan=JSON.parse(fs.readFileSync(a.plan));
+verifyPlan(plan);
 const shard=plan.shards.find(s=>s.index===Number(a.shard ?? 1));
 if (!shard?.test_ids.length) throw new Error('Unknown or empty shard');
 const tests=plan.tests.filter(t=>shard.test_ids.includes(t.id));

@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
-import {parseMermaid} from './parser.mjs';
+import {parseMermaid,NOT_CHECKABLE_SHAPES} from './parser.mjs';
 import {checkRouteLowerBend} from './route-lower-bend.mjs';
+import {collectLayoutFacts,layoutChecks,layoutChecksUnavailable} from './layout-checks.mjs';
+import {isAcceptedTrunkOverlap,summariseTrunks,unrecognisedTrunkAttributes,TRUNK_HINT} from './trunk.mjs';
 
 const require=createRequire(import.meta.url);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -32,7 +34,7 @@ function actualStraightSpans(d){
       if(!axis)return null;
       const lo=axis==='h'?Math.min(point[0],next[0]):Math.min(point[1],next[1]);
       const hi=axis==='h'?Math.max(point[0],next[0]):Math.max(point[1],next[1]);
-      if(hi-lo>eps)spans.push({axis,fixed:axis==='h'?point[1]:point[0],lo,hi,length:hi-lo});
+      if(hi-lo>eps)spans.push({axis,fixed:axis==='h'?point[1]:point[0],lo,hi,length:hi-lo,end:axis==='h'?next[0]:next[1]});
     }
     point=next;
   }
@@ -91,7 +93,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   try{model=parseMermaid(sourceText)}catch(error){modelError=String(error?.message??error)}
   let playwright;try{playwright=require(playwrightModulePath||'playwright')}catch{throw Error('PLAYWRIGHT_RUNTIME_UNAVAILABLE')}
   const browser=await playwright.chromium.launch({headless:true,...(browserExecutablePath?{executablePath:browserExecutablePath}:{})});
-  let drawn,originalDrawn=null,originalSvgHash=null;
+  let drawn,layoutFacts=null,originalDrawn=null,originalSvgHash=null;
   try{
     const page=await browser.newPage({javaScriptEnabled:false});
     await page.route('**/*',route=>route.abort('blockedbyclient'));
@@ -106,7 +108,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const headingBoxes=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].flatMap(group=>[...group.querySelectorAll(':scope > text')].map(text=>({groupId:group.getAttribute('data-group')??group.getAttribute('data-container-id')??group.id?.slice(6),box:box(text)})));
       const edges=[...root.querySelectorAll('[data-source][data-target]')].map(el=>{
         const source=el.getAttribute('data-source'),target=el.getAttribute('data-target');
-        const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end')};
+        const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end'),trunk:el.getAttribute('data-shared-trunk'),trunkLikeAttributes:[...el.attributes].filter(x=>/bus|trunk|merge|junction|shared/i.test(x.name)).map(x=>({name:x.name,value:x.value}))};
         const dash=getComputedStyle(el).strokeDasharray;
         result.dashed=dash!=='none'&&(dash.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).some(value=>Number(value)>0);
         const markerId=/^url\(#([^()]+)\)$/.exec(result.marker??'')?.[1];
@@ -234,6 +236,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       root.remove();
       return {parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,boundLabels:labelElements.map(l=>l.label),labelViolations,labelUnsupported,lbNodes,lbGroups,labelBoxes};
     },svgText);
+    layoutFacts=drawn.parseError?null:await page.evaluate(collectLayoutFacts,svgText);
     if(originalSvg!==null){
       const originalBytes=Buffer.isBuffer(originalSvg)?originalSvg:Buffer.from(originalSvg,'utf8');
       if(originalBytes.length===0||originalBytes.length>2_000_000)throw Error('ORIGINAL_SVG_SIZE_LIMIT');
@@ -257,6 +260,8 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     }
   }finally{await browser.close()}
   if(drawn.parseError)return {status:'FAIL',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'FAIL',evidence:'SVG XML parser rejected source'}}};
+  // Layout and style rules measured from the drawn SVG; none depends on the Mermaid model.
+  const layout=layoutFacts&&!layoutFacts.parseError?layoutChecks(layoutFacts,svgText):layoutChecksUnavailable('layout facts could not be collected');
   // T2/labelBox: rectangles and capsules use the node outline inset by 12 units; other shapes need an explicitly declared labelBox.
   const textFit=(()=>{
     const inset=12,tolerance=0.01,overflows=[],notCheckableNodeIds=[],reasons={};
@@ -284,7 +289,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   })();
   if(!model){
     const unresolved={status:'NOT-CHECKABLE',evidence:`source parser cannot establish independent semantic bindings: ${modelError}`};
-    return {status:[textFit,labelClearance].some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,textFit,labelClearance,routeLowerBend:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
+    return {status:[textFit,labelClearance,...Object.values(layout)].some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,textFit,labelClearance,...layout,routeLowerBend:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
   }
   const expectedNodes=multiset(model.nodes.map(n=>n.id)),actualNodes=multiset(drawn.nodes.map(n=>n.id));
   const nodeIdentity=drawn.nodes.length?{status:equalSets(expectedNodes,actualNodes)?'PASS':'FAIL',evidence:{expected:model.nodes.length,drawn:drawn.nodes.length,missing:model.nodes.filter(n=>!actualNodes.has(n.id)).map(n=>n.id),extra:drawn.nodes.filter(n=>!expectedNodes.has(n.id)).map(n=>n.id)}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-node semantic binding; SVG may still be visually valid'};
@@ -292,7 +297,8 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const nodeText=nodeIdentity.status==='PASS'?{status:textMismatches.length?'FAIL':'PASS',evidence:{mismatchedNodeIds:textMismatches,method:'actual text descendants; whitespace-normalized'}}:{status:'NOT-CHECKABLE',evidence:'node identities unavailable or mismatched'};
   const expectedEdges=multiset(model.edges.map(e=>`${e.source}\0${e.target}`)),actualEdges=multiset(drawn.edges.map(e=>`${e.source}\0${e.target}`));
   const malformedEdges=drawn.edges.filter(e=>!['path','polyline','line'].includes(e.tag)||!e.path&&e.tag!=='line'||!e.marker).map(e=>`${e.source}->${e.target}`);
-  const relations=drawn.edges.length?{status:equalSets(expectedEdges,actualEdges)&&malformedEdges.length===0?'PASS':'FAIL',evidence:{expected:model.edges.length,drawn:drawn.edges.length,malformedEdges,method:'visible path/polyline/line elements with source-target bindings'}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
+  const caveats=model.notCheckable??[];
+  const relations=caveats.length?{status:'NOT-CHECKABLE',evidence:{reason:'the source has relations the auditor cannot verify against a drawn directed marker (not checkable)',constructs:[...new Set(caveats.map(c=>c.construct))],lines:caveats.map(c=>c.line)}}:drawn.edges.length?{status:equalSets(expectedEdges,actualEdges)&&malformedEdges.length===0?'PASS':'FAIL',evidence:{expected:model.edges.length,drawn:drawn.edges.length,malformedEdges,method:'visible path/polyline/line elements with source-target bindings'}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
   const relationStyle=relations.status==='PASS'?(()=>{
     const mismatches=[],ambiguous=[];
     for(const drawnEdge of drawn.edges){
@@ -300,7 +306,9 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       if(expected.length!==1){ambiguous.push(`${drawnEdge.source}->${drawnEdge.target}`);continue}
       if(drawnEdge.dashed!==(expected[0].style==='dashed'))mismatches.push(`${drawnEdge.source}->${drawnEdge.target}`);
     }
-    return {status:mismatches.length?'FAIL':ambiguous.length?'NOT-CHECKABLE':'PASS',evidence:{method:'source Mermaid edge style against actual computed SVG stroke-dasharray; parallel same-endpoint relations require independent ID binding',mismatches,ambiguous,checkedEdges:drawn.edges.length-ambiguous.length}};
+    const thick=model.edges.filter(e=>e.thick).map(e=>`${e.source}->${e.target}`);
+    // Only dashing is measured; a thick source relation drawn thin must not PASS by default.
+    return {status:mismatches.length?'FAIL':ambiguous.length||thick.length?'NOT-CHECKABLE':'PASS',evidence:{method:'source Mermaid edge style against actual computed SVG stroke-dasharray; parallel same-endpoint relations require independent ID binding',mismatches,ambiguous,checkedEdges:drawn.edges.length-ambiguous.length,...(thick.length?{thickEdges:thick,reason:'thick source relations: stroke weight is not compared (not checkable)'}:{})}};
   })():{status:'NOT-CHECKABLE',evidence:'directed relation binding unavailable'};
   const markerDrawing=relations.status==='PASS'?(()=>{
     const mismatches=drawn.edges.filter(e=>!e.markerDrawing?.found||e.markerDrawing.shapeCount!==1||!e.markerDrawing.visible||!e.markerDrawing.colorMatches).map(e=>`${e.source}->${e.target}`);
@@ -317,16 +325,20 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   })():{status:'NOT-CHECKABLE',evidence:'actual path or group heading bounds unavailable'};
   const routeSpans=drawn.edges.map(e=>({edge:`${e.source}->${e.target}`,spans:actualStraightSpans(e.path)}));
   const routePairClearance=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{
-    const violations=[];
-    for(let i=0;i<routeSpans.length;i++)for(let j=i+1;j<routeSpans.length;j++){
-      for(const a of routeSpans[i].spans)for(const b of routeSpans[j].spans){
+    const violations=[],accepted=[];
+    const routes=routeSpans.map((e,i)=>({edge:e.edge,spans:e.spans,lastCommand:e.spans.lastCommand,trunk:drawn.edges[i].trunk||null,target:drawn.edges[i].target}));
+    for(let i=0;i<routes.length;i++)for(let j=i+1;j<routes.length;j++){
+      for(const a of routes[i].spans)for(const b of routes[j].spans){
         if(a.axis!==b.axis)continue;
         const overlap=Math.min(a.hi,b.hi)-Math.max(a.lo,b.lo);
         const separation=Math.abs(a.fixed-b.fixed);
-        if(overlap>eps&&separation<10-eps)violations.push({edgeA:routeSpans[i].edge,edgeB:routeSpans[j].edge,separation,overlap});
+        if(!(overlap>eps&&separation<10-eps))continue;
+        if(isAcceptedTrunkOverlap(routes[i],routes[j],a,b)){accepted.push({id:routes[i].trunk,target:routes[i].target,edgeA:routes[i].edge,edgeB:routes[j].edge,overlap});continue}
+        violations.push({edgeA:routes[i].edge,edgeB:routes[j].edge,separation,overlap});
       }
     }
-    return {status:violations.length?'FAIL':'PASS',evidence:{method:'strict M/L/Q/A parser of actual SVG d; every drawn straight centerline span pair after curve trims; no bus exception inferred',violations,checkedEdges:routeSpans.length}};
+    const unrecognisedTrunkAttributes_=drawn.edges.flatMap(e=>unrecognisedTrunkAttributes(e.trunkLikeAttributes??[]).map(a=>({edge:`${e.source}->${e.target}`,attribute:a.name,value:a.value})));
+    return {status:violations.length?'FAIL':'PASS',evidence:{method:'strict M/L/Q/A parser of actual SVG d; every drawn straight centerline span pair after curve trims; coincident or sub-10 spans are accepted only as the final portion shared at one target by connectors carrying the same data-shared-trunk id; no other bus exception inferred',violations,trunks:summariseTrunks(accepted),unrecognisedTrunkAttributes:unrecognisedTrunkAttributes_,...(unrecognisedTrunkAttributes_.length?{hint:TRUNK_HINT}:{}),checkedEdges:routeSpans.length}};
   })():{status:'NOT-CHECKABLE',evidence:'edge drawing uses unsupported SVG path grammar or exact relation binding unavailable'};
   const routeCrossings=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{
     const violations=[];
@@ -360,7 +372,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       for(const sourceNode of model.nodes){
         const drawnNode=drawn.nodes.find(n=>n.id===sourceNode.id);
         const actual=drawn.groups.filter(g=>contains(g.box,drawnNode.box)).map(g=>g.id);
-        const expected=sourceNode.group?[sourceNode.group]:[];
+        const expected=sourceNode.groupPath??(sourceNode.group?[sourceNode.group]:[]);
         if(actual.length!==expected.length||actual.some(id=>!expected.includes(id)))mismatches.push(sourceNode.id);
       }
       groupMembership={status:mismatches.length?'FAIL':'PASS',evidence:{method:'browser getBBox of actual node drawings inside actual group outline; SVG data-parent ignored',mismatchedNodeIds:mismatches,checkedNodes:model.nodes.length}};
@@ -388,7 +400,12 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     return {status:violations.length?'FAIL':unresolved.length?'NOT-CHECKABLE':'PASS',evidence:{method:'actual SVG straight spans versus certain rounded-rectangle interior; conservative supported Q/A curve envelopes and uncertain rounded corners retain NOT-CHECKABLE; source/target ancestor groups permit transit',violations,unresolved,checkedEdges:drawn.edges.length}};
   })():{status:'NOT-CHECKABLE',evidence:'exact edge binding, source/target outlines, rectangular container drawing, or strict straight SVG spans unavailable'};
   let originalGroupParity={status:'NOT-CHECKABLE',evidence:'original rendered SVG was not supplied'};
-  if(originalDrawn&&model.groups.length){
+  if(originalDrawn&&!model.groups.length){
+    // Vacuous only when both sides agree there is no grouping: the source declares none AND the original render drew no cluster.
+    originalGroupParity=originalDrawn.parseError?{status:'NOT-CHECKABLE',evidence:'original renderer XML unavailable'}:
+      originalDrawn.groups.length?{status:'NOT-CHECKABLE',evidence:`source declares no groups but the original render has ${originalDrawn.groups.length} cluster(s); membership cannot be compared`}:
+      {status:'PASS',evidence:{method:'source declarations and original Mermaid browser SVG clusters',note:'source declares no groups and original render has no clusters',originalSvgHash,mismatchedNodeIds:[],sourceDeclarationConflictNodeIds:[],unresolvedNodeIds:[],checkedNodes:0,nodeMembership:{}}};
+  }else if(originalDrawn&&model.groups.length){
     if(originalDrawn.parseError||groups.status!=='PASS'||nodeIdentity.status!=='PASS')originalGroupParity={status:'NOT-CHECKABLE',evidence:'original renderer XML or candidate group/node identity unavailable'};
     else{
       const contains=(outer,inner)=>inner.x>=outer.x-1&&inner.y>=outer.y-1&&inner.x+inner.w<=outer.x+outer.w+1&&inner.y+inner.h<=outer.y+outer.h+1;
@@ -401,7 +418,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const oldGroups=model.groups.filter(g=>originalDrawn.groups.some(x=>x.id.endsWith(`-${g.id}`)&&contains(x.box,old[0].box))).map(g=>g.id);
         const newGroups=model.groups.filter(g=>drawn.groups.some(x=>x.id===g.id&&contains(x.box,current.box))).map(g=>g.id);
         if(oldGroups.length!==newGroups.length||oldGroups.some(g=>!newGroups.includes(g)))mismatches.push(node.id);
-        const declared=node.group?[node.group]:[];
+        const declared=node.groupPath??(node.group?[node.group]:[]);
         nodeMembership[node.id]={declared,rendered:oldGroups,candidate:newGroups};
         if(oldGroups.length!==declared.length||oldGroups.some(g=>!declared.includes(g)))sourceConflicts.push(node.id);
       }
@@ -454,8 +471,12 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     const resolution=resolveNodes(originalGroupParity.evidence.mismatchedNodeIds,originalGroupParity.evidence.nodeMembership,originalGroupParity.evidence.sourceDeclarationConflictNodeIds);
     if(!resolution.unresolved.length)originalGroupParity={status:'ADJUDICATED',evidence:{...originalGroupParity.evidence,adjudications:resolution.adjudicated}};
   }
-  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,routeLowerBend,
-    routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; routeLowerBend adds a witness search for rectangular endpoints, but continuous curved-path/label exclusion, non-rectangular nodes and 2-bend alternatives remain unproved'},
+  // Mermaid draws the LAST of several differing definitions of one node; the source is ambiguous, so this is a semantic FAIL like an unadjudicated group conflict.
+  const definitionConflicts=model.conflicts??[];
+  const sourceDefinitionConflicts=definitionConflicts.length?{status:'FAIL',evidence:{method:'parser: a node defined more than once with different text or shape; Mermaid renders the last definition',nodeIds:definitionConflicts.map(c=>c.nodeId),conflicts:definitionConflicts}}:{status:'PASS',evidence:'every node has at most one distinct definition'};
+  const nodeShape={status:'NOT-CHECKABLE',evidence:{reason:'the auditor does not compare drawn node shapes with source shapes; the reviewer judges shapes the rules define',notCheckableShapeNodeIds:model.nodes.filter(n=>NOT_CHECKABLE_SHAPES.has(n.shape)).map(n=>n.id)}};
+  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,nodeShape,sourceDefinitionConflicts,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,routeLowerBend,...layout,
+    routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; routeLowerBend adds a witness search (see its limitations); continuous curved-path/label exclusion remains unproved'},
     visualQuality:{status:'NOT-CHECKABLE',evidence:'requires Pi to inspect original and candidate full images plus crops'}};
   const status=Object.values(checks).some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE';
   return {status,sourceHash:model.sourceHash,svgHash:hash(svgBytes),originalSvgHash,checks,drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};

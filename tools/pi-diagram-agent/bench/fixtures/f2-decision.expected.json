@@ -1,0 +1,18 @@
+{
+  "name": "f2-decision",
+  "direction": "TB",
+  "nodes": [
+    {"id": "A", "text": "Receive request"}, {"id": "B", "text": "Check request"}, {"id": "C", "text": "Request valid?"},
+    {"id": "D", "text": "Accept request"}, {"id": "E", "text": "Reject request"}, {"id": "F", "text": "Close record"}
+  ],
+  "edges": [
+    {"source": "A", "target": "B", "label": "", "dashed": false},
+    {"source": "B", "target": "C", "label": "", "dashed": false},
+    {"source": "C", "target": "D", "label": "Yes", "dashed": false},
+    {"source": "C", "target": "E", "label": "No", "dashed": false},
+    {"source": "D", "target": "F", "label": "", "dashed": false},
+    {"source": "E", "target": "F", "label": "", "dashed": false}
+  ],
+  "groups": [],
+  "ungrouped": ["A", "B", "C", "D", "E", "F"]
+}

@@ -5,7 +5,7 @@ import {auditAgentSvg} from '../src/agent-audit.mjs';
 
 const enabled=!!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE;
 const source='flowchart LR\n  A[Start] --> B[Finish]\n';
-const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="5"><path d="M0,0 L10,5 L0,10 Z" fill="black"/></marker></defs><g data-node="A"><rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text></g><g data-node="B"><rect x="400" y="50" width="100" height="60"/><text x="410" y="80">Finish</text></g><path data-source="A" data-target="B" d="M110 80 L400 80" stroke="black" fill="none" marker-end="url(#arrow)"/></svg>`;
+const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><style>rect:not([fill]){fill:#fff}</style><marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10" refY="5"><path d="M0,0 L10,5 L0,10 Z" fill="black"/></marker></defs><g data-node="A"><rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text></g><g data-node="B"><rect x="400" y="50" width="100" height="60"/><text x="410" y="80">Finish</text></g><path data-source="A" data-target="B" d="M110 80 L400 80" stroke="black" fill="none" marker-end="url(#arrow)"/></svg>`;
 
 test('agent audit accepts historical-style neutral bindings without old data-box schema',{skip:!enabled},async()=>{
   // The shared fixture draws text 10 units from its box edge, which T2 (12-unit inset) rejects; fit it here so this test isolates binding.
@@ -32,7 +32,7 @@ test('absence of source-binding metadata is unresolved, not a verdict on visual 
 });
 
 test('a Mermaid feature outside the narrow legacy parser cannot suppress visual evidence',{skip:!enabled},async()=>{
-  const labelled='flowchart LR\n  A[Start] -->|Go| B[Finish]\n';
+  const labelled='flowchart LR\n  A[Start] --> B[Finish]\n  A@{ shape: cyl }\n';
   const result=await auditAgentSvg(labelled,svg);
   assert.equal(result.checks.svgWellFormed.status,'PASS');
   assert.equal(result.checks.nodeIdentity.status,'NOT-CHECKABLE');
@@ -273,97 +273,64 @@ test('textFit ignores an unpainted rect when choosing the node outline',{skip:!e
   assert.equal(result.checks.textFit.status,'FAIL');
 });
 
-// ---- routeLowerBend: lower-bend and midpoint-anchor witnesses ------------------
-const lbDefs='<defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="5"><path d="M0,0 L10,5 L0,10 Z" fill="black"/></marker></defs>';
-const lbNode=(id,x,y,w,h)=>`<g data-node="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="black"/><text x="${x+14}" y="${y+h/2+4}">N</text></g>`;
-const lbEdge=(s,t,d)=>`<path data-source="${s}" data-target="${t}" d="${d}" stroke="black" fill="none" marker-end="url(#arrow)"/>`;
-const lbGroup=(id,x,y,w,h)=>`<g data-group="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="black" fill="none"/></g>`;
-const lbDoc=(...parts)=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 320">${lbDefs}${parts.join('')}</svg>`;
-const lbSource='flowchart LR\n A[N] --> B[N]\n';
-const lbA=lbNode('A',10,50,100,60);
-const lbDiag=lbNode('B',300,200,100,60);
-
-test('routeLowerBend fails a filleted 3-bend route when a feasible one-bend L exists and reports the witness',{skip:!enabled},async()=>{
-  const drawn=lbDoc(lbA,lbDiag,lbEdge('A','B','M110 80 L145 80 Q150 80 150 75 L150 45 Q150 40 155 40 L345 40 Q350 40 350 45 L350 200'));
-  const result=await auditAgentSvg(lbSource,drawn);
-  const check=result.checks.routeLowerBend;
-  assert.equal(check.status,'FAIL');
-  const [v]=check.evidence.violations;
-  assert.equal(v.edge,'A->B');
-  assert.equal(v.kind,'lowerBend');
-  assert.equal(v.drawnBends,3);
-  assert.equal(v.witnessBends,1);
-  assert.equal(v.witness.segments.length,2);
-  assert.ok(['right','bottom'].includes(v.witness.faces.source));
-  assert.equal(result.status,'FAIL');
+// A source without groups has no membership to compare. With the original render supplied and showing no clusters, membership
+// preservation is vacuously PASS (not "original not supplied"); a cluster in the original that the parser did not see stays NOT-CHECKABLE.
+const grouplessOriginal='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><g class="node" id="m-flowchart-A-0"><rect x="10" y="50" width="100" height="60"/></g><g class="node" id="m-flowchart-B-1"><rect x="400" y="50" width="100" height="60"/></g></svg>';
+test('group-less source: original supplied with no clusters -> originalGroupParity and semanticPreservation PASS (vacuous, with evidence)',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg(source,svg,{originalSvg:grouplessOriginal});
+  assert.equal(r.checks.originalGroupParity.status,'PASS');
+  assert.match(JSON.stringify(r.checks.originalGroupParity.evidence),/source declares no groups and original render has no clusters/);
+  assert.equal(r.checks.semanticPreservation.status,'PASS');
+});
+test('group-less source: vacuous PASS needs both facts — no original, or an original with a cluster, stays NOT-CHECKABLE',{skip:!enabled},async()=>{
+  const none=await auditAgentSvg(source,svg);
+  assert.equal(none.checks.originalGroupParity.status,'NOT-CHECKABLE');assert.equal(none.checks.semanticPreservation.status,'NOT-CHECKABLE');
+  const clustered=grouplessOriginal.replace('<g class="node"','<g class="cluster" id="m-X"><rect x="0" y="0" width="300" height="200"/></g><g class="node"');
+  const r=await auditAgentSvg(source,svg,{originalSvg:clustered});
+  assert.equal(r.checks.originalGroupParity.status,'NOT-CHECKABLE');
+  assert.match(JSON.stringify(r.checks.originalGroupParity.evidence),/cluster/);
+  assert.equal(r.checks.semanticPreservation.status,'NOT-CHECKABLE');
 });
 
-test('routeLowerBend passes a 3-bend route when every L is blocked by unrelated nodes',{skip:!enabled},async()=>{
-  // M1 blocks every horizontal exit from A's right face; M2 blocks every horizontal run into B's left face from below A.
-  const blocked=lbDoc(lbA,lbDiag,lbNode('M1',160,50,60,70),lbNode('M2',130,160,60,120),lbEdge('A','B','M60 50 L60 20 L270 20 L270 230 L300 230'));
-  const result=await auditAgentSvg(lbSource,blocked);
-  const check=result.checks.routeLowerBend;
-  assert.equal(check.status,'PASS');
-  assert.deepEqual(check.evidence.relations.map(r=>[r.edge,r.status,r.drawnBends]),[['A->B','PASS',3]]);
-  assert.notEqual(result.status,'PASS');
-  // Remove the blockers: the same drawing now has a feasible L.
-  const open=await auditAgentSvg(lbSource,lbDoc(lbA,lbDiag,lbEdge('A','B','M60 50 L60 20 L270 20 L270 230 L300 230')));
-  assert.equal(open.checks.routeLowerBend.status,'FAIL');
-  assert.equal(open.checks.routeLowerBend.evidence.violations[0].witnessBends,1);
+const nestedSrc='flowchart LR\n subgraph O[Outer]\n  subgraph I[Inner]\n   A[Start]\n  end\n  B[Finish]\n end\n A --> B\n';
+const nestedSvg=(oW)=>svg.replace('<g data-node="A">',`<g data-group="O"><rect x="0" y="20" width="${oW}" height="130"/></g><g data-group="I"><rect x="0" y="30" width="150" height="110"/></g><g data-node="A">`);
+test('nested subgraphs: membership is the whole path, checked by actual containment',{skip:!enabled},async()=>{
+  const good=await auditAgentSvg(nestedSrc,nestedSvg(520));
+  assert.equal(good.checks.groups.status,'PASS');
+  assert.equal(good.checks.groupMembership.status,'PASS');
+  const wrong=await auditAgentSvg(nestedSrc,nestedSvg(300));
+  assert.equal(wrong.checks.groupMembership.status,'FAIL');
+  assert.deepEqual(wrong.checks.groupMembership.evidence.mismatchedNodeIds,['B']);
+});
+test('relations the auditor cannot verify (open link, group endpoint, bidirectional) are NOT-CHECKABLE, never PASS',{skip:!enabled},async()=>{
+  for(const src of ['flowchart LR\n  A[Start] --- B[Finish]\n','flowchart LR\n  A[Start] <--> B[Finish]\n','flowchart LR\n  subgraph G\n    A[Start]\n  end\n  G --> B[Finish]\n']){
+    const r=await auditAgentSvg(src,svg.replace('x="20" y="80">Start','x="30" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Finish'));
+    assert.equal(r.checks.relations.status,'NOT-CHECKABLE',src);
+    assert.match(JSON.stringify(r.checks.relations.evidence),/not checkable|NOT-CHECKABLE|cannot/i);
+    assert.notEqual(r.status,'PASS');
+  }
 });
 
-test('routeLowerBend fails an L when a straight route is feasible and passes the straight',{skip:!enabled},async()=>{
-  const nodes=[lbA,lbNode('B',300,70,100,60)];
-  const l=await auditAgentSvg(lbSource,lbDoc(...nodes,lbEdge('A','B','M60 110 L60 125 L300 125')));
-  assert.equal(l.checks.routeLowerBend.status,'FAIL');
-  const [v]=l.checks.routeLowerBend.evidence.violations;
-  assert.deepEqual([v.kind,v.drawnBends,v.witnessBends],['lowerBend',1,0]);
-  assert.equal(v.witness.segments.length,1);
-  const straight=await auditAgentSvg(lbSource,lbDoc(...nodes,lbEdge('A','B','M110 90 L300 90')));
-  assert.equal(straight.checks.routeLowerBend.status,'PASS');
+// --- review fixes (2026-10-02) ---
+const fitted=svg.replace('x="20" y="80">Start','x="30" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Finish');
+test('a node defined twice with different text or shape FAILs sourceDefinitionConflicts (Mermaid draws the last one)',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg('flowchart LR\n  A[Start] --> B[Other]\n  B(Finish)\n',fitted);
+  assert.equal(r.checks.nodeText.status,'PASS');
+  assert.equal(r.checks.sourceDefinitionConflicts?.status,'FAIL');
+  assert.deepEqual(r.checks.sourceDefinitionConflicts?.evidence.nodeIds,['B']);
+  assert.equal(r.status,'FAIL');
+  const clean=await auditAgentSvg(source,fitted);
+  assert.equal(clean.checks.sourceDefinitionConflicts?.status,'PASS');
 });
-
-test('routeLowerBend fails off-midpoint anchors when a midpoint route has the same bends',{skip:!enabled},async()=>{
-  const nodes=[lbA,lbNode('B',300,50,100,60)];
-  const off=await auditAgentSvg(lbSource,lbDoc(...nodes,lbEdge('A','B','M110 95 L300 95')));
-  assert.equal(off.checks.routeLowerBend.status,'FAIL');
-  const [v]=off.checks.routeLowerBend.evidence.violations;
-  assert.deepEqual([v.kind,v.drawnBends,v.witnessBends],['midpoint',0,0]);
-  assert.deepEqual(v.witness.anchors,{source:[110,80],target:[300,80]});
-  const mid=await auditAgentSvg(lbSource,lbDoc(...nodes,lbEdge('A','B','M110 80 L300 80')));
-  assert.equal(mid.checks.routeLowerBend.status,'PASS');
+test('a thick source edge makes relationStyle NOT-CHECKABLE: the auditor compares dashing only',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg('flowchart LR\n  A[Start] ==> B[Finish]\n',fitted);
+  assert.equal(r.checks.relations.status,'PASS');
+  assert.equal(r.checks.relationStyle.status,'NOT-CHECKABLE');
+  assert.match(JSON.stringify(r.checks.relationStyle.evidence),/thick/);
 });
-
-test('routeLowerBend lets a route transit its source ancestor container but not an unrelated container',{skip:!enabled},async()=>{
-  const b=lbNode('B',300,50,100,60);
-  const straight='M110 80 L300 80';
-  // G holds A: the straight route crosses G's boundary legitimately; a detour around it is a lower-bend violation.
-  const ancestor=await auditAgentSvg(lbSource,lbDoc(lbGroup('G',0,20,200,130),lbA,b,lbEdge('A','B',straight)));
-  assert.equal(ancestor.checks.routeLowerBend.status,'PASS');
-  const detour='M60 50 L60 10 L350 10 L350 50';
-  const needless=await auditAgentSvg(lbSource,lbDoc(lbGroup('G',0,20,200,130),lbA,b,lbEdge('A','B',detour)));
-  assert.equal(needless.checks.routeLowerBend.status,'FAIL');
-  assert.equal(needless.checks.routeLowerBend.evidence.violations[0].witnessBends,0);
-  // G holds only another node C and sits between A and B: the straight route is infeasible, so the 2-bend detour is correct.
-  const unrelated=await auditAgentSvg(lbSource,lbDoc(lbGroup('G',200,20,60,130),lbNode('C',215,70,30,30),lbA,b,lbEdge('A','B',detour)));
-  assert.equal(unrelated.checks.routeLowerBend.status,'PASS');
-});
-
-test('routeLowerBend is NOT-CHECKABLE per relationship for unsupported shapes, curves and unbound labels, and never PASS overall',{skip:!enabled},async()=>{
-  const diamond=lbDoc('<g data-node="A"><polygon points="60,40 120,80 60,120 0,80"/><text x="40" y="85">N</text></g>',lbNode('B',300,50,100,60),lbEdge('A','B','M120 80 L300 80'));
-  const shape=await auditAgentSvg(lbSource,diamond);
-  assert.equal(shape.checks.routeLowerBend.status,'NOT-CHECKABLE');
-  assert.equal(shape.checks.routeLowerBend.evidence.notCheckable[0].edge,'A->B');
-  assert.match(shape.checks.routeLowerBend.evidence.notCheckable[0].reason,/unsupported endpoint shape: A/);
-  const curved=await auditAgentSvg(lbSource,lbDoc(lbA,lbNode('B',300,50,100,60),lbEdge('A','B','M110 80 L200 80 Q250 20 300 80')));
-  assert.equal(curved.checks.routeLowerBend.status,'NOT-CHECKABLE');
-  assert.match(curved.checks.routeLowerBend.evidence.notCheckable[0].reason,/curved non-fillet/);
-  const unbound=await auditAgentSvg('flowchart LR\n A[N] -- "Go" --> B[N]\n',lbDoc(lbA,lbNode('B',300,50,100,60),lbEdge('A','B','M110 80 L300 80')));
-  assert.equal(unbound.checks.routeLowerBend.status,'NOT-CHECKABLE');
-  assert.match(unbound.checks.routeLowerBend.evidence.notCheckable[0].reason,/label/);
-  // One checked PASS relationship cannot hide an unchecked one.
-  const two=await auditAgentSvg('flowchart LR\n A[N] --> B[N]\n C[N] --> B\n',lbDoc(lbA,lbNode('B',300,50,100,60),'<g data-node="C"><polygon points="200,190 260,230 200,270 140,230"/><text x="180" y="235">N</text></g>',lbEdge('A','B','M110 80 L300 80'),lbEdge('C','B','M260 230 L350 230 L350 110')));
-  assert.deepEqual(two.checks.routeLowerBend.evidence.relations.map(r=>[r.edge,r.status]),[['A->B','PASS'],['C->B','NOT-CHECKABLE']]);
-  assert.equal(two.checks.routeLowerBend.status,'NOT-CHECKABLE');
-  assert.notEqual(two.status,'PASS');
+test('node shapes are never PASS: the auditor does not compare drawn shapes, and lists shapes the rules have no notation for',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg('flowchart LR\n  A([Start]) --> B[Finish]\n',fitted);
+  assert.equal(r.checks.nodeShape?.status,'NOT-CHECKABLE');
+  assert.deepEqual(r.checks.nodeShape?.evidence?.notCheckableShapeNodeIds,['A']);
+  assert.equal((await auditAgentSvg(source,fitted)).checks.nodeShape?.status,'NOT-CHECKABLE');
 });

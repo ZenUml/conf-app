@@ -240,3 +240,15 @@ test('adjudication records reach the model prompt as explicit user-authorised gr
     fs.rmSync(root,{recursive:true,force:true});
   }
 });
+
+test('agent prompt states the one shared-trunk convention and rejects invented attribute names',()=>{
+  const {root,input}=fixture();
+  try{
+    const {prompt}=prepareAgentTask(input);
+    assert.match(prompt,/data-shared-trunk="<id>"/);
+    assert.match(prompt,/same target entering from the same direction/);
+    assert.match(prompt,/own complete source-to-target path/);
+    assert.match(prompt,/exactly one visible arrowhead/);
+    assert.match(prompt,/data-shared-bus[^.]*not recognised/);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});

@@ -1,0 +1,7 @@
+flowchart TD
+  A[Receive order] --> B{Stock available?}
+  B -->|yes| C[Pack items]
+  B -->|no| D[Back-order]
+  C -.->|optional| E[Insure parcel]
+  C ==>|ship| F[Dispatch]
+  E -.-> F

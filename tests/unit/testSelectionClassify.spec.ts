@@ -28,5 +28,6 @@ describe('trusted label publisher', () => {
 });
 describe('reviewed historical replay', () => {
   it('records misses and actual duration inputs without claiming calibration', () => { const r = evaluate({ mode: 'selected', categories: { one: { selected: true } } }, { id: 'review', reviewed_by: 'reviewer', expected_categories: ['one', 'two'], tests: [{ id: 't1', categories: ['one'], duration_ms: 500 }, { id: 't2', categories: ['two'], duration_ms: 900 }] }); expect(r.misses).toEqual(['two']); expect(r.missed_test_ids).toEqual(['t2']); expect(r.estimated_selected_duration_ms).toBe(500); expect(r.calibration).toBe('not-established'); });
+  it('does not count smoke or a selected second category as missed coverage', () => { const r = evaluate({ mode: 'selected', categories: { one: { selected: true }, two: { selected: false } } }, { reviewed_by: 'reviewer', expected_categories: ['one', 'two'], tests: [{ id: 'both', categories: ['one', 'two'], duration_ms: 100 }, { id: 'smoke', categories: ['two'], smoke: true, duration_ms: 200 }, { id: 'omitted', categories: ['two'], duration_ms: 300 }] }); expect(r.misses).toEqual(['two']); expect(r.selected_test_ids).toEqual(['both', 'smoke']); expect(r.missed_test_ids).toEqual(['omitted']); });
   it('requires reviewed expectations', () => expect(() => evaluate({}, { expected_categories: [] })).toThrow());
 });

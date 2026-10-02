@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Type } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { prepareAgentTask, createAgentVisualInspector } from './src/agent-led.mjs';
+import { createThinkingSwitch } from './src/thinking-switch.mjs';
 
 export default function (pi: ExtensionAPI) {
   const jobs = new Map<string, { inspect: () => Promise<unknown> }>();
@@ -37,10 +38,12 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify('A native openai-codex vision model is unavailable. Connect the Codex subscription with Pi /login; no router model was called.', 'warning');
           return;
         }
-        pi.setThinkingLevel('high');
+        // PI_DIAGRAM_FIRST_DRAFT_THINKING (e.g. "medium"): first draft at that level, then "high" after the first successful inspection. This overrides the CLI --thinking flag for the first draft.
+        const thinking = createThinkingSwitch({ firstDraftLevel: process.env.PI_DIAGRAM_FIRST_DRAFT_THINKING || undefined, setLevel: level => pi.setThinkingLevel(level as any) });
+        if (!thinking.start()) pi.setThinkingLevel('high');
         const job = prepareAgentTask(input, { cwd: ctx.cwd, resumeRunDir: options['--resume'] as string | undefined, referenceSvgPath: options['--reference'] as string | undefined, feedbackPath: options['--feedback'] as string | undefined, upgradeRules: options['--upgrade-rules'] === true, adjudicationPath: options['--adjudication'] as string | undefined });
         const jobId = randomUUID();
-        jobs.set(jobId, { inspect: createAgentVisualInspector(job) });
+        jobs.set(jobId, { inspect: thinking.wrap(createAgentVisualInspector(job)) });
         pi.sendUserMessage(`${job.prompt}\n\nVisual inspection job ID: ${jobId}. Call diagram_inspect with this ID after each candidate. The tool returns the original image, ${job.referenceSvgBytes ? 'accepted reference full and viewer-fit images, ' : ''}candidate full image, four candidate crops, and final-viewer contain-fit image as actual images. Your final answer must state the candidate path, exact SVG hash from the final inspection, defects that remain, and which rules lack independent proof.`, { deliverAs: 'followUp' });
         ctx.ui.notify(`Pi diagram agent started; private work directory: ${job.runDir}`, 'info');
       } catch (error) {

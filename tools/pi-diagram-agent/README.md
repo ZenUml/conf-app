@@ -23,3 +23,8 @@ Local browser requirements: set `PI_DIAGRAM_PLAYWRIGHT_MODULE` to an installed P
 This package emits candidates and visual evidence. It does not yet emit a certified Magic artifact. Two private historical candidates remain **UNCERTIFIED**; their diagrams, references, screenshots, and evidence records are deliberately excluded from this public package. Neither full quality certification nor a speedup is claimed.
 
 See [MIGRATION.md](MIGRATION.md) for source provenance and the supported file boundary.
+
+## Speed experiment switches (default off)
+
+- `PI_DIAGRAM_FIRST_DRAFT_THINKING=<level>` (e.g. `medium`): `/magic` sets that thinking level for the first draft (overriding the CLI `--thinking`), then switches to `high` right after the first successful `diagram_inspect`. The inspection result JSON carries `thinking: {firstDraft, revisions, switchedAfterMs, current}`.
+- `PI_DIAGRAM_DIRECT_DRAFT=1`: the prompt asks for a direct first candidate (no separate planning message, brief reasoning until the first inspection).

@@ -113,7 +113,9 @@ test('two actual orthogonal connector interiors cannot cross unnoticed',{skip:!e
   const crossingSvg=svg.replace('</svg>','<g data-node="C"><rect x="220" y="0" width="100" height="40"/><text x="230" y="25">Up</text></g><g data-node="D"><rect x="220" y="120" width="100" height="40"/><text x="230" y="145">Down</text></g><path data-source="C" data-target="D" d="M270 40 L270 120" stroke="black" fill="none" marker-end="url(#arrow)"/></svg>');
   const result=await auditAgentSvg(crossingSource,crossingSvg);
   assert.equal(result.checks.routeCrossings.status,'FAIL');
-  assert.deepEqual(result.checks.routeCrossings.evidence.violations[0],{edgeA:'A->B',edgeB:'C->D',x:270,y:80});
+  const {repairHint,reason,...at}=result.checks.routeCrossings.evidence.violations[0];
+  assert.deepEqual(at,{edgeA:'A->B',edgeB:'C->D',x:270,y:80});
+  assert.ok(repairHint===null?typeof reason==='string':repairHint.edge&&repairHint.points.length>=2); // every crossing carries a hint or a reason
 });
 
 test('a path ending in a curve cannot borrow an earlier straight span for arrow clearance',{skip:!enabled},async()=>{

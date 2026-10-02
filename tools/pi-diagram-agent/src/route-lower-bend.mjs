@@ -160,6 +160,18 @@ function makeEvaluator(ctx){
         if(v.fixed>h.lo+EPS&&v.fixed<h.hi-EPS&&h.fixed>v.lo+EPS&&h.fixed<v.hi-EPS)return 0;
       }
     }
+    if(ctx.strict){
+      // Repair hints are stricter than the lower-bend witnesses: the untrimmed candidate may not touch or run beside another route either
+      // (the fillet trim above would otherwise let a bend sit exactly on another connector's centerline).
+      for(let i=0;i<n;i++){
+        const a=segs[i],alo=Math.min(a.s0,a.s1),ahi=Math.max(a.s0,a.s1);
+        for(const b of ctx.otherSpans){
+          if(i===n-1&&ctx.trunkFinals.has(b))continue;
+          if(a.axis===b.axis){if(Math.min(ahi,b.hi)-Math.max(alo,b.lo)>EPS&&Math.abs(a.fixed-b.fixed)<PARALLEL_CLEARANCE-EPS)return 0}
+          else if(b.fixed>=alo-EPS&&b.fixed<=ahi+EPS&&a.fixed>=b.lo-EPS&&a.fixed<=b.hi+EPS)return 0;
+        }
+      }
+    }
     let level=ctx.unknown||soft?1:2;
     if(level===2)for(const s of segs)for(const hull of ctx.hulls)if(hits(s,hull,0)){level=1;break}
     return level;
@@ -180,7 +192,7 @@ class MinHeap{
   get size(){return this.a.length}
 }
 const MAX_GRID=900;
-function gridWitness({fs0,ftList,valuesFor,ctx,boxes,evaluate,trim,axial,otherSpans,trunkFinals,GS,GT}){
+function gridWitness({fs0,ftList,valuesFor,ctx,boxes,evaluate,trim,axial,otherSpans,trunkFinals,GS,GT,bend=1e-3}){
   const pointsOf=f=>valuesFor(f,false).map(v=>pointOn(f,v).map(round3));
   const startPorts=fs0.flatMap(f=>pointsOf(f).map(p=>({f,p}))),endPorts=ftList.flatMap(f=>pointsOf(f).map(p=>({f,p})));
   const xsRaw=[],ysRaw=[];
@@ -217,7 +229,7 @@ function gridWitness({fs0,ftList,valuesFor,ctx,boxes,evaluate,trim,axial,otherSp
   const dist=new Float64Array(NX*NY*2).fill(Infinity),prev=new Array(NX*NY*2).fill(null);
   const heap=new MinHeap();
   const AX={h:0,v:1};
-  const BEND=1e-3;
+  const BEND=bend;
   // first runs
   for(const {f,p} of startPorts){
     const axis=f.axis==='x'?'v':'h',dir=f.normal[axis==='v'?1:0],list=axis==='v'?Y:X,fixedCoord=axis==='v'?p[0]:p[1],at=axis==='v'?p[1]:p[0];
@@ -338,8 +350,9 @@ const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
  * groups: [{id,outline,box,headings:[box]}]
  * edges: [{source,target,tag,path,axialLength,spans,hulls,trunk}]  (spans/hulls from the audit's strict path readers)
  */
-export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend'}={}){
+export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend',hintEdges=[]}={}){
   const relations=[],violations=[],notCheckable=[];
+  const hintSet=new Set(hintEdges),hints=new Map();
   const nodeById=new Map();for(const n of nodes)if(!nodeById.has(n.id))nodeById.set(n.id,n);
   const groupProblem=groups.find(g=>!g.box||g.outline!=='rect');
   const routes=edges.map(e=>e.tag==='path'?parseOrthogonalRoute(e.path):{error:'relationship is not a path element'});
@@ -360,7 +373,8 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
   const obstacle=n=>{const g=geoOf(n);return {kind:g.kind==='unsupported'?'unsupported':g.kind,bbox:g.bbox,hull:g.hull}};
   for(let i=0;i<edges.length;i++){
     const e=edges[i],id=`${e.source}->${e.target}`,route=routes[i];
-    const nc=reason=>{relations.push({edge:id,status:'NOT-CHECKABLE',reason});notCheckable.push({edge:id,reason})};
+    if(mode==='hint'&&!hintSet.has(id))continue;
+    const nc=reason=>{if(mode==='hint'){hints.set(id,{edge:id,hint:null,reason});return}relations.push({edge:id,status:'NOT-CHECKABLE',reason});notCheckable.push({edge:id,reason})};
     const S=nodeById.get(e.source),T=nodeById.get(e.target);
     if(!S||!T){nc('endpoint node is not drawn');continue}
     if(e.source===e.target){nc('self relationship');continue}
@@ -392,7 +406,7 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
     }
     const pinned=trunkFinals.size>0,pinValue=round3(alongOf(ftD,pn));
     const ancestor=g=>contains(g.box,GS.outline)||contains(g.box,GT.outline);
-    const ctx={source:obstacle(S),target:obstacle(T),nodes:others.map(obstacle),unrelatedGroups:groups.filter(g=>!ancestor(g)).map(g=>g.box),headings:groups.flatMap(g=>g.headings),labels,otherSpans,hulls,unknown,trim:route.trim,axial:e.axialLength,trunkFinals};
+    const ctx={source:obstacle(S),target:obstacle(T),nodes:others.map(obstacle),unrelatedGroups:groups.filter(g=>!ancestor(g)).map(g=>g.box),headings:groups.flatMap(g=>g.headings),labels,otherSpans,hulls,unknown,trim:route.trim,axial:e.axialLength,trunkFinals,strict:mode==='hint'};
     const evaluate=makeEvaluator(ctx);
     const midDist=(fs,ft,a,b)=>Math.abs(alongOf(fs,a)-fs.mid)+Math.abs(alongOf(ft,b)-ft.mid);
     const drawnDist=midDist(fsD,ftD,p0,pn);
@@ -420,6 +434,19 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
       return sortedUnique(list).sort((a,b)=>Math.abs(a-centre)-Math.abs(b-centre)).slice(0,160);
     };
     const record={edge:id,drawnBends:route.bends,faces:{source:fsD.name,target:ftD.name},...(pinned?{trunk:me.trunk}:{})};
+    if(mode==='hint'){
+      // Repair hint: the best crossing-free feasible route for THIS edge with every other drawn route fixed (the evaluator rejects any crossing,
+      // parallel clearance breach, node/container/label intrusion, short final leg and trunk mismatch). Fewest bends, then shortest.
+      const found=[];
+      for(const x of enumerate(GS,GT,fs0,tFacesFor,valuesFor,2,channelsFor)){if(evaluate(x.points)===2)found.push({points:x.points,length:manhattan(x.points)})}
+      const g=gridWitness({fs0,ftList:tFacesFor,valuesFor,ctx,evaluate,trim:route.trim,axial:e.axialLength,otherSpans:ctx.otherSpans,trunkFinals,GS,GT,bend:1e6,
+        boxes:[GS.bbox,GT.bbox,...others.map(n=>n.bbox),...groups.map(x=>x.box),...ctx.headings,...labels].filter(Boolean)});
+      if(g&&g.points)found.push({points:g.points,length:g.length});
+      found.sort((a,b)=>a.points.length-b.points.length||a.length-b.length);
+      const w=found[0];
+      hints.set(id,w?{edge:id,hint:{edge:id,points:w.points.map(p=>p.map(round3)),bends:w.points.length-2,length:round3(w.length)}}:{edge:id,hint:null,reason:'no crossing-free feasible route (orthogonal enumeration and obstacle-grid search) with all other routes fixed'});
+      continue;
+    }
     if(mode==='detour'){
       // Avoidable detour: the drawn Manhattan length against the shortest feasible witness (same obstacles, clearances and trunk pin).
       const drawnLength=manhattan(route.points);
@@ -484,6 +511,7 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
     if(route.bends>=4){nc('drawn route has 4 or more bends and 3-bend candidates are not searched, so absence of a 0-2 bend witness does not prove minimality');continue}
     relations.push({edge:id,status:'PASS',drawnBends:route.bends,...(pinned?{trunk:me.trunk}:{})});
   }
+  if(mode==='hint')return {hints:Object.fromEntries(hints)};
   const status=violations.length?'FAIL':notCheckable.length||!edges.length?'NOT-CHECKABLE':'PASS';
   if(mode==='detour')return {status,evidence:{
     method:`drawn Manhattan route length versus the shortest feasible witness from the same search as routeLowerBend (straight, L, Z/U candidates over face midpoints, alignment points and a face sweep; kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, long enough for fillet trim + marker + shaft, shared-trunk entry pinned); FAIL when the drawn length exceeds max(${DETOUR_RATIO}x, +${DETOUR_EXTRA} units) of the witness; NOT-CHECKABLE when no feasible witness exists`,
@@ -496,4 +524,20 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
     checkedRelations:relations.filter(r=>r.status!=='NOT-CHECKABLE').length,
     limitations:'supported node silhouettes: rectangle (incl. rounded), diamond, long-text decision hexagon, cylinder/store, queue, subroutine, capsule/stadium, circle/ellipse (convex outline with a centred apex or flat face per side); any other shape is NOT-CHECKABLE for its relationships; Z/U channels are a finite candidate set; drawings with 4+ bends can fail on a 0-2 bend witness but never PASS (3-bend candidates are not searched); a trunk member is judged with its trunk entry fixed, so a better route that moves the entry is not proposed; equal-bend midpoint for 2+ bends shifts the drawn route anchors only; declared port order, badge exclusions and other relationship-specific constraints are not read; uncertain obstacles block witnesses but never support a PASS'
   }};
+}
+
+/** Attach repair hints to routeCrossings violations. For each violation, search a crossing-free route for each of its two edges with all other
+ * routes fixed; keep the better (fewest bends, then shortest) as `repairHint:{edge,points,bends,length}`, else `repairHint:null` with a reason.
+ * Evidence only: the drawing is never modified. */
+export function attachCrossingRepairHints(input,violations){
+  const ids=[...new Set(violations.flatMap(v=>[v.edgeA,v.edgeB]))];
+  let hints={};
+  try{hints=checkRouteLowerBend(input,{mode:'hint',hintEdges:ids}).hints}catch(error){hints=Object.fromEntries(ids.map(id=>[id,{edge:id,hint:null,reason:`hint search failed: ${error?.message??error}`}]))}
+  for(const v of violations){
+    const per=[v.edgeA,v.edgeB].map(id=>hints[id]??{edge:id,hint:null,reason:'edge not searched'});
+    const ok=per.filter(h=>h.hint).sort((a,b)=>a.hint.bends-b.hint.bends||a.hint.length-b.hint.length);
+    if(ok.length)v.repairHint=ok[0].hint;
+    else{v.repairHint=null;v.reason=`no crossing-free route for either edge with the other routes fixed (${[...new Set(per.map(h=>h.reason))].join('; ')}); a node move is likely needed`}
+  }
+  return violations;
 }

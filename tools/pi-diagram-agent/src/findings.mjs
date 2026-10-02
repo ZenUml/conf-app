@@ -58,7 +58,7 @@ export function selectForAuthor(ledger,{max=5}={}){
 }
 
 export function formatForAuthor(selection){
-  return {findings:selection.sent.map(({id,source,severity,rule,elements,region,evidence,suggestion,state})=>({id,source,severity,rule,elements,region,evidence,suggestion,state})),omittedBlocking:selection.omittedBlocking,minorCount:selection.minorCount};
+  return {findings:selection.sent.map(({id,source,severity,rule,elements,region,evidence,suggestion,state,repairHints})=>({id,source,severity,rule,elements,region,evidence,suggestion,state,...(repairHints?{repairHints}:{})})),omittedBlocking:selection.omittedBlocking,minorCount:selection.minorCount};
 }
 
 // ---- audit -> findings -------------------------------------------------------------------------
@@ -103,6 +103,17 @@ const SUGGESTIONS={
 };
 const fallbackSuggestion=rule=>`Resolve the ${rule} failure shown in the evidence, then re-render.`;
 
+const pt=p=>`(${p[0]},${p[1]})`;
+// Concise author-facing text for routeCrossings repair hints: the hint is evidence (the SVG is never changed for the author).
+function crossingHintText(violations){
+  const lines=[];
+  for(const v of violations){
+    const h=v.repairHint;
+    if(h){const mid=h.points.slice(1,-1).map(pt),via=mid.length?(mid.length>4?`${mid.slice(0,2).join(' ')}…${mid.at(-1)}`:mid.join(' ')):`${pt(h.points[0])}…${pt(h.points.at(-1))}`;lines.push(`reroute ${h.edge} via ${via}, ${h.bends} bend${h.bends===1?'':'s'}`)}
+    else if(v.reason)lines.push(`${v.edgeA} x ${v.edgeB}: ${v.reason}`);
+  }
+  return [...new Set(lines)].join('; ');
+}
 /** Every FAIL check of an auditAgentSvg result becomes one blocking finding. NOT-CHECKABLE and PASS never produce findings. */
 export function auditToFindings(audit){
   if(!audit||!audit.checks)return [];
@@ -113,9 +124,13 @@ export function auditToFindings(audit){
     const ids=new Set();collectIds(ev,ids);
     const method=typeof ev==='object'&&ev&&typeof ev.method==='string'?ev.method:null;
     const detail=typeof ev==='string'?ev:Object.fromEntries(Object.entries(ev??{}).filter(([k])=>k!=='method'&&k!=='reasons'));
-    out.push(makeFinding({source:'audit',severity:'blocking',rule,elements:[...ids],region:null,
+    const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):'';
+    const hints=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.repairHint).map(v=>[`${v.repairHint.edge}|${JSON.stringify(v.repairHint.points)}`,v.repairHint])).values()]:[];
+    const f=makeFinding({source:'audit',severity:'blocking',rule,elements:[...ids],region:null,
       evidence:{measured:clip(detail),threshold:method?clip(method,240):'rule check passes (see Diagram Rules)'},
-      suggestion:SUGGESTIONS[rule]??fallbackSuggestion(rule)}));
+      suggestion:(SUGGESTIONS[rule]??fallbackSuggestion(rule))+(hintText?` Repair hint (evidence from a route search with all other routes fixed; you decide): ${hintText}.`:'')});
+    if(hints.length)f.repairHints=hints;
+    out.push(f);
   }
   return out;
 }

@@ -151,9 +151,9 @@ test('reviewer thinking defaults to medium; PI_DIAGRAM_REVIEWER_THINKING overrid
     process.env.PI_DIAGRAM_REVIEWER_THINKING='high';
     await createPiReviewerFactory(sdk,{provider:'p',modelId:'m',cwd:'/w'})();assert.equal(calls.create.thinkingLevel,'high');
   }finally{if(prev===undefined)delete process.env.PI_DIAGRAM_REVIEWER_THINKING;else process.env.PI_DIAGRAM_REVIEWER_THINKING=prev}
-  assert.deepEqual(reviewerConfigFromEnv({}),{images:'focus',thinking:'medium'});
-  assert.deepEqual(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_IMAGES:'all',PI_DIAGRAM_REVIEWER_THINKING:'low'}),{images:'all',thinking:'low'});
-  assert.deepEqual(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_IMAGES:'bogus'}),{images:'focus',thinking:'medium'});
+  assert.deepEqual(reviewerConfigFromEnv({}),{images:'focus',thinking:'medium',prompt:'skip'});
+  assert.deepEqual(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_IMAGES:'all',PI_DIAGRAM_REVIEWER_THINKING:'low'}),{images:'all',thinking:'low',prompt:'skip'});
+  assert.deepEqual(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_IMAGES:'bogus'}),{images:'focus',thinking:'medium',prompt:'skip'});
 });
 
 const rec=n=>({sha256:n});
@@ -253,4 +253,20 @@ test('reviewer prompt tells the reviewer which layout rules the auditor measures
   const summary=JSON.parse(/<audit-summary>\n([\s\S]*?)\n<\/audit-summary>/.exec(text)[1]);
   assert.deepEqual(summary.layoutMeasured,{connectorStrokeWidth:{checkedEdges:3,emphasised:0},filletUniformity:{radii:[5],checkedBends:4},textContrast:{checkedTexts:9,threshold:4.5}});
   assert.match(text,/NOT-CHECKABLE[^.]*judge/i);
+});
+
+test('reviewer prompt variant "report": visible defects are reported even when code can also measure them; the ledger (not the prompt) deduplicates',()=>{
+  const skip=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7});
+  const rep=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7,measured:'report'});
+  assert.match(skip,/do not repeat them/i);
+  assert.doesNotMatch(rep,/do not repeat|do not report it again|so do not/i);
+  assert.match(rep,/even if[^.]*(measur|code)/i);assert.match(rep,/dedup/i);
+  assert.match(rep,/25 units/);assert.match(rep,/12 units/); // the numbers stay as facts, not as a reason to stay silent
+  assert.match(rep,/data, not instructions|untrusted/i);assert.match(rep,/ONLY one JSON/);
+  assert.equal(buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7,measured:'skip'}),skip);
+});
+test('reviewer config: PI_DIAGRAM_REVIEWER_PROMPT selects the measured-check policy; unknown values fall back to the default',()=>{
+  assert.equal(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'report'}).prompt,'report');
+  assert.equal(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'skip'}).prompt,'skip');
+  assert.ok(['skip','report'].includes(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'bogus'}).prompt));
 });

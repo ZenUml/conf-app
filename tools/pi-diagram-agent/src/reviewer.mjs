@@ -56,7 +56,10 @@ function layoutMeasured(audit){
   return out;
 }
 
-export function buildReviewerPrompt({facts,audit,geometry,imageLabels}){
+const MEASURED_SKIP=`The deterministic auditor already checks node/edge bindings, text fit, label clearance, route-node intrusion, heading clearance and straight-span crossings. It also measures connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight and legend completeness from the drawn SVG: a PASS for one of these (see layoutMeasured) is final, so do not report it again; if one is NOT-CHECKABLE, judge it yourself from the images. Code also enforces and reports, so do not repeat them: an edge label more than 25 units from its own route, and a route closer than 12 units to the border of an unrelated node or container. Do not repeat checks the auditor passed unless the images plainly contradict it.`;
+const MEASURED_REPORT=`The deterministic auditor and code also measure node/edge bindings, text fit, label clearance, route-node intrusion, heading clearance, straight-span crossings, connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight, legend completeness, an edge label more than 25 units from its own route, and a route closer than 12 units to the border of an unrelated node or container. Report every defect you can SEE in the images even if code can also measure it: your findings are merged with code findings and the ledger deduplicates them, so a repeat costs nothing, while a visible defect you stay silent about may be lost. A check the auditor PASSed (see layoutMeasured) is trustworthy for the geometry it measured; report it only when the images plainly contradict it. If a check is NOT-CHECKABLE, judge it yourself from the images.`;
+
+export function buildReviewerPrompt({facts,audit,geometry,imageLabels,measured='skip'}){
   const rules=REVIEW_RULES.join(', ');
   return `You are an independent diagram reviewer. You have no tools and cannot read files. Attached are ${imageLabels.length} PNG images of ONE candidate diagram (and the original Mermaid render for comparison). Judge only what is visible, and use the measured numbers below.
 
@@ -73,7 +76,7 @@ ${JSON.stringify(geometry)}
 <audit-summary>
 ${JSON.stringify(auditSummary(audit))}
 </audit-summary>
-The deterministic auditor already checks node/edge bindings, text fit, label clearance, route-node intrusion, heading clearance and straight-span crossings. It also measures connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight and legend completeness from the drawn SVG: a PASS for one of these (see layoutMeasured) is final, so do not report it again; if one is NOT-CHECKABLE, judge it yourself from the images. Code also enforces and reports, so do not repeat them: an edge label more than 25 units from its own route, and a route closer than 12 units to the border of an unrelated node or container. Do not repeat checks the auditor passed unless the images plainly contradict it.
+${measured==='report'?MEASURED_REPORT:MEASURED_SKIP}
 
 Rules to apply:
 - Shapes: a node whose facts carry shapeCheck "not-checkable" has a source shape the rules have no notation for; never report shape-change for it. Otherwise every node keeps its source notation shape. A decision node may be the normal diamond; the long-text variant, a horizontally extended hexagon with its points at the top and bottom, is ALLOWED by the rules and is not a shape change. Any other shape change is blocking under rule shape-change, for example a subroutine or queue drawn as a capsule, a cylinder drawn as a rectangle, a diamond turned into a rectangle.
@@ -104,7 +107,7 @@ export function selectReviewImages({originalFull,render,regions=[],mode='focus'}
 }
 
 export function reviewerConfigFromEnv(env=process.env){
-  return {images:env.PI_DIAGRAM_REVIEWER_IMAGES==='all'?'all':'focus',thinking:env.PI_DIAGRAM_REVIEWER_THINKING||'medium'};
+  return {images:env.PI_DIAGRAM_REVIEWER_IMAGES==='all'?'all':'focus',thinking:env.PI_DIAGRAM_REVIEWER_THINKING||'medium',prompt:env.PI_DIAGRAM_REVIEWER_PROMPT==='report'?'report':'skip'};
 }
 
 const bad=(code,detail='')=>Error(`REVIEWER_${code}${detail?`: ${detail}`:''}`);

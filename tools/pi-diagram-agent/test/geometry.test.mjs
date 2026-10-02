@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {rectDistance,polylineGap,geometryMeasurements,geometryFindings,geometryForReviewer,collectGeometry,LABEL_MAX_GAP,ROUTE_MIN_CLEARANCE} from '../src/geometry.mjs';
+import {rectDistance,polylineGap,geometryMeasurements,geometryFindings,geometryForReviewer,collectGeometry,geometryNotCheckable,LABEL_MAX_GAP,ROUTE_MIN_CLEARANCE} from '../src/geometry.mjs';
 
 const R=(x,y,w,h)=>({x,y,w,h});
 const model={nodes:[{id:'A'},{id:'B'},{id:'C'}],edges:[{source:'A',target:'B',label:'ok'},{source:'B',target:'C',label:''}],groups:[]};
@@ -91,4 +91,53 @@ test('geometryForReviewer passes only source-declared ids: author-written ids (a
   const out=JSON.stringify(geometryForReviewer(g,model));
   assert.doesNotMatch(out,/IGNORE/);
   assert.match(out,/"A->B"/);
+});
+
+// Untagged labels: the author wrote class="edge-label" (or data-owner-edge) but no data-edge-label-source/target. Association comes from the
+// SOURCE edge labels by exact text, only when that text is unique; the author's own ownership claim is never trusted.
+const umodel={nodes:[{id:'A'},{id:'B'},{id:'C'}],edges:[{source:'A',target:'B',label:'save'},{source:'B',target:'C',label:'fetch latest<br/>row'}],groups:[]};
+const ugeo=(over={})=>geo({labels:[],untaggedLabels:[{text:'save',box:R(180,100,40,20)},{text:'fetch latest row',box:R(420,10,40,20)}],...over});
+
+test('untagged labels: a label whose text uniquely matches one source edge label is measured against that edge (35+ units off is blocking)',()=>{
+  const m=geometryMeasurements(ugeo(),umodel);
+  assert.equal(m.labels.find(l=>l.edge==='A->B').gap,70);
+  assert.equal(m.labels.find(l=>l.edge==='B->C').gap,0);
+  const f=geometryFindings(ugeo(),umodel).filter(x=>x.rule==='label-detached');
+  assert.equal(f.length,1);assert.deepEqual(f[0].elements,['A->B']);assert.match(f[0].evidence.measured,/70/);
+  assert.deepEqual(geometryNotCheckable(ugeo(),umodel),[]);
+});
+test('untagged labels: ambiguous text (two source edges share it) is NOT-CHECKABLE, never guessed',()=>{
+  const m={...umodel,edges:[{source:'A',target:'B',label:'save'},{source:'B',target:'C',label:'save'}]};
+  const g=ugeo({untaggedLabels:[{text:'save',box:R(180,100,40,20)}]});
+  assert.deepEqual(geometryMeasurements(g,m).labels,[]);
+  assert.deepEqual(geometryFindings(g,m).filter(x=>x.rule==='label-detached'),[]);
+  assert.ok(geometryNotCheckable(g,m).includes('labelDetachment'));
+});
+test('untagged labels: text absent from the source is ignored and the unmatched source label stays NOT-CHECKABLE',()=>{
+  const g=ugeo({untaggedLabels:[{text:'something else',box:R(0,0,10,10)}]});
+  assert.deepEqual(geometryMeasurements(g,umodel).labels,[]);
+  assert.ok(geometryNotCheckable(g,umodel).includes('labelDetachment'));
+});
+test('untagged labels: a tagged label wins; an untagged duplicate of the same edge text is not double counted',()=>{
+  const g=ugeo({labels:[{source:'A',target:'B',box:R(180,10,40,20)}],untaggedLabels:[{text:'save',box:R(180,100,40,20)}]});
+  const m=geometryMeasurements(g,umodel);
+  assert.equal(m.labels.filter(l=>l.edge==='A->B').length,1);
+  assert.equal(m.labels.find(l=>l.edge==='A->B').gap,0);
+});
+test('untagged labels reach the reviewer geometry with their measured gap',()=>{
+  const out=geometryForReviewer(ugeo(),umodel);
+  assert.equal(out.labels.find(l=>l.edge==='A->B').gapToOwnEdge,70);
+});
+test('collectGeometry reports untagged edge-label groups with their text and box',{skip:!env},async()=>{
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><g data-node="A"><rect x="0" y="0" width="100" height="60"/></g><g data-node="B"><rect x="300" y="0" width="100" height="60"/></g><path id="edge-A_B" data-source="A" data-target="B" d="M100 30 L300 30" fill="none" stroke="#000"/><g class="edge-label" data-owner-edge="edge-A_B"><rect x="180" y="100" width="40" height="20"/><text x="185" y="115">  ok  </text></g></svg>`;
+  const g=await collectGeometry(Buffer.from(svg));
+  assert.equal(g.labels.length,0);
+  assert.equal(g.untaggedLabels.length,1);assert.equal(g.untaggedLabels[0].text,'ok');assert.ok(g.untaggedLabels[0].box.y>=99&&g.untaggedLabels[0].box.y<=101);
+  const m=geometryMeasurements(g,{nodes:[{id:'A'},{id:'B'}],edges:[{source:'A',target:'B',label:'ok'}],groups:[]});
+  assert.ok(Math.abs(m.labels[0].gap-70)<2);
+});
+test('collectGeometry also finds bare <text class="edge-label"> labels, once, and not a text nested in an already-found label group',{skip:!env},async()=>{
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><g data-node="A"><rect x="0" y="0" width="100" height="60"/></g><g data-node="B"><rect x="300" y="0" width="100" height="60"/></g><path data-source="A" data-target="B" d="M100 30 L300 30" fill="none" stroke="#000"/><text class="edge-label" x="185" y="115">ok</text><g class="edge-label"><rect x="0" y="150" width="40" height="20"/><text class="edge-label" x="5" y="165">other</text></g></svg>`;
+  const g=await collectGeometry(Buffer.from(svg));
+  assert.deepEqual(g.untaggedLabels.map(l=>l.text).sort(),['ok','other']);
 });

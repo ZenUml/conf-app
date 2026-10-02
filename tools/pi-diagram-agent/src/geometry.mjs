@@ -35,10 +35,30 @@ function unrelatedBorders(g,edge){
   return [...nodes,...groups];
 }
 
+const normText=t=>String(t??'').replace(/<br\s*\/?>/gi,' ').replace(/\s+/g,' ').trim();
+
+/** Labels the checks can measure: those the author tagged with data-edge-label-source/target, plus untagged label groups whose text equals the
+ *  label of exactly one source edge (and no other untagged group shares that text). The author's own ownership attributes are not trusted;
+ *  ambiguous or unmatched text stays unresolved, so the edge's label is NOT-CHECKABLE rather than guessed. */
+export function resolveLabels(g,model){
+  const out=[...(g.labels??[])],tagged=new Set(out.map(l=>edgeId(l.source,l.target)));
+  const untagged=(g.untaggedLabels??[]).map(l=>({text:normText(l.text),box:l.box})).filter(l=>l.text);
+  const count=new Map();for(const l of untagged)count.set(l.text,(count.get(l.text)??0)+1);
+  for(const l of untagged){
+    if(count.get(l.text)!==1)continue;
+    const owners=(model.edges??[]).filter(e=>normText(e.label)===l.text);
+    if(owners.length!==1)continue;
+    const id=edgeId(owners[0].source,owners[0].target);
+    if(tagged.has(id))continue;
+    out.push({source:owners[0].source,target:owners[0].target,box:l.box});tagged.add(id);
+  }
+  return out;
+}
+
 /** Per-label gap to its own route, and per-route nearest unrelated border (a route that enters an unrelated shape is an intrusion, which the auditor owns). */
 export function geometryMeasurements(g,model){
   const byId=new Map(g.edges.map(e=>[e.id,e]));
-  const labels=g.labels.map(l=>{const id=edgeId(l.source,l.target),e=byId.get(id);return {edge:id,box:l.box,gap:e?round(polylineGap(l.box,e.points)):null}});
+  const labels=resolveLabels(g,model).map(l=>{const id=edgeId(l.source,l.target),e=byId.get(id);return {edge:id,box:l.box,gap:e?round(polylineGap(l.box,e.points)):null}});
   const clearances=g.edges.map(e=>{
     let nearest=null;
     for(const b of unrelatedBorders(g,e)){
@@ -94,7 +114,7 @@ export function geometryForReviewer(g,model){
   const nearest=n=>n&&(n.kind==='node'?nodeIds:groupIds).has(n.id)?n:null;
   return {units:'SVG user units, origin top-left, measured by code from the candidate SVG',canvas:g.natural,
     nodes:g.nodes.filter(n=>nodeIds.has(n.id)).map(n=>({id:n.id,box:boxArr(n.box)})),groups:(g.groups??[]).filter(x=>groupIds.has(x.id)).map(x=>({id:x.id,box:boxArr(x.box)})),
-    labels:g.labels.filter(l=>edgeIds.has(edgeId(l.source,l.target))).map(l=>({edge:edgeId(l.source,l.target),box:boxArr(l.box),gapToOwnEdge:gap.get(edgeId(l.source,l.target))})),
+    labels:resolveLabels(g,model).filter(l=>edgeIds.has(edgeId(l.source,l.target))).map(l=>({edge:edgeId(l.source,l.target),box:boxArr(l.box),gapToOwnEdge:gap.get(edgeId(l.source,l.target))})),
     routes:g.edges.filter(e=>edgeIds.has(e.id)).map(e=>({edge:e.id,vertices:simplify(e.points),nearestUnrelated:nearest(clear.get(e.id)??null)}))};
 }
 
@@ -116,13 +136,14 @@ export async function collectGeometry(svgBytes,{playwrightModulePath=process.env
       const nodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(g=>({id:g.getAttribute('data-node')??g.getAttribute('data-node-id'),box:union(shapes(g))??bb(g)}));
       const groups=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].map(g=>{const rect=g.querySelector(':scope > rect');return {id:g.getAttribute('data-group')??g.getAttribute('data-container-id')??g.id.slice(6),box:rect?bb(rect):bb(g)}});
       const labels=[...root.querySelectorAll('g[data-edge-label-source][data-edge-label-target]')].map(g=>({source:g.getAttribute('data-edge-label-source'),target:g.getAttribute('data-edge-label-target'),box:bb(g)}));
+      const untaggedLabels=[...root.querySelectorAll('.edge-label,[data-owner-edge]')].filter(g=>!(g.hasAttribute('data-edge-label-source')&&g.hasAttribute('data-edge-label-target'))&&!g.parentElement?.closest('.edge-label,[data-owner-edge],[data-edge-label-source]')).map(g=>({text:(g.textContent||'').replace(/\s+/g,' ').trim(),box:bb(g)}));
       const edges=[...root.querySelectorAll('[data-source][data-target]')].filter(e=>e instanceof SVGGeometryElement).map(e=>{
         const len=e.getTotalLength(),step=Math.max(2,len/3000),points=[];
         for(let d=0;d<len;d+=step){const p=e.getPointAtLength(d);points.push([p.x,p.y])}
         const last=e.getPointAtLength(len);points.push([last.x,last.y]);
         return {source:e.getAttribute('data-source'),target:e.getAttribute('data-target'),points};
       });
-      return {natural:{w:view?.width||root.getBoundingClientRect().width,h:view?.height||root.getBoundingClientRect().height},nodes,groups,labels,edges};
+      return {natural:{w:view?.width||root.getBoundingClientRect().width,h:view?.height||root.getBoundingClientRect().height},nodes,groups,labels,untaggedLabels,edges};
     },Buffer.from(svgBytes).toString('utf8'));
     if(!raw)throw Error('GEOMETRY_SVG_UNPARSEABLE');
     return {...raw,edges:raw.edges.map(e=>({...e,id:edgeId(e.source,e.target)}))};

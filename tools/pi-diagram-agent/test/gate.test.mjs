@@ -41,18 +41,15 @@ test('auditGateReasons: the pre-reviewer part (audit FAIL excluded: those are fi
   assert.deepEqual(auditGateReasons({audit:nc,forbidden:[]}).map(x=>x.code),['SEMANTICS_NOT_ESTABLISHED']);
 });
 
-// Found by the live smoke: the auditor leaves originalGroupParity (and so semanticPreservation) NOT-CHECKABLE for any source WITHOUT groups
-// ("original rendered SVG was not supplied" is its default text). A group-less source has no membership semantics to compare, so the
-// identity checks decide; a source with groups still needs PASS/ADJUDICATED.
+// The auditor (not the gate) decides group-less semantics: it reports originalGroupParity/semanticPreservation PASS only when the source
+// declares no groups AND the original render has no clusters. The gate has no special case: NOT-CHECKABLE semantics never pass,
+// whatever the identity checks say.
 const groupless=(over={})=>{const a=cleanAudit();a.checks.semanticPreservation={status:'NOT-CHECKABLE'};a.checks.originalGroupParity={status:'NOT-CHECKABLE'};
   for(const k of ['nodeIdentity','nodeText','relations','relationStyle'])a.checks[k]={status:'PASS'};Object.assign(a.checks,over);return a};
-test('gate: a group-less source passes semantics when identity, text, relations and style all PASS (auditor cannot compare groups that do not exist)',()=>{
-  assert.equal(evaluateGate(ok({audit:groupless(),sourceGroupCount:0})).pass,true);
-  assert.deepEqual(auditGateReasons({audit:groupless(),forbidden:[],sourceGroupCount:0}),[]);
+test('gate: no group-less special case — NOT-CHECKABLE semantics block even with every identity check PASS',()=>{
+  assert.deepEqual(codes(evaluateGate(ok({audit:groupless(),sourceGroupCount:0}))),['SEMANTICS_NOT_ESTABLISHED']);
+  assert.deepEqual(auditGateReasons({audit:groupless(),forbidden:[],sourceGroupCount:0}).map(x=>x.code),['SEMANTICS_NOT_ESTABLISHED']);
 });
-test('gate: the group-less allowance is narrow — groups present, unknown group count, or any identity check not PASS',()=>{
-  assert.deepEqual(codes(evaluateGate(ok({audit:groupless(),sourceGroupCount:2}))),['SEMANTICS_NOT_ESTABLISHED']);
-  assert.deepEqual(codes(evaluateGate(ok({audit:groupless()}))),['SEMANTICS_NOT_ESTABLISHED']);
-  for(const k of ['nodeIdentity','nodeText','relations','relationStyle'])
-    assert.deepEqual(codes(evaluateGate(ok({audit:groupless({[k]:{status:'NOT-CHECKABLE'}}),sourceGroupCount:0}))),['SEMANTICS_NOT_ESTABLISHED'],k);
+test('gate: a group-less source passes through the auditor\'s vacuous PASS',()=>{
+  assert.equal(evaluateGate(ok({audit:groupless({semanticPreservation:{status:'PASS'},originalGroupParity:{status:'PASS'}})})).pass,true);
 });

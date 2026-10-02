@@ -348,7 +348,7 @@ test('regression across rounds is tracked: a finding fixed then returning is "re
   }finally{t.cleanup()}
 });
 
-test('group-less source whose audit leaves semanticPreservation NOT-CHECKABLE (auditor default) still reaches the reviewer and can be REVIEWED',async()=>{
+test('NOT-CHECKABLE semantics never reach the reviewer, even for a group-less source with every identity check PASS (no gate special case)',async()=>{
   const t=setup({replies:[rv([])],auditFor:text=>{
     const a={status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'PASS',evidence:{missing:[],extra:[]}},nodeText:{status:'PASS'},relations:{status:'PASS'},relationStyle:{status:'PASS'},groups:{status:'PASS'},
       originalGroupParity:{status:'NOT-CHECKABLE',evidence:'original rendered SVG was not supplied'},semanticPreservation:{status:'NOT-CHECKABLE',evidence:'original rendered membership comparison unavailable'},
@@ -356,6 +356,39 @@ test('group-less source whose audit leaves semanticPreservation NOT-CHECKABLE (a
   try{
     t.write(svg('v1'));
     const r=await t.out();
-    assert.equal(r.status,'REVIEWED');assert.equal(t.calls.reviewer.length,1);
+    assert.equal(r.status,'REVISE');assert.equal(t.calls.reviewer.length,0);
+    assert.ok(r.findings.some(f=>f.rule==='gate-SEMANTICS_NOT_ESTABLISHED'));
+  }finally{t.cleanup()}
+});
+
+const realEnv=!!process.env.PI_DIAGRAM_MERMAID_BUNDLE&&!!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE;
+test('real auditor + real original render: a clean candidate for a group-less source reaches the reviewer and is REVIEWED',{skip:!realEnv},async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-v2-real-')),input=path.join(root,'s.mmd');
+  fs.writeFileSync(input,'flowchart LR\n  A[Start] --> B[Finish]\n');
+  const job=prepareAgentTask(input);let reviews=0;
+  const run=createV2Run(job,{reviewerFactory:()=>({async prompt(_t,{images}){reviews++;return {text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}},dispose(){}})});
+  try{
+    fs.writeFileSync(job.outputPath,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#333"/></marker></defs><g data-node="A"><rect x="10" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="34" y="86">Start</text></g><g data-node="B"><rect x="400" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="424" y="86">Finish</text></g><path data-source="A" data-target="B" d="M130 80 L400 80" stroke="#333" fill="none" marker-end="url(#arrow)"/></svg>');
+    const r=JSON.parse((await run.submit()).content[0].text);
+    assert.equal(reviews,1,JSON.stringify(r.findings));
+    assert.equal(r.status,'REVIEWED');
+    assert.ok(!r.notCheckable.includes('semanticPreservation'));
+  }finally{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(job.runDir,{recursive:true,force:true})}
+});
+
+test('a source the parser cannot read ends as CANDIDATE SOURCE_NOT_PARSEABLE instead of throwing out of diagram_submit',async()=>{
+  const t=setup({replies:[rv([])]});
+  try{
+    const input=path.join(path.dirname(t.job.sourcePath),'u.mmd');fs.writeFileSync(input,'flowchart LR\n  A --> B\n  classDef x fill:#f00\n');
+    const job=prepareAgentTask(input);
+    const run=createV2Run(job,{deps:{render:async b=>({svgHash:hash(b),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200}}),
+      audit:async()=>({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish independent semantic bindings: x'}}}),
+      original:async()=>({rendered:{media:{full:rec('orig')}},svgBytes:Buffer.from('<svg/>')}),image:r=>({type:'image',data:r.sha256,mimeType:'image/png'}),geometry:async()=>null},
+      reviewerFactory:()=>{throw Error('reviewer must not run')},now:()=>0});
+    try{
+      fs.writeFileSync(job.outputPath,svg('v1'));
+      const r=JSON.parse((await run.submit()).content[0].text);
+      assert.equal(r.status,'CANDIDATE');assert.match(r.statusReason,/SOURCE_NOT_PARSEABLE/);
+    }finally{fs.rmSync(job.runDir,{recursive:true,force:true})}
   }finally{t.cleanup()}
 });

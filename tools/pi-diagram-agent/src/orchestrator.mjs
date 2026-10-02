@@ -110,8 +110,8 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       }catch(error){c.notes.push(`GEOMETRY_UNAVAILABLE: ${String(error?.message??error).slice(0,120)}`)}
     }
     if(c.findings.some(f=>f.severity==='blocking'))return c;
-    const reasons=auditGateReasons({audit:c.audit,forbidden:c.forbidden,sourceGroupCount:model.groups.length});
     if(!model){c.notes.push('SOURCE_NOT_PARSEABLE');return c}
+    const reasons=auditGateReasons({audit:c.audit,forbidden:c.forbidden});
     if(reasons.length){c.findings.push(...reasons.map(gateFinding));return c}
     if(!allowReview)return c;
     // Independent review: images + audit summary + parser facts only.
@@ -189,7 +189,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     let reasonOverride=null;
     if(c.stage==='review'&&!c.findings.some(f=>f.severity==='blocking')){
       const finalRead=readCandidate();
-      c.gate=evaluateGate({reviewedHash:c.render.svgHash,finalHash:finalRead.ok?finalRead.hash:null,renderedHash:c.hash,audit:c.audit,forbidden:c.forbidden,review:c.review,openBlocking:0,sourceGroupCount:model.groups.length});
+      c.gate=evaluateGate({reviewedHash:c.render.svgHash,finalHash:finalRead.ok?finalRead.hash:null,renderedHash:c.hash,audit:c.audit,forbidden:c.forbidden,review:c.review,openBlocking:0});
       if(!c.gate.pass)c.findings.push(...c.gate.reasons.map(gateFinding));
     }
     const score=summarise(c);

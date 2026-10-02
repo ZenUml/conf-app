@@ -69,12 +69,15 @@ export type AnalyticsProperties = {
   macro_type?: MacroTypeValue;
   /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
   magic_failure_reason?: MagicFailureReason;
+  /** Automatic Fullscreen assessment; includes a normal absent-artifact state. */
+  magic_availability?: 'available' | 'missing_artifact' | 'stale_source' | 'invalid_artifact' | 'unsafe_svg';
+  /** Initial display outcome after availability and browser-local preference resolve. */
+  magic_default_result?: 'magic_shown' | 'original_preferred' | 'original_unavailable' | 'original_render_failed';
   /** Automatic default or deliberate toolbar click; never identifies the diagram. */
   magic_activation?: 'automatic' | 'manual';
   /** Explicit browser-local viewer choice; choosing Original is not a rating. */
   magic_preference?: 'magic' | 'original';
   magic_preference_storage?: 'persistent' | 'session';
-  /** Generation-bound 1–5 selection. No free-text feedback in these events. */
   /** Explicit comparative feedback; never inferred from the displayed view. */
   magic_layout_preference?: 'magic' | 'original' | 'no_preference';
   // Diagram viewport pan/zoom. This is the user's explicit control intent, not

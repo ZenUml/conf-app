@@ -474,9 +474,13 @@ export type AnalyticsEventName =
   // succeeded only after the prepared SVG is visible, failed on validation or
   // render rejection, restored on an explicit Original click. All use
   // feature_area=ai, surface=fullscreen, macro_type=mermaid;
-  // magic_activation distinguishes automatic/manual requests. The remaining
-  // events cover browser-local preference changes and a generation-bound
-  // numeric rating. Never include source, SVG, hashes, or comment text.
+  // magic_availability_checked counts one current source/artifact assessment,
+  // including absent/stale artifacts, without treating those as user-facing
+  // errors. magic_default_resolved records the initial view decision. Both
+  // exclude obsolete async attempts. magic_activation distinguishes automatic
+  // from manual show requests. No source, SVG, hashes, or comment text.
+  | "magic_availability_checked"
+  | "magic_default_resolved"
   | "magic_view_requested"
   | "magic_view_succeeded"
   | "magic_view_failed"

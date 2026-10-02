@@ -25,7 +25,7 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('e2e-test')).toContain('if(!e.execution_succeeded) process.exit(1)');
     expect(workflow('daily-regression')).toContain("cron: '0 2 * * *'");
     expect(workflow('staging-transaction')).toContain('ref: ${{ inputs.ref }}');
-    expect(workflow('staging-transaction')).toContain('suite: regression');
+    expect(workflow('staging-transaction')).toContain('suite: regression'); expect(workflow('staging-transaction')).not.toContain("if: inputs.variant != 'asyncapi'"); expect(workflow('staging-transaction')).toContain('suite: regression-render');
     expect(workflow('daily-regression')).not.toContain('SLACK_BOT_TOKEN');
   });
 });

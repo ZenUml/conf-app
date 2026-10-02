@@ -119,7 +119,6 @@ jobs:
   render:
     name: E2E full render regression
     needs: [profile, version]
-    if: inputs.variant != 'asyncapi'
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: ${{ needs.profile.outputs.app }}

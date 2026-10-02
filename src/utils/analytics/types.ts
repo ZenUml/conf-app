@@ -75,7 +75,8 @@ export type AnalyticsProperties = {
   magic_preference?: 'magic' | 'original';
   magic_preference_storage?: 'persistent' | 'session';
   /** Generation-bound 1–5 selection. No free-text feedback in these events. */
-  magic_rating?: 1 | 2 | 3 | 4 | 5;
+  /** Explicit comparative feedback; never inferred from the displayed view. */
+  magic_layout_preference?: 'magic' | 'original' | 'no_preference';
   // Diagram viewport pan/zoom. This is the user's explicit control intent, not
   // every intermediate wheel, drag, or pinch callback.
   viewport_action?: "zoom_in" | "zoom_out";

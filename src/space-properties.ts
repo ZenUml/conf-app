@@ -1,9 +1,12 @@
 import api, { route } from '@forge/api';
 
 /**
- * Space-property maintenance shared by the two byline visibility sweeps
- * (src/byline-visibility.ts writes `zenuml-byline-lite` from the Lite app,
- * src/full-presence.ts writes `zenuml-full-active` from the Full app).
+ * Space-property maintenance for the byline visibility sweep:
+ * src/full-presence.ts writes `zenuml-full-active` from the Full app, which the
+ * Lite byline's display condition subtracts. (A Lite-side sweep writing a
+ * `zenuml-byline-lite` enrolment property used this module too until 2026-10;
+ * that gate was removed — see the zenuml-byline-diagrams comment in
+ * manifest.yml.)
  *
  * v2 space properties are the mechanism the byline `displayConditions` reads,
  * and they differ from the app-properties API this feature used first in two

@@ -106,7 +106,6 @@ export const IMPACT = [
   { glob: 'src/components/Byline/UnplacedDiagramsBanner.vue', tags: ['@page-banner'] },
   { glob: 'src/routes/{byline,bylineActivation}.ts', tags: ['@byline'] },
   { glob: 'src/utils/byline/**', tags: ['@byline'] },
-  { glob: 'src/byline-visibility.ts', tags: ['@byline'] },
   { glob: 'src/routes/pageBanner.ts', tags: ['@page-banner'] },
   { glob: 'src/utils/banners/**', tags: ['@page-banner'] },
   { glob: 'src/utils/firstSeen/**', tags: ['@page-banner', '@analytics'] },

@@ -28,7 +28,31 @@ export function aggregateRegression(run, jobs, target) {
       };
       const deployment = stage('deployment', /deploy/i);
       const version = stage('version', /verify[ -]version/i);
-      const tests = stage('tests', /E2E(?!.*setup)/i);
+      // Only execution/evidence jobs establish coverage. Auth reuse and report
+      // merging legitimately skip on healthy runs and are not test verdicts.
+      const suites = ['E2E full live regression', ...(variant === 'AsyncAPI' ? [] : ['E2E full render regression'])];
+      const suiteStates = suites.map(suite => {
+        const prefix = `${variant} / ${suite} / `;
+        const suiteJobs = grouped.filter(job => job.name.startsWith(prefix));
+        const shards = suiteJobs.filter(job => /\/ shard \d+\/\d+$/.test(job.name));
+        const evidence = suiteJobs.filter(job => job.name.endsWith('/ aggregate concrete evidence'));
+        const planning = suiteJobs.filter(job => job.name.endsWith('/ plan concrete tests'));
+        const required = [...planning, ...shards, ...evidence];
+        if (!shards.length || evidence.length !== 1 || planning.length !== 1) {
+          failures.push({ name: `Missing concrete ${suite} coverage for ${variant}`, url: run.html_url });
+          return run.conclusion === 'cancelled' ? 'cancelled' : 'skipped';
+        }
+        const totals = shards.map(job => Number(job.name.match(/\/(\d+)$/)[1]));
+        const indexes = new Set(shards.map(job => Number(job.name.match(/shard (\d+)\//)[1])));
+        if (new Set(totals).size !== 1 || indexes.size !== totals[0] || [...indexes].some(index => index < 1 || index > totals[0])) {
+          failures.push({ name: `Incomplete shard inventory for ${suite}`, url: run.html_url });
+          return 'failure';
+        }
+        for (const job of required) if (normalized(job) !== 'success') failures.push({ name: `${job.name}: ${job.conclusion || job.status || 'unknown'}`, url: job.html_url || run.html_url });
+        const states = required.map(normalized);
+        return states.includes('failure') ? 'failure' : states.includes('cancelled') ? 'cancelled' : states.includes('skipped') ? 'skipped' : 'success';
+      });
+      const tests = suiteStates.includes('failure') ? 'failure' : suiteStates.includes('cancelled') ? 'cancelled' : suiteStates.includes('skipped') ? 'skipped' : 'success';
       // Preserve failures outside recognized stages, including lost transaction coverage.
       for (const job of grouped) if (!/deploy|verify[ -]version|E2E/i.test(job.name) && normalized(job) === 'failure') failures.push({ name: `${job.name}: ${job.conclusion || job.status}`, url: job.html_url || run.html_url });
       return { variant: variant.toLowerCase(), deployment, version, tests, failures };

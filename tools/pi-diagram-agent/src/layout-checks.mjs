@@ -331,17 +331,16 @@ export function shapeClass(name){
   if(RECT_LIKE.test(s))return 'rect';
   if(/diamond|decision|gateway|hexagon/.test(s))return 'decision';
   if(/cylinder|store|database|^db$/.test(s))return 'cylinder';
-  if(/queue/.test(s))return 'queue';
+  if(/queue|subroutine/.test(s))return 'subroutine'; // [[x]] is drawn as a rectangle with two bars; the diagrams call it queue or subroutine
   if(/capsule|stadium|pill|terminator/.test(s))return 'capsule';
-  if(/subroutine/.test(s))return 'subroutine';
   return s;
 }
-const CAPTION_SHAPES=[[/diamond|decision|gateway|hexagon/,'decision'],[/cylinder|database|data ?store|datastore|storage|\bstore\b/,'cylinder'],[/queue/,'queue'],[/capsule|stadium|terminator/,'capsule'],[/subroutine/,'subroutine']];
+const CAPTION_SHAPES=[[/diamond|decision|gateway|hexagon/,'decision'],[/cylinder|database|data ?store|datastore|storage|\bstore\b/,'cylinder'],[/queue|subroutine/,'subroutine'],[/capsule|stadium|terminator/,'capsule']];
 /** A path made only of M/L vertical lines, at least two subpaths (the bars of a subroutine glyph). */
 function isVerticalBars(m){
-  if(m.tag!=='path'||!m.d||/[^MLmlHhVvZz\d\s.,+-]/.test(m.d))return false;
-  const subs=m.d.split(/[Mm]/).filter(x=>x.trim());
-  return subs.length>=2&&subs.every(sub=>{const n=sub.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)?.map(Number)??[];return n.length>=4&&n.every((v,i)=>i%2===1||Math.abs(v-n[0])<1e-6)});
+  if(m.tag!=='path'||!m.d||/[^MLHVZmlhvz\d\s.,+-]/.test(m.d))return false;
+  const segs=parsePath(m.d);
+  return !!segs&&segs.length>=2&&segs.every(g=>g.k==='L'&&!g.z&&Math.abs(g.to[0]-g.from[0])<1e-6&&Math.abs(g.to[1]-g.from[1])>0.5);
 }
 const nums=str=>(String(str??'').match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).map(Number);
 /** Absolute-coordinate path parser (M L H V Q C A Z). Returns null for anything else so the caller reports "cannot classify". */
@@ -378,7 +377,7 @@ function cornersOf(segs){
 /** The drawn shape class of one legend swatch (same classes shapeClass() gives data-shape values), from its geometry only. Returns null when it cannot be classified. */
 export function swatchGeometryClass(m){
   if(m.tag==='circle')return 'circle';
-  if(m.tag==='ellipse')return Math.abs(m.w-m.h)<1?'circle':null;
+  if(m.tag==='ellipse')return Math.abs(m.w-m.h)<1?'circle':'ellipse';
   if(m.tag==='rect')return m.rx>0&&m.rx>=m.h/2-0.5?'capsule':'rect';
   if(m.tag==='polygon'||m.tag==='polyline'){
     const n=nums(m.points);const pts=[];for(let i=0;i+1<n.length;i+=2)pts.push([n[i],n[i+1]]);
@@ -402,12 +401,20 @@ function polygonClass(pts){
   if(pts.length===6)return 'decision';
   return null;
 }
+/** An unpainted path made of two vertical sides and a curved base: the body of a cylinder whose lid is drawn as a separate ellipse. */
+function swatchBodyIsCylinder(m){
+  const segs=parsePath(m.d);if(!segs)return false;
+  return segs.filter(g=>g.k==='L'&&Math.abs(g.to[0]-g.from[0])<0.5&&Math.abs(g.to[1]-g.from[1])>0.5).length>=2&&segs.some(g=>g.k==='C'||g.k==='A'||g.k==='Q');
+}
 /** Classify every painted swatch in the legend; a rectangle swatch with vertical bars inside it is one subroutine glyph, not two things. */
 function classifySwatches(marks){
   const bars=marks.filter(isVerticalBars);
-  const swatches=marks.filter(m=>!isVerticalBars(m)&&(m.painted||m.tag==='polygon'||m.tag==='circle'||m.tag==='ellipse'||(m.tag==='path'&&/z\s*$/i.test(m.d??''))));
+  const inside=(a,b)=>a!==b&&a.scope===b.scope&&a.x>=b.x-1&&a.y>=b.y-1&&a.x+a.w<=b.x+b.w+1&&a.y+a.h<=b.y+b.h+1;
+  // an ellipse inside another swatch of the same entry is that swatch's own decoration (the lid of a cylinder), not a second key
+  const swatches=marks.filter(m=>!isVerticalBars(m)&&!(m.tag==='ellipse'&&marks.some(o=>o.tag==='path'&&inside(m,o)))&&(m.painted||m.tag==='polygon'||m.tag==='circle'||m.tag==='ellipse'||(m.tag==='path'&&/z\s*$/i.test(m.d??''))));
   return swatches.map(m=>{
     let cls=swatchGeometryClass(m);
+    if(cls==='ellipse'&&marks.some(p=>p!==m&&p.scope===m.scope&&p.tag==='path'&&!p.painted&&Math.abs(p.x-m.x)<1.5&&Math.abs(p.w-m.w)<1.5&&swatchBodyIsCylinder(p)))cls='cylinder'; // lid ellipse + open body path
     if(cls==='rect'&&bars.some(b=>b.scope===m.scope&&b.x>=m.x-1&&b.x+b.w<=m.x+m.w+1&&b.y>=m.y-1&&b.y+b.h<=m.y+m.h+1))cls='subroutine';
     return {cls,mark:m};
   });

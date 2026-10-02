@@ -245,3 +245,27 @@ test('legendCompleteness is NOT-CHECKABLE when the swatch geometry cannot be cla
   const r=await run(fixture({nodeB:hexNode,body:odd}));
   assert.equal(check(r,'legendCompleteness')?.status,'NOT-CHECKABLE',JSON.stringify(check(r,'legendCompleteness')));
 });
+
+// T13 calibration: real swatch forms found in T9/T12/v2 output that the geometry classifier must recognise.
+const sw=(inner,cap)=>`<g data-legend="${cap}">${inner}<text x="460" y="29" font-size="16" font-weight="400" fill="#173a63">${cap}</text></g>`;
+const queueB=subroutineB.replace('data-shape="subroutine"','data-shape="queue"');
+test('legendCompleteness: bars written with V commands, and a queue node keyed by the rectangle-with-bars glyph',{skip:!enabled},async()=>{
+  const glyph='<rect x="300" y="20" width="34" height="20" rx="2" fill="#eaf3ff" stroke="#2f6fad"/><path d="M305 20 V40 M329 20 V40" stroke="#2f6fad"/>';
+  for(const node of [subroutineB,queueB]){
+    const r=await run(fixture({nodeB:node,body:sw(glyph,'Hand-off')}));
+    assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
+  }
+});
+test('legendCompleteness: a cylinder swatch drawn with arcs plus a lid ellipse, or a lid ellipse plus an unpainted body path, is one cylinder',{skip:!enabled},async()=>{
+  const arcs='<path d="M300 21 A17 4 0 0 0 334 21 V33 A17 4 0 0 1 300 33 Z" fill="#fff4d6" stroke="#2f6fad"/><ellipse cx="317" cy="21" rx="17" ry="4" fill="#fff4d6" stroke="#2f6fad"/>';
+  const lid='<ellipse cx="317" cy="26" rx="24" ry="8" fill="#fff4d6" stroke="#2f6fad"/><path d="M293 26 V38 C293 48 341 48 341 38 V26" fill="none" stroke="#2f6fad"/>';
+  for(const g of [arcs,lid]){
+    const r=await run(fixture({nodeB:cylinderB,body:legendFill('Process','#eaf3ff',100)+sw(g,'Store')}));
+    assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
+  }
+});
+test('legendCompleteness: a plain oval is not a cylinder key',{skip:!enabled},async()=>{
+  const oval='<ellipse cx="317" cy="29" rx="14" ry="9" fill="#fff4d6" stroke="#2f6fad"/>';
+  const r=await run(fixture({nodeB:cylinderB,body:legendFill('Process','#eaf3ff',100)+sw(oval,'Store')}));
+  assert.equal(check(r,'legendCompleteness')?.status,'FAIL');
+});

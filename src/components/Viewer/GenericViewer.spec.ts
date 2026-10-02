@@ -232,8 +232,7 @@ describe('GenericViewer (chrome-less)', () => {
       store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
       const wrapper = await mountMagic();
       await wrapper.find('[data-testid="magic-toggle"]').trigger('click');
-      await flushPromises();
-      expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true');
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
       expect(wrapper.find('.screen-capture-content .diagram-viewport svg').exists()).toBe(true);
       expect(wrapper.find('.original-diagram').exists()).toBe(false);
       expect(store.state.diagram.mermaidCode).toBe(source);

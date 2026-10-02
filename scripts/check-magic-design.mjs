@@ -2,9 +2,12 @@
  * DESIGN.md values are the contract; this does not replace a browser review. */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
-const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+// Vitest imports this module through Vite's virtual URL; only the standalone
+// Node invocation has a file: URL. CI runs the test through both paths.
+const modulePath = import.meta.url.startsWith('file:') ? fileURLToPath(import.meta.url) : null;
+const root = modulePath ? resolve(dirname(modulePath), '..') : process.cwd();
 const aliases = {
   '--magic-primary': '--color-blue-600',
   '--magic-primary-hover': '--color-blue-700',
@@ -78,7 +81,7 @@ export function checkMagicDesign(design, viewer) {
   return errors;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (modulePath && process.argv[1] && resolve(process.argv[1]) === modulePath) {
   const design = readFileSync(resolve(root, 'DESIGN.md'), 'utf8');
   const viewer = readFileSync(resolve(root, 'src/components/Viewer/GenericViewer.vue'), 'utf8');
   const errors = checkMagicDesign(design, viewer);

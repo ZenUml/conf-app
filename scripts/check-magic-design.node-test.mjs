@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { checkMagicDesign } from './check-magic-design.mjs';
 
-const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+// Works under both node --test and Vitest's virtual module URL in CI.
+const root = process.cwd();
 const design = readFileSync(resolve(root, 'DESIGN.md'), 'utf8');
 const viewer = readFileSync(resolve(root, 'src/components/Viewer/GenericViewer.vue'), 'utf8');
 

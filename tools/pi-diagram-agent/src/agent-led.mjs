@@ -26,7 +26,7 @@ const imageBlock=(file,expected)=>{
 };
 
 /** Create a fresh private working directory and a real Pi agent prompt. No SVG is generated here. */
-export function prepareAgentTask(inputPath,{cwd=process.cwd(),maxSourceBytes=128_000,resumeRunDir=null,referenceSvgPath=null,feedbackPath=null,upgradeRules=false,adjudicationPath=null,directDraft=process.env.PI_DIAGRAM_DIRECT_DRAFT==='1'}={}){
+export function prepareAgentTask(inputPath,{cwd=process.cwd(),maxSourceBytes=128_000,resumeRunDir=null,referenceSvgPath=null,feedbackPath=null,upgradeRules=false,adjudicationPath=null,directDraft=process.env.PI_DIAGRAM_DIRECT_DRAFT!=='0'}={}){
   const sourcePath=fs.realpathSync(path.resolve(cwd,inputPath));
   const stat=fs.statSync(sourcePath);
   if(!stat.isFile()||stat.size===0||stat.size>maxSourceBytes)throw Error('SOURCE_SIZE_OR_TYPE_UNSUPPORTED');

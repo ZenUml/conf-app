@@ -2,13 +2,13 @@
 
 This local prototype has one product entry point: the Pi `/magic` command. It starts a **real model turn**. Pi receives the complete pinned Diagram Rules and exact original Mermaid bytes, creates a diagram-specific native SVG, inspects the original and candidate images, and revises the candidate. It does not call a fixed layout pipeline to choose the design. The earlier deterministic experiment remains in the separate prototype repository history for research, not as a supported conversion fallback.
 
-Load the extension with the installed Pi 0.84.2 runtime:
+Load the extension with the Pi 1.0.0 runtime (RPC clients finish a run on `agent_settled`, not `agent_end`):
 
 ```sh
 pi --extension ./pi-extension.ts
 ```
 
-Then run `/magic /absolute/path/source.mmd`. The command selects an available **native `openai-codex` vision model** for this task and sets high thinking effort without changing the user's global Pi default. Set `PI_DIAGRAM_CODEX_MODEL` to choose a specific model ID from `pi --list-models openai-codex`. Authenticate through Pi's supported `/login` flow; do not copy or export the Codex desktop credential. If no authenticated native model is available, the command stops before sending the source to another provider.
+Then run `/magic /absolute/path/source.mmd`. The command selects an available **native `openai-codex` vision model** for this task and runs the first draft at medium thinking, switching to high after the first successful inspection (see below), without changing the user's global Pi default. Set `PI_DIAGRAM_CODEX_MODEL` to choose a specific model ID from `pi --list-models openai-codex`. Authenticate through Pi's supported `/login` flow; do not copy or export the Codex desktop credential. If no authenticated native model is available, the command stops before sending the source to another provider.
 
 Continue a candidate in the same `/magic` workflow with `/magic /absolute/source.mmd --resume /absolute/pi-diagram-agent-run --reference /absolute/accepted.svg --feedback /absolute/review.txt`. A resume requires the run's exact source/rules hash manifest and existing candidate; the accepted SVG is shown to the agent as full and viewer-fit **reference images**, never copied as output. If the pinned rules changed since the run began, add `--upgrade-rules` to that resume command. A user adjudication of a declared-versus-rendered group conflict enters **only** through the human-invoked command: add `--adjudication /absolute/adjudication.json` (one record or an array). The file is read once at command start, must be an absolute path whose real path lies **outside** the run directory (a path or symlink into it is refused), and its SHA-256 and parsed records are written to the run's `.job.json` before the model turn. `diagram_inspect` audits with the in-memory copy of that manifest and refuses to run if `.job.json` was rewritten afterwards. An `adjudications.json` in the run directory, or adjudications in an older `.job.json`, are never read, because Pi can write anywhere in its run directory; pass `--adjudication` again on every resume that needs it. Residual risk: Pi also has general shell access, so "outside the run directory" is not "unwritable by the model" — the trust boundary is the operator choosing a file they authored and reviewed, and the recorded SHA-256 lets them confirm afterwards which bytes were used. A rewritten `.job.json` between commands can still change the recorded rules history on the next resume (the pinned rules text itself is fixed by hash in code). The original Mermaid render's SVG is likewise kept in memory after its first render, so rewriting the run-directory copy does not change later audits. This records both rules hashes, sends the **entire new rules text** to Pi, and requires a fresh image inspection; old receipts are not promoted to the new rules revision. Reviewer feedback and source remain private local files. Quoted paths with spaces are accepted.
 
@@ -24,7 +24,9 @@ This package emits candidates and visual evidence. It does not yet emit a certif
 
 See [MIGRATION.md](MIGRATION.md) for source provenance and the supported file boundary.
 
-## Speed experiment switches (default off)
+## Speed defaults (on by default)
 
-- `PI_DIAGRAM_FIRST_DRAFT_THINKING=<level>` (e.g. `medium`): `/magic` sets that thinking level for the first draft (overriding the CLI `--thinking`), then switches to `high` right after the first successful `diagram_inspect`. The inspection result JSON carries `thinking: {firstDraft, revisions, switchedAfterMs, current}`.
-- `PI_DIAGRAM_DIRECT_DRAFT=1`: the prompt asks for a direct first candidate (no separate planning message, brief reasoning until the first inspection).
+Based on a 15-vs-15 benchmark (time to first inspection 147 s to 48 s, total elapsed -25%, no visible quality loss):
+
+- First draft runs at `medium` thinking, then `/magic` switches to `high` right after the first successful `diagram_inspect`. The inspection result JSON carries `thinking: {firstDraft, revisions, switchedAfterMs, current}`. Opt out with `PI_DIAGRAM_FIRST_DRAFT_THINKING=high` (no switch, high throughout); any other level (e.g. `low`) sets that first-draft level.
+- The prompt asks for a direct first candidate (no separate planning message, brief reasoning until the first inspection). Opt out with `PI_DIAGRAM_DIRECT_DRAFT=0`.

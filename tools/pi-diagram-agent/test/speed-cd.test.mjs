@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {prepareAgentTask} from '../src/agent-led.mjs';
-import {createThinkingSwitch} from '../src/thinking-switch.mjs';
+import {createThinkingSwitch,resolveFirstDraftThinking} from '../src/thinking-switch.mjs';
 
 const mkInput=()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-speed-cd-'));const input=path.join(root,'s.mmd');fs.writeFileSync(input,'flowchart LR\n A-->B\n');return {root,input}};
 const fakeResult=()=>({content:[{type:'text',text:JSON.stringify({status:'VISUAL_EVIDENCE_ONLY',round:1})},{type:'image',data:'x',mimeType:'image/png'}],details:{round:1}});
@@ -21,15 +21,24 @@ test('D: direct-draft instruction appears only when requested',()=>{
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
-test('D: default follows PI_DIAGRAM_DIRECT_DRAFT=1 and is off when unset',()=>{
+test('D: direct draft is ON by default; PI_DIAGRAM_DIRECT_DRAFT=0 opts out',()=>{
   const {root,input}=mkInput();const prev=process.env.PI_DIAGRAM_DIRECT_DRAFT;
   try{
     delete process.env.PI_DIAGRAM_DIRECT_DRAFT;
-    const a=prepareAgentTask(input);assert.doesNotMatch(a.prompt,/write the first candidate directly/i);
+    const a=prepareAgentTask(input);assert.match(a.prompt,/write the first candidate directly/i);
+    process.env.PI_DIAGRAM_DIRECT_DRAFT='0';
+    const b=prepareAgentTask(input);assert.doesNotMatch(b.prompt,/write the first candidate directly/i);
     process.env.PI_DIAGRAM_DIRECT_DRAFT='1';
-    const b=prepareAgentTask(input);assert.match(b.prompt,/write the first candidate directly/i);
-    for(const j of [a,b])fs.rmSync(j.runDir,{recursive:true,force:true});
+    const c=prepareAgentTask(input);assert.match(c.prompt,/write the first candidate directly/i);
+    for(const j of [a,b,c])fs.rmSync(j.runDir,{recursive:true,force:true});
   }finally{if(prev===undefined)delete process.env.PI_DIAGRAM_DIRECT_DRAFT;else process.env.PI_DIAGRAM_DIRECT_DRAFT=prev;fs.rmSync(root,{recursive:true,force:true})}
+});
+
+test('C: first-draft thinking defaults to medium; =high disables the switch',()=>{
+  assert.equal(resolveFirstDraftThinking({}),'medium');
+  assert.equal(resolveFirstDraftThinking({PI_DIAGRAM_FIRST_DRAFT_THINKING:''}),'medium');
+  assert.equal(resolveFirstDraftThinking({PI_DIAGRAM_FIRST_DRAFT_THINKING:'low'}),'low');
+  assert.equal(resolveFirstDraftThinking({PI_DIAGRAM_FIRST_DRAFT_THINKING:'high'}),undefined);
 });
 
 test('C: unset leaves thinking untouched and inspector unwrapped',async()=>{

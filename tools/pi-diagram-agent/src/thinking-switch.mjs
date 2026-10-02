@@ -24,3 +24,9 @@ export function createThinkingSwitch({firstDraftLevel,finalLevel='high',setLevel
     },
   };
 }
+
+/** Default: first draft at "medium", then "high" after the first successful inspection. PI_DIAGRAM_FIRST_DRAFT_THINKING=high disables the switch (returns undefined). */
+export function resolveFirstDraftThinking(env=process.env){
+  const v=env.PI_DIAGRAM_FIRST_DRAFT_THINKING||'medium';
+  return v==='high'?undefined:v;
+}

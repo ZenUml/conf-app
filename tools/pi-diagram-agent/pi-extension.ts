@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Type } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { prepareAgentTask, createAgentVisualInspector } from './src/agent-led.mjs';
-import { createThinkingSwitch } from './src/thinking-switch.mjs';
+import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
 
 export default function (pi: ExtensionAPI) {
   const jobs = new Map<string, { inspect: () => Promise<unknown> }>();
@@ -38,8 +38,8 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify('A native openai-codex vision model is unavailable. Connect the Codex subscription with Pi /login; no router model was called.', 'warning');
           return;
         }
-        // PI_DIAGRAM_FIRST_DRAFT_THINKING (e.g. "medium"): first draft at that level, then "high" after the first successful inspection. This overrides the CLI --thinking flag for the first draft.
-        const thinking = createThinkingSwitch({ firstDraftLevel: process.env.PI_DIAGRAM_FIRST_DRAFT_THINKING || undefined, setLevel: level => pi.setThinkingLevel(level as any) });
+        // Default: first draft at "medium", then "high" after the first successful inspection (overrides CLI --thinking for the first draft). PI_DIAGRAM_FIRST_DRAFT_THINKING=high disables the switch.
+        const thinking = createThinkingSwitch({ firstDraftLevel: resolveFirstDraftThinking(), setLevel: level => pi.setThinkingLevel(level as any) });
         if (!thinking.start()) pi.setThinkingLevel('high');
         const job = prepareAgentTask(input, { cwd: ctx.cwd, resumeRunDir: options['--resume'] as string | undefined, referenceSvgPath: options['--reference'] as string | undefined, feedbackPath: options['--feedback'] as string | undefined, upgradeRules: options['--upgrade-rules'] === true, adjudicationPath: options['--adjudication'] as string | undefined });
         const jobId = randomUUID();

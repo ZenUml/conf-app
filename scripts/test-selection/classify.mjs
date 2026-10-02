@@ -4,7 +4,7 @@ import { writeFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { CATEGORY_VERSION, CATEGORIES } from '../../tests/e2e-tests/config/categories.mjs';
 
-export const POLICY_VERSION = 'v1-uncalibrated';
+export const POLICY_VERSION = 'v2-guarded-uncalibrated';
 export const MAX_DIFF_BYTES = 180000;
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
 export function pathRule(path) {
@@ -57,7 +57,7 @@ export async function classify({ diff, apiKey, mode = 'observe', humanFull = fal
     result.model = body.model; result.request.usage = body.usage; result.request.outcome = 'success';
     result.mode = Object.values(result.categories).some(c => c.selected) ? 'selected' : 'all';
     if (result.mode === 'all') return fallback('empty-selection');
-    if (mode === 'enabled') result.rules.push('uncalibrated-policy-full-execution');
+    if (mode === 'enabled') { result.execution_mode = 'enabled'; result.rules.push('deterministic-coverage-floor-required'); }
     return result;
   } catch { result.request.duration_ms = Date.now() - start; result.request.outcome = 'failed'; return fallback('api-invalid-or-timeout'); }
 }

@@ -16,6 +16,7 @@ import {
   fillEditorTitle,
   clickEditorPublish,
   expectModalClosed,
+  clickHeaderClose,
   modalContentFrame,
 } from '../../helpers/FullscreenModalHelper.js';
 import { insertMacro } from '../../helpers/MacroFlowHelper.js';
@@ -23,6 +24,8 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
+  GRAPH_DIRTY_MARKER,
 } from '../../helpers/CloseGuardHelper.js';
 
 test.describe('Graph (DrawIO) — Create flow', { tag: ['@test:graph-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@graph'] }, () => {
@@ -74,10 +77,15 @@ test.describe('Graph (DrawIO) — Create flow', { tag: ['@test:graph-create', '@
   });
 
   // graph-create:6 — Close dirty.
-  test('graph-create:6 — dirty editor (autosave message): synthetic beforeunload is true', async ({ page }) => {
-    await insertMacro(page, 'graph');
+  test('graph-create:6 — dirty draft survives header close', async ({ page }) => {
+    const { editorPage, macroName } = await insertMacro(page, 'graph');
     await dirtyEditor(page, 'graph');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result).toBe(true);
+    // view.onClose replaced beforeunload; the draft protects unsaved work.
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain(GRAPH_DIRTY_MARKER);
+    await clickHeaderClose(page, 'edit');
+    await expectModalClosed(page, 'edit');
+    await editorPage.clickInsertElements();
+    await editorPage.searchAndSelectMacro('graph', macroName);
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain(GRAPH_DIRTY_MARKER);
   });
 });

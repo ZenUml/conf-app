@@ -8,7 +8,7 @@ const body = (probability = 0.02) => ({ model: 'jev-1.13.0', usage: { input_toke
 const response = (b: any) => async () => new Response(JSON.stringify(b), { status: 200 });
 describe('Jev conservative classification', () => {
   it('selects uncertain categories, but observation never narrows execution', async () => { const r = await classify({ diff, apiKey: 'fake', fetchImpl: response(body(0.4)) }); expect(r.mode).toBe('selected'); expect(r.execution_mode).toBe('observe'); expect(Object.values(r.categories).every((c: any) => c.selected && c.uncertain)).toBe(true); });
-  it('does not enable uncalibrated narrowing', async () => { const r = await classify({ diff, apiKey: 'fake', mode: 'enabled', fetchImpl: response(body(0.9)) }); expect(r.execution_mode).toBe('all'); expect(r.rules).toContain('uncalibrated-policy-full-execution'); });
+  it('enables guarded selection without claiming calibration', async () => { const r = await classify({ diff, apiKey: 'fake', mode: 'enabled', fetchImpl: response(body(0.9)) }); expect(r.execution_mode).toBe('enabled'); expect(r.rules).toContain('deterministic-coverage-floor-required'); });
   it.each([
     [{ ...diff, complete: false }, 'key', false, 'incomplete-diff'],
     [{ ...diff, paths: ['mystery/file'] }, 'key', false, 'unknown-path'],

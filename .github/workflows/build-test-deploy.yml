@@ -394,7 +394,7 @@ jobs:
   # cannot establish (no merge parent, no run, jobs missing) means no reuse.
   jev-classify:
     needs: gate
-    name: Jev category proposal
+    name: Jev category selection
     if: ${{ needs.gate.outputs.run == 'true' && (github.event_name == 'pull_request' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -422,7 +422,7 @@ jobs:
             [ -n "$BASE_SHA" ] || BASE_SHA="$CANDIDATE"
             node scripts/test-selection/classify.mjs --base "$BASE_SHA" --head "$CANDIDATE" \
               --pr-head "$PR_HEAD" --pr "$PR_NUMBER" --human-full "$HUMAN_FULL" \
-              --mode observe --output test-selection.json
+              --mode enabled --output test-selection.json
           else
             # Bootstrap PR: trusted base predates the classifier; never execute candidate code with the key.
             node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('test-selection.json',JSON.stringify({schema_version:1,head_sha:process.env.CANDIDATE,pr_head_sha:process.env.PR_HEAD,mode:'all',execution_mode:'observe',categories:{},required:['smoke'],fallback_reason:'trusted-base-predates-classifier'}));"
@@ -435,18 +435,12 @@ jobs:
           retention-days: 30
 
   select:
-    needs: gate
-    # PR runs only (ADR-0007 §5): decide which E2E specs this PR needs from
-    # the files it changes, deterministically, via the path→tag map in
-    # tests/e2e-tests/config/impact-map.mjs. `@smoke` always runs; a shared or
-    # unmapped file makes the run unselective. The Lite E2E jobs below take
-    # `grep` from here and add "(selected)" to their names when it is set, so
-    # a selected run is visible in the job list — and never matches
-    # reuse-check's job-name filter, so `main` always runs the full suite.
-    # Skipped on `main` (outputs read as empty → full suite). The ranked
-    # reasons land in the job summary.
+    needs: [gate, jev-classify]
+    # The trusted resolver unions smoke, Jev categories and the established
+    # deterministic coverage floor. Missing/failed Jev means full coverage.
+    # Main skips this job and always runs full normal suites.
     name: "Select E2E for this PR"
-    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name == 'pull_request') }}
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -457,6 +451,15 @@ jobs:
       grep: ${{ steps.select.outputs.grep }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Selection code, like classifier code, comes from the trusted base.
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v6
+        continue-on-error: true
+        with:
+          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: jev-selection
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
@@ -468,6 +471,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
+          CANDIDATE: ${{ github.sha }}
+          SELECTION_PATH: jev-selection/test-selection.json
           HUMAN_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'test:all') }}
         run: |
           set -euo pipefail
@@ -481,8 +486,23 @@ jobs:
           fi
           # The PR's file list from the API (base...head), not a checkout diff:
           # the merge ref's depth games are not worth it. Paginated: up to 3000.
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > changed-files.txt
-          node scripts/e2e-select.mjs --github-output --stdin < changed-files.txt > selection.json
+          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > changed-files.txt; then
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'grep=' >> "$GITHUB_OUTPUT"
+            echo '{"mode":"all","grep":"","reasons":["changed-files-api-failure"]}' > selection.json
+            echo 'Changed file discovery failed: running full coverage' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git fetch origin "$CANDIDATE"
+          export CANDIDATE_TREE=$(git rev-parse "$CANDIDATE^{tree}")
+          if [ -f scripts/test-selection/resolve.mjs ]; then
+            node scripts/test-selection/resolve.mjs > selection.json
+          else
+            # Activation bootstrap: old trusted base cannot authorize selection.
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'grep=' >> "$GITHUB_OUTPUT"
+            echo '{"mode":"all","grep":"","reasons":["trusted-base-predates-activation"]}' > selection.json
+          fi
           MODE=$(jq -r .mode selection.json); GREP=$(jq -r .grep selection.json)
           {
             if [ "$MODE" = "selected" ]; then
@@ -602,7 +622,9 @@ jobs:
     with:
       planned: true
       app: zenuml-lite@stg
-      suite: insert
+      # PR discovery spans all normal live projects; render stays separate.
+      # Main keeps its established insert + graph-publish layout.
+      suite: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
       auth-artifact: auth-state-pre-lite-stg
       # Empty on main and on an unselective PR run (whole suite).
       grep: ${{ needs.select.outputs.grep }}
@@ -654,7 +676,7 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
     needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
     # "(selected)" when the PR's selection narrowed the suite (see `select`).
     name: "E2E: Lite DrawIO Publish${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"

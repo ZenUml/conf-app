@@ -30,7 +30,7 @@ export function aggregateRegression(run, jobs, target) {
       const version = stage('version', /verify[ -]version/i);
       // Only execution/evidence jobs establish coverage. Auth reuse and report
       // merging legitimately skip on healthy runs and are not test verdicts.
-      const suites = ['E2E full live regression', ...(variant === 'AsyncAPI' ? [] : ['E2E full render regression'])];
+      const suites = ['E2E full live regression', 'E2E full render regression'];
       const suiteStates = suites.map(suite => {
         const prefix = `${variant} / ${suite} / `;
         const suiteJobs = grouped.filter(job => job.name.startsWith(prefix));

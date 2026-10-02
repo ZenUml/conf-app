@@ -4,8 +4,7 @@ const run = { id: 42, run_attempt: 2, html_url: 'https://example.com/run', concl
 const job = (name, conclusion = 'success') => ({ name, status: 'completed', conclusion, html_url: 'https://example.com/job' });
 const jobs = ['Lite', 'Full', 'Diagramly', 'AsyncAPI'].flatMap(variant => [
   job(`${variant} / deploy / Deploy`), job(`${variant} / verify version`),
-  ...['E2E full live regression', ...(variant === 'AsyncAPI' ? [] : ['E2E full render regression'])].flatMap(suite => ['plan concrete tests', 'shard 1/2', 'shard 2/2', 'aggregate concrete evidence', 'auth / auth bootstrap', 'merge shard reports'].map(stage => job(`${variant} / ${suite} / ${stage}`, stage.startsWith('auth') || stage.startsWith('merge') ? 'skipped' : 'success'))),
-  ...(variant === 'AsyncAPI' ? [job(`${variant} / E2E full render regression`, 'skipped')] : []),
+  ...['E2E full live regression', 'E2E full render regression'].flatMap(suite => ['plan concrete tests', 'shard 1/2', 'shard 2/2', 'aggregate concrete evidence', 'auth / auth bootstrap', 'merge shard reports'].map(stage => job(`${variant} / ${suite} / ${stage}`, stage.startsWith('auth') || stage.startsWith('merge') ? 'skipped' : 'success'))),
 ]);
 describe('daily regression aggregation', () => {
   it('requires concrete live/render evidence and ignores expected auth/report skips', () => {
@@ -20,6 +19,12 @@ describe('daily regression aggregation', () => {
       expect(result.variants[1].tests).toBe('skipped');
       expect(result.variants[1].failures[0].name).toContain('Missing');
     }
+  });
+  it('requires AsyncAPI render evidence for its OpenAPI macro', () => {
+    const missing = jobs.filter(j => !j.name.startsWith('AsyncAPI / E2E full render regression'));
+    const result = aggregateRegression(run, missing, { sha: 'target' });
+    expect(result.variants[3].tests).toBe('skipped');
+    expect(result.variants[3].failures[0].name).toContain('render regression');
   });
   it('detects an absent shard despite remaining successful shards and aggregate', () => {
     const result = aggregateRegression(run, jobs.filter(j => j.name !== 'Lite / E2E full live regression / shard 2/2'), { sha: 'target' });

@@ -2,9 +2,10 @@
 
 Selection starts in observation mode. Set the repository Actions variable
 `TEST_SELECTION_MODE` to `observe` (the default) to record Jev proposals while
-retaining conservative execution. `enabled` permits selection only after a
-reviewed catalog evaluation establishes category recall and useful test-time
-savings. Three successful examples are not calibration. Review representative
+retaining conservative execution. `enabled` currently still runs conservatively: the checked-in
+`v1-uncalibrated` policy cannot narrow execution. Activation requires a reviewed
+catalog evaluation and a subsequent policy/code change establishing category
+recall and useful test-time savings. Three successful examples are not calibration. Review representative
 narrow, multi-area, shared infrastructure, renamed and deleted changes; record
 missed categories, selected concrete tests and observed durations before activation.
 

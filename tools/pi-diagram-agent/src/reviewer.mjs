@@ -112,11 +112,28 @@ const addUsage=(a,b)=>{const out={...a};for(const [k,v] of Object.entries(b??{})
 
 export const reviewerTimeoutFromEnv=(env=process.env)=>{const v=Number(env.PI_DIAGRAM_REVIEWER_TIMEOUT_S);return Number.isFinite(v)&&v>0?v*1000:300_000};
 
+/** Resolves the reviewer model: default gpt-6.1-sol, env override PI_DIAGRAM_REVIEWER_MODEL, fallback to author model if unavailable or lacks image input.
+ * Returns {provider, id, requested, fallback} where requested is the requested model id (env override or default) and fallback is null or {from, reason}.
+ * @param {Array} available - raw list from ctx.modelRegistry.getAvailable() (unfiltered)
+ * @param {Object} authorModel - the author's selected model {provider, id, ...}
+ * @param {Object} env - environment variables (default process.env)
+ * @return {{provider, id, requested, fallback: null | {from, reason: 'unavailable' | 'no-image-input'}}}
+ */
+export function resolveReviewerModel({available=[],authorModel,env=process.env}={}){
+  const DEFAULT_REVIEWER_MODEL='gpt-6.1-sol';
+  const requested=env.PI_DIAGRAM_REVIEWER_MODEL||DEFAULT_REVIEWER_MODEL;
+  const found=available.find(m=>m.provider==='openai-codex'&&m.id===requested);
+  if(found&&found.input?.includes('image'))return {provider:found.provider,id:found.id,requested,fallback:null};
+  const reason=!found?'unavailable':'no-image-input';
+  if(!authorModel)return {provider:'openai-codex',id:requested,requested,fallback:{from:'none',reason}};
+  return {provider:authorModel.provider,id:authorModel.id,requested,fallback:{from:requested,reason}};
+}
+
 /** One review: a fresh session per attempt; one retry on malformed output or timeout; any second failure is a reviewer error (never a pass).
  *  Each attempt is bounded by timeoutMs (default 300 s, PI_DIAGRAM_REVIEWER_TIMEOUT_S): a hung provider becomes REVIEWER_TIMEOUT, and the
- *  session is disposed, including one whose creation finished after the deadline. */
+ *  session is disposed, including one whose creation finished after the deadline. The session's modelId is returned on success. */
 export async function runReviewer({factory,prompt,images,model,natural,now=Date.now,attempts=2,timeoutMs=reviewerTimeoutFromEnv()}){
-  const started=now();let usage={},lastError='REVIEWER_UNKNOWN',n=0;
+  const started=now();let usage={},lastError='REVIEWER_UNKNOWN',n=0,modelId=null;
   while(n<attempts){
     n++;
     let session,timer,timedOut=false;
@@ -125,17 +142,18 @@ export async function runReviewer({factory,prompt,images,model,natural,now=Date.
       const creating=Promise.resolve().then(()=>factory());
       creating.then(x=>{if(timedOut&&x!==session)try{x?.dispose?.()}catch{}},()=>{}); // created only after the timeout: dispose it too
       session=await Promise.race([creating,deadline]);
+      modelId=session?.modelId??null;
       const reply=await Promise.race([session.prompt(prompt,{images}),deadline]);
       usage=addUsage(usage,reply.usage);
       const parsed=parseReviewerOutput(reply.text,{model,natural,imageCount:images.length});
-      return {ok:true,attempts:n,usage,ms:now()-started,...parsed};
+      return {ok:true,attempts:n,usage,ms:now()-started,modelId,...parsed};
     }catch(error){lastError=String(error?.message??error)}
     finally{clearTimeout(timer);try{session?.dispose?.()}catch{}}
   }
-  return {ok:false,attempts:n,usage,ms:now()-started,error:lastError};
+  return {ok:false,attempts:n,usage,ms:now()-started,error:lastError,modelId};
 }
 
-/** Factory for real Pi sessions (Pi >= 1.0 SDK passed in, so this module needs no Pi dependency). Same native provider/model as the author; auth is read, never changed. */
+/** Factory for real Pi sessions (Pi >= 1.0 SDK passed in, so this module needs no Pi dependency). The returned session carries modelId for recording which model was actually used. Auth is read, never changed. */
 export function createPiReviewerFactory(sdk,{provider,modelId,cwd=null,thinkingLevel=process.env.PI_DIAGRAM_REVIEWER_THINKING||'medium'}){
   return async()=>{
     // The reviewer never touches the run directory: by default its working directory is a fresh empty one.
@@ -148,6 +166,7 @@ export function createPiReviewerFactory(sdk,{provider,modelId,cwd=null,thinkingL
     await resourceLoader.reload();
     const {session}=await sdk.createAgentSession({cwd:workDir,model,thinkingLevel,modelRuntime,resourceLoader,sessionManager:sdk.SessionManager.inMemory(),noTools:'all'});
     return {
+      modelId,
       async prompt(text,{images}){
         await session.prompt(text,{images});
         const assistants=session.messages.filter(m=>m.role==='assistant');

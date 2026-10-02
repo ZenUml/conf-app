@@ -146,7 +146,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   function roundRecord(c,score,extra={}){
     return {round:c.round,svgHash:c.hash,renderedHash:c.render?.svgHash??null,stage:c.stage,reverted:false,
       audit:c.audit?{status:c.audit.status,failedChecks:Object.entries(c.audit.checks??{}).filter(([,v])=>v?.status==='FAIL').map(([k])=>k)}:null,
-      review:c.review?{ok:c.review.ok,verdict:c.review.verdict??null,imageCount:c.review.imageCount??null,attempts:c.review.attempts,ms:c.review.ms,usage:c.review.usage,error:c.review.error??null,findings:(c.review.findings??[]).map(brief)}:null,
+      review:c.review?{ok:c.review.ok,verdict:c.review.verdict??null,imageCount:c.review.imageCount??null,attempts:c.review.attempts,ms:c.review.ms,usage:c.review.usage,error:c.review.error??null,modelId:c.review.modelId??null,findings:(c.review.findings??[]).map(brief)}:null,
       findings:c.findings.map(brief),gate:c.gate,counts:score,...extra};
   }
 

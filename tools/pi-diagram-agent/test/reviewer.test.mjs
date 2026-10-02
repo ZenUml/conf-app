@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildReviewerFacts,buildReviewerPrompt,parseReviewerOutput,runReviewer,createPiReviewerFactory,REVIEWER_CHECKLIST,selectReviewImages,reviewerConfigFromEnv} from '../src/reviewer.mjs';
+import {buildReviewerFacts,buildReviewerPrompt,parseReviewerOutput,runReviewer,createPiReviewerFactory,REVIEWER_CHECKLIST,selectReviewImages,reviewerConfigFromEnv,resolveReviewerModel} from '../src/reviewer.mjs';
 
 const model={direction:'LR',groups:[{id:'G1',label:'Intake'}],nodes:[{id:'A',text:'Start',shape:'rect',group:'G1'},{id:'B',text:'Finish',shape:'diamond',group:null}],edges:[{id:'e1',source:'A',target:'B',label:'ok',style:'dashed'}]};
 const natural={w:600,h:200};
@@ -192,4 +192,36 @@ test('runReviewer: a session whose creation finishes after the timeout is still 
   let normal=0;
   const ok=await runReviewer({factory:()=>({prompt:async(_t,{images})=>({text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}),dispose(){normal++}}),prompt:'p',images:[img(1)],model,natural,timeoutMs:1000});
   assert.equal(ok.ok,true);assert.equal(normal,1);
+});
+
+test('resolveReviewerModel: default is gpt-6.1-sol with image input available',()=>{
+  const available=[{provider:'openai-codex',id:'gpt-6.1-sol',input:['text','image']},{provider:'openai-codex',id:'gpt-5.6-sol',input:['text','image']}];
+  const r=resolveReviewerModel({available,authorModel:{provider:'openai-codex',id:'gpt-5.6-sol'}});
+  assert.equal(r.id,'gpt-6.1-sol');assert.equal(r.provider,'openai-codex');assert.equal(r.requested,'gpt-6.1-sol');assert.equal(r.fallback,null);
+});
+
+test('resolveReviewerModel: env override PI_DIAGRAM_REVIEWER_MODEL is honoured if available with image input',()=>{
+  const available=[{provider:'openai-codex',id:'gpt-6.1-sol',input:['text','image']},{provider:'openai-codex',id:'custom-model',input:['text','image']}];
+  const r=resolveReviewerModel({available,authorModel:{provider:'openai-codex',id:'gpt-5.6-sol'},env:{PI_DIAGRAM_REVIEWER_MODEL:'custom-model'}});
+  assert.equal(r.id,'custom-model');assert.equal(r.requested,'custom-model');assert.equal(r.fallback,null);
+});
+
+test('resolveReviewerModel: fallback to author model when requested model unavailable, recorded with reason and from',()=>{
+  const available=[{provider:'openai-codex',id:'gpt-5.6-sol',input:['text','image']}];
+  const authorModel={provider:'openai-codex',id:'gpt-5.6-sol',input:['text','image']};
+  const r=resolveReviewerModel({available,authorModel,env:{PI_DIAGRAM_REVIEWER_MODEL:'gpt-6.1-sol'}});
+  assert.equal(r.id,'gpt-5.6-sol');assert.equal(r.requested,'gpt-6.1-sol');assert.deepEqual(r.fallback,{from:'gpt-6.1-sol',reason:'unavailable'});
+});
+
+test('resolveReviewerModel: fallback to author model when requested model lacks image input',()=>{
+  const available=[{provider:'openai-codex',id:'gpt-6.1-sol',input:['text']},{provider:'openai-codex',id:'gpt-5.6-sol',input:['text','image']}];
+  const authorModel={provider:'openai-codex',id:'gpt-5.6-sol',input:['text','image']};
+  const r=resolveReviewerModel({available,authorModel});
+  assert.equal(r.id,'gpt-5.6-sol');assert.equal(r.requested,'gpt-6.1-sol');assert.deepEqual(r.fallback,{from:'gpt-6.1-sol',reason:'no-image-input'});
+});
+
+test('resolveReviewerModel: when no author model available, fallback records the reason but has no from',()=>{
+  const available=[{provider:'openai-codex',id:'gpt-5.6-sol',input:['text']}];
+  const r=resolveReviewerModel({available,authorModel:null});
+  assert.equal(r.requested,'gpt-6.1-sol');assert.deepEqual(r.fallback,{from:'none',reason:'unavailable'});
 });

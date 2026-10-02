@@ -41,6 +41,7 @@ function setup(over={}){
   };
   const replies=[...(over.replies??[])];
   const reviewerFactory=()=>({
+    modelId:(over.reviewerCfg?.model?.id??'test-model'),
     async prompt(text,{images}){calls.reviewer.push({text,images});clock.t+=700;if(over.onReview)over.onReview();const r=replies.shift();if(r instanceof Error)throw r;return {text:typeof r==='string'?r:JSON.stringify({imagesSeen:images.length,...r}),usage:{input:10,output:5}}},
     dispose(){},
   });
@@ -480,5 +481,46 @@ test('finalisation waits for an in-flight submit instead of racing it: one round
     const [a,b]=await Promise.all([sub,fin]);
     assert.equal(a.details.status,'REVIEWED');assert.equal(b.details.status,'REVIEWED');
     const m=readRunManifest(t.job.runDir);assert.equal(m.status,'REVIEWED');assert.equal(m.rounds.length,1);
+  }finally{t.cleanup()}
+});
+
+test('reviewer model: default reviewer model and config are stamped in the manifest',async()=>{
+  const t=setup({
+    replies:[rv([])],
+    reviewerCfg:{images:'focus',thinking:'medium',model:{provider:'openai-codex',id:'gpt-6.1-sol',requested:'gpt-6.1-sol',fallback:null}}
+  });try{
+    t.write(svg('clean'));
+    await t.out();
+    const m=readRunManifest(t.job.runDir);
+    assert.ok(m.reviewer.model);
+    assert.equal(m.reviewer.model.id,'gpt-6.1-sol');
+    assert.equal(m.reviewer.model.provider,'openai-codex');
+    assert.equal(m.reviewer.model.requested,'gpt-6.1-sol');
+    assert.equal(m.reviewer.model.fallback,null);
+  }finally{t.cleanup()}
+});
+
+test('reviewer model: per-review model ID is recorded in round review block',async()=>{
+  const t=setup({
+    replies:[rv([])],
+    reviewerCfg:{images:'focus',thinking:'medium',model:{provider:'openai-codex',id:'gpt-6.1-sol',requested:'gpt-6.1-sol',fallback:null}}
+  });try{
+    t.write(svg('clean'));
+    await t.out();
+    const m=readRunManifest(t.job.runDir);
+    assert.equal(m.rounds[0].review.modelId,'gpt-6.1-sol');
+  }finally{t.cleanup()}
+});
+
+test('reviewer model: fallback to author model is recorded when requested model unavailable',async()=>{
+  const t=setup({
+    replies:[rv([])],
+    reviewerCfg:{images:'focus',thinking:'medium',model:{provider:'openai-codex',id:'gpt-5.6-sol',requested:'gpt-6.1-sol',fallback:{from:'gpt-6.1-sol',reason:'unavailable'}}}
+  });try{
+    t.write(svg('clean'));
+    await t.out();
+    const m=readRunManifest(t.job.runDir);
+    assert.deepEqual(m.reviewer.model,{provider:'openai-codex',id:'gpt-5.6-sol',requested:'gpt-6.1-sol',fallback:{from:'gpt-6.1-sol',reason:'unavailable'}});
+    assert.equal(m.rounds[0].review.modelId,'gpt-5.6-sol');
   }finally{t.cleanup()}
 });

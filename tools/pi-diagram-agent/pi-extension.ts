@@ -5,7 +5,7 @@ import * as piSdk from '@earendil-works/pi-coding-agent';
 import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { prepareAgentTask, createAgentVisualInspector, buildSourceFacts, composePrompt } from './src/agent-led.mjs';
 import { createV2Run, budgetsFromEnv } from './src/orchestrator.mjs';
-import { createPiReviewerFactory, reviewerConfigFromEnv } from './src/reviewer.mjs';
+import { createPiReviewerFactory, reviewerConfigFromEnv, resolveReviewerModel } from './src/reviewer.mjs';
 import { acceptRun, safeRunDir } from './src/manifest.mjs';
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
 import { createSpecRenderer, SPEC_TOOL_DESCRIPTION } from './src/spec-tool.mjs';
@@ -46,7 +46,8 @@ export default function (pi: ExtensionAPI) {
         return;
       }
       try {
-        const codexModels = ctx.modelRegistry.getAvailable().filter(model => model.provider === 'openai-codex' && model.input?.includes('image'));
+        const allModels = ctx.modelRegistry.getAvailable();
+        const codexModels = allModels.filter(model => model.provider === 'openai-codex' && model.input?.includes('image'));
         const requestedId = process.env.PI_DIAGRAM_CODEX_MODEL;
         const selected = requestedId ? codexModels.find(model => model.id === requestedId) :
           ctx.model?.provider === 'openai-codex' && ctx.model.input?.includes('image') ? ctx.model : codexModels[0];
@@ -65,11 +66,13 @@ export default function (pi: ExtensionAPI) {
         if (v2On) {
           v2Budgets = budgetsFromEnv();
           const reviewerCfg = reviewerConfigFromEnv();
+          const reviewerModel = resolveReviewerModel({ available: allModels, authorModel: selected });
+          const reviewerCfgWithModel = { ...reviewerCfg, model: reviewerModel };
           inspector = createAgentVisualInspector(job, { maxInspections: v2Budgets.maxInspectionsPerRound, perRound: true, earlyChecks: true });
           run = createV2Run(job, {
-            reviewerFactory: createPiReviewerFactory(piSdk, { provider: selected.provider, modelId: selected.id, thinkingLevel: reviewerCfg.thinking }),
+            reviewerFactory: createPiReviewerFactory(piSdk, { provider: reviewerModel.provider, modelId: reviewerModel.id, thinkingLevel: reviewerCfg.thinking }),
             budgets: v2Budgets,
-            reviewer: reviewerCfg,
+            reviewer: reviewerCfgWithModel,
             onRoundEnd: () => inspector.resetRound(),
           });
           activeRun = run;

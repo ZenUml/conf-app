@@ -27,6 +27,7 @@ export function createLedger(){
       const present=new Map(findings.map(x=>[x.key,x]));
       for(const [key,x] of present){
         const e=entries.get(key);
+        if(e&&e.lastSeenRound===round)continue; // idempotent within a round
         const sig=sigOf?sigOf(x):null;
         if(!e){entries.set(key,{key,state:'open',finding:x,firstRound:round,lastSeenRound:round,oscillations:0,falseBlockCandidate:false,lastSig:sig,history:[{round,state:'open'}]});continue}
         const next=e.state==='fixed'||e.state==='regressed'?'regressed':'open';

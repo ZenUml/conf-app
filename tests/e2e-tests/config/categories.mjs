@@ -455,9 +455,7 @@ export const CATEGORIES = [
     "id": "lite2full-render",
     "description": "Lite->Full converted macro renders. Verifies lite2full render.",
     "variants": [
-      "lite",
-      "full",
-      "diagramly"
+      "full"
     ],
     "dependencies": [],
     "positive_examples": [

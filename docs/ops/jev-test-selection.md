@@ -8,12 +8,19 @@ savings. Three successful examples are not calibration. Review representative
 narrow, multi-area, shared infrastructure, renamed and deleted changes; record
 missed categories, selected concrete tests and observed durations before activation.
 
+Slack integration is deferred at the user’s request. No workflow sends Slack
+messages. Regression verdicts are available in the Actions summary and
+`regression-results-<run-id>-<attempt>` artifact.
+
 ## Actions configuration
 
 - `TYPESAFE_API_KEY`: Actions secret containing the TypeSafe API key. Requests use
   TypeSafe usage billing, separate from an OpenAI subscription. Never publish the
   key or raw request bodies in artifacts. Missing access falls back to full tests.
 - `TEST_SELECTION_MODE`: Actions variable, `observe` or `enabled`.
+The following Slack settings are reserved for a later integration; they are not
+required by the current pipelines.
+
 - `SLACK_BOT_TOKEN`: Actions secret containing a Slack bot token authorized to post
   and update its own messages in `#zenuml`.
 - `SLACK_CHANNEL_ID`: Actions variable containing the verified channel ID for
@@ -45,9 +52,10 @@ ownership, with complete live coverage regardless of Jev. Variant failures do
 not stop the remaining transactions. Initially its verdict is advisory for
 production release; existing release validation and ordering remain authoritative.
 
-## Notification result and recovery contract
+## Deferred notification result and recovery contract
 
-Run the notifier from trusted CI code:
+The notifier module is implemented and unit tested, but not connected to CI.
+When Slack work resumes, use trusted CI code:
 
 ```sh
 node scripts/test-selection/notify.mjs --results regression-results.json --metadata slack-message.json

@@ -23,3 +23,8 @@ Local browser requirements: set `PI_DIAGRAM_PLAYWRIGHT_MODULE` to an installed P
 This package emits candidates and visual evidence. It does not yet emit a certified Magic artifact. Two private historical candidates remain **UNCERTIFIED**; their diagrams, references, screenshots, and evidence records are deliberately excluded from this public package. Neither full quality certification nor a speedup is claimed.
 
 See [MIGRATION.md](MIGRATION.md) for source provenance and the supported file boundary.
+
+## Speed experiments (opt-in, both default off)
+
+- `PI_DIAGRAM_SPEC_MODE=1` registers `diagram_render_spec` and adds a short schema paragraph to the prompt. The model may write `layout.json` (canvas, palette roles with meanings, groups, nodes, edges with explicit orthogonal `points`, legend) instead of a generator script; `src/spec-render.mjs` draws it exactly into `candidate.svg` (uniform r=5 fillets, per-colour markers, label pills, auditor tagging) and returns text findings. It never moves, reroutes or repairs anything and never fails on a rule violation; only malformed JSON or schema errors are rejected, with a path and message. The model still decides every coordinate.
+- `PI_DIAGRAM_SOURCE_FACTS=1` appends parser facts (nodes, edges, groups, declared vs rendered group) and each node's position in the original Mermaid render, labelled reference only. The original is rendered before the first model turn and reused by `diagram_inspect` (hash-bound).

@@ -6,6 +6,9 @@ import {createHash} from 'node:crypto';
 import {renderOriginalMermaid} from './original-render.mjs';
 import {renderAgentSvg} from './agent-render.mjs';
 import {auditAgentSvg} from './agent-audit.mjs';
+import {parseMermaid} from './parser.mjs';
+import {collectOriginalLayout,formatSourceFacts} from './source-facts.mjs';
+import {specModeParagraph} from './spec-tool.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const RULES_SHA='c790f138cafae94fb9e601d7b35c1460cf6eac276211a6341c39deb2227534ea';
@@ -81,6 +84,38 @@ export function prepareAgentTask(inputPath,{cwd=process.cwd(),maxSourceBytes=128
   return {runDir,outputPath,sourcePath,sourceHash,sourceBytes,rulesHash,prompt,referenceSvgBytes,referenceHash,adjudications,manifest:nextManifest,manifestHash:hash(manifestBytes)};
 }
 
+const originals=new WeakMap();
+/** Render the exact source once per job (shared by source facts and the inspector). The SVG bytes are kept in memory and hash-bound:
+ *  the run-directory copy is writable by the agent under audit. A failed render is not cached. */
+export function ensureOriginal(job,{mermaidBundlePath=process.env.PI_DIAGRAM_MERMAID_BUNDLE}={}){
+  let pending=originals.get(job);
+  if(pending)return pending;
+  if(!mermaidBundlePath)return Promise.reject(Error('MERMAID_BUNDLE_REQUIRED_FOR_ORIGINAL_COMPARISON'));
+  pending=(async()=>{
+    const rendered=await renderOriginalMermaid(job.sourceBytes,{outPrefix:path.join(job.runDir,'source'),mermaidBundlePath});
+    const bytes=fs.readFileSync(path.join(job.runDir,rendered.media.svg.file));
+    if(hash(bytes)!==rendered.originalSvgHash)throw Error('ORIGINAL_SVG_CHANGED');
+    return {rendered,svgBytes:bytes};
+  })();
+  originals.set(job,pending);
+  pending.catch(()=>{if(originals.get(job)===pending)originals.delete(job)});
+  return pending;
+}
+
+/** Structured source facts for the prompt (PI_DIAGRAM_SOURCE_FACTS=1): parser output plus positions in the original render. Needs the original render before the first model turn. */
+export async function buildSourceFacts(job,{mermaidBundlePath=process.env.PI_DIAGRAM_MERMAID_BUNDLE}={}){
+  const model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'));
+  const {svgBytes}=await ensureOriginal(job,{mermaidBundlePath});
+  return formatSourceFacts(model,await collectOriginalLayout(svgBytes,model));
+}
+
+/** The user message sent to Pi. Default (no options) is the script-mode message; options only append. */
+export function composePrompt(job,{jobId,specMode=false,factsText=null}={}){
+  const facts=factsText?`\n\n${factsText}`:'';
+  const base=`${job.prompt}${facts}\n\nVisual inspection job ID: ${jobId}. Call diagram_inspect with this ID after each candidate. The tool returns the original image, ${job.referenceSvgBytes?'accepted reference full and viewer-fit images, ':''}candidate full image, four candidate crops, and final-viewer contain-fit image as actual images. Your final answer must state the candidate path, exact SVG hash from the final inspection, defects that remain, and which rules lack independent proof.`;
+  return specMode?`${base}\n\n${specModeParagraph({runDir:job.runDir,jobId})}`:base;
+}
+
 /** Visual evidence for a model turn. Its PASS only means screenshots were captured. */
 export function createAgentVisualInspector(job,{mermaidBundlePath=process.env.PI_DIAGRAM_MERMAID_BUNDLE,maxInspections=8}={}){
   let original=null,originalSvgBytes=null,reference=null,inspections=0;
@@ -93,12 +128,9 @@ export function createAgentVisualInspector(job,{mermaidBundlePath=process.env.PI
     const svgBytes=fs.readFileSync(job.outputPath),svg=exactUtf8(svgBytes),svgHash=hash(svgBytes);
     if(!/^\s*(?:<\?xml\s+[^>]*\?>\s*)?<svg\b/i.test(svg)||/<\s*(?:script|foreignObject)\b|\bon[a-z]+\s*=/i.test(svg))throw Error('UNSAFE_OR_NON_SVG_CANDIDATE');
     if(!original){
-      if(!mermaidBundlePath)throw Error('MERMAID_BUNDLE_REQUIRED_FOR_ORIGINAL_COMPARISON');
-      const rendered=await renderOriginalMermaid(job.sourceBytes,{outPrefix:path.join(job.runDir,'source'),mermaidBundlePath});
-      // Keep the original SVG bytes in memory: the run-directory copy is writable by the agent under audit.
-      const bytes=fs.readFileSync(path.join(job.runDir,rendered.media.svg.file));
-      if(hash(bytes)!==rendered.originalSvgHash)throw Error('ORIGINAL_SVG_CHANGED');
-      original=rendered;originalSvgBytes=bytes;
+      // Keep the original SVG bytes in memory: the run-directory copy is writable by the agent under audit. May already be rendered for source facts.
+      const shared=await ensureOriginal(job,{mermaidBundlePath});
+      original=shared.rendered;originalSvgBytes=shared.svgBytes;
     }
     if(job.referenceSvgBytes&&!reference)reference=await renderAgentSvg(job.referenceSvgBytes,{outPrefix:path.join(job.runDir,'accepted-reference'),displayWidth:1200,displayHeight:710});
     const rendered=await renderAgentSvg(svgBytes,{outPrefix:path.join(job.runDir,'candidate'),displayWidth:1200,displayHeight:710});

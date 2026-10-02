@@ -34,10 +34,11 @@ export const STRUCTURAL_NOT_CHECKABLE=['routeGeometry','visualQuality'];
 /** Reduce a run's event list (as logged by the harness) to the numbers the summary needs. */
 export function reduceEvents(events){
   const r={doneReason:null,elapsedMs:null,toolCalls:0,inspections:0,inputTokens:0,outputTokens:0,assistantMessages:0,
-    firstAssistantMs:null,firstInspectionStartMs:null,firstInspectionEndMs:null,rateLimited:false,agentError:null,runDir:null,errors:[]};
+    firstAssistantMs:null,specRenders:0,sourceFactsIncluded:false,specModeOffered:false,outputTokensBeforeFirstInspection:null,firstInspectionStartMs:null,firstInspectionEndMs:null,rateLimited:false,agentError:null,runDir:null,errors:[]};
   for(const e of events){
+    if(e.kind==='notify'){if(/^Source facts included/.test(e.text??''))r.sourceFactsIncluded=true;if(/^Layout spec mode on/.test(e.text??''))r.specModeOffered=true}
     if(e.kind==='notify'&&r.runDir===null){const m=/private work directory:\s*(\S+)/.exec(e.text??'');if(m)r.runDir=m[1]}
-    if(e.kind==='tool-start'){r.toolCalls++;if(e.tool==='diagram_inspect'){r.inspections++;r.firstInspectionStartMs??=e.tMs}}
+    if(e.kind==='tool-start'){r.toolCalls++;if(e.tool==='diagram_render_spec')r.specRenders++;if(e.tool==='diagram_inspect'){r.inspections++;if(r.firstInspectionStartMs===null){r.firstInspectionStartMs=e.tMs;r.outputTokensBeforeFirstInspection=r.outputTokens}}}
     if(e.kind==='tool-end'&&e.tool==='diagram_inspect'){r.firstInspectionEndMs??=e.tMs}
     if(e.kind==='tool-end'&&e.isError)r.errors.push(`${e.tool}: ${String(e.error??'').slice(0,160)}`);
     if(e.kind==='assistant'){r.assistantMessages++;r.agentError=e.stopReason==='error'?(e.errorMessage??'error'):null;r.firstAssistantMs??=e.tMs;r.inputTokens+=e.usage?.input??0;r.outputTokens+=e.usage?.output??0}

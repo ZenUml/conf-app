@@ -2,10 +2,13 @@
 import { randomUUID } from 'node:crypto';
 import { Type } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { prepareAgentTask, createAgentVisualInspector } from './src/agent-led.mjs';
+import { prepareAgentTask, createAgentVisualInspector, buildSourceFacts, composePrompt } from './src/agent-led.mjs';
+import { createSpecRenderer, SPEC_TOOL_DESCRIPTION } from './src/spec-tool.mjs';
 
 export default function (pi: ExtensionAPI) {
-  const jobs = new Map<string, { inspect: () => Promise<unknown> }>();
+  const jobs = new Map<string, { inspect: () => Promise<unknown>; renderSpec: () => Promise<unknown> }>();
+  // Opt-in experiments; both default off and leave the script-mode prompt and tool list unchanged.
+  const specMode = process.env.PI_DIAGRAM_SPEC_MODE === '1';
 
   pi.registerCommand('magic', {
     description: 'Start a Pi-led, quality-first Mermaid-to-SVG improvement session',
@@ -40,8 +43,18 @@ export default function (pi: ExtensionAPI) {
         pi.setThinkingLevel('high');
         const job = prepareAgentTask(input, { cwd: ctx.cwd, resumeRunDir: options['--resume'] as string | undefined, referenceSvgPath: options['--reference'] as string | undefined, feedbackPath: options['--feedback'] as string | undefined, upgradeRules: options['--upgrade-rules'] === true, adjudicationPath: options['--adjudication'] as string | undefined });
         const jobId = randomUUID();
-        jobs.set(jobId, { inspect: createAgentVisualInspector(job) });
-        pi.sendUserMessage(`${job.prompt}\n\nVisual inspection job ID: ${jobId}. Call diagram_inspect with this ID after each candidate. The tool returns the original image, ${job.referenceSvgBytes ? 'accepted reference full and viewer-fit images, ' : ''}candidate full image, four candidate crops, and final-viewer contain-fit image as actual images. Your final answer must state the candidate path, exact SVG hash from the final inspection, defects that remain, and which rules lack independent proof.`, { deliverAs: 'followUp' });
+        jobs.set(jobId, { inspect: createAgentVisualInspector(job), renderSpec: createSpecRenderer(job) });
+        let factsText: string | null = null;
+        if (process.env.PI_DIAGRAM_SOURCE_FACTS === '1') {
+          try {
+            factsText = await buildSourceFacts(job);
+            ctx.ui.notify('Source facts included in the prompt (original render positions, reference only)', 'info');
+          } catch (error) {
+            ctx.ui.notify(`Source facts unavailable, continuing without them: ${String((error as Error).message)}`, 'warning');
+          }
+        }
+        if (specMode) ctx.ui.notify('Layout spec mode on: layout.json + diagram_render_spec offered', 'info');
+        pi.sendUserMessage(composePrompt(job, { jobId, specMode, factsText }), { deliverAs: 'followUp' });
         ctx.ui.notify(`Pi diagram agent started; private work directory: ${job.runDir}`, 'info');
       } catch (error) {
         ctx.ui.notify(`Diagram agent could not start: ${String((error as Error).message)}`, 'warning');
@@ -59,4 +72,17 @@ export default function (pi: ExtensionAPI) {
       return await job.inspect();
     },
   }));
+  if (specMode) {
+    pi.registerTool(defineTool({
+      name: 'diagram_render_spec',
+      label: 'Render layout.json to candidate.svg',
+      description: SPEC_TOOL_DESCRIPTION,
+      parameters: Type.Object({ jobId: Type.String() }),
+      async execute(_id, params) {
+        const job = jobs.get(params.jobId);
+        if (!job) throw Error('UNKNOWN_DIAGRAM_JOB');
+        return await job.renderSpec();
+      },
+    }));
+  }
 }

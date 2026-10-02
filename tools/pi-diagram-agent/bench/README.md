@@ -26,10 +26,10 @@ node tools/pi-diagram-agent/bench/run-bench.mjs \
   --fixtures tools/pi-diagram-agent/bench/fixtures/*.mmd \
   --reps 3 --concurrency 4 \
   --out /tmp/pi-bench/my-run \
-  [--magic-options '--some-flag'] [--timeout-min 15] [--pi-bin /path/to/pi]
+  [--magic-options '--some-flag'] [--timeout-min 15] [--pi-bin /path/to/pi] [--env KEY=VALUE]
 ```
 
-`--fixtures` takes a comma-separated list of paths, bare fixture names (`f2-decision`) or globs (quote them so the shell does not expand them if you want the harness to). `--pi-bin` selects the Pi executable (default `pi` on PATH), e.g. a separate npm install of another Pi version. A run finishes on `agent_settled` (Pi docs/rpc.md: `agent_end` is not final); if `agent_end` arrives and no `agent_settled` follows within 5 s (Pi 0.84.x never emits it) the run finishes as `AGENT_END_NO_SETTLE`. All of `AGENT_SETTLED`, `AGENT_END_NO_SETTLE` and legacy `AGENT_END` count as completed. `--package` is the package root whose `pi-extension.ts` is loaded; the auditor is always this worktree's `src/agent-audit.mjs` (override with `--auditor`). The Playwright, Chromium and Mermaid bundle environment variables default to the paths used by the existing smoke driver; export `PI_DIAGRAM_*` to override.
+`--fixtures` takes a comma-separated list of paths, bare fixture names (`f2-decision`) or globs (quote them so the shell does not expand them if you want the harness to). `--pi-bin` selects the Pi executable (default `pi` on PATH), e.g. a separate npm install of another Pi version. A run finishes on `agent_settled` (Pi docs/rpc.md: `agent_end` is not final); if `agent_end` arrives and no `agent_settled` follows within 5 s (Pi 0.84.x never emits it) the run finishes as `AGENT_END_NO_SETTLE`. All of `AGENT_SETTLED`, `AGENT_END_NO_SETTLE` and legacy `AGENT_END` count as completed. `--env KEY=VALUE` (repeatable) adds environment variables to every spawned Pi (for example `PI_DIAGRAM_SPEC_MODE=1`, `PI_DIAGRAM_SOURCE_FACTS=1`); the summary records `specRenders` (diagram_render_spec calls), `sourceFactsIncluded` and `outputTokensBeforeFirstInspection` per run. `--package` is the package root whose `pi-extension.ts` is loaded; the auditor is always this worktree's `src/agent-audit.mjs` (override with `--auditor`). The Playwright, Chromium and Mermaid bundle environment variables default to the paths used by the existing smoke driver; export `PI_DIAGRAM_*` to override.
 
 ## Outputs (in `--out`)
 

@@ -19,7 +19,7 @@ const ENV_DEFAULTS={
 for(const [k,v] of Object.entries(ENV_DEFAULTS))process.env[k]??=v; // the in-process auditor reads these too
 
 function parseArgs(argv){
-  const o={reps:1,concurrency:1,timeoutMin:15,magicOptions:'',piBin:'pi',auditor:path.join(worktreePkg,'src/agent-audit.mjs')};
+  const o={env:{},reps:1,concurrency:1,timeoutMin:15,magicOptions:'',piBin:'pi',auditor:path.join(worktreePkg,'src/agent-audit.mjs')};
   for(let i=0;i<argv.length;i++){
     const a=argv[i],next=()=>{if(i+1>=argv.length)throw Error(`missing value for ${a}`);return argv[++i]};
     if(a==='--package')o.package=next();
@@ -31,9 +31,10 @@ function parseArgs(argv){
     else if(a==='--timeout-min')o.timeoutMin=Number(next());
     else if(a==='--pi-bin')o.piBin=next();
     else if(a==='--auditor')o.auditor=next();
+    else if(a==='--env'){const kv=next(),i=kv.indexOf('=');if(i<1)throw Error('--env expects KEY=VALUE');o.env[kv.slice(0,i)]=kv.slice(i+1)}
     else throw Error(`unknown argument ${a}`);
   }
-  if(!o.package||!o.out)throw Error('usage: run-bench.mjs --package <pkg root> --fixtures <glob|list> --reps N --concurrency K --out <dir outside repo> [--magic-options "..."] [--pi-bin <path>] [--timeout-min 15]');
+  if(!o.package||!o.out)throw Error('usage: run-bench.mjs --package <pkg root> --fixtures <glob|list> --reps N --concurrency K --out <dir outside repo> [--magic-options "..."] [--pi-bin <path>] [--timeout-min 15] [--env KEY=VALUE]...');
   if(!(o.reps>=1)||!(o.concurrency>=1))throw Error('--reps and --concurrency must be >= 1');
   return o;
 }
@@ -54,10 +55,10 @@ function resolveFixtures(spec){
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 
 /** Spawn `pi --mode rpc` exactly like driver-control.mjs and log events to eventFile. Resolves with the run's reduced events. */
-function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi'}){
+function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv={}}){
   return new Promise(resolve=>{
     const args=['--mode','rpc','--provider','openai-codex','--model','gpt-5.6-sol','--thinking','high','--no-session','--no-skills','--no-context-files','--no-prompt-templates','--no-extensions','--extension',pkg+'/pi-extension.ts'];
-    const env={...process.env};
+    const env={...process.env,...extraEnv};
     const child=spawn(piBin,args,{cwd:pkg,env});
     const events=[];const started=Date.now();const tracker=createRunTracker();let graceTimer=null;let buffer='',n=0,toolCalls=0,inspections=0,finished=false;
     const log=x=>{x.tMs=Date.now()-started;events.push(x);fs.appendFileSync(eventFile,JSON.stringify(x)+'\n')};
@@ -123,7 +124,7 @@ async function main(){
   const auditFn=(s,v,opts)=>auditAgentSvg(s,v,opts);
   const jobs=[];for(const f of fixtures)for(let r=1;r<=o.reps;r++){const name=path.basename(f,'.mmd');jobs.push({fixture:name,source:f,id:`${name}-r${r}`})}
   const runs=[];let rateLimited=false,next=0;
-  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:'openai-codex gpt-5.6-sol, thinking high',magicOptions:o.magicOptions||'(none)',piBin:o.piBin,startedAt:new Date().toISOString()};
+  const meta={package:pkg,auditor:path.resolve(o.auditor),fixtures:fixtures.map(f=>path.basename(f)).join(', '),reps:o.reps,concurrency:o.concurrency,model:'openai-codex gpt-5.6-sol, thinking high',magicOptions:o.magicOptions||'(none)',piBin:o.piBin,env:Object.keys(o.env).length?JSON.stringify(o.env):'(none)',startedAt:new Date().toISOString()};
   const writeSummary=()=>{
     const ordered=jobs.map(j=>runs.find(r=>r.id===j.id)).filter(Boolean);
     const summary={meta,...aggregate(ordered),runs:ordered};
@@ -136,7 +137,7 @@ async function main(){
       if(rateLimited){runs.push({id:job.id,fixture:job.fixture,doneReason:'SKIPPED_RATE_LIMIT',rateLimited:false,toolCalls:0,inspections:0,inputTokens:0,outputTokens:0});writeSummary();continue}
       const base=path.join(out,job.id),eventFile=base+'.jsonl';fs.rmSync(eventFile,{force:true});
       console.error(`[bench] start ${job.id}`);
-      const events=await runPi({pkg,source:job.source,eventFile,magicOptions:o.magicOptions,piBin:o.piBin,timeoutMs:o.timeoutMin*60_000});
+      const events=await runPi({pkg,source:job.source,eventFile,magicOptions:o.magicOptions,piBin:o.piBin,extraEnv:o.env,timeoutMs:o.timeoutMin*60_000});
       const r=reduceEvents(events);
       if(events.some(eventIsRateLimit)){rateLimited=true;console.error(`[bench] rate-limit text seen in ${job.id}: no further runs will start`)}
       const post=await postProcess({runDir:r.runDir,source:job.source,outBase:base,auditFn});

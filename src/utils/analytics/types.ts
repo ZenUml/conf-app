@@ -70,7 +70,7 @@ export type AnalyticsProperties = {
   /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
   magic_failure_reason?: MagicFailureReason;
   /** Automatic Fullscreen assessment; includes a normal absent-artifact state. */
-  magic_availability?: 'available' | 'missing_artifact' | 'stale_source' | 'invalid_artifact' | 'unsafe_svg';
+  magic_availability?: 'available' | 'missing_artifact' | 'stale_source' | 'invalid_artifact' | 'unsafe_svg' | 'check_failed';
   /** Initial display outcome after availability and browser-local preference resolve. */
   magic_default_result?: 'magic_shown' | 'original_preferred' | 'original_unavailable' | 'original_render_failed';
   /** Automatic default or deliberate toolbar click; never identifies the diagram. */

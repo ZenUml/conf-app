@@ -568,6 +568,8 @@ export default {
     magicIdentityReady: false,
     magicInitializing: false,
     magicInitializeAttempt: 0,
+    magicAvailabilityReported: [],
+    magicDefaultReported: [],
     magicSessionChoice: null,
     magicSessionChoiceKey: null,
     magicLayoutFeedback: null,
@@ -1175,25 +1177,58 @@ export default {
         magic_preference: choice, magic_preference_storage: persistent ? 'persistent' : 'session',
       });
     },
+    reportMagicAssessment(eventName, propertyName, value, source, artifact) {
+      if (this.diagramType !== DiagramType.Mermaid || (this.diagram?.mermaidCode ?? '') !== source
+        || this.diagram?.magic !== artifact) return;
+      const reported = eventName === 'magic_availability_checked'
+        ? this.magicAvailabilityReported : this.magicDefaultReported;
+      const contentId = this.diagram?.id;
+      if (reported.some(item => item.source === source && item.artifact === artifact && item.contentId === contentId)) return;
+      reported.push({ source, artifact, contentId });
+      this.magicEvent(eventName, { [propertyName]: value });
+    },
     async initializeMagic() {
       if (!this.magicIdentityReady || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid
-        || !this.diagram?.magic || this.magicActive || this.magicPending || this.magicInitializing) return;
+        || this.magicActive || this.magicPending || this.magicInitializing) return;
       const generation = this.magicGeneration;
       const attempt = ++this.magicInitializeAttempt;
       const source = this.diagram.mermaidCode ?? '';
       const artifact = this.diagram.magic;
+      if (!artifact) {
+        this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'missing_artifact', source, artifact);
+        this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
+        return;
+      }
       this.magicInitializing = true;
       try {
         const result = await validateMagicArtifact(artifact, source);
         if (generation !== this.magicGeneration || this.diagramType !== DiagramType.Mermaid
-          || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact || 'reason' in result) return;
+          || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact) return;
+        if ('reason' in result) {
+          this.reportMagicAssessment('magic_availability_checked', 'magic_availability', result.reason, source, artifact);
+          this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
+          return;
+        }
+        this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'available', source, artifact);
         this.magicAvailable = true;
         await this.loadMagicFeedback(artifact, source);
         if (generation !== this.magicGeneration || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact) return;
         const persisted = readMagicPreference(this.magicIdentity(artifact.sourceHash));
         const session = this.magicSessionChoiceKey === this.magicSessionKey(artifact.sourceHash) ? this.magicSessionChoice : null;
-        if ((persisted ?? session) === 'original') return;
+        if ((persisted ?? session) === 'original') {
+          this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_preferred', source, artifact);
+          return;
+        }
         await this.showMagic('automatic', result);
+        if (this.magicGeneration === generation + 1) {
+          this.reportMagicAssessment('magic_default_resolved', 'magic_default_result',
+            this.magicActive ? 'magic_shown' : 'original_render_failed', source, artifact);
+        }
+      } catch {
+        if (generation === this.magicGeneration && this.diagram.mermaidCode === source && this.diagram.magic === artifact) {
+          this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'check_failed', source, artifact);
+          this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
+        }
       } finally {
         if (attempt === this.magicInitializeAttempt) this.magicInitializing = false;
       }

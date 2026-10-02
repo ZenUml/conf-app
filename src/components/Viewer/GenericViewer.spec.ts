@@ -18,6 +18,7 @@ import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readCopyAttribution } from '@/utils/analytics/copyAttribution'
 import { magicSourceHash } from '@/utils/magic/artifact'
+import { writeMagicPreference } from '@/utils/magic/localPreference'
 import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 import { webcrypto } from 'node:crypto'
 import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFailedRetry'
@@ -178,6 +179,47 @@ describe('GenericViewer (chrome-less)', () => {
       expect(button.attributes('disabled')).toBeDefined();
       expect(button.attributes('title')).toContain('unavailable');
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'missing_artifact' }));
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_unavailable' }));
+      expect(vi.mocked(trackAnalyticsEvent)).not.toHaveBeenCalledWith('magic_view_failed', expect.anything());
+      const assessment = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'magic_availability_checked')?.[1];
+      expect(Object.keys(assessment ?? {}).sort()).toEqual(['feature_area', 'macro_type', 'magic_availability', 'surface']);
+    });
+
+    it('records one current availability and default outcome without repeating a validated assessment', async () => {
+      store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+      const wrapper = await mountMagic();
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'available' }));
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'magic_shown' }));
+      await (wrapper.vm as any).initializeMagic();
+      expect((wrapper.vm as any).magicAvailabilityReported).toHaveLength(1);
+      expect((wrapper.vm as any).magicDefaultReported).toHaveLength(1);
+    });
+
+    it('counts an available artifact with a saved Original view as Original preferred', async () => {
+      const sourceHash = await magicSourceHash(source);
+      const previousContext = forgeRuntime.forgeContext;
+      forgeRuntime.forgeContext = { ...window.forgeGlobal!.forgeContext, accountId: 'choice-user', cloudId: 'choice-site' };
+      expect(writeMagicPreference({ accountId: 'choice-user', cloudId: 'choice-site', contentId: '987654321', sourceHash }, 'original')).toBe(true);
+      store.state.diagram.magic = { sourceHash, svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+      const wrapper = await mountMagic();
+      expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true');
+      await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'available' })));
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_preferred' }));
+      expect((wrapper.vm as any).magicActive).toBe(false);
+      forgeRuntime.forgeContext = previousContext;
+    });
+
+    it('records an automatic verification failure as unavailable without a display error', async () => {
+      store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+      Object.defineProperty(globalThis, 'crypto', { value: { subtle: { digest: () => Promise.reject(new Error('digest unavailable')) } }, configurable: true });
+      const wrapper = await mountMagic();
+      await vi.waitFor(() => expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'check_failed' })));
+      expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true');
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_unavailable' }));
+      expect(vi.mocked(trackAnalyticsEvent)).not.toHaveBeenCalledWith('magic_view_failed', expect.anything());
+      Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
     });
 
     it('keeps Magic out of the inline Mermaid toolbar', async () => {
@@ -275,6 +317,8 @@ describe('GenericViewer (chrome-less)', () => {
         expect(wrapper.find('[data-testid="magic-feedback"]').text()).toContain('earlier version');
       });
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'stale_source' }));
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'original_unavailable' }));
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_view_failed', expect.objectContaining({ magic_failure_reason: 'stale_source' }));
       store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
       await flushPromises();
@@ -326,6 +370,8 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises();
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
       expect(wrapper.find('.diagram-viewport svg').exists()).toBe(false);
+      expect(vi.mocked(trackAnalyticsEvent)).not.toHaveBeenCalledWith('magic_availability_checked', expect.objectContaining({ magic_availability: 'available' }));
+      expect(vi.mocked(trackAnalyticsEvent)).not.toHaveBeenCalledWith('magic_default_resolved', expect.objectContaining({ magic_default_result: 'magic_shown' }));
       Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
     });
   });

@@ -163,6 +163,16 @@ describe('GenericViewer (chrome-less)', () => {
   describe('Fullscreen Magic', () => {
     const source = 'graph LR\n  A-->B';
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><path d="M0 0L20 20"/></svg>';
+    const mounted: ReturnType<typeof mount>[] = [];
+
+    afterEach(async () => {
+      // Stop shared-store watchers before the next test changes the artifact.
+      // An earlier automatic display can still be pending under CI load and
+      // otherwise report source_changed into the next test's analytics spy.
+      mounted.splice(0).forEach((wrapper) => wrapper.unmount());
+      await flushPromises();
+      Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
+    });
 
     beforeEach(() => {
       Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
@@ -173,6 +183,7 @@ describe('GenericViewer (chrome-less)', () => {
 
     async function mountMagic() {
       const wrapper = mount(GenericViewer, { global: { plugins: [store] }, slots: { default: '<div class="original-diagram">Original canvas</div>' } });
+      mounted.push(wrapper);
       await flushPromises();
       return wrapper;
     }

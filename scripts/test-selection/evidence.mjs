@@ -13,7 +13,7 @@ export function createEvidence(plan, results) {
   const valid = errors.length === 0;
   const execution_succeeded = valid && executed.every(r => ['passed','skipped'].includes(r.status));
   const complete = valid && executed.every(r => r.status === 'passed');
-  return {schema_version:1, tested_tree:plan.tested_tree, category_version:plan.category_version,policy_version:plan.policy_version,variant:plan.variant,coverage:plan.coverage,plan_fingerprint:plan.plan_fingerprint,complete,execution_succeeded,validation:{valid,errors},results:executed};
+  return {schema_version:1, tested_tree:plan.tested_tree, category_version:plan.category_version,policy_version:plan.policy_version,variant:plan.variant,coverage:plan.coverage,plan_fingerprint:plan.plan_fingerprint,complete,execution_succeeded,validation:{valid,errors},results:results.filter(r => !r.setup)};
 }
 export function aggregateEvidence(plan, reports) {
   const evidence = createEvidence(plan, reports.flatMap(r => r.results ?? []));

@@ -14,6 +14,12 @@ describe('createGuideVariant', () => {
     expect(createGuideVariant(diagramType)).toBe(variant)
   })
 
+  // The OpenAPI viewer stores its type as lowercase 'openapi', not DiagramType.OpenApi ('OpenAPI') —
+  // seen live through the Forge tunnel on lite-dev, 2026-10-02 (feedbackContext.ts normalizes it too).
+  it.each([['openapi', 'api'], ['asyncapi', null]])('matches the runtime lowercase type %s', (diagramType, variant) => {
+    expect(createGuideVariant(diagramType)).toBe(variant)
+  })
+
   it.each([DiagramType.AsyncApi, DiagramType.Embed, DiagramType.Unknown, undefined, null])('has no guide for %s', (diagramType) => {
     expect(createGuideVariant(diagramType)).toBeNull()
   })

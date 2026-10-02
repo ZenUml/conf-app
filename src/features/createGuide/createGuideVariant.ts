@@ -7,7 +7,8 @@ import type { CreateGuideVariant } from '@/utils/analytics/catalog'
  * macro, inserted with /zenuml. Types without a recorded guide return null (no Create button).
  */
 export function createGuideVariant(diagramType: DiagramType | string | null | undefined): CreateGuideVariant | null {
-  switch (diagramType) {
+  // Case-insensitive: the OpenAPI viewer stores 'openapi', while DiagramType.OpenApi is 'OpenAPI'.
+  switch (String(diagramType ?? '').toLowerCase()) {
     case DiagramType.Sequence:
     case DiagramType.Mermaid:
     case DiagramType.PlantUml:
@@ -15,7 +16,7 @@ export function createGuideVariant(diagramType: DiagramType | string | null | un
       return 'zenuml'
     case DiagramType.Graph:
       return 'graph'
-    case DiagramType.OpenApi:
+    case DiagramType.OpenApi.toLowerCase():
       return 'api'
     default:
       return null

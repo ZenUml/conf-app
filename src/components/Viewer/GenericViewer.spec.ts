@@ -478,6 +478,14 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vi.mocked(openCreateGuide)).toHaveBeenCalledWith({ variant: 'graph', macroType: 'graph', hasEditPermission: true })
     })
 
+    it('shows Create on the OpenAPI viewer, whose runtime type is lowercase openapi', async () => {
+      store.commit('updateDiagramType', 'openapi')
+      const wrapper = mountViewer()
+      await flushPromises()
+      await createButton(wrapper).trigger('click')
+      expect(vi.mocked(openCreateGuide)).toHaveBeenCalledWith({ variant: 'api', macroType: 'openapi', hasEditPermission: true })
+    })
+
     it('tracks one create_guide_impression per viewer when Create shows', async () => {
       store.commit('updateDiagramType', DiagramType.Mermaid)
       const wrapper = mountViewer()

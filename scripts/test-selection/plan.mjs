@@ -3,13 +3,14 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
+import { PROJECT_DEPENDENCIES } from '../../tests/e2e-tests/config/project-dependencies.mjs';
 import { CATEGORY_VERSION, CATEGORIES, VARIANTS } from '../../tests/e2e-tests/config/categories.mjs';
 export const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function createPlan({selection, discovery, variant, tree, policy, shards = 1, changedFiles = [], scope = 'all', legacyGrep = ''}) {
   if (!VARIANTS.includes(variant) || !tree || !policy) throw new Error('variant, tree and policy are required');
   if (discovery.errors?.length) throw new Error('Playwright discovery failed');
   const projects = discovery.config?.projects ?? [];
-  const dependencies = Object.fromEntries(projects.map(p => [p.name, p.dependencies ?? []]));
+  const dependencies = {...PROJECT_DEPENDENCIES, ...Object.fromEntries(projects.filter(p => Array.isArray(p.dependencies)).map(p => [p.name, p.dependencies]))};
   const tests = [];
   function walk(suites, parents = []) {
     for (const suite of suites ?? []) {

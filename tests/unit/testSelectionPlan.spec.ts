@@ -7,6 +7,7 @@ const discovery={config:{projects:[{name:'render',dependencies:['pages']},{name:
 const plan=(overrides={})=>createPlan({selection,discovery,variant:'lite',tree:'tree',policy:'v1',shards:8,...overrides});
 describe('concrete test planning',()=>{
  it('selects behavior plus smoke and transitive auth dependencies',()=>{const p=plan();expect(p.tests.map(t=>t.id)).toEqual(['smoke','mermaid']);expect(p.dependencies).toEqual(['auth','pages']);expect(p.shards.every(s=>s.test_ids.length)).toBe(true);});
+ it('retains auth and pages when actual JSON discovery omits dependency fields',()=>{const p=plan({discovery:{...discovery,config:{projects:[{name:'auth'},{name:'pages'},{name:'render'}]}}});expect(p.dependencies).toEqual(['auth','pages']);expect(p.tests.every(t=>t.dependencies.includes('pages'))).toBe(true);});
  it('full mode runs applicable inventory',()=>expect(plan({selection:{...selection,mode:'all'}}).tests).toHaveLength(3));
  it('unknown category and stale tree fail full',()=>{expect(plan({selection:{...selection,categories:{unknown:{selected:true}}}}).coverage).toBe('full');expect(plan({tree:'new'}).coverage).toBe('full');});
  it('empty selection retains mandatory smoke',()=>expect(plan({selection:{...selection,categories:{}}}).tests.map(t=>t.id)).toEqual(['smoke']));

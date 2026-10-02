@@ -470,14 +470,21 @@ export type AnalyticsEventName =
   | "ai_repair_failed"
   | "ai_repair_applied"
   | "ai_repair_dismissed"
-  // Fullscreen Mermaid Magic: click, visible prepared SVG, rejected artifact,
-  // and return to the original renderer. Properties: feature_area=ai,
-  // surface=fullscreen, macro_type=mermaid, duration_ms on terminal events,
-  // magic_failure_reason only on failed. Never include diagram content.
+  // Fullscreen Mermaid Magic: requested on manual click or automatic default,
+  // succeeded only after the prepared SVG is visible, failed on validation or
+  // render rejection, restored on an explicit Original click. All use
+  // feature_area=ai, surface=fullscreen, macro_type=mermaid;
+  // magic_activation distinguishes automatic/manual requests. The remaining
+  // events cover browser-local preference changes and a generation-bound
+  // numeric rating. Never include source, SVG, hashes, or comment text.
   | "magic_view_requested"
   | "magic_view_succeeded"
   | "magic_view_failed"
   | "magic_view_restored"
+  | "magic_preference_changed"
+  | "magic_rating_prompt_shown"
+  | "magic_rating_submitted"
+  | "magic_rating_updated"
   | "upgrade_modal_shown"
   | "paywall_triggered"
   | "paywall_blocked_create"

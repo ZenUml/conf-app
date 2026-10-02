@@ -13,8 +13,9 @@ test('loaded Forge frontend matches pinned build marker', async ({ page }, testI
     const origin = `https://${testConfig.domain}`;
     let next = `${origin}/wiki/api/v2/pages?limit=100&body-format=storage`;
     for (let index = 0; index < 5 && next && !pageId; index++) {
-      const response = await page.request.get(next, { headers: { Authorization: `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}` }, timeout: 15000 });
-      expect(response.ok(), 'Fixture discovery API request must succeed').toBe(true);
+      // Node fetch keeps credentialed REST discovery outside Playwright traces.
+      const response = await fetch(next, { headers: { Authorization: `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}` }, signal: AbortSignal.timeout(15000), redirect: 'error' });
+      expect(response.ok, 'Fixture discovery API request must succeed').toBe(true);
       const body = await response.json();
       const macro = testConfig.productType === 'asyncapi' ? 'zenuml-asyncapi-macro' : testConfig.sequenceMacroKey;
       pageId = body.results?.find((item: any) => typeof item.body?.storage?.value === 'string' && item.body.storage.value.includes(macro))?.id;

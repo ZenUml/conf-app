@@ -141,7 +141,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const audit=c?.audit,out=audit?.checks?Object.entries(audit.checks).filter(([,v])=>v?.status==='NOT-CHECKABLE').map(([k])=>k):[];
     return c&&model?[...out,...geometryNotCheckable(c.geometry??null,model)]:out;
   };
-  const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.repairHints?{repairHints:f.repairHints}:{}),...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.downgradeRefused?{downgradeRefused:f.downgradeRefused}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{})});
+  const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.repairHints?{repairHints:f.repairHints}:{}),...(f.moveHints?{moveHints:f.moveHints}:{}),...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.downgradeRefused?{downgradeRefused:f.downgradeRefused}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{})});
 
   const checksWithStatus=(audit,status)=>audit?.checks?Object.entries(audit.checks??{}).filter(([,v])=>v?.status===status).map(([k])=>k):[];
 

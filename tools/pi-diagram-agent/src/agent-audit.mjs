@@ -3,6 +3,7 @@ import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
 import {parseMermaid,NOT_CHECKABLE_SHAPES} from './parser.mjs';
 import {checkRouteLowerBend,attachCrossingRepairHints} from './route-lower-bend.mjs';
+import {attachNodeMoveHints} from './node-move-hints.mjs';
 import {checkRouteContainerClearance} from './route-clearance.mjs';
 import {checkNodeHeadingClearance} from './node-heading-clearance.mjs';
 import {resolveLabels} from './geometry.mjs';
@@ -425,7 +426,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     edges:drawn.edges.map((e,i)=>({source:e.source,target:e.target,tag:e.tag,path:e.path,trunk:e.trunk||null,axialLength:e.markerDrawing?.axialLength,spans:routeSpans[i].spans,hulls:e.tag==='path'?actualCurveEnvelopes(e.path):null}))
   }:null;
   if(routeCrossings.status==='FAIL'){
-    if(lbInput)attachCrossingRepairHints(lbInput,routeCrossings.evidence.violations,{canvas:rootViewBox(svg)});
+    if(lbInput){attachCrossingRepairHints(lbInput,routeCrossings.evidence.violations,{canvas:rootViewBox(svg)});attachNodeMoveHints(lbInput,routeCrossings.evidence.violations,{canvas:rootViewBox(svg)})}
     else for(const v of routeCrossings.evidence.violations){v.repairHint=null;v.reason='no neutral per-relation binding, so no route search was possible'}
   }
   const routeLowerBend=lbInput?checkRouteLowerBend(lbInput):{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};

@@ -58,7 +58,7 @@ export function selectForAuthor(ledger,{max=5}={}){
 }
 
 export function formatForAuthor(selection){
-  return {findings:selection.sent.map(({id,source,severity,rule,elements,region,evidence,suggestion,state,repairHints})=>({id,source,severity,rule,elements,region,evidence,suggestion,state,...(repairHints?{repairHints}:{})})),omittedBlocking:selection.omittedBlocking,minorCount:selection.minorCount};
+  return {findings:selection.sent.map(({id,source,severity,rule,elements,region,evidence,suggestion,state,repairHints,moveHints})=>({id,source,severity,rule,elements,region,evidence,suggestion,state,...(repairHints?{repairHints}:{}),...(moveHints?{moveHints}:{})})),omittedBlocking:selection.omittedBlocking,minorCount:selection.minorCount};
 }
 
 // ---- audit -> findings -------------------------------------------------------------------------
@@ -112,6 +112,9 @@ function crossingHintText(violations){
     const h=v.repairHint;
     if(h){const mid=h.points.slice(1,-1).map(pt),via=mid.length?(mid.length>4?`${mid.slice(0,2).join(' ')}…${mid.at(-1)}`:mid.join(' ')):`${pt(h.points[0])}…${pt(h.points.at(-1))}`;lines.push(`reroute ${h.edge} via ${via}, ${h.bends} bend${h.bends===1?'':'s'}`)}
     else if(v.reason)lines.push(`${v.edgeA} x ${v.edgeB}: ${v.reason}`);
+    const m=v.moveHint;
+    if(!h&&m)lines.push(`move ${m.node} by (${m.dx},${m.dy}) and reroute ${m.reroutes.map(r=>r.edge).join(', ')}: crossings ${m.crossingsBefore} -> ${m.crossingsAfter}`);
+    else if(!h&&v.moveHintReason)lines.push(`${v.edgeA} x ${v.edgeB}: ${v.moveHintReason}`);
   }
   return [...new Set(lines)].join('; ');
 }
@@ -131,6 +134,8 @@ export function auditToFindings(audit){
       evidence:{measured:clip(detail),threshold:method?clip(method,240):'rule check passes (see Diagram Rules)'},
       suggestion:(SUGGESTIONS[rule]??fallbackSuggestion(rule))+(hintText?` Repair hint (evidence from a route search with all other routes fixed; you decide): ${hintText}.`:'')});
     if(hints.length)f.repairHints=hints;
+    const moves=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.moveHint).map(v=>[JSON.stringify(v.moveHint),v.moveHint])).values()]:[];
+    if(moves.length)f.moveHints=moves;
     out.push(f);
   }
   return out;

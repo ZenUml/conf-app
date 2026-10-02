@@ -350,12 +350,12 @@ const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
  * groups: [{id,outline,box,headings:[box]}]
  * edges: [{source,target,tag,path,axialLength,spans,hulls,trunk}]  (spans/hulls from the audit's strict path readers)
  */
-export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend',hintEdges=[],canvas=null}={}){
+export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend',hintEdges=[],canvas=null,routeOverrides=null}={}){
   const relations=[],violations=[],notCheckable=[];
   const hintSet=new Set(hintEdges),hints=new Map();
   const nodeById=new Map();for(const n of nodes)if(!nodeById.has(n.id))nodeById.set(n.id,n);
   const groupProblem=groups.find(g=>!g.box||g.outline!=='rect');
-  const routes=edges.map(e=>e.tag==='path'?parseOrthogonalRoute(e.path):{error:'relationship is not a path element'});
+  const routes=edges.map(e=>routeOverrides?.get(`${e.source}->${e.target}`)??(e.tag==='path'?parseOrthogonalRoute(e.path):{error:'relationship is not a path element'}));
   const unboundKeys=new Set(unboundLabels);
   const labels=labelBoxes.map(l=>l.box).filter(Boolean);
   // Repair hints stay inside the canvas: four frame strips (8-unit margin) join the label obstacles in hint mode only.

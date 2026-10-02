@@ -68,3 +68,45 @@ test('a repairHint never leaves the canvas (8-unit margin inside the root viewBo
   const [v]=(await auditAgentSvg(src,svg)).checks.routeCrossings.evidence.violations;
   for(const [x,y] of v.repairHint?.points??[]){assert.ok(x>=8&&x<=592&&y>=8&&y<=632,`point ${x},${y} outside the canvas margin`)}
 });
+
+// ---- node-move hints: a crossing that is topological (no reroute of either edge helps) ----
+// Bars close the plane above and below the A->B line, so C->D must cross it while C is above and D below. Moving C beside D (C->D straight) removes the crossing.
+const moveNodes=(pos={})=>[node('A',4,300,100,60),node('B',500,300,100,60),node('C',250,100,100,60),node('D',420,500,100,60),node('TOP',0,10,600,88),node('BOT',0,562,600,60)].map(n=>{const id=/data-node="(\w+)"/.exec(n)[1];return pos[id]?node(id,...pos[id]):n});
+const moveSvg=(pos,route)=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 640">${defs}${moveNodes(pos).join('')}${edge('A','B','M104 330 L500 330')}${edge('C','D',route)}</svg>`;
+test('routeCrossings carries a moveHint when repairHint is null: one node translation plus re-routes of its edges, fewer crossings',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg(src,moveSvg({},'M300 160 L300 530 L420 530'));
+  const c=r.checks.routeCrossings;
+  assert.equal(c.status,'FAIL');
+  const [v]=c.evidence.violations;
+  assert.equal(v.repairHint,null);
+  assert.ok(v.moveHint,`expected a moveHint, got ${JSON.stringify(v)}`);
+  const m=v.moveHint;
+  // either end of C->D can move to the other side of the A->B line (C beside D, or D beside C)
+  assert.ok(['C','D'].includes(m.node));
+  assert.equal(Math.abs(m.dy),400);   // dx may slide along the aligned axis to shorten the straight reroute
+  assert.equal(m.crossingsBefore,1);
+  assert.equal(m.crossingsAfter,0);
+  assert.deepEqual(m.reroutes.map(x=>x.edge),['C->D']);
+  // re-validate: draw the move + reroute; the auditor must accept it
+  const moved=m.node==='C'?{C:[250+m.dx,100+m.dy,100,60]}:{D:[420+m.dx,500+m.dy,100,60]};
+  const fixed=await auditAgentSvg(src,moveSvg(moved,pathOf(m.reroutes[0].points)));
+  for(const k of ['routeCrossings','routeNodeIntrusion','routePairClearance','arrowShaft'])assert.equal(fixed.checks[k].status,'PASS',`${k}: ${JSON.stringify(fixed.checks[k].evidence).slice(0,300)}`);
+});
+test('moveHint is null with a reason when no single-node move helps',{skip:!enabled},async()=>{
+  const walls=[node('WL',0,200,62,260),node('WR',558,200,62,260)];
+  const nodes=[node('C',62,200,496,80),node('D',62,380,496,80),node('A',62,300,60,60),node('B',498,300,60,60),...walls];
+  const tight=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 460">${defs}${nodes.join('')}${edge('A','B','M122 330 L498 330')}${edge('C','D','M300 280 L300 380')}</svg>`;
+  const [v]=(await auditAgentSvg(src,tight)).checks.routeCrossings.evidence.violations;
+  assert.equal(v.repairHint,null);
+  assert.equal(v.moveHint,null);
+  assert.match(v.moveHintReason,/no single-node move|candidate/);
+});
+test('auditToFindings puts the move hint into the author-facing text and keeps it structured',()=>{
+  const mh={node:'C',dx:0,dy:400,reroutes:[{edge:'C->D',points:[[300,530],[420,530]]}],crossingsBefore:1,crossingsAfter:0};
+  const [f]=auditToFindings(audit({edgeA:'A->B',edgeB:'C->D',x:300,y:330,repairHint:null,reason:'a node move is likely needed',moveHint:mh}));
+  assert.match(f.suggestion,/move C by \(0,400\)/);
+  assert.match(f.suggestion,/crossings 1 -> 0/);
+  assert.deepEqual(f.moveHints,[mh]);
+  const sent=formatForAuthor(selectForAuthor((()=>{const l=createLedger();l.update(1,[f]);return l})())).findings[0];
+  assert.deepEqual(sent.moveHints,[mh]);
+});

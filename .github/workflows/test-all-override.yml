@@ -1,0 +1,25 @@
+name: Run Human Full Test Override
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+jobs:
+  dispatch:
+    if: github.event.label.name == 'test:all' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch full tests on current PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          # No checkout or execution of PR code in this privileged context.
+          jq -n --arg ref "$BRANCH" --arg pr "$PR" '{ref:$ref,inputs:{"force-all":"true","pr-number":$pr}}' > dispatch.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-test-deploy.yml/dispatches" --input dispatch.json

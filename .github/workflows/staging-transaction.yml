@@ -1,0 +1,137 @@
+name: Staging Regression Transaction
+
+on:
+  workflow_call:
+    inputs:
+      variant:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+
+# Ownership belongs to the parent daily workflow across all variants. Nested
+# transactions must not acquire its conf-app-staging group again.
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.profile.outputs.app }}
+      backend: ${{ steps.profile.outputs.backend }}
+    steps:
+      - id: profile
+        env:
+          VARIANT: ${{ inputs.variant }}
+        run: |
+          case "$VARIANT" in
+            lite) APP=zenuml-lite@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
+            full) APP=zenuml-full@stg; BACKEND=https://conf-stg-full.zenuml.com ;;
+            diagramly) APP=diagramly@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
+            asyncapi) APP=asyncapi@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
+            *) exit 1 ;;
+          esac
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: deploy
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: ${{ inputs.variant }}
+      ref: ${{ inputs.ref }}
+      license: ${{ inputs.variant }}
+      project: ${{ inputs.variant == 'full' && 'conf-stg-full' || 'conf-stg-lite' }}
+      environment: staging-${{ inputs.variant }}
+    secrets: inherit
+
+  auth:
+    needs: profile
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: ${{ needs.profile.outputs.app }}
+      artifact-name: auth-regression-${{ inputs.variant }}
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  version:
+    name: verify version
+    needs: [profile, deploy, auth]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+      - name: Verify backend source identity
+        env:
+          TARGET_SHA: ${{ inputs.ref }}
+          VARIANT: ${{ inputs.variant }}
+          BACKEND: ${{ needs.profile.outputs.backend }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant "$VARIANT" --url "$BACKEND"
+      - run: cd tests/e2e-tests && pnpm install --ignore-workspace --frozen-lockfile && pnpm exec playwright install --with-deps chromium
+      - uses: actions/download-artifact@v7
+        with:
+          name: auth-regression-${{ inputs.variant }}
+          path: tests/e2e-tests
+      - name: Observe loaded Forge frontend version
+        env:
+          APP: ${{ needs.profile.outputs.app }}
+          EXPECTED_APP_VERSION: ci-${{ inputs.ref }}-${{ inputs.variant }}
+          REGRESSION_VERSION_PAGE: ${{ vars[format('REGRESSION_VERSION_PAGE_{0}', inputs.variant)] }}
+          FORGE_EMAIL: ${{ vars.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
+          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
+          CI: true
+        run: cd tests/e2e-tests && pnpm exec playwright test --config version-check/playwright.config.ts
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: regression-version-${{ inputs.variant }}
+          path: tests/e2e-tests/test-results/
+          retention-days: 30
+
+  tests:
+    name: E2E full live regression
+    needs: [profile, version]
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: ${{ needs.profile.outputs.app }}
+      ref: ${{ inputs.ref }}
+      planned: true
+      suite: regression
+      auth-artifact: auth-regression-${{ inputs.variant }}
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
+      timeout-minutes: 35
+      artifact-suffix: regression-${{ inputs.variant }}
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  render:
+    name: E2E full render regression
+    needs: [profile, version]
+    if: inputs.variant != 'asyncapi'
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: ${{ needs.profile.outputs.app }}
+      ref: ${{ inputs.ref }}
+      planned: true
+      suite: regression-render
+      auth-artifact: auth-regression-${{ inputs.variant }}
+      # pages fixture creation remains unsharded.
+      shard-matrix: '[1]'
+      timeout-minutes: 25
+      artifact-suffix: regression-${{ inputs.variant }}-render
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

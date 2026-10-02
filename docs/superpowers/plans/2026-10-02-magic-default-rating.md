@@ -54,3 +54,11 @@
 - [ ] Update synthetic Storybook checks for auto Magic, segmented Original, and optional feedback.
 - [ ] Run a local Storybook browser, inspect actual fullscreen UI, capture a screenshot, and record any UI verification blocker honestly.
 - [ ] Run relevant typecheck/tests and commit UI/test/story changes. Update the existing draft PR only after local review; do not merge or release.
+
+### Task 5: Bounded Magic design consistency
+
+**Scope:** Only the Magic/Original switch, layout feedback, disclosure, failure message, and wand in `GenericViewer.vue`. Preserve the approved behavior. `DESIGN.md` describes tokens from `colors_and_type.css`, but that file is not loaded by the viewer; use local aliases with documented token fallbacks rather than undefined CSS variables.
+
+- [ ] Align the new controls with the documented blue-600, gray ramp, 6px radius, 16px/1.5 outline icon.
+- [ ] Add a runnable checker that reads the documented values, checks these scoped aliases and control dimensions, and rejects raw colors/radii in only the Magic CSS selectors.
+- [ ] Run checker, focused tests, and a live Storybook visual check. The checker verifies source values and structure; spacing, contrast in context, and perceived balance still require visual review.

@@ -90,7 +90,7 @@
                   :title="!diagram?.magic ? 'Magic view is unavailable for this diagram' : magicActive ? 'Magic diagram selected' : magicAvailable ? 'Show prepared Magic view' : 'Magic view is unavailable for the current diagram'"
                   :aria-pressed="magicActive ? 'true' : 'false'" :aria-busy="magicPending ? 'true' : 'false'"
                   @click="!magicActive && toggleMagic('manual')">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="viewer-magic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="viewer-magic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="m4.5 19.5 11-11 2 2-11 11a1.4 1.4 0 0 1-2-2Z" />
                     <path d="m18 2 .55 1.75L20.3 4.3l-1.75.55L18 6.6l-.55-1.75-1.75-.55 1.75-.55L18 2ZM21 10l.35 1.15L22.5 11.5l-1.15.35L21 13l-.35-1.15-1.15-.35 1.15-.35L21 10Z" />
                   </svg>
@@ -1889,6 +1889,20 @@ export default {
 <style scoped>
 /* ----- chrome-less viewer surface --------------------------------------- */
 .viewer-frame {
+  /* DESIGN.md tokens are not loaded globally in this viewer. Keep scoped,
+     documented fallbacks so the Magic controls resolve in Forge and Storybook. */
+  --magic-primary: var(--color-blue-600, #2563EB);
+  --magic-primary-hover: var(--color-blue-700, #1D4ED8);
+  --magic-surface: var(--bg1, #FFFFFF);
+  --magic-subtle: var(--gray-50, #F9FAFB);
+  --magic-hover: var(--gray-100, #F3F4F6);
+  --magic-border: var(--gray-200, #E5E7EB);
+  --magic-border-strong: var(--gray-300, #D1D5DB);
+  --magic-text: var(--gray-700, #374151);
+  --magic-text-soft: var(--gray-600, #4B5563);
+  --magic-on-primary: var(--fg-on-primary, #FFFFFF);
+  --magic-danger: var(--color-danger, #CA3521);
+  --magic-radius: var(--radius-md, 6px);
   position: relative;
   display: block;
   background: #fff;
@@ -2254,9 +2268,9 @@ export default {
 
 .magic-feedback {
   padding: 8px 20px;
-  color: #7c2d12;
-  background: #fff7ed;
-  border-bottom: 1px solid #fed7aa;
+  color: var(--magic-danger);
+  background: var(--magic-subtle);
+  border-bottom: 1px solid var(--magic-border);
   font-size: 12px;
 }
 
@@ -2266,27 +2280,29 @@ export default {
   flex-wrap: wrap;
   gap: 8px 14px;
   padding: 8px 20px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #334155;
+  border-bottom: 1px solid var(--magic-border);
+  background: var(--magic-subtle);
+  color: var(--magic-text);
   font-size: 12px;
 }
 .magic-layout-feedback { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .magic-layout-feedback button {
-  min-height: 24px; padding: 2px 7px; border: 1px solid #94a3b8; border-radius: 5px;
-  color: #334155; background: #fff;
+  min-height: 24px; padding: 2px 8px; border: 1px solid var(--magic-border-strong); border-radius: var(--magic-radius);
+  color: var(--magic-text); background: var(--magic-surface);
 }
-.magic-layout-feedback button[aria-pressed="true"] { color: #fff; background: #0369a1; border-color: #0369a1; }
-.magic-layout-feedback button:focus-visible, .viewer-version-option:focus-visible { outline: 2px solid #0369a1; outline-offset: 2px; }
+.magic-layout-feedback button[aria-pressed="true"] { color: var(--magic-on-primary); background: var(--magic-primary); border-color: var(--magic-primary); }
+.magic-layout-feedback button[aria-pressed="true"]:hover { background: var(--magic-primary-hover); }
+.magic-layout-feedback button:focus-visible, .viewer-version-option:focus-visible { outline: 2px solid var(--magic-primary); outline-offset: 2px; }
 
-.viewer-version-switch { display: inline-flex; align-items: stretch; border: 1px solid #cbd5e1; border-radius: 7px; overflow: hidden; background: #fff; }
-.viewer-version-option { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 0; background: transparent; color: #475569; font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; cursor: pointer; transition: background-color 150ms ease, color 150ms ease; }
-.viewer-version-option + .viewer-version-option { border-left: 1px solid #cbd5e1; }
-.viewer-version-option:hover:not(:disabled):not(.viewer-version-option--selected) { background: #f1f5f9; }
-.viewer-version-option--selected, .viewer-version-option--selected:hover { background: #0369a1; color: #fff; }
-.viewer-version-magic--available { color: #075985; background: #f0f9ff; }
+.viewer-version-switch { display: inline-flex; align-items: stretch; border: 1px solid var(--magic-border-strong); border-radius: var(--magic-radius); overflow: hidden; background: var(--magic-surface); }
+.viewer-version-option { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 0; background: transparent; color: var(--magic-text-soft); font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; cursor: pointer; transition: background-color 200ms ease, color 200ms ease; }
+.viewer-version-option + .viewer-version-option { border-left: 1px solid var(--magic-border-strong); }
+.viewer-version-option:hover:not(:disabled):not(.viewer-version-option--selected) { background: var(--magic-hover); }
+.viewer-version-option--selected, .viewer-version-option--selected:hover { background: var(--magic-primary); color: var(--magic-on-primary); }
+.viewer-version-option--selected:hover { background: var(--magic-primary-hover); }
+.viewer-version-magic--available { color: var(--magic-primary); background: var(--magic-subtle); }
 .viewer-version-option:disabled { opacity: .5; cursor: not-allowed; }
-.viewer-magic-icon { width: 15px; height: 15px; flex: none; }
+.viewer-magic-icon { width: 16px; height: 16px; flex: none; }
 
 .viewer-btn-ghost {
   display: inline-flex;

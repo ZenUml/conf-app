@@ -175,7 +175,7 @@ export const CATEGORIES = [
   },
   {
     "id": "cross-cutting",
-    "description": "Forge fullscreen modal chrome and lifecycle: maximize/restore, close button, Escape dismissal, focus and page scroll restoration, and navigation guards across editors.",
+    "description": "Forge fullscreen modal chrome and lifecycle: maximize/restore, close button, Escape dismissal, focus and page scroll restoration, and draft recovery after closing editors.",
     "variants": [
       "lite",
       "full",
@@ -190,7 +190,7 @@ export const CATEGORIES = [
       "cross:1 \u2014 single header X close button, none inside iframe",
       "cross:3 \u2014 modal has aria-modal=true (no chrome reachable)",
       "cross:4 \u2014 clean state: header X dismisses without prompt",
-      "cross:5 \u2014 dirty state: synthetic beforeunload is preventDefault=true",
+      "cross:5 \u2014 dirty draft survives header close",
       "cross:6 \u2014 Esc on dirty sequence editor does NOT close modal",
       "Change fullscreen modal Escape or close handling",
       "Change modal maximization or focus restoration"
@@ -388,7 +388,7 @@ export const CATEGORIES = [
   },
   {
     "id": "graph-create",
-    "description": "Graph (DrawIO) \u2014 Create flow. Verifies graph-create:0 \u2014 macro is findable in the element browser; graph-create:1 \u2014 modal opens at fullscreen viewport; graph-create:2 \u2014 DrawIO canvas and shape library mount; graph-create:4 \u2014 Publish closes modal and inserts the macro; graph-create:5 \u2014 clean editor: synthetic beforeunload is false.",
+    "description": "Graph (DrawIO) \u2014 Create flow. Verifies graph-create:0 \u2014 macro is findable in the element browser; graph-create:1 \u2014 modal opens at fullscreen viewport; graph-create:2 \u2014 DrawIO canvas and shape library mount; graph-create:4 \u2014 Publish closes modal and inserts the macro; graph-create:5 \u2014 clean editor: synthetic beforeunload is false; dirty draft recovery after header close.",
     "variants": [
       "lite",
       "full",
@@ -404,7 +404,7 @@ export const CATEGORIES = [
       "graph-create:2 \u2014 DrawIO canvas and shape library mount",
       "graph-create:4 \u2014 Publish closes modal and inserts the macro",
       "graph-create:5 \u2014 clean editor: synthetic beforeunload is false",
-      "graph-create:6 \u2014 dirty editor (autosave message): synthetic beforeunload is true"
+      "graph-create:6 \u2014 dirty draft survives header close"
     ],
     "negative_examples": [
       "Changes confined to a different diagram format and not shared rendering, persistence, or UI controls."
@@ -760,7 +760,7 @@ export const CATEGORIES = [
   },
   {
     "id": "sequence-create",
-    "description": "Sequence \u2014 Create flow. Verifies sequence-create:0 \u2014 macro is findable in the element browser; sequence-create:1 \u2014 modal opens at fullscreen viewport (header 70px); sequence-create:2 \u2014 Sequence tab selected by default with sample code; sequence-create:3 \u2014 Mermaid tab switches editor mode; sequence-create:4 \u2014 PlantUML tab switches editor mode.",
+    "description": "Sequence \u2014 Create flow. Verifies sequence-create:0 \u2014 macro is findable in the element browser; sequence-create:1 \u2014 modal opens at fullscreen viewport (header 70px); sequence-create:2 \u2014 Sequence tab selected by default with sample code; sequence-create:3 \u2014 Mermaid tab switches editor mode; sequence-create:4 \u2014 PlantUML tab switches editor mode; dirty draft recovery after header close.",
     "variants": [
       "lite",
       "full",
@@ -776,7 +776,8 @@ export const CATEGORIES = [
       "sequence-create:2 \u2014 Sequence tab selected by default with sample code",
       "sequence-create:3 \u2014 Mermaid tab switches editor mode",
       "sequence-create:4 \u2014 PlantUML tab switches editor mode",
-      "sequence-create:5 \u2014 Publish stays disabled while the title is empty (AI title unavailable)"
+      "sequence-create:5 \u2014 Publish stays disabled while the title is empty (AI title unavailable)",
+      "sequence-create:9 \u2014 dirty draft survives header close"
     ],
     "negative_examples": [
       "Changes confined to a different diagram format and not shared rendering, persistence, or UI controls."
@@ -784,7 +785,7 @@ export const CATEGORIES = [
   },
   {
     "id": "sequence-edit",
-    "description": "Sequence \u2014 Edit flow. Verifies sequence-edit:0 \u2014 Edit button opens fullscreen modal with existing source; sequence-edit:1 \u2014 editor mounts with the saved source; sequence-edit:2 \u2014 typing in editor changes the buffer; sequence-edit:3 \u2014 Publish closes the modal after editing; sequence-edit:4 \u2014 re-open clean: synthetic beforeunload is false.",
+    "description": "Sequence \u2014 Edit flow. Verifies sequence-edit:0 \u2014 Edit button opens fullscreen modal with existing source; sequence-edit:1 \u2014 editor mounts with the saved source; sequence-edit:2 \u2014 typing in editor changes the buffer; sequence-edit:3 \u2014 Publish closes the modal after editing; sequence-edit:4 \u2014 re-open clean: synthetic beforeunload is false; dirty draft recovery after header close.",
     "variants": [
       "lite",
       "full",
@@ -800,7 +801,7 @@ export const CATEGORIES = [
       "sequence-edit:2 \u2014 typing in editor changes the buffer",
       "sequence-edit:3 \u2014 Publish closes the modal after editing",
       "sequence-edit:4 \u2014 re-open clean: synthetic beforeunload is false",
-      "sequence-edit:5 \u2014 re-open dirty: synthetic beforeunload is true"
+      "sequence-edit:5 \u2014 dirty draft survives header close"
     ],
     "negative_examples": [
       "Changes confined to a different diagram format and not shared rendering, persistence, or UI controls."

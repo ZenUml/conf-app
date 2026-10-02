@@ -531,6 +531,67 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // Responsive header: as the macro narrows, labels collapse to icons and the least essential
+  // actions hide (Source/Copy for AI labels → Edit/Fullscreen labels → Create label → Copy for
+  // AI and Connect hidden → Source hidden). jsdom evaluates no @container rules, so the order is
+  // read from the stylesheet and the rendered result is checked in a browser.
+  describe('responsive header', () => {
+    const source = readFileSync(resolve(__dirname, './GenericViewer.vue'), 'utf-8')
+    const stages = () => [...source.matchAll(/@container viewer-header \(max-width: (\d+)px\) \{([\s\S]*?)\n\}/g)]
+      .map(([, width, body]) => ({ width: Number(width), body }))
+    const mounted: ReturnType<typeof mountViewer>[] = []
+
+    beforeEach(() => {
+      vi.stubEnv('DEV', false)
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
+      forgeRuntime.isLite = true
+      vi.mocked(isCreateGuideEnabled).mockResolvedValue(true)
+    })
+
+    afterEach(() => {
+      mounted.splice(0).forEach((wrapper) => wrapper.unmount())
+      vi.unstubAllEnvs()
+      forgeRuntime.isLite = undefined
+      vi.mocked(isCreateGuideEnabled).mockResolvedValue(false)
+    })
+
+    it('measures the whole viewer, not the fit-content frame, as the query container', () => {
+      expect(source).toMatch(/\.generic\.viewer \{[^}]*container: viewer-header \/ inline-size;/)
+    })
+
+    it('collapses in the agreed order, widest breakpoint first', () => {
+      const s = stages()
+      expect(s.map(({ width }) => width)).toEqual([...s.map(({ width }) => width)].sort((a, b) => b - a))
+      expect(s).toHaveLength(5)
+      expect(s[0].body).toMatch(/\.viewer-act-source \.viewer-btn-label/)
+      expect(s[0].body).toMatch(/\.viewer-act-copy \.viewer-btn-label/)
+      expect(s[1].body).toMatch(/\.viewer-act-edit \.viewer-btn-label/)
+      expect(s[1].body).toMatch(/\.viewer-act-fullscreen \.viewer-btn-label/)
+      expect(s[2].body).toMatch(/\.viewer-act-create \.viewer-btn-label/)
+      expect(s[3].body).toMatch(/\.viewer-act-copy,\s*(\.viewer-top-actions )?\.viewer-act-connect \{ display: none; \}/)
+      expect(s[4].body).toMatch(/\.viewer-act-source \{ display: none; \}/)
+    })
+
+    it('never hides Edit, Fullscreen or Create', () => {
+      const hidden = stages().flatMap(({ body }) => [...body.matchAll(/([^{}]+)\{ display: none; \}/g)].map(([, sel]) => sel))
+      expect(hidden.join(' ')).not.toMatch(/\.viewer-act-(edit|fullscreen|create)(?![\w-]|\s+\.viewer-btn-label)/)
+    })
+
+    it('gives every action the hooks the rules target, and a visible name once icon-only', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      mounted.push(wrapper)
+      await flushPromises()
+      for (const [action, label] of [['edit', 'Edit'], ['source', 'Source'], ['copy', 'Copy for AI'], ['fullscreen', 'Fullscreen'], ['create', 'Create']]) {
+        const el = wrapper.find(`.viewer-act-${action}`)
+        expect(el.exists(), action).toBe(true)
+        expect(el.find('.viewer-btn-label').text(), action).toBe(label)
+      }
+      expect(wrapper.find('.viewer-act-edit').attributes('title')).toBe('Edit')
+      expect(wrapper.find('.viewer-act-fullscreen').attributes('title')).toBe('Fullscreen')
+    })
+  })
+
   // #333 — View Source: read-only DSL panel for text-DSL types, available to
   // ALL viewers (including users without edit permission).
   describe('View Source (#333)', () => {

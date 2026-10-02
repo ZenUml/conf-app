@@ -30,6 +30,18 @@ the button can show there.
 The action row normally hides until hover. When Create is present the row stays visible and only
 its other buttons wait for hover, so Create can be discovered at rest.
 
+The header collapses with the viewer's width (container query on `.generic.viewer`):
+
+| Viewer width | Change |
+|---|---|
+| < 660 px | Source, Copy for AI → icon only |
+| < 530 px | Edit, Fullscreen → icon only |
+| < 430 px | Create → icon only |
+| < 380 px | Copy for AI, Connect hidden |
+| < 320 px | Source hidden |
+
+Edit, Fullscreen and Create never hide; each breakpoint leaves the title ~120px.
+
 ## Why a Forge modal, why these sizes, why the guide closes itself
 
 Measured on lite-stg, 2026-10-02 (1280 × 800 browser):

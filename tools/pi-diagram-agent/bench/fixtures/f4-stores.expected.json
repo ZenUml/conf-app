@@ -1,0 +1,18 @@
+{
+  "name": "f4-stores",
+  "direction": "LR",
+  "nodes": [
+    {"id": "A", "text": "Ingest events", "shape": "rect"}, {"id": "B", "text": "Event store", "shape": "cylinder"},
+    {"id": "C", "text": "Transform records", "shape": "rect"}, {"id": "D", "text": "Work queue", "shape": "subroutine"},
+    {"id": "E", "text": "Publish results", "shape": "rect"}, {"id": "F", "text": "Audit log", "shape": "rect"}
+  ],
+  "edges": [
+    {"source": "A", "target": "B", "label": "", "dashed": false},
+    {"source": "B", "target": "C", "label": "", "dashed": false},
+    {"source": "C", "target": "D", "label": "", "dashed": false},
+    {"source": "D", "target": "E", "label": "", "dashed": false},
+    {"source": "C", "target": "F", "label": "", "dashed": true}
+  ],
+  "groups": [],
+  "ungrouped": ["A", "B", "C", "D", "E", "F"]
+}

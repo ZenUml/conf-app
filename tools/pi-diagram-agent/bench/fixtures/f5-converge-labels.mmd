@@ -1,0 +1,5 @@
+flowchart LR
+  A[Source one] -- "primary feed" --> D[Combine data]
+  B[Source two] -- "secondary feed" --> D
+  C[Source three] -. "periodic refresh" .-> D
+  D -- "summary" --> E[Final report]

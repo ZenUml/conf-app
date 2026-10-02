@@ -1,5 +1,6 @@
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
+import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
@@ -96,6 +97,14 @@ async function initializeCriticalPath() {
   if (context.extension?.modal?.macroMode === 'feedback') {
     const { mountFeedbackModal } = await import('@/features/feedback/mountFeedback');
     mountFeedbackModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // Viewer Create's slash-command guide (src/features/createGuide). Same early exit as
+  // feedback: `feedbackHandled` makes main() skip the viewer, editor and feedback host.
+  if (context.extension?.modal?.macroMode === CREATE_GUIDE_MACRO_MODE) {
+    const { mountCreateGuideModal } = await import('@/features/createGuide/mountCreateGuide');
+    mountCreateGuideModal(context);
     return { macroData: null, feedbackHandled: true };
   }
 

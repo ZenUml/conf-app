@@ -76,7 +76,7 @@
                 :expires-at="agentLinkExpiresAt"
               />
             </div>
-            <div v-if="!isLoadFailed" class="viewer-top-actions">
+            <div v-if="!isLoadFailed" class="viewer-top-actions" :class="{ 'viewer-top-actions--with-create': showCreateGuide }">
               <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -192,6 +192,22 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
                 </svg>
                 <span>Fullscreen</span>
+              </button>
+              <!-- Create: opens the slash-command creation guide (src/features/createGuide).
+                   Last in the row and visible without hover — a discovery affordance. -->
+              <button
+                v-if="showCreateGuide"
+                type="button"
+                class="viewer-btn-ghost viewer-btn-create"
+                aria-label="Create"
+                title="Add a diagram to this page"
+                aria-haspopup="dialog"
+                @click="openCreateGuide"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="viewer-icon">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                <span>Create</span>
               </button>
             </div>
           </div>
@@ -451,7 +467,9 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
+import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
@@ -513,6 +531,8 @@ export default {
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
     architectureTokensEnabled: false,
+    createGuideFeatureEnabled: false,
+    createGuideImpressionTracked: false,
     agentLinkSession: null,
     loadFailedTelemetryEmitted: false,
     // Onboarding funnel "second diagram" prompt (SecondDiagramPrompt.vue):
@@ -748,6 +768,19 @@ export default {
     showAgentLinkConnect() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
     },
+    createGuideVariant() {
+      return createGuideVariant(this.diagramType);
+    },
+    // Lite only: the recorded guides show the Lite macro titles. Users who cannot edit the
+    // page cannot insert a macro, so the guide would teach a dead end.
+    showCreateGuide() {
+      return (this.createGuideFeatureEnabled || import.meta.env.DEV)
+        && !!forgeGlobal.isLite
+        && this.createGuideVariant !== null
+        && !!this.canUserEdit
+        && !this.hideEdit
+        && !this.isFullscreenMode;
+    },
     // Collapsed (non-fullscreen) "● live" indicator (design §3 decision #8).
     showAgentLinkBadge() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
@@ -838,6 +871,19 @@ export default {
     },
   },
   watch: {
+    showCreateGuide: {
+      immediate: true,
+      handler(shown) {
+        if (!shown || this.createGuideImpressionTracked) return;
+        this.createGuideImpressionTracked = true;
+        trackAnalyticsEvent('create_guide_impression', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: this.diagramType ?? 'none',
+          create_guide_variant: this.createGuideVariant,
+        });
+      },
+    },
     copyForAiImpressionEligible: {
       immediate: true,
       handler(eligible) {
@@ -980,6 +1026,7 @@ export default {
     } catch {
       this.architectureTokensEnabled = false;
     }
+    this.createGuideFeatureEnabled = await isCreateGuideEnabled();
     // Live Agent Link real bridge (design §4.2/§4.4): once the flag resolves
     // ON and a real Forge-bridge context (globals.apWrapper) is available,
     // swap the placeholder for the ApWrapper2-backed bridge so writeDiagram
@@ -1349,6 +1396,13 @@ export default {
         return;
       }
       this.fullscreen({ openExport: true });
+    },
+    openCreateGuide() {
+      openCreateGuide({
+        variant: this.createGuideVariant,
+        macroType: this.diagramType ?? 'none',
+        hasEditPermission: !!this.canUserEdit,
+      });
     },
     fullscreen(options = {}) {
       const openExport = options.openExport === true;
@@ -2038,6 +2092,17 @@ export default {
   transition: opacity 200ms ease;
 }
 .viewer-surface--hover .viewer-top-actions { opacity: 1; }
+/* With Create present the row stays visible and its other buttons take over the hover
+   reveal, so Create is discoverable at rest without unhiding the rest of the row. */
+.viewer-top-actions--with-create { opacity: 1; }
+.viewer-top-actions--with-create > :not(.viewer-btn-create) { opacity: 0; transition: opacity 200ms ease; }
+.viewer-surface--hover .viewer-top-actions--with-create > * { opacity: 1; }
+.viewer-btn-create {
+  color: #0052CC;
+  background: #F0F6FF;
+  border-color: #B3D4FF;
+}
+.viewer-btn-create:hover { background: #DEEBFF; border-color: #85B8FF; }
 
 .viewer-btn-ghost {
   display: inline-flex;

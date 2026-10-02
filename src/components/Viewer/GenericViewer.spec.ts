@@ -7,7 +7,8 @@ import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import globals from '@/model/globals'
 import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
@@ -38,7 +39,10 @@ vi.mock('@/utils/loadFailedRetry', async (importOriginal) => {
 vi.mock('@/apis/aiTitleFeatureFlag', () => ({
   isAgentLinkEnabled: vi.fn(() => Promise.resolve(false)),
   isArchitectureTokensEnabled: vi.fn(() => Promise.resolve(false)),
+  isCreateGuideEnabled: vi.fn(() => Promise.resolve(false)),
 }))
+
+vi.mock('@/features/createGuide/openCreateGuide', () => ({ openCreateGuide: vi.fn(() => Promise.resolve()) }))
 
 vi.mock('@/model/globals', () => ({
   default: {
@@ -388,6 +392,103 @@ describe('GenericViewer (chrome-less)', () => {
         macro_type: 'mermaid',
         entry_point: 'page_view',
       })
+    })
+  })
+
+  // Viewer Create: opens the slash-command guide (src/features/createGuide). Lite only,
+  // behind the create-guide-enabled Forge flag (always on in a dev build), for users who
+  // can edit, on diagram types that have a recorded guide, never inside Fullscreen.
+  describe('Create guide button', () => {
+    const createButton = (wrapper: ReturnType<typeof mountViewer>) => wrapper.find('button[aria-label="Create"]')
+
+    beforeEach(() => {
+      vi.stubEnv('DEV', false)
+      forgeRuntime.isLite = true
+      vi.mocked(isCreateGuideEnabled).mockResolvedValue(true)
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      forgeRuntime.isLite = undefined
+      vi.mocked(isCreateGuideEnabled).mockResolvedValue(false)
+    })
+
+    it('shows Create for a Lite user who can edit once the flag resolves on', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(createButton(wrapper).exists()).toBe(true)
+    })
+
+    it('keeps the row visible at rest when Create shows, so only the other buttons wait for hover', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('.viewer-top-actions').classes()).toContain('viewer-top-actions--with-create')
+    })
+
+    it('leaves the row exactly as before when Create is not shown', async () => {
+      vi.mocked(isCreateGuideEnabled).mockResolvedValue(false)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(createButton(wrapper).exists()).toBe(false)
+      expect(wrapper.find('.viewer-top-actions').classes()).not.toContain('viewer-top-actions--with-create')
+    })
+
+    it('shows Create in a dev build even while the flag is off', async () => {
+      vi.stubEnv('DEV', true)
+      vi.mocked(isCreateGuideEnabled).mockResolvedValue(false)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(createButton(wrapper).exists()).toBe(true)
+    })
+
+    it('hides Create outside the Lite app, whose guide names Lite macros', async () => {
+      forgeRuntime.isLite = false
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(createButton(wrapper).exists()).toBe(false)
+    })
+
+    it('hides Create from users who cannot edit', async () => {
+      vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(createButton(wrapper).exists()).toBe(false)
+    })
+
+    it('hides Create for a diagram type without a guide', async () => {
+      store.commit('updateDiagramType', DiagramType.AsyncApi)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(createButton(wrapper).exists()).toBe(false)
+    })
+
+    it('hides Create in Fullscreen', async () => {
+      // @ts-expect-error — see the beforeEach above
+      window.forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } } as any
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(createButton(wrapper).exists()).toBe(false)
+    })
+
+    it('opens the guide for the viewed diagram type when clicked', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await createButton(wrapper).trigger('click')
+      expect(vi.mocked(openCreateGuide)).toHaveBeenCalledWith({ variant: 'graph', macroType: 'graph', hasEditPermission: true })
+    })
+
+    it('tracks one create_guide_impression per viewer when Create shows', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.vm.$forceUpdate()
+      await flushPromises()
+      const impressions = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'create_guide_impression')
+      expect(impressions).toEqual([[
+        'create_guide_impression',
+        { feature_area: 'macro', surface: 'viewer', macro_type: 'mermaid', create_guide_variant: 'zenuml' },
+      ]])
     })
   })
 

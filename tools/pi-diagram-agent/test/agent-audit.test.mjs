@@ -236,3 +236,39 @@ test('adjudication cannot rescue a missing, stale or non-matching record',{skip:
   const wrongRendered=await auditAgentSvg(adjGrouped,adjCandidate,{originalSvg:adjOriginal,adjudications:[rec('A','G','G',null),rec('B',null,'G','G')]});
   assert.equal(wrongRendered.checks.semanticPreservation.status,'FAIL');
 });
+
+// ---- review fixes: false-PASS paths ------------------------------------------
+test('labelClearance is NOT-CHECKABLE when only some source edge labels are bound',{skip:!enabled},async()=>{
+  const twoLabels='flowchart LR\n A[Start] -- "Go" --> B[Finish]\n B -- "Back" --> A\n';
+  const result=await auditAgentSvg(twoLabels,svg.replace('</svg>',`${label(260,30)}</svg>`));
+  assert.equal(result.checks.labelClearance.status,'NOT-CHECKABLE');
+  assert.deepEqual(result.checks.labelClearance.evidence.unboundLabels,['B->A']);
+});
+
+test('labelClearance fails an edge label sitting entirely inside a node box',{skip:!enabled},async()=>{
+  const inside=labelBase.replace('</svg>',`${label(420,85)}</svg>`).replace('<rect x="400" y="50" width="100" height="60"/>','<rect x="400" y="50" width="100" height="60" stroke="black"/>');
+  const result=await auditAgentSvg(labelSource,inside);
+  assert.equal(result.checks.labelClearance.status,'FAIL');
+  assert.deepEqual(result.checks.labelClearance.evidence.violations.map(v=>[v.label,v.outline]),[['A->B','node:B']]);
+});
+
+test('textFit does not accept a declared labelBox that is only inside the shape bounding box',{skip:!enabled},async()=>{
+  // The full bbox of the diamond: its corners lie outside the diamond itself.
+  const diamond=svg.replace('<rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text>','<polygon points="60,40 120,80 60,120 0,80"/><text x="4" y="56">Hi</text>').replace('x="410" y="80">Finish','x="430" y="85">Ok');
+  const result=await auditAgentSvg(source,diamond.replace('<g data-node="A">','<g data-node="A" data-label-box="0 40 120 80">'));
+  assert.notEqual(result.checks.textFit.status,'PASS');
+  assert.deepEqual(result.checks.textFit.evidence.notCheckableNodeIds,['A']);
+});
+
+test('textFit is NOT-CHECKABLE for a node with no bound text',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(source,svg.replace('<text x="20" y="80">Start</text>','').replace('x="410" y="80">Finish','x="430" y="85">Ok'));
+  assert.equal(result.checks.textFit.status,'NOT-CHECKABLE');
+  assert.deepEqual(result.checks.textFit.evidence.notCheckableNodeIds,['A']);
+});
+
+test('textFit ignores an unpainted rect when choosing the node outline',{skip:!enabled},async()=>{
+  // Text 2 units inside the visible rect would fit only the larger invisible rect's 12-unit inset.
+  const padded=svg.replace('<rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text>','<rect x="0" y="40" width="120" height="80" fill="none" stroke="none"/><rect x="10" y="50" width="100" height="60"/><text x="12" y="85">Hi</text>').replace('x="410" y="80">Finish','x="430" y="85">Ok');
+  const result=await auditAgentSvg(source,padded);
+  assert.equal(result.checks.textFit.status,'FAIL');
+});

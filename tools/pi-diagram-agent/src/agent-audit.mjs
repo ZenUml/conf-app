@@ -154,19 +154,24 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const shapeSelector='rect,path,ellipse,polygon,circle';
       const fitNodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>{
         const id=el.getAttribute('data-node')??el.getAttribute('data-node-id');
-        const shapes=[...el.querySelectorAll(shapeSelector)],rects=shapes.filter(s=>s.localName==='rect').map(rootBox);
+        // Only painted shapes form an outline; an invisible larger rect must not widen the inset box.
+        const painted=shape=>{const st=getComputedStyle(shape);return st.display!=='none'&&st.visibility==='visible'&&(st.fill!=='none'||st.stroke!=='none')};
+        const shapes=[...el.querySelectorAll(shapeSelector)].filter(painted),rects=shapes.filter(s=>s.localName==='rect').map(rootBox);
         const texts=[...el.querySelectorAll('text')].map(rootBox);
         const declared=el.getAttribute('data-label-box')?.trim().split(/[\s,]+/).map(Number);
         const labelBox=declared?.length===4&&declared.every(Number.isFinite)&&declared[2]>0&&declared[3]>0?{x:declared[0],y:declared[1],w:declared[2],h:declared[3]}:null;
         const result={id,texts,kind:'unsupported',reason:'no node shape'};
         if(!shapes.length)return result;
+        if(!texts.length)return {...result,reason:'no text bound to the node'};
         if(rects.length===shapes.length){
           const outline=rects.sort((a,b)=>b.w*b.h-a.w*a.h)[0];
           return rects.every(r=>r.axisAligned)?{id,texts,kind:'rect',outline}:{...result,reason:'transformed rectangle'};
         }
         if(!labelBox)return {...result,reason:'non-rectangular shape without declared labelBox'};
-        const outline=union(shapes.map(rootBox));
-        const inside=labelBox.x>=outline.x-0.01&&labelBox.y>=outline.y-0.01&&labelBox.x+labelBox.w<=outline.x+outline.w+0.01&&labelBox.y+labelBox.h<=outline.y+outline.h+0.01;
+        // Every labelBox corner must lie in a painted shape's fill (or stroke), not merely the shapes' bounding box: a diamond's bbox corners are outside the diamond.
+        // Exact for convex outlines (diamond, hexagon, ellipse); a concave outline could still admit a box whose edge leaves the shape.
+        const inShape=(x,y)=>shapes.some(shape=>{if(!(shape instanceof SVGGeometryElement))return false;const p=new DOMPoint(x,y).matrixTransform(root.getScreenCTM().inverse().multiply(shape.getScreenCTM()).inverse());return shape.isPointInFill(p)||shape.isPointInStroke(p)});
+        const inside=[[labelBox.x,labelBox.y],[labelBox.x+labelBox.w,labelBox.y],[labelBox.x,labelBox.y+labelBox.h],[labelBox.x+labelBox.w,labelBox.y+labelBox.h]].every(([x,y])=>inShape(x,y));
         return inside?{id,texts,kind:'declared',labelBox}:{...result,reason:'declared labelBox lies outside its node shape'};
       });
       // B5: an edge label is its text plus any background rect; outlines are node and container shape strokes.
@@ -187,7 +192,8 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
           if(shape.localName==='rect'&&b.axisAligned&&!Number(shape.getAttribute('rx')||0)&&!Number(shape.getAttribute('ry')||0)){
             const outer={x:b.x-half,y:b.y-half,w:b.w+2*half,h:b.h+2*half},inner={x:b.x+half,y:b.y+half,w:b.w-2*half,h:b.h-2*half};
             const insideInner=inner.w>0&&inner.h>0&&box.x>=inner.x&&box.y>=inner.y&&box.x+box.w<=inner.x+inner.w&&box.y+box.h<=inner.y+inner.h;
-            hit=overlaps(box,outer)&&!insideInner;
+            // A label inside a container is in open space; a label inside a node box is not (B5: labels live in open space).
+            hit=overlaps(box,outer)&&(!insideInner||name.startsWith('node:'));
           }else if(shape instanceof SVGGeometryElement){
             const cols=Math.ceil((box.w+2*labelEpsilon)/sampleStep),rows=Math.ceil((box.h+2*labelEpsilon)/sampleStep);
             if(cols*rows>400000){labelUnsupported.push({label:item.label,outline:name,reason:'label too large to sample'});continue}
@@ -198,14 +204,14 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
               if(shape.isPointInStroke(point)){stroke=true;break}
               if(shape.isPointInFill(point))inFill=true;else outFill=true;
             }
-            hit=stroke||(sw===0&&inFill&&outFill);
+            hit=stroke||(sw===0&&inFill&&outFill)||(name.startsWith('node:')&&inFill);
           }else{labelUnsupported.push({label:item.label,outline:name,reason:'outline is not a geometry element'});continue}
           if(hit)labelViolations.push({label:item.label,outline:name,labelBox:box});
         }
       }
       const textCount=root.querySelectorAll('text').length;
       root.remove();
-      return {parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,labelViolations,labelUnsupported};
+      return {parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,boundLabels:labelElements.map(l=>l.label),labelViolations,labelUnsupported};
     },svgText);
     if(originalSvg!==null){
       const originalBytes=Buffer.isBuffer(originalSvg)?originalSvg:Buffer.from(originalSvg,'utf8');
@@ -248,10 +254,12 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const labelClearance=(()=>{
     const method='browser bbox of edge-label text and background rect (g[data-edge-label-source][data-edge-label-target]) versus node and container outline strokes, 0.5-unit epsilon; rounded or non-rect outlines sampled at 0.5 units';
     const violations=drawn.labelViolations,unsupported=drawn.labelUnsupported;
-    const sourceHasLabels=model?model.edges.some(e=>e.label):null;
-    const unbound=!drawn.labelCount&&sourceHasLabels!==false;
+    // Every labelled source edge needs its own bound label drawing; a partially tagged candidate cannot PASS on the labels it chose to tag.
+    let unboundLabels=null;
+    if(model){const bound=multiset(drawn.boundLabels);unboundLabels=[];for(const e of model.edges.filter(e=>norm(e.label))){const key=`${e.source}->${e.target}`;if(bound.get(key))bound.set(key,bound.get(key)-1);else unboundLabels.push(key)}}
+    const unbound=!model||unboundLabels.length>0;
     const status=violations.length?'FAIL':unbound||unsupported.length?'NOT-CHECKABLE':'PASS';
-    return {status,evidence:{method,epsilon:0.5,violations,unsupported,checkedLabels:drawn.labelCount,...(unbound?{reason:'no bound edge-label drawing found, but the source has labels or its labels cannot be established'}:{})}};
+    return {status,evidence:{method,epsilon:0.5,violations,unsupported,checkedLabels:drawn.labelCount,...(unbound?{unboundLabels,reason:model?'a labelled source edge has no bound edge-label drawing':'source labels cannot be established'}:{})}};
   })();
   if(!model){
     const unresolved={status:'NOT-CHECKABLE',evidence:`source parser cannot establish independent semantic bindings: ${modelError}`};
@@ -425,5 +433,5 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; continuous curved-path/label exclusion and finite lower-bend/midpoint optimality witnesses remain unproved'},
     visualQuality:{status:'NOT-CHECKABLE',evidence:'requires Pi to inspect original and candidate full images plus crops'}};
   const status=Object.values(checks).some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE';
-  return {status,sourceHash:model.sourceHash,svgHash:hash(svgBytes),checks,drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
+  return {status,sourceHash:model.sourceHash,svgHash:hash(svgBytes),originalSvgHash,checks,drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
 }

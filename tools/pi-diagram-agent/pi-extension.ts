@@ -13,11 +13,11 @@ export default function (pi: ExtensionAPI) {
       const parts = args.trim().match(/"[^"]*"|'[^']*'|\S+/g)?.map(value => value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_all, double, single) => double ?? single)) ?? [];
       const input = parts.shift();
       const options: Record<string, string | boolean> = {};
-      const usage = 'Usage: /magic /absolute/source.mmd [--resume /absolute/run-dir] [--reference /absolute/accepted.svg] [--feedback /absolute/review.txt] [--upgrade-rules]';
+      const usage = 'Usage: /magic /absolute/source.mmd [--resume /absolute/run-dir] [--reference /absolute/accepted.svg] [--feedback /absolute/review.txt] [--adjudication /absolute/adjudication.json] [--upgrade-rules]';
       for (let i = 0; i < parts.length;) {
         const key = parts[i];
         if (key === '--upgrade-rules' && !options[key]) { options[key] = true; i++; continue; }
-        if (!['--resume', '--reference', '--feedback'].includes(key) || !parts[i + 1] || parts[i + 1].startsWith('--') || options[key]) {
+        if (!['--resume', '--reference', '--feedback', '--adjudication'].includes(key) || !parts[i + 1] || parts[i + 1].startsWith('--') || options[key]) {
           ctx.ui.notify(usage, 'warning');
           return;
         }
@@ -38,7 +38,7 @@ export default function (pi: ExtensionAPI) {
           return;
         }
         pi.setThinkingLevel('high');
-        const job = prepareAgentTask(input, { cwd: ctx.cwd, resumeRunDir: options['--resume'] as string | undefined, referenceSvgPath: options['--reference'] as string | undefined, feedbackPath: options['--feedback'] as string | undefined, upgradeRules: options['--upgrade-rules'] === true });
+        const job = prepareAgentTask(input, { cwd: ctx.cwd, resumeRunDir: options['--resume'] as string | undefined, referenceSvgPath: options['--reference'] as string | undefined, feedbackPath: options['--feedback'] as string | undefined, upgradeRules: options['--upgrade-rules'] === true, adjudicationPath: options['--adjudication'] as string | undefined });
         const jobId = randomUUID();
         jobs.set(jobId, { inspect: createAgentVisualInspector(job) });
         pi.sendUserMessage(`${job.prompt}\n\nVisual inspection job ID: ${jobId}. Call diagram_inspect with this ID after each candidate. The tool returns the original image, ${job.referenceSvgBytes ? 'accepted reference full and viewer-fit images, ' : ''}candidate full image, four candidate crops, and final-viewer contain-fit image as actual images. Your final answer must state the candidate path, exact SVG hash from the final inspection, defects that remain, and which rules lack independent proof.`, { deliverAs: 'followUp' });

@@ -350,7 +350,7 @@ const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
  * groups: [{id,outline,box,headings:[box]}]
  * edges: [{source,target,tag,path,axialLength,spans,hulls,trunk}]  (spans/hulls from the audit's strict path readers)
  */
-export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend',hintEdges=[]}={}){
+export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend',hintEdges=[],canvas=null}={}){
   const relations=[],violations=[],notCheckable=[];
   const hintSet=new Set(hintEdges),hints=new Map();
   const nodeById=new Map();for(const n of nodes)if(!nodeById.has(n.id))nodeById.set(n.id,n);
@@ -358,6 +358,11 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
   const routes=edges.map(e=>e.tag==='path'?parseOrthogonalRoute(e.path):{error:'relationship is not a path element'});
   const unboundKeys=new Set(unboundLabels);
   const labels=labelBoxes.map(l=>l.box).filter(Boolean);
+  // Repair hints stay inside the canvas: four frame strips (8-unit margin) join the label obstacles in hint mode only.
+  if(mode==='hint'&&canvas&&[canvas.x,canvas.y,canvas.w,canvas.h].every(Number.isFinite)){
+    const M=8,B=5000,{x,y,w,h}=canvas;
+    labels.push({x:x-B,y:y-B,w:B+M-GUARD,h:h+2*B},{x:x+w-M+GUARD,y:y-B,w:B,h:h+2*B},{x:x-B,y:y-B,w:w+2*B,h:B+M-GUARD},{x:x-B,y:y+h-M+GUARD,w:w+2*B,h:B});
+  }
   // Per-node geometry: rect faces, or ports derived from the drawn outline. Obstacles use the same knowledge.
   const geoCache=new Map();
   const geoOf=n=>{
@@ -529,10 +534,10 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
 /** Attach repair hints to routeCrossings violations. For each violation, search a crossing-free route for each of its two edges with all other
  * routes fixed; keep the better (fewest bends, then shortest) as `repairHint:{edge,points,bends,length}`, else `repairHint:null` with a reason.
  * Evidence only: the drawing is never modified. */
-export function attachCrossingRepairHints(input,violations){
+export function attachCrossingRepairHints(input,violations,{canvas=null}={}){
   const ids=[...new Set(violations.flatMap(v=>[v.edgeA,v.edgeB]))];
   let hints={};
-  try{hints=checkRouteLowerBend(input,{mode:'hint',hintEdges:ids}).hints}catch(error){hints=Object.fromEntries(ids.map(id=>[id,{edge:id,hint:null,reason:`hint search failed: ${error?.message??error}`}]))}
+  try{hints=checkRouteLowerBend(input,{mode:'hint',hintEdges:ids,canvas}).hints}catch(error){hints=Object.fromEntries(ids.map(id=>[id,{edge:id,hint:null,reason:`hint search failed: ${error?.message??error}`}]))}
   for(const v of violations){
     const per=[v.edgeA,v.edgeB].map(id=>hints[id]??{edge:id,hint:null,reason:'edge not searched'});
     const ok=per.filter(h=>h.hint).sort((a,b)=>a.hint.bends-b.hint.bends||a.hint.length-b.hint.length);

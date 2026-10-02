@@ -35,7 +35,9 @@ test('routeCrossings repairHint is null with a reason when no route exists for e
   // C and D are wide bars forming a corridor; walls close both ends. Any A->B route and any C->D route must use the corridor and cross.
   const walls=[node('WL',0,200,62,260),node('WR',558,200,62,260)];
   const nodes=[node('C',62,200,496,80),node('D',62,380,496,80),node('A',62,300,60,60),node('B',498,300,60,60),...walls];
-  const r=await auditAgentSvg(src,doc(...nodes,edge('A','B','M122 330 L498 330'),edge('C','D','M300 280 L300 380')));
+  // The canvas ends at the walls (620x460), so there is no way round them either.
+  const tight=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 460">${defs}${nodes.join('')}${edge('A','B','M122 330 L498 330')}${edge('C','D','M300 280 L300 380')}</svg>`;
+  const r=await auditAgentSvg(src,tight);
   const c=r.checks.routeCrossings;
   assert.equal(c.status,'FAIL');
   const [v]=c.evidence.violations;
@@ -57,4 +59,12 @@ test('auditToFindings puts the repair hint into the author-facing text and keeps
 test('auditToFindings says a node move is likely needed when the hint is null',()=>{
   const [f]=auditToFindings(audit({edgeA:'A->B',edgeB:'C->D',x:1,y:2,repairHint:null,reason:'no crossing-free route for either edge with the other routes fixed; a node move is likely needed'}));
   assert.match(f.suggestion,/node move is likely needed/);
+});
+
+test('a repairHint never leaves the canvas (8-unit margin inside the root viewBox)',{skip:!enabled},async()=>{
+  // Bars close the gaps above and below, so the only free routes run outside the canvas; none may be proposed. The shortest escapes for C->D run outside the 600x640 canvas (left of A at x<4, right of B at x>600), so the hint must take another way.
+  const nodes=[node('A',4,300,100,60),node('B',500,300,100,60),node('C',250,100,100,60),node('D',250,500,100,60),node('TOP',0,10,600,88),node('BOT',0,562,600,60)];
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 640">${defs}${nodes.join('')}${edge('A','B','M104 330 L500 330')}${edge('C','D','M300 160 L300 500')}</svg>`;
+  const [v]=(await auditAgentSvg(src,svg)).checks.routeCrossings.evidence.violations;
+  for(const [x,y] of v.repairHint?.points??[]){assert.ok(x>=8&&x<=592&&y>=8&&y<=632,`point ${x},${y} outside the canvas margin`)}
 });

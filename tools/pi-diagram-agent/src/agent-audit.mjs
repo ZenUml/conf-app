@@ -88,6 +88,7 @@ const wellFormedAdjudication=r=>r&&typeof r==='object'&&typeof r.nodeId==='strin
 /** Audit model bindings in an independently authored SVG without requiring the old renderer schema.
  * No PASS here implies an optimal route, appropriate palette meaning, or good visual quality.
  */
+const rootViewBox=text=>{const m=/<svg\b[^>]*?\sviewBox\s*=\s*["']([^"']+)["']/i.exec(text??''),n=m?.[1].trim().split(/[\s,]+/).map(Number);return n?.length===4&&n.every(Number.isFinite)?{x:n[0],y:n[1],w:n[2],h:n[3]}:null};
 export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModulePath=process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE,browserExecutablePath=process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE,adjudications=[]}={}){
   const adjudicationList=(Array.isArray(adjudications)?adjudications:[adjudications]).filter(r=>r!=null);
   const sourceBytes=Buffer.isBuffer(source)?source:Buffer.from(source,'utf8');
@@ -384,7 +385,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     edges:drawn.edges.map((e,i)=>({source:e.source,target:e.target,tag:e.tag,path:e.path,trunk:e.trunk||null,axialLength:e.markerDrawing?.axialLength,spans:routeSpans[i].spans,hulls:e.tag==='path'?actualCurveEnvelopes(e.path):null}))
   }:null;
   if(routeCrossings.status==='FAIL'){
-    if(lbInput)attachCrossingRepairHints(lbInput,routeCrossings.evidence.violations);
+    if(lbInput)attachCrossingRepairHints(lbInput,routeCrossings.evidence.violations,{canvas:rootViewBox(svg)});
     else for(const v of routeCrossings.evidence.violations){v.repairHint=null;v.reason='no neutral per-relation binding, so no route search was possible'}
   }
   const routeLowerBend=lbInput?checkRouteLowerBend(lbInput):{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};

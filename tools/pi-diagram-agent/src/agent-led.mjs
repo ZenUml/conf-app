@@ -9,6 +9,9 @@ import {auditAgentSvg} from './agent-audit.mjs';
 import {parseMermaid} from './parser.mjs';
 import {collectOriginalLayout,formatSourceFacts} from './source-facts.mjs';
 import {specModeParagraph} from './spec-tool.mjs';
+import {earlyFindings} from './early-checks.mjs';
+import {formatForAuthor} from './findings.mjs';
+import {collectGeometry,geometryFindings,geometryNotCheckable} from './geometry.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const RULES_SHA='c790f138cafae94fb9e601d7b35c1460cf6eac276211a6341c39deb2227534ea';
@@ -111,17 +114,30 @@ export async function buildSourceFacts(job,{mermaidBundlePath=process.env.PI_DIA
 }
 
 /** The user message sent to Pi. Default (no options) is the script-mode message; options only append. */
-export function composePrompt(job,{jobId,specMode=false,factsText=null}={}){
+export function v2Paragraph({maxRounds,maxInspectionsPerRound}){
+  return `Submission protocol (v2; this overrides the "at most eight inspected candidates" instruction above). Make at most ${maxInspectionsPerRound} diagram_inspect calls per round to check your own work; it also returns early mechanical findings (forbidden constructs such as context-stroke, missing node/relation/group bindings), so fix those before submitting. When you believe the candidate is ready, call diagram_submit with the same job ID. The orchestrator re-renders your final candidate.svg itself, runs the deterministic auditor and an independent reviewer you cannot see, and returns either structured findings (fix them, then call diagram_submit again; this session continues) or a final status. You have at most ${maxRounds} submit rounds. Do not certify your own work or claim it is validated: only the REVIEWED or CANDIDATE status returned by diagram_submit is final. Do not edit candidate.svg while diagram_submit is running. When a final status arrives, stop and report it.`;
+}
+
+export function composePrompt(job,{jobId,specMode=false,factsText=null,v2=null}={}){
   const facts=factsText?`\n\n${factsText}`:'';
   const base=`${job.prompt}${facts}\n\nVisual inspection job ID: ${jobId}. Call diagram_inspect with this ID after each candidate. The tool returns the original image, ${job.referenceSvgBytes?'accepted reference full and viewer-fit images, ':''}candidate full image, four candidate crops, and final-viewer contain-fit image as actual images. Your final answer must state the candidate path, exact SVG hash from the final inspection, defects that remain, and which rules lack independent proof.`;
-  return specMode?`${base}\n\n${specModeParagraph({runDir:job.runDir,jobId})}`:base;
+  const withSpec=specMode?`${base}\n\n${specModeParagraph({runDir:job.runDir,jobId})}`:base;
+  return v2?`${withSpec}\n\n${v2Paragraph(v2)}`:withSpec;
 }
 
 /** Visual evidence for a model turn. Its PASS only means screenshots were captured. */
-export function createAgentVisualInspector(job,{mermaidBundlePath=process.env.PI_DIAGRAM_MERMAID_BUNDLE,maxInspections=8}={}){
+export function createAgentVisualInspector(job,{mermaidBundlePath=process.env.PI_DIAGRAM_MERMAID_BUNDLE,maxInspections=8,perRound=false,earlyChecks=false,deps=null}={}){
   let original=null,originalSvgBytes=null,reference=null,inspections=0;
-  return async()=>{
-    if(++inspections>maxInspections)throw Error('AGENT_INSPECTION_LIMIT');
+  const d={
+    original:()=>ensureOriginal(job,{mermaidBundlePath}),
+    render:(bytes,outPrefix)=>renderAgentSvg(bytes,{outPrefix,displayWidth:1200,displayHeight:710}),
+    audit:(bytes,originalSvg)=>auditAgentSvg(job.sourceBytes,bytes,{originalSvg,adjudications:job.manifest?job.manifest.adjudication?.records??[]:job.adjudications??[]}),
+    image:rec=>imageBlock(rec.path,rec.sha256),
+    geometry:bytes=>collectGeometry(bytes),
+    ...(deps??{}),
+  };
+  const inspect=async()=>{
+    if(++inspections>maxInspections)throw Error(perRound?`AGENT_INSPECTION_LIMIT: ${maxInspections} diagram_inspect calls already used this round. Fix the issues you already know about and call diagram_submit; the orchestrator re-renders and reviews it.`:'AGENT_INSPECTION_LIMIT');
     if(job.manifestHash){let onDisk=null;try{onDisk=hash(fs.readFileSync(path.join(job.runDir,'.job.json')))}catch{}if(onDisk!==job.manifestHash)throw Error('JOB_MANIFEST_TAMPERED')}
     if(hash(fs.readFileSync(job.sourcePath))!==job.sourceHash)throw Error('SOURCE_CHANGED_DURING_AGENT_RUN');
     const item=fs.lstatSync(job.outputPath,{throwIfNoEntry:false});
@@ -130,19 +146,31 @@ export function createAgentVisualInspector(job,{mermaidBundlePath=process.env.PI
     if(!/^\s*(?:<\?xml\s+[^>]*\?>\s*)?<svg\b/i.test(svg)||/<\s*(?:script|foreignObject)\b|\bon[a-z]+\s*=/i.test(svg))throw Error('UNSAFE_OR_NON_SVG_CANDIDATE');
     if(!original){
       // Keep the original SVG bytes in memory: the run-directory copy is writable by the agent under audit. May already be rendered for source facts.
-      const shared=await ensureOriginal(job,{mermaidBundlePath});
+      const shared=await d.original();
       original=shared.rendered;originalSvgBytes=shared.svgBytes;
     }
-    if(job.referenceSvgBytes&&!reference)reference=await renderAgentSvg(job.referenceSvgBytes,{outPrefix:path.join(job.runDir,'accepted-reference'),displayWidth:1200,displayHeight:710});
-    const rendered=await renderAgentSvg(svgBytes,{outPrefix:path.join(job.runDir,'candidate'),displayWidth:1200,displayHeight:710});
-    const audit=await auditAgentSvg(job.sourceBytes,svgBytes,{originalSvg:originalSvgBytes,adjudications:job.manifest?job.manifest.adjudication?.records??[]:job.adjudications??[]});
+    if(job.referenceSvgBytes&&!reference)reference=await d.render(job.referenceSvgBytes,path.join(job.runDir,'accepted-reference'));
+    const rendered=await d.render(svgBytes,path.join(job.runDir,'candidate'));
+    const audit=await d.audit(svgBytes,originalSvgBytes);
     const media=[rendered.full,...rendered.crops,rendered.fullscreen];
     const originalFull=original.media.full;
     const referenceMedia=reference?[reference.full,reference.fullscreen]:[];
-    const content=[{type:'text',text:JSON.stringify({status:'VISUAL_EVIDENCE_ONLY',round:inspections,sourceHash:job.sourceHash,svgHash,originalSvgHash:original.originalSvgHash,rulesHash:job.rulesHash,originalFull:originalFull.sha256,acceptedReference:reference?{svgHash:job.referenceHash,media:referenceMedia.map(x=>({file:x.file,sha256:x.sha256}))}:null,candidateMedia:media.map(x=>({file:x.file,sha256:x.sha256})),containFit:rendered.containFit,textAudit:rendered.textAudit,independentAudit:audit,warning:'Look at the original, accepted reference when supplied, candidate full image, viewer-fit image and crops. Screenshot capture and partial machine checks do not certify semantics, geometry, or visual quality.'})},
-      imageBlock(path.join(job.runDir,originalFull.file),originalFull.sha256),
-      ...referenceMedia.map(x=>imageBlock(x.path,x.sha256)),
-      ...media.map(x=>imageBlock(x.path,x.sha256))];
+    let measured=[],geoNotCheckable=[];
+    if(earlyChecks){
+      let model=null;try{model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'))}catch{}
+      if(model){
+        let geo=null;try{geo=await d.geometry(svgBytes)}catch{/* best effort at inspect time; reported below as NOT-CHECKABLE */}
+        if(geo)measured=geometryFindings(geo,model);
+        geoNotCheckable=geometryNotCheckable(geo,model);
+      }
+    }
+    const early=earlyChecks?(()=>{const f=formatForAuthor({sent:[...earlyFindings({svgText:svg,audit}),...measured].map(x=>({...x,state:'open'})),omittedBlocking:0,minorCount:0});return {findings:f.findings,blocking:f.findings.length,notCheckable:geoNotCheckable}})():null;
+    const content=[{type:'text',text:JSON.stringify({status:'VISUAL_EVIDENCE_ONLY',round:inspections,sourceHash:job.sourceHash,svgHash,originalSvgHash:original.originalSvgHash,rulesHash:job.rulesHash,originalFull:originalFull.sha256,acceptedReference:reference?{svgHash:job.referenceHash,media:referenceMedia.map(x=>({file:x.file,sha256:x.sha256}))}:null,candidateMedia:media.map(x=>({file:x.file,sha256:x.sha256})),containFit:rendered.containFit,textAudit:rendered.textAudit,independentAudit:audit,...(early?{earlyChecks:early}:{}),warning:'Look at the original, accepted reference when supplied, candidate full image, viewer-fit image and crops. Screenshot capture and partial machine checks do not certify semantics, geometry, or visual quality.'})},
+      d.image({...originalFull,path:path.join(job.runDir,originalFull.file)}),
+      ...referenceMedia.map(x=>d.image(x)),
+      ...media.map(x=>d.image(x))];
     return {content,details:{round:inspections,sourceHash:job.sourceHash,svgHash,original,reference,rendered,audit}};
   };
+  inspect.resetRound=()=>{if(perRound)inspections=0};
+  return inspect;
 }

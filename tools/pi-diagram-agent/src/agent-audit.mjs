@@ -363,7 +363,12 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     return {status:violations.length?'FAIL':unresolved.length?'NOT-CHECKABLE':'PASS',evidence:{method:'actual SVG straight spans versus certain rounded-rectangle interior; conservative supported Q/A curve envelopes and uncertain rounded corners retain NOT-CHECKABLE; source/target ancestor groups permit transit',violations,unresolved,checkedEdges:drawn.edges.length}};
   })():{status:'NOT-CHECKABLE',evidence:'exact edge binding, source/target outlines, rectangular container drawing, or strict straight SVG spans unavailable'};
   let originalGroupParity={status:'NOT-CHECKABLE',evidence:'original rendered SVG was not supplied'};
-  if(originalDrawn&&model.groups.length){
+  if(originalDrawn&&!model.groups.length){
+    // Vacuous only when both sides agree there is no grouping: the source declares none AND the original render drew no cluster.
+    originalGroupParity=originalDrawn.parseError?{status:'NOT-CHECKABLE',evidence:'original renderer XML unavailable'}:
+      originalDrawn.groups.length?{status:'NOT-CHECKABLE',evidence:`source declares no groups but the original render has ${originalDrawn.groups.length} cluster(s); membership cannot be compared`}:
+      {status:'PASS',evidence:{method:'source declarations and original Mermaid browser SVG clusters',note:'source declares no groups and original render has no clusters',originalSvgHash,mismatchedNodeIds:[],sourceDeclarationConflictNodeIds:[],unresolvedNodeIds:[],checkedNodes:0,nodeMembership:{}}};
+  }else if(originalDrawn&&model.groups.length){
     if(originalDrawn.parseError||groups.status!=='PASS'||nodeIdentity.status!=='PASS')originalGroupParity={status:'NOT-CHECKABLE',evidence:'original renderer XML or candidate group/node identity unavailable'};
     else{
       const contains=(outer,inner)=>inner.x>=outer.x-1&&inner.y>=outer.y-1&&inner.x+inner.w<=outer.x+outer.w+1&&inner.y+inner.h<=outer.y+outer.h+1;

@@ -12,6 +12,9 @@ register('data:text/javascript,'+encodeURIComponent(`export async function resol
   if(s==='@earendil-works/pi-ai')return {url:${JSON.stringify(stub('pi-ai.mjs'))},shortCircuit:true};
   if(s==='@earendil-works/pi-coding-agent')return {url:${JSON.stringify(stub('pi-coding-agent.mjs'))},shortCircuit:true};
   return n(s,c)}`));
+const MDIR=fs.mkdtempSync(path.join(os.tmpdir(),'pi-manifests-test-'));
+process.env.PI_DIAGRAM_MANIFEST_DIR=MDIR; // authoritative manifests: never the real ~ in tests
+process.on('exit',()=>fs.rmSync(MDIR,{recursive:true,force:true}));
 const ext=(await import('../pi-extension.ts')).default;
 
 const SRC='flowchart LR\n  A[Start] --> B[Finish]\n';

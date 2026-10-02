@@ -272,3 +272,22 @@ test('textFit ignores an unpainted rect when choosing the node outline',{skip:!e
   const result=await auditAgentSvg(source,padded);
   assert.equal(result.checks.textFit.status,'FAIL');
 });
+
+// A source without groups has no membership to compare. With the original render supplied and showing no clusters, membership
+// preservation is vacuously PASS (not "original not supplied"); a cluster in the original that the parser did not see stays NOT-CHECKABLE.
+const grouplessOriginal='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><g class="node" id="m-flowchart-A-0"><rect x="10" y="50" width="100" height="60"/></g><g class="node" id="m-flowchart-B-1"><rect x="400" y="50" width="100" height="60"/></g></svg>';
+test('group-less source: original supplied with no clusters -> originalGroupParity and semanticPreservation PASS (vacuous, with evidence)',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg(source,svg,{originalSvg:grouplessOriginal});
+  assert.equal(r.checks.originalGroupParity.status,'PASS');
+  assert.match(JSON.stringify(r.checks.originalGroupParity.evidence),/source declares no groups and original render has no clusters/);
+  assert.equal(r.checks.semanticPreservation.status,'PASS');
+});
+test('group-less source: vacuous PASS needs both facts — no original, or an original with a cluster, stays NOT-CHECKABLE',{skip:!enabled},async()=>{
+  const none=await auditAgentSvg(source,svg);
+  assert.equal(none.checks.originalGroupParity.status,'NOT-CHECKABLE');assert.equal(none.checks.semanticPreservation.status,'NOT-CHECKABLE');
+  const clustered=grouplessOriginal.replace('<g class="node"','<g class="cluster" id="m-X"><rect x="0" y="0" width="300" height="200"/></g><g class="node"');
+  const r=await auditAgentSvg(source,svg,{originalSvg:clustered});
+  assert.equal(r.checks.originalGroupParity.status,'NOT-CHECKABLE');
+  assert.match(JSON.stringify(r.checks.originalGroupParity.evidence),/cluster/);
+  assert.equal(r.checks.semanticPreservation.status,'NOT-CHECKABLE');
+});

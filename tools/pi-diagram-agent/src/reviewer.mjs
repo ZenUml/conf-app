@@ -107,7 +107,7 @@ export function selectReviewImages({originalFull,render,regions=[],mode='focus'}
 }
 
 export function reviewerConfigFromEnv(env=process.env){
-  return {images:env.PI_DIAGRAM_REVIEWER_IMAGES==='all'?'all':'focus',thinking:env.PI_DIAGRAM_REVIEWER_THINKING||'medium',prompt:env.PI_DIAGRAM_REVIEWER_PROMPT==='report'?'report':'skip'};
+  return {images:env.PI_DIAGRAM_REVIEWER_IMAGES==='all'?'all':'focus',thinking:env.PI_DIAGRAM_REVIEWER_THINKING||'medium',prompt:['delegate','skip'].includes(env.PI_DIAGRAM_REVIEWER_PROMPT)?'skip':'report'};
 }
 
 const bad=(code,detail='')=>Error(`REVIEWER_${code}${detail?`: ${detail}`:''}`);

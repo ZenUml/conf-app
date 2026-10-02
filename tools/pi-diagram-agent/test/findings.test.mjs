@@ -118,3 +118,15 @@ test('a source definition conflict finding tells the author what Mermaid draws a
   assert.deepEqual(f.elements,['A']);
   assert.match(f.suggestion,/last definition/);assert.match(f.suggestion,/user/);
 });
+
+test('ledger: a reviewer duplicate of an open audit finding (same key) is one entry and adds no blocking finding or round',()=>{
+  const L=createLedger(),aud=f(),dup=f({source:'review'});
+  assert.equal(aud.key,dup.key);
+  L.update(1,[aud,dup],{sources:['audit','review']});
+  assert.equal(L.entries().length,1);
+  assert.equal(L.openBlocking().length,1);
+  assert.equal(selectForAuthor(L).sent.length,1);
+  L.update(2,[aud,dup],{sources:['audit','review']});
+  assert.equal(L.get(aud.key).history.length,2);
+  assert.equal(L.openBlocking().length,1);
+});

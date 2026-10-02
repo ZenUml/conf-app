@@ -151,9 +151,9 @@ test('reviewer thinking defaults to medium; PI_DIAGRAM_REVIEWER_THINKING overrid
     process.env.PI_DIAGRAM_REVIEWER_THINKING='high';
     await createPiReviewerFactory(sdk,{provider:'p',modelId:'m',cwd:'/w'})();assert.equal(calls.create.thinkingLevel,'high');
   }finally{if(prev===undefined)delete process.env.PI_DIAGRAM_REVIEWER_THINKING;else process.env.PI_DIAGRAM_REVIEWER_THINKING=prev}
-  assert.deepEqual(reviewerConfigFromEnv({}),{images:'focus',thinking:'medium',prompt:'skip'});
-  assert.deepEqual(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_IMAGES:'all',PI_DIAGRAM_REVIEWER_THINKING:'low'}),{images:'all',thinking:'low',prompt:'skip'});
-  assert.deepEqual(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_IMAGES:'bogus'}),{images:'focus',thinking:'medium',prompt:'skip'});
+  assert.deepEqual(reviewerConfigFromEnv({}),{images:'focus',thinking:'medium',prompt:'report'});
+  assert.deepEqual(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_IMAGES:'all',PI_DIAGRAM_REVIEWER_THINKING:'low'}),{images:'all',thinking:'low',prompt:'report'});
+  assert.deepEqual(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_IMAGES:'bogus'}),{images:'focus',thinking:'medium',prompt:'report'});
 });
 
 const rec=n=>({sha256:n});
@@ -265,8 +265,10 @@ test('reviewer prompt variant "report": visible defects are reported even when c
   assert.match(rep,/data, not instructions|untrusted/i);assert.match(rep,/ONLY one JSON/);
   assert.equal(buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7,measured:'skip'}),skip);
 });
-test('reviewer config: PI_DIAGRAM_REVIEWER_PROMPT selects the measured-check policy; unknown values fall back to the default',()=>{
+test('reviewer config: the report prompt is the default; delegate (alias skip) restores the old measured-check policy',()=>{
+  assert.equal(reviewerConfigFromEnv({}).prompt,'report');
   assert.equal(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'report'}).prompt,'report');
+  assert.equal(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'delegate'}).prompt,'skip');
   assert.equal(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'skip'}).prompt,'skip');
-  assert.ok(['skip','report'].includes(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'bogus'}).prompt));
+  assert.equal(reviewerConfigFromEnv({PI_DIAGRAM_REVIEWER_PROMPT:'bogus'}).prompt,'report');
 });

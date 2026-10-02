@@ -1,0 +1,298 @@
+import fs from 'node:fs';
+import {createRequire} from 'node:module';
+import {createHash} from 'node:crypto';
+import {parseMermaid} from './parser.mjs';
+
+const require=createRequire(import.meta.url);
+const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+const norm=value=>String(value??'').replace(/<br\s*\/?\s*>/gi,' ').replace(/\s+/g,' ').trim();
+const multiset=items=>{const m=new Map();for(const x of items)m.set(x,(m.get(x)??0)+1);return m};
+const equalSets=(a,b)=>a.size===b.size&&[...a].every(([k,v])=>b.get(k)===v);
+const eps=1e-6;
+
+// Read the SVG path itself, never the agent's optional waypoint metadata.
+// Curves consume their endpoint but do not count as straight centerline spans.
+function actualStraightSpans(d){
+  const tokens=[];let at=0;
+  const token=/\s*,?\s*([MLQA]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/y;
+  while(at<d.length){if(!d.slice(at).trim())break;token.lastIndex=at;const m=token.exec(d);if(!m)return null;tokens.push(m[1]);at=token.lastIndex}
+  const spans=[];let point=null,lastCommand=null;
+  for(let i=0;i<tokens.length;){
+    const command=tokens[i++],arity={M:2,L:2,Q:4,A:7}[command];
+    lastCommand=command;
+    if(!arity||i+arity>tokens.length)return null;
+    const args=tokens.slice(i,i+arity).map(Number);i+=arity;
+    if(!args.every(Number.isFinite))return null;
+    const next=command==='A'?[args[5],args[6]]:[args.at(-2),args.at(-1)];
+    if(command==='M'){point=next;continue}
+    if(!point)return null;
+    if(command==='L'){
+      const axis=Math.abs(point[1]-next[1])<eps?'h':Math.abs(point[0]-next[0])<eps?'v':null;
+      if(!axis)return null;
+      const lo=axis==='h'?Math.min(point[0],next[0]):Math.min(point[1],next[1]);
+      const hi=axis==='h'?Math.max(point[0],next[0]):Math.max(point[1],next[1]);
+      if(hi-lo>eps)spans.push({axis,fixed:axis==='h'?point[1]:point[0],lo,hi,length:hi-lo});
+    }
+    point=next;
+  }
+  spans.lastCommand=lastCommand;
+  return spans;
+}
+
+// Conservative envelopes: a quadratic stays in its control-point hull; a
+// supported circular arc stays within two radii of either endpoint. An
+// overlapping envelope is unknown, never evidence that the curve intrudes.
+function actualCurveEnvelopes(d){
+  const tokens=[];let at=0;
+  const token=/\s*,?\s*([MLQA]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/y;
+  while(at<d.length){if(!d.slice(at).trim())break;token.lastIndex=at;const m=token.exec(d);if(!m)return null;tokens.push(m[1]);at=token.lastIndex}
+  const curves=[];let point=null;
+  for(let i=0;i<tokens.length;){
+    const command=tokens[i++],arity={M:2,L:2,Q:4,A:7}[command];
+    if(!arity||i+arity>tokens.length)return null;
+    const a=tokens.slice(i,i+arity).map(Number);i+=arity;
+    if(!a.every(Number.isFinite))return null;
+    const next=command==='A'?[a[5],a[6]]:[a.at(-2),a.at(-1)];
+    if(command==='M'){point=next;continue}
+    if(!point)return null;
+    if(command==='Q'){
+      const xs=[point[0],a[0],next[0]],ys=[point[1],a[1],next[1]];
+      curves.push({x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)});
+    }
+    if(command==='A'){
+      const [rx,ry,rotation,large,sweep]=a;
+      if(rx<=0||Math.abs(rx-ry)>eps||Math.abs(rotation)>eps||large!==0||![0,1].includes(sweep)||Math.hypot(next[0]-point[0],next[1]-point[1])>2*rx+eps)return null;
+      const xs=[point[0],next[0]],ys=[point[1],next[1]],pad=2*rx;
+      curves.push({x:Math.min(...xs)-pad,y:Math.min(...ys)-pad,w:Math.max(...xs)-Math.min(...xs)+2*pad,h:Math.max(...ys)-Math.min(...ys)+2*pad});
+    }
+    point=next;
+  }
+  return curves;
+}
+
+/** Audit model bindings in an independently authored SVG without requiring the old renderer schema.
+ * No PASS here implies an optimal route, appropriate palette meaning, or good visual quality.
+ */
+export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModulePath=process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE,browserExecutablePath=process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE}={}){
+  const sourceBytes=Buffer.isBuffer(source)?source:Buffer.from(source,'utf8');
+  const sourceText=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(sourceBytes);
+  if(!Buffer.from(sourceText,'utf8').equals(sourceBytes))throw Error('SOURCE_NOT_EXACT_UTF8');
+  const svgBytes=Buffer.isBuffer(svg)?svg:Buffer.from(svg,'utf8');
+  if(svgBytes.length===0||svgBytes.length>2_000_000)throw Error('SVG_SIZE_LIMIT');
+  const svgText=new TextDecoder('utf-8',{fatal:true}).decode(svgBytes);
+  if(/<\s*(?:script|foreignObject|iframe|image)\b|\bon[a-z]+\s*=|\b(?:href|xlink:href)\s*=/i.test(svgText))throw Error('SVG_ACTIVE_CONTENT_UNSUPPORTED');
+  let model=null,modelError=null;
+  try{model=parseMermaid(sourceText)}catch(error){modelError=String(error?.message??error)}
+  let playwright;try{playwright=require(playwrightModulePath||'playwright')}catch{throw Error('PLAYWRIGHT_RUNTIME_UNAVAILABLE')}
+  const browser=await playwright.chromium.launch({headless:true,...(browserExecutablePath?{executablePath:browserExecutablePath}:{})});
+  let drawn,originalDrawn=null,originalSvgHash=null;
+  try{
+    const page=await browser.newPage({javaScriptEnabled:false});
+    await page.route('**/*',route=>route.abort('blockedbyclient'));
+    drawn=await page.evaluate(input=>{
+      const doc=new DOMParser().parseFromString(input,'image/svg+xml');
+      if(doc.querySelector('parsererror')||doc.documentElement.localName!=='svg')return {parseError:true};
+      const root=document.importNode(doc.documentElement,true);
+      document.body.appendChild(root);
+      const box=el=>{const r=el.getBBox();return {x:r.x,y:r.y,w:r.width,h:r.height}};
+      const nodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>({id:el.getAttribute('data-node')??el.getAttribute('data-node-id'),text:[...el.querySelectorAll('text')].map(t=>t.textContent).join(' '),shapeCount:el.querySelectorAll('rect,path,ellipse,polygon').length,box:box(el)}));
+      const nodeShapes=new Map([...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>[el.getAttribute('data-node')??el.getAttribute('data-node-id'),[...el.querySelectorAll('rect,path,ellipse,polygon')].filter(shape=>shape instanceof SVGGeometryElement&&getComputedStyle(shape).fill!=='none')]));
+      const headingBoxes=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].flatMap(group=>[...group.querySelectorAll(':scope > text')].map(text=>({groupId:group.getAttribute('data-group')??group.getAttribute('data-container-id')??group.id?.slice(6),box:box(text)})));
+      const edges=[...root.querySelectorAll('[data-source][data-target]')].map(el=>{
+        const source=el.getAttribute('data-source'),target=el.getAttribute('data-target');
+        const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end')};
+        const dash=getComputedStyle(el).strokeDasharray;
+        result.dashed=dash!=='none'&&(dash.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).some(value=>Number(value)>0);
+        const markerId=/^url\(#([^()]+)\)$/.exec(result.marker??'')?.[1];
+        const marker=markerId?root.querySelector(`marker#${CSS.escape(markerId)}`):null;
+        const markerChildren=marker?[...marker.querySelectorAll('path,rect,ellipse,polygon,polyline,line')]:[];
+        const markerShape=markerChildren.length===1?markerChildren[0]:null;
+        const markerStyle=markerShape?getComputedStyle(markerShape):null;
+        const markerBox=markerShape instanceof SVGGraphicsElement?markerShape.getBBox():null;
+        const markerMatrix=markerShape instanceof SVGGraphicsElement?markerShape.getCTM():null;
+        const markerDeterminant=markerMatrix?markerMatrix.a*markerMatrix.d-markerMatrix.b*markerMatrix.c:0;
+        const edgeStroke=getComputedStyle(el).stroke;
+        const refX=Number(marker?.getAttribute('refX'));
+        const strokeWidth=Number.parseFloat(getComputedStyle(el).strokeWidth);
+        const viewBox=marker?.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number);
+        const viewBoxUnit=viewBox?.length===4&&viewBox.every(Number.isFinite)&&Math.abs(viewBox[0])<1e-8&&Math.abs(viewBox[1])<1e-8&&Math.abs(viewBox[2]-Number(marker?.getAttribute('markerWidth')))<1e-8&&Math.abs(viewBox[3]-Number(marker?.getAttribute('markerHeight')))<1e-8;
+        const markerScale=marker?.hasAttribute('viewBox')&&!viewBoxUnit?NaN:marker?.getAttribute('markerUnits')==='userSpaceOnUse'?1:strokeWidth;
+        const axialLength=markerBox&&Number.isFinite(refX)&&Number.isFinite(markerScale)?Math.max(0,(refX-markerBox.x)*markerScale):null;
+        result.markerDrawing={found:!!marker,shapeCount:markerChildren.length,visible:!!markerStyle&&markerStyle.fill!=='none'&&markerStyle.fill!=='rgba(0, 0, 0, 0)'&&markerStyle.display!=='none'&&markerStyle.visibility==='visible'&&Number(markerStyle.opacity)>0&&!!markerBox&&markerBox.width>0&&markerBox.height>0&&Math.abs(markerDeterminant)>1e-8,colorMatches:!!markerStyle&&(markerStyle.fill===edgeStroke||markerStyle.fill==='context-stroke'),axialLength};
+        if(!(el instanceof SVGGeometryElement))return result;
+        const length=el.getTotalLength();
+        const start=el.getPointAtLength(0),end=el.getPointAtLength(length);
+        const touches=(id,point)=>nodeShapes.get(id)?.some(shape=>shape.isPointInStroke(point))??false;
+        const intruded=new Set(),headingIntrusions=new Set();
+        const count=Math.min(10000,Math.max(1,Math.ceil(length/2)));
+        for(let i=0;i<=count;i++){
+          const at=length*i/count;
+          const point=el.getPointAtLength(at);
+          for(const [id,shapes] of nodeShapes){
+            if((id===source&&at<8)||(id===target&&length-at<12))continue;
+            if(shapes.some(shape=>shape.isPointInFill(point)))intruded.add(id);
+          }
+          for(const heading of headingBoxes){const r=heading.box;if(point.x>=r.x-2&&point.x<=r.x+r.w+2&&point.y>=r.y-2&&point.y<=r.y+r.h+2)headingIntrusions.add(heading.groupId)}
+        }
+        result.geometry={length,step:length/count,startOnSource:touches(source,start),endOnTarget:touches(target,end),intrudedNodeIds:[...intruded],intrudedHeadingGroupIds:[...headingIntrusions]};
+        return result;
+      });
+      const groups=[...root.querySelectorAll('g[data-group],g[data-container-id],g[id^="group-"]')].map(el=>{const shape=el.querySelector(':scope > rect,:scope > path,:scope > polygon');return {id:el.getAttribute('data-group')??el.getAttribute('data-container-id')??el.getAttribute('id')?.slice(6),box:shape?box(shape):null,outline:shape?.localName,cornerRadius:shape?.localName==='rect'?Math.max(Number(shape.getAttribute('rx')||0),Number(shape.getAttribute('ry')||0)):null,nestedNodeIds:[...el.querySelectorAll('g[data-node],g[data-node-id]')].map(n=>n.getAttribute('data-node')??n.getAttribute('data-node-id'))}});
+      const textCount=root.querySelectorAll('text').length;
+      root.remove();
+      return {parseError:false,nodes,edges,groups,textCount};
+    },svgText);
+    if(originalSvg!==null){
+      const originalBytes=Buffer.isBuffer(originalSvg)?originalSvg:Buffer.from(originalSvg,'utf8');
+      if(originalBytes.length===0||originalBytes.length>2_000_000)throw Error('ORIGINAL_SVG_SIZE_LIMIT');
+      const originalText=new TextDecoder('utf-8',{fatal:true}).decode(originalBytes);
+      if(/<\s*(?:script|iframe)\b|\bon[a-z]+\s*=/i.test(originalText))throw Error('ORIGINAL_SVG_ACTIVE_CONTENT_UNSUPPORTED');
+      originalSvgHash=hash(originalBytes);
+      originalDrawn=await page.evaluate(input=>{
+        // Mermaid's browser outerHTML may contain HTML labels that are not XML-well-formed.
+        // Parse as the product browser does; scripts remain disabled and requests blocked.
+        const doc=new DOMParser().parseFromString(input,'text/html');
+        const svg=doc.querySelector('svg');
+        if(!svg)return {parseError:true};
+        const root=document.importNode(svg,true);
+        document.body.appendChild(root);
+        const box=el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}};
+        const groups=[...root.querySelectorAll('g.cluster')].map(el=>({id:el.id,box:box(el)}));
+        const nodes=[...root.querySelectorAll('g.node[id*="-flowchart-"]')].map(el=>({id:el.id,box:box(el)}));
+        root.remove();
+        return {parseError:false,nodes,groups};
+      },originalText);
+    }
+  }finally{await browser.close()}
+  if(drawn.parseError)return {status:'FAIL',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'FAIL',evidence:'SVG XML parser rejected source'}}};
+  if(!model){
+    const unresolved={status:'NOT-CHECKABLE',evidence:`source parser cannot establish independent semantic bindings: ${modelError}`};
+    return {status:'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
+  }
+  const expectedNodes=multiset(model.nodes.map(n=>n.id)),actualNodes=multiset(drawn.nodes.map(n=>n.id));
+  const nodeIdentity=drawn.nodes.length?{status:equalSets(expectedNodes,actualNodes)?'PASS':'FAIL',evidence:{expected:model.nodes.length,drawn:drawn.nodes.length,missing:model.nodes.filter(n=>!actualNodes.has(n.id)).map(n=>n.id),extra:drawn.nodes.filter(n=>!expectedNodes.has(n.id)).map(n=>n.id)}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-node semantic binding; SVG may still be visually valid'};
+  const textMismatches=drawn.nodes.filter(n=>{const sourceNode=model.nodes.find(x=>x.id===n.id);return sourceNode&&norm(sourceNode.text)!==norm(n.text)}).map(n=>n.id);
+  const nodeText=nodeIdentity.status==='PASS'?{status:textMismatches.length?'FAIL':'PASS',evidence:{mismatchedNodeIds:textMismatches,method:'actual text descendants; whitespace-normalized'}}:{status:'NOT-CHECKABLE',evidence:'node identities unavailable or mismatched'};
+  const expectedEdges=multiset(model.edges.map(e=>`${e.source}\0${e.target}`)),actualEdges=multiset(drawn.edges.map(e=>`${e.source}\0${e.target}`));
+  const malformedEdges=drawn.edges.filter(e=>!['path','polyline','line'].includes(e.tag)||!e.path&&e.tag!=='line'||!e.marker).map(e=>`${e.source}->${e.target}`);
+  const relations=drawn.edges.length?{status:equalSets(expectedEdges,actualEdges)&&malformedEdges.length===0?'PASS':'FAIL',evidence:{expected:model.edges.length,drawn:drawn.edges.length,malformedEdges,method:'visible path/polyline/line elements with source-target bindings'}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
+  const relationStyle=relations.status==='PASS'?(()=>{
+    const mismatches=[],ambiguous=[];
+    for(const drawnEdge of drawn.edges){
+      const expected=model.edges.filter(e=>e.source===drawnEdge.source&&e.target===drawnEdge.target);
+      if(expected.length!==1){ambiguous.push(`${drawnEdge.source}->${drawnEdge.target}`);continue}
+      if(drawnEdge.dashed!==(expected[0].style==='dashed'))mismatches.push(`${drawnEdge.source}->${drawnEdge.target}`);
+    }
+    return {status:mismatches.length?'FAIL':ambiguous.length?'NOT-CHECKABLE':'PASS',evidence:{method:'source Mermaid edge style against actual computed SVG stroke-dasharray; parallel same-endpoint relations require independent ID binding',mismatches,ambiguous,checkedEdges:drawn.edges.length-ambiguous.length}};
+  })():{status:'NOT-CHECKABLE',evidence:'directed relation binding unavailable'};
+  const markerDrawing=relations.status==='PASS'?(()=>{
+    const mismatches=drawn.edges.filter(e=>!e.markerDrawing?.found||e.markerDrawing.shapeCount!==1||!e.markerDrawing.visible||!e.markerDrawing.colorMatches).map(e=>`${e.source}->${e.target}`);
+    return {status:mismatches.length?'FAIL':'PASS',evidence:{method:'actual marker child shape, computed paint/visibility, nonzero transform and path stroke color; marker silhouette and clipping not proved',mismatchedEdges:mismatches,checkedEdges:drawn.edges.length}};
+  })():{status:'NOT-CHECKABLE',evidence:'exact relation binding unavailable'};
+  const routeNodeIntrusion=relations.status==='PASS'&&drawn.edges.every(e=>e.geometry)?(()=>{
+    const endpointErrors=drawn.edges.filter(e=>!e.geometry.startOnSource||!e.geometry.endOnTarget).map(e=>`${e.source}->${e.target}`);
+    const intrusions=drawn.edges.filter(e=>e.geometry.intrudedNodeIds.length).map(e=>({edge:`${e.source}->${e.target}`,nodeIds:e.geometry.intrudedNodeIds}));
+    return {status:endpointErrors.length||intrusions.length?'FAIL':'PASS',evidence:{method:'Chromium actual SVG path endpoints versus shape strokes; path sampled at <=2 SVG units against actual node fills; source first 8 and target last 12 units exempted',endpointErrors,intrusions,checkedEdges:drawn.edges.length}};
+  })():{status:'NOT-CHECKABLE',evidence:'exact relation binding or SVG geometry API unavailable'};
+  const routeHeadingClearance=relations.status==='PASS'&&drawn.edges.every(e=>e.geometry)?(()=>{
+    const intrusions=drawn.edges.filter(e=>e.geometry.intrudedHeadingGroupIds.length).map(e=>({edge:`${e.source}->${e.target}`,groupIds:e.geometry.intrudedHeadingGroupIds}));
+    return {status:intrusions.length?'FAIL':'PASS',evidence:{method:'actual SVG path sampled at <=2 units against drawn group heading text bounds plus 2-unit guard',intrusions,checkedEdges:drawn.edges.length}};
+  })():{status:'NOT-CHECKABLE',evidence:'actual path or group heading bounds unavailable'};
+  const routeSpans=drawn.edges.map(e=>({edge:`${e.source}->${e.target}`,spans:actualStraightSpans(e.path)}));
+  const routePairClearance=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{
+    const violations=[];
+    for(let i=0;i<routeSpans.length;i++)for(let j=i+1;j<routeSpans.length;j++){
+      for(const a of routeSpans[i].spans)for(const b of routeSpans[j].spans){
+        if(a.axis!==b.axis)continue;
+        const overlap=Math.min(a.hi,b.hi)-Math.max(a.lo,b.lo);
+        const separation=Math.abs(a.fixed-b.fixed);
+        if(overlap>eps&&separation<10-eps)violations.push({edgeA:routeSpans[i].edge,edgeB:routeSpans[j].edge,separation,overlap});
+      }
+    }
+    return {status:violations.length?'FAIL':'PASS',evidence:{method:'strict M/L/Q/A parser of actual SVG d; every drawn straight centerline span pair after curve trims; no bus exception inferred',violations,checkedEdges:routeSpans.length}};
+  })():{status:'NOT-CHECKABLE',evidence:'edge drawing uses unsupported SVG path grammar or exact relation binding unavailable'};
+  const routeCrossings=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{
+    const violations=[];
+    for(let i=0;i<routeSpans.length;i++)for(let j=i+1;j<routeSpans.length;j++){
+      for(const a of routeSpans[i].spans)for(const b of routeSpans[j].spans){
+        if(a.axis===b.axis)continue;
+        const h=a.axis==='h'?a:b,v=a.axis==='v'?a:b;
+        if(v.fixed>h.lo+eps&&v.fixed<h.hi-eps&&h.fixed>v.lo+eps&&h.fixed<v.hi-eps)violations.push({edgeA:routeSpans[i].edge,edgeB:routeSpans[j].edge,x:v.fixed,y:h.fixed});
+      }
+    }
+    return {status:violations.length?'FAIL':'PASS',evidence:{method:'exact interior intersections among actual straight SVG centerline spans after fillet trims; curved portions and declared junction topology remain outside this subcheck',violations,checkedEdges:routeSpans.length}};
+  })():{status:'NOT-CHECKABLE',evidence:'edge drawing uses unsupported SVG path grammar or exact relation binding unavailable'};
+  const arrowShaft=relations.status==='PASS'&&routeSpans.every(e=>e.spans?.length&&e.spans.lastCommand==='L')&&drawn.edges.every(e=>Number.isFinite(e.markerDrawing?.axialLength))?(()=>{
+    const failures=routeSpans.flatMap((e,i)=>{const required=drawn.edges[i].markerDrawing.axialLength+8;return e.spans.at(-1).length<required-eps?[{edge:e.edge,drawnLastShaft:e.spans.at(-1).length,required}]:[]});
+    return {status:failures.length?'FAIL':'PASS',evidence:{method:'actual post-curve final straight segment >= measured simple marker axial length + 8-unit visible shaft; complex viewBox marker stays unresolved',failures,checkedEdges:routeSpans.length}};
+  })():{status:'NOT-CHECKABLE',evidence:'actual final straight span or simple marker axial geometry unavailable'};
+  const groupIds=new Set(drawn.groups.map(g=>g.id)),expectedGroupIds=new Set(model.groups.map(g=>g.id));
+  const groups=drawn.groups.length?{status:groupIds.size===expectedGroupIds.size&&[...expectedGroupIds].every(x=>groupIds.has(x))?'PASS':'FAIL',evidence:{expected:[...expectedGroupIds],drawn:[...groupIds],method:'actual container elements with neutral group ID'}}:{status:model.groups.length?'NOT-CHECKABLE':'PASS',evidence:'group geometry has no neutral binding'};
+  let groupMembership={status:'PASS',evidence:'source has no groups'};
+  if(model.groups.length){
+    const shapeBoxes=drawn.groups.every(g=>g.box&&g.box.w>0&&g.box.h>0)&&drawn.nodes.every(n=>n.box&&n.box.w>0&&n.box.h>0);
+    if(groups.status!=='PASS'||nodeIdentity.status!=='PASS'||!shapeBoxes){
+      groupMembership={status:'NOT-CHECKABLE',evidence:'group or node drawing lacks an independently measured bounding box and exact source ID binding'};
+    }else{
+      const contains=(outer,inner)=>inner.x>=outer.x-0.25&&inner.y>=outer.y-0.25&&inner.x+inner.w<=outer.x+outer.w+0.25&&inner.y+inner.h<=outer.y+outer.h+0.25;
+      const mismatches=[];
+      for(const sourceNode of model.nodes){
+        const drawnNode=drawn.nodes.find(n=>n.id===sourceNode.id);
+        const actual=drawn.groups.filter(g=>contains(g.box,drawnNode.box)).map(g=>g.id);
+        const expected=sourceNode.group?[sourceNode.group]:[];
+        if(actual.length!==expected.length||actual.some(id=>!expected.includes(id)))mismatches.push(sourceNode.id);
+      }
+      groupMembership={status:mismatches.length?'FAIL':'PASS',evidence:{method:'browser getBBox of actual node drawings inside actual group outline; SVG data-parent ignored',mismatchedNodeIds:mismatches,checkedNodes:model.nodes.length}};
+    }
+  }
+  const routeUnrelatedContainerTransit=relations.status==='PASS'&&groups.status==='PASS'&&nodeIdentity.status==='PASS'&&drawn.groups.every(g=>g.box&&g.box.w>0&&g.box.h>0&&g.outline==='rect'&&Number.isFinite(g.cornerRadius))&&drawn.nodes.every(n=>n.box)&&routeSpans.every(e=>e.spans)?(()=>{
+    const contains=(outer,inner)=>inner.x>=outer.x-0.25&&inner.y>=outer.y-0.25&&inner.x+inner.w<=outer.x+outer.w+0.25&&inner.y+inner.h<=outer.y+outer.h+0.25;
+    const intersects=(span,box,guard)=>{
+      if(span.axis==='h')return span.fixed>box.y+guard&&span.fixed<box.y+box.h-guard&&Math.min(span.hi,box.x+box.w-guard)-Math.max(span.lo,box.x+guard)>eps;
+      return span.fixed>box.x+guard&&span.fixed<box.x+box.w-guard&&Math.min(span.hi,box.y+box.h-guard)-Math.max(span.lo,box.y+guard)>eps;
+    };
+    const overlaps=(a,b)=>a.x<b.x+b.w-eps&&a.x+a.w>b.x+eps&&a.y<b.y+b.h-eps&&a.y+a.h>b.y+eps;
+    const violations=[],unresolved=[];
+    for(let i=0;i<drawn.edges.length;i++){
+      const edge=drawn.edges[i],source=drawn.nodes.find(n=>n.id===edge.source),target=drawn.nodes.find(n=>n.id===edge.target);
+      if(!source||!target)continue;
+      const curves=actualCurveEnvelopes(edge.path);
+      for(const group of drawn.groups){
+        if(contains(group.box,source.box)||contains(group.box,target.box))continue;
+        const crossingSpans=routeSpans[i].spans.filter(span=>intersects(span,group.box,Math.max(0.25,group.cornerRadius)));
+        if(crossingSpans.length)violations.push({edge:`${edge.source}->${edge.target}`,groupId:group.id,straightSpans:crossingSpans});
+        else if(routeSpans[i].spans.some(span=>intersects(span,group.box,0.25))||curves===null||curves.some(box=>overlaps(box,group.box)))unresolved.push({edge:`${edge.source}->${edge.target}`,groupId:group.id});
+      }
+    }
+    return {status:violations.length?'FAIL':unresolved.length?'NOT-CHECKABLE':'PASS',evidence:{method:'actual SVG straight spans versus certain rounded-rectangle interior; conservative supported Q/A curve envelopes and uncertain rounded corners retain NOT-CHECKABLE; source/target ancestor groups permit transit',violations,unresolved,checkedEdges:drawn.edges.length}};
+  })():{status:'NOT-CHECKABLE',evidence:'exact edge binding, source/target outlines, rectangular container drawing, or strict straight SVG spans unavailable'};
+  let originalGroupParity={status:'NOT-CHECKABLE',evidence:'original rendered SVG was not supplied'};
+  if(originalDrawn&&model.groups.length){
+    if(originalDrawn.parseError||groups.status!=='PASS'||nodeIdentity.status!=='PASS')originalGroupParity={status:'NOT-CHECKABLE',evidence:'original renderer XML or candidate group/node identity unavailable'};
+    else{
+      const contains=(outer,inner)=>inner.x>=outer.x-1&&inner.y>=outer.y-1&&inner.x+inner.w<=outer.x+outer.w+1&&inner.y+inner.h<=outer.y+outer.h+1;
+      const mismatches=[],sourceConflicts=[],unresolved=[];
+      for(const node of model.nodes){
+        const old=originalDrawn.nodes.filter(n=>/-flowchart-(.+)-\d+$/.exec(n.id)?.[1]===node.id);
+        const current=drawn.nodes.find(n=>n.id===node.id);
+        if(old.length!==1||!current){unresolved.push(node.id);continue}
+        const oldGroups=model.groups.filter(g=>originalDrawn.groups.some(x=>x.id.endsWith(`-${g.id}`)&&contains(x.box,old[0].box))).map(g=>g.id);
+        const newGroups=model.groups.filter(g=>drawn.groups.some(x=>x.id===g.id&&contains(x.box,current.box))).map(g=>g.id);
+        if(oldGroups.length!==newGroups.length||oldGroups.some(g=>!newGroups.includes(g)))mismatches.push(node.id);
+        const declared=node.group?[node.group]:[];
+        if(oldGroups.length!==declared.length||oldGroups.some(g=>!declared.includes(g)))sourceConflicts.push(node.id);
+      }
+      originalGroupParity={status:unresolved.length?'NOT-CHECKABLE':mismatches.length?'FAIL':'PASS',evidence:{method:'original Mermaid browser SVG node/cluster screen bounds versus candidate actual node/container bounds; source declarations reported separately',originalSvgHash,mismatchedNodeIds:mismatches,sourceDeclarationConflictNodeIds:sourceConflicts,unresolvedNodeIds:unresolved,checkedNodes:model.nodes.length-unresolved.length}};
+    }
+  }
+  const semanticPreservation=originalGroupParity.status==='NOT-CHECKABLE'?{status:'NOT-CHECKABLE',evidence:'original rendered membership comparison unavailable'}:(()=>{
+    const sourceConflicts=originalGroupParity.evidence.sourceDeclarationConflictNodeIds??[];
+    const mismatches=originalGroupParity.evidence.mismatchedNodeIds??[];
+    return {status:sourceConflicts.length||mismatches.length?'FAIL':'PASS',evidence:{method:'canonical source declaration vs actual original render vs candidate membership; conflict remains a semantic failure even when candidate preserves the visible original by default',sourceDeclarationConflictNodeIds:sourceConflicts,candidateVsOriginalMismatchNodeIds:mismatches}};
+  })();
+  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,
+    routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; continuous curved-path/label exclusion and finite lower-bend/midpoint optimality witnesses remain unproved'},
+    visualQuality:{status:'NOT-CHECKABLE',evidence:'requires Pi to inspect original and candidate full images plus crops'}};
+  const status=Object.values(checks).some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE';
+  return {status,sourceHash:model.sourceHash,svgHash:hash(svgBytes),checks,drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount}};
+}

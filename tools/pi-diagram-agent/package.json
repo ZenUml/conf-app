@@ -1,0 +1,18 @@
+{
+  "name": "pi-diagram-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {"node": ">=22.19.0"},
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {"optional": true},
+    "@earendil-works/pi-coding-agent": {"optional": true}
+  }
+}

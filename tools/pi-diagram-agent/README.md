@@ -1,0 +1,25 @@
+# Pi diagram improvement agent
+
+This local prototype has one product entry point: the Pi `/magic` command. It starts a **real model turn**. Pi receives the complete pinned Diagram Rules and exact original Mermaid bytes, creates a diagram-specific native SVG, inspects the original and candidate images, and revises the candidate. It does not call a fixed layout pipeline to choose the design. The earlier deterministic experiment remains in the separate prototype repository history for research, not as a supported conversion fallback.
+
+Load the extension with the installed Pi 0.84.2 runtime:
+
+```sh
+pi --extension ./pi-extension.ts
+```
+
+Then run `/magic /absolute/path/source.mmd`. The command selects an available **native `openai-codex` vision model** for this task and sets high thinking effort without changing the user's global Pi default. Set `PI_DIAGRAM_CODEX_MODEL` to choose a specific model ID from `pi --list-models openai-codex`. Authenticate through Pi's supported `/login` flow; do not copy or export the Codex desktop credential. If no authenticated native model is available, the command stops before sending the source to another provider.
+
+Continue a candidate in the same `/magic` workflow with `/magic /absolute/source.mmd --resume /absolute/pi-diagram-agent-run --reference /absolute/accepted.svg --feedback /absolute/review.txt`. A resume requires the run's exact source/rules hash manifest and existing candidate; the accepted SVG is shown to the agent as full and viewer-fit **reference images**, never copied as output. If the pinned rules changed since the run began, add `--upgrade-rules` to that resume command. This records both rules hashes, sends the **entire new rules text** to Pi, and requires a fresh image inspection; old receipts are not promoted to the new rules revision. Reviewer feedback and source remain private local files. Quoted paths with spaces are accepted.
+
+The command creates a fresh private work directory and gives Pi a fixed `candidate.svg` path. Pi may use its ordinary file and shell tools to author a source-specific script and SVG. After each candidate it calls `diagram_inspect`. That tool renders the exact Mermaid source using a local Mermaid bundle, renders the candidate at 2×, and returns the original full image, candidate full image, four candidate crops, and a 1200×710 contain-fit image as actual image content. It also returns exact source/SVG/media hashes and a narrow independent source/SVG binding audit. Pi must actually inspect the images, compare the original and candidate, state concrete observations about legibility, layout, legend, arrows, alignment and clearance, then repair visible defects and inspect again. Generating PNG files or receiving machine checks alone does not complete visual review. Rendering is evidence, never a quality certificate.
+
+Local browser requirements: set `PI_DIAGRAM_PLAYWRIGHT_MODULE` to an installed Playwright module (or install it in this package), `PI_DIAGRAM_MERMAID_BUNDLE` to a locally installed Mermaid `dist/mermaid.min.js`, and optionally `PI_DIAGRAM_CHROMIUM_EXECUTABLE` to a Chromium executable. The tool blocks external browser requests, bounds inputs and screenshot pixels, and refuses candidate symlinks. No customer source is committed to this package.
+
+`src/agent-audit.mjs` is deliberately independent of the old renderer's `data-box`, `data-points`, source-derived ranks, or palette classes. With neutral node/relation IDs it checks drawn text, directed edges, dashed style, original-render versus candidate group containment, actual connector endpoints, sampled node and heading intrusion, straight-span crossing and 10-unit parallel clearance, visible markers, and final straight arrow shafts. These are scoped checks: continuous curve/container/label exclusion, global lower-bend and midpoint optimality, semantic palette meaning, and final optical quality remain separate. Missing tags or Mermaid syntax outside its narrow source parser make the corresponding check **NOT-CHECKABLE**, not a judgment that the drawing is poor; screenshots still reach Pi. A source declaration that conflicts with the original rendered group is explicitly **FAIL**, even if the candidate preserves the visible original by default. The current agent-led flow emits a candidate; it does **not** emit a validated Magic artifact yet.
+
+Run `npm test` for source and audit tests. The Chromium-dependent synthetic tests require the browser environment above; without it those checks are reported as skipped.
+
+This package emits candidates and visual evidence. It does not yet emit a certified Magic artifact. Two private historical candidates remain **UNCERTIFIED**; their diagrams, references, screenshots, and evidence records are deliberately excluded from this public package. Neither full quality certification nor a speedup is claimed.
+
+See [MIGRATION.md](MIGRATION.md) for source provenance and the supported file boundary.

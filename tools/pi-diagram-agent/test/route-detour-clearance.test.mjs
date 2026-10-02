@@ -32,6 +32,20 @@ test('routeDetour fails a route that wraps around the canvas when a short feasib
   assert.equal(r.status,'FAIL');
 });
 
+test('routeDetour finds a 3-bend witness by grid search and fails the longer 3-bend wrap (the case enumeration cannot see)',{skip:!enabled},async()=>{
+  // A's top and bottom are roofed over, a tall wall separates A from B: the shortest feasible route is right, up over the wall, right, down (3 bends).
+  const scene=[node('A',100,300,100,60),node('B',500,300,100,60),node('C1',80,270,140,12),node('C2',80,378,140,12),node('WALL',300,100,40,520)];
+  const wrap=await check(src,doc(...scene,edge('A','B','M200 330 L250 330 L250 800 L550 800 L550 360')),'routeDetour');
+  assert.equal(wrap.status,'FAIL');
+  const [v]=wrap.evidence.violations;
+  assert.equal(v.drawnLength,1260);
+  assert.equal(v.witnessBends,3);
+  assert.ok(v.witnessLength<900,`witness ${v.witnessLength}`);
+  // the short way over the wall is within the limit
+  const over=await check(src,doc(...scene,edge('A','B','M200 330 L250 330 L250 80 L550 80 L550 300')),'routeDetour');
+  assert.equal(over.status,'PASS');
+});
+
 test('routeDetour passes the shortest route and a modest detour around a blocker',{skip:!enabled},async()=>{
   const nodes=[node('A',10,300,100,60),node('B',300,300,100,60)];
   assert.equal((await check(src,doc(...nodes,edge('A','B','M110 330 L300 330')),'routeDetour')).status,'PASS');
@@ -41,10 +55,13 @@ test('routeDetour passes the shortest route and a modest detour around a blocker
 
 test('routeDetour is NOT-CHECKABLE (never PASS) when no feasible witness exists',{skip:!enabled},async()=>{
   // A is walled in by blockers 3 units from every face, so no candidate leg is long enough to leave it.
-  const walls=[node('W1',197,100,106,6),node('W2',197,194,106,6),node('W3',197,100,6,100),node('W4',297,100,6,100)];
-  const r=await check(src,doc(node('A',200,130,94,40),node('B',600,130,100,40),...walls,edge('A','B','M294 150 L600 150')),'routeDetour');
+  const walls=[node('W1',190,120,114,7),node('W2',190,173,114,7),node('W3',190,120,7,60),node('W4',297,120,7,60)];
+  const r=await check(src,doc(node('A',200,130,94,40),node('B',600,130,100,40),...walls,edge('A','B','M247 130 L247 20 L650 20 L650 130')),'routeDetour');
   assert.equal(r.status,'NOT-CHECKABLE');
   assert.match(JSON.stringify(r.evidence.notCheckable),/no feasible/i);
+  // the same route out of an open A is a proven detour; a drawn route within the limit of the straight gap is PASS without needing a witness
+  const open=await check(src,doc(node('A',200,130,94,40),node('B',600,130,100,40),edge('A','B','M294 150 L600 150')),'routeDetour');
+  assert.equal(open.status,'PASS');
 });
 
 // ---- routeContainerClearance: routes ----------------------------------------------------------
@@ -87,6 +104,19 @@ test('routeContainerClearance fails a connector in a gutter narrower than 8 unit
   assert.deepEqual(narrow.evidence.violations.map(v=>v.container).sort(),['G1','G2']);
   const wide=await check(src,doc(group('G1',100,100,200,180),group('G2',100,340,200,200),...nodes,edge('A','B','M70 310 L700 310')),'routeContainerClearance');
   assert.equal(wide.status,'PASS');
+});
+
+test('routeContainerClearance only advises (never fails) on a long run in a 30-unit gutter, and reports nothing for a 60-unit gutter',{skip:!enabled},async()=>{
+  // vertical run at x=315, 15 units from G1's right border (300) and 15 from G2's left border (330)
+  const v=await check(src,doc(group('G1',100,100,200,300),group('G2',330,100,200,300),node('A',20,20,40,40),node('B',700,20,40,40),edge('A','B','M60 40 L315 40 L315 380 L400 380 L400 480 L700 480 L700 60')),'routeContainerClearance');
+  assert.equal(v.status,'PASS');
+  assert.deepEqual(v.evidence.violations,[]);
+  const g=v.evidence.advisories.find(x=>x.kind==='gutter');
+  assert.ok(g,JSON.stringify(v.evidence));
+  assert.deepEqual([g.containers.sort().join(),g.width],['G1,G2',30]);
+  assert.equal(g.length,280);
+  const wide=await check(src,doc(group('G1',100,100,200,300),group('G2',360,100,200,300),node('A',20,20,40,40),node('B',700,20,40,40),edge('A','B','M60 40 L330 40 L330 380 L400 380 L400 480 L700 480 L700 60')),'routeContainerClearance');
+  assert.equal(wide.evidence.advisories.length,0);
 });
 
 // ---- routeContainerClearance: edge labels ------------------------------------------------------

@@ -18,6 +18,11 @@ export const GRAZE_DISTANCE=8;
 export const GRAZE_MIN_LENGTH=24;
 export const CROSS_ALLOWANCE=12;
 export const LABEL_BORDER_MARGIN=4;
+// GUTTER_MAX 40 (ADVISORY ONLY, never FAIL): a long run between two facing container borders at most 40 apart rides a channel with under
+// 20 units of whitespace each side. Calibration: the pipeline's own standard gutters are 30-40 units and every long inter-column connector
+// uses one, so as a FAIL it condemned 4 of the 5 candidates the coordinator judged clean or minor-only (and a 15/15 gutter run of 571 units that the
+// coordinator called a defect is geometrically the same as an accepted 422-unit one). It is therefore reported in evidence.advisories only.
+export const GUTTER_MAX=40;
 const EPS=1e-6;
 const round=v=>Math.round(v*10)/10;
 const inside=(outer,inner)=>inner.x>=outer.x-1&&inner.y>=outer.y-1&&inner.x+inner.w<=outer.x+outer.w+1&&inner.y+inner.h<=outer.y+outer.h+1;
@@ -54,9 +59,9 @@ function outlineGap(box,r){
 
 /** @param input {groups:[{id,outline,box}], nodes:[{id,bbox}], edges:[{source,target,spans}], labels:[{edge,box}], unresolvedLabels:[edge id]} */
 export function checkRouteContainerClearance({groups,nodes,edges,labels,unresolvedLabels=[]}){
-  const violations=[],labelViolations=[],notCheckable=[];
-  const method=`straight spans of each drawn route (SVG path, fillet-trimmed) versus every container rectangle: a span parallel to a border and within ${GRAZE_DISTANCE} units of it for more than ${GRAZE_MIN_LENGTH} units is a graze, except within ${CROSS_ALLOWANCE} units of a point where the connector must cross that border (a container holding exactly one endpoint); riding inside along the border of a source or target container still counts. Edge-label boxes (tagged, or untagged and uniquely matched to one source edge label) must not overlap a container border or sit within ${LABEL_BORDER_MARGIN} units of it`;
-  if(!groups.length)return {status:'PASS',evidence:{method,violations,labelViolations,notCheckable,checkedContainers:0,checkedRelations:edges.length,checkedLabels:labels.length}};
+  const violations=[],labelViolations=[],notCheckable=[],advisories=[];
+  const method=`straight spans of each drawn route (SVG path, fillet-trimmed) versus every container rectangle: a span parallel to a border and within ${GRAZE_DISTANCE} units of it for more than ${GRAZE_MIN_LENGTH} units is a graze, except within ${CROSS_ALLOWANCE} units of a point where the connector must cross that border (a container holding exactly one endpoint); riding inside along the border of a source or target container still counts. a straight run longer than ${GRAZE_MIN_LENGTH} units between two facing container borders at most ${GUTTER_MAX} apart is listed as an advisory (not a failure). Edge-label boxes (tagged, or untagged and uniquely matched to one source edge label) must not overlap a container border or sit within ${LABEL_BORDER_MARGIN} units of it`;
+  if(!groups.length)return {status:'PASS',evidence:{method,violations,labelViolations,notCheckable,advisories,checkedContainers:0,checkedRelations:edges.length,checkedLabels:labels.length}};
   const rects=[];
   for(const g of groups){
     if(!g.box||g.outline!=='rect'){notCheckable.push({container:g.id,reason:'container has no measurable rectangular outline'});continue}
@@ -81,9 +86,25 @@ export function checkRouteContainerClearance({groups,nodes,edges,labels,unresolv
           const lo=Math.max(s.lo,b.lo),hi=Math.min(s.hi,b.hi);
           if(hi-lo<=EPS)continue;
           const length=longestRemaining(lo,hi,exempt);
-          if(length>GRAZE_MIN_LENGTH+EPS)violations.push({edge:id,container:g.id,side:b.side,relation,distance:round(distance),length:round(length)});
+          if(length>GRAZE_MIN_LENGTH+EPS)violations.push({edge:id,kind:'graze',container:g.id,side:b.side,relation,distance:round(distance),length:round(length)});
         }
       }
+    }
+  }
+  for(const e of edges){
+    if(!e.spans)continue;
+    const id=`${e.source}->${e.target}`;
+    for(const s of e.spans){
+      const near=[];
+      for(const g of rects)for(const b of sidesOf(g.box)){
+        if(b.axis!==s.axis)continue;
+        const lo=Math.max(s.lo,b.lo),hi=Math.min(s.hi,b.hi);
+        if(hi-lo>GRAZE_MIN_LENGTH+EPS)near.push({id:g.id,fixed:b.fixed,lo,hi});
+      }
+      const below=near.filter(b=>b.fixed<s.fixed-EPS).sort((p,q)=>q.fixed-p.fixed)[0],above=near.filter(b=>b.fixed>s.fixed+EPS).sort((p,q)=>p.fixed-q.fixed)[0];
+      if(!below||!above||below.id===above.id)continue;
+      const width=above.fixed-below.fixed,lo=Math.max(below.lo,above.lo),hi=Math.min(below.hi,above.hi);
+      if(width<=GUTTER_MAX+EPS&&hi-lo>GRAZE_MIN_LENGTH+EPS)advisories.push({edge:id,kind:'gutter',containers:[below.id,above.id],width:round(width),length:round(hi-lo),distances:[round(s.fixed-below.fixed),round(above.fixed-s.fixed)]});
     }
   }
   for(const l of labels){
@@ -94,5 +115,5 @@ export function checkRouteContainerClearance({groups,nodes,edges,labels,unresolv
   }
   for(const edge of unresolvedLabels)notCheckable.push({edge,reason:'edge label box unavailable (not drawn, untagged and ambiguous, or source labels unknown)'});
   const status=violations.length||labelViolations.length?'FAIL':notCheckable.length?'NOT-CHECKABLE':'PASS';
-  return {status,evidence:{method,thresholds:{grazeDistance:GRAZE_DISTANCE,grazeMinLength:GRAZE_MIN_LENGTH,crossAllowance:CROSS_ALLOWANCE,labelBorderMargin:LABEL_BORDER_MARGIN},violations,labelViolations,notCheckable,checkedContainers:rects.length,checkedRelations:edges.filter(e=>e.spans).length,checkedLabels:labels.length}};
+  return {status,evidence:{method,thresholds:{gutterMax:GUTTER_MAX,grazeDistance:GRAZE_DISTANCE,grazeMinLength:GRAZE_MIN_LENGTH,crossAllowance:CROSS_ALLOWANCE,labelBorderMargin:LABEL_BORDER_MARGIN},violations,labelViolations,notCheckable,advisories,checkedContainers:rects.length,checkedRelations:edges.filter(e=>e.spans).length,checkedLabels:labels.length}};
 }

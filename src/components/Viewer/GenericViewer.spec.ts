@@ -565,11 +565,18 @@ describe('GenericViewer (chrome-less)', () => {
       expect(s).toHaveLength(5)
       expect(s[0].body).toMatch(/\.viewer-act-source \.viewer-btn-label/)
       expect(s[0].body).toMatch(/\.viewer-act-copy \.viewer-btn-label/)
+      expect(s[0].body).toMatch(/\.viewer-act-connect :deep\(\.agent-link-connect-btn__label\)/)
       expect(s[1].body).toMatch(/\.viewer-act-edit \.viewer-btn-label/)
       expect(s[1].body).toMatch(/\.viewer-act-fullscreen \.viewer-btn-label/)
       expect(s[2].body).toMatch(/\.viewer-act-create \.viewer-btn-label/)
       expect(s[3].body).toMatch(/\.viewer-act-copy,\s*(\.viewer-top-actions )?\.viewer-act-connect \{ display: none; \}/)
       expect(s[4].body).toMatch(/\.viewer-act-source \{ display: none; \}/)
+    })
+
+    // lite-stg, 2026-10-02: a squeezed row wrapped "Connect to Agent" onto two lines. The title
+    // truncates instead.
+    it('lets the title give way rather than squeezing the buttons', () => {
+      expect(source).toMatch(/\.viewer-top-actions \{[^}]*flex-shrink: 0;/)
     })
 
     it('never hides Edit, Fullscreen or Create', () => {

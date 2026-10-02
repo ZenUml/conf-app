@@ -3,6 +3,8 @@
     type="button"
     class="agent-link-connect-btn"
     data-testid="agent-link-connect-btn"
+    aria-label="Connect to Agent"
+    title="Connect to Agent"
     @click="emit('connect')"
   >
     <svg
@@ -20,7 +22,7 @@
       <path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z" />
       <path d="M12 8v4l3 2" />
     </svg>
-    <span>Connect to Agent</span>
+    <span class="agent-link-connect-btn__label">Connect to Agent</span>
   </button>
 </template>
 
@@ -49,6 +51,7 @@ const emit = defineEmits<{
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color 200ms ease;
 }

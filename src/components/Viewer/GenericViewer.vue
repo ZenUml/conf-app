@@ -2093,6 +2093,8 @@ export default {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* The title truncates instead; a squeezed row wrapped "Connect to Agent" onto two lines. */
+  flex-shrink: 0;
   opacity: 0;
   transition: opacity 200ms ease;
 }
@@ -2188,12 +2190,13 @@ export default {
    auto frame is fit-content, and containment there would drop the header's width from the
    frame and shrink every small diagram's card. Each breakpoint leaves the title ~120px.
    Kept after the button rules: they set display at the same specificity.
-   Order: Source/Copy for AI labels → Edit/Fullscreen labels → Create label → Copy for AI
+   Order: Source/Copy for AI/Connect labels → Edit/Fullscreen labels → Create label → Copy for AI
    and Connect hidden → Source hidden. Edit, Fullscreen and Create always stay. */
 .generic.viewer { container: viewer-header / inline-size; }
 @container viewer-header (max-width: 659px) {
   .viewer-act-source .viewer-btn-label,
-  .viewer-act-copy .viewer-btn-label { display: none; }
+  .viewer-act-copy .viewer-btn-label,
+  .viewer-act-connect :deep(.agent-link-connect-btn__label) { display: none; }
   /* Icon-only Copy for AI drops the constant-width sizer: inactive cells would keep the
      button as wide as "Nothing to copy". A transient state shows its text briefly. */
   .viewer-act-copy .copy-for-ai-label-cell[data-active="false"] { display: none; }

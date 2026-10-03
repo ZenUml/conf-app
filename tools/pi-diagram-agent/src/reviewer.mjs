@@ -242,15 +242,15 @@ export async function runReviewer({factory,prompt,images,model,natural,now=Date.
 }
 
 /** Factory for real Pi sessions (Pi >= 1.0 SDK passed in, so this module needs no Pi dependency). The returned session carries modelId for recording which model was actually used. Auth is read, never changed. */
-export function createPiReviewerFactory(sdk,{provider,modelId,cwd=null,thinkingLevel=process.env.PI_DIAGRAM_REVIEWER_THINKING||'medium'}){
+export function createPiReviewerFactory(sdk,{provider,modelId,cwd=null,thinkingLevel=process.env.PI_DIAGRAM_REVIEWER_THINKING||'medium',systemPrompt='You are a strict visual reviewer of diagrams. You have no tools. Output only the requested JSON.',tmpPrefix='pi-reviewer-'}){
   return async()=>{
     // The reviewer never touches the run directory: by default its working directory is a fresh empty one.
-    const workDir=cwd??fs.mkdtempSync(path.join(os.tmpdir(),'pi-reviewer-'));
+    const workDir=cwd??fs.mkdtempSync(path.join(os.tmpdir(),tmpPrefix));
     const modelRuntime=await sdk.ModelRuntime.create();
     const model=modelRuntime.getModel(provider,modelId);
     if(!model)throw bad('MODEL_UNAVAILABLE',`${provider}/${modelId}`);
     const resourceLoader=new sdk.DefaultResourceLoader({cwd:workDir,agentDir:sdk.getAgentDir(),noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,noContextFiles:true,
-      systemPromptOverride:()=>'You are a strict visual reviewer of diagrams. You have no tools. Output only the requested JSON.',appendSystemPromptOverride:()=>[]});
+      systemPromptOverride:()=>systemPrompt,appendSystemPromptOverride:()=>[]});
     await resourceLoader.reload();
     const {session}=await sdk.createAgentSession({cwd:workDir,model,thinkingLevel,modelRuntime,resourceLoader,sessionManager:sdk.SessionManager.inMemory(),noTools:'all'});
     return {

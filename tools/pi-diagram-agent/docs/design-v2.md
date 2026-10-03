@@ -39,7 +39,18 @@ Evidence from the 2026-10-02 runs (private run records; no customer content here
 | Author | Model session | Every position, port, route, label placement; the SVG | Certify its own output |
 | Reviewer | Separate in-process model session, fresh context, **no tools** | Visual/semantic findings with evidence | Edit files; read the run dir; see SVG text or the author's reasoning (author-controlled text is an injection channel) |
 | Auditor | Deterministic code | Mechanical rule checks with PASS / FAIL / NOT-CHECKABLE / ADJUDICATED | Turn missing evidence into PASS |
+| Judge | Fresh model session per scoring pass, **no tools**, called explicitly (`/magic-judge`) | Comparative visual scores and the IMPROVED / NOT_IMPROVED verdict | Know which image is the candidate; see source text, audit, review or the author's reasoning; find defects |
 | User | Human | Adjudications (e.g. group conflicts), accepting residual NOT-CHECKABLE items | — |
+
+## Judge (comparative visual gate at acceptance)
+
+Question: is the final SVG visibly better than the original Mermaid render? Spec: `docs/superpowers/specs/2026-10-03-pi-diagram-judge-design.md`.
+
+- `/magic-judge <runDir> [--vs-old <runDir>]` renders the original and the candidate (full and 1200x710 fit), then runs two passes in fresh no-tool sessions in an empty temp cwd, order swapped (original = A, then candidate = A). The model gets only four images and a fixed prompt; the candidate is never named. Pass 2 is negated, a dimension where the passes disagree is 0 and `uncertain`, and `grouping` is null (and excluded) when the diagram has no groups (read from the original render's clusters).
+- Six dimensions in -1..+1: balance, readability, aesthetics, lineClarity, pageWidth, grouping. IMPROVED = every merged dimension >= `PI_DIAGRAM_JUDGE_MIN_DIM` (-0.2) and mean >= `PI_DIAGRAM_JUDGE_MIN_MEAN` (+0.2); more than half uncertain = NOT_IMPROVED `UNSTABLE`; a pass failing after one retry = JUDGE_ERROR (never IMPROVED).
+- `judgement.json` (`pi-diagram-judgement/1`, sealed like `run.json`) binds the candidate and original sha256. `/magic-accept` refuses a missing, NOT_IMPROVED, JUDGE_ERROR, stale (hash differs) or tampered judgement unless `--override-judge "<reason>"` is given; the reason is recorded in `acceptance.judgeOverride`. `--waive` is unchanged.
+- Env: `PI_DIAGRAM_JUDGE_MODEL` (default the reviewer model), `PI_DIAGRAM_JUDGE_THINKING` (medium), `PI_DIAGRAM_JUDGE_TIMEOUT_S` (300 per pass). Native `openai-codex` only. The Judge never runs inside `/magic`; offline batch scoring (`bench/judge.mjs`) never gates.
+- Residual: like `run.json`, the run directory is author-writable, so a hostile author with a shell could re-seal `judgement.json`. The gate protects against forgetting and accidents, and the recorded hashes make a forged judgement visible afterwards.
 
 ## Control flow
 

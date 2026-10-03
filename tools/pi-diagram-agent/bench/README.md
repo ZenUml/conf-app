@@ -42,6 +42,12 @@ Per run the summary records elapsed time, time to the first `diagram_inspect` (f
 
 Timing and token statistics (median, min, max) cover completed runs only (`AGENT_END`, no rate limit). Rate-limit detection matches provider error text in stderr, failed responses, failed tool results and assistant error messages, never numbers; once seen, no further runs start.
 
+## Judge batch (`judge.mjs`)
+
+`node bench/judge.mjs --runs <dir...> --out <results.jsonl> [--fixtures <dir>] [--vs-old <dir>] [--concurrency 2] [--model <id>]` scores each run's final SVG with the Judge (two blind passes, native `openai-codex`, **real model, subscription quota**). A run dir is a live `/magic` run (`candidate.svg` plus a sealed `run.json`) or a benchmark output dir (one `<stem>-rN.candidate.svg`; the source is `<fixtures>/<stem>.mmd`, re-rendered). `--vs-old <dir>` compares each run with the final SVG of `<dir>/<same dir name>` instead of the original. Output is one JSON line per run (verdict, merged dimensions, per-pass scores, ms, tokens); a failing run becomes a `verdict: "ERROR"` line and the batch continues. Offline results write nothing into a run directory and never gate `/magic-accept`. Keep `--out` outside the repository: customer diagrams must not be committed.
+
 ## Tests
 
 `node --test tools/pi-diagram-agent/bench/bench-lib.test.mjs` covers the aggregation, the rate-limit matcher and fixture/expected consistency. It needs no network or model. It is not wired into `npm test`.
+
+`node --test bench/judge.test.mjs` covers the judge batch CLI with a mocked session (no model).

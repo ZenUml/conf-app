@@ -41,21 +41,20 @@ export const DIAGRAM_VIEW_URI = 'ui://zenuml/diagram';
 /**
  * Path of the built view inside the Pages deploy.
  *
- * NOT YET BUILT. The view began as a root `mcp-app-view.html` Vite entry, which
- * broke the Forge deploy: `Each resource can only have up to 5000 files`.
- * Adding any entry makes Rollup re-split the WHOLE build — the 58 extra files
- * were the app's own chunks re-hashed (AsyncApiMacroViewer, forge-asyncapi-*,
- * mermaid's diagram chunks), not the view's — and `resources: path: dist/` in
- * manifest.yml uploads all of it as one resource. Measured 2026-09-28: 4813
- * files without the entry, 4871 with, and `build:studio` runs on top of both in
- * CI.
+ * `mcp-app-view.html` is a root Vite entry, so the build emits this file and the
+ * hashed script reference inside it always matches the bundle deployed next to
+ * it. Nothing here hardcodes an asset URL, which is why a rebuild cannot
+ * silently break the view.
  *
- * The renderers can only reach the view from the module graph (which causes
- * that re-split) or from an external origin named in `_meta.ui.csp`. That is a
- * choice about running third-party script over customer diagram source, so the
- * entry is parked at docs/mcp-app-view.html.pending until it is made. Until
- * then `readUiResource` answers 'fetch_failed', which is accurate: the asset
- * genuinely is not deployed.
+ * Watch the file count. `resources: path: dist/` in manifest.yml uploads the
+ * whole directory as ONE Forge resource, and Forge caps a resource at 5000
+ * files. Adding this entry the first time broke `Deploy: Lite` with
+ * `Each resource can only have up to 5000 files` — and not because of the
+ * view's own weight: adding any root entry makes Rollup re-split the whole
+ * build, so the extra files were mostly the app's own chunks re-hashed. Forge
+ * reports only the limit, never the actual count, so if that failure returns the
+ * number has to come from a CI build; a local `build:lite` has measured well
+ * under the cap while CI was over it, and the discrepancy is unexplained.
  */
 export const DIAGRAM_VIEW_ASSET_PATH = '/mcp-app-view.html';
 

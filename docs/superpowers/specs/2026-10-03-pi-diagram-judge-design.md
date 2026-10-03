@@ -146,6 +146,8 @@ Only after calibration are the 35 finished top-200 diagrams judged, with the sco
 
 ## Out of scope
 
+Update 2026-10-04: the first two items below are now in scope under the relaxed gate (default): the Judge runs inside `/magic`, picks the best candidate among judged rounds, and its top 3 improvements go to the author on a NOT_IMPROVED round. See `tools/pi-diagram-agent/docs/design-v2.md`, "Relaxed gate".
+
 - Automatic judging inside `/magic`.
 - Using scores to pick the best round or as feedback to the author.
 - Showing scores to Confluence end users.

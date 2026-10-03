@@ -85,8 +85,8 @@ User (optional): /magic-accept <run> <svg-sha256>  → status VALIDATED for exac
 ```
 
 Status semantics:
-- `CANDIDATE` — did not pass the gate; residual findings listed.
-- `REVIEWED` — passed the gate; NOT-CHECKABLE rules (e.g. routeGeometry, visualQuality) listed. A model reviewer cannot certify them (rules: "AI does not substitute for … validation").
+- `CANDIDATE` — did not pass the gate; residual findings listed. Relaxed reasons added: `NOT_IMPROVED (...)` with `ROUNDS_EXHAUSTED` or `WALL_CLOCK`, and `JUDGE_ERROR`.
+- `REVIEWED` — passed the gate (under the relaxed gate, default: no blocking finding, review passed, and the Judge said IMPROVED at the in-loop threshold; see "Relaxed gate"); NOT-CHECKABLE rules (e.g. routeGeometry, visualQuality) listed. A model reviewer cannot certify them (rules: "AI does not substitute for … validation").
 - `REVIEWED_WITH_EXCEPTIONS` — passed the gate except for code-permitted waivers (routePairClearance, routeContainerClearance, routeCrossings with no code-found repair) that the reviewer's diagnosis requested; each waived check, its element ids, measured value and the reviewer's reason are listed. Never auto-published as the default Magic image. A human promotes it with `/magic-accept <run> <sha> --waive <every waived check>`.
 - `VALIDATED` — a REVIEWED or REVIEWED_WITH_EXCEPTIONS candidate whose exact SVG hash a human accepted through the command line, recorded like an adjudication. Never set by a model.
 

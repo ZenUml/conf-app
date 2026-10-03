@@ -292,6 +292,21 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         }
       }
       lap('browser.labelClearance');
+      // R3 inputs: per tagged edge label, every shape in its group with its computed stroke/fill facts, and whether it covers the label's text (root user space, so a rotated label is judged as drawn).
+      const alphaOf=c=>{const m=/^rgba?\(([^)]*)\)$/.exec(c);if(!m)return c==='transparent'?0:1;const p=m[1].split(/[,\s/]+/).filter(Boolean);return p.length>=4?Number(p[3]):1};
+      const effectiveOpacity=shape=>{let o=1;for(let n=shape;n instanceof Element&&n!==root.parentNode;n=n.parentElement){const v=Number.parseFloat(getComputedStyle(n).opacity);if(Number.isFinite(v))o*=v}return o};
+      const labelStyleFacts=[...root.querySelectorAll('g[data-edge-label-source][data-edge-label-target]')].map(el=>{
+        const texts=[...el.querySelectorAll('text')].filter(t=>(t.textContent||'').trim());
+        const textBox=texts.length?union(texts.map(rootBox)):null;
+        const shapes=[...el.querySelectorAll('rect,path,ellipse,polygon,circle')].map(shape=>{
+          const st=getComputedStyle(shape),visible=st.display!=='none'&&st.visibility==='visible',b=rootBox(shape);
+          const strokeVisible=visible&&st.stroke!=='none'&&(Number.parseFloat(st.strokeWidth)||0)>0&&Number(st.strokeOpacity)>0&&alphaOf(st.stroke)>0;
+          const fillOpaque=visible&&st.fill!=='none'&&alphaOf(st.fill)>=1&&Number(st.fillOpacity)>=1&&effectiveOpacity(shape)>=1;
+          const covers=!!textBox&&b.x<=textBox.x+0.5&&b.y<=textBox.y+0.5&&b.x+b.w>=textBox.x+textBox.w-0.5&&b.y+b.h>=textBox.y+textBox.h-0.5;
+          return {tag:shape.localName,strokeVisible,fillOpaque,covers};
+        });
+        return {label:`${el.getAttribute('data-edge-label-source')}->${el.getAttribute('data-edge-label-target')}`,hasText:!!textBox,shapes};
+      });
       // routeLowerBend inputs, all in root user space: node outlines/bounds, container outlines and heading text, edge-label boxes.
       const lbNodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>{
         const id=el.getAttribute('data-node')??el.getAttribute('data-node-id');
@@ -329,7 +344,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const textCount=root.querySelectorAll('text').length;
       root.remove();
       lap('browser.rest');
-      return {timing:T,parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,boundLabels:labelElements.map(l=>l.label),labelViolations,labelUnsupported,lbNodes,lbGroups,labelBoxes,untaggedLabels};
+      return {timing:T,parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,boundLabels:labelElements.map(l=>l.label),labelViolations,labelUnsupported,labelStyleFacts,lbNodes,lbGroups,labelBoxes,untaggedLabels};
     },[svgText,GROUP_SELECTOR,prefilter]);
     timings['browser.drawnTotal']=performance.now()-evalStart;
     const layoutStart=performance.now();
@@ -392,9 +407,23 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     const status=violations.length?'FAIL':unbound||unsupported.length?'NOT-CHECKABLE':'PASS';
     return {status,evidence:{method,epsilon:0.5,violations,unsupported,checkedLabels:drawn.labelCount,...(unbound?{unboundLabels,reason:model?'a labelled source edge has no bound edge-label drawing':'source labels cannot be established'}:{})}};
   })();
+  // R3 (user decision 2026-10-03): an edge label has no border (no visible stroke on its background shapes) and always has an opaque background behind its text.
+  const edgeLabelStyle=(()=>{
+    const method='computed stroke/fill/opacity of every shape inside each tagged edge-label group (g[data-edge-label-source][data-edge-label-target]): FAIL on a visible stroke, or when no shape with an opaque fill (alpha 1, fill-opacity 1, group opacity 1) covers the label text; untagged or unbound labels are not checkable';
+    const violations=[],unsupported=[];
+    for(const f of drawn.labelStyleFacts){
+      if(!f.hasText){unsupported.push({label:f.label,reason:'the tagged label group has no text'});continue}
+      const stroked=f.shapes.filter(x=>x.strokeVisible);
+      if(stroked.length)violations.push({edge:f.label,label:f.label,problem:'visible stroke',shapes:stroked.map(x=>x.tag)});
+      if(!f.shapes.some(x=>x.fillOpaque&&x.covers))violations.push({edge:f.label,label:f.label,problem:'no opaque background behind the text',shapes:f.shapes.map(x=>({tag:x.tag,fillOpaque:x.fillOpaque,coversText:x.covers}))});
+    }
+    const unbound=!model||(labelClearance.evidence.unboundLabels?.length??0)>0;
+    const status=violations.length?'FAIL':unbound||unsupported.length?'NOT-CHECKABLE':'PASS';
+    return {status,evidence:{method,violations,unsupported,checkedLabels:drawn.labelStyleFacts.length,...(unbound?{unboundLabels:labelClearance.evidence.unboundLabels??[],reason:model?'a labelled source edge has no tagged edge-label drawing':'source labels cannot be established'}:{})}};
+  })();
   if(!model){
     const unresolved={status:'NOT-CHECKABLE',evidence:`source parser cannot establish independent semantic bindings: ${modelError}`};
-    return {status:[textFit,labelClearance,nodeHeadingClearance,...Object.values(layout)].some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,textFit,labelClearance,nodeHeadingClearance,...layout,routeLowerBend:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeDetour:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeContainerClearance:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label boxes are unavailable'},routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount},...(timing?{timing:{...timings,...Object.fromEntries(Object.entries(drawn.timing??{})),totalMs:performance.now()-wall}}:{})};
+    return {status:[textFit,labelClearance,edgeLabelStyle,nodeHeadingClearance,...Object.values(layout)].some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE',sourceHash:hash(sourceBytes),svgHash:hash(svgBytes),checks:{svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity:unresolved,nodeText:unresolved,relations:unresolved,groups:unresolved,groupMembership:unresolved,textFit,labelClearance,edgeLabelStyle,nodeHeadingClearance,...layout,routeLowerBend:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeDetour:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label exclusion bounds are unavailable'},routeContainerClearance:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish which edge labels exist, so label boxes are unavailable'},routeGeometry:{status:'NOT-CHECKABLE',evidence:'independent geometry proof unavailable'},visualQuality:{status:'NOT-CHECKABLE',evidence:'requires original/candidate visual inspection'}},drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount},...(timing?{timing:{...timings,...Object.fromEntries(Object.entries(drawn.timing??{})),totalMs:performance.now()-wall}}:{})};
   }
   const expectedNodes=multiset(model.nodes.map(n=>n.id)),actualNodes=multiset(drawn.nodes.map(n=>n.id));
   const nodeIdentity=drawn.nodes.length?{status:equalSets(expectedNodes,actualNodes)?'PASS':'FAIL',evidence:{expected:model.nodes.length,drawn:drawn.nodes.length,missing:model.nodes.filter(n=>!actualNodes.has(n.id)).map(n=>n.id),extra:drawn.nodes.filter(n=>!expectedNodes.has(n.id)).map(n=>n.id)}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-node semantic binding; SVG may still be visually valid'};
@@ -600,7 +629,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const definitionConflicts=model.conflicts??[];
   const sourceDefinitionConflicts=definitionConflicts.length?{status:'FAIL',evidence:{method:'parser: a node defined more than once with different text or shape; Mermaid renders the last definition',nodeIds:definitionConflicts.map(c=>c.nodeId),conflicts:definitionConflicts}}:{status:'PASS',evidence:'every node has at most one distinct definition'};
   const nodeShape={status:'NOT-CHECKABLE',evidence:{reason:'the auditor does not compare drawn node shapes with source shapes; the reviewer judges shapes the rules define',notCheckableShapeNodeIds:model.nodes.filter(n=>NOT_CHECKABLE_SHAPES.has(n.shape)).map(n=>n.id)}};
-  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,nodeShape,sourceDefinitionConflicts,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,nodeHeadingClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,routeLowerBend,routeDetour,routeContainerClearance,...layout,
+  const checks={svgWellFormed:{status:'PASS',evidence:'browser XML parser'},nodeIdentity,nodeText,nodeShape,sourceDefinitionConflicts,relations,relationStyle,groups,groupMembership,originalGroupParity,semanticPreservation,textFit,labelClearance,edgeLabelStyle,nodeHeadingClearance,routeNodeIntrusion,routeHeadingClearance,routeUnrelatedContainerTransit,markerDrawing,routePairClearance,routeCrossings,arrowShaft,routeLowerBend,routeDetour,routeContainerClearance,...layout,
     routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; routeLowerBend adds a witness search (see its limitations); continuous curved-path/label exclusion remains unproved'},
     visualQuality:{status:'NOT-CHECKABLE',evidence:'requires Pi to inspect original and candidate full images plus crops'}};
   const status=Object.values(checks).some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE';

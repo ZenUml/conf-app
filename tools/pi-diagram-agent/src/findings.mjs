@@ -86,6 +86,7 @@ const SUGGESTIONS={
   textFit:'Enlarge the node or shorten line breaks so all text sits inside the outline inset by 12 units. Text must also keep 4 units from every drawn stroke of its node, and a declared data-label-box must not contain one: for a cylinder/store put the label box and text entirely below the lid arc (its lowest point, not its top edge), for a queue or subroutine keep them between the inner bars; grow the node if needed.',
   nodeHeadingClearance:'Move the listed node (and its group if needed) so its outline keeps at least 8 units from the group heading/subtitle text and at least 8 units from the border of its container; reserve a heading band at the top of the container.',
   labelClearance:'Move the edge label so its box does not touch any node or container outline.',
+  edgeLabelStyle:'An edge label has no border and always has a background: remove every stroke from the label pill or background shape (stroke="none"), and put an opaque fill (alpha 1, no fill-opacity or group opacity) matching the canvas behind the text, covering the whole text.',
   routeNodeIntrusion:'Re-route the edge so it stays out of unrelated nodes and starts/ends on its own node outlines.',
   routeHeadingClearance:'Re-route the edge away from the group heading text (2-unit guard).',
   routeUnrelatedContainerTransit:'Re-route the edge so it does not cross a container that contains neither endpoint.',

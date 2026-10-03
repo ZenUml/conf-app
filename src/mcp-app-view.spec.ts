@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { extractDiagram } from './mcp-app-view';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION } from './mcp-app-view';
 
 describe('extractDiagram', () => {
   // The host decides which of these shapes it hands us, and the answer has
@@ -63,5 +63,67 @@ describe('extractDiagram', () => {
 
   it('ignores non-text content blocks', () => {
     expect(extractDiagram({ content: [{ type: 'image', data: 'base64' }] })).toBeNull();
+  });
+});
+
+/**
+ * The handshake, which is what actually decides whether anything renders.
+ *
+ * Claude Desktop fetched the view and drew nothing (2026-10-03) because the
+ * View never answered the host's initialize response with
+ * `ui/notifications/initialized`, and the host therefore never sent
+ * tool-result. These tests exist so that cannot regress silently: the previous
+ * spec covered only extractDiagram, so the whole transport was untested.
+ */
+describe('the host handshake', () => {
+  let posted: Array<Record<string, unknown>>;
+  let spy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    posted = [];
+    spy = vi.spyOn(window, 'postMessage').mockImplementation(((msg: unknown) => {
+      posted.push(msg as Record<string, unknown>);
+    }) as typeof window.postMessage);
+  });
+
+  afterEach(() => spy.mockRestore());
+
+  function fire(data: unknown): void {
+    onHostMessage({ data } as MessageEvent);
+  }
+
+  it('opens with a conformant ui/initialize request', () => {
+    start();
+    const init = posted.find((m) => m.method === 'ui/initialize');
+    expect(init).toBeDefined();
+    expect(typeof init!.id).toBe('number');
+    const params = init!.params as Record<string, unknown>;
+    // Empty params are what the first version sent; the host needs these.
+    expect(params.protocolVersion).toBe(UI_PROTOCOL_VERSION);
+    expect(params.clientInfo).toMatchObject({ name: expect.any(String) });
+    expect(params.capabilities).toBeDefined();
+  });
+
+  it('answers the initialize response with ui/notifications/initialized', () => {
+    start();
+    const id = posted.find((m) => m.method === 'ui/initialize')!.id;
+    posted.length = 0;
+    fire({ jsonrpc: '2.0', id, result: { protocolVersion: UI_PROTOCOL_VERSION, hostInfo: {} } });
+    expect(posted.map((m) => m.method)).toContain('ui/notifications/initialized');
+  });
+
+  it('does not acknowledge a response that is not ours', () => {
+    start();
+    posted.length = 0;
+    fire({ jsonrpc: '2.0', id: 9999, result: {} });
+    expect(posted.map((m) => m.method)).not.toContain('ui/notifications/initialized');
+  });
+
+  it('says so rather than hanging when the host refuses the view', () => {
+    start();
+    const id = posted.find((m) => m.method === 'ui/initialize')!.id;
+    posted.length = 0;
+    fire({ jsonrpc: '2.0', id, error: { code: -32000, message: 'nope' } });
+    expect(posted.map((m) => m.method)).not.toContain('ui/notifications/initialized');
   });
 });

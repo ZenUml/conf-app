@@ -10,15 +10,33 @@
  * its height. Keeping it a separate entry keeps `forgeGlobal` and the Confluence
  * store out of a bundle that runs in someone else's iframe.
  *
- * THE PROTOCOL, MINIMALLY. The host speaks JSON-RPC over postMessage. We send
- * `ui/initialize` once, then wait: the payload arrives as either
- * `ui/notifications/tool-result` (the normal path) or
- * `ui/notifications/tool-input` (preloaded before the call completes, which we
- * use only to show that something is coming). We answer nothing else, and we
- * never call `tools/call` — this view only draws.
+ * THE PROTOCOL, MINIMALLY. The host speaks JSON-RPC over postMessage, and the
+ * handshake has THREE steps, not one:
+ *
+ *   1. View  -> `ui/initialize` (a request, with clientInfo/protocolVersion)
+ *   2. Host  -> McpUiInitializeResult (the response to that request)
+ *   3. View  -> `ui/notifications/initialized`
+ *
+ * Only after step 3 does the host send `ui/notifications/tool-input` and
+ * `ui/notifications/tool-result`. Step 3 is not optional and it is easy to miss:
+ * the first version of this file sent step 1 with empty params and never
+ * answered step 2, so the host fetched the view, drew its frame, and then
+ * correctly never delivered the diagram. The symptom is a widget that renders
+ * nothing with no error anywhere (seen in Claude Desktop 2026-10-03;
+ * agent_link_app_view_requested fired, agent_link_app_view_failed did not,
+ * which is what proved the resource had been served and the fault was here).
+ *
+ * We answer nothing else, and we never call `tools/call` — this view only draws.
  */
 
-const HOST = window.parent;
+/**
+ * Resolved per call rather than captured once, so the handshake is reachable
+ * from a test. Capturing `window.parent` at module load made every message
+ * untestable, which is why the missing `ui/notifications/initialized` shipped.
+ */
+function host(): Window | null {
+  return typeof window !== 'undefined' ? window.parent : null;
+}
 
 type Json = Record<string, unknown>;
 
@@ -32,13 +50,26 @@ interface DiagramPayload {
 function send(method: string, params?: Json): void {
   // Targeting '*' is what the spec's transport does: the view cannot know the
   // host's origin, and the channel carries no secrets in this direction.
-  HOST?.postMessage({ jsonrpc: '2.0', method, ...(params ? { params } : {}) }, '*');
+  host()?.postMessage({ jsonrpc: '2.0', method, ...(params ? { params } : {}) }, '*');
 }
 
 let nextId = 1;
-function request(method: string, params?: Json): void {
-  HOST?.postMessage({ jsonrpc: '2.0', id: nextId++, method, ...(params ? { params } : {}) }, '*');
+function request(method: string, params?: Json): number {
+  const id = nextId++;
+  host()?.postMessage({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) }, '*');
+  return id;
 }
+
+/** The id of our `ui/initialize`, so its response can be told from any other. */
+let initializeId: number | null = null;
+
+/**
+ * The spec's protocol revision, sent in `ui/initialize`.
+ *
+ * Hard-coded rather than negotiated: this view implements exactly one revision,
+ * and claiming a different one would be a lie the host acts on.
+ */
+export const UI_PROTOCOL_VERSION = '2026-01-26';
 
 /**
  * Find the diagram in a tool result.
@@ -131,9 +162,26 @@ async function render(payload: DiagramPayload): Promise<void> {
   reportSize();
 }
 
-function onHostMessage(event: MessageEvent): void {
-  const msg = event.data as { method?: unknown; params?: unknown } | undefined;
-  if (!msg || typeof msg.method !== 'string') return;
+export function onHostMessage(event: MessageEvent): void {
+  const msg = event.data as
+    | { method?: unknown; params?: unknown; id?: unknown; result?: unknown; error?: unknown }
+    | undefined;
+  if (!msg) return;
+
+  // Step 2 of the handshake: the response to our `ui/initialize`. Acknowledging
+  // it with `ui/notifications/initialized` is what unblocks the host's
+  // tool-input/tool-result notifications, so nothing renders without this.
+  if (initializeId !== null && msg.id === initializeId && typeof msg.method !== 'string') {
+    initializeId = null;
+    if (msg.error) {
+      status('The host refused this view.');
+      return;
+    }
+    send('ui/notifications/initialized');
+    return;
+  }
+
+  if (typeof msg.method !== 'string') return;
 
   if (msg.method === 'ui/notifications/tool-result') {
     const payload = extractDiagram(msg.params);
@@ -149,11 +197,15 @@ function onHostMessage(event: MessageEvent): void {
   }
 }
 
-function start(): void {
+export function start(): void {
   window.addEventListener('message', onHostMessage);
   // Announce ourselves, then wait. A view that draws nothing until the host
   // speaks is correct: there is no diagram to draw before the tool answers.
-  request('ui/initialize', {});
+  initializeId = request('ui/initialize', {
+    capabilities: {},
+    clientInfo: { name: 'zenuml-diagram-view', version: '1' },
+    protocolVersion: UI_PROTOCOL_VERSION,
+  });
   status('Waiting for the diagram…');
   window.addEventListener('resize', reportSize);
 }

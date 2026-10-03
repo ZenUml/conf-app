@@ -22,7 +22,7 @@ import {
   type HeadlessContext,
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
-import { readUiResource, uiCapability, uiResourceList, withUiMeta } from './mcpApps';
+import { readUiResource, uiCapability, uiResourceList, withUiMeta, UI_EXTENSION_ID } from './mcpApps';
 import type { GateEnv } from './headlessGate';
 import { mixpanelTrack } from '../../service/mixpanelService';
 
@@ -150,6 +150,62 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
  * (modelcontextprotocol/ext-apps#671). Fire-and-forget on the same timeout as
  * every other call here: a slow Mixpanel must not delay a view.
  */
+/**
+ * Protocol revisions we can speak, newest first.
+ *
+ * This used to answer every initialize with a hardcoded '2024-11-05' whatever
+ * the client asked for. That revision predates the `_meta`/extensions machinery
+ * MCP Apps is built on, so pinning a session to it can only hurt: a host has no
+ * reason to enable Apps on a session it negotiated down to 2024-11-05. We now
+ * echo the client's version when we know it and fall back to our newest
+ * otherwise, which is the normal MCP handshake.
+ */
+const SUPPORTED_PROTOCOL_VERSIONS = ['2026-01-26', '2025-06-18', '2025-03-26', '2024-11-05'];
+
+function negotiateProtocolVersion(requested: unknown): string {
+  return typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+    ? requested
+    : SUPPORTED_PROTOCOL_VERSIONS[0];
+}
+
+/** Did the client advertise the MCP Apps extension in its initialize params? */
+export function clientDeclaresUi(params: unknown): boolean {
+  const ext = (params as { capabilities?: { extensions?: Record<string, unknown> } } | undefined)
+    ?.capabilities?.extensions;
+  return !!ext && Object.prototype.hasOwnProperty.call(ext, UI_EXTENSION_ID);
+}
+
+/**
+ * Record the handshake. This is a diagnostic, not a gate: we still attach
+ * `_meta.ui` whether or not the client advertised the extension, because a host
+ * that does not understand it ignores it.
+ */
+async function trackInitialize(
+  env: HeadlessEnv,
+  userId: string,
+  params: unknown,
+  negotiated: string,
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  const info = (params as { clientInfo?: { name?: unknown; version?: unknown } } | undefined)?.clientInfo;
+  try {
+    await withTimeout(mixpanelTrack(
+      {
+        event: 'agent_link_mcp_initialized',
+        user_account_id: userId,
+        feature_area: 'agent_link',
+        surface: 'backend',
+        client_declares_ui: clientDeclaresUi(params),
+        protocol_version: negotiated,
+        mcp_client_name: typeof info?.name === 'string' ? info.name : 'unknown',
+      },
+      env.MIXPANEL_TOKEN,
+    ));
+  } catch {
+    // never fail a handshake for a metric
+  }
+}
+
 async function trackViewRead(
   env: HeadlessEnv,
   userId: string,
@@ -274,8 +330,12 @@ export async function handleHeadlessRpc(
 
   switch (body.method) {
     case 'initialize': {
+      const negotiated = negotiateProtocolVersion(
+        (body.params as { protocolVersion?: unknown } | undefined)?.protocolVersion,
+      );
+      await trackInitialize(env, auth.token.userId, body.params, negotiated);
       return result(id, {
-        protocolVersion: '2024-11-05',
+        protocolVersion: negotiated,
         // `resources` exists solely to serve the MCP Apps view, so the two are
         // declared together. See mcpApps.ts on why this is unconditional.
         capabilities: { tools: {}, resources: {}, extensions: uiCapability() },

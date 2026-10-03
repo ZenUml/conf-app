@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { handleHeadlessRpc, looksLikeRelayToken } from './headlessMcp';
+import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi } from './headlessMcp';
 import { authenticateHeadless, challengeFor } from './headlessAuth';
 import { issueAccessToken, type GrantStoreLike } from './asStore';
 import { saveGrant } from './tokenStore';
@@ -346,5 +346,46 @@ describe('challenge construction', () => {
     expect(challengeFor(MCP, 'missing')).toBe(
       `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`,
     );
+  });
+});
+
+/**
+ * The handshake itself. Before this, initialize answered a hardcoded
+ * '2024-11-05' however new the client was, which is the wrong end of a
+ * negotiation for a server whose whole point here is an extension defined in a
+ * much later revision.
+ */
+describe('initialize', () => {
+  it('echoes a protocol version it supports rather than pinning 2024-11-05', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'initialize', {
+      protocolVersion: '2026-01-26',
+      capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } },
+      clientInfo: { name: 'probe', version: '1' },
+    });
+    const body = await res.json();
+    expect(body.result.protocolVersion).toBe('2026-01-26');
+  });
+
+  it('falls back to its newest when the client asks for one it does not know', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'initialize', { protocolVersion: '1999-01-01' });
+    const body = await res.json();
+    expect(body.result.protocolVersion).toBe('2026-01-26');
+  });
+});
+
+describe('clientDeclaresUi', () => {
+  // The diagnostic that tells "host never offered MCP Apps" apart from "offered
+  // and did not render". It must not be used to gate _meta.ui.
+  it('is true when the client advertises the ui extension', () => {
+    expect(clientDeclaresUi({ capabilities: { extensions: { 'io.modelcontextprotocol/ui': {} } } })).toBe(true);
+  });
+
+  it('is false for a client that advertises nothing', () => {
+    expect(clientDeclaresUi({ capabilities: {} })).toBe(false);
+    expect(clientDeclaresUi(undefined)).toBe(false);
   });
 });

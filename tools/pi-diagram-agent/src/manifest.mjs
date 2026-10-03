@@ -69,7 +69,7 @@ export function safeRunDir(dir,{cwd=process.cwd()}={}){
  *  Checks, in order: the authoritative manifest (outside the run directory) exists and is sealed; it equals the live process's in-memory
  *  manifest when one is supplied (`expected` object or `expectedSelfHash`); the run-directory mirror agrees with it; status REVIEWED or REVIEWED_WITH_EXCEPTIONS (then `waived` must equal the set of waived checks);
  *  the hash argument; and the candidate bytes on disk. VALIDATED is written to the authoritative manifest and mirrored. */
-export function acceptRun(runDirArg,svgSha256,{user=os.userInfo().username,now=()=>new Date(),expected=null,expectedSelfHash=null,manifestDir=manifestDirFromEnv(),cwd=process.cwd(),waived=[]}={}){
+export function acceptRun(runDirArg,svgSha256,{user=os.userInfo().username,now=()=>new Date(),expected=null,expectedSelfHash=null,manifestDir=manifestDirFromEnv(),cwd=process.cwd(),waived=[],beforeCommit=null}={}){
   const runDir=safeRunDir(runDirArg,{cwd});
   const m=readAuthoritativeManifest(runDir,{manifestDir});
   const want=expected?.selfHash??expectedSelfHash;
@@ -90,7 +90,9 @@ export function acceptRun(runDirArg,svgSha256,{user=os.userInfo().username,now=(
   if(svgSha256!==m.finalSvgSha256)throw Error(`HASH_MISMATCH: the reviewed final SVG is ${m.finalSvgSha256}`);
   let onDisk;try{onDisk=sha(fs.readFileSync(path.join(runDir,'candidate.svg')))}catch{throw Error('CANDIDATE_CHANGED_SINCE_REVIEW: candidate.svg unreadable')}
   if(onDisk!==m.finalSvgSha256)throw Error('CANDIDATE_CHANGED_SINCE_REVIEW: candidate.svg no longer matches the reviewed hash');
-  const acceptance={authorisedBy:String(user),timestamp:now().toISOString(),sourceHash:m.sourceHash,svgSha256,acceptedFrom:m.status,...(m.status==='REVIEWED_WITH_EXCEPTIONS'?{waivedChecks:granted,acceptedWaivers:m.exceptions.map(({check,findingId,elements,measured,reason})=>({check,findingId,elements,measured,reason}))}:{})};
+  // Extra gate for callers (the judge check): runs after every other refusal, may throw to refuse, and returns fields to record in the acceptance.
+  const extra=beforeCommit?(beforeCommit({manifest:m,runDir,svgSha256})??{}):{};
+  const acceptance={authorisedBy:String(user),timestamp:now().toISOString(),sourceHash:m.sourceHash,svgSha256,acceptedFrom:m.status,...extra,...(m.status==='REVIEWED_WITH_EXCEPTIONS'?{waivedChecks:granted,acceptedWaivers:m.exceptions.map(({check,findingId,elements,measured,reason})=>({check,findingId,elements,measured,reason}))}:{})};
   const sealed=writeManifests(runDir,{...body(m),status:'VALIDATED',acceptance},{manifestDir});
   return {status:'VALIDATED',runDir,svgSha256,selfHash:sealed.selfHash,acceptance,manifest:sealed,manifestPath:authoritativeManifestPath(runDir,{manifestDir})};
 }

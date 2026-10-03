@@ -7,6 +7,8 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {register} from 'node:module';
 import {writeRunManifest,readRunManifest,writeManifests,readAuthoritativeManifest} from '../src/manifest.mjs';
+import {writeJudgement} from '../src/judge-run.mjs';
+import {buildJudgement} from '../src/judge.mjs';
 const MDIR=fs.mkdtempSync(path.join(os.tmpdir(),'pi-manifests-test-'));
 process.env.PI_DIAGRAM_MANIFEST_DIR=MDIR; // authoritative manifests: never the real ~ in tests
 process.on('exit',()=>fs.rmSync(MDIR,{recursive:true,force:true}));
@@ -20,6 +22,8 @@ register('data:text/javascript,'+encodeURIComponent(`export async function resol
 const ext=(await import('../pi-extension.ts')).default;
 
 const hash=b=>createHash('sha256').update(b).digest('hex');
+// /magic-accept now needs a fresh IMPROVED judgement (or --override-judge).
+const judged=(dir,svg,over={})=>writeJudgement(dir,buildJudgement({candidateSha256:hash(svg),originalSha256:'o'.repeat(64),mode:'original',model:{provider:'openai-codex',id:'x',thinking:'medium'},passes:[],merged:{dims:{balance:{score:0.5,uncertain:false},grouping:null},mean:0.5},thresholds:{minDim:-0.2,minMean:0.2},verdict:'IMPROVED',verdictReason:'ok',...over}));
 const SRC='flowchart LR\n  A[Start] --> B[Finish]\n';
 const browserEnv=!!process.env.PI_DIAGRAM_MERMAID_BUNDLE&&!!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE;
 function fakePi(){
@@ -100,6 +104,10 @@ test('/magic-accept validates a REVIEWED run for exactly its hash; refuses every
       await cmd.handler(`${dir}`,f.ctx);assert.match(f.notes.at(-1)[0],/Usage/);
       await cmd.handler(`${dir} ${'0'.repeat(64)}`,f.ctx);assert.equal(f.notes.at(-1)[1],'warning');assert.match(f.notes.at(-1)[0],/HASH_MISMATCH/);
       assert.equal(readRunManifest(dir).status,'REVIEWED');
+      // No judgement yet: refused, and the run stays REVIEWED.
+      await cmd.handler(`${dir} ${hash(svg)}`,f.ctx);assert.equal(f.notes.at(-1)[1],'warning');assert.match(f.notes.at(-1)[0],/JUDGEMENT_MISSING/);
+      assert.equal(readRunManifest(dir).status,'REVIEWED');
+      judged(dir,svg);
       // Pasted hashes are often upper-case and surrounded by spaces; the path may be quoted.
       await cmd.handler(`  "${dir}"   ${hash(svg).toUpperCase()} `,f.ctx);assert.match(f.notes.at(-1)[0],/VALIDATED/);
       assert.equal(readRunManifest(dir).status,'VALIDATED');assert.equal(readAuthoritativeManifest(dir).status,'VALIDATED');
@@ -229,9 +237,40 @@ test('/magic-accept --waive: a REVIEWED_WITH_EXCEPTIONS run is validated only wh
       await cmd.handler(`${dir} ${hash(svg)} --waive routeCrossings`,f.ctx);assert.match(f.notes.at(-1)[0],/WAIVERS_NOT_NAMED/);
       await cmd.handler(`${dir} ${hash(svg)} --waive`,f.ctx);assert.match(f.notes.at(-1)[0],/Usage/);
       assert.equal(readRunManifest(dir).status,'REVIEWED_WITH_EXCEPTIONS');
+      judged(dir,svg);
       await cmd.handler(`${dir} ${hash(svg)} --waive routePairClearance,routeCrossings`,f.ctx);
       assert.match(f.notes.at(-1)[0],/VALIDATED/);assert.match(f.notes.at(-1)[0],/waived routeCrossings, routePairClearance/);
       const m=readRunManifest(dir);assert.equal(m.status,'VALIDATED');assert.equal(m.acceptance.acceptedFrom,'REVIEWED_WITH_EXCEPTIONS');
     }finally{fs.rmSync(dir,{recursive:true,force:true})}
+  });
+});
+
+test('/magic-accept --override-judge "<reason>": accepts a NOT_IMPROVED run and records the reason; --waive still works with it; bad usage is refused',async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined},async()=>{
+    const f=fakePi();ext(f.pi);
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pi-diagram-agent-')),svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>';
+    try{
+      fs.writeFileSync(path.join(dir,'candidate.svg'),svg);
+      writeManifests(dir,{schema:'pi-diagram-run/2',status:'REVIEWED',sourceHash:'s'.repeat(64),finalSvgSha256:hash(svg),acceptance:null});
+      judged(dir,svg,{verdict:'NOT_IMPROVED',verdictReason:'mean 0.05 < 0.2'});
+      const cmd=f.commands.get('magic-accept');
+      await cmd.handler(`${dir} ${hash(svg)}`,f.ctx);assert.match(f.notes.at(-1)[0],/JUDGEMENT_NOT_IMPROVED/);
+      await cmd.handler(`${dir} ${hash(svg)} --override-judge`,f.ctx);assert.match(f.notes.at(-1)[0],/Usage/);
+      await cmd.handler(`${dir} ${hash(svg)} --override-judge ""`,f.ctx);assert.match(f.notes.at(-1)[0],/OVERRIDE_REASON/);
+      assert.equal(readRunManifest(dir).status,'REVIEWED');
+      await cmd.handler(`${dir} ${hash(svg)} --override-judge "customer prefers this layout"`,f.ctx);
+      assert.match(f.notes.at(-1)[0],/VALIDATED/);assert.match(f.notes.at(-1)[0],/customer prefers this layout/);
+      const m=readRunManifest(dir);assert.equal(m.status,'VALIDATED');assert.equal(m.acceptance.judgeOverride.reason,'customer prefers this layout');
+    }finally{fs.rmSync(dir,{recursive:true,force:true})}
+  });
+});
+
+test('/magic-judge is registered, validates its arguments, and refuses a run directory outside the temp area without throwing into the UI',async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined},async()=>{
+    const f=fakePi();ext(f.pi);
+    const cmd=f.commands.get('magic-judge');assert.ok(cmd);
+    await cmd.handler('',f.ctx);assert.match(f.notes.at(-1)[0],/Usage/);
+    await cmd.handler('/x --vs-old',f.ctx);assert.match(f.notes.at(-1)[0],/Usage/);
+    await cmd.handler('/etc',f.ctx);assert.equal(f.notes.at(-1)[1],'warning');assert.match(f.notes.at(-1)[0],/Not judged: UNSAFE_RUN_DIRECTORY/);
   });
 });

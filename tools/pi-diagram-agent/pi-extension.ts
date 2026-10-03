@@ -6,7 +6,9 @@ import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { prepareAgentTask, createAgentVisualInspector, buildSourceFacts, composePrompt } from './src/agent-led.mjs';
 import { createV2Run, budgetsFromEnv } from './src/orchestrator.mjs';
 import { createPiReviewerFactory, reviewerConfigFromEnv, resolveReviewerModel } from './src/reviewer.mjs';
-import { acceptRun, safeRunDir } from './src/manifest.mjs';
+import { safeRunDir } from './src/manifest.mjs';
+import { judgeRunDir, acceptWithJudge } from './src/judge-run.mjs';
+import { createPiJudgeFactory, resolveJudgeModel, judgeThinkingFromEnv } from './src/judge.mjs';
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
 import { createSpecRenderer, SPEC_TOOL_DESCRIPTION, specModeFromEnv } from './src/spec-tool.mjs';
 import { createBuildStep } from './src/build-step.mjs';
@@ -108,19 +110,49 @@ export default function (pi: ExtensionAPI) {
       }
     },
   });
+  pi.registerCommand('magic-judge', {
+    description: 'Human only: judge whether a finished /magic run\'s final SVG is visibly better than the original Mermaid render (two blind passes, order swapped). Writes judgement.json, which /magic-accept requires. Usage: /magic-judge <runDir> [--vs-old <runDir>]',
+    handler: async (args, ctx) => {
+      const [dir, ...rest] = tokenize(args);
+      const usage = 'Usage: /magic-judge /absolute/run-dir [--vs-old /absolute/older-run-dir]';
+      let vsOld: string | undefined;
+      if (rest[0] === '--vs-old' && rest[1] && !rest[1].startsWith('--') && rest.length === 2) vsOld = rest[1];
+      else if (rest.length) { ctx.ui.notify(usage, 'warning'); return; }
+      if (!dir || dir.startsWith('--')) { ctx.ui.notify(usage, 'warning'); return; }
+      try {
+        const judgeModel = resolveJudgeModel({ available: ctx.modelRegistry.getAvailable(), authorModel: ctx.model });
+        if (judgeModel.provider !== 'openai-codex') throw Error('JUDGE_PROVIDER_NOT_NATIVE: customer diagrams go only to the native openai-codex provider');
+        const thinking = judgeThinkingFromEnv();
+        ctx.ui.notify(`Judging ${dir} with ${judgeModel.provider}/${judgeModel.id} (${thinking}); two passes, this takes a few minutes.`, 'info');
+        const j = await judgeRunDir(dir, {
+          vsOld, cwd: ctx.cwd,
+          factory: createPiJudgeFactory(piSdk, { provider: judgeModel.provider, modelId: judgeModel.id, thinkingLevel: thinking }),
+          model: { provider: judgeModel.provider, id: judgeModel.id, thinking, requested: judgeModel.requested, fallback: judgeModel.fallback },
+        });
+        const dims = Object.entries(j.merged.dims ?? {}).filter(([, v]: any) => v).map(([d, v]: any) => `${d} ${v.score.toFixed(2)}${v.uncertain ? '?' : ''}`).join(', ');
+        ctx.ui.notify(`${j.verdict}: ${j.verdictReason}. mean ${j.mean.toFixed(2)} (${dims}). Candidate ${j.candidateSha256}. Written to judgement.json in the run directory.`, j.verdict === 'IMPROVED' ? 'info' : 'warning');
+      } catch (error) {
+        ctx.ui.notify(`Not judged: ${String((error as Error).message)}`, 'warning');
+      }
+    },
+  });
   pi.registerCommand('magic-accept', {
-    description: 'Human only: validate a REVIEWED /magic run for exactly one SVG hash. A REVIEWED_WITH_EXCEPTIONS run needs every waived check named. Usage: /magic-accept <runDir> <svgSha256> [--waive check1,check2]',
+    description: 'Human only: validate a REVIEWED /magic run for exactly one SVG hash. Needs a fresh IMPROVED judgement from /magic-judge, or --override-judge "<reason>". A REVIEWED_WITH_EXCEPTIONS run needs every waived check named. Usage: /magic-accept <runDir> <svgSha256> [--waive check1,check2] [--override-judge "<reason>"]',
     handler: async (args, ctx) => {
       const [dir, rawSha, ...rest] = tokenize(args);
       const sha = rawSha?.toLowerCase();
+      const usage = 'Usage: /magic-accept /absolute/run-dir <svg-sha256> [--waive check1,check2] [--override-judge "<reason>"]';
       let waived: string[] = [];
-      if (rest[0] === '--waive' && rest[1] && !rest[1].startsWith('--') && rest.length === 2) waived = rest[1].split(',').map(x => x.trim()).filter(Boolean);
-      else if (rest.length) {
-        ctx.ui.notify('Usage: /magic-accept /absolute/run-dir <svg-sha256> [--waive check1,check2]', 'warning');
-        return;
+      let overrideJudge: string | null = null;
+      let seenWaive = false;
+      for (let i = 0; i < rest.length; i += 2) {
+        const key = rest[i], value = rest[i + 1];
+        if (key === '--waive' && !seenWaive && value && !value.startsWith('--')) { seenWaive = true; waived = value.split(',').map(x => x.trim()).filter(Boolean); }
+        else if (key === '--override-judge' && overrideJudge === null && value !== undefined && !value.startsWith('--')) overrideJudge = value;
+        else { ctx.ui.notify(usage, 'warning'); return; }
       }
       if (!dir || !sha) {
-        ctx.ui.notify('Usage: /magic-accept /absolute/run-dir <svg-sha256> [--waive check1,check2]', 'warning');
+        ctx.ui.notify(usage, 'warning');
         return;
       }
       try {
@@ -128,9 +160,10 @@ export default function (pi: ExtensionAPI) {
         const live = runsByDir.get(real);
         // The in-memory manifest of a run this process orchestrated (or accepted) is the strongest reference; the author cannot reach it.
         const expected = acceptedManifests.get(real) ?? live?.manifest?.() ?? null;
-        const result = acceptRun(real, sha, { expected, cwd: ctx.cwd, waived });
+        const result = acceptWithJudge(real, sha, { expected, cwd: ctx.cwd, waived, overrideJudge });
         acceptedManifests.set(real, result.manifest);
-        ctx.ui.notify(`VALIDATED ${result.svgSha256}${result.acceptance.waivedChecks?.length ? ` with waived ${result.acceptance.waivedChecks.join(', ')} accepted by ${result.acceptance.authorisedBy}` : ''} (recorded in ${result.manifestPath}, mirrored to ${real}/run.json, by ${result.acceptance.authorisedBy}).${expected ? '' : ' This process did not orchestrate the run, so the manifest was checked against its authoritative copy outside the run directory, not an in-memory record.'}`, 'info');
+        const override = result.acceptance.judgeOverride;
+        ctx.ui.notify(`VALIDATED ${result.svgSha256}${result.acceptance.waivedChecks?.length ? ` with waived ${result.acceptance.waivedChecks.join(', ')} accepted by ${result.acceptance.authorisedBy}` : ''}${override ? `; judge verdict (${override.judgementState}) overridden by ${result.acceptance.authorisedBy}: ${override.reason}` : ''} (recorded in ${result.manifestPath}, mirrored to ${real}/run.json, by ${result.acceptance.authorisedBy}).${expected ? '' : ' This process did not orchestrate the run, so the manifest was checked against its authoritative copy outside the run directory, not an in-memory record.'}`, 'info');
       } catch (error) {
         ctx.ui.notify(`Not validated: ${String((error as Error).message)}`, 'warning');
       }

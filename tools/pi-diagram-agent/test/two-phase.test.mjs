@@ -41,6 +41,7 @@ function setup(over={}){
     original:async()=>({rendered:{originalSvgHash:'o'.repeat(64),media:{full:rec('orig')}},svgBytes:Buffer.from('<svg/>')}),
     image:r=>({type:'image',data:r.sha256,mimeType:'image/png'}),
     geometry:async bytes=>{calls.geometry.push(hash(bytes));return emptyGeo()},
+    ...(over.deps??{}),
   };
   const replies=[...(over.replies??[])];
   const reviewerFactory=()=>({
@@ -465,5 +466,34 @@ test('a build note (for example make.py ignored under spec mode required) is car
     assert.equal(c.status,'CHECK_PASS');assert.equal(c.source,'layout.json');assert.match(c.buildNote,/make\.py.*ignored/);
     const g=await t.check({build:async()=>({ok:false,source:'layout.json',message:'SCHEMA_ERROR: x',note:'make.py exists but is ignored'})});
     assert.equal(g.status,'GENERATOR_ERROR');assert.match(g.buildNote,/ignored/);
+  }finally{t.cleanup()}
+});
+
+test('live sequence: round 1 submitted with no candidate file, round 2 a valid but equal-or-worse candidate: no throw, a normal revise outcome, byteless rounds never become base or best',async()=>{
+  const t=setup({budgets:{maxChecksPerRound:1,maxRounds:5}});try{
+    t.write(svg('a FAIL:textFit'));await t.check();
+    fs.rmSync(t.job.outputPath);
+    const r1=await t.out();
+    assert.equal(r1.status,'REFUSED');assert.equal(r1.code,'NO_CANDIDATE');
+    t.write(svg('b FAIL:textFit'));
+    const r2=await t.out();assert.equal(r2.status,'REVISE');assert.equal(r2.round,1);
+    t.write(svg('c FAIL:textFit'));await t.check();       // a fresh round: equal blocking count, so base is kept or replaced without a throw
+    const r3=await t.out();assert.ok(['REVISE','CANDIDATE'].includes(r3.status),r3.status);
+    const m=readRunManifest(t.job.runDir);
+    assert.ok(m.finalSvgSha256===null||/^[0-9a-f]{64}$/.test(m.finalSvgSha256));
+    for(const rd of m.rounds)assert.ok(rd.svgHash===undefined||rd.svgHash===null||/^[0-9a-f]{64}$/.test(rd.svgHash));
+  }finally{t.cleanup()}
+});
+
+test('author time is not double counted when a submit throws part-way: a failed submit consumes its interval, so authorMs never exceeds the wall time',async()=>{
+  let failImage=true;
+  const t=setup({deps:{image:r=>{if(failImage)throw Error('IMAGE_TOO_LARGE');return {type:'image',data:r.sha256,mimeType:'image/png'}}},replies:[rv([])]});try{
+    t.write(svg('a'));t.clock.t=1000;await t.check();
+    await assert.rejects(()=>t.out(),/IMAGE_TOO_LARGE/);
+    failImage=false;t.clock.t+=1000;
+    t.write(svg('b'));await t.check();
+    await t.out();
+    const m=readRunManifest(t.job.runDir);
+    assert.ok(m.timings.authorMs<=m.timings.totalMs,`authorMs ${m.timings.authorMs} <= totalMs ${m.timings.totalMs}`);
   }finally{t.cleanup()}
 });

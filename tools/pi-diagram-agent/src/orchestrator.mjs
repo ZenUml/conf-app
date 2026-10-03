@@ -92,6 +92,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     return {ok:true,bytes,text,hash:sha(bytes)};
   }
   function restore(bytes){
+    if(!bytes)throw Error('RESTORE_WITHOUT_BYTES'); // callers only revert to a base that has bytes
     const temp=path.join(job.runDir,`.restore.${randomUUID()}.tmp`);
     try{fs.writeFileSync(temp,bytes,{flag:'wx',mode:0o600});fs.renameSync(temp,job.outputPath)}finally{fs.rmSync(temp,{force:true})}
   }
@@ -381,7 +382,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
         }
       }
     }
-    const begin=now();timings.authorMs+=Math.max(0,begin-authorMark-checkSinceMark);checkSinceMark=0;
+    const begin=now();timings.authorMs+=Math.max(0,begin-authorMark-checkSinceMark);checkSinceMark=0;authorMark=begin; // consume the interval now: a submit that throws part-way must not add it again on the next submit
     round++;
     const wallExceeded=begin-startedAt>B.maxWallMs;
     const c=escalating?await escalate(hit):await evaluate(cand,{allowReview:!wallExceeded,hit});
@@ -394,7 +395,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     carryReview(c);
     const score=summarise(c);
     let reverted=false;
-    if(base&&(!c.bytes||cmpPair(score,base.score)>0)){
+    if(base?.bytes&&(!c.bytes||cmpPair(score,base.score)>0)){
       reverted=true;reverts++;
       for(const f of c.findings)if(ledger.get(f.key)?.state==='fixed')oscillationsInReverted++;
       restore(base.bytes);
@@ -403,7 +404,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     }else{
       const svgText=c.text;
       ledger.update(round,c.findings,{sources:c.sources,sigOf:svgText?f=>regionSignature(svgText,f):null});
-      c.score=score;base=c;
+      c.score=score;if(c.bytes)base=c; // a round without candidate bytes is recorded but never becomes the revert target
       if(c.reviewSnapshot)lastReview=c.reviewSnapshot;
       const improved=!best||cmpPair(score,best.score)<0;
       if(c.bytes&&(!best||cmpTriple(score,best.score)<=0))best={...c,score};

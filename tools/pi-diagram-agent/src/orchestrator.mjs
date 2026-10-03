@@ -183,7 +183,8 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     if(!(await ensureRender(c)))return c;
     const briefs=blocking.map(f=>({id:f.id,rule:f.rule,elements:f.elements,measured:f.evidence?.measured,threshold:f.evidence?.threshold,suggestion:f.suggestion,...(f.repairHints?{repairHints:f.repairHints}:{}),...(f.moveHints?{moveHints:f.moveHints}:{}),waivableByCode:waivableByCode(f,c.audit)}));
     const review=await callReviewer(c,{diagnosis:briefs});
-    if(!review.ok){c.stage='reviewer-error';extraResidual.push({rule:'REVIEWER_ERROR',severity:'blocking',source:'review',detail:review.error});return record('reviewer-error',{error:review.error})}
+    // A diagnosis that cannot be obtained is not a pass and does not end the run: the script findings come back as a plain rejected round.
+    if(!review.ok)return record('reviewer-error',{error:review.error});
     c.stage='review';c.sources.push('review');
     const covered=applyCoverage(review.findings,{audit:c.audit,svgText:c.text,model});
     c.findings.push(...applyStability(covered,{previous:lastReview,svgText:c.text}));
@@ -425,7 +426,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     onRoundEnd?.(round);
     return result;
   }
-  const publicEscalation=e=>({outcome:e.outcome,failed:e.failed,...(e.hard?{hard:e.hard}:{}),...(e.waiverRejected?{waiverRejected:e.waiverRejected}:{}),...(e.relayout?{relayout:e.relayout}:{})});
+  const publicEscalation=e=>({outcome:e.outcome,failed:e.failed,...(e.hard?{hard:e.hard}:{}),...(e.error?{error:e.error}:{}),...(e.waiverRejected?{waiverRejected:e.waiverRejected}:{}),...(e.relayout?{relayout:e.relayout}:{})});
 
   async function finalizeNow(kind){
     if(finalResult)return finalResult;

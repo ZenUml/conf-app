@@ -70,6 +70,11 @@ test('parseReviewerOutput accepts one code fence, rejects prose, bad severity, m
   for(const t of bad)assert.throws(()=>parseReviewerOutput(t,{model,natural,imageCount:7}),/REVIEWER_/,t.slice(0,60));
 });
 
+test('malformed reviewer JSON reports the parse error position and the head and tail of the reply (to diagnose truncation vs stray text)',()=>{
+  const cut=good().slice(0,60)+'  ...and then some trailing prose';
+  assert.throws(()=>parseReviewerOutput(cut,{model,natural,imageCount:7}),e=>/REVIEWER_MALFORMED_JSON/.test(e.message)&&/head:/.test(e.message)&&/tail:/.test(e.message)&&/trailing prose/.test(e.message));
+});
+
 const fakeFactory=(replies,log=[])=>()=>({
   async prompt(text,{images}){log.push({text,images});const r=replies.shift();if(r instanceof Error)throw r;return {text:r,usage:{input:100,output:20,cacheRead:0,reasoning:5,totalTokens:120}}},
   dispose(){log.push('dispose')},

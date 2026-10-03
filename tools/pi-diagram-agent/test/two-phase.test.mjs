@@ -264,12 +264,22 @@ test('escalation relayout: layout-level advice goes to the author, counts as a r
   }finally{t.cleanup()}
 });
 
-test('escalation relayout with a malformed change kind is a reviewer schema error, not accepted advice',async()=>{
+test('escalation relayout with a malformed change kind is a reviewer schema error, not accepted advice; the escalation then falls back to a plain reject (a round, never a pass)',async()=>{
   const bad={findings:[],verdict:'accept',diagnosis:{outcome:'relayout',relayout:{summary:'x',changes:[{kind:'recolour',detail:'make it blue'}]}}};
   const t=setup({budgets:{maxChecksPerRound:1},replies:[bad,bad]});try{
     t.write(svg('FAIL:routeNodeIntrusion'));await t.check();
     const r=await t.out();
-    assert.equal(r.status,'CANDIDATE');assert.match(r.statusReason,/REVIEWER_/);
+    assert.equal(r.status,'REVISE');assert.equal(r.round,1);assert.equal(r.escalation.outcome,'reviewer-error');assert.match(r.escalation.error,/REVIEWER_SCHEMA/);
+    assert.ok(r.findings.some(f=>f.rule==='routeNodeIntrusion'));
+    assert.equal(readRunManifest(t.job.runDir).twoPhase.escalations[0].outcome,'reviewer-error');
+  }finally{t.cleanup()}
+});
+
+test('escalation reviewer timeout/outage: the script findings come back as a normal rejected round instead of ending the run as CANDIDATE',async()=>{
+  const t=setup({budgets:{maxChecksPerRound:1},replies:[new Error('provider down'),new Error('provider down')]});try{
+    t.write(svg('FAIL:routePairClearance'));await t.check();
+    const r=await t.out();
+    assert.equal(r.status,'REVISE');assert.equal(r.escalation.outcome,'reviewer-error');assert.ok(r.findings.some(f=>f.rule==='routePairClearance'));
   }finally{t.cleanup()}
 });
 

@@ -167,7 +167,7 @@ const parseDiagnosis=d=>{
 export function parseReviewerOutput(text,{model,natural,imageCount,diagnosis=false}){
   let t=String(text??'').trim();
   const fence=/^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(t);if(fence)t=fence[1].trim();
-  let o;try{o=JSON.parse(t)}catch{throw bad('MALFORMED_JSON',t.slice(0,80))}
+  let o;try{o=JSON.parse(t)}catch(error){throw bad('MALFORMED_JSON',`${String(error?.message??error).slice(0,120)} | length ${t.length} | head: ${t.slice(0,100)} | tail: ${t.slice(-120)}`)}
   if(!o||typeof o!=='object'||Array.isArray(o))throw bad('MALFORMED_JSON','not an object');
   if(!Array.isArray(o.findings))throw bad('SCHEMA','findings must be an array');
   if(!['accept','revise'].includes(o.verdict))throw bad('SCHEMA','verdict must be accept or revise');

@@ -9,12 +9,13 @@ import { createPiReviewerFactory, reviewerConfigFromEnv, resolveReviewerModel } 
 import { acceptRun, safeRunDir } from './src/manifest.mjs';
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
 import { createSpecRenderer, SPEC_TOOL_DESCRIPTION } from './src/spec-tool.mjs';
+import { createBuildStep } from './src/build-step.mjs';
 
 /** Quote-aware argument split shared by /magic and /magic-accept. */
 const tokenize = (args: string) => args.trim().match(/"[^"]*"|'[^']*'|\S+/g)?.map(value => value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_all, double, single) => double ?? single)) ?? [];
 
 export default function (pi: ExtensionAPI) {
-  const jobs = new Map<string, { inspect: () => Promise<unknown>; renderSpec: () => Promise<unknown>; submit?: () => Promise<unknown> }>();
+  const jobs = new Map<string, { inspect: () => Promise<unknown>; renderSpec: () => Promise<unknown>; submit?: (opts?: { svgHash?: string | null }) => Promise<unknown>; buildCheck?: (ctx: any) => Promise<unknown> }>();
   // v2 (independent reviewer + deterministic gate) is the default; PI_DIAGRAM_V2=0 restores the single-session loop for benchmark comparability.
   const v2On = process.env.PI_DIAGRAM_V2 !== '0';
   const runsByDir = new Map<string, any>();
@@ -23,6 +24,7 @@ export default function (pi: ExtensionAPI) {
   let activeStarted = false;
   // Opt-in experiments; both default off and leave the script-mode prompt and tool list unchanged.
   const specMode = process.env.PI_DIAGRAM_SPEC_MODE === '1';
+  const v2Budgets0 = budgetsFromEnv(); // tool descriptions and registration follow the same env the run budgets use
 
   pi.registerCommand('magic', {
     description: 'Start a Pi-led, quality-first Mermaid-to-SVG improvement session',
@@ -83,7 +85,9 @@ export default function (pi: ExtensionAPI) {
           const timer = setTimeout(() => { void expireRun(watchedRun, ctx); }, v2Budgets.maxWallMs + 50);
           (timer as any).unref?.();
         } else inspector = createAgentVisualInspector(job);
-        jobs.set(jobId, { inspect: thinking.wrap(inspector), renderSpec: createSpecRenderer(job), ...(run ? { submit: () => run.submit() } : {}) });
+        const renderSpec = createSpecRenderer(job);
+        const buildStep = createBuildStep(job, { specMode, renderSpec });
+        jobs.set(jobId, { inspect: thinking.wrap(inspector), renderSpec, ...(run ? { submit: (opts?: { svgHash?: string | null }) => run.submit(opts), ...(v2Budgets.twoPhase ? { buildCheck: (ctx: any) => run.buildCheck({ build: () => buildStep(ctx) }) } : {}) } : {}) });
         let factsText: string | null = null;
         if (process.env.PI_DIAGRAM_SOURCE_FACTS === '1') {
           try {
@@ -94,7 +98,7 @@ export default function (pi: ExtensionAPI) {
           }
         }
         if (specMode) ctx.ui.notify('Layout spec mode on: layout.json + diagram_render_spec offered', 'info');
-        pi.sendUserMessage(composePrompt(job, { jobId, specMode, factsText, v2: v2Budgets ? { maxRounds: v2Budgets.maxRounds, maxInspectionsPerRound: v2Budgets.maxInspectionsPerRound } : null }), { deliverAs: 'followUp' });
+        pi.sendUserMessage(composePrompt(job, { jobId, specMode, factsText, v2: v2Budgets ? { maxRounds: v2Budgets.maxRounds, maxInspectionsPerRound: v2Budgets.maxInspectionsPerRound, twoPhase: v2Budgets.twoPhase, maxChecksPerRound: v2Budgets.maxChecksPerRound, maxChecksPerRun: v2Budgets.maxChecksPerRun, runDir: job.runDir } : null }), { deliverAs: 'followUp' });
         ctx.ui.notify(`Pi diagram agent started; private work directory: ${job.runDir}`, 'info');
       } catch (error) {
         ctx.ui.notify(`Diagram agent could not start: ${String((error as Error).message)}`, 'warning');
@@ -102,12 +106,18 @@ export default function (pi: ExtensionAPI) {
     },
   });
   pi.registerCommand('magic-accept', {
-    description: 'Human only: validate a REVIEWED /magic run for exactly one SVG hash. Usage: /magic-accept <runDir> <svgSha256>',
+    description: 'Human only: validate a REVIEWED /magic run for exactly one SVG hash. A REVIEWED_WITH_EXCEPTIONS run needs every waived check named. Usage: /magic-accept <runDir> <svgSha256> [--waive check1,check2]',
     handler: async (args, ctx) => {
       const [dir, rawSha, ...rest] = tokenize(args);
       const sha = rawSha?.toLowerCase();
-      if (!dir || !sha || rest.length) {
-        ctx.ui.notify('Usage: /magic-accept /absolute/run-dir <svg-sha256>', 'warning');
+      let waived: string[] = [];
+      if (rest[0] === '--waive' && rest[1] && !rest[1].startsWith('--') && rest.length === 2) waived = rest[1].split(',').map(x => x.trim()).filter(Boolean);
+      else if (rest.length) {
+        ctx.ui.notify('Usage: /magic-accept /absolute/run-dir <svg-sha256> [--waive check1,check2]', 'warning');
+        return;
+      }
+      if (!dir || !sha) {
+        ctx.ui.notify('Usage: /magic-accept /absolute/run-dir <svg-sha256> [--waive check1,check2]', 'warning');
         return;
       }
       try {
@@ -115,9 +125,9 @@ export default function (pi: ExtensionAPI) {
         const live = runsByDir.get(real);
         // The in-memory manifest of a run this process orchestrated (or accepted) is the strongest reference; the author cannot reach it.
         const expected = acceptedManifests.get(real) ?? live?.manifest?.() ?? null;
-        const result = acceptRun(real, sha, { expected, cwd: ctx.cwd });
+        const result = acceptRun(real, sha, { expected, cwd: ctx.cwd, waived });
         acceptedManifests.set(real, result.manifest);
-        ctx.ui.notify(`VALIDATED ${result.svgSha256} (recorded in ${result.manifestPath}, mirrored to ${real}/run.json, by ${result.acceptance.authorisedBy}).${expected ? '' : ' This process did not orchestrate the run, so the manifest was checked against its authoritative copy outside the run directory, not an in-memory record.'}`, 'info');
+        ctx.ui.notify(`VALIDATED ${result.svgSha256}${result.acceptance.waivedChecks?.length ? ` with waived ${result.acceptance.waivedChecks.join(', ')} accepted by ${result.acceptance.authorisedBy}` : ''} (recorded in ${result.manifestPath}, mirrored to ${real}/run.json, by ${result.acceptance.authorisedBy}).${expected ? '' : ' This process did not orchestrate the run, so the manifest was checked against its authoritative copy outside the run directory, not an in-memory record.'}`, 'info');
       } catch (error) {
         ctx.ui.notify(`Not validated: ${String((error as Error).message)}`, 'warning');
       }
@@ -133,6 +143,7 @@ export default function (pi: ExtensionAPI) {
       const message = event?.message;
       if (message?.role === 'assistant' && activeRun && !activeRun.isFinal()) {
         activeStarted = true;
+        activeRun.noteAuthorCall?.();
         if (message.usage) activeRun.addAuthorUsage(message.usage);
         if (activeRun.wallExceeded()) await expireRun(activeRun, ctx);
       }
@@ -146,12 +157,25 @@ export default function (pi: ExtensionAPI) {
     pi.registerTool(defineTool({
       name: 'diagram_submit',
       label: 'Submit the candidate for audit and independent review',
-      description: 'Signal that candidate.svg is ready. The orchestrator re-renders the exact final bytes, runs the deterministic auditor and an independent reviewer, then returns either structured findings to fix (call again after fixing) or a final status (REVIEWED or CANDIDATE). You cannot certify your own work.',
-      parameters: Type.Object({ jobId: Type.String() }),
+      description: v2Budgets0.twoPhase
+        ? 'Signal that candidate.svg is ready. Only bytes whose latest diagram_build_check has no FAIL are accepted (name that hash as svgHash); anything else is REFUSED and is not a round. The orchestrator then renders the exact bytes, runs an independent visual reviewer, and returns structured findings to fix or a final status (REVIEWED, REVIEWED_WITH_EXCEPTIONS or CANDIDATE). You cannot certify your own work.'
+        : 'Signal that candidate.svg is ready. The orchestrator re-renders the exact final bytes, runs the deterministic auditor and an independent reviewer, then returns either structured findings to fix (call again after fixing) or a final status (REVIEWED or CANDIDATE). You cannot certify your own work.',
+      parameters: Type.Object({ jobId: Type.String(), svgHash: Type.Optional(Type.String({ description: 'SHA-256 of the candidate.svg bytes returned by your latest diagram_build_check' })) }),
       async execute(_id, params) {
         const job = jobs.get(params.jobId);
         if (!job?.submit) throw Error('UNKNOWN_DIAGRAM_JOB');
-        return await job.submit();
+        return await job.submit({ svgHash: params.svgHash ?? null });
+      },
+    }));
+    if (v2Budgets0.twoPhase) pi.registerTool(defineTool({
+      name: 'diagram_build_check',
+      label: 'Build the candidate and run the binding script check',
+      description: 'The normal edit loop. In one call: (1) runs your generator (python3 make.py in the run directory, 60 s limit; or renders layout.json in spec mode; or uses candidate.svg as written), (2) hashes the resulting candidate.svg bytes, (3) runs the full deterministic auditor plus measured geometry and early checks, (4) returns TEXT ONLY: the sha256, PASS/FAIL per check, and actionable findings (including repairHint/moveHint evidence) and the check budget left. Identical bytes are served from a cache (still counted). diagram_submit accepts only a hash whose latest check has no FAIL. Not visual evidence: call diagram_inspect for images.',
+      parameters: Type.Object({ jobId: Type.String() }),
+      async execute(_id, params, _signal, _onUpdate, ctx) {
+        const job = jobs.get(params.jobId);
+        if (!job?.buildCheck) throw Error('UNKNOWN_DIAGRAM_JOB');
+        return await job.buildCheck(ctx);
       },
     }));
   }

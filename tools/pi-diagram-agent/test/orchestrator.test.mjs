@@ -45,7 +45,7 @@ function setup(over={}){
     async prompt(text,{images}){calls.reviewer.push({text,images});clock.t+=700;if(over.onReview)over.onReview();const r=replies.shift();if(r instanceof Error)throw r;return {text:typeof r==='string'?r:JSON.stringify({imagesSeen:images.length,...r}),usage:{input:10,output:5}}},
     dispose(){},
   });
-  const run=createV2Run(job,{deps,reviewerFactory,now:()=>clock.t,budgets:over.budgets,reviewer:over.reviewerCfg,onRoundEnd:n=>calls.roundEnds.push(n)});
+  const run=createV2Run(job,{deps,reviewerFactory,now:()=>clock.t,budgets:{...over.budgets,twoPhase:false},reviewer:over.reviewerCfg,onRoundEnd:n=>calls.roundEnds.push(n)});
   const write=text=>fs.writeFileSync(job.outputPath,text);
   const out=async()=>JSON.parse((await run.submit()).content[0].text);
   const cleanup=()=>{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(job.runDir,{recursive:true,force:true})};
@@ -408,7 +408,9 @@ test('real auditor + real original render: a clean candidate for a group-less so
   const run=createV2Run(job,{reviewerFactory:()=>({async prompt(_t,{images}){reviews++;return {text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}},dispose(){}})});
   try{
     fs.writeFileSync(job.outputPath,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#333"/></marker></defs><g data-node="A"><rect x="10" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="34" y="86">Start</text></g><g data-node="B"><rect x="400" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="424" y="86">Finish</text></g><path data-source="A" data-target="B" d="M130 80 L400 80" stroke="#333" fill="none" marker-end="url(#arrow)"/></svg>');
-    const r=JSON.parse((await run.submit()).content[0].text);
+    const chk=JSON.parse((await run.buildCheck()).content[0].text); // two-phase: the binding script check first (real auditor, no images)
+    assert.equal(chk.status,'CHECK_PASS',JSON.stringify(chk.findings));assert.equal(reviews,0);
+    const r=JSON.parse((await run.submit({svgHash:chk.svgHash})).content[0].text);
     assert.equal(reviews,1,JSON.stringify(r.findings));
     assert.equal(r.status,'REVIEWED');
     assert.ok(!r.notCheckable.includes('semanticPreservation'));
@@ -426,6 +428,8 @@ test('a source the parser cannot read ends as CANDIDATE SOURCE_NOT_PARSEABLE ins
       reviewerFactory:()=>{throw Error('reviewer must not run')},now:()=>0});
     try{
       fs.writeFileSync(job.outputPath,svg('v1'));
+      const chk=JSON.parse((await run.buildCheck()).content[0].text);
+      assert.ok(chk.notes.includes('SOURCE_NOT_PARSEABLE')); // the check says so too
       const r=JSON.parse((await run.submit()).content[0].text);
       assert.equal(r.status,'CANDIDATE');assert.match(r.statusReason,/SOURCE_NOT_PARSEABLE/);
     }finally{fs.rmSync(job.runDir,{recursive:true,force:true})}
@@ -497,6 +501,7 @@ test('finalisation waits for an in-flight submit instead of racing it: one round
       audit:async()=>({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'PASS',evidence:{missing:[],extra:[]}},relations:{status:'PASS'},groups:{status:'PASS'},semanticPreservation:{status:'PASS'}}}),
       original:async()=>({rendered:{media:{full:rec('orig')}},svgBytes:Buffer.from('<svg/>')}),image:r=>({type:'image',data:r.sha256,mimeType:'image/png'}),geometry:async()=>null},
       reviewerFactory:()=>({async prompt(_t,{images}){await gate;return {text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}},dispose(){}}),now:()=>0});
+    await slowRun.buildCheck();
     const sub=slowRun.submit();
     await new Promise(r=>setTimeout(r,20));
     const fin=slowRun.finalizeWithoutSubmit();

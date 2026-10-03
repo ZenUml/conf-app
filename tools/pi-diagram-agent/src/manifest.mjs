@@ -65,23 +65,32 @@ export function safeRunDir(dir,{cwd=process.cwd()}={}){
   return real;
 }
 
-/** Human-only (a slash command, never a tool): VALIDATED only for a REVIEWED run whose final bytes still hash to the accepted value.
+/** Human-only (a slash command, never a tool): VALIDATED only for a REVIEWED (or REVIEWED_WITH_EXCEPTIONS, with every waived check named) run whose final bytes still hash to the accepted value.
  *  Checks, in order: the authoritative manifest (outside the run directory) exists and is sealed; it equals the live process's in-memory
- *  manifest when one is supplied (`expected` object or `expectedSelfHash`); the run-directory mirror agrees with it; status REVIEWED;
+ *  manifest when one is supplied (`expected` object or `expectedSelfHash`); the run-directory mirror agrees with it; status REVIEWED or REVIEWED_WITH_EXCEPTIONS (then `waived` must equal the set of waived checks);
  *  the hash argument; and the candidate bytes on disk. VALIDATED is written to the authoritative manifest and mirrored. */
-export function acceptRun(runDirArg,svgSha256,{user=os.userInfo().username,now=()=>new Date(),expected=null,expectedSelfHash=null,manifestDir=manifestDirFromEnv(),cwd=process.cwd()}={}){
+export function acceptRun(runDirArg,svgSha256,{user=os.userInfo().username,now=()=>new Date(),expected=null,expectedSelfHash=null,manifestDir=manifestDirFromEnv(),cwd=process.cwd(),waived=[]}={}){
   const runDir=safeRunDir(runDirArg,{cwd});
   const m=readAuthoritativeManifest(runDir,{manifestDir});
   const want=expected?.selfHash??expectedSelfHash;
   if(want&&(m.selfHash!==want||(expected&&digest(expected)!==m.selfHash)))throw Error('MANIFEST_TAMPERED: the authoritative manifest differs from the orchestrator\'s in-memory record');
   let mirror;try{mirror=readRunManifest(runDir)}catch(error){throw Error(`MANIFEST_DISAGREES: run.json ${String(error.message)}`)}
   if(mirror.selfHash!==m.selfHash)throw Error('MANIFEST_DISAGREES: run.json in the run directory differs from the authoritative manifest');
-  if(m.status!=='REVIEWED')throw Error(`RUN_NOT_REVIEWED: status is ${m.status}; only a REVIEWED run can be accepted`);
+  if(m.status!=='REVIEWED'&&m.status!=='REVIEWED_WITH_EXCEPTIONS')throw Error(`RUN_NOT_REVIEWED: status is ${m.status}; only a REVIEWED or REVIEWED_WITH_EXCEPTIONS run can be accepted`);
+  // A REVIEWED_WITH_EXCEPTIONS run is never auto-published; a human promotes it only by naming every waived check (acceptance of each waiver).
+  const named=[...new Set((waived??[]).map(String))].sort();
+  const granted=[...new Set((m.exceptions??[]).map(e=>e.check))].sort();
+  if(m.status==='REVIEWED'&&named.length)throw Error(`WAIVER_NOT_GRANTED: nothing was waived in this run, so no waived check can be named (${named.join(', ')})`);
+  if(m.status==='REVIEWED_WITH_EXCEPTIONS'){
+    const unknown=named.filter(n=>!granted.includes(n));
+    if(unknown.length)throw Error(`WAIVER_NOT_GRANTED: ${unknown.join(', ')} was not waived in this run (waived: ${granted.join(', ')})`);
+    if(named.join('|')!==granted.join('|'))throw Error(`WAIVERS_NOT_NAMED: this run was reviewed with exceptions; accept it by naming every waived check: --waive ${granted.join(',')} (named: ${named.join(', ')||'none'})`);
+  }
   if(!/^[0-9a-f]{64}$/.test(String(svgSha256)))throw Error('INVALID_HASH: expected 64 lowercase hex characters');
   if(svgSha256!==m.finalSvgSha256)throw Error(`HASH_MISMATCH: the reviewed final SVG is ${m.finalSvgSha256}`);
   let onDisk;try{onDisk=sha(fs.readFileSync(path.join(runDir,'candidate.svg')))}catch{throw Error('CANDIDATE_CHANGED_SINCE_REVIEW: candidate.svg unreadable')}
   if(onDisk!==m.finalSvgSha256)throw Error('CANDIDATE_CHANGED_SINCE_REVIEW: candidate.svg no longer matches the reviewed hash');
-  const acceptance={authorisedBy:String(user),timestamp:now().toISOString(),sourceHash:m.sourceHash,svgSha256,acceptedFrom:'REVIEWED'};
+  const acceptance={authorisedBy:String(user),timestamp:now().toISOString(),sourceHash:m.sourceHash,svgSha256,acceptedFrom:m.status,...(m.status==='REVIEWED_WITH_EXCEPTIONS'?{waivedChecks:granted,acceptedWaivers:m.exceptions.map(({check,findingId,elements,measured,reason})=>({check,findingId,elements,measured,reason}))}:{})};
   const sealed=writeManifests(runDir,{...body(m),status:'VALIDATED',acceptance},{manifestDir});
   return {status:'VALIDATED',runDir,svgSha256,selfHash:sealed.selfHash,acceptance,manifest:sealed,manifestPath:authoritativeManifestPath(runDir,{manifestDir})};
 }

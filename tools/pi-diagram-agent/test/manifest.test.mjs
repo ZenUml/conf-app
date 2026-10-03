@@ -100,3 +100,46 @@ test('acceptRun: VALIDATED is written to the authoritative manifest and mirrored
     assert.equal(fs.statSync(authPath(dir)).mode&0o777,0o600);
   }finally{fs.rmSync(dir,{recursive:true,force:true})}
 });
+
+// ---- REVIEWED_WITH_EXCEPTIONS: a human accepts each waiver by name ------------------------------------------------
+function exceptionsRunDir(){
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pi-diagram-agent-'));
+  fs.writeFileSync(path.join(dir,'candidate.svg'),SVG);
+  const exceptions=[{check:'routeCrossings',findingId:'F-00000001',elements:['A->B','C->D'],measured:'1 crossing',threshold:'0',reason:'the two connectors must cross',round:2,svgSha256:hash(SVG)},
+    {check:'routePairClearance',findingId:'F-00000002',elements:['A->B'],measured:'6 units',threshold:'10 units',reason:'the gutter cannot be widened',round:2,svgSha256:hash(SVG)}];
+  const m=writeRunManifest(dir,{schema:'pi-diagram-run/3',status:'REVIEWED_WITH_EXCEPTIONS',sourceHash:'s'.repeat(64),finalSvgSha256:hash(SVG),exceptions,publishAsDefault:false,acceptance:null});
+  fs.writeFileSync(authPath(dir),JSON.stringify(m,null,2),{mode:0o600});
+  return {dir,exceptions};
+}
+
+test('acceptRun: REVIEWED_WITH_EXCEPTIONS is refused unless the human names every waived check',()=>{
+  const {dir}=exceptionsRunDir();
+  try{
+    assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a'}),/WAIVERS_NOT_NAMED.*routeCrossings.*routePairClearance/s);
+    assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a',waived:[]}),/WAIVERS_NOT_NAMED/);
+    assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a',waived:['routeCrossings']}),/WAIVERS_NOT_NAMED/); // one of two
+    assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a',waived:['routeCrossings','routePairClearance','textFit']}),/WAIVERS_NOT_NAMED|WAIVER_NOT_GRANTED/); // a check that was never waived
+    assert.equal(readRunManifest(dir).status,'REVIEWED_WITH_EXCEPTIONS');
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});
+
+test('acceptRun: naming exactly the waived checks promotes REVIEWED_WITH_EXCEPTIONS to VALIDATED and records each accepted waiver',()=>{
+  const {dir,exceptions}=exceptionsRunDir();
+  try{
+    const r=acceptRun(dir,hash(SVG),{user:'alice',now:()=>new Date('2026-10-03T00:00:00Z'),waived:['routePairClearance','routeCrossings']});
+    assert.equal(r.status,'VALIDATED');
+    const m=readRunManifest(dir);
+    assert.equal(m.status,'VALIDATED');assert.equal(m.acceptance.acceptedFrom,'REVIEWED_WITH_EXCEPTIONS');
+    assert.deepEqual(m.acceptance.waivedChecks,['routeCrossings','routePairClearance']);
+    assert.deepEqual(m.acceptance.acceptedWaivers.map(w=>w.findingId),['F-00000001','F-00000002']);
+    assert.deepEqual(m.exceptions,exceptions); // the waivers stay in the record
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});
+
+test('acceptRun: naming waived checks for a plain REVIEWED run is an error (nothing was waived)',()=>{
+  const {dir}=runDir();
+  try{
+    assert.throws(()=>acceptRun(dir,hash(SVG),{user:'a',waived:['routeCrossings']}),/WAIVER_NOT_GRANTED|nothing was waived/);
+    assert.equal(acceptRun(dir,hash(SVG),{user:'a',waived:[]}).status,'VALIDATED');
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});

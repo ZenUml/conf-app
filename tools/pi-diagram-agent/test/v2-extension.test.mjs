@@ -42,9 +42,15 @@ test('v2 is the default: diagram_submit and /magic-accept are registered and the
   await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined},async()=>{
     const f=fakePi();ext(f.pi);
     assert.ok(f.tools.has('diagram_submit'));assert.ok(f.tools.has('diagram_inspect'));assert.ok(f.commands.has('magic-accept'));
-    assert.deepEqual(Object.keys(f.tools.get('diagram_submit').parameters.properties),['jobId']);
+    assert.ok(f.tools.has('diagram_build_check'));assert.equal(f.tools.has('diagram_check'),false);
+    assert.deepEqual(Object.keys(f.tools.get('diagram_build_check').parameters.properties),['jobId']);
+    assert.deepEqual(Object.keys(f.tools.get('diagram_submit').parameters.properties),['jobId','svgHash']);
     const s=await start(f);
-    try{assert.match(f.sent[0],/diagram_submit/);assert.match(f.sent[0],/at most 3 diagram_inspect/)}finally{s.cleanup()}
+    try{
+      assert.match(f.sent[0],/diagram_submit/);assert.match(f.sent[0],/at most 3 diagram_inspect/);
+      // The normal loop is described: make.py -> diagram_build_check -> occasional inspect -> submit with the hash.
+      assert.match(f.sent[0],/make\.py/);assert.match(f.sent[0],/diagram_build_check/);assert.match(f.sent[0],/at most 6 diagram_build_check/);assert.match(f.sent[0],/svgHash/);
+    }finally{s.cleanup()}
   });
 });
 
@@ -133,12 +139,17 @@ test('through the extension with real rendering: inspect carries early checks, s
       const body=JSON.parse(ins.content[0].text);
       assert.ok(body.earlyChecks.findings.some(x=>x.rule==='forbidden-construct'));
       assert.ok(body.earlyChecks.findings.some(x=>x.rule==='nodeIdentity'));
-      const sub=await f.tools.get('diagram_submit').execute('c',{jobId:s.jobId});
-      const r=JSON.parse(sub.content[0].text);
-      assert.equal(r.status,'REVISE');assert.equal(r.round,1);
-      assert.ok(r.findings.some(x=>x.rule==='forbidden-construct'));
+      // Binding two-phase gate: submit is refused until diagram_build_check has seen these bytes, and refused again while they FAIL.
+      const refused=JSON.parse((await f.tools.get('diagram_submit').execute('c',{jobId:s.jobId})).content[0].text);
+      assert.equal(refused.status,'REFUSED');assert.equal(refused.code,'UNCHECKED_BYTES');
+      const chk=JSON.parse((await f.tools.get('diagram_build_check').execute('c',{jobId:s.jobId},undefined,undefined,{})).content[0].text);
+      assert.equal(chk.status,'CHECK_FAIL');assert.equal(chk.source,'candidate.svg');assert.ok(chk.findings.some(x=>x.rule==='forbidden-construct'));
+      assert.ok(chk.content===undefined&&!JSON.stringify(chk).includes('"type":"image"')); // text only
+      const refused2=JSON.parse((await f.tools.get('diagram_submit').execute('c',{jobId:s.jobId,svgHash:chk.svgHash})).content[0].text);
+      assert.equal(refused2.code,'FAILING_BYTES');
       assert.ok(fs.existsSync(path.join(s.runDir,'run.json')));
-      assert.equal(readRunManifest(s.runDir).status,'RUNNING');
+      const m=readRunManifest(s.runDir);
+      assert.equal(m.status,'RUNNING');assert.equal(m.twoPhase.refusals.length,2);assert.equal(m.twoPhase.checksTotal,1);
     }finally{s.cleanup()}
   });
 });
@@ -161,5 +172,66 @@ test('hung author: past the wall-clock budget the extension aborts the author tu
       assert.ok(aborted2===1||readRunManifest(s2.runDir).status==='CANDIDATE');
       assert.match(readRunManifest(s2.runDir).statusReason??'',/WALL_CLOCK/);
     }finally{s2.cleanup()}
+  });
+});
+
+test('diagram_build_check runs make.py through ctx.executeTool(bash) and reports a generator failure as text; the call is counted in run.json',async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined,PI_DIAGRAM_TWO_PHASE:undefined},async()=>{
+    const f=fakePi();ext(f.pi);const s=await start(f);
+    try{
+      fs.writeFileSync(path.join(s.runDir,'make.py'),'raise SystemExit(1)\n');
+      const seen=[];
+      const ctx={executeTool:async(name,args)=>{seen.push({name,args});return {isError:true,result:{content:[{type:'text',text:'Traceback (most recent call last):\nValueError: no route for A->B'}]}}}};
+      const res=await f.tools.get('diagram_build_check').execute('c',{jobId:s.jobId},undefined,undefined,ctx);
+      const body=JSON.parse(res.content[0].text);
+      assert.equal(seen.length,1);assert.equal(seen[0].name,'bash');assert.equal(seen[0].args.timeout,60);assert.match(seen[0].args.command,/python3 make\.py/);
+      assert.equal(body.status,'GENERATOR_ERROR');assert.match(body.message,/no route for A->B/);assert.deepEqual(res.content.map(c=>c.type),['text']);
+      assert.equal(readRunManifest(s.runDir).twoPhase.generatorErrors,1);
+      // A runtime without ctx.executeTool is a genuine failure of the tool, not a silent skip.
+      await assert.rejects(f.tools.get('diagram_build_check').execute('c',{jobId:s.jobId},undefined,undefined,{}),/GENERATOR_EXECUTION_UNAVAILABLE/);
+      await assert.rejects(f.tools.get('diagram_build_check').execute('c',{jobId:'nope'},undefined,undefined,ctx),/UNKNOWN_DIAGRAM_JOB/);
+    }finally{s.cleanup()}
+  });
+});
+
+test('PI_DIAGRAM_TWO_PHASE=0: no diagram_build_check tool, the old single-phase submit protocol in the prompt',async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_TWO_PHASE:'0',PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined},async()=>{
+    const f=fakePi();ext(f.pi);
+    assert.equal(f.tools.has('diagram_build_check'),false);assert.ok(f.tools.has('diagram_submit'));
+    const s=await start(f);
+    try{assert.doesNotMatch(f.sent[0],/diagram_build_check/);assert.match(f.sent[0],/diagram_submit/)}finally{s.cleanup()}
+  });
+});
+
+test('assistant messages are counted as author model calls (message_end), with or without usage',async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined,PI_DIAGRAM_TWO_PHASE:undefined},async()=>{
+    const f=fakePi();ext(f.pi);const s=await start(f);
+    try{
+      await f.handlers.get('message_end')({message:{role:'assistant',usage:{input:5,output:2}}});
+      await f.handlers.get('message_end')({message:{role:'assistant'}});
+      await f.handlers.get('message_end')({message:{role:'user'}});
+      await f.handlers.get('agent_end')({});
+      const m=readRunManifest(s.runDir);
+      assert.deepEqual(m.modelCalls,{author:2,reviewer:0});
+    }finally{s.cleanup()}
+  });
+});
+
+test('/magic-accept --waive: a REVIEWED_WITH_EXCEPTIONS run is validated only when the command names every waived check',async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined},async()=>{
+    const f=fakePi();ext(f.pi);
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pi-diagram-agent-')),svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>';
+    try{
+      fs.writeFileSync(path.join(dir,'candidate.svg'),svg);
+      writeManifests(dir,{schema:'pi-diagram-run/3',status:'REVIEWED_WITH_EXCEPTIONS',sourceHash:'s'.repeat(64),finalSvgSha256:hash(svg),exceptions:[{check:'routeCrossings',findingId:'F-1',elements:['A->B'],measured:'1',reason:'must cross'},{check:'routePairClearance',findingId:'F-2',elements:['C->D'],measured:'6',reason:'narrow gutter'}],acceptance:null});
+      const cmd=f.commands.get('magic-accept');
+      await cmd.handler(`${dir} ${hash(svg)}`,f.ctx);assert.equal(f.notes.at(-1)[1],'warning');assert.match(f.notes.at(-1)[0],/WAIVERS_NOT_NAMED.*--waive routeCrossings,routePairClearance/);
+      await cmd.handler(`${dir} ${hash(svg)} --waive routeCrossings`,f.ctx);assert.match(f.notes.at(-1)[0],/WAIVERS_NOT_NAMED/);
+      await cmd.handler(`${dir} ${hash(svg)} --waive`,f.ctx);assert.match(f.notes.at(-1)[0],/Usage/);
+      assert.equal(readRunManifest(dir).status,'REVIEWED_WITH_EXCEPTIONS');
+      await cmd.handler(`${dir} ${hash(svg)} --waive routePairClearance,routeCrossings`,f.ctx);
+      assert.match(f.notes.at(-1)[0],/VALIDATED/);assert.match(f.notes.at(-1)[0],/waived routeCrossings, routePairClearance/);
+      const m=readRunManifest(dir);assert.equal(m.status,'VALIDATED');assert.equal(m.acceptance.acceptedFrom,'REVIEWED_WITH_EXCEPTIONS');
+    }finally{fs.rmSync(dir,{recursive:true,force:true})}
   });
 });

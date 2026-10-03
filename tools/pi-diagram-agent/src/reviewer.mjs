@@ -61,7 +61,26 @@ function layoutMeasured(audit){
 const MEASURED_SKIP=`The deterministic auditor already checks node/edge bindings, text fit, label clearance, route-node intrusion, heading clearance, node-to-heading clearance (a node outline 8 units from group heading text and container borders), text clear of its own drawn strokes (cylinder lid, queue bars) and straight-span crossings. It also measures connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight and legend completeness from the drawn SVG: a PASS for one of these (see layoutMeasured) is final, so do not report it again; if one is NOT-CHECKABLE, judge it yourself from the images. Code also enforces and reports, so do not repeat them: an edge label more than 25 units from its own route, a route closer than 12 units to the border of an unrelated node or container, a route that runs within 8 units along a container border for more than 24 units (the auditor's routeContainerClearance), an edge label within 4 units of a container border, and a route longer than both 1.15x and +300 units over the shortest feasible route (routeDetour, which reports the witness). Do not repeat checks the auditor passed unless the images plainly contradict it.`;
 const MEASURED_REPORT=`The deterministic auditor and code also measure node/edge bindings, text fit, label clearance, route-node intrusion, heading clearance, node-to-heading clearance, text clear of its own drawn strokes (cylinder lid, queue bars), straight-span crossings, connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight, legend completeness, an edge label more than 25 units from its own route, a route closer than 12 units to the border of an unrelated node or container, a route running within 8 units along a container border for more than 24 units, an edge label within 4 units of a container border, and a route longer than both 1.15x and +300 units over the shortest feasible route (an avoidable detour). Report every defect you can SEE in the images even if code can also measure it: your findings are merged with code findings and the ledger deduplicates them, so a repeat costs nothing, while a visible defect you stay silent about may be lost. A check the auditor PASSed (see layoutMeasured) is trustworthy for the geometry it measured; report it only when the images plainly contradict it. If a check is NOT-CHECKABLE, judge it yourself from the images.`;
 
-export function buildReviewerPrompt({facts,audit,geometry,imageLabels,measured='skip'}){
+/** Phase 2 of the two-phase gate: every script check passed on these exact bytes, so the reviewer judges what code cannot measure. Breadth is kept on purpose (visual-only prompts recalled 28% in T7). */
+const TWO_PHASE_PREAMBLE=`Phase 1 is complete: the binding script check (the full deterministic auditor plus measured geometry: bindings, text fit, label gap, route clearances, crossings, detours, legend completeness, stroke/marker/contrast rules) found ZERO failures on these exact bytes, so everything code can measure is verified and trustworthy for the geometry it measured (see layoutMeasured). Do not re-measure it. Your job is the visual judgement code cannot make.
+FOCUS first, in this order: (1) reading order of groups and sections against the source direction, (2) label ownership and label appearance (wrong edge, ambiguous, detached, hard to read, covered), (3) legend appearance (is it readable, placed sensibly, do its swatches look like what they explain), (4) overall balance at the 1200x710 fit (crowding, empty areas, off-centre composition, unreadably small text).
+Then also report anything else you can see (shape change, text overflow, avoidable detour, arrowheads, colour use, anything a maintainer would send back): breadth matters, because a visible defect you stay silent about may be lost. A finding that repeats something the script checks already verified is deduplicated by code and costs nothing, so do not hold back for fear of duplicates.`;
+
+function diagnosisSection(findings){
+  return `
+
+DIAGNOSIS MODE. The author used all of its script checks for this round and the candidate still has the script FAIL findings below. Decide, using the images and the findings' evidence (measured values, repairHints and moveHints are code-computed route searches; an absent hint means the code found no repair):
+<script-findings>
+${JSON.stringify(findings)}
+</script-findings>
+Reply in the same JSON object with one extra field "diagnosis":
+{"outcome":"waiver|relayout","waivers":[{"finding":"<finding id from script-findings>","reason":"<why this finding cannot reasonably be fixed and the diagram still reads correctly>"}],"relayout":{"summary":"<one sentence on why the current layout cannot satisfy the findings>","changes":[{"kind":"direction|group-order|branch-side|split|merge","detail":"<layout-level change for the author to make>"}]}}
+- outcome "waiver": only for findings you judge are border grazing or an unavoidable crossing; list one waiver per finding you would accept, each with a concrete reason. Code decides whether a waiver is permitted: only routeCrossings (with no repairHint and no moveHint on any crossing), routePairClearance and routeContainerClearance can ever be waived, every other check stays a failure. Include "waivers" only with this outcome.
+- outcome "relayout": give layout-level advice the author can act on (change the flow direction, reorder groups, move a branch to the other side, split or merge nodes or groups). Do NOT restate the findings or tell the author to nudge a coordinate: that is what the findings already say. Include "relayout" only with this outcome.
+"findings" keeps its normal meaning: report visual defects you see in the images (empty when there is none).`;
+}
+
+export function buildReviewerPrompt({facts,audit,geometry,imageLabels,measured='skip',twoPhase=false,diagnosis=null}){
   const rules=REVIEW_RULES.join(', ');
 
   // Calculate distinct connector styles from facts
@@ -87,7 +106,7 @@ ${JSON.stringify(geometry)}
 <audit-summary>
 ${JSON.stringify(auditSummary(audit))}
 </audit-summary>
-${measured==='report'?MEASURED_REPORT:MEASURED_SKIP}
+${twoPhase?TWO_PHASE_PREAMBLE:measured==='report'?MEASURED_REPORT:MEASURED_SKIP}
 
 Rules to apply:
 - Shapes: a node whose facts carry shapeCheck "not-checkable" has a source shape the rules have no notation for; never report shape-change for it. Otherwise every node keeps its source notation shape. A decision node may be the normal diamond; the long-text variant, a horizontally extended hexagon with its points at the top and bottom, is ALLOWED by the rules and is not a shape change. Any other shape change is blocking under rule shape-change, for example a subroutine or queue drawn as a capsule, a cylinder drawn as a rectangle, a diamond turned into a rectangle.
@@ -101,7 +120,7 @@ ${REVIEWER_CHECKLIST.map((c,i)=>`${i+1}. [${c.rule}] ${c.text}`).join('\n')}
 
 Reply with ONLY one JSON object (strict JSON, no prose, no code fence):
 {"imagesSeen":<number of images you can see>,"findings":[{"rule":"<one of: ${rules}>","severity":"blocking|minor","elements":["<node id | group id | source->target edge id | legend | canvas>"],"region":{"x":<0..1>,"y":<0..1>,"w":<0..1>,"h":<0..1>},"evidence":"<what you see, concrete>","measured":"<your best figure with a unit, from <geometry> where possible, or the observed fact for a non-geometric finding>","threshold":"<the limit or rule it breaches>","suggestion":"<short direction, no coordinates>"}],"verdict":"accept|revise"}
-"region" is a fraction of the candidate full image (x,y from the top-left); omit it if unsure. Every finding needs "measured" and "threshold". Use verdict "revise" only when you list at least one finding; use "accept" when you list no blocking finding. An empty findings list is correct for a clean diagram.`;
+"region" is a fraction of the candidate full image (x,y from the top-left); omit it if unsure. Every finding needs "measured" and "threshold". Use verdict "revise" only when you list at least one finding; use "accept" when you list no blocking finding. An empty findings list is correct for a clean diagram.${diagnosis?diagnosisSection(diagnosis):''}`;
 }
 
 /** Which images the reviewer gets. focus (default): original, candidate full, 1200x710 fit, plus only the quadrant crops that meet a flagged region. all: all seven. */
@@ -124,7 +143,25 @@ export function reviewerConfigFromEnv(env=process.env){
 
 const bad=(code,detail='')=>Error(`REVIEWER_${code}${detail?`: ${detail}`:''}`);
 
-export function parseReviewerOutput(text,{model,natural,imageCount}){
+export const LAYOUT_CHANGE_KINDS=['direction','group-order','branch-side','split','merge'];
+const parseDiagnosis=d=>{
+  if(!d||typeof d!=='object'||Array.isArray(d))throw bad('SCHEMA','diagnosis is required in diagnosis mode');
+  const str=v=>typeof v==='string'&&v.trim().length>0;
+  if(d.outcome==='waiver'){
+    if(!Array.isArray(d.waivers)||!d.waivers.length)throw bad('SCHEMA','diagnosis waiver needs a non-empty waivers array');
+    const waivers=d.waivers.map((w,i)=>{if(!w||!str(w.finding)||!str(w.reason))throw bad('SCHEMA',`waiver ${i} needs finding and reason`);return {finding:w.finding.trim(),reason:w.reason.trim().slice(0,400)}});
+    return {outcome:'waiver',waivers};
+  }
+  if(d.outcome==='relayout'){
+    const r=d.relayout;
+    if(!r||!str(r.summary)||!Array.isArray(r.changes)||!r.changes.length)throw bad('SCHEMA','diagnosis relayout needs summary and changes');
+    const changes=r.changes.map((c,i)=>{if(!c||!LAYOUT_CHANGE_KINDS.includes(c.kind)||!str(c.detail))throw bad('SCHEMA',`relayout change ${i} needs kind (${LAYOUT_CHANGE_KINDS.join('|')}) and detail`);return {kind:c.kind,detail:c.detail.trim().slice(0,300)}});
+    return {outcome:'relayout',relayout:{summary:r.summary.trim().slice(0,300),changes}};
+  }
+  throw bad('SCHEMA','diagnosis outcome must be waiver or relayout');
+};
+
+export function parseReviewerOutput(text,{model,natural,imageCount,diagnosis=false}){
   let t=String(text??'').trim();
   const fence=/^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(t);if(fence)t=fence[1].trim();
   let o;try{o=JSON.parse(t)}catch{throw bad('MALFORMED_JSON',t.slice(0,80))}
@@ -144,7 +181,7 @@ export function parseReviewerOutput(text,{model,natural,imageCount}){
   });
   if(o.verdict==='revise'&&!findings.length)throw bad('INCONSISTENT','verdict revise without findings');
   if(o.verdict==='accept'&&findings.some(f=>f.severity==='blocking'))throw bad('INCONSISTENT','verdict accept with a blocking finding');
-  return {findings,verdict:o.verdict};
+  return {findings,verdict:o.verdict,...(diagnosis?{diagnosis:parseDiagnosis(o.diagnosis)}:{})};
 }
 
 const addUsage=(a,b)=>{const out={...a};for(const [k,v] of Object.entries(b??{}))if(typeof v==='number')out[k]=(out[k]??0)+v;return out};
@@ -171,7 +208,7 @@ export function resolveReviewerModel({available=[],authorModel,env=process.env}=
 /** One review: a fresh session per attempt; one retry on malformed output or timeout; any second failure is a reviewer error (never a pass).
  *  Each attempt is bounded by timeoutMs (default 300 s, PI_DIAGRAM_REVIEWER_TIMEOUT_S): a hung provider becomes REVIEWER_TIMEOUT, and the
  *  session is disposed, including one whose creation finished after the deadline. The session's modelId is returned on success. */
-export async function runReviewer({factory,prompt,images,model,natural,now=Date.now,attempts=2,timeoutMs=reviewerTimeoutFromEnv()}){
+export async function runReviewer({factory,prompt,images,model,natural,now=Date.now,attempts=2,timeoutMs=reviewerTimeoutFromEnv(),diagnosis=false}){
   const started=now();let usage={},lastError='REVIEWER_UNKNOWN',n=0,modelId=null;
   while(n<attempts){
     n++;
@@ -184,7 +221,7 @@ export async function runReviewer({factory,prompt,images,model,natural,now=Date.
       modelId=session?.modelId??null;
       const reply=await Promise.race([session.prompt(prompt,{images}),deadline]);
       usage=addUsage(usage,reply.usage);
-      const parsed=parseReviewerOutput(reply.text,{model,natural,imageCount:images.length});
+      const parsed=parseReviewerOutput(reply.text,{model,natural,imageCount:images.length,diagnosis});
       return {ok:true,attempts:n,usage,ms:now()-started,modelId,...parsed};
     }catch(error){lastError=String(error?.message??error)}
     finally{clearTimeout(timer);try{session?.dispose?.()}catch{}}

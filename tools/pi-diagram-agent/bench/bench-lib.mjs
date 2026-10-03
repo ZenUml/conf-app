@@ -38,11 +38,11 @@ export const STRUCTURAL_NOT_CHECKABLE=['routeGeometry','visualQuality'];
 /** Reduce a run's event list (as logged by the harness) to the numbers the summary needs. */
 export function reduceEvents(events){
   const r={doneReason:null,elapsedMs:null,toolCalls:0,inspections:0,inputTokens:0,outputTokens:0,assistantMessages:0,
-    firstAssistantMs:null,specRenders:0,submits:0,sourceFactsIncluded:false,specModeOffered:false,outputTokensBeforeFirstInspection:null,firstInspectionStartMs:null,firstInspectionEndMs:null,rateLimited:false,agentError:null,runDir:null,errors:[]};
+    firstAssistantMs:null,specRenders:0,submits:0,buildChecks:0,sourceFactsIncluded:false,specModeOffered:false,outputTokensBeforeFirstInspection:null,firstInspectionStartMs:null,firstInspectionEndMs:null,rateLimited:false,agentError:null,runDir:null,errors:[]};
   for(const e of events){
     if(e.kind==='notify'){if(/^Source facts included/.test(e.text??''))r.sourceFactsIncluded=true;if(/^Layout spec mode on/.test(e.text??''))r.specModeOffered=true}
     if(e.kind==='notify'&&r.runDir===null){const m=/private work directory:\s*(\S+)/.exec(e.text??'');if(m)r.runDir=m[1]}
-    if(e.kind==='tool-start'){r.toolCalls++;if(e.tool==='diagram_render_spec')r.specRenders++;if(e.tool==='diagram_submit')r.submits++;if(e.tool==='diagram_inspect'){r.inspections++;if(r.firstInspectionStartMs===null){r.firstInspectionStartMs=e.tMs;r.outputTokensBeforeFirstInspection=r.outputTokens}}}
+    if(e.kind==='tool-start'){r.toolCalls++;if(e.tool==='diagram_render_spec')r.specRenders++;if(e.tool==='diagram_submit')r.submits++;if(e.tool==='diagram_build_check')r.buildChecks++;if(e.tool==='diagram_inspect'){r.inspections++;if(r.firstInspectionStartMs===null){r.firstInspectionStartMs=e.tMs;r.outputTokensBeforeFirstInspection=r.outputTokens}}}
     if(e.kind==='tool-end'&&e.tool==='diagram_inspect'){r.firstInspectionEndMs??=e.tMs}
     if(e.kind==='tool-end'&&e.isError)r.errors.push(`${e.tool}: ${String(e.error??'').slice(0,160)}`);
     if(e.kind==='assistant'){r.assistantMessages++;r.agentError=e.stopReason==='error'?(e.errorMessage??'error'):null;r.firstAssistantMs??=e.tMs;r.inputTokens+=e.usage?.input??0;r.outputTokens+=e.usage?.output??0}
@@ -54,6 +54,13 @@ export function reduceEvents(events){
   return r;
 }
 
+/** Two-phase gate usage from run.json: what the caps (6/round, 16/run) need to be re-measured against. */
+function twoPhaseSummary(m){
+  const t=m.twoPhase,per=(t.perRound??[]).map(r=>r.buildCheckCalls??0);
+  return {buildChecks:t.checksTotal??0,cacheHits:t.cacheHits??0,generatorErrors:t.generatorErrors??0,refusals:(t.refusals??[]).length,escalations:(t.escalations??[]).length,
+    escalationOutcomes:(t.escalations??[]).map(e=>e.outcome),waived:(m.exceptions??[]).map(e=>e.check),checksPerRound:per,maxChecksInARound:per.length?Math.max(...per):0};
+}
+
 /** v2 metrics from the orchestrator's run.json (null when the run produced none, e.g. PI_DIAGRAM_V2=0). */
 export function summariseManifest(m){
   if(!m||typeof m!=='object')return null;
@@ -63,7 +70,8 @@ export function summariseManifest(m){
     authorSeconds:(m.timings?.authorMs??0)/1000,reviewerSeconds:(m.timings?.reviewerMs??0)/1000,
     authorTokens:{input:m.tokens?.author?.input??0,output:m.tokens?.author?.output??0},reviewerTokens:{input:m.tokens?.reviewer?.input??0,output:m.tokens?.reviewer?.output??0},
     reviewerBlockingFindings:rounds.reduce((n,r)=>n+(r.review?.findings??[]).filter(f=>f.severity==='blocking').length,0),
-    falseBlockCandidates:met.falseBlockCandidates??0,oscillations:met.oscillations??0,finalSvgSha256:m.finalSvgSha256??null};
+    falseBlockCandidates:met.falseBlockCandidates??0,oscillations:met.oscillations??0,finalSvgSha256:m.finalSvgSha256??null,
+    ...(m.twoPhase?{modelCalls:m.modelCalls??null,twoPhase:twoPhaseSummary(m)}:{})};
 }
 
 /** Load and verify the orchestrator's run.json, waiting up to waitMs for it (the agent_end finalisation may land after the run is reported done). */
@@ -158,6 +166,11 @@ export function renderMarkdown(summary,{meta={}}={}){
   if(v2runs.length){
     L.push('','## v2 loop (independent reviewer + deterministic gate)','','| run | gate status | rounds | reverts | author s | reviewer s | author tok in/out | reviewer tok in/out | reviewer blocking findings | false-block candidates | oscillations | reason |','|---|---|---|---|---|---|---|---|---|---|---|---|');
     for(const r of v2runs){const v=r.v2;L.push(`| ${r.id} | ${v.gateStatus} | ${v.rounds} | ${v.reverts} | ${sec(v.authorSeconds*1000)} | ${sec(v.reviewerSeconds*1000)} | ${v.authorTokens.input}/${v.authorTokens.output} | ${v.reviewerTokens.input}/${v.reviewerTokens.output} | ${v.reviewerBlockingFindings} | ${v.falseBlockCandidates} | ${v.oscillations} | ${v.statusReason??'-'} |`)}
+  }
+  const tp=v2runs.filter(r=>r.v2.twoPhase);
+  if(tp.length){
+    L.push('','## Two-phase gate (diagram_build_check)','','| run | gate status | build_checks | per round | refusals | escalations | generator errors | waived | cache hits | model calls author/reviewer |','|---|---|---|---|---|---|---|---|---|---|');
+    for(const r of tp){const t=r.v2.twoPhase;L.push(`| ${r.id} | ${r.v2.gateStatus} | ${t.buildChecks} | ${t.checksPerRound.join(',')||'-'} | ${t.refusals} | ${t.escalations} | ${t.generatorErrors} | ${t.waived.join(', ')||'-'} | ${t.cacheHits} | ${r.v2.modelCalls?`${r.v2.modelCalls.author}/${r.v2.modelCalls.reviewer}`:(r.assistantMessages??'-')} |`)}
   }
   L.push('','## Audit',`FAIL runs: ${summary.fixtures.flatMap(f=>f.auditFailRuns).join(', ')||'none'}`,`NOT-CHECKABLE runs (excluding the structural ${STRUCTURAL_NOT_CHECKABLE.join('/')} pair): ${summary.fixtures.flatMap(f=>f.auditNotCheckableRuns).join(', ')||'none'}`);
   L.push('','## Non-completed runs',summary.nonCompletedRuns.length?summary.nonCompletedRuns.map(r=>`- ${r.id}: ${r.doneReason}`).join('\n'):'none');

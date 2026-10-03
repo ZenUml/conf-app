@@ -205,3 +205,24 @@ test('summariseAudit includes adjudicated checks',()=>{
   const s=summariseAudit({status:'ADJUDICATED',checks:{a:{status:'PASS'},semanticPreservation:{status:'ADJUDICATED'},b:{status:'FAIL'},c:{status:'NOT-CHECKABLE'},routeGeometry:{status:'NOT-CHECKABLE'},visualQuality:{status:'NOT-CHECKABLE'}}});
   assert.deepEqual(s,{status:'ADJUDICATED',fail:['b'],notCheckable:['c'],adjudicated:['semanticPreservation'],error:null},'summariseAudit should include adjudicated array');
 });
+
+// ---- two-phase gate metrics ---------------------------------------------------------------------------------------
+const twoPhaseManifest=()=>({...manifest(),status:'REVIEWED_WITH_EXCEPTIONS',statusReason:null,modelCalls:{author:14,reviewer:2},
+  twoPhase:{enabled:true,caps:{perRound:6,perRun:16},checksTotal:7,cacheHits:1,generatorErrors:1,
+    perRound:[{round:1,buildCheckCalls:4,freshChecks:3,cacheHits:1,refusals:1,generatorErrors:1,limitHits:0},{round:2,buildCheckCalls:3,freshChecks:3,cacheHits:0,refusals:0,generatorErrors:0,limitHits:0}],
+    refusals:[{code:'UNCHECKED_BYTES'}],escalations:[{outcome:'waived'}]},exceptions:[{check:'routeCrossings'}]});
+test('two-phase: summariseManifest carries check counts, refusals, escalations, waivers, model calls and per-round usage',()=>{
+  const v=summariseManifest(twoPhaseManifest());
+  assert.deepEqual(v.twoPhase,{buildChecks:7,cacheHits:1,generatorErrors:1,refusals:1,escalations:1,escalationOutcomes:['waived'],waived:['routeCrossings'],checksPerRound:[4,3],maxChecksInARound:4});
+  assert.deepEqual(v.modelCalls,{author:14,reviewer:2});
+  assert.equal(summariseManifest(manifest()).twoPhase,undefined); // a one-phase run.json has no such block
+});
+test('two-phase: reduceEvents counts diagram_build_check calls and author assistant messages (model calls)',()=>{
+  const r=reduceEvents([{kind:'tool-start',tool:'diagram_build_check',tMs:1},{kind:'tool-start',tool:'diagram_build_check',tMs:2},{kind:'tool-start',tool:'diagram_submit',tMs:3},{kind:'assistant',usage:{input:1,output:1},tMs:4}]);
+  assert.equal(r.buildChecks,2);assert.equal(r.submits,1);assert.equal(r.assistantMessages,1);
+});
+test('two-phase: markdown has a two-phase section with per-round check usage',()=>{
+  const base={totalRuns:1,completedRuns:1,rateLimitedRuns:[],nonCompletedRuns:[],overall:{elapsedMs:stats0(),outputTokens:stats0(),firstInspectionStartMs:stats0()},fixtures:[]};
+  const md=renderMarkdown({...base,runs:[{id:'f2-r1',doneReason:'AGENT_SETTLED',toolCalls:3,inspections:2,assistantMessages:14,v2:summariseManifest(twoPhaseManifest())}]},{meta:{}});
+  assert.match(md,/## Two-phase gate/);assert.match(md,/f2-r1 \| REVIEWED_WITH_EXCEPTIONS \| 7 \| 4,3 \| 1 \| 1 \| 1 \| routeCrossings/);
+});

@@ -1,6 +1,6 @@
 # Pi diagram agent — design v2 (draft)
 
-Status: implemented MVP, K=1 (design r2, revised after Opus critique). `/magic` runs this loop by default; `PI_DIAGRAM_V2=0` restores the single-session loop described in `agent-loop.md`. Parallel authors (`--authors K`) and reviewer thinking-level tuning are not implemented.
+Status: implemented MVP, K=1 (design r2, revised after Opus critique); two-phase gate added (see "Two-phase gate" below). `/magic` runs this loop by default; `PI_DIAGRAM_V2=0` restores the single-session loop described in `agent-loop.md`. Parallel authors (`--authors K`) and reviewer thinking-level tuning are not implemented.
 
 Implementation notes (deviations from the text below are listed here, not hidden):
 
@@ -75,7 +75,8 @@ User (optional): /magic-accept <run> <svg-sha256>  → status VALIDATED for exac
 Status semantics:
 - `CANDIDATE` — did not pass the gate; residual findings listed.
 - `REVIEWED` — passed the gate; NOT-CHECKABLE rules (e.g. routeGeometry, visualQuality) listed. A model reviewer cannot certify them (rules: "AI does not substitute for … validation").
-- `VALIDATED` — a REVIEWED candidate whose exact SVG hash a human accepted through the command line, recorded like an adjudication. Never set by a model.
+- `REVIEWED_WITH_EXCEPTIONS` — passed the gate except for code-permitted waivers (routePairClearance, routeContainerClearance, routeCrossings with no code-found repair) that the reviewer's diagnosis requested; each waived check, its element ids, measured value and the reviewer's reason are listed. Never auto-published as the default Magic image. A human promotes it with `/magic-accept <run> <sha> --waive <every waived check>`.
+- `VALIDATED` — a REVIEWED or REVIEWED_WITH_EXCEPTIONS candidate whose exact SVG hash a human accepted through the command line, recorded like an adjudication. Never set by a model.
 
 ## Interfaces
 
@@ -116,3 +117,33 @@ Target Pi 1.0.0 (verified: extension type-checks with 0 errors; no built-in sub-
 6. Final validation on Case A and Case B against past multi-round totals (~1,920 s A, ~2,417 s B).
 
 Benchmark metrics per run: time to first candidate, rounds, author and reviewer seconds/tokens, gate status, false blocks (reviewer blocking findings later judged invalid), oscillations (finding regressed after fixed).
+
+## Two-phase gate
+
+Why: in 441 real submit rounds 31% were script rejects with no reviewer call, and 74% of those submitted bytes had never been inspected (inspect is capped at 3 per round, and it is the author's only look at the audit).
+
+```
+Author: edit make.py ──▶ diagram_build_check (jobId; text only)
+  │   1 run make.py via ctx.executeTool(bash) (60 s) | render layout.json (spec mode) | candidate.svg as written
+  │   2 sha256 of the bytes   3 full auditor + measured geometry + early findings   4 text result   5 cache by hash
+  │   caps: 6 per round, 16 per run (every call counts); diagram_inspect (images) <= 3 per round, not a gate
+  ▼
+diagram_submit [svgHash]  ── bytes unchecked / latest check FAIL / stale hash ──▶ REFUSED (not a round)
+  │   no FAIL: reuse cached phase 1, render, reviewer (visual focus + report-anything breadth)
+  │   last allowed check of the round still FAILs and the author submits ──▶ ESCALATION
+  │        semantic or structural FAIL ──▶ reject as today (no reviewer, never waived)
+  │        else reviewer DIAGNOSIS (images + remaining findings + repair/move hints)
+  │             waiver (code-validated: routePairClearance | routeContainerClearance | routeCrossings with null hints)
+  │                   ──▶ REVIEWED_WITH_EXCEPTIONS      invalid/partial waiver ──▶ REVISE
+  │             relayout advice (direction, group-order, branch-side, split, merge) ──▶ REVISE, counts as a round
+  ▼
+REVIEWED (zero script FAILs) | REVIEWED_WITH_EXCEPTIONS (human acceptance per waiver) | CANDIDATE
+```
+
+Decisions and why:
+
+- The check is binding in code, not advice: the submit refusal is the only enforcement the author cannot talk its way around, and a refusal is not a round, so being told "fix this first" costs no budget.
+- A check is one tool call that includes the build, so the author's loop has no separate "run the script" turn (fewer tiny model turns). Generator failures are text, not tool errors, so the author reads them as feedback.
+- Waivers are narrow on purpose. Border grazing and a crossing that code itself confirmed has no repair are the only things a geometric rule can be wrong about in a way a picture can settle; every other rule failure has a repair. Semantic failures can never be waived. The reviewer proposes, code disposes, and a human accepts each waiver by name.
+- Caps (6/16) are first estimates; run.json records per-round build_check calls, refusals, cache hits and generator errors so they can be re-measured.
+- `PI_DIAGRAM_TWO_PHASE=0` restores the one-phase submit for benchmark comparability.

@@ -27,6 +27,7 @@ import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywal
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
 import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
+import { markWhatsNewAudience } from '@/utils/whatsNew/state';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
@@ -314,6 +315,12 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
   // (see refreshUserCohortsIfStale) so this adds no meaningful cost to
   // every-macro-render placement.
   void refreshUserCohortsIfStale();
+
+  // "What's new" audience marker: this browser has seen one of our macros on
+  // this site, so the page-banner host may announce releases to it (see
+  // utils/whatsNew/state.ts). All variants, synchronous, at most one
+  // localStorage write per day, never throws.
+  markWhatsNewAudience();
 
   // Paywall page-banner targeting write. Every macro render (viewer OR editor,
   // any diagram type) refreshes the per-space localStorage marker that the

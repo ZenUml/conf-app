@@ -22,7 +22,11 @@ export type FeatureArea =
   | "diagram_impact"
   // Architecture Tokens: "also appears in other diagrams" context for Mermaid
   // sequence participants. Read-only in Phase 1; index built offline.
-  | "architecture_tokens";
+  | "architecture_tokens"
+  // The "What's new" release-notes strip in the shared page-banner host. Its
+  // own area because, like "byline", it renders on any page — including pages
+  // with no diagram — and measures announcement reach, not a macro lifecycle.
+  | "whats_new";
 
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
@@ -846,6 +850,38 @@ export type AnalyticsEventName =
   // which is exactly what `unplaced_source` on the banner events reports from
   // the other end.
   | "unplaced_property_write"
+  // "What's new" page banner (src/components/WhatsNew/WhatsNewBanner.vue).
+  // Audience: browsers that have rendered one of our macros on this site
+  // (src/utils/whatsNew/state.ts), for at most WHATS_NEW_MAX_SHOWS loads per
+  // release and only inside the release's display window. Every event carries
+  // `whats_new_release_id`.
+  //
+  // `whats_new_banner_evaluated` fires once per mount — i.e. only on loads the
+  // host's synchronous gate already admitted, never on the ~all page loads it
+  // turned away. `result` covers every path out:
+  //   'shown'            — the strip is on screen.
+  //   'yielded_unplaced' — the page carries the unplaced-diagram content
+  //                        property (or the read could not rule it out), so
+  //                        the separately gated unplaced banner owns the page
+  //                        and this one stands down rather than stack.
+  //   'failed'           — mount threw; the iframe closed showing nothing.
+  // A high 'yielded_unplaced' share means the announcement is losing its slot,
+  // not that nobody is eligible.
+  | "whats_new_banner_evaluated"
+  // The strip is committed to displaying — the impression. Denominator for
+  // expand and dismiss rates. `whats_new_show_count` is which impression of
+  // this release this was for this browser (1..WHATS_NEW_MAX_SHOWS).
+  | "whats_new_banner_shown"
+  // The user opened the inline list ("See what's new"). The engagement signal:
+  // shown → expanded is the headline conversion for the feature.
+  | "whats_new_banner_expanded"
+  // The user dismissed the strip. Retires THIS release for this browser; the
+  // next release re-arms it. `whats_new_expanded` separates "read, then closed"
+  // from "closed without reading".
+  | "whats_new_banner_dismissed"
+  // A per-item "Learn more" link was opened. `whats_new_item_id` names the item,
+  // which is how we learn which announced feature actually draws interest.
+  | "whats_new_link_clicked"
   // One-click place: the app writes the macro into the page ADF itself, instead
   // of handing over a link for the user to paste. THE conversion event for this
   // whole feature — every other event here measures noticing, and this one

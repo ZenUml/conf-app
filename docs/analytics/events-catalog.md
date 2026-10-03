@@ -551,6 +551,48 @@ Backend-declared event. Not currently emitted by client code.
 
 ---
 
+## What's new (page banner)
+
+The release-notes strip in the shared `confluence:pageBanner` host (`src/components/WhatsNew/WhatsNewBanner.vue`). Lowest priority in the host; shown only to browsers that rendered one of our macros on the site in the last 90 days, at most 3 times per release, inside the release's 30-day window (`src/utils/whatsNew/`). Every event carries `feature_area: "whats_new"`, `surface: "page_banner"` and `whats_new_release_id`.
+
+### `whats_new_banner_evaluated`
+
+**Trigger:** The banner component mounts — only on loads the host's synchronous gate admitted, never on ordinary page loads.
+
+| Property | Notes |
+|---|---|
+| `result` | `"shown"`, `"yielded_unplaced"` (the page carries the unplaced-diagram property, or the read could not rule it out) or `"failed"` |
+
+### `whats_new_banner_shown`
+
+**Trigger:** The strip is committed to displaying. The impression; denominator for expand and dismiss rates.
+
+| Property | Notes |
+|---|---|
+| `whats_new_show_count` | Which impression of this release this browser is on (1–3) |
+
+### `whats_new_banner_expanded`
+
+**Trigger:** The user clicks "See what's new" and the item list opens inline.
+
+### `whats_new_banner_dismissed`
+
+**Trigger:** The user dismisses the strip. Retires the release for this browser; the next release re-arms it.
+
+| Property | Notes |
+|---|---|
+| `whats_new_expanded` | Whether the list was opened before dismissing |
+
+### `whats_new_link_clicked`
+
+**Trigger:** The user opens an item's "Learn more" link.
+
+| Property | Notes |
+|---|---|
+| `whats_new_item_id` | The item's stable id within its release |
+
+---
+
 ## Error / system
 
 ### `viewer_load_failed`

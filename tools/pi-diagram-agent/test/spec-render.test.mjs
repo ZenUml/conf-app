@@ -54,7 +54,7 @@ test('one fixed userSpaceOnUse marker per colour, no context-stroke',()=>{
 
 test('edge label pill: centred on the given point, canvas background, even width, bound to the edge',()=>{
   const r=renderSpec(baseSpec());
-  const m=/<g data-edge-label-source="B" data-edge-label-target="C"><rect x="([\d.]+)" y="([\d.]+)" width="(\d+)" height="24" rx="12" fill="#ffffff"\/><text x="([\d.]+)" y="([\d.]+)"/.exec(r.svg);
+  const m=/<g data-edge-label-source="B" data-edge-label-target="C"><rect x="([\d.]+)" y="([\d.]+)" width="(\d+)" height="24" rx="12" fill="#ffffff" stroke="none"\/><text x="([\d.]+)" y="([\d.]+)"/.exec(r.svg);
   assert.ok(m,r.svg);
   const [x,y,w,tx,ty]=[1,2,3,4,5].map(i=>Number(m[i]));
   assert.equal(w%2,0);assert.equal(y,130);assert.equal(x+w/2,487);assert.equal(tx,487);assert.equal(ty,142);

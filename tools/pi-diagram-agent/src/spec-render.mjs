@@ -70,7 +70,7 @@ const KEYS = {
   group: ['id', 'label', 'rect', 'role', 'subtitle'],
   node: ['id', 'group', 'shape', 'rect', 'centre', 'tier', 'text', 'role', 'align', 'font', 'variant', 'labelBox'],
   edge: ['id', 'source', 'target', 'points', 'dashed', 'role', 'label', 'trunk'],
-  label: ['text', 'x', 'y'],
+  label: ['text', 'x', 'y', 'vertical'],
   legend: ['x', 'y', 'direction', 'gap', 'entries'],
   entry: ['kind', 'role', 'label', 'shape', 'dashed', 'x', 'y', 'length'],
 };
@@ -157,8 +157,11 @@ export function validateSpec(spec) {
         roleCheck(`${p}.role`, e.role);
         if (e.trunk !== undefined) str(`${p}.trunk`, e.trunk);
         if (e.label !== undefined) {
-          if (!isObj(e.label)) E(`${p}.label`, 'must be {text, x, y} (x, y = centre of the label pill)');
-          else { keys(`${p}.label`, e.label, KEYS.label); str(`${p}.label.text`, e.label.text); num(`${p}.label.x`, e.label.x); num(`${p}.label.y`, e.label.y); }
+          if (!isObj(e.label)) E(`${p}.label`, 'must be {text, x, y, vertical?} (x, y = centre of the label pill)');
+          else {
+            keys(`${p}.label`, e.label, KEYS.label); str(`${p}.label.text`, e.label.text); num(`${p}.label.x`, e.label.x); num(`${p}.label.y`, e.label.y);
+            if (e.label.vertical !== undefined && typeof e.label.vertical !== 'boolean') E(`${p}.label.vertical`, 'must be true or false (true draws the label rotated -90 degrees, reading bottom to top)');
+          }
         }
       });
     }
@@ -467,9 +470,11 @@ export function renderSpec(input, {model = null} = {}) {
   // labels
   const pills = [];
   for (const e of edges) if (e.e.label) {
-    const t = e.e.label.text, w = 2 * Math.ceil((measureText(t, 15) + 16) / 2), h = 24, box = [e.e.label.x - w / 2, e.e.label.y - h / 2, w, h];
+    // The pill is w x h flat; a vertical label is the same pill rotated -90 degrees around its centre, so every clearance check below uses the rotated footprint (h x w).
+    const t = e.e.label.text, w = 2 * Math.ceil((measureText(t, 15) + 16) / 2), h = 24, vertical = e.e.label.vertical === true, cx = e.e.label.x, cy = e.e.label.y;
+    const box = vertical ? [cx - h / 2, cy - w / 2, h, w] : [cx - w / 2, cy - h / 2, w, h];
     const holder = groups.filter(g => e.e.label.x >= g.rect[0] && e.e.label.x <= g.rect[0] + g.rect[2] && e.e.label.y >= g.rect[1] && e.e.label.y <= g.rect[1] + g.rect[3]).pop();
-    pills.push({edge: e, text: t, box, w, h, bg: holder ? holder.fill : canvas.fill});
+    pills.push({edge: e, text: t, box, w, h, vertical, cx, cy, bg: holder ? holder.fill : canvas.fill});
   }
   for (const p of pills) {
     const {edge, box} = p, region = rectOf(box);
@@ -525,7 +530,7 @@ export function renderSpec(input, {model = null} = {}) {
     parts.push(`<path id="${esc(e.id)}" data-edge="${esc(e.id)}" data-source="${esc(e.source.id)}" data-target="${esc(e.target.id)}"${e.trunk ? ` data-shared-trunk="${esc(e.trunk)}"` : ''} d="${e.route.d}" fill="none" stroke="${e.role.stroke}" stroke-width="1"${e.e.dashed ? ` stroke-dasharray="${DASH}"` : ''} marker-end="url(#arrow-${hex6(e.role.stroke)})"/>`);
   }
   for (const n of nodes) parts.push(nodeSvg(n));
-  for (const p of pills) parts.push(`<g data-edge-label-source="${esc(p.edge.source.id)}" data-edge-label-target="${esc(p.edge.target.id)}"><rect x="${n3(p.box[0])}" y="${n3(p.box[1])}" width="${p.w}" height="${p.h}" rx="${p.h / 2}" fill="${p.bg}"/><text x="${n3(p.box[0] + p.w / 2)}" y="${n3(p.box[1] + p.h / 2)}" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="400" fill="${p.edge.role.text}">${esc(p.text)}</text></g>`);
+  for (const p of pills) parts.push(`<g data-edge-label-source="${esc(p.edge.source.id)}" data-edge-label-target="${esc(p.edge.target.id)}"${p.vertical ? ` transform="rotate(-90 ${n3(p.cx)} ${n3(p.cy)})"` : ''}><rect x="${n3(p.cx - p.w / 2)}" y="${n3(p.cy - p.h / 2)}" width="${p.w}" height="${p.h}" rx="${p.h / 2}" fill="${p.bg}" stroke="none"/><text x="${n3(p.cx)}" y="${n3(p.cy)}" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="400" fill="${p.edge.role.text}">${esc(p.text)}</text></g>`);
   if (spec.legend) legend(spec.legend, roles, canvas, parts, colours);
   const palette = Object.entries(roles).map(([k, r]) => `${k}: background ${r.fill} + text ${r.text}, border ${r.stroke} = ${r.meaning}`).join(' | ');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${n3(spec.canvas.w)}" height="${n3(spec.canvas.h)}" viewBox="0 0 ${n3(spec.canvas.w)} ${n3(spec.canvas.h)}" role="img">`

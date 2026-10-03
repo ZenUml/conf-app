@@ -165,12 +165,19 @@ export async function collectGeometry(svgBytes,{playwrightModulePath=process.env
       const root=document.importNode(doc.documentElement,true);document.body.appendChild(root);
       const view=root.viewBox.baseVal;
       const bb=el=>{const r=el.getBBox();return {x:r.x,y:r.y,w:r.width,h:r.height}};
+      // Edge labels may be rotated (a vertical label is rotated -90 degrees): measure their box in root user space, so the rotated footprint and any group transform are applied.
+      const rbb=el=>{
+        const r=el.getBBox(),m=root.getScreenCTM().inverse().multiply(el.getScreenCTM());
+        const pts=[[r.x,r.y],[r.x+r.width,r.y],[r.x,r.y+r.height],[r.x+r.width,r.y+r.height]].map(([x,y])=>new DOMPoint(x,y).matrixTransform(m));
+        const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),x=Math.min(...xs),y=Math.min(...ys);
+        return {x,y,w:Math.max(...xs)-x,h:Math.max(...ys)-y};
+      };
       const union=els=>{const bs=els.map(bb);if(!bs.length)return null;const x=Math.min(...bs.map(b=>b.x)),y=Math.min(...bs.map(b=>b.y)),x2=Math.max(...bs.map(b=>b.x+b.w)),y2=Math.max(...bs.map(b=>b.y+b.h));return {x,y,w:x2-x,h:y2-y}};
       const shapes=g=>[...g.querySelectorAll('rect,path,ellipse,polygon,circle')].filter(s=>s instanceof SVGGeometryElement);
       const nodes=[...root.querySelectorAll('g[data-node],g[data-node-id]')].map(g=>({id:g.getAttribute('data-node')??g.getAttribute('data-node-id'),box:union(shapes(g))??bb(g)}));
       const groups=[...root.querySelectorAll(GROUP)].map(g=>{const rect=g.querySelector(':scope > rect');return {id:g.getAttribute('data-group')??g.getAttribute('data-container-id')??g.id.slice(6),box:rect?bb(rect):bb(g)}});
-      const labels=[...root.querySelectorAll('g[data-edge-label-source][data-edge-label-target]')].map(g=>({source:g.getAttribute('data-edge-label-source'),target:g.getAttribute('data-edge-label-target'),box:bb(g)}));
-      const untaggedLabels=[...root.querySelectorAll('.edge-label,[data-owner-edge]')].filter(g=>!(g.hasAttribute('data-edge-label-source')&&g.hasAttribute('data-edge-label-target'))&&!g.parentElement?.closest('.edge-label,[data-owner-edge],[data-edge-label-source]')).map(g=>({text:(g.textContent||'').replace(/\s+/g,' ').trim(),box:bb(g)}));
+      const labels=[...root.querySelectorAll('g[data-edge-label-source][data-edge-label-target]')].map(g=>({source:g.getAttribute('data-edge-label-source'),target:g.getAttribute('data-edge-label-target'),box:rbb(g)}));
+      const untaggedLabels=[...root.querySelectorAll('.edge-label,[data-owner-edge]')].filter(g=>!(g.hasAttribute('data-edge-label-source')&&g.hasAttribute('data-edge-label-target'))&&!g.parentElement?.closest('.edge-label,[data-owner-edge],[data-edge-label-source]')).map(g=>({text:(g.textContent||'').replace(/\s+/g,' ').trim(),box:rbb(g)}));
       const edges=[...root.querySelectorAll('[data-source][data-target]')].filter(e=>e instanceof SVGGeometryElement).map(e=>{
         const len=e.getTotalLength(),step=Math.max(2,len/3000),points=[];
         for(let d=0;d<len;d+=step){const p=e.getPointAtLength(d);points.push([p.x,p.y])}

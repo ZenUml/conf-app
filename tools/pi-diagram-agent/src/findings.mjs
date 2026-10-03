@@ -1,5 +1,6 @@
 // Findings format, ledger, and audit-to-findings mapping for the v2 loop. Pure code: no model, no browser.
 import {createHash} from 'node:crypto';
+import {splitAuditFail} from './relaxed.mjs';
 
 export const FINDING_SOURCES=['audit','review','early'];
 export const FINDING_SEVERITIES=['blocking','minor'];
@@ -156,9 +157,25 @@ function denseCrossingMinorFinding(ev){
     suggestion:'Optional: reduce crossings with port order and routing lanes where it costs nothing; do not chase zero. This does not block acceptance and never needs a waiver.'});
 }
 /** Every FAIL check of an auditAgentSvg result becomes one blocking finding; routeLowerBend midpoint-only witnesses become minor findings. NOT-CHECKABLE and PASS produce no blocking findings. */
-export function auditToFindings(audit){
+export function auditToFindings(audit,{relaxed=false}={}){
   if(!audit||!audit.checks)return [];
   const out=[];
+  // One blocking-or-advice finding from (a part of) a FAIL check's evidence. Hints only travel with the check's own evidence, so they follow the part they came from.
+  const build=(rule,ev,severity)=>{
+    const ids=new Set();collectIds(ev,ids);
+    const method=typeof ev==='object'&&ev&&typeof ev.method==='string'?ev.method:null;
+    const detail=typeof ev==='string'?ev:Object.fromEntries(Object.entries(ev??{}).filter(([k])=>k!=='method'&&k!=='reasons'));
+    const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):rule==='labelCoversRoute'&&Array.isArray(ev?.violations)?labelHintText(ev.violations):'';
+    const fontHint=rule==='labelFontFit'&&Array.isArray(ev?.violations)?fontFitHintText(ev.violations):'';
+    const hints=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.repairHint).map(v=>[`${v.repairHint.edge}|${JSON.stringify(v.repairHint.points)}`,v.repairHint])).values()]:[];
+    const f=makeFinding({source:'audit',severity,rule,elements:[...ids],region:null,
+      evidence:{measured:clip(detail),threshold:method?clip(method,240):'rule check passes (see Diagram Rules)'},
+      suggestion:(SUGGESTIONS[rule]??fallbackSuggestion(rule))+(hintText?` Repair hint (evidence from a route search with all other routes fixed; you decide): ${hintText}.`:'')+(fontHint?` Hint: ${fontHint}.`:'')});
+    if(hints.length)f.repairHints=hints;
+    const moves=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.moveHint).map(v=>[JSON.stringify(v.moveHint),v.moveHint])).values()]:[];
+    if(moves.length)f.moveHints=moves;
+    return f;
+  };
   for(const [rule,check] of Object.entries(audit.checks)){
     // Non-blocking minor findings travel with a PASSing (or any) check: routeLowerBend midpoint-only witnesses (decision 2, 2026-10-03).
     if(rule==='routeLowerBend'&&Array.isArray(check?.evidence?.minorFindings))for(const m of check.evidence.minorFindings)out.push(lowerBendMinorFinding(m));
@@ -168,20 +185,20 @@ export function auditToFindings(audit){
     // A dense diagram's crossings travel with the PASSing routeCrossings check as one minor finding (never a FAIL, never waived).
     if(rule==='routeCrossings'&&check?.status==='PASS'&&check.evidence?.dense&&Array.isArray(check.evidence.minorFindings)&&check.evidence.minorFindings.length)out.push(denseCrossingMinorFinding(check.evidence));
     if(check?.status!=='FAIL')continue;
-    const ev=check.evidence;
-    const ids=new Set();collectIds(ev,ids);
-    const method=typeof ev==='object'&&ev&&typeof ev.method==='string'?ev.method:null;
-    const detail=typeof ev==='string'?ev:Object.fromEntries(Object.entries(ev??{}).filter(([k])=>k!=='method'&&k!=='reasons'));
-    const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):rule==='labelCoversRoute'&&Array.isArray(ev?.violations)?labelHintText(ev.violations):'';
-    const fontHint=rule==='labelFontFit'&&Array.isArray(ev?.violations)?fontFitHintText(ev.violations):'';
-    const hints=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.repairHint).map(v=>[`${v.repairHint.edge}|${JSON.stringify(v.repairHint.points)}`,v.repairHint])).values()]:[];
-    const f=makeFinding({source:'audit',severity:'blocking',rule,elements:[...ids],region:null,
-      evidence:{measured:clip(detail),threshold:method?clip(method,240):'rule check passes (see Diagram Rules)'},
-      suggestion:(SUGGESTIONS[rule]??fallbackSuggestion(rule))+(hintText?` Repair hint (evidence from a route search with all other routes fixed; you decide): ${hintText}.`:'')+(fontHint?` Hint: ${fontHint}.`:'')});
-    if(hints.length)f.repairHints=hints;
-    const moves=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.moveHint).map(v=>[JSON.stringify(v.moveHint),v.moveHint])).values()]:[];
-    if(moves.length)f.moveHints=moves;
-    out.push(f);
+    if(!relaxed){out.push(build(rule,check.evidence,'blocking'));continue}
+    // Relaxed gate: only the part of a FAIL that makes the diagram wrong or unreadable blocks; the rest is advice (see relaxed.mjs).
+    const {blocking,advice}=splitAuditFail(rule,check.evidence);
+    if(blocking!==null)out.push(build(rule,blocking,'blocking'));
+    if(advice!==null){const f=build(rule,advice,'minor');if(!out.some(x=>x.key===f.key))out.push(f)}
   }
   return out;
 }
+
+/** The `max` most valuable open advice findings (minor, highest impact first). `total` counts all open advice. */
+export function selectAdvice(ledger,{max=3}={}){
+  const minors=ledger.open().filter(e=>e.finding.severity==='minor').map((e,i)=>({e,i}))
+    .sort((a,b)=>(b.e.finding.impact??0)-(a.e.finding.impact??0)||a.i-b.i).map(x=>x.e.finding);
+  return {sent:minors.slice(0,max).map(toAdviceItem),total:minors.length};
+}
+/** Compact author-facing form of one advice finding. */
+export const toAdviceItem=({id,rule,elements,evidence,suggestion,impact})=>({id,rule,elements,measured:evidence?.measured??null,suggestion,impact:impact??null});

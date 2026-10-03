@@ -126,6 +126,9 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const nodeShapes=new Map([...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>[el.getAttribute('data-node')??el.getAttribute('data-node-id'),[...el.querySelectorAll('rect,path,ellipse,polygon')].filter(shape=>shape instanceof SVGGeometryElement&&getComputedStyle(shape).fill!=='none')]));
       const headingBoxes=[...root.querySelectorAll(GROUP)].flatMap(group=>[...group.querySelectorAll(':scope > text')].map(text=>({groupId:group.getAttribute('data-group')??group.getAttribute('data-container-id')??group.id?.slice(6),box:box(text)})));
       const nodeBoxes=new Map();
+      // Text boxes per node (same local coordinates as the sampled path points): the relaxed gate blocks a route only where it crosses node text.
+      const nodeTexts=new Map([...root.querySelectorAll('g[data-node],g[data-node-id]')].map(el=>[el.getAttribute('data-node')??el.getAttribute('data-node-id'),[...el.querySelectorAll('text')].map(t=>box(t))]));
+      const within=(p,r)=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h;
       const edges=[...root.querySelectorAll('[data-source][data-target]')].map(el=>{
         const source=el.getAttribute('data-source'),target=el.getAttribute('data-target');
         const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end'),trunk:el.getAttribute('data-shared-trunk'),trunkLikeAttributes:[...el.attributes].filter(x=>/bus|trunk|merge|junction|shared/i.test(x.name)).map(x=>({name:x.name,value:x.value}))};
@@ -152,7 +155,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const length=el.getTotalLength();
         const start=el.getPointAtLength(0),end=el.getPointAtLength(length);
         const touches=(id,point)=>nodeShapes.get(id)?.some(shape=>shape.isPointInStroke(point))??false;
-        const intruded=new Set(),headingIntrusions=new Set();
+        const intruded=new Set(),headingIntrusions=new Set(),textIntruded=new Set(),headingOverlaps=new Set();
         if(PREFILTER)for(const shapes of nodeShapes.values())for(const shape of shapes)if(!nodeBoxes.has(shape))nodeBoxes.set(shape,bboxOf(shape));
         const count=Math.min(10000,Math.max(1,Math.ceil(length/2)));
         for(let i=0;i<=count;i++){
@@ -160,11 +163,11 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
           const point=el.getPointAtLength(at);
           for(const [id,shapes] of nodeShapes){
             if((id===source&&at<8)||(id===target&&length-at<12))continue;
-            if(shapes.some(shape=>{if(PREFILTER){const b=nodeBoxes.get(shape);if(point.x<b[0]-BBOX_EPS||point.x>b[2]+BBOX_EPS||point.y<b[1]-BBOX_EPS||point.y>b[3]+BBOX_EPS)return false}return shape.isPointInFill(point)}))intruded.add(id);
+            if(shapes.some(shape=>{if(PREFILTER){const b=nodeBoxes.get(shape);if(point.x<b[0]-BBOX_EPS||point.x>b[2]+BBOX_EPS||point.y<b[1]-BBOX_EPS||point.y>b[3]+BBOX_EPS)return false}return shape.isPointInFill(point)})){intruded.add(id);if((nodeTexts.get(id)??[]).some(r=>within(point,r)))textIntruded.add(id)}
           }
-          for(const heading of headingBoxes){const r=heading.box;if(point.x>=r.x-2&&point.x<=r.x+r.w+2&&point.y>=r.y-2&&point.y<=r.y+r.h+2)headingIntrusions.add(heading.groupId)}
+          for(const heading of headingBoxes){const r=heading.box;if(point.x>=r.x-2&&point.x<=r.x+r.w+2&&point.y>=r.y-2&&point.y<=r.y+r.h+2){headingIntrusions.add(heading.groupId);if(within(point,r))headingOverlaps.add(heading.groupId)}}
         }
-        result.geometry={length,step:length/count,startOnSource:touches(source,start),endOnTarget:touches(target,end),intrudedNodeIds:[...intruded],intrudedHeadingGroupIds:[...headingIntrusions]};
+        result.geometry={length,step:length/count,startOnSource:touches(source,start),endOnTarget:touches(target,end),intrudedNodeIds:[...intruded],intrudedHeadingGroupIds:[...headingIntrusions],intrudedTextNodeIds:[...textIntruded],overlapHeadingGroupIds:[...headingOverlaps]};
         return result;
       });
       lap('browser.edgeSampling');
@@ -293,7 +296,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
             }
             hit=stroke||(sw===0&&inFill&&outFill)||(name.startsWith('node:')&&inFill);
           }else{labelUnsupported.push({label:item.label,outline:name,reason:'outline is not a geometry element'});continue}
-          if(hit)labelViolations.push({label:item.label,outline:name,labelBox:box});
+          if(hit){const nodeTextBoxes=name.startsWith('node:')?(fitNodes.find(n=>n.id===name.slice(5))?.texts??[]):[];labelViolations.push({label:item.label,outline:name,labelBox:box,coversNodeText:nodeTextBoxes.some(t=>overlaps(box,t))})}
         }
       }
       lap('browser.labelClearance');
@@ -487,11 +490,13 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const routeNodeIntrusion=relations.status==='PASS'&&drawn.edges.every(e=>e.geometry)?(()=>{
     const endpointErrors=drawn.edges.filter(e=>!e.geometry.startOnSource||!e.geometry.endOnTarget).map(e=>`${e.source}->${e.target}`);
     const intrusions=drawn.edges.filter(e=>e.geometry.intrudedNodeIds.length).map(e=>({edge:`${e.source}->${e.target}`,nodeIds:e.geometry.intrudedNodeIds}));
-    return {status:endpointErrors.length||intrusions.length?'FAIL':'PASS',evidence:{method:'Chromium actual SVG path endpoints versus shape strokes; path sampled at <=2 SVG units against actual node fills; source first 8 and target last 12 units exempted',endpointErrors,intrusions,checkedEdges:drawn.edges.length}};
+    const textIntrusions=drawn.edges.filter(e=>e.geometry.intrudedTextNodeIds?.length).map(e=>({edge:`${e.source}->${e.target}`,nodeIds:e.geometry.intrudedTextNodeIds}));
+    return {status:endpointErrors.length||intrusions.length?'FAIL':'PASS',evidence:{method:'Chromium actual SVG path endpoints versus shape strokes; path sampled at <=2 SVG units against actual node fills; source first 8 and target last 12 units exempted',endpointErrors,intrusions,textIntrusions,checkedEdges:drawn.edges.length}};
   })():{status:'NOT-CHECKABLE',evidence:'exact relation binding or SVG geometry API unavailable'};
   const routeHeadingClearance=relations.status==='PASS'&&drawn.edges.every(e=>e.geometry)?(()=>{
     const intrusions=drawn.edges.filter(e=>e.geometry.intrudedHeadingGroupIds.length).map(e=>({edge:`${e.source}->${e.target}`,groupIds:e.geometry.intrudedHeadingGroupIds}));
-    return {status:intrusions.length?'FAIL':'PASS',evidence:{method:'actual SVG path sampled at <=2 units against drawn group heading text bounds plus 2-unit guard',intrusions,checkedEdges:drawn.edges.length}};
+    const headingOverlaps=drawn.edges.filter(e=>e.geometry.overlapHeadingGroupIds?.length).map(e=>({edge:`${e.source}->${e.target}`,groupIds:e.geometry.overlapHeadingGroupIds}));
+    return {status:intrusions.length?'FAIL':'PASS',evidence:{method:'actual SVG path sampled at <=2 units against drawn group heading text bounds plus 2-unit guard',intrusions,headingOverlaps,checkedEdges:drawn.edges.length}};
   })():{status:'NOT-CHECKABLE',evidence:'actual path or group heading bounds unavailable'};
   const routeSpans=drawn.edges.map(e=>({edge:`${e.source}->${e.target}`,spans:actualStraightSpans(e.path)}));
   const routePairClearance=relations.status==='PASS'&&routeSpans.every(e=>e.spans)?(()=>{

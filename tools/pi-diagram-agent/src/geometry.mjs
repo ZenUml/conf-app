@@ -7,6 +7,7 @@ const require=createRequire(import.meta.url);
 
 export const LABEL_MAX_GAP=25;        // units between an edge label box and its own route. 25 confirmed by the user 2026-10-03: good labels measure 19.5-20; ownership is handled by label-ambiguous, not by a tighter limit.
 export const AMBIGUITY_MARGIN=1;      // a label must be more than 1 unit nearer its own route than any other, else ownership is ambiguous
+export const ON_ROUTE_GAP=0.5;        // relaxed gate: a label whose box is within this many units of another route's centerline sits on that route (a label on the wrong edge)
 export const ROUTE_MIN_CLEARANCE=12;  // units between a route and the border of an unrelated node/container
 
 const round=v=>Math.round(v*10)/10;
@@ -107,9 +108,9 @@ export function geometryNotCheckable(g,model){
   return out;
 }
 
-export function geometryFindings(g,model){
+export function geometryFindings(g,model,{relaxed=false}={}){
   const m=geometryMeasurements(g,model),out=[];
-  for(const l of m.labels)if(l.gap!==null&&l.gap>LABEL_MAX_GAP)out.push(makeFinding({source:'early',severity:'blocking',rule:'label-detached',elements:[l.edge],
+  for(const l of m.labels)if(l.gap!==null&&l.gap>LABEL_MAX_GAP)out.push(makeFinding({source:'early',severity:relaxed?'minor':'blocking',rule:'label-detached',elements:[l.edge],
     evidence:{measured:`the label box is ${l.gap} units from its own route (${l.edge})`,threshold:`<= ${LABEL_MAX_GAP} units`},
     suggestion:`Move the label next to ${l.edge}'s own route (within ${LABEL_MAX_GAP} units, not nearer another edge).`}));
   // Ownership: a label nearer a different route than its own reads as that other edge's label (checked only for resolved labels; equal distances, e.g. a shared trunk, are not ambiguous).
@@ -118,11 +119,11 @@ export function geometryFindings(g,model){
     if(l.gap===null||!Number.isFinite(l.gap))continue;
     let other=null;
     for(const e of g.edges){if(e.id===l.edge||!e.points?.length)continue;if(gapLowerBound(e.points,l.box)>=Math.min(l.gap-AMBIGUITY_MARGIN,other?other.gap:Infinity))continue;const d=polylineGap(l.box,e.points);if(d<l.gap-AMBIGUITY_MARGIN&&(!other||d<other.gap))other={id:e.id,gap:round(d)}}
-    if(other&&byId.has(l.edge))out.push(makeFinding({source:'early',severity:'blocking',rule:'label-ambiguous',elements:[l.edge,other.id],
+    if(other&&byId.has(l.edge))out.push(makeFinding({source:'early',severity:relaxed&&other.gap>ON_ROUTE_GAP?'minor':'blocking',rule:'label-ambiguous',elements:[l.edge,other.id],
       evidence:{measured:`the label of ${l.edge} is ${l.gap} units from its own route but ${other.gap} units from the route of ${other.id}`,threshold:'own route strictly nearer than every other route'},
       suggestion:`Move the label of ${l.edge} onto or beside its own route, clear of ${other.id}'s route.`}));
   }
-  for(const c of m.clearances)if(c.nearest&&c.nearest.dist<ROUTE_MIN_CLEARANCE)out.push(makeFinding({source:'early',severity:'blocking',rule:'route-border-clearance',elements:[c.edge,c.nearest.id],
+  for(const c of m.clearances)if(c.nearest&&c.nearest.dist<ROUTE_MIN_CLEARANCE)out.push(makeFinding({source:'early',severity:relaxed?'minor':'blocking',rule:'route-border-clearance',elements:[c.edge,c.nearest.id],
     evidence:{measured:`${c.edge} passes ${c.nearest.dist} units from the border of unrelated ${c.nearest.kind} ${c.nearest.id}`,threshold:`>= ${ROUTE_MIN_CLEARANCE} units`},
     suggestion:`Move ${c.edge}'s route (or the ${c.nearest.kind}) so the clearance is at least ${ROUTE_MIN_CLEARANCE} units.`}));
   return out;

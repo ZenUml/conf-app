@@ -17,8 +17,10 @@
 // authServer.ts). No code is ever issued before it passes.
 
 import { handleCallback } from './atlassianLeg';
-import { completeAuthorization, consentCookie, consentUrl, hasConsent } from './authServer';
-import { loadPending, savePending } from './asStore';
+import { completeAuthorization, hasConsent, redirectToConsent } from './authServer';
+import { issuerFor } from './asMetadata';
+import { loadPending } from './asStore';
+import { returningUserCookie } from './returningUser';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
 import { mixpanelTrack } from '../../service/mixpanelService';
 
@@ -53,38 +55,34 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   if (!outcome.ok) return response;
 
+  // Remember who this browser belongs to, so the next /authorize from it can
+  // skip Atlassian while this grant is live (returningUser.ts). Set on every
+  // successful callback, bare connect included: that flow exists to seed a
+  // grant, and the cookie is what makes the seeded grant reachable.
   const url = new URL(request.url);
-  const pendingId = url.searchParams.get('state');
-  if (!pendingId) return response;
+  const { store, secret } = loadGrantStore(env);
+  const remember = await returningUserCookie(outcome.accountId, secret, url);
 
-  const { store } = loadGrantStore(env);
-  const pending = await loadPending(store, pendingId);
+  const pendingId = url.searchParams.get('state');
   // Nothing parked under this state: the bare connect flow, or a request that
   // sat past the parking TTL. The grant is stored either way, so say so rather
   // than error — the user did nothing wrong.
-  if (!pending) return response;
+  const pending = pendingId ? await loadPending(store, pendingId) : null;
+  if (!pendingId || !pending) return withCookies(response, [remember]);
 
+  // atlassianLeg's cleared state cookie rides along with ours on both exits.
+  const cleared = response.headers.get('set-cookie');
+  const cookies = [...(cleared ? [cleared] : []), remember];
   const deps = { store };
   if (await hasConsent(deps, outcome.accountId, pending.clientId, pending.scope)) {
-    return completeAuthorization(deps, pendingId, pending, outcome.accountId);
+    return withCookies(await completeAuthorization(deps, pendingId, pending, outcome.accountId, issuerFor(url)), cookies);
   }
-
-  // Park who consented, so the consent screen — a separate request, with no
-  // Atlassian round trip of its own — can record and complete against the same
-  // user rather than trusting anything the browser sends back.
-  await savePending(store, pendingId, { ...pending, userId: outcome.accountId });
-
-  // Hand the browser to our consent screen, binding the parked authorization
-  // to THIS browser on the way (authServer.consentCookie). The id also travels
-  // in the URL because the consent form has to name it, but the URL alone is
-  // no longer enough to complete a consent.
-  const headers = new Headers({
-    location: consentUrl(url.origin, pendingId),
-    'cache-control': 'no-store',
-  });
-  // Two Set-Cookie headers: atlassianLeg's cleared state cookie, and ours.
-  const cleared = response.headers.get('set-cookie');
-  if (cleared) headers.append('set-cookie', cleared);
-  headers.append('set-cookie', consentCookie(pendingId, url));
-  return new Response(null, { status: 302, headers });
+  return redirectToConsent(deps, url, pendingId, pending, outcome.accountId, { extraCookies: cookies });
 };
+
+/** Copy, because Response.redirect's headers are immutable in workerd. */
+function withCookies(response: Response, cookies: string[]): Response {
+  const headers = new Headers(response.headers);
+  for (const c of cookies) headers.append('set-cookie', c);
+  return new Response(response.body, { status: response.status, headers });
+}

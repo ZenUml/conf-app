@@ -25,6 +25,9 @@ import type {
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
   AgentLinkOAuthRevokeReason,
+  AgentLinkOAuthRoute,
+  AgentLinkOAuthAtlassianReason,
+  AgentLinkAppViewFailure,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
   ActivationPath,
@@ -738,7 +741,9 @@ export type AnalyticsProperties = {
     | AgentLinkGuardrailRejectReason
     | AgentLinkSessionSuspendReason
     | AgentLinkIdentityFailure
-    | AgentLinkOAuthRevokeReason;
+    | AgentLinkOAuthRevokeReason
+    | AgentLinkAppViewFailure
+    | AgentLinkOAuthAtlassianReason;
   session_duration_ms?: number;
   edits_count?: number;
   // #314 (agent_link_session_expired only): true when the session had
@@ -794,6 +799,10 @@ export type AnalyticsProperties = {
   // Atlassian sites the grant reaches, from accessible-resources. The revoke
   // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason.
   site_count?: number;
+  // Where an MCP /authorize was routed (agent_link_oauth_authorize_routed).
+  // When it is 'atlassian', the shared `reason` field carries an
+  // AgentLinkOAuthAtlassianReason.
+  oauth_route?: AgentLinkOAuthRoute;
   // X — headless writes (agent_link_diagram_created / _updated). The outcome
   // rides the shared `result` field above as an AgentLinkWriteResult.
   // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,

@@ -59,6 +59,10 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "agent_link_oauth_authorized",
   "agent_link_oauth_refresh_failed",
   "agent_link_oauth_revoked",
+  "agent_link_oauth_authorize_routed",
+  "agent_link_app_view_requested",
+  "agent_link_app_view_failed",
+  "agent_link_mcp_initialized",
   // Headless writes (design §10). `agent_link_diagram_created` carries the
   // paywall gate's decision in `paywall_gate` — the only way to see how often
   // the Lite limit is actually consulted rather than skipped on an unknown

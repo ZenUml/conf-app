@@ -25,7 +25,9 @@ import {
   htmlPage,
   recordConsent,
   renderConsent,
+  switchAccountUrl,
 } from './authServer';
+import { issuerFor } from './asMetadata';
 import { loadClient, loadPending } from './asStore';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
 
@@ -52,7 +54,8 @@ export const onRequestGet: PagesFunction<OAuthEnv> = async ({ request, env }) =>
 
   // The site list is informational; the screen is still correct without it, so
   // a failure to fetch it must not block a consent the user came here to give.
-  return renderConsent(client, pendingId, pending.scope, []);
+  const switchUrl = pending.recognised ? switchAccountUrl(new URL(request.url).origin, pending) : undefined;
+  return renderConsent(client, pendingId, pending.scope, [], switchUrl);
 };
 
 export const onRequestPost: PagesFunction<OAuthEnv> = async ({ request, env }) => {
@@ -75,9 +78,9 @@ export const onRequestPost: PagesFunction<OAuthEnv> = async ({ request, env }) =
   };
 
   if (form.get('decision') !== 'allow') {
-    return withClearedCookie(await denyAuthorization(deps, pendingId, pending));
+    return withClearedCookie(await denyAuthorization(deps, pendingId, pending, issuerFor(request.url)));
   }
 
   await recordConsent(deps, pending.userId, pending.clientId, pending.scope);
-  return withClearedCookie(await completeAuthorization(deps, pendingId, pending, pending.userId));
+  return withClearedCookie(await completeAuthorization(deps, pendingId, pending, pending.userId, issuerFor(request.url)));
 };

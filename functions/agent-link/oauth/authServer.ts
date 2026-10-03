@@ -22,16 +22,20 @@
 // token it received" and "MUST only accept tokens specifically intended for
 // themselves" are both violated the moment the two are allowed to touch.
 //
-// WHY THE USER IS ONLY KNOWN AT STEP 3. We have no session of our own before
-// Atlassian tells us who consented (/me, atlassianLeg.ts). So the consent
-// check cannot happen at /authorize — there is no user yet to check. It
-// happens on the way back, before any code is issued, which is the point that
-// actually matters: an unconsented (user, client) pair never receives a code,
-// even when a live Atlassian grant for that user already exists.
+// WHEN THE USER IS KNOWN. On a first visit we have no session of our own
+// before Atlassian tells us who consented (/me, atlassianLeg.ts), so the
+// consent check happens on the way back, at step 3. A returning user carries
+// a signed cookie from that earlier callback (returningUser.ts); when it
+// verifies and their grant is still live, /authorize skips steps 2-3 and goes
+// straight to step 4 (or 5, if this client is already approved). Either way
+// the point that matters holds: an unconsented (user, client) pair never
+// receives a code, even when a live Atlassian grant for that user exists.
 
 import {
+  AUTHORIZE_PATH,
   CONSENT_PATH,
   DEFAULT_MCP_SCOPE,
+  issuerFor,
   MCP_SCOPES,
   resourceFor,
 } from './asMetadata';
@@ -73,6 +77,22 @@ function json(status: number, body: unknown): Response {
 
 function oauthError(status: number, error: string, description?: string): Response {
   return json(status, description ? { error, error_description: description } : { error });
+}
+
+/**
+ * A redirect back to the client's (already validated) redirect_uri.
+ *
+ * Every one carries `iss` (RFC 9207): the metadata advertises
+ * authorization_response_iss_parameter_supported, and a client that honours
+ * it — Codex does — rejects a response without one as a possible mix-up attack.
+ */
+function redirectToClient(redirectUri: string, issuer: string, params: Record<string, string | undefined>): Response {
+  const target = new URL(redirectUri);
+  for (const [key, value] of Object.entries(params)) {
+    if (value) target.searchParams.set(key, value);
+  }
+  target.searchParams.set('iss', issuer);
+  return Response.redirect(target.toString(), 302);
 }
 
 function escapeHtml(raw: string): string {
@@ -213,13 +233,10 @@ export async function validateAuthorize(request: Request, deps: AsDeps): Promise
   }
 
   const state = q.get('state') ?? undefined;
-  const fail = (error: string, description: string): AuthorizeResult => {
-    const target = new URL(redirectUri);
-    target.searchParams.set('error', error);
-    target.searchParams.set('error_description', description);
-    if (state) target.searchParams.set('state', state);
-    return { ok: false, response: Response.redirect(target.toString(), 302) };
-  };
+  const fail = (error: string, description: string): AuthorizeResult => ({
+    ok: false,
+    response: redirectToClient(redirectUri, issuerFor(url), { error, error_description: description, state }),
+  });
 
   if (q.get('response_type') !== 'code') return fail('unsupported_response_type', 'only response_type=code is supported');
   if (q.get('code_challenge_method') !== 'S256') return fail('invalid_request', 'code_challenge_method must be S256');
@@ -296,6 +313,61 @@ export function consentCookie(pendingId: string, requestUrl: URL, maxAge = CONSE
   return `${CONSENT_COOKIE}=${pendingId}; Path=${CONSENT_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
+/**
+ * Park who is consenting and send the browser to our consent screen.
+ *
+ * Shared by the two ways a user can be known: /callback after Atlassian's /me,
+ * and /authorize from a verified returning-user cookie. Parking `userId` is
+ * what lets the consent screen — a separate request — complete against the
+ * same user rather than trusting anything the browser sends back. The consent
+ * cookie binds the parked authorization to THIS browser; the id also travels
+ * in the URL because the form has to name it, but the URL alone is not enough
+ * to complete a consent.
+ */
+export async function redirectToConsent(
+  deps: AsDeps,
+  requestUrl: URL,
+  pendingId: string,
+  pending: PendingAuthorization,
+  userId: string,
+  options: { recognised?: boolean; extraCookies?: string[] } = {},
+): Promise<Response> {
+  await savePending(deps.store, pendingId, {
+    ...pending,
+    userId,
+    ...(options.recognised ? { recognised: true } : {}),
+  });
+  const headers = new Headers({
+    location: consentUrl(requestUrl.origin, pendingId),
+    'cache-control': 'no-store',
+  });
+  for (const c of options.extraCookies ?? []) headers.append('set-cookie', c);
+  headers.append('set-cookie', consentCookie(pendingId, requestUrl));
+  return new Response(null, { status: 302, headers });
+}
+
+/**
+ * The same authorization request again, but forced through Atlassian.
+ *
+ * Rebuilt from the parked request rather than echoed from a Referer, so it can
+ * only ever name the client and redirect_uri this server already validated.
+ * Following it parks a fresh request; the old one simply expires.
+ */
+export function switchAccountUrl(origin: string, pending: PendingAuthorization): string {
+  const url = new URL(AUTHORIZE_PATH, origin);
+  const q = url.searchParams;
+  q.set('response_type', 'code');
+  q.set('client_id', pending.clientId);
+  q.set('redirect_uri', pending.redirectUri);
+  q.set('code_challenge', pending.codeChallenge);
+  q.set('code_challenge_method', 'S256');
+  q.set('scope', pending.scope);
+  q.set('resource', pending.resource);
+  if (pending.state) q.set('state', pending.state);
+  q.set('prompt', 'login');
+  return url.toString();
+}
+
 export function readCookie(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {
@@ -316,8 +388,14 @@ export function renderConsent(
   pendingId: string,
   scope: string,
   siteUrls: string[],
+  switchUrl?: string,
 ): Response {
   const name = client.clientName?.trim() || 'An application';
+  // Only offered to a recognised user: they skipped Atlassian's screen, which
+  // is the only place an account or a site can be chosen.
+  const switchLink = switchUrl
+    ? `\n<p><small>Not the Atlassian account you meant, or need another site? <a href="${escapeHtml(switchUrl)}">Sign in with Atlassian again</a>.</small></p>`
+    : '';
   const sites = siteUrls.length
     ? `<p>It will act on your behalf on:</p><ul>${siteUrls.map((s) => `<li><code>${escapeHtml(s)}</code></li>`).join('')}</ul>`
     : '';
@@ -332,7 +410,7 @@ ${sites}
   <input type="hidden" name="auth" value="${escapeHtml(pendingId)}">
   <button class="primary" name="decision" value="allow" type="submit">Allow</button>
   <button class="secondary" name="decision" value="deny" type="submit">Cancel</button>
-</form>`,
+</form>${switchLink}`,
   );
 }
 
@@ -347,6 +425,7 @@ export async function completeAuthorization(
   pendingId: string,
   pending: PendingAuthorization,
   userId: string,
+  issuer: string,
 ): Promise<Response> {
   const now = (deps.nowMs ?? Date.now)();
   await deletePending(deps.store, pendingId);
@@ -359,23 +438,21 @@ export async function completeAuthorization(
     userId,
     createdAtMs: now,
   });
-  const target = new URL(pending.redirectUri);
-  target.searchParams.set('code', code);
-  if (pending.state) target.searchParams.set('state', pending.state);
-  return Response.redirect(target.toString(), 302);
+  return redirectToClient(pending.redirectUri, issuer, { code, state: pending.state });
 }
 
 export async function denyAuthorization(
   deps: AsDeps,
   pendingId: string,
   pending: PendingAuthorization,
+  issuer: string,
 ): Promise<Response> {
   await deletePending(deps.store, pendingId);
-  const target = new URL(pending.redirectUri);
-  target.searchParams.set('error', 'access_denied');
-  target.searchParams.set('error_description', 'the user declined');
-  if (pending.state) target.searchParams.set('state', pending.state);
-  return Response.redirect(target.toString(), 302);
+  return redirectToClient(pending.redirectUri, issuer, {
+    error: 'access_denied',
+    error_description: 'the user declined',
+    state: pending.state,
+  });
 }
 
 /** Has this user already allowed this client, for at least this much? */

@@ -37,7 +37,36 @@ import {
   resolveMacroIdentity,
   VARIANTS,
   type ConfluenceGet,
+  type IdentityFailureReason,
 } from '../macroIdentity';
+
+/**
+ * Turn an identity refusal into something true.
+ *
+ * Every reason used to collapse into "Could not work out which ZenUML app that
+ * site runs", which is only accurate for one of them. On 2026-10-03 a
+ * 'no_extension_node' refusal was read as "ZenUML isn't installed" and sent a
+ * user to Confluence admin to check an install that was fine — the resolver had
+ * in fact FOUND our custom content and merely had no macro node to learn the
+ * appId/environmentId from. The detail the resolver carries is appended, since
+ * it names which of the causes it was.
+ */
+export function identityFailureMessage(
+  reason: IdentityFailureReason,
+  detail: string | undefined,
+  suffix = '',
+): string {
+  const head =
+    reason === 'no_macro_on_site'
+      ? 'No ZenUML diagrams were found on that site.'
+      : reason === 'no_extension_node'
+        ? 'ZenUML content exists on that site, but no page uses it in a macro, so the app identity cannot be read. ' +
+          'This is not an installation problem: add or open a page with a ZenUML macro, then retry.'
+        : reason === 'app_id_mismatch'
+          ? 'That site returned two conflicting ZenUML app identities, so it is not safe to write to it.'
+          : 'Could not reach Confluence to work out which ZenUML app that site runs. This is usually temporary.';
+  return `${head}${suffix}${detail ? ` (${detail})` : ''}`;
+}
 
 export interface HeadlessContext {
   store: GrantStore;
@@ -552,9 +581,7 @@ export async function callHeadlessTool(
       const identity = await resolveMacroIdentity(get);
       if (!identity.ok) {
         throw new HeadlessToolError(
-          identity.reason === 'no_macro_on_site'
-            ? 'No ZenUML diagrams were found on that site.'
-            : 'Could not work out which ZenUML app that site runs.',
+          identityFailureMessage(identity.reason, identity.detail),
           identity.reason === 'no_macro_on_site' ? 'not_found' : 'upstream',
           identity.reason,
         );
@@ -751,7 +778,7 @@ export async function callHeadlessTool(
       const identity = await resolveMacroIdentity(get);
       if (!identity.ok) {
         throw new HeadlessToolError(
-          'Could not work out which ZenUML app that site runs, so the macro key cannot be built.',
+          identityFailureMessage(identity.reason, identity.detail, ' The macro key cannot be built without it.'),
           'upstream',
           identity.reason,
         );

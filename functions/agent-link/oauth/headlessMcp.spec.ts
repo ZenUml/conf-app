@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { handleHeadlessRpc, looksLikeRelayToken } from './headlessMcp';
+import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi } from './headlessMcp';
 import { authenticateHeadless, challengeFor } from './headlessAuth';
 import { issueAccessToken, type GrantStoreLike } from './asStore';
 import { saveGrant } from './tokenStore';
@@ -178,6 +178,100 @@ describe('headless RPC', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('declares the MCP Apps extension so a host knows a view exists', async () => {
+    // Bilateral: if we never declare it, the host still gets a good text result
+    // and the missing view looks like a broken render with no error anywhere.
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'initialize');
+    const body = await res.json();
+    expect(body.result.capabilities.extensions).toEqual({
+      'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+    });
+    // resources exists only to serve that view, so the two travel together.
+    expect(body.result.capabilities.resources).toEqual({});
+  });
+
+  it('carries _meta.ui on the diagram tools, pinned to this deploy origin', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'tools/list');
+    const body = await res.json();
+    const byName = Object.fromEntries(body.result.tools.map((t: { name: string }) => [t.name, t]));
+    expect(byName.read_diagram._meta.ui.resourceUri).toBe('ui://zenuml/diagram');
+    // The csp lives on the RESOURCE, not the tool — asserting it here is what
+    // let the real misplacement pass. resources/list and resources/read carry it.
+    expect(byName.read_diagram._meta.ui.csp).toBeUndefined();
+    expect(byName.list_diagrams).not.toHaveProperty('_meta');
+  });
+
+  it('carries the csp on the listed resource, pinned to this deploy origin', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'resources/list');
+    const body = await res.json();
+    expect(body.result.resources[0]._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin]);
+  });
+
+  it('lists the view as a resource', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'resources/list');
+    const body = await res.json();
+    expect(body.result.resources).toHaveLength(1);
+    expect(body.result.resources[0].uri).toBe('ui://zenuml/diagram');
+  });
+
+  it('serves the built view for resources/read', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    // The marker is what tells readUiResource this is the view and not the
+    // SPA shell Pages serves for an unknown path.
+    const html =
+      '<!doctype html><html><head><meta name="mcp-app" content="zenuml-diagram"></head>' +
+      '<body><div id="app"></div><script src="./assets/v.js"></script></body></html>';
+    const res = await call(env, token, 'resources/read', { uri: 'ui://zenuml/diagram' }, async () =>
+      new Response(html, { status: 200 }));
+    const body = await res.json();
+    const served = body.result.contents[0];
+    expect(served.uri).toBe('ui://zenuml/diagram');
+    expect(served.mimeType).toBe('text/html;profile=mcp-app');
+    // The base is what makes the built bundle's relative src resolve against us
+    // instead of the host's frame, where it would silently fetch nothing.
+    expect(served.text).toContain(`<base href="${new URL(MCP).origin}/">`);
+    expect(served.text).toContain('src="./assets/v.js"');
+  });
+
+  it('rejects a resources/read for a URI it does not publish', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'resources/read', { uri: 'ui://elsewhere/x' });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.data.reason).toBe('unknown_uri');
+  });
+
+  it('reports a missing view asset in a 200 the client can actually read', async () => {
+    // Ours to fix, not the host's — a deploy that shipped without the entry.
+    // The status is deliberately NOT 502: Cloudflare replaces a 502 from a
+    // Pages Function with its own plain-text error page, and the client then
+    // sees "error code: 502" instead of the reason (staging, 2026-09-29).
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'resources/read', { uri: 'ui://zenuml/diagram' }, async () =>
+      new Response('', { status: 404 }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error.data.reason).toBe('fetch_failed');
+    expect(body.error.code).toBe(-32003);
+  });
+
+  it('still requires a token for the view', async () => {
+    const env = makeEnv();
+    const res = await call(env, null, 'resources/read', { uri: 'ui://zenuml/diagram' });
+    expect(res.status).toBe(401);
+  });
+
   it('acknowledges notifications with 202 and no body', async () => {
     const env = makeEnv();
     const token = await tokenFor(env.store);
@@ -262,5 +356,60 @@ describe('challenge construction', () => {
     expect(challengeFor(MCP, 'missing')).toBe(
       `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`,
     );
+  });
+});
+
+/**
+ * The handshake itself. Before this, initialize answered a hardcoded
+ * '2024-11-05' however new the client was, which is the wrong end of a
+ * negotiation for a server whose whole point here is an extension defined in a
+ * much later revision.
+ */
+describe('initialize', () => {
+  it('echoes a protocol version it supports rather than pinning 2024-11-05', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } },
+      clientInfo: { name: 'probe', version: '1' },
+    });
+    const body = await res.json();
+    expect(body.result.protocolVersion).toBe('2025-06-18');
+  });
+
+  it('falls back to its newest when the client asks for one it does not know', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'initialize', { protocolVersion: '1999-01-01' });
+    const body = await res.json();
+    expect(body.result.protocolVersion).toBe('2025-06-18');
+  });
+
+  // The regression that broke every connection: '2026-01-26' is the MCP Apps
+  // EXTENSION spec date, not a protocol revision. Answering it told clients to
+  // speak something that does not exist.
+  it('never answers an extension-spec date as a protocol version', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    for (const asked of ['2026-01-26', undefined, '1999-01-01']) {
+      const res = await call(env, token, 'initialize', asked ? { protocolVersion: asked } : {});
+      const body = await res.json();
+      expect(body.result.protocolVersion).not.toBe('2026-01-26');
+      expect(['2025-06-18', '2025-03-26', '2024-11-05']).toContain(body.result.protocolVersion);
+    }
+  });
+});
+
+describe('clientDeclaresUi', () => {
+  // The diagnostic that tells "host never offered MCP Apps" apart from "offered
+  // and did not render". It must not be used to gate _meta.ui.
+  it('is true when the client advertises the ui extension', () => {
+    expect(clientDeclaresUi({ capabilities: { extensions: { 'io.modelcontextprotocol/ui': {} } } })).toBe(true);
+  });
+
+  it('is false for a client that advertises nothing', () => {
+    expect(clientDeclaresUi({ capabilities: {} })).toBe(false);
+    expect(clientDeclaresUi(undefined)).toBe(false);
   });
 });

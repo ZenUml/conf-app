@@ -1117,6 +1117,12 @@ export type AnalyticsEventName =
   // upstream (modelcontextprotocol/ext-apps#671).
   | "agent_link_app_view_requested"
   | "agent_link_app_view_failed"
+  // One per MCP initialize. Carries what the CLIENT advertised, which is the
+  // only way to tell "the host never offered MCP Apps" apart from "it offered
+  // them and did not render" — the view-fetch events cover the second case
+  // only, and on 2026-10-03 a Desktop session rendered nothing while never
+  // fetching the view, which neither existing event could explain.
+  | "agent_link_mcp_initialized"
   // X — headless writes (design §7/§10). Backend-emitted, for the same reason
   // as the pair above. `_created` carries the AddToPageResult-shaped outcome
   // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate

@@ -15,7 +15,7 @@ import {formatForAuthor} from './findings.mjs';
 import {collectGeometry,geometryFindings,geometryNotCheckable} from './geometry.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
-const RULES_SHA='3cfa9ce4411e5014ac249b7801f6cdf77aeab3ddcfaf521785fe2dfa7b873b3f';
+const RULES_SHA='6b86897a52d248a67439f71a898eaa547179fe372a6f2763ebc1a8cf50ce54ac';
 const kitDir=fileURLToPath(new URL('../kit/',import.meta.url)).replace(/\/$/,'');
 const rulesPath=new URL('../rules/diagram-rules.md',import.meta.url);
 const exactUtf8=bytes=>{

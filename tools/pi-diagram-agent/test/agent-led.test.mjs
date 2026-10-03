@@ -18,7 +18,8 @@ test('agent prompt contains complete pinned rules and exact source, and directs 
     const job=prepareAgentTask(input);
     assert.equal(job.sourceHash,hash(Buffer.from(source)));
     assert.match(job.prompt,/Mandatory lower-bend route search/);
-    assert.match(job.prompt,/render the standalone SVG at 2×/);
+    assert.match(job.prompt,/call `diagram_inspect` and look at the full image and the close crops/);
+    assert.doesNotMatch(job.prompt,/Rule execution responsibility matrix/);
     assert.ok(job.prompt.includes(source));
     assert.match(job.prompt,/call diagram_inspect/);
     assert.match(job.prompt,/Do not use layoutGraph/);

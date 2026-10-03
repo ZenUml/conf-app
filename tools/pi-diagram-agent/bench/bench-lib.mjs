@@ -71,6 +71,7 @@ export function summariseManifest(m){
     authorTokens:{input:m.tokens?.author?.input??0,output:m.tokens?.author?.output??0},reviewerTokens:{input:m.tokens?.reviewer?.input??0,output:m.tokens?.reviewer?.output??0},
     reviewerBlockingFindings:rounds.reduce((n,r)=>n+(r.review?.findings??[]).filter(f=>f.severity==='blocking').length,0),
     falseBlockCandidates:met.falseBlockCandidates??0,oscillations:met.oscillations??0,finalSvgSha256:m.finalSvgSha256??null,
+    ...(Array.isArray(m.modelCallTimeouts)?{modelCallTimeouts:m.modelCallTimeouts.length}:{}),
     ...(m.twoPhase?{modelCalls:m.modelCalls??null,twoPhase:twoPhaseSummary(m)}:{})};
 }
 
@@ -107,6 +108,9 @@ export function summariseAudit(audit){
 
 /** A run is "completed" when the agent ended on its own and no rate limit hit it. Only these enter the timing statistics. */
 export const AGENT_DONE_REASONS=['AGENT_SETTLED','AGENT_END_NO_SETTLE','AGENT_END'];
+/** Runs worth repeating: the provider failed (transport error, surfaced as AGENT_ERROR) or one author model call hung past PI_DIAGRAM_MAX_CALL_S twice (run.json statusReason MODEL_CALL_TIMEOUT). */
+export const RETRYABLE_STATUS_REASONS=['MODEL_CALL_TIMEOUT'];
+export const isRetryableRun=run=>run?.doneReason==='AGENT_ERROR'||RETRYABLE_STATUS_REASONS.includes(run?.v2?.statusReason);
 export const isCompleted=run=>AGENT_DONE_REASONS.includes(run.doneReason)&&!run.rateLimited;
 
 /** Pi RPC clients should wait for `agent_settled` (docs/rpc.md, Pi >= 1.0); `agent_end` is not final. Pure state machine for that rule:
@@ -118,6 +122,8 @@ export function createRunTracker({graceMs=SETTLE_GRACE_MS}={}){
     onEvent(type){
       if(type==='agent_settled'&&!settled){settled=true;return {finish:'AGENT_SETTLED'}}
       if(type==='agent_end'&&!ended&&!settled){ended=true;return {armGraceMs:graceMs}}
+      // The extension re-prompted the author after a model-call timeout: the run is not over, so the settle grace timer must not finish it.
+      if(type==='agent_start'&&ended&&!settled){ended=false;return {cancelGrace:true}}
       return {};
     },
     onGraceTimeout(){

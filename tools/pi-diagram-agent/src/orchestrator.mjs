@@ -90,6 +90,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   const twoPhase=B.twoPhase!==false;
   const cache=new Map(); // svg sha256 -> phase-1 result (findings, audit, geometry, forbidden); identical bytes are never audited twice
   const checkLog=[],refusals=[],escalations=[],doneRounds=[];
+  const modelCallTimeouts=[];
   let callsRound=0,callsTotal=0,checkSinceMark=0,exceptions=[],authorCalls=0,reviewerCalls=0,generatorErrors=0,cacheHits=0;
   const freshStats=()=>({buildCheckCalls:0,freshChecks:0,cacheHits:0,refusals:0,generatorErrors:0,limitHits:0});
   let cur=freshStats();
@@ -286,6 +287,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       rounds,downgrades:downgradeList(),ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC),
       exceptions:status==='REVIEWED_WITH_EXCEPTIONS'||status==='VALIDATED'?exceptions:[],...(status==='REVIEWED_WITH_EXCEPTIONS'?{publishAsDefault:false}:{}),
       twoPhase:{enabled:twoPhase,caps:{perRound:B.maxChecksPerRound,perRun:B.maxChecksPerRun,generatorErrorsPerRound:B.maxGeneratorErrorsPerRound,findingsPerCheck:B.maxFindingsPerCheck},checksTotal:callsTotal,cacheHits,generatorErrors,perRound:[...doneRounds,...openRound],checks:checkLog,refusals,escalations},
+      ...(modelCallTimeouts.length?{modelCallTimeouts:[...modelCallTimeouts]}:{}),
       timings:{...timings,totalMs:now()-startedAt},modelCalls:{author:authorCalls,reviewer:reviewerCalls,...(relaxed?{judge:judgeCalls}:{})},tokens,budgets:{...B},reviewer:{...reviewerCfg},
       metrics:{rounds:rounds.length,gateStatus:status,authorSeconds:timings.authorMs/1000,reviewerSeconds:timings.reviewerMs/1000,
         authorTokens:{input:tokens.author.input??0,output:tokens.author.output??0},reviewerTokens:{input:tokens.reviewer.input??0,output:tokens.reviewer.output??0},
@@ -497,7 +499,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   async function finalizeNow(kind){
     if(finalResult)return finalResult;
     timings.authorMs+=Math.max(0,now()-authorMark-checkSinceMark);checkSinceMark=0;authorMark=now();
-    const wall=kind==='wall'?`WALL_CLOCK: exceeded ${Math.round(B.maxWallMs/1000)} s while the author was still working; `:'';
+    const wall=kind==='wall'?`WALL_CLOCK: exceeded ${Math.round(B.maxWallMs/1000)} s while the author was still working; `:kind==='call-timeout'?`MODEL_CALL_TIMEOUT: an author model call ran past its per-call limit twice in a row (${modelCallTimeouts.length} timeout(s) recorded); `:'';
     if(!best){
       round++;
       const cand=readCandidate();
@@ -513,12 +515,15 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   const finalizeWithoutSubmit=()=>serial(()=>finalizeNow('ended'));
   /** Watchdog: the author's turn ran past the wall-clock budget without a final status (a hung or endless author). */
   const expireWallClock=()=>serial(()=>finalizeNow('wall'));
+  /** The author's model call outlasted its per-call limit and was aborted; the second consecutive one ends the run (CANDIDATE MODEL_CALL_TIMEOUT). */
+  const finalizeModelCallTimeout=()=>serial(()=>finalizeNow('call-timeout'));
+  const noteModelCallTimeout=({elapsedMs,limitMs,action})=>{modelCallTimeouts.push({n:modelCallTimeouts.length+1,at:new Date(now()).toISOString(),elapsedS:Math.round(elapsedMs/100)/10,limitS:limitMs/1000,action});persist()};
   const wallExceeded=()=>now()-startedAt>B.maxWallMs;
 
   persist(); // status RUNNING, before the first author turn
 
   return {
-    submit,buildCheck,finalizeWithoutSubmit,expireWallClock,wallExceeded,manifest:()=>lastManifest,manifestPath,
+    submit,buildCheck,finalizeWithoutSubmit,expireWallClock,finalizeModelCallTimeout,noteModelCallTimeout,wallExceeded,manifest:()=>lastManifest,manifestPath,
     addAuthorUsage:u=>{tokens.author=addUsage(tokens.author,u)},
     noteAuthorCall:()=>{authorCalls++},
     state:()=>({status,statusReason,round,rounds,ledger:ledger.snapshot(),oscillationsInReverted,best:best?{hash:best.hash,score:best.score}:null,manifest:lastManifest}),

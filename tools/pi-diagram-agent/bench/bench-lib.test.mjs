@@ -250,3 +250,27 @@ test('check telemetry records outcome, blocking/advisory rules, svgHash, args si
   assert.equal(out[3].outcome,'ERROR');
   assert.equal(JSON.stringify(out).includes('SECRET'),false);
 });
+
+// --- per-call model timeout: retryable like a transport error ---
+import {isRetryableRun,RETRYABLE_STATUS_REASONS} from './bench-lib.mjs';
+test('MODEL_CALL_TIMEOUT is retryable, like a transport error (AGENT_ERROR); a normal completion is not',()=>{
+  assert.ok(RETRYABLE_STATUS_REASONS.includes('MODEL_CALL_TIMEOUT'));
+  assert.ok(isRetryableRun({doneReason:'AGENT_ERROR'}));
+  assert.ok(isRetryableRun({doneReason:'AGENT_SETTLED',v2:{gateStatus:'CANDIDATE',statusReason:'MODEL_CALL_TIMEOUT'}}));
+  assert.ok(!isRetryableRun({doneReason:'AGENT_SETTLED',v2:{gateStatus:'CANDIDATE',statusReason:'WALL_CLOCK'}}));
+  assert.ok(!isRetryableRun({doneReason:'AGENT_SETTLED',v2:{gateStatus:'REVIEWED',statusReason:null}}));
+  assert.ok(!isRetryableRun({doneReason:'TIME_LIMIT'}));
+});
+test('summariseManifest carries the model-call timeout record and statusReason',()=>{
+  const v=summariseManifest({status:'CANDIDATE',statusReason:'MODEL_CALL_TIMEOUT: second timeout',rounds:[],modelCallTimeouts:[{action:'retry'},{action:'end'}]});
+  assert.equal(v.statusReason,'MODEL_CALL_TIMEOUT');assert.equal(v.modelCallTimeouts,2);
+});
+test('tracker: a new agent_start after agent_end (the timeout retry continuing) cancels the settle grace timer',()=>{
+  const t=createRunTracker();
+  assert.deepEqual(t.onEvent('agent_end'),{armGraceMs:SETTLE_GRACE_MS});
+  assert.deepEqual(t.onEvent('agent_start'),{cancelGrace:true});
+  assert.equal(t.onGraceTimeout(),null,'a cancelled grace must not finish the run');
+  assert.deepEqual(t.onEvent('agent_end'),{armGraceMs:SETTLE_GRACE_MS},'the next agent_end arms it again');
+  assert.deepEqual(t.onEvent('agent_start'),{cancelGrace:true});
+  assert.deepEqual(createRunTracker().onEvent('agent_start'),{},'agent_start with no prior agent_end is a no-op');
+});

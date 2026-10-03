@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {reduceEvents,summariseAudit,aggregate,renderMarkdown,eventIsRateLimit,createRunTracker,createCheckTelemetry,loadV2Metrics,postProcess,gateAuditMismatch,loadAdjudications} from './bench-lib.mjs';
+import {reduceEvents,summariseAudit,aggregate,renderMarkdown,eventIsRateLimit,createRunTracker,createCheckTelemetry,loadV2Metrics,postProcess,gateAuditMismatch,loadAdjudications,isRetryableRun} from './bench-lib.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const worktreePkg=path.resolve(here,'..');
@@ -88,6 +88,7 @@ function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv=
           const contents=e.message.content||[];
           log({kind:'assistant',model:e.message.model,text:contents.filter(c=>c.type==='text').map(c=>c.text).join(' ').slice(0,600),usage:e.message.usage?{input:e.message.usage.input,output:e.message.usage.output,cacheRead:e.message.usage.cacheRead,cacheWrite:e.message.usage.cacheWrite}:undefined,stopReason:e.message.stopReason,errorMessage:e.message.errorMessage?String(e.message.errorMessage).slice(0,300):undefined});
         }
+        if(e.type==='agent_start'){const act=tracker.onEvent('agent_start');if(act.cancelGrace){clearTimeout(graceTimer);log({kind:'agent_start-after-end'})}}
         if(e.type==='agent_end'||e.type==='agent_settled'){
           log({kind:e.type});
           const act=tracker.onEvent(e.type);
@@ -137,7 +138,7 @@ async function main(){
       const post=await postProcess({runDir:r.runDir,source:job.source,outBase:base,auditFn,adjudications,v2:(o.env.PI_DIAGRAM_V2??process.env.PI_DIAGRAM_V2)!=='0'});
       const mismatch=gateAuditMismatch(post);
       const auditGatePair=`audit=${post.audit?.status}${post.v2?` gate=${post.v2.gateStatus}`:''}`+(mismatch?` ⚠️ MISMATCH`:'');
-      runs.push({id:job.id,fixture:job.fixture,...r,...post,auditGateMismatch:mismatch});
+      runs.push({id:job.id,fixture:job.fixture,...r,...post,auditGateMismatch:mismatch,retryable:isRetryableRun({...r,...post})});
       console.error(`[bench] done ${job.id} ${r.doneReason} ${(r.elapsedMs/1000).toFixed(0)}s out=${r.outputTokens} ${auditGatePair}${post.v2?` rounds=${post.v2.rounds}`:''}`);
       if(mismatch)console.error(`[bench] MISMATCH ${job.id}: gate status is REVIEWED but post-hoc audit is FAIL`);
       writeSummary();

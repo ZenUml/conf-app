@@ -13,6 +13,7 @@ import { createPiJudgeFactory, resolveJudgeModel, judgeThinkingFromEnv } from '.
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
 import { createSpecRenderer, writeLayoutArgument, SPEC_TOOL_DESCRIPTION, specModeFromEnv } from './src/spec-tool.mjs';
 import { createBuildStep } from './src/build-step.mjs';
+import { createCallGuard, maxCallMsFromEnv } from './src/call-guard.mjs';
 
 /** Quote-aware argument split shared by /magic and /magic-accept. */
 const tokenize = (args: string) => args.trim().match(/"[^"]*"|'[^']*'|\S+/g)?.map(value => value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_all, double, single) => double ?? single)) ?? [];
@@ -25,6 +26,13 @@ export default function (pi: ExtensionAPI) {
   const acceptedManifests = new Map<string, any>();
   let activeRun: any = null;
   let activeStarted = false;
+  let activeJobId = '';
+  // Per-call limit for the author model (PI_DIAGRAM_MAX_CALL_S, default 480 s). The timer lives here, not in the bench driver, so interactive /magic and the bench both get it.
+  let callCtx: any = null;
+  const callGuard = createCallGuard({
+    limitMs: maxCallMsFromEnv(),
+    onTimeout: () => { try { callCtx?.abort?.(); } catch { /* the session may already be idle */ } },
+  });
   // Opt-in experiments; both default off and leave the script-mode prompt and tool list unchanged.
   // PI_DIAGRAM_SPEC_MODE: 1 offers layout.json next to make.py; required makes layout.json the only authoring path.
   const specModeKind = specModeFromEnv();
@@ -95,6 +103,8 @@ export default function (pi: ExtensionAPI) {
           });
           activeRun = run;
           activeStarted = false;
+          activeJobId = jobId;
+          callGuard.cancel();
           runsByDir.set(safeRunDir(job.runDir), run);
           // Watchdog: a hung or endless author turn emits no submit, so the budget cannot rely on diagram_submit alone.
           const watchedRun = run;
@@ -182,12 +192,18 @@ export default function (pi: ExtensionAPI) {
   });
   async function expireRun(run: any, ctx: any) {
     if (!run || run.isFinal()) return;
+    callGuard.cancel();
     try { ctx?.abort?.(); } catch { /* the session may already be idle */ }
     try { await run.expireWallClock(); } catch { /* best effort: the manifest stays RUNNING if even the audit fails */ }
   }
   if (v2On) {
+    // The timer covers one model call only: provider request -> end of the assistant message. Tools, the reviewer and the Judge are outside it.
+    const startCallTimer = (ctx: any) => { if (activeRun && !activeRun.isFinal()) { callCtx = ctx; callGuard.start(); } };
+    pi.on?.('before_provider_request', async (_event: any, ctx: any) => { startCallTimer(ctx); });
+    pi.on?.('message_start', async (event: any, ctx: any) => { if (event?.message?.role === 'assistant') startCallTimer(ctx); });
     pi.on?.('message_end', async (event: any, ctx: any) => {
       const message = event?.message;
+      if (message?.role === 'assistant') callGuard.end(message.stopReason);
       if (message?.role === 'assistant' && activeRun && !activeRun.isFinal()) {
         activeStarted = true;
         activeRun.noteAuthorCall?.();
@@ -196,6 +212,16 @@ export default function (pi: ExtensionAPI) {
       }
     });
     pi.on?.('agent_end', async () => {
+      // A model call outlasted its limit and was aborted: re-prompt the same session once; a second consecutive timeout ends the run.
+      const timeout = callGuard.takeTimeout();
+      if (timeout && activeRun && !activeRun.isFinal()) {
+        try {
+          activeRun.noteModelCallTimeout({ elapsedMs: timeout.elapsedMs, limitMs: timeout.limitMs, action: timeout.retry ? 'retry' : 'end' });
+          if (timeout.retry) pi.sendUserMessage(`Your previous model call was aborted after ${Math.round(timeout.elapsedMs / 1000)} s with no result (per-call limit ${Math.round(timeout.limitMs / 1000)} s). This session and its history are intact, and the files in the run directory are as you left them. Continue from your current state: run diagram_build_check (job ID: ${activeJobId}) on what you have, then diagram_submit with the hash it returns. Keep each step small; a second call that outlasts the limit ends the run.`, { deliverAs: 'followUp' });
+          else await activeRun.finalizeModelCallTimeout();
+        } catch { /* the manifest is best effort here */ }
+        return;
+      }
       // The author stopped without a final status from diagram_submit: audit its final bytes and record a CANDIDATE manifest.
       if (activeRun && activeStarted && !activeRun.isFinal()) {
         try { await activeRun.finalizeWithoutSubmit(); } catch { /* the manifest is best effort here; the author already ended */ }

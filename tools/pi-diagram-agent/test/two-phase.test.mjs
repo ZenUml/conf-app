@@ -360,13 +360,13 @@ test('build step: the generator runs inside every build_check before the hash is
   }finally{t.cleanup()}
 });
 
-test('build step: a generator error is a short message (status GENERATOR_ERROR), uses one check, never reaches the auditor, and is counted in run.json',async()=>{
+test('build step: a generator error is a short message (status GENERATOR_ERROR), uses no check, never reaches the auditor, and is counted in run.json',async()=>{
   const t=setup();try{
     t.write(svg('stale bytes'));
     const c=await t.check({build:async()=>({ok:false,source:'make.py',message:'make.py failed. Last output: ValueError: no points'})});
-    assert.equal(c.status,'GENERATOR_ERROR');assert.match(c.message,/no points/);assert.equal(c.checksUsedThisRound,1);assert.equal(t.calls.audit.length,0);
+    assert.equal(c.status,'GENERATOR_ERROR');assert.match(c.message,/no points/);assert.equal(c.checksUsedThisRound,0);assert.equal(c.checksLeftThisRound,6);assert.equal(c.generatorErrorsLeftThisRound,5);assert.equal(t.calls.audit.length,0);
     const m=readRunManifest(t.job.runDir);
-    assert.equal(m.twoPhase.generatorErrors,1);assert.equal(m.twoPhase.perRound[0].generatorErrors,1);assert.equal(m.twoPhase.checks[0].generatorError,true);
+    assert.equal(m.twoPhase.checksTotal,0);assert.equal(m.twoPhase.caps.generatorErrorsPerRound,6);assert.equal(m.twoPhase.generatorErrors,1);assert.equal(m.twoPhase.perRound[0].generatorErrors,1);assert.equal(m.twoPhase.checks[0].generatorError,true);
     // The stale candidate.svg left over from before is still unchecked, so submit refuses it.
     assert.equal((await t.out()).code,'UNCHECKED_BYTES');
   }finally{t.cleanup()}
@@ -421,4 +421,39 @@ test('submit with the budget exhausted, no candidate and the last round allowed 
     const r=await t.out();
     assert.equal(r.status,'REFUSED');assert.equal(r.code,'NO_CANDIDATE');
   }finally{t.cleanup()}
+});
+
+const genFail=message=>async()=>({ok:false,source:'make.py',message});
+
+test('generator errors do not reduce the checks left; real checks still count',async()=>{
+  const t=setup({budgets:{maxChecksPerRound:2}});try{
+    for(let i=0;i<4;i++){const c=await t.check({build:genFail('boom')});assert.equal(c.status,'GENERATOR_ERROR');assert.equal(c.checksLeftThisRound,2);assert.equal(c.checksLeftThisRun,16)}
+    t.write(svg('ok'));const r=await t.check({build:async()=>({ok:true,source:'make.py'})});
+    assert.equal(r.status,'CHECK_PASS');assert.equal(r.checksUsedThisRound,1);assert.equal(r.checksLeftThisRound,1);
+    const m=readRunManifest(t.job.runDir);
+    assert.equal(m.twoPhase.checksTotal,1);assert.equal(m.twoPhase.generatorErrors,4);
+    assert.deepEqual(m.twoPhase.perRound.map(x=>({calls:x.buildCheckCalls,fresh:x.freshChecks,gen:x.generatorErrors})),[{calls:1,fresh:1,gen:4}]);
+    assert.equal(m.metrics.buildChecks,1);assert.equal(m.metrics.generatorErrors,4);
+  }finally{t.cleanup()}
+});
+
+test('the generator-error cap refuses further build_checks for the round without running the generator, lets submit fall back to its own check, and resets after the round',async()=>{
+  const t=setup({budgets:{maxGeneratorErrorsPerRound:2},replies:[rv([rf('balance',['A'])])]});try{
+    let ran=0;const counting=async()=>{ran++;return {ok:false,source:'make.py',message:'boom'}};
+    await t.check({build:counting});await t.check({build:counting});
+    const c=await t.check({build:counting});
+    assert.equal(c.status,'GENERATOR_ERROR_LIMIT_REACHED');assert.equal(ran,2);assert.equal(c.checksLeftThisRound,6);assert.match(c.next,/diagram_submit/);
+    assert.equal((await t.out()).code,'NO_CANDIDATE'); // nothing written yet
+    t.write(svg('written by hand'));
+    assert.equal((await t.out()).status,'REVISE'); // unchecked bytes are checked by the orchestrator, no UNCHECKED_BYTES deadlock
+    const next=await t.check({build:counting}); // new round: allowance restored
+    assert.equal(next.status,'GENERATOR_ERROR');assert.equal(ran,3);
+    const m=readRunManifest(t.job.runDir);
+    assert.equal(m.twoPhase.generatorErrors,3);assert.equal(m.twoPhase.perRound[0].generatorErrors,2);assert.equal(m.twoPhase.perRound[0].limitHits,1);
+  }finally{t.cleanup()}
+});
+
+test('budgets: PI_DIAGRAM_MAX_GENERATOR_ERRORS_PER_ROUND configures the cap, default 6',()=>{
+  assert.equal(DEFAULT_BUDGETS.maxGeneratorErrorsPerRound,6);
+  assert.equal(budgetsFromEnv({PI_DIAGRAM_MAX_GENERATOR_ERRORS_PER_ROUND:'3'}).maxGeneratorErrorsPerRound,3);
 });

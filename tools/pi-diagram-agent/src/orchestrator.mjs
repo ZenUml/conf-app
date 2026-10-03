@@ -19,7 +19,7 @@ const sha=b=>createHash('sha256').update(b).digest('hex');
 const HARD_FORBIDDEN=['script','foreignObject','iframe','image','href','event-handler']; // these make the renderer/auditor refuse the SVG, so it is never rendered
 
 // Two-phase gate: diagram_build_check (text only, binding) <= 6 calls per round and <= 16 per run; diagram_inspect (images) stays <= 3 per round and is not a gate.
-export const DEFAULT_BUDGETS=Object.freeze({maxRounds:4,maxWallMs:25*60_000,maxInspectionsPerRound:3,maxBlockingPerRound:5,stagnationRounds:2,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,maxFindingsPerCheck:8});
+export const DEFAULT_BUDGETS=Object.freeze({maxRounds:4,maxWallMs:25*60_000,maxInspectionsPerRound:3,maxBlockingPerRound:5,stagnationRounds:2,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,maxGeneratorErrorsPerRound:6,maxFindingsPerCheck:8});
 
 export function budgetsFromEnv(env=process.env){
   const b={...DEFAULT_BUDGETS};
@@ -29,6 +29,7 @@ export function budgetsFromEnv(env=process.env){
   if(Number.isFinite(wall)&&wall>0)b.maxWallMs=wall*60_000;
   if(n('PI_DIAGRAM_MAX_CHECKS_PER_ROUND'))b.maxChecksPerRound=n('PI_DIAGRAM_MAX_CHECKS_PER_ROUND');
   if(n('PI_DIAGRAM_MAX_CHECKS_PER_RUN'))b.maxChecksPerRun=n('PI_DIAGRAM_MAX_CHECKS_PER_RUN');
+  if(n('PI_DIAGRAM_MAX_GENERATOR_ERRORS_PER_ROUND'))b.maxGeneratorErrorsPerRound=n('PI_DIAGRAM_MAX_GENERATOR_ERRORS_PER_ROUND');
   if(env.PI_DIAGRAM_TWO_PHASE==='0')b.twoPhase=false; // restores the one-phase submit (audit + review inside diagram_submit) for benchmark comparability
   return b;
 }
@@ -77,7 +78,9 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   let callsRound=0,callsTotal=0,checkSinceMark=0,exceptions=[],authorCalls=0,reviewerCalls=0,generatorErrors=0,cacheHits=0;
   const freshStats=()=>({buildCheckCalls:0,freshChecks:0,cacheHits:0,refusals:0,generatorErrors:0,limitHits:0});
   let cur=freshStats();
-  const exhausted=()=>callsRound>=B.maxChecksPerRound||callsTotal>=B.maxChecksPerRun;
+  const generatorCapHit=()=>cur.generatorErrors>=B.maxGeneratorErrorsPerRound;
+  // Out of build_checks for this round or run, or out of generator-error allowance: submit falls back to the orchestrator's own check of the bytes.
+  const exhausted=()=>callsRound>=B.maxChecksPerRound||callsTotal>=B.maxChecksPerRun||generatorCapHit();
 
   const timed=async(fn)=>{const s=now();try{return await fn()}finally{timings.orchestratorMs+=now()-s}};
 
@@ -242,11 +245,11 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       finalSvgSha256:bestC?.hash??null,finalMedia,originalSvgHash:bestC?.audit?.originalSvgHash??null,
       rounds,downgrades:downgradeList(),ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC),
       exceptions:status==='REVIEWED_WITH_EXCEPTIONS'||status==='VALIDATED'?exceptions:[],...(status==='REVIEWED_WITH_EXCEPTIONS'?{publishAsDefault:false}:{}),
-      twoPhase:{enabled:twoPhase,caps:{perRound:B.maxChecksPerRound,perRun:B.maxChecksPerRun,findingsPerCheck:B.maxFindingsPerCheck},checksTotal:callsTotal,cacheHits,generatorErrors,perRound:[...doneRounds,...openRound],checks:checkLog,refusals,escalations},
+      twoPhase:{enabled:twoPhase,caps:{perRound:B.maxChecksPerRound,perRun:B.maxChecksPerRun,generatorErrorsPerRound:B.maxGeneratorErrorsPerRound,findingsPerCheck:B.maxFindingsPerCheck},checksTotal:callsTotal,cacheHits,generatorErrors,perRound:[...doneRounds,...openRound],checks:checkLog,refusals,escalations},
       timings:{...timings,totalMs:now()-startedAt},modelCalls:{author:authorCalls,reviewer:reviewerCalls},tokens,budgets:{...B},reviewer:{...reviewerCfg},
       metrics:{rounds:rounds.length,gateStatus:status,authorSeconds:timings.authorMs/1000,reviewerSeconds:timings.reviewerMs/1000,
         authorTokens:{input:tokens.author.input??0,output:tokens.author.output??0},reviewerTokens:{input:tokens.reviewer.input??0,output:tokens.reviewer.output??0},
-        modelCalls:{author:authorCalls,reviewer:reviewerCalls},buildChecks:callsTotal,refusals:refusals.length,escalations:escalations.length,
+        modelCalls:{author:authorCalls,reviewer:reviewerCalls},buildChecks:callsTotal,generatorErrors,refusals:refusals.length,escalations:escalations.length,
         falseBlockCandidates:ledgerSnap.filter(e=>e.falseBlockCandidate).length,unstableFindings:ledgerSnap.filter(e=>e.unstable).length,oscillations:ledgerSnap.reduce((n,e)=>n+e.oscillations,0)+oscillationsInReverted,reverts},
       acceptance:null};
   }
@@ -283,7 +286,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   // ---- phase 1: diagram_build_check ------------------------------------------------------------
   const failedRules=c=>[...new Set(c.findings.filter(f=>f.severity==='blocking').map(f=>f.rule))];
-  const left=()=>({checksUsedThisRound:callsRound,checksLeftThisRound:Math.max(0,B.maxChecksPerRound-callsRound),checksUsedThisRun:callsTotal,checksLeftThisRun:Math.max(0,B.maxChecksPerRun-callsTotal)});
+  const left=()=>({generatorErrorsThisRound:cur.generatorErrors,generatorErrorsLeftThisRound:Math.max(0,B.maxGeneratorErrorsPerRound-cur.generatorErrors),checksUsedThisRound:callsRound,checksLeftThisRound:Math.max(0,B.maxChecksPerRound-callsRound),checksUsedThisRun:callsTotal,checksLeftThisRun:Math.max(0,B.maxChecksPerRun-callsTotal)});
   const checkStatuses=c=>{
     const out=Object.fromEntries(Object.entries(c.audit?.checks??{}).map(([k,v])=>[k,v?.status]));
     for(const f of c.findings)if(f.severity==='blocking')out[f.rule]='FAIL';
@@ -309,6 +312,10 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       const scope=callsTotal>=B.maxChecksPerRun?'run':'round';
       return reply({status:'CHECK_LIMIT_REACHED',scope,...left(),next:scope==='run'?'No diagram_build_check calls remain in this run. Submit the current candidate.svg: unchecked bytes are checked by the orchestrator itself and, if script FAILs remain, the escalation review decides.':'No diagram_build_check calls remain this round. Submit the current candidate.svg: if script FAILs remain, the escalation review decides (semantic FAILs are rejected, border-grazing or unavoidable-crossing FAILs may be waived, anything else comes back as layout advice).'});
     }
+    if(build&&generatorCapHit()){
+      cur.limitHits++;persist();
+      return reply({status:'GENERATOR_ERROR_LIMIT_REACHED',message:`${cur.generatorErrors} build_check calls this round failed before producing candidate.svg (cap ${B.maxGeneratorErrorsPerRound}). No further diagram_build_check calls are accepted this round.`,...left(),next:`Write ${job.outputPath} yourself (fix the generator or the spec and rebuild it with your own tools), then call diagram_submit: the orchestrator checks the bytes itself and, if script FAILs remain, the escalation review decides. If no readable candidate.svg exists the submit is refused.`});
+    }
     const t0=now();
     callsRound++;callsTotal++;cur.buildCheckCalls++;
     const seq=callsTotal;
@@ -319,9 +326,12 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       try{built=await build()}catch(error){callsRound--;callsTotal--;cur.buildCheckCalls--;throw error} // a genuine tool failure is not a spent check
       source=built?.source??null;
       if(!built?.ok){
+        // No bytes were checked, so this call is not a spent check: it counts against the separate generator-error cap only.
+        callsRound--;callsTotal--;cur.buildCheckCalls--;
         generatorErrors++;cur.generatorErrors++;
-        checkLog.push({seq,round:round+1,svgHash:null,cached:false,generatorError:true,source,failed:[],blocking:0,minor:0,ms:now()-t0});
-        return finish(reply({status:'GENERATOR_ERROR',source,message:built?.message??'the generator failed',...left(),next:'Fix the generator (see the message) and call diagram_build_check again. This call used one check.'}));
+        checkLog.push({seq:null,round:round+1,svgHash:null,cached:false,generatorError:true,source,failed:[],blocking:0,minor:0,ms:now()-t0});
+        const l=left();
+        return finish(reply({status:'GENERATOR_ERROR',source,message:built?.message??'the generator failed',...l,next:`Fix the generator or the spec (see the message) and call diagram_build_check again. This call did not use a check; ${l.generatorErrorsLeftThisRound} generator error(s) left this round before build_check is refused.`}));
       }
     }
     const cand=readCandidate();

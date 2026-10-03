@@ -199,8 +199,18 @@ describe('headless RPC', () => {
     const body = await res.json();
     const byName = Object.fromEntries(body.result.tools.map((t: { name: string }) => [t.name, t]));
     expect(byName.read_diagram._meta.ui.resourceUri).toBe('ui://zenuml/diagram');
-    expect(byName.read_diagram._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin]);
+    // The csp lives on the RESOURCE, not the tool — asserting it here is what
+    // let the real misplacement pass. resources/list and resources/read carry it.
+    expect(byName.read_diagram._meta.ui.csp).toBeUndefined();
     expect(byName.list_diagrams).not.toHaveProperty('_meta');
+  });
+
+  it('carries the csp on the listed resource, pinned to this deploy origin', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'resources/list');
+    const body = await res.json();
+    expect(body.result.resources[0]._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin]);
   });
 
   it('lists the view as a resource', async () => {

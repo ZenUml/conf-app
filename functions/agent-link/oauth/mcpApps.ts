@@ -98,29 +98,49 @@ export function uiCapability(): Record<string, unknown> {
 }
 
 /**
- * The `_meta.ui` a view-carrying tool advertises.
+ * The CSP the host must apply to the view's frame.
  *
- * `csp.resourceDomains` names our own origin because that is where the built
- * bundle lives. Nothing else is listed: the view draws from the tool result it
- * is handed and makes no calls of its own, so a wider policy would buy nothing
- * and widen what a compromised bundle could reach.
+ * WHERE THIS GOES MATTERS AND IT IS NOT THE TOOL. The spec puts `csp` on the UI
+ * RESOURCE's `_meta.ui` — both in `resources/list` and in the `resources/read`
+ * contents — not on the tool. We had it on the tool, which meant the host saw
+ * no csp for the resource at all and applied its documented default:
+ *
+ *   default-src 'none'; script-src 'self' 'unsafe-inline'; ...
+ *
+ * `'self'` there is the frame's origin, not ours, so the view's own bundle was
+ * refused and the iframe rendered empty with nothing logged anywhere — Claude
+ * Desktop, 2026-10-03, after the handshake and the fetch were both confirmed
+ * working. Everything upstream can be correct and the view will still draw
+ * nothing if this object is attached to the wrong object.
+ *
+ * baseUriDomains is what lets the injected <base> stick — see withAbsoluteBase.
+ * Without it the tag is refused and every relative asset URL resolves against
+ * the frame instead of our origin.
  */
-export function uiMeta(origin: string): Record<string, unknown> {
+export function uiCsp(origin: string): Record<string, unknown> {
   return {
-    ui: {
-      resourceUri: DIAGRAM_VIEW_URI,
-      // baseUriDomains is what lets the injected <base> stick — see
-      // withAbsoluteBase. Without it the tag is refused and every relative
-      // asset URL resolves against the iframe instead of our origin.
-      csp: {
-        resourceDomains: [origin],
-        baseUriDomains: [origin],
-        connectDomains: [],
-        frameDomains: [],
-      },
-    },
+    resourceDomains: [origin],
+    baseUriDomains: [origin],
+    connectDomains: [],
+    frameDomains: [],
   };
 }
+
+/** `_meta` for the UI resource itself: this is where the csp belongs. */
+export function uiResourceMeta(origin: string): Record<string, unknown> {
+  return { ui: { csp: uiCsp(origin) } };
+}
+
+/**
+ * `_meta` for a tool that carries the view.
+ *
+ * Only the association lives here. `visibility` is omitted deliberately: the
+ * spec defaults it to ["model","app"], which is what we want.
+ */
+export function uiMeta(_origin?: string): Record<string, unknown> {
+  return { ui: { resourceUri: DIAGRAM_VIEW_URI } };
+}
+
 
 /** Attach `_meta.ui` to the view-carrying tools, leaving the rest alone. */
 export function withUiMeta<T extends { name: string }>(tools: readonly T[], origin: string): T[] {
@@ -129,13 +149,14 @@ export function withUiMeta<T extends { name: string }>(tools: readonly T[], orig
 }
 
 /** The `resources/list` entry for the view. */
-export function uiResourceList(): Array<Record<string, unknown>> {
+export function uiResourceList(origin: string): Array<Record<string, unknown>> {
   return [
     {
       uri: DIAGRAM_VIEW_URI,
       name: 'ZenUML diagram view',
       description: 'Renders a sequence or Mermaid diagram from a tool result.',
       mimeType: UI_MIME_TYPE,
+      _meta: uiResourceMeta(origin),
     },
   ];
 }
@@ -216,6 +237,16 @@ export async function readUiResource(
 
   return {
     ok: true,
-    contents: [{ uri: DIAGRAM_VIEW_URI, mimeType: UI_MIME_TYPE, text: withAbsoluteBase(text, origin) }],
+    // `_meta.ui.csp` on the CONTENTS is the one the host actually enforces for
+    // the frame it is about to create. Omitting it falls back to the spec's
+    // restrictive default, which refuses this very bundle.
+    contents: [
+      {
+        uri: DIAGRAM_VIEW_URI,
+        mimeType: UI_MIME_TYPE,
+        text: withAbsoluteBase(text, origin),
+        _meta: uiResourceMeta(origin),
+      },
+    ],
   };
 }

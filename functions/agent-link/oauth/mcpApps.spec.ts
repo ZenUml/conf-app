@@ -9,8 +9,10 @@ import {
   isRenderableType,
   uiCapability,
   uiMeta,
+  uiCsp,
   withUiMeta,
   uiResourceList,
+  uiResourceMeta,
   readUiResource,
   withAbsoluteBase,
 } from './mcpApps';
@@ -52,7 +54,7 @@ describe('spec identifiers', () => {
   });
 
   it('advertises the resource with the app MIME type, not plain text/html', () => {
-    const [entry] = uiResourceList();
+    const [entry] = uiResourceList(ORIGIN);
     expect(entry.uri).toBe(DIAGRAM_VIEW_URI);
     expect(entry.mimeType).toBe(UI_MIME_TYPE);
   });
@@ -80,19 +82,18 @@ describe('withUiMeta', () => {
     expect(listed).not.toHaveProperty('_meta');
   });
 
-  it('points _meta.ui at the view and allows this origin to serve the bundle', () => {
+  it('points _meta.ui at the view', () => {
     const read = withUiMeta(tools, ORIGIN).find((t) => t.name === 'read_diagram') as
-      { _meta: { ui: { resourceUri: string; csp: { resourceDomains: string[] } } } };
+      { _meta: { ui: { resourceUri: string } } };
     expect(read._meta.ui.resourceUri).toBe(DIAGRAM_VIEW_URI);
-    // The sandbox baseline is default-src 'none': an origin missing here loads
-    // nothing at all, with no error.
-    expect(read._meta.ui.csp.resourceDomains).toEqual([ORIGIN]);
+    // The csp does NOT belong here — see the 'csp placement' block. This test
+    // used to assert it on the tool, which is how the real bug passed review.
   });
 
   it('grants no network reach the view does not need', () => {
-    const meta = uiMeta(ORIGIN) as { ui: { csp: { connectDomains: string[]; frameDomains: string[] } } };
-    expect(meta.ui.csp.connectDomains).toEqual([]);
-    expect(meta.ui.csp.frameDomains).toEqual([]);
+    const csp = uiCsp(ORIGIN) as { connectDomains: string[]; frameDomains: string[] };
+    expect(csp.connectDomains).toEqual([]);
+    expect(csp.frameDomains).toEqual([]);
   });
 
   it('does not mutate the tools it was given', () => {
@@ -102,8 +103,8 @@ describe('withUiMeta', () => {
   });
 
   it('carries each deploy its own origin, so staging never advertises prod', () => {
-    const stg = withUiMeta(tools, 'https://conf-stg-lite.zenuml.com').find((t) => t.name === 'read_diagram') as
-      { _meta: { ui: { csp: { resourceDomains: string[] } } } };
+    const [stg] = uiResourceList('https://conf-stg-lite.zenuml.com') as
+      Array<{ _meta: { ui: { csp: { resourceDomains: string[] } } } }>;
     expect(stg._meta.ui.csp.resourceDomains).toEqual(['https://conf-stg-lite.zenuml.com']);
   });
 });
@@ -155,8 +156,8 @@ describe('withAbsoluteBase', () => {
   });
 
   it('allows the base in the CSP, or the tag is refused', () => {
-    const meta = uiMeta(ORIGIN) as { ui: { csp: { baseUriDomains: string[] } } };
-    expect(meta.ui.csp.baseUriDomains).toEqual([ORIGIN]);
+    const csp = uiCsp(ORIGIN) as { baseUriDomains: string[] };
+    expect(csp.baseUriDomains).toEqual([ORIGIN]);
   });
 });
 
@@ -168,6 +169,7 @@ describe('readUiResource', () => {
       uri: DIAGRAM_VIEW_URI,
       mimeType: UI_MIME_TYPE,
       text: withAbsoluteBase(VIEW_HTML, ORIGIN),
+      _meta: uiResourceMeta(ORIGIN),
     });
   });
 
@@ -225,5 +227,35 @@ describe('readUiResource', () => {
       throw new Error('ECONNRESET');
     });
     expect(res).toMatchObject({ ok: false, reason: 'fetch_failed', detail: 'ECONNRESET' });
+  });
+});
+
+/**
+ * Where the csp is attached. This is not a style question: the host enforces
+ * the csp it finds on the UI RESOURCE, and applies a restrictive default when
+ * there is none. We had it on the tool, so the default applied, script-src was
+ * 'self' (the frame, not us), our bundle was refused, and the view rendered
+ * empty with nothing logged — Claude Desktop, 2026-10-03.
+ */
+describe('csp placement', () => {
+  it('puts the csp on the resources/list entry', () => {
+    const [entry] = uiResourceList(ORIGIN) as Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }>;
+    expect(entry._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN]);
+  });
+
+  it('puts the csp on the resources/read contents, which is the one enforced', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(VIEW_HTML));
+    expect(res.ok).toBe(true);
+    const contents = (res as { contents: Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }> }).contents;
+    expect(contents[0]._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN]);
+    expect(contents[0]._meta?.ui?.csp?.baseUriDomains).toEqual([ORIGIN]);
+  });
+
+  it('keeps the tool meta to the association only', () => {
+    const meta = uiMeta(ORIGIN) as { ui: Record<string, unknown> };
+    expect(meta.ui.resourceUri).toBe(DIAGRAM_VIEW_URI);
+    // csp here is ignored by the host; asserting its absence keeps it from
+    // creeping back and looking like it works.
+    expect(meta.ui.csp).toBeUndefined();
   });
 });

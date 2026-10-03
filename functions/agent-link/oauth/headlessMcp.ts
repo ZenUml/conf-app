@@ -355,7 +355,7 @@ export async function handleHeadlessRpc(
       return result(id, { tools: withUiMeta(HEADLESS_TOOLS, new URL(request.url).origin) });
 
     case 'resources/list':
-      return result(id, { resources: uiResourceList() });
+      return result(id, { resources: uiResourceList(new URL(request.url).origin) });
 
     case 'resources/read': {
       const rparams = (body.params ?? {}) as { uri?: unknown };

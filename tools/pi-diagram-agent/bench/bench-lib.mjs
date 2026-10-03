@@ -220,3 +220,32 @@ export async function postProcess({runDir,source,outBase,auditFn,adjudications=[
 export function gateAuditMismatch(run){
   return run?.v2?.gateStatus==='REVIEWED'&&run?.audit?.status==='FAIL';
 }
+
+/** Per-diagram_build_check telemetry from the raw Pi RPC events. Records sizes, statuses, rule names and the svgHash only: never SVG, args or assistant text.
+ *  Feed every raw event to onEvent; it returns a {kind:'check',...} record when a diagram_build_check finishes, else null.
+ *  failedBlocking = rules that made the check FAIL; failedAdvisory = rules reported as advice (minor). Needs an orchestrator that reports advisoryRules (null otherwise). */
+export function createCheckTelemetry(){
+  let lastTextLen=0;const pending=new Map();let n=0;
+  const textOf=e=>(e.result?.content??[]).filter(c=>c.type==='text').map(c=>c.text).join(' ');
+  return {
+    onEvent(e){
+      if(e?.type==='message_end'&&e.message?.role==='assistant'){
+        lastTextLen=(e.message.content??[]).filter(c=>c.type==='text').reduce((s,c)=>s+String(c.text??'').length,0);
+        return null;
+      }
+      if(e?.type==='tool_execution_start'&&e.toolName==='diagram_build_check'){
+        pending.set(e.toolCallId??'_',{argsBytes:e.args===undefined?null:Buffer.byteLength(JSON.stringify(e.args)),precedingTextLen:lastTextLen});
+        return null;
+      }
+      if(e?.type==='tool_execution_end'&&e.toolName==='diagram_build_check'){
+        const p=pending.get(e.toolCallId??'_')??{argsBytes:null,precedingTextLen:lastTextLen};pending.delete(e.toolCallId??'_');
+        let body=null;if(!e.isError){try{body=JSON.parse(textOf(e))}catch{}}
+        const names=v=>Array.isArray(v)?v.filter(x=>typeof x==='string'):[];
+        return {kind:'check',n:++n,outcome:e.isError?'ERROR':(typeof body?.status==='string'?body.status:'UNPARSED'),
+          failedBlocking:names(body?.failed),failedAdvisory:Array.isArray(body?.advisoryRules)?names(body.advisoryRules):null,
+          svgHash:typeof body?.svgHash==='string'?body.svgHash:null,argsBytes:p.argsBytes,precedingTextLen:p.precedingTextLen};
+      }
+      return null;
+    },
+  };
+}

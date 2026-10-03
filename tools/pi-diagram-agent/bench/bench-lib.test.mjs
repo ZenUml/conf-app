@@ -226,3 +226,27 @@ test('two-phase: markdown has a two-phase section with per-round check usage',()
   const md=renderMarkdown({...base,runs:[{id:'f2-r1',doneReason:'AGENT_SETTLED',toolCalls:3,inspections:2,assistantMessages:14,v2:summariseManifest(twoPhaseManifest())}]},{meta:{}});
   assert.match(md,/## Two-phase gate/);assert.match(md,/f2-r1 \| REVIEWED_WITH_EXCEPTIONS \| 7 \| 4,3 \| 1 \| 1 \| 1 \| routeCrossings/);
 });
+
+import {createCheckTelemetry} from './bench-lib.mjs';
+test('check telemetry records outcome, blocking/advisory rules, svgHash, args size and preceding text length, and nothing else',()=>{
+  const t=createCheckTelemetry(),out=[];
+  const feed=e=>{const r=t.onEvent(e);if(r)out.push(r)};
+  const end=(id,body,isError=false)=>feed({type:'tool_execution_end',toolName:'diagram_build_check',toolCallId:id,isError,result:{content:[{type:'text',text:typeof body==='string'?body:JSON.stringify(body)}]}});
+  feed({type:'message_end',message:{role:'assistant',content:[{type:'text',text:'x'.repeat(40)},{type:'toolCall'}]}});
+  feed({type:'tool_execution_start',toolName:'diagram_build_check',toolCallId:'a',args:{job:'j'}});
+  end('a',{status:'CHECK_FAIL',svgHash:'h1',failed:['relations'],advisoryRules:['routeCrossings'],findings:[{secret:'SECRET'}]});
+  feed({type:'message_end',message:{role:'assistant',content:[{type:'text',text:'hello'}]}});
+  feed({type:'tool_execution_start',toolName:'diagram_build_check',toolCallId:'b',args:{}});
+  end('b',{status:'CHECK_PASS',svgHash:'h2',failed:[],advisoryRules:['a','b']});
+  feed({type:'tool_execution_start',toolName:'diagram_build_check',toolCallId:'c',args:{}});
+  end('c',{status:'CHECK_LIMIT_REACHED'});
+  feed({type:'tool_execution_start',toolName:'bash',toolCallId:'d',args:{}});feed({type:'tool_execution_end',toolName:'bash',toolCallId:'d',result:{content:[]}});
+  feed({type:'tool_execution_start',toolName:'diagram_build_check',toolCallId:'e',args:{}});
+  end('e','boom',true);
+  assert.equal(out.length,4);
+  assert.deepEqual(out[0],{kind:'check',n:1,outcome:'CHECK_FAIL',failedBlocking:['relations'],failedAdvisory:['routeCrossings'],svgHash:'h1',argsBytes:11,precedingTextLen:40});
+  assert.deepEqual(out[1],{kind:'check',n:2,outcome:'CHECK_PASS',failedBlocking:[],failedAdvisory:['a','b'],svgHash:'h2',argsBytes:2,precedingTextLen:5});
+  assert.equal(out[2].outcome,'CHECK_LIMIT_REACHED');assert.equal(out[2].svgHash,null);
+  assert.equal(out[3].outcome,'ERROR');
+  assert.equal(JSON.stringify(out).includes('SECRET'),false);
+});

@@ -21,11 +21,15 @@ import {writeManifests,authoritativeManifestPath,manifestDirFromEnv} from './man
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const HARD_FORBIDDEN=['script','foreignObject','iframe','image','href','event-handler']; // these make the renderer/auditor refuse the SVG, so it is never rendered
 
-// Two-phase gate: diagram_build_check (text only, binding) <= 6 calls per round and <= 16 per run; diagram_inspect (images) stays <= 3 per round and is not a gate.
+// Two-phase gate: diagram_build_check (text only, binding) <= 6 calls per round (strict gate; 3 in the relaxed gate, see defaultBudgetsFor) and <= 16 per run; diagram_inspect (images) stays <= 3 per round and is not a gate.
 export const DEFAULT_BUDGETS=Object.freeze({maxRounds:4,maxWallMs:25*60_000,maxInspectionsPerRound:3,maxBlockingPerRound:5,stagnationRounds:2,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,maxGeneratorErrorsPerRound:6,maxFindingsPerCheck:8});
 
+/** Relaxed gate: 3 checks per round, then the next submit goes to review and the Judge (advisory findings never block). Strict keeps the 6. */
+export const RELAXED_MAX_CHECKS_PER_ROUND=3;
+export const defaultBudgetsFor=(gate)=>gate==='strict'?{...DEFAULT_BUDGETS}:{...DEFAULT_BUDGETS,maxChecksPerRound:RELAXED_MAX_CHECKS_PER_ROUND};
+
 export function budgetsFromEnv(env=process.env){
-  const b={...DEFAULT_BUDGETS};
+  const b=defaultBudgetsFor(gateModeFromEnv(env));
   const n=(k,min=1)=>{const v=Number(env[k]);return Number.isFinite(v)&&v>=min?v:null};
   const wall=Number(env.PI_DIAGRAM_MAX_WALL_MIN);
   if(n('PI_DIAGRAM_MAX_ROUNDS'))b.maxRounds=n('PI_DIAGRAM_MAX_ROUNDS');
@@ -73,7 +77,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   if(relaxed&&!judgeFactory&&!deps?.judge)throw Error('JUDGE_FACTORY_REQUIRED: the relaxed gate accepts a candidate only through the Judge; pass judgeFactory, or set PI_DIAGRAM_GATE=strict');
   const d={...defaultDeps(job),...(deps??{})};
   d.judge??=({candidate,baseline,hasGroups})=>judgeSvgs({candidate,baseline,hasGroups,factory:judgeFactory,render:d.judgeRender,model:judgeModel,mode:'original',thresholds:acceptThresholds,inLoop:true});
-  const B={...DEFAULT_BUDGETS,...(budgets??{})};
+  const B={...defaultBudgetsFor(relaxed?'relaxed':'strict'),...(budgets??{})};
   let model=null;try{model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'))}catch{}
   const ledger=createLedger();
   const startedAt=now();
@@ -322,6 +326,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   // ---- phase 1: diagram_build_check ------------------------------------------------------------
   const failedRules=c=>[...new Set(c.findings.filter(f=>f.severity==='blocking').map(f=>f.rule))];
+  const advisoryRules=c=>[...new Set(c.findings.filter(f=>f.severity!=='blocking').map(f=>f.rule))];
   const left=()=>({generatorErrorsThisRound:cur.generatorErrors,generatorErrorsLeftThisRound:Math.max(0,B.maxGeneratorErrorsPerRound-cur.generatorErrors),checksUsedThisRound:callsRound,checksLeftThisRound:Math.max(0,B.maxChecksPerRound-callsRound),checksUsedThisRun:callsTotal,checksLeftThisRun:Math.max(0,B.maxChecksPerRun-callsTotal)});
   const checkStatuses=c=>{
     const out=Object.fromEntries(Object.entries(c.audit?.checks??{}).map(([k,v])=>[k,v?.status]));
@@ -333,7 +338,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const sel=formatForAuthor({sent:blocking.slice(0,B.maxFindingsPerCheck).map(f=>({...f,state:'open'})),omittedBlocking:Math.max(0,blocking.length-B.maxFindingsPerCheck),minorCount:c.findings.length-blocking.length});
     const l=left(),fail=blocking.length>0;
     const last=l.checksLeftThisRound===0||l.checksLeftThisRun===0;
-    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:checkStatuses(c),failed:failedRules(c),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,...(relaxed?{advice:c.findings.filter(f=>f.severity==='minor').sort((a,b)=>(b.impact??0)-(a.impact??0)).slice(0,3).map(toAdviceItem)}:{}),notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
+    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:checkStatuses(c),failed:failedRules(c),advisoryRules:advisoryRules(c),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,...(relaxed?{advice:c.findings.filter(f=>f.severity==='minor').sort((a,b)=>(b.impact??0)-(a.impact??0)).slice(0,3).map(toAdviceItem)}:{}),notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
       next:fail
         ?(last?`This was your last build_check ${l.checksLeftThisRun===0?'of the run':'this round'}. If you submit now with FAILs remaining, an escalation review decides: semantic FAILs are rejected, border-grazing or unavoidable-crossing FAILs may be waived, anything else comes back as layout advice. Better: fix what you can and submit.`:`Fix these findings (repairHint/moveHint are evidence you may use or ignore), then call diagram_build_check again. ${l.checksLeftThisRound} check(s) left this round.`)
         :`All script checks pass for hash ${c.hash}. Optionally call diagram_inspect (at most ${B.maxInspectionsPerRound} per round) for the visual evidence, then call diagram_submit with svgHash ${c.hash}.`});
@@ -346,6 +351,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     if(callsRound>=B.maxChecksPerRound||callsTotal>=B.maxChecksPerRun){
       cur.limitHits++;persist();
       const scope=callsTotal>=B.maxChecksPerRun?'run':'round';
+      if(relaxed)return reply({status:'CHECK_LIMIT_REACHED',scope,...left(),next:`No diagram_build_check calls remain this ${scope}. Submit the current candidate.svg now. Advisory findings never block: they go to the reviewer and the Judge with the candidate. Only a blocking FAIL (a wrong or unreadable drawing) is escalated.`});
       return reply({status:'CHECK_LIMIT_REACHED',scope,...left(),next:scope==='run'?'No diagram_build_check calls remain in this run. Submit the current candidate.svg: unchecked bytes are checked by the orchestrator itself and, if script FAILs remain, the escalation review decides.':'No diagram_build_check calls remain this round. Submit the current candidate.svg: if script FAILs remain, the escalation review decides (semantic FAILs are rejected, border-grazing or unavoidable-crossing FAILs may be waived, anything else comes back as layout advice).'});
     }
     if(build&&generatorCapHit()){
@@ -372,7 +378,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     }
     const cand=readCandidate();
     if(!cand.ok){
-      checkLog.push({seq,round:round+1,svgHash:null,cached:false,source,failed:['candidate-missing'],blocking:1,minor:0,ms:now()-t0});
+      checkLog.push({seq,round:round+1,svgHash:null,cached:false,source,outcome:'CHECK_FAIL',failed:['candidate-missing'],advisory:[],blocking:1,minor:0,ms:now()-t0});
       return finish(reply({status:'CHECK_FAIL',svgHash:null,cached:false,failed:['candidate-missing'],findings:[{rule:'candidate-missing',severity:'blocking',evidence:{measured:cand.error,threshold:'a readable regular candidate.svg (<= 2 MB, exact UTF-8)'},suggestion:`Write the SVG to ${job.outputPath} (directly, or from make.py) and call diagram_build_check again.`}],...left(),next:'No candidate bytes to check.'}));
     }
     let hit=cache.get(cand.hash);const cached=!!hit;
@@ -380,7 +386,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     else{
       hit=await scriptCheck(cand,{eager:true});hit.checkSeq=seq;cache.set(cand.hash,hit);cur.freshChecks++;
     }
-    checkLog.push({seq,round:round+1,svgHash:cand.hash,cached,source,failed:failedRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
+    checkLog.push({seq,round:round+1,svgHash:cand.hash,cached,source,outcome:hit.findings.some(f=>f.severity==='blocking')?'CHECK_FAIL':'CHECK_PASS',failed:failedRules(hit),advisory:advisoryRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
     return finish(checkReply(hit,{cached,source,buildNote}));
   }
   const buildCheck=opts=>serial(()=>buildCheckNow(opts??{}));
@@ -409,7 +415,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
           if(!wallNow&&!exhausted())return refuse('UNCHECKED_BYTES',{message:`these bytes (${cand.hash}) were never script-checked.`,next:'Call diagram_build_check (it rebuilds from make.py when present) and submit the hash it returns once it has no FAIL.'});
           // No check left (or no time): the orchestrator checks the bytes itself, without spending a check.
           const t0=now();hit=await scriptCheck(cand,{eager:true});cache.set(cand.hash,hit);
-          checkLog.push({seq:null,round:round+1,svgHash:cand.hash,cached:false,implicit:true,failed:failedRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
+          checkLog.push({seq:null,round:round+1,svgHash:cand.hash,cached:false,implicit:true,outcome:hit.findings.some(f=>f.severity==='blocking')?'CHECK_FAIL':'CHECK_PASS',failed:failedRules(hit),advisory:advisoryRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
         }
         if(hit.findings.some(f=>f.severity==='blocking')&&!wallNow){
           if(exhausted())escalating=true;

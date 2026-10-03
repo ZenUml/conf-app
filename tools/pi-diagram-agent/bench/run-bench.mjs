@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {reduceEvents,summariseAudit,aggregate,renderMarkdown,eventIsRateLimit,createRunTracker,loadV2Metrics,postProcess,gateAuditMismatch,loadAdjudications} from './bench-lib.mjs';
+import {reduceEvents,summariseAudit,aggregate,renderMarkdown,eventIsRateLimit,createRunTracker,createCheckTelemetry,loadV2Metrics,postProcess,gateAuditMismatch,loadAdjudications} from './bench-lib.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const worktreePkg=path.resolve(here,'..');
@@ -67,7 +67,7 @@ function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv=
     const args=['--mode','rpc','--provider','openai-codex','--model',model,'--thinking','high','--no-session','--no-skills','--no-context-files','--no-prompt-templates','--no-extensions','--extension',pkg+'/pi-extension.ts'];
     const env={...process.env,...extraEnv};
     const child=spawn(piBin,args,{cwd:pkg,env});
-    const events=[];const started=Date.now();const tracker=createRunTracker();let graceTimer=null;let buffer='',n=0,toolCalls=0,inspections=0,finished=false;
+    const events=[];const started=Date.now();const tracker=createRunTracker();const checkTelemetry=createCheckTelemetry();let graceTimer=null;let buffer='',n=0,toolCalls=0,inspections=0,finished=false;
     const log=x=>{x.tMs=Date.now()-started;events.push(x);fs.appendFileSync(eventFile,JSON.stringify(x)+'\n')};
     const finish=reason=>{if(finished)return;finished=true;clearTimeout(timer);clearTimeout(graceTimer);log({kind:'done',reason,elapsedMs:Date.now()-started,events:n,toolCalls,inspections});child.kill('SIGTERM');resolve(events)};
     const timer=setTimeout(()=>finish('TIME_LIMIT'),timeoutMs);
@@ -77,6 +77,7 @@ function runPi({pkg,source,eventFile,magicOptions,timeoutMs,piBin='pi',extraEnv=
         const line=buffer.slice(0,i);buffer=buffer.slice(i+1);if(!line.trim())continue;
         let e;try{e=JSON.parse(line)}catch{log({kind:'non-json'});continue}
         n++;
+        {const rec=checkTelemetry.onEvent(e);if(rec)log(rec)}
         if(e.type==='response')log({kind:'response',command:e.command,success:e.success,error:e.error});
         if(e.type==='extension_ui_request'&&e.method==='notify')log({kind:'notify',text:e.message});
         if(e.type==='tool_execution_start'){toolCalls++;if(e.toolName==='diagram_inspect')inspections++;log({kind:'tool-start',tool:e.toolName})}

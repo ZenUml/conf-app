@@ -53,7 +53,7 @@ test('v2 is the default: diagram_submit and /magic-accept are registered and the
     try{
       assert.match(f.sent[0],/diagram_submit/);assert.match(f.sent[0],/at most 3 diagram_inspect/);
       // The normal loop is described: make.py -> diagram_build_check -> occasional inspect -> submit with the hash.
-      assert.match(f.sent[0],/make\.py/);assert.match(f.sent[0],/diagram_build_check/);assert.match(f.sent[0],/at most 6 diagram_build_check/);assert.match(f.sent[0],/svgHash/);
+      assert.match(f.sent[0],/make\.py/);assert.match(f.sent[0],/diagram_build_check/);assert.match(f.sent[0],/at most 3 diagram_build_check/);assert.match(f.sent[0],/svgHash/);
     }finally{s.cleanup()}
   });
 });

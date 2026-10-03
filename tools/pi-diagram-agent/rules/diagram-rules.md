@@ -26,7 +26,7 @@ Before routing, generate candidate positions for each movable node at the median
 
 Compare complete layouts lexicographically, in this exact order:
 
-1. fewer connector crossings and geometry collisions; a feasible normal layout has zero;
+1. fewer connector crossings and geometry collisions; a feasible normal layout has zero (a dense diagram does not chase zero, see "Dense diagrams" below);
 2. smaller aspect-band violation (see "Aspect band and track folding"); a layout inside the band scores zero;
 3. fewer total bends across all logical relationships;
 4. less total detour across all logical relationships;
@@ -34,6 +34,8 @@ Compare complete layouts lexicographically, in this exact order:
 6. less total node displacement from the prior layout.
 
 An earlier metric always outranks every later metric. Accept a node move only when the full-diagram score improves; never improve one relationship at the expense of a worse global score. Report the before/after score tuple during verification, and inspect every moved node together with all incident connectors in the required 2× crop loop.
+
+**Dense diagrams.** At or above 20 source relations (an empirical threshold; the Pi agent reads it from `PI_DIAGRAM_DENSE_RELATIONS`, default 20), zero crossings is no longer the goal. Still minimise crossings with port order and routing lanes, but do not chase zero: in a dense diagram crossings are measured and reported as minor, never as a blocking failure, and a minor crossing never needs a waiver. Every other connector rule stays in force.
 
 ### Aspect band and track folding
 
@@ -79,8 +81,8 @@ These rules apply in addition to the SVG-specific refinements below.
 8. **Use `stroke-width="1"` unless line weight is used for emphasis.** Node borders are a separate layer and may differ.
 9. Lines are solid by default. Dashes/dots require actual documented meaning and apply consistently to that relationship class.
 10. For multiple edges converging on the same target from the same direction, merge them into one visual final trunk and one arrowhead. Every logical relationship nevertheless remains a complete source-to-target SVG path; common geometry overlaps rather than being replaced by a decorative trunk.
-11. An edge label is never struck through by its own route. Prefer placing it above/beside the route; otherwise give it an opaque background matching the canvas.
-12. Assign ordered ports and routing tracks before drawing; minimize crossings before minimizing length. Any segment intersection is a failure unless it is a shared endpoint or explicitly documented shared route.
+11. Edge labels. (a) A label of fewer than 4 words floats on its own route, centred on a straight segment of that route. On a vertical or mostly vertical route the label is drawn vertically, rotated -90 degrees so it reads bottom to top. A label of 4 or more words sits beside its own route. This is a strong default, not a measured limit: the reviewer judges it. (b) An edge label has no border: no stroke on its pill or background shape. It always has a background, an opaque fill matching the canvas, so its own route is never struck through the text. (c) Placement priority, highest first: (1) the label is clearly owned by its own route; (2) the label background never hides another route; (3) the label sits on its own route, centred; (4) the label sits beside its route. If (1) and (2) cannot both hold, change the layout (widen the gap, spread the ports); never push the label away from its route.
+12. Assign ordered ports and routing tracks before drawing; minimize crossings before minimizing length. Any segment intersection is a failure unless it is a shared endpoint or explicitly documented shared route. In a dense diagram (20 or more source relations) a crossing is minor, not a failure; see "Dense diagrams".
 13. Arrowhead clearance is a hard feasibility requirement: the arrowhead must not overlap the final bend or intersect any earlier segment of its own connector. Keep a visible straight shaft of at least 8 SVG units from the end of the last fillet to the arrowhead base; if there is no bend, measure from the source boundary. The final theoretical segment must be at least `actual fillet trim + effective arrowhead axial length + 8` SVG units. Check this before route-length minimization; both generator and validator must enforce it. Fixture: with `r=5` and arrowhead axial length 12, a last leg of 10 fails and 25 passes.
 14. Parallel-span clearance is a hard feasibility requirement: for every pair of distinct logical connectors, compare every pair of parallel straight centerline spans whose projected overlap is positive after the actual fillet trim. At native scale (1 SVG unit = 1 CSS px), their centerline separation must be at least 10 SVG units; measure centerline-to-centerline separation, not the visible stroke gap. Coincident distinct spans therefore fail unless the model explicitly declares an intentional shared bus or junction topology; sharing a source or target does not create an exemption. Apply this check before route-length or other aesthetic ranking, and enforce it independently in both the generator and validator. Fixture: positive-overlap spans separated by 9 fail, and spans separated by 10 pass.
 

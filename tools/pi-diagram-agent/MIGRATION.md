@@ -8,6 +8,6 @@ Supported entry point: `pi-extension.ts`, which provides `/magic` and `diagram_i
 
 The old deterministic layout and CLI fallback, generated diagrams, screenshots, private customer sources, and historical evidence documents are excluded.
 
-The canonical rules are pinned to SHA-256 `c790f138cafae94fb9e601d7b35c1460cf6eac276211a6341c39deb2227534ea`. A source-declared group conflict with the actual rendered original remains a semantic failure; preserving original visible grouping does not erase that conflict.
+The canonical rules are pinned to SHA-256 `3cfa9ce4411e5014ac249b7801f6cdf77aeab3ddcfaf521785fe2dfa7b873b3f`. A source-declared group conflict with the actual rendered original remains a semantic failure; preserving original visible grouping does not erase that conflict.
 
 Remaining quality work: independently prove all applicable rules, perform comparative image review, repair unresolved defects, and define certification before publishing a validated Magic artifact. The two private historical candidates remain UNCERTIFIED.

@@ -6,6 +6,7 @@ import path from 'node:path';
 import {makeFinding} from './findings.mjs';
 import {REVIEW_RULES} from './early-checks.mjs';
 import {NOT_CHECKABLE_SHAPES} from './parser.mjs';
+import {denseInfo,denseRelationThreshold} from './dense.mjs';
 
 export const REVIEWER_CHECKLIST=[
   {rule:'label-ownership',text:'Edge labels: is each label on the wrong edge, ambiguous between two edges, or detached from its edge?'},
@@ -93,6 +94,10 @@ export function buildReviewerPrompt({facts,audit,geometry,imageLabels,measured='
     ? `- Line-style keys: a line-style key is optional. This diagram uses 1 distinct connector style (${[...distinctStyles][0]}); a drawn legend must not show a line style that no connector uses.`
     : `- Line-style keys: a line-style key is optional. This diagram uses ${distinctStylesCount} distinct connector styles: ${[...distinctStyles].join(', ')}. If a legend shows line styles, each must match a style actually drawn; a missing line-style key is minor at most.`;
 
+  // Dense diagrams and edge labels (user decisions 2026-10-03).
+  const relationCount=Array.isArray(facts.edges)?facts.edges.length:null,denseThreshold=denseRelationThreshold(),dense=relationCount===null?null:denseInfo(relationCount);
+  const denseState=relationCount===null?'The relation count could not be established.':dense?`This diagram has ${relationCount} relations: dense (${dense.reason}).`:`This diagram has ${relationCount} relations: not dense (threshold ${denseThreshold}).`;
+
   return `You are an independent diagram reviewer. You have no tools and cannot read files. Attached are ${imageLabels.length} PNG images of ONE candidate diagram (and the original Mermaid render for comparison). Judge only what is visible, and use the measured numbers below.
 
 Images, in order:
@@ -115,6 +120,8 @@ Rules to apply:
 - Shapes: a node whose facts carry shapeCheck "not-checkable" has a source shape the rules have no notation for; never report shape-change for it. Otherwise every node keeps its source notation shape. A decision node may be the normal diamond; the long-text variant, a horizontally extended hexagon with its points at the top and bottom, is ALLOWED by the rules and is not a shape change. Any other shape change is blocking under rule shape-change, for example a subroutine or queue drawn as a capsule, a cylinder drawn as a rectangle, a diamond turned into a rectangle.
 - Legend: a legend is optional. Do not report a missing legend. If a legend is drawn, an entry that contradicts actual use is blocking (rule legend), for example a swatch colour or shape that matches no node, a dashed-line key while no connector is dashed, or a swatch whose shape differs from the node it explains. Missing keys in an existing legend are minor at most.
 ${styleRule}
+- Dense diagrams: at or above ${denseThreshold} relations a diagram is dense; in a dense diagram do not report crossings as blocking (minor at most); zero crossings is not the goal there. ${denseState}
+- Edge labels (judge from the images; code measures only the border, the background and whether a label covers another route): a label of fewer than 4 words should, as far as possible, float on its own route, centred on a straight segment; on a vertical or mostly vertical route it should be drawn vertically, rotated -90 degrees so it reads bottom to top. Missing that is minor at most. An edge label has no border and has an opaque background matching the canvas. The label background never hides another route. A label whose owner is unclear is a blocking label-ownership finding.
 - Detours: a route is an avoidable detour (blocking, rule detour) only when its length exceeds 3x the Manhattan distance between its endpoints and no node or container forces the longer path.
 - Severity. "blocking" = a defect a maintainer would send back, for example a label on the wrong edge, text overflowing its frame, a shape change that is not allowed, a legend entry that contradicts actual use, a missing or invisible arrowhead, an avoidable detour as defined above. "minor" = acceptable to ship, for example pure restyling such as recolouring routes or arrowheads compared with the original, ragged container bottoms, a decision-node tip 10 units from a border, wording of legend entries, a missing legend or missing keys in an existing legend, general balance preferences.
 

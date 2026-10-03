@@ -7,7 +7,10 @@ import {parseMermaid} from './parser.mjs';
 import {renderAgentSvg} from './agent-render.mjs';
 import {auditAgentSvg} from './agent-audit.mjs';
 import {ensureOriginal} from './agent-led.mjs';
-import {makeFinding,createLedger,selectForAuthor,formatForAuthor,auditToFindings} from './findings.mjs';
+import {makeFinding,createLedger,selectForAuthor,formatForAuthor,auditToFindings,selectAdvice,toAdviceItem} from './findings.mjs';
+import {gateModeFromEnv,relaxFindings} from './relaxed.mjs';
+import {judgeSvgs,writeJudgement,hasGroupsFromOriginalSvg} from './judge-run.mjs';
+import {buildJudgement,acceptThresholdsFromEnv} from './judge.mjs';
 import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,isLowerBendMinor,EARLY_AUDIT_RULES,EARLY_MEASURED_RULES} from './early-checks.mjs';
 import {collectGeometry,geometryFindings,geometryForReviewer,geometryNotCheckable} from './geometry.mjs';
 import {buildReviewerFacts,buildReviewerPrompt,runReviewer,selectReviewImages,reviewerConfigFromEnv} from './reviewer.mjs';
@@ -58,17 +61,25 @@ const addUsage=(a,b)=>{const out={...a};for(const [k,v] of Object.entries(b??{})
 const pair=s=>[s.auditBlocking,s.reviewBlocking];
 const cmpPair=(a,b)=>{const x=pair(a),y=pair(b);return x[0]-y[0]||x[1]-y[1]};
 const cmpTriple=(a,b)=>cmpPair(a,b)||a.minor-b.minor;
+// Best candidate: fewest blocking findings, then (relaxed gate) the highest Judge mean (a judged candidate beats an unjudged one), then the fewest minor findings; ties go to the newer candidate.
+const judgeMeanOf=c=>c.judgement&&c.judgement.verdict!=='JUDGE_ERROR'&&Number.isFinite(c.judgement.mean)?c.judgement.mean:-Infinity;
+const betterOrEqual=(c,b)=>cmpPair(c.score,b.score)?cmpPair(c.score,b.score)<0:judgeMeanOf(c)!==judgeMeanOf(b)?judgeMeanOf(c)>judgeMeanOf(b):c.score.minor<=b.score.minor;
 
 /** @param job result of prepareAgentTask  @param opts {deps, reviewerFactory, budgets, now, onRoundEnd} */
-export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null,manifestDir=manifestDirFromEnv()}={}){
+export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null,manifestDir=manifestDirFromEnv(),gate=gateModeFromEnv(),judgeFactory=null,judgeModel=null,acceptThresholds=acceptThresholdsFromEnv()}={}){
   const reviewerCfg=reviewer??reviewerConfigFromEnv();
+  // Gate mode. relaxed (default): only wrong-or-unreadable defects block, everything else is advice, and the Judge decides acceptance inside the loop. strict: the previous behaviour, no Judge.
+  const relaxed=gate!=='strict';
+  if(relaxed&&!judgeFactory&&!deps?.judge)throw Error('JUDGE_FACTORY_REQUIRED: the relaxed gate accepts a candidate only through the Judge; pass judgeFactory, or set PI_DIAGRAM_GATE=strict');
   const d={...defaultDeps(job),...(deps??{})};
+  d.judge??=({candidate,baseline,hasGroups})=>judgeSvgs({candidate,baseline,hasGroups,factory:judgeFactory,render:d.judgeRender,model:judgeModel,mode:'original',thresholds:acceptThresholds,inLoop:true});
   const B={...DEFAULT_BUDGETS,...(budgets??{})};
   let model=null;try{model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'))}catch{}
   const ledger=createLedger();
   const startedAt=now();
-  const timings={authorMs:0,reviewerMs:0,orchestratorMs:0,checkMs:0};
-  const tokens={author:{},reviewer:{}};
+  const timings={authorMs:0,reviewerMs:0,orchestratorMs:0,checkMs:0,judgeMs:0};
+  const tokens={author:{},reviewer:{},judge:{}};
+  const judgeRounds=[];let judgeCalls=0;
   const rounds=[];
   let lastReview=null,round=0,authorMark=startedAt,base=null,best=null,stagnant=0,finalResult=null,status='RUNNING',statusReason=null,finalDetail=null,oscillationsInReverted=0,lastManifest=null,extraResidual=[],reverts=0;
   // Two-phase gate state. Phase 1 = diagram_build_check (binding script check, text only); phase 2 = the reviewer inside diagram_submit.
@@ -125,17 +136,18 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       c.audit=await timed(()=>d.audit(cand.bytes,{originalSvg:original.svgBytes}));
     }catch(error){c.stage='early';c.findings=renderOrAuditFailed(error);return c}
     c.stage='audit';
-    c.findings=[...earlyFindings({svgText:cand.text,audit:c.audit}),...auditToFindings(c.audit).filter(f=>!EARLY_AUDIT_RULES.includes(f.rule)&&!EARLY_MEASURED_RULES.includes(f.rule)&&!isLowerBendMinor(f))];
+    c.findings=[...earlyFindings({svgText:cand.text,audit:c.audit,relaxed}),...auditToFindings(c.audit,{relaxed}).filter(f=>!EARLY_AUDIT_RULES.includes(f.rule)&&!EARLY_MEASURED_RULES.includes(f.rule)&&!isLowerBendMinor(f))];
     if(model&&(eager||!c.findings.some(f=>f.severity==='blocking'))){
       // Measured geometry: deterministic label-detachment and route-clearance checks, and the coordinates the reviewer is given.
       try{
         const geo=await timed(()=>d.geometry(cand.bytes));
-        if(geo){c.geometry=geo;c.findings.push(...geometryFindings(geo,model))}else c.notes.push('GEOMETRY_UNAVAILABLE');
+        if(geo){c.geometry=geo;c.findings.push(...geometryFindings(geo,model,{relaxed}))}else c.notes.push('GEOMETRY_UNAVAILABLE');
       }catch(error){c.notes.push(`GEOMETRY_UNAVAILABLE: ${String(error?.message??error).slice(0,120)}`)}
     }
+    if(relaxed)c.findings=relaxFindings(c.findings);
     if(c.findings.some(f=>f.severity==='blocking'))return c;
     if(!model){c.notes.push('SOURCE_NOT_PARSEABLE');return c}
-    const reasons=auditGateReasons({audit:c.audit,forbidden:c.forbidden});
+    const reasons=auditGateReasons({audit:c.audit,forbidden:c.forbidden,relaxed});
     if(reasons.length)c.findings.push(...reasons.map(gateFinding));
     return c;
   }
@@ -169,7 +181,28 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     c.stage='review';c.sources.push('review'); // only a review that actually ran may mark earlier review findings fixed
     const covered=applyCoverage(review.findings,{audit:c.audit,svgText:c.text,model});
     c.findings.push(...applyStability(covered,{previous:lastReview,svgText:c.text}));
+    if(relaxed)c.findings=relaxFindings(c.findings);
     c.reviewSnapshot={keys:new Set(review.findings.map(f=>f.key)),svgText:c.text}; // becomes the stability baseline only if this round is kept
+    return c;
+  }
+
+  /** Relaxed gate acceptance: the Judge (both passes) on the exact final bytes against the original. Runs only for a candidate with no blocking finding that passed review and the hash-identity gate. */
+  async function judgePhase(c){
+    const t0=now();let record=null,original=null;
+    try{
+      original=await d.original();
+      const j=await d.judge({candidate:c.bytes,baseline:original.svgBytes,hasGroups:hasGroupsFromOriginalSvg(original.svgBytes)});
+      const {wallMs,...rest}=j;record=rest;
+    }catch(error){
+      record=buildJudgement({candidateSha256:c.hash,originalSha256:original?.svgBytes?sha(Buffer.from(original.svgBytes)):null,mode:'original',model:judgeModel,passes:[],merged:{dims:{},mean:0},thresholds:acceptThresholds,verdict:'JUDGE_ERROR',verdictReason:String(error?.message??error).slice(0,400),extra:{inLoop:true}});
+    }
+    timings.judgeMs+=now()-t0;
+    for(const p of record.passes??[]){tokens.judge=addUsage(tokens.judge,p.usage);judgeCalls+=p.attempts??1}
+    if(record.coach){tokens.judge=addUsage(tokens.judge,record.coach.usage);judgeCalls+=record.coach.attempts??1}
+    writeJudgement(job.runDir,record);
+    c.judgement=record;
+    judgeRounds.push({round,svgHash:c.hash,...judgementSummary(record)});
+    if(record.verdict==='JUDGE_ERROR'){c.stage='judge-error';extraResidual.push({rule:'JUDGE_ERROR',severity:'blocking',source:'judge',detail:record.verdictReason})}
     return c;
   }
 
@@ -192,6 +225,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     c.stage='review';c.sources.push('review');
     const covered=applyCoverage(review.findings,{audit:c.audit,svgText:c.text,model});
     c.findings.push(...applyStability(covered,{previous:lastReview,svgText:c.text}));
+    if(relaxed)c.findings=relaxFindings(c.findings);
     c.reviewSnapshot={keys:new Set(review.findings.map(f=>f.key)),svgText:c.text};
     const diag=review.diagnosis;
     if(diag.outcome==='relayout'){
@@ -214,10 +248,11 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const audit=c?.audit,out=audit?.checks?Object.entries(audit.checks).filter(([,v])=>v?.status==='NOT-CHECKABLE').map(([k])=>k):[];
     return c&&model?[...out,...geometryNotCheckable(c.geometry??null,model)]:out;
   };
-  const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.repairHints?{repairHints:f.repairHints}:{}),...(f.moveHints?{moveHints:f.moveHints}:{}),...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.downgradeRefused?{downgradeRefused:f.downgradeRefused}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{}),...(f.waived?{waived:f.waived}:{})});
+  const brief=f=>({key:f.key,id:f.id,rule:f.rule,source:f.source,severity:f.severity,...(f.impact!==undefined?{impact:f.impact}:{}),elements:f.elements,region:f.region,evidence:f.evidence,suggestion:f.suggestion,...(f.repairHints?{repairHints:f.repairHints}:{}),...(f.moveHints?{moveHints:f.moveHints}:{}),...(f.downgraded?{downgraded:f.downgraded}:{}),...(f.downgradeRefused?{downgradeRefused:f.downgradeRefused}:{}),...(f.unstable?{unstable:true,unstableReason:f.unstable.reason}:{}),...(f.waived?{waived:f.waived}:{})});
 
   const checksWithStatus=(audit,status)=>audit?.checks?Object.entries(audit.checks??{}).filter(([,v])=>v?.status===status).map(([k])=>k):[];
 
+  const judgementSummary=j=>({verdict:j.verdict,verdictReason:j.verdictReason,mean:j.mean,passMeans:j.passMeans??null,dimensions:Object.fromEntries(Object.entries(j.merged?.dims??{}).map(([k,v])=>[k,v?v.score:null])),improvements:j.improvements??[],candidateSha256:j.candidateSha256,selfHash:j.selfHash});
   function roundRecord(c,score,extra={}){
     const auditRecord=c.audit?{
       status:c.audit.status,
@@ -227,7 +262,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     return {round:c.round,svgHash:c.hash,renderedHash:c.render?.svgHash??null,stage:c.stage,reverted:false,
       audit:auditRecord,
       review:c.review?{ok:c.review.ok,verdict:c.review.verdict??null,...(c.review.diagnosis?{diagnosis:c.review.diagnosis}:{}),imageCount:c.review.imageCount??null,attempts:c.review.attempts,ms:c.review.ms,usage:c.review.usage,error:c.review.error??null,modelId:c.review.modelId??null,findings:(c.review.findings??[]).map(brief)}:null,
-      findings:c.findings.map(brief),gate:c.gate,counts:score,...(c.escalation?{escalation:c.escalation}:{}),...extra};
+      findings:c.findings.map(brief),gate:c.gate,counts:score,...(c.judgement?{judgement:judgementSummary(c.judgement)}:{}),...(c.escalation?{escalation:c.escalation}:{}),...extra};
   }
 
   /** Every reviewer finding the early-check policy demoted, across all rounds: finding key, covering check, evidence pointer. */
@@ -239,7 +274,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const ledgerSnap=ledger.snapshot();
     const residual=[...(bestC?.findings??[]).map(brief),...(bestC?.carried??[]).map(f=>({...brief(f),carried:true})),...extraResidual];
     const openRound=cur.buildCheckCalls||cur.refusals||cur.limitHits||cur.generatorErrors?[{round:doneRounds.length+1,open:true,...cur}]:[];
-    return {schema:'pi-diagram-run/3',v2:true,status,statusReason,
+    return {schema:'pi-diagram-run/3',v2:true,gate,...(relaxed?{judge:{enabled:true,inLoop:true,thresholds:acceptThresholds,model:judgeModel,rounds:judgeRounds}}:{}),status,statusReason,
       startedAt:new Date(startedAt).toISOString(),finishedAt:new Date(now()).toISOString(),
       sourceHash:job.sourceHash,rulesHash:job.rulesHash,rulesHistory:job.manifest?.rulesHistory??[],
       adjudication:job.manifest?.adjudication?{sha256:job.manifest.adjudication.sha256,records:job.manifest.adjudication.records?.length??0}:null,
@@ -247,7 +282,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       rounds,downgrades:downgradeList(),ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC),
       exceptions:status==='REVIEWED_WITH_EXCEPTIONS'||status==='VALIDATED'?exceptions:[],...(status==='REVIEWED_WITH_EXCEPTIONS'?{publishAsDefault:false}:{}),
       twoPhase:{enabled:twoPhase,caps:{perRound:B.maxChecksPerRound,perRun:B.maxChecksPerRun,generatorErrorsPerRound:B.maxGeneratorErrorsPerRound,findingsPerCheck:B.maxFindingsPerCheck},checksTotal:callsTotal,cacheHits,generatorErrors,perRound:[...doneRounds,...openRound],checks:checkLog,refusals,escalations},
-      timings:{...timings,totalMs:now()-startedAt},modelCalls:{author:authorCalls,reviewer:reviewerCalls},tokens,budgets:{...B},reviewer:{...reviewerCfg},
+      timings:{...timings,totalMs:now()-startedAt},modelCalls:{author:authorCalls,reviewer:reviewerCalls,...(relaxed?{judge:judgeCalls}:{})},tokens,budgets:{...B},reviewer:{...reviewerCfg},
       metrics:{rounds:rounds.length,gateStatus:status,authorSeconds:timings.authorMs/1000,reviewerSeconds:timings.reviewerMs/1000,
         authorTokens:{input:tokens.author.input??0,output:tokens.author.output??0},reviewerTokens:{input:tokens.reviewer.input??0,output:tokens.reviewer.output??0},
         modelCalls:{author:authorCalls,reviewer:reviewerCalls},buildChecks:callsTotal,generatorErrors,refusals:refusals.length,escalations:escalations.length,
@@ -268,10 +303,10 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const m=lastManifest;
     const residual=m.residual.slice(0,10);
     const text=newStatus==='REVIEWED'
-      ?`REVIEWED: passed the deterministic gate (reviewed, rendered and final SVG hashes are identical, zero script FAILs). This is not validation: rules ${m.notCheckable.join(', ')||'(none)'} are NOT-CHECKABLE and only a human can accept the result (/magic-accept ${job.runDir} ${m.finalSvgSha256}). Stop and report: candidate path, hash ${m.finalSvgSha256}, status REVIEWED, the NOT-CHECKABLE rules, and any minor residual findings. Do not edit candidate.svg again.`
+      ?`REVIEWED: passed the ${relaxed?'relaxed':'deterministic'} gate (reviewed, rendered and final SVG hashes are identical, ${relaxed?'no blocking finding':'zero script FAILs'}${relaxed&&best?.judgement?`, the Judge rated it IMPROVED over the original with mean ${Math.round(best.judgement.mean*1000)/1000}`:''}). This is not validation: rules ${m.notCheckable.join(', ')||'(none)'} are NOT-CHECKABLE and only a human can accept the result (/magic-accept ${job.runDir} ${m.finalSvgSha256}). Stop and report: candidate path, hash ${m.finalSvgSha256}, status REVIEWED, the NOT-CHECKABLE rules, and any minor residual findings. Do not edit candidate.svg again.`
       :newStatus==='REVIEWED_WITH_EXCEPTIONS'
       ?`REVIEWED_WITH_EXCEPTIONS: the reviewer's diagnosis waived ${exceptions.length} script FAIL(s) that code permits to waive (${[...new Set(exceptions.map(e=>e.check))].join(', ')}); every other script check passed and no blocking visual finding remains. Waived: ${exceptions.map(e=>`${e.check} on ${e.elements.join(', ')||'(no element ids)'} (measured ${String(e.measured).slice(0,120)}; reviewer reason: ${e.reason})`).join(' | ')}. This status is NOT published as the default Magic image. Only a human can promote it: /magic-accept ${job.runDir} ${m.finalSvgSha256} --waive ${[...new Set(exceptions.map(e=>e.check))].join(',')} (the command must name every waived check). Stop and report: candidate path, hash ${m.finalSvgSha256}, status REVIEWED_WITH_EXCEPTIONS, each waived check with its element ids, measured value and reason, the NOT-CHECKABLE rules ${m.notCheckable.join(', ')||'(none)'}. Do not edit candidate.svg again.`
-      :`CANDIDATE: did not pass the gate (${reason}). The best candidate (fewest blocking, then fewest minor findings) is restored at ${job.outputPath}, hash ${m.finalSvgSha256}. Stop and report: candidate path, hash, status CANDIDATE, and the residual findings below. Do not claim it is reviewed or validated.`;
+      :`CANDIDATE: did not pass the gate (${reason}). The best candidate (fewest blocking${relaxed?', then highest Judge mean':''}, then fewest minor findings) is restored at ${job.outputPath}, hash ${m.finalSvgSha256}. Stop and report: candidate path, hash, status CANDIDATE, and the residual findings below. Do not claim it is reviewed or validated.`;
     finalDetail={status:newStatus,statusReason:reason,round,svgHash:m.finalSvgSha256,candidatePath:job.outputPath,residual,notCheckable:m.notCheckable,runManifest:manifestPath,message:text,downgrades:m.downgrades,...(newStatus==='REVIEWED_WITH_EXCEPTIONS'?{exceptions,publishAsDefault:false}:{}),
       findings:newStatus==='CANDIDATE'?formatForAuthor(selectForAuthor(ledger,{max:B.maxBlockingPerRound})).findings:[]};
     finalResult={content:[{type:'text',text:JSON.stringify(finalDetail)}],details:finalDetail};
@@ -298,7 +333,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const sel=formatForAuthor({sent:blocking.slice(0,B.maxFindingsPerCheck).map(f=>({...f,state:'open'})),omittedBlocking:Math.max(0,blocking.length-B.maxFindingsPerCheck),minorCount:c.findings.length-blocking.length});
     const l=left(),fail=blocking.length>0;
     const last=l.checksLeftThisRound===0||l.checksLeftThisRun===0;
-    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:checkStatuses(c),failed:failedRules(c),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
+    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:checkStatuses(c),failed:failedRules(c),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,...(relaxed?{advice:c.findings.filter(f=>f.severity==='minor').sort((a,b)=>(b.impact??0)-(a.impact??0)).slice(0,3).map(toAdviceItem)}:{}),notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
       next:fail
         ?(last?`This was your last build_check ${l.checksLeftThisRun===0?'of the run':'this round'}. If you submit now with FAILs remaining, an escalation review decides: semantic FAILs are rejected, border-grazing or unavoidable-crossing FAILs may be waived, anything else comes back as layout advice. Better: fix what you can and submit.`:`Fix these findings (repairHint/moveHint are evidence you may use or ignore), then call diagram_build_check again. ${l.checksLeftThisRound} check(s) left this round.`)
         :`All script checks pass for hash ${c.hash}. Optionally call diagram_inspect (at most ${B.maxInspectionsPerRound} per round) for the visual evidence, then call diagram_submit with svgHash ${c.hash}.`});
@@ -389,8 +424,9 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     let reasonOverride=null;
     if(c.stage==='review'&&!c.findings.some(f=>f.severity==='blocking')){
       const finalRead=readCandidate();
-      c.gate=evaluateGate({reviewedHash:c.render.svgHash,finalHash:finalRead.ok?finalRead.hash:null,renderedHash:c.hash,audit:c.audit,forbidden:c.forbidden,review:c.review,openBlocking:0,waived:(c.waived??[]).map(w=>w.check)});
+      c.gate=evaluateGate({reviewedHash:c.render.svgHash,finalHash:finalRead.ok?finalRead.hash:null,renderedHash:c.hash,audit:c.audit,forbidden:c.forbidden,review:c.review,openBlocking:0,waived:(c.waived??[]).map(w=>w.check),relaxed});
       if(!c.gate.pass)c.findings.push(...c.gate.reasons.map(gateFinding));
+      else if(relaxed&&!c.escalation&&c.bytes)await judgePhase(c);
     }
     carryReview(c);
     const score=summarise(c);
@@ -407,19 +443,22 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       c.score=score;if(c.bytes)base=c; // a round without candidate bytes is recorded but never becomes the revert target
       if(c.reviewSnapshot)lastReview=c.reviewSnapshot;
       const improved=!best||cmpPair(score,best.score)<0;
-      if(c.bytes&&(!best||cmpTriple(score,best.score)<=0))best={...c,score};
-      stagnant=improved?0:stagnant+1;
+      if(c.bytes&&(!best||betterOrEqual({...c,score},best)))best={...c,score};
+      stagnant=improved||c.judgement?0:stagnant+1; // a judged round is bounded by the round and wall budgets, not by the blocking-count stagnation rule
       rounds.push(roundRecord(c,score));
     }
     // Late defensive check: a pass must also leave no open blocking finding in the ledger.
     if(!reverted&&c.gate?.pass&&ledger.openBlocking().length>0)c.gate={pass:false,reasons:[{code:'OPEN_BLOCKING',detail:`${ledger.openBlocking().length} open blocking finding(s) in the ledger`}]};
     doneRounds.push({round,...cur});cur=freshStats();callsRound=0; // the per-round check budget resets when a round ends
     let result;
-    if(!reverted&&c.gate?.pass){exceptions=c.waived??[];result=finalize(exceptions.length?'REVIEWED_WITH_EXCEPTIONS':'REVIEWED',null)}
+    const judgeOk=!relaxed||c.judgement?.verdict==='IMPROVED'; // relaxed: REVIEWED needs the Judge's IMPROVED on exactly these bytes; fail closed
+    const niNote=(()=>{const j=c.judgement??best?.judgement;return j?.verdict==='NOT_IMPROVED'?`NOT_IMPROVED (${j.verdictReason}): `:''})();
+    if(!reverted&&c.gate?.pass&&judgeOk){exceptions=c.waived??[];result=finalize(exceptions.length?'REVIEWED_WITH_EXCEPTIONS':'REVIEWED',null)}
     else if(c.stage==='reviewer-error')result=finalize('CANDIDATE','REVIEWER_ERROR: '+c.review.error);
+    else if(c.stage==='judge-error')result=finalize('CANDIDATE','JUDGE_ERROR: '+c.judgement.verdictReason);
     else if(c.notes.includes('SOURCE_NOT_PARSEABLE'))result=finalize('CANDIDATE','SOURCE_NOT_PARSEABLE: semantics cannot be established by the auditor');
-    else if(wallExceeded||now()-startedAt>B.maxWallMs)result=finalize('CANDIDATE',`WALL_CLOCK: exceeded ${Math.round(B.maxWallMs/1000)} s`);
-    else if(round>=B.maxRounds)result=finalize('CANDIDATE',`ROUNDS_EXHAUSTED: ${B.maxRounds} submit rounds used`);
+    else if(wallExceeded||now()-startedAt>B.maxWallMs)result=finalize('CANDIDATE',`${niNote}WALL_CLOCK: exceeded ${Math.round(B.maxWallMs/1000)} s`);
+    else if(round>=B.maxRounds)result=finalize('CANDIDATE',`${niNote}ROUNDS_EXHAUSTED: ${B.maxRounds} submit rounds used`);
     else if(stagnant>=B.stagnationRounds)result=finalize('CANDIDATE',`NO_PROGRESS: blocking findings did not decrease for ${B.stagnationRounds} rounds`);
     else{
       persist();
@@ -427,7 +466,10 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       const body={status:'REVISE',round,maxRounds:B.maxRounds,svgHash:reverted?base.hash:c.hash,...(reverted?{reverted:true,revertedTo:base.hash,discarded:{auditBlocking:score.auditBlocking,reviewBlocking:score.reviewBlocking,note:'your last edit increased blocking findings; candidate.svg was restored to the previous best bytes. Fix the findings below on top of that version.'}}:{}),
         ...(c.escalation?{escalation:publicEscalation(c.escalation)}:{}),
         findings:sel.findings,downgrades:downgradeList(),omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,
-        next:twoPhase
+        ...(relaxed?reviseExtras(c,reverted):{}),
+        next:relaxed&&c.judgement?.verdict==='NOT_IMPROVED'
+          ?`The Judge compared your drawing with the original and it is not yet clearly better (see judge). Apply judge.improvements, most valuable first; fix any blocking finding; use advice only where it helps the picture. Then ${twoPhase?`diagram_build_check (${B.maxChecksPerRound} checks this round), then diagram_submit with the hash it returns`:'call diagram_submit again'}. You have ${B.maxRounds-round} submit round(s) left.`
+          :twoPhase
           ?(c.escalation?.outcome==='relayout'
             ?`The reviewer advises a layout-level change (see escalation.relayout): redo the layout accordingly, then diagram_build_check (${B.maxChecksPerRound} checks this round), then diagram_submit with the hash it returns. You have ${B.maxRounds-round} submit round(s) left.`
             :`Fix these findings, then diagram_build_check (${B.maxChecksPerRound} checks this round; at most ${B.maxInspectionsPerRound} diagram_inspect calls), then diagram_submit with the hash it returns. You have ${B.maxRounds-round} submit round(s) left.`)
@@ -437,6 +479,12 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     authorMark=now();
     onRoundEnd?.(round);
     return result;
+  }
+  /** Relaxed revise message: the Judge's top 3 improvements (judged rounds only) and the 3 highest-impact advice items. The full advice list is never sent. */
+  function reviseExtras(c,reverted){
+    const a=selectAdvice(ledger,{max:3}),j=c.judgement;
+    return {advice:a.sent,adviceTotal:a.total,
+      ...(!reverted&&j&&j.verdict==='NOT_IMPROVED'?{judge:{verdict:j.verdict,reason:j.verdictReason,mean:j.mean,passMeans:j.passMeans??null,dimensions:Object.fromEntries(Object.entries(j.merged?.dims??{}).map(([k,v])=>[k,v?v.score:null])),improvements:(j.improvements??[]).slice(0,3)}}:{})};
   }
   const publicEscalation=e=>({outcome:e.outcome,failed:e.failed,...(e.hard?{hard:e.hard}:{}),...(e.error?{error:e.error}:{}),...(e.waiverRejected?{waiverRejected:e.waiverRejected}:{}),...(e.relayout?{relayout:e.relayout}:{})});
 

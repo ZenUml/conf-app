@@ -45,7 +45,7 @@ function setup(over={}){
     async prompt(text,{images}){calls.reviewer.push({text,images});clock.t+=700;if(over.onReview)over.onReview();const r=replies.shift();if(r instanceof Error)throw r;return {text:typeof r==='string'?r:JSON.stringify({imagesSeen:images.length,...r}),usage:{input:10,output:5}}},
     dispose(){},
   });
-  const run=createV2Run(job,{deps,reviewerFactory,now:()=>clock.t,budgets:{...over.budgets,twoPhase:false},reviewer:over.reviewerCfg,onRoundEnd:n=>calls.roundEnds.push(n)});
+  const run=createV2Run(job,{gate:'strict',deps,reviewerFactory,now:()=>clock.t,budgets:{...over.budgets,twoPhase:false},reviewer:over.reviewerCfg,onRoundEnd:n=>calls.roundEnds.push(n)});
   const write=text=>fs.writeFileSync(job.outputPath,text);
   const out=async()=>JSON.parse((await run.submit()).content[0].text);
   const cleanup=()=>{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(job.runDir,{recursive:true,force:true})};
@@ -424,7 +424,7 @@ test('real auditor + real original render: a clean candidate for a group-less so
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-v2-real-')),input=path.join(root,'s.mmd');
   fs.writeFileSync(input,'flowchart LR\n  A[Start] --> B[Finish]\n');
   const job=prepareAgentTask(input);let reviews=0;
-  const run=createV2Run(job,{reviewerFactory:()=>({async prompt(_t,{images}){reviews++;return {text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}},dispose(){}})});
+  const run=createV2Run(job,{gate:'strict',reviewerFactory:()=>({async prompt(_t,{images}){reviews++;return {text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}},dispose(){}})});
   try{
     fs.writeFileSync(job.outputPath,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#333"/></marker></defs><g data-node="A"><rect x="10" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="34" y="86">Start</text></g><g data-node="B"><rect x="400" y="50" width="120" height="60" fill="#fff" stroke="#333"/><text x="424" y="86">Finish</text></g><path data-source="A" data-target="B" d="M130 80 L400 80" stroke="#333" fill="none" marker-end="url(#arrow)"/></svg>');
     const chk=JSON.parse((await run.buildCheck()).content[0].text); // two-phase: the binding script check first (real auditor, no images)
@@ -441,7 +441,7 @@ test('a source the parser cannot read ends as CANDIDATE SOURCE_NOT_PARSEABLE ins
   try{
     const input=path.join(path.dirname(t.job.sourcePath),'u.mmd');fs.writeFileSync(input,'flowchart LR\n  A --> B\n  C@{ shape: cyl }\n');
     const job=prepareAgentTask(input);
-    const run=createV2Run(job,{deps:{render:async b=>({svgHash:hash(b),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200}}),
+    const run=createV2Run(job,{gate:'strict',deps:{render:async b=>({svgHash:hash(b),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200}}),
       audit:async()=>({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'NOT-CHECKABLE',evidence:'source parser cannot establish independent semantic bindings: x'}}}),
       original:async()=>({rendered:{media:{full:rec('orig')}},svgBytes:Buffer.from('<svg/>')}),image:r=>({type:'image',data:r.sha256,mimeType:'image/png'}),geometry:async()=>null},
       reviewerFactory:()=>{throw Error('reviewer must not run')},now:()=>0});
@@ -516,7 +516,7 @@ test('finalisation waits for an in-flight submit instead of racing it: one round
   const orig=t.calls;try{
     t.write(svg('v1'));
     // Slow reviewer: hold the first review until finalisation has been requested.
-    const slowRun=createV2Run(t.job,{deps:{render:async b=>({svgHash:hash(b),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200}}),
+    const slowRun=createV2Run(t.job,{gate:'strict',deps:{render:async b=>({svgHash:hash(b),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200}}),
       audit:async()=>({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'PASS',evidence:{missing:[],extra:[]}},relations:{status:'PASS'},groups:{status:'PASS'},semanticPreservation:{status:'PASS'}}}),
       original:async()=>({rendered:{media:{full:rec('orig')}},svgBytes:Buffer.from('<svg/>')}),image:r=>({type:'image',data:r.sha256,mimeType:'image/png'}),geometry:async()=>null},
       reviewerFactory:()=>({async prompt(_t,{images}){await gate;return {text:JSON.stringify({imagesSeen:images.length,findings:[],verdict:'accept'}),usage:{}}},dispose(){}}),now:()=>0});

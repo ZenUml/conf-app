@@ -220,7 +220,21 @@ test('assistant messages are counted as author model calls (message_end), with o
       await f.handlers.get('message_end')({message:{role:'user'}});
       await f.handlers.get('agent_end')({});
       const m=readRunManifest(s.runDir);
-      assert.deepEqual(m.modelCalls,{author:2,reviewer:0});
+      assert.deepEqual(m.modelCalls,{author:2,reviewer:0,judge:0}); // relaxed gate is the default: the Judge accepts inside the loop
+      assert.equal(m.gate,'relaxed');
+      assert.match(f.sent[0],/Relaxed gate/);
+    }finally{s.cleanup()}
+  });
+});
+
+test('PI_DIAGRAM_GATE=strict restores the strict gate: no Judge in the run record, no relaxed paragraph in the prompt',async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_GATE:'strict',PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined},async()=>{
+    const f=fakePi();ext(f.pi);const s=await start(f);
+    try{
+      await f.handlers.get('agent_end')({});
+      const m=readRunManifest(s.runDir);
+      assert.deepEqual(m.modelCalls,{author:0,reviewer:0});assert.equal(m.gate,'strict');assert.equal(m.judge,undefined);
+      assert.doesNotMatch(f.sent[0],/Relaxed gate/);
     }finally{s.cleanup()}
   });
 });

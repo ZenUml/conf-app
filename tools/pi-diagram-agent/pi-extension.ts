@@ -5,6 +5,7 @@ import * as piSdk from '@earendil-works/pi-coding-agent';
 import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { prepareAgentTask, createAgentVisualInspector, buildSourceFacts, composePrompt } from './src/agent-led.mjs';
 import { createV2Run, budgetsFromEnv } from './src/orchestrator.mjs';
+import { gateModeFromEnv } from './src/relaxed.mjs';
 import { createPiReviewerFactory, reviewerConfigFromEnv, resolveReviewerModel } from './src/reviewer.mjs';
 import { safeRunDir } from './src/manifest.mjs';
 import { judgeRunDir, acceptWithJudge } from './src/judge-run.mjs';
@@ -76,7 +77,17 @@ export default function (pi: ExtensionAPI) {
           const reviewerModel = resolveReviewerModel({ available: allModels, authorModel: selected });
           const reviewerCfgWithModel = { ...reviewerCfg, model: reviewerModel };
           inspector = createAgentVisualInspector(job, { maxInspections: v2Budgets.maxInspectionsPerRound, perRound: true, earlyChecks: true });
+          // Relaxed gate (default): the Judge accepts inside the loop, so it needs a native openai-codex model; strict needs none.
+          const gate = gateModeFromEnv();
+          let judgeOpts: Record<string, unknown> = { gate };
+          if (gate === 'relaxed') {
+            const judgeModel = resolveJudgeModel({ available: allModels, authorModel: selected });
+            if (judgeModel.provider !== 'openai-codex') throw Error('JUDGE_PROVIDER_NOT_NATIVE: customer diagrams go only to the native openai-codex provider');
+            const judgeThinking = judgeThinkingFromEnv();
+            judgeOpts = { gate, judgeFactory: createPiJudgeFactory(piSdk, { provider: judgeModel.provider, modelId: judgeModel.id, thinkingLevel: judgeThinking }), judgeModel: { provider: judgeModel.provider, id: judgeModel.id, thinking: judgeThinking, requested: judgeModel.requested, fallback: judgeModel.fallback } };
+          }
           run = createV2Run(job, {
+            ...judgeOpts,
             reviewerFactory: createPiReviewerFactory(piSdk, { provider: reviewerModel.provider, modelId: reviewerModel.id, thinkingLevel: reviewerCfg.thinking }),
             budgets: v2Budgets,
             reviewer: reviewerCfgWithModel,
@@ -103,7 +114,7 @@ export default function (pi: ExtensionAPI) {
           }
         }
         if (specMode) ctx.ui.notify(specRequired ? 'Layout spec mode on (required): layout.json is the only authoring path; make.py is ignored' : 'Layout spec mode on: layout.json + diagram_render_spec offered', 'info');
-        pi.sendUserMessage(composePrompt(job, { jobId, specMode: specRequired ? 'required' : specMode, factsText, v2: v2Budgets ? { maxRounds: v2Budgets.maxRounds, maxInspectionsPerRound: v2Budgets.maxInspectionsPerRound, twoPhase: v2Budgets.twoPhase, maxChecksPerRound: v2Budgets.maxChecksPerRound, maxChecksPerRun: v2Budgets.maxChecksPerRun, maxGeneratorErrorsPerRound: v2Budgets.maxGeneratorErrorsPerRound, runDir: job.runDir } : null }), { deliverAs: 'followUp' });
+        pi.sendUserMessage(composePrompt(job, { jobId, specMode: specRequired ? 'required' : specMode, factsText, v2: v2Budgets ? { maxRounds: v2Budgets.maxRounds, maxInspectionsPerRound: v2Budgets.maxInspectionsPerRound, twoPhase: v2Budgets.twoPhase, maxChecksPerRound: v2Budgets.maxChecksPerRound, maxChecksPerRun: v2Budgets.maxChecksPerRun, maxGeneratorErrorsPerRound: v2Budgets.maxGeneratorErrorsPerRound, runDir: job.runDir, relaxed: gateModeFromEnv() === 'relaxed' } : null }), { deliverAs: 'followUp' });
         ctx.ui.notify(`Pi diagram agent started; private work directory: ${job.runDir}`, 'info');
       } catch (error) {
         ctx.ui.notify(`Diagram agent could not start: ${String((error as Error).message)}`, 'warning');

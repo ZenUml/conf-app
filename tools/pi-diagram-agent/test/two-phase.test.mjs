@@ -54,7 +54,7 @@ function setup(over={}){
     },
     dispose(){},
   });
-  const run=createV2Run(job,{deps,reviewerFactory,now:()=>clock.t,budgets:over.budgets,onRoundEnd:n=>calls.roundEnds.push(n)});
+  const run=createV2Run(job,{gate:'strict',deps,reviewerFactory,now:()=>clock.t,budgets:over.budgets,onRoundEnd:n=>calls.roundEnds.push(n)});
   const write=text=>fs.writeFileSync(job.outputPath,text);
   const body=async res=>JSON.parse((await res).content[0].text);
   const check=async(opts)=>body(run.buildCheck(opts));

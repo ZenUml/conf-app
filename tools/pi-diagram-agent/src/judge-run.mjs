@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 import {randomUUID} from 'node:crypto';
 import {renderAgentSvg} from './agent-render.mjs';
 import {readAuthoritativeManifest,readRunManifest,verifyManifest,acceptRun,safeRunDir,manifestDirFromEnv} from './manifest.mjs';
-import {scoreJudgement,buildJudgement,judgeThresholdsFromEnv,judgeTimeoutFromEnv} from './judge.mjs';
+import {scoreJudgement,buildJudgement,judgeThresholdsFromEnv,judgeTimeoutFromEnv,runCoach,DIMENSIONS} from './judge.mjs';
 
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const MAX_SVG=2_000_000;
@@ -40,12 +40,24 @@ async function renderPair({candidate,baseline,render=renderAgentSvg}){
 }
 
 /** Judge two SVG byte strings. Pure of run state: no judgement.json is written. `baseline` is the original render, or an older version's final SVG for mode vs-old. */
-export async function judgeSvgs({candidate,baseline,hasGroups,factory,render,model,mode='original',thresholds=judgeThresholdsFromEnv(),timeoutMs=judgeTimeoutFromEnv(),now=()=>new Date()}){
+export async function judgeSvgs({candidate,baseline,hasGroups,factory,render,model,mode='original',thresholds=judgeThresholdsFromEnv(),timeoutMs=judgeTimeoutFromEnv(),now=()=>new Date(),inLoop=false}){
   for(const b of [candidate,baseline])if(!Buffer.isBuffer(b)||!b.length||b.length>MAX_SVG)throw Error('INVALID_SVG_BYTES');
   const imageSets=await renderPair({candidate,baseline,render});
   const started=Date.now();
   const r=await scoreJudgement({factory,imageSets,hasGroups,thresholds,timeoutMs,now});
-  const j=buildJudgement({candidateSha256:sha(candidate),originalSha256:sha(baseline),mode,model,passes:r.passes,merged:r.merged,thresholds:r.thresholds,verdict:r.verdict,verdictReason:r.verdictReason,now});
+  // In the /magic loop a NOT_IMPROVED verdict also carries the top 3 changes. They come from one separate short call that is told which drawing is the candidate;
+  // the scoring passes stay blind, and the coach never changes the verdict.
+  let extra={};
+  if(inLoop){
+    extra={inLoop:true,passMeans:r.passMeans??null,improvements:[]};
+    if(r.verdict==='NOT_IMPROVED'){
+      const weak=DIMENSIONS.filter(d=>r.merged.dims?.[d]).sort((a,b)=>r.merged.dims[a].score-r.merged.dims[b].score).slice(0,3);
+      const coach=await runCoach({factory,images:imageSets.originalFirst,hasGroups,weak,timeoutMs});
+      extra.improvements=coach.improvements;
+      extra.coach={ok:coach.ok,attempts:coach.attempts,ms:coach.ms,usage:coach.usage,...(coach.ok?{}:{error:String(coach.error).slice(0,200)})};
+    }
+  }
+  const j=buildJudgement({candidateSha256:sha(candidate),originalSha256:sha(baseline),mode,model,passes:r.passes,merged:r.merged,thresholds:r.thresholds,verdict:r.verdict,verdictReason:r.verdictReason,extra,now});
   return {...j,wallMs:Date.now()-started};
 }
 

@@ -258,7 +258,7 @@ test('reviewer prompt tells the reviewer which layout rules the auditor measures
     legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'untagged shapes'}},
   }};
   const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:measured,geometry,imageLabels:labels7});
-  assert.match(text,/connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight and legend consistency/);
+  assert.match(text,/connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight, node label font size at the 1200x710 fit \(labelFontFit\) and legend consistency/);
   const summary=JSON.parse(/<audit-summary>\n([\s\S]*?)\n<\/audit-summary>/.exec(text)[1]);
   assert.deepEqual(summary.layoutMeasured,{connectorStrokeWidth:{checkedEdges:3,emphasised:0},filletUniformity:{radii:[5],checkedBends:4},textContrast:{checkedTexts:9,threshold:4.5}});
   assert.match(text,/NOT-CHECKABLE[^.]*judge/i);

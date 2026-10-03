@@ -10,7 +10,7 @@ CANVAS = "#ffffff"
 tok = k.palette_token("step", subtle_bg="#e8f1fb", subtle_text="#12355b", border="#2563a8", meaning="Process step")
 style = dict(fill=tok["subtle_bg"], stroke=tok["border"], text_color=tok["subtle_text"])
 
-a = k.node("A", "rect", 20, 128, "Start", **style)
+a = k.node("A", "rect", 20, 132, "Start", **style)
 b = k.node("B", "decision", 220, 108, "Ready", **style)
 c = k.node("C", "store", 520, 108, "Store", **style)
 d = k.node("D", "capsule", 520, 260, "Skip", **style)

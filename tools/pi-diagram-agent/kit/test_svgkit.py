@@ -209,12 +209,37 @@ class Nodes(unittest.TestCase):
     def style(self, **kw):
         return dict(fill="#ffffff", stroke="#333333", text_color="#111111", **kw)
 
-    def test_rect_radius_4_and_label_box_inset_12(self):
+    def test_rect_radius_4_and_label_box_inset_8(self):
         n = k.node("A", "rect", 10, 20, "Start", **self.style())
-        self.assertEqual((n.w, n.h), (120, 64))
+        self.assertEqual((n.w, n.h), (112, 56))
         el = parse(n.svg)[0]
         self.assertEqual(el.find("s:rect", NS).get("rx"), "4")
-        self.assertEqual(el.get("data-label-box"), "22 32 96 40")
+        self.assertEqual(el.get("data-label-box"), "18 28 96 40")
+
+    def test_capsule_inset_is_8_too(self):
+        n = k.node("A", "capsule", 0, 0, "Start", **self.style())
+        self.assertEqual((n.w, n.h), (112, 56))
+        self.assertEqual(parse(n.svg)[0].get("data-label-box"), "8 8 96 40")
+
+    def test_node_text_is_tagged_as_the_primary_label(self):
+        n = k.node("A", "rect", 0, 0, "Start", **self.style())
+        for t in parse(n.svg)[0].findall("s:text", NS):
+            self.assertEqual(t.get("data-role"), "label")
+
+    def test_max_font_is_the_largest_whole_size_that_fits_the_tier(self):
+        f = k.max_font("Start", (96, 40))
+        self.assertTrue(14 <= f <= 28)
+        self.assertEqual(k.fit_label("Start", f).tier, (96, 40))
+        if f < 28:
+            self.assertNotEqual(k.fit_label("Start", f + 1).tier, (96, 40))
+        self.assertEqual(k.max_font("Hi", (480, 160)), 28)
+        self.assertEqual(k.max_font("word " * 60, (96, 40)), 14)
+
+    def test_peer_font_is_the_smallest_maximum_of_the_peers(self):
+        tier = (200, 80)
+        texts = ["OK", "A considerably longer label that needs several lines of text here"]
+        self.assertEqual(k.peer_font(texts, tier), min(k.max_font(t, tier) for t in texts))
+        self.assertLess(k.peer_font(texts, tier), k.max_font("OK", tier))
 
     def test_capsule_keeps_full_radius(self):
         n = k.node("A", "capsule", 0, 0, "Start", **self.style())
@@ -253,8 +278,8 @@ class Nodes(unittest.TestCase):
 
     def test_edge_point_is_arithmetic_on_a_caller_supplied_face_and_fraction(self):
         n = k.node("A", "rect", 100, 100, "Start", **self.style())
-        self.assertEqual(n.edge_point("right", 0.5), (220, 132))
-        self.assertEqual(n.edge_point("top", 0.25), (130, 100))
+        self.assertEqual(n.edge_point("right", 0.5), (212, 128))
+        self.assertEqual(n.edge_point("top", 0.25), (128, 100))
         with self.assertRaises(ValueError):
             n.edge_point("right", 0.01)
         with self.assertRaises(TypeError):

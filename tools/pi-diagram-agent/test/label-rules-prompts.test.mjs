@@ -71,3 +71,39 @@ test('spec schema text documents label.vertical',()=>{
   assert.match(t,/fewer than 4 words[^.]*on its own route/i);
   assert.match(t,/no border/i);
 });
+
+test('pinned rules: rectangle and capsule inset is 8 units, diamonds and hexagons are unchanged, tiers are unchanged',()=>{
+  const p=prepare(relations(2)).prompt;
+  assert.match(p,/For rectangles and capsules, inset the node bounds by 8 units/);
+  assert.doesNotMatch(p,/inset the node bounds by 12 units/);
+  assert.match(p,/For diamonds and long-text decision hexagons, define the central `labelBox`/);
+  assert.match(p,/S = 96×40, M = 200×80, L = 320×120, XL = 480×160/);
+});
+test('pinned rules: font-fill rule (largest whole font 14 to 28, peers share the smallest maximum, descriptions smaller) and the 12 px page-fit minimum',()=>{
+  const p=prepare(relations(2)).prompt;
+  assert.match(p,/largest font size \(whole units, 14 to 28\)[^.]*fits its `labelBox`/);
+  assert.match(p,/same tier, same role\) share one font size, the smallest of their individual maxima/);
+  assert.match(p,/Descriptions stay smaller than the primary label \(T4\)/);
+  assert.match(p,/min\(1200\/viewBox width, 710\/viewBox height\)/);
+  assert.match(p,/at least 12 px/);
+  assert.match(p,/enlarge the font within the box, use a smaller tier with a larger font, or fold or relayout/);
+});
+test('author prompt: the fill rule, the 12 px page-fit minimum and the data-role="label" tag are stated for make.py and spec authors',()=>{
+  const p=prepare(relations(2)).prompt;
+  assert.match(p,/Node label font \(font-fill rule, check labelFontFit\)/);
+  assert.match(p,/largest whole font size from 14 to 28/i);
+  assert.match(p,/smallest of their individual maxima/i);
+  assert.match(p,/at least 12 px/i);
+  assert.match(p,/data-role="label"/);
+  assert.match(p,/max_font/);
+  assert.match(p,/omit `font`/);
+});
+test('spec schema text documents the optional font and its automatic fill',()=>{
+  const t=specModeParagraph({runDir:'/tmp/run',jobId:'job'});
+  assert.match(t,/font\?: number/);
+  assert.match(t,/omit it and the renderer picks the largest whole font \(14 to 28\) that fits the label box, comparable nodes uniform/i);
+});
+test('reviewer prompt lists labelFontFit among the measured checks',()=>{
+  const t=reviewer(3);
+  assert.match(t,/node label font size at the 1200x710 fit/i);
+});

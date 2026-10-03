@@ -21,12 +21,12 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 # Rule constants (Diagram Rules): node r=4, connector fillet r=5, decision fillet 10,
-# label box inset 12, four fixed label-box tiers, one marker geometry (one copy per colour), stroke-width 1 connectors.
+# label box inset 8 (rect/capsule), four fixed label-box tiers, one marker geometry (one copy per colour), stroke-width 1 connectors.
 TIERS = ((96, 40), (200, 80), (320, 120), (480, 160))
 NODE_RADIUS = 4
 CONNECTOR_RADIUS = 5
 DECISION_FILLET = 10
-LABEL_INSET = 12
+LABEL_INSET = 8  # rect/capsule; diamonds, hexagons and the other shapes keep their own fixed insets
 MARKER_ID = "arrow"
 MARKER_LENGTH = 10  # axial length of the marker triangle (refX=10)
 SHAFT_MIN = 8  # rule 13: visible straight shaft before the arrowhead base
@@ -125,6 +125,27 @@ def fit_label(text, font_size: float = 18, line_height: float | None = None, min
         if _fits(lines, tier, font_size, lh):
             return Fit(tier, lines, font_size, lh)
     raise ValueError("label does not fit the XL tier (480x160); shorten the text or split the node")
+
+
+FONT_MIN, FONT_MAX = 14, 28  # font-fill rule: whole units
+
+
+def max_font(text, tier) -> int:
+    """Largest whole font size in 14-28 at which `text` (wrapped, or the lines you chose) fits `tier`'s
+    label box. Falls back to 14 when nothing fits (fit_label then picks a larger tier)."""
+    tier = tuple(tier)
+    for size in range(FONT_MAX, FONT_MIN - 1, -1):
+        lh = round(size * 1.1)
+        lines = list(text) if isinstance(text, (list, tuple)) else wrap_text(text, tier[0], size)
+        if _fits(lines, tier, size, lh):
+            return size
+    return FONT_MIN
+
+
+def peer_font(texts, tier) -> int:
+    """Font-fill rule for comparable nodes (same tier, same role): the smallest of their individual maxima,
+    so peers stay uniform. Pass the result as font_size= to every peer."""
+    return min(max_font(t, tier) for t in texts)
 
 
 # ---------------------------------------------------------------- colour
@@ -382,7 +403,7 @@ def _text_lines(lines, x, cy, anchor, fill, font_size, line_height) -> str:
     first = cy - (len(lines) - 1) * line_height / 2
     return "".join(
         f'<text x="{_n(x)}" y="{_n(first + i * line_height)}" text-anchor="{anchor}" dominant-baseline="central" '
-        f'font-size="{_n(font_size)}" font-weight="400" fill="{esc(fill)}">{esc(line)}</text>'
+        f'font-size="{_n(font_size)}" font-weight="400" fill="{esc(fill)}" data-role="label">{esc(line)}</text>'
         for i, line in enumerate(lines))
 
 
@@ -394,7 +415,7 @@ def node(id: str, shape: str, x: float, y: float, label, *, fill: str, stroke: s
     shape: rect | capsule | decision | store | queue. A decision is a diamond for the S tier and the
     long-text hexagon (points top/bottom) otherwise; pass variant="diamond"|"hexagon" to override.
     The smallest label tier that fits is used unless `tier`/`min_tier` say otherwise. The label box,
-    declared in data-label-box, is the tier rectangle (12-unit inset for rect/capsule)."""
+    declared in data-label-box, is the tier rectangle (8-unit inset for rect/capsule)."""
     check_contrast(text_color, fill)
     fit = fit_label(label, font_size, min_tier=min_tier or tier)
     if tier and tuple(tier) != fit.tier:

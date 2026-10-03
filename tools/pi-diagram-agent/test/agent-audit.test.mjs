@@ -8,7 +8,7 @@ const source='flowchart LR\n  A[Start] --> B[Finish]\n';
 const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><style>rect:not([fill]){fill:#fff}</style><marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10" refY="5"><path d="M0,0 L10,5 L0,10 Z" fill="black"/></marker></defs><g data-node="A"><rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text></g><g data-node="B"><rect x="400" y="50" width="100" height="60"/><text x="410" y="80">Finish</text></g><path data-source="A" data-target="B" d="M110 80 L400 80" stroke="black" fill="none" marker-end="url(#arrow)"/></svg>`;
 
 test('agent audit accepts historical-style neutral bindings without old data-box schema',{skip:!enabled},async()=>{
-  // The shared fixture draws text 10 units from its box edge, which T2 (12-unit inset) rejects; fit it here so this test isolates binding.
+  // The shared fixture draws text 10 units from its box edge, which T2 (8-unit inset) accepts; the text is moved here so this test isolates binding.
   const result=await auditAgentSvg(source,svg.replace('x="20" y="80">Start','x="30" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Finish'));
   assert.equal(result.status,'NOT-CHECKABLE');
   for(const id of ['nodeIdentity','nodeText','relations','textFit'])assert.equal(result.checks[id].status,'PASS');
@@ -154,7 +154,7 @@ test('conservative curve envelopes prove a clear bypass but leave a possible con
 });
 
 // ---- textFit (T2 / labelBox) -------------------------------------------------
-test('textFit passes text inside a rectangular node inset by 12 units',{skip:!enabled},async()=>{
+test('textFit passes text inside a rectangular node inset by 8 units',{skip:!enabled},async()=>{
   const fit=svg.replace('x="20" y="80">Start','x="30" y="85">Hi').replace('x="410" y="80">Finish','x="430" y="85">Ok');
   const result=await auditAgentSvg(source,fit);
   assert.equal(result.checks.textFit.status,'PASS');
@@ -162,12 +162,12 @@ test('textFit passes text inside a rectangular node inset by 12 units',{skip:!en
 });
 
 test('textFit fails text running to its own box border and names node and amount',{skip:!enabled},async()=>{
-  // Node A text starts at the rect edge (x=10), so it overflows the 12-unit inset by 12 on the left.
+  // Node A text starts at the rect edge (x=10), so it overflows the 8-unit inset by 8 on the left.
   const result=await auditAgentSvg(source,svg.replace('x="20" y="80">Start','x="10" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Ok'));
   assert.equal(result.checks.textFit.status,'FAIL');
   const [overflow]=result.checks.textFit.evidence.overflows;
   assert.equal(overflow.nodeId,'A');
-  assert.ok(Math.abs(overflow.left-12)<0.5,`left overflow ${overflow.left}`);
+  assert.ok(Math.abs(overflow.left-8)<0.5,`left overflow ${overflow.left}`);
   assert.equal(result.status,'FAIL');
 });
 
@@ -354,7 +354,7 @@ test('textFit is NOT-CHECKABLE for a node with no bound text',{skip:!enabled},as
 });
 
 test('textFit ignores an unpainted rect when choosing the node outline',{skip:!enabled},async()=>{
-  // Text 2 units inside the visible rect would fit only the larger invisible rect's 12-unit inset.
+  // Text 2 units inside the visible rect would fit only the larger invisible rect's 8-unit inset.
   const padded=svg.replace('<rect x="10" y="50" width="100" height="60"/><text x="20" y="80">Start</text>','<rect x="0" y="40" width="120" height="80" fill="none" stroke="none"/><rect x="10" y="50" width="100" height="60"/><text x="12" y="85">Hi</text>').replace('x="410" y="80">Finish','x="430" y="85">Ok');
   const result=await auditAgentSvg(source,padded);
   assert.equal(result.checks.textFit.status,'FAIL');
@@ -485,4 +485,62 @@ test('a node declared explicitly inside X (bare line) but rendered in Y is still
   const r=await auditAgentSvg(src,cand,{originalSvg:original});
   assert.equal(r.checks.semanticPreservation.status,'FAIL',JSON.stringify(r.checks.semanticPreservation.evidence));
   assert.deepEqual(r.checks.semanticPreservation.evidence.sourceDeclarationConflictNodeIds,['A']);
+});
+
+// ---- labelFontFit (page-fit legibility and the font-fill rule) ----------------------------------
+// Node rects are 100x60 (labelBox 84x44 at inset 8). "Hi" at 14 units is far below its maximum; 28 fills nothing wider than the cap.
+const fontSvg=({vb='0 0 600 200',fontA=28,fontB=28,role='data-role="label" ',textA='Hi',textB='Ok'}={})=>svg
+  .replace('viewBox="0 0 600 200"',`viewBox="${vb}"`)
+  .replace('x="20" y="80">Start',`x="30" y="85" font-size="${fontA}" ${role}>${textA}`)
+  .replace('x="410" y="80">Finish',`x="430" y="85" font-size="${fontB}" ${role}>${textB}`);
+const fontSource='flowchart LR\n  A[Hi] --> B[Ok]\n';
+test('labelFontFit FAILs when a primary label is under 12 px at the 1200x710 page fit, with measured evidence and a fix',{skip:!enabled},async()=>{
+  // viewBox 2400x800: page scale min(0.5, 0.8875) = 0.5, so 18 units -> 9 px.
+  const result=await auditAgentSvg(fontSource,fontSvg({vb:'0 0 2400 800',fontA:18,fontB:18}));
+  const c=result.checks.labelFontFit;
+  assert.equal(c.status,'FAIL');
+  assert.equal(c.evidence.pageScale,0.5);
+  const v=c.evidence.violations.find(x=>x.nodeId==='A');
+  assert.equal(v.size,18);assert.equal(v.effective,9);
+  assert.ok(v.maxFittingSize>=24,`maxFittingSize ${v.maxFittingSize}`);
+  assert.equal(v.neededSize,24); // 12 / 0.5
+  assert.equal(result.status,'FAIL');
+});
+test('labelFontFit PASSes at exactly 12 px effective and reports the median and minimum effective size',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(fontSource,fontSvg({vb:'0 0 2400 800',fontA:24,fontB:24}));
+  const c=result.checks.labelFontFit;
+  assert.equal(c.status,'PASS');
+  assert.equal(c.evidence.minEffective,12);assert.equal(c.evidence.medianEffective,12);
+  assert.equal(c.evidence.checkedNodes,2);
+});
+test('labelFontFit reports a label that could be at least 4 units larger as a minor finding with size, maximum and box',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(fontSource,fontSvg({fontA:20,fontB:28}));
+  const c=result.checks.labelFontFit;
+  assert.equal(c.status,'PASS');
+  const [m,...rest]=c.evidence.minorFindings;
+  assert.equal(rest.length,0);
+  assert.equal(m.nodeId,'A');assert.equal(m.size,20);assert.equal(m.maxFittingSize,28);
+  assert.deepEqual(m.box.map(Math.round),[18,58,84,44]);
+});
+test('labelFontFit has no minor finding when the label is within 3 units of its maximum',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(fontSource,fontSvg({fontA:25,fontB:28}));
+  assert.deepEqual(result.checks.labelFontFit.evidence.minorFindings,[]);
+});
+test('labelFontFit is NOT-CHECKABLE when node labels carry no data-role="label" tag',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(fontSource,fontSvg({vb:'0 0 2400 800',fontA:18,fontB:18,role:''}));
+  const c=result.checks.labelFontFit;
+  assert.equal(c.status,'NOT-CHECKABLE');
+  assert.deepEqual(c.evidence.untaggedNodeIds.sort(),['A','B']);
+});
+test('labelFontFit is NOT-CHECKABLE without a root viewBox (no page-fit scale)',{skip:!enabled},async()=>{
+  const result=await auditAgentSvg(fontSource,fontSvg().replace(/ viewBox="[^"]*"/,' width="600" height="200"'));
+  assert.equal(result.checks.labelFontFit.status,'NOT-CHECKABLE');
+});
+test('textFit measures a rectangle against the outline inset by 8 units',{skip:!enabled},async()=>{
+  // Text 9 units inside the rect edge (x=19) fits an 8-unit inset; text 7 units inside overflows by 1.
+  const ok=await auditAgentSvg(source,svg.replace('x="20" y="80">Start','x="19" y="85">Hi').replace('x="410" y="80">Finish','x="430" y="85">Ok'));
+  assert.equal(ok.checks.textFit.status,'PASS');
+  const bad=await auditAgentSvg(source,svg.replace('x="20" y="80">Start','x="17" y="85">Hi').replace('x="410" y="80">Finish','x="430" y="85">Ok'));
+  assert.equal(bad.checks.textFit.status,'FAIL');
+  assert.equal(bad.checks.textFit.evidence.inset,8);
 });

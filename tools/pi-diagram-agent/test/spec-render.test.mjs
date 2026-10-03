@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {renderSpec,validateSpec,SpecError} from '../src/spec-render.mjs';
+import {renderSpec,validateSpec,SpecError,measureText} from '../src/spec-render.mjs';
 import {auditAgentSvg} from '../src/agent-audit.mjs';
 
 const SOURCE='flowchart LR\n  A[Start] --> B{Ready}\n  B -- "Yes" --> C[(Store)]\n  B -.-> D(Skip)\n';
@@ -302,4 +302,50 @@ test('a spec-rendered opposite-side trunk is rejected by the independent auditor
   const a=await auditAgentSvg('flowchart LR\n S1[One] --> T[Target]\n S2[Two] --> T\n',r.svg);
   assert.equal(a.checks.routePairClearance.status,'FAIL');
   assert.deepEqual(a.checks.routePairClearance.evidence.violations.map(v=>v.kind),['opposite-side merge']);
+});
+
+// ---- inset 8 and the font-fill rule ----
+const nodeG=(svg,id)=>new RegExp(`<g data-node="${id}"[\\s\\S]*?</g>`).exec(svg)[0];
+const fontsOf=(svg,id)=>[...nodeG(svg,id).matchAll(/font-size="([\d.]+)"/g)].map(m=>Number(m[1]));
+const fillSpec=nodes=>({canvas:{w:900,h:400},palette:{step:{fill:'#e8f1fb',stroke:'#2563a8',text:'#12355b',meaning:'Process step'},data:{fill:'#e9f7ef',stroke:'#1e7a46',text:'#14432a',meaning:'Data store'}},nodes,edges:[]});
+
+test('rectangle and capsule labelBox inset is 8: a tier node is the tier plus 16 and its labelBox is exactly the tier',()=>{
+  const r=renderSpec(fillSpec([{id:'A',shape:'rect',centre:[200,100],tier:'M',text:'Start',role:'step'},{id:'B',shape:'capsule',centre:[500,100],tier:'S',text:'End',role:'step'},{id:'C',shape:'rect',rect:[20,200,120,64],text:'Hi',role:'step'}]));
+  assert.match(nodeG(r.svg,'A'),/<rect x="92" y="52" width="216" height="96"/);
+  assert.match(nodeG(r.svg,'A'),/data-label-box="100 60 200 80"/);
+  assert.match(nodeG(r.svg,'B'),/width="112" height="56"/);
+  assert.match(nodeG(r.svg,'B'),/data-label-box="452 80 96 40"/);
+  assert.match(nodeG(r.svg,'C'),/data-label-box="28 208 104 48"/); // an explicit rect keeps its size; the labelBox grows to inset 8
+});
+test('decision, hexagon and the other shapes keep their previous insets',()=>{
+  const r=renderSpec(fillSpec([{id:'D',shape:'decision',centre:[200,150],tier:'S',text:'Ok',role:'step'},{id:'H',shape:'decision',centre:[500,150],tier:'M',text:'Ok',role:'step'},{id:'S',shape:'subroutine',centre:[200,320],tier:'S',text:'Ok',role:'step'}]));
+  assert.match(nodeG(r.svg,'D'),/data-label-box="[\d. ]+ 96 40"/);
+  assert.match(nodeG(r.svg,'H'),/data-label-box="400 110 200 80"/); // x+40, y+30 inside a (tier+80) x (tier+60) hexagon
+  assert.match(nodeG(r.svg,'S'),/data-label-box="[\d.]+ [\d.]+ 96 40"/);
+});
+test('a node without a font gets the largest whole font (14 to 28) at which its text fits the labelBox',()=>{
+  const r=renderSpec(fillSpec([{id:'A',shape:'rect',centre:[200,100],tier:'M',text:'Start',role:'step'},{id:'B',shape:'rect',centre:[500,100],tier:'S',text:'Fairly long label',role:'step'}]));
+  assert.deepEqual(fontsOf(r.svg,'A'),[28]);
+  const [b]=fontsOf(r.svg,'B');
+  assert.ok(Number.isInteger(b)&&b>=14&&b<28,`B font ${b}`);
+  assert.deepEqual(r.findings.filter(f=>f.rule==='text-fit'),[]);
+  assert.ok(measureText('Fairly long label',b)>0);
+});
+test('comparable nodes (same tier, same role) share the smallest of their maxima; another role does not',()=>{
+  const r=renderSpec(fillSpec([
+    {id:'A',shape:'rect',centre:[150,100],tier:'M',text:'OK',role:'step'},
+    {id:'B',shape:'rect',centre:[400,100],tier:'M',text:'A considerably longer label that needs several lines of text here',role:'step'},
+    {id:'C',shape:'rect',centre:[650,100],tier:'M',text:'OK',role:'data'}]));
+  const [a]=fontsOf(r.svg,'A'),[b]=fontsOf(r.svg,'B'),[c]=fontsOf(r.svg,'C');
+  assert.equal(a,b);assert.ok(a<28);
+  assert.equal(c,28);
+});
+test('an explicit font is kept and never joins the peer minimum',()=>{
+  const r=renderSpec(fillSpec([{id:'A',shape:'rect',centre:[150,100],tier:'M',text:'OK',role:'step',font:16},{id:'B',shape:'rect',centre:[400,100],tier:'M',text:'OK',role:'step'}]));
+  assert.deepEqual(fontsOf(r.svg,'A'),[16]);
+  assert.deepEqual(fontsOf(r.svg,'B'),[28]);
+});
+test('node label text is tagged data-role="label"',()=>{
+  const r=renderSpec(fillSpec([{id:'A',shape:'rect',centre:[150,100],tier:'M',text:'OK',role:'step'}]));
+  assert.match(nodeG(r.svg,'A'),/<text [^>]*data-role="label"/);
 });

@@ -83,7 +83,8 @@ const SUGGESTIONS={
   originalGroupParity:'Keep the original render\'s visible group membership; or ask the user for an adjudication.',
   semanticPreservation:'Keep the original visible group membership for the listed nodes (the user has not adjudicated a change).',
   sourceDefinitionConflicts:'The source defines the listed nodes more than once with different text or shape. Draw the last definition, as Mermaid does; the ambiguity stays a failure until the user fixes the source.',
-  textFit:'Enlarge the node or shorten line breaks so all text sits inside the outline inset by 12 units. Text must also keep 4 units from every drawn stroke of its node, and a declared data-label-box must not contain one: for a cylinder/store put the label box and text entirely below the lid arc (its lowest point, not its top edge), for a queue or subroutine keep them between the inner bars; grow the node if needed.',
+  textFit:'Enlarge the node or shorten line breaks so all text sits inside the outline inset by 8 units. Text must also keep 4 units from every drawn stroke of its node, and a declared data-label-box must not contain one: for a cylinder/store put the label box and text entirely below the lid arc (its lowest point, not its top edge), for a queue or subroutine keep them between the inner bars; grow the node if needed.',
+  labelFontFit:'After the whole SVG is scaled to fit 1200x710, every primary node label (data-role="label") must be at least 12 px. Enlarge the font within the labelBox (the largest whole size that fits, up to 28), use a smaller tier with a larger font, or fold or relayout to reduce the canvas.',
   nodeHeadingClearance:'Move the listed node (and its group if needed) so its outline keeps at least 8 units from the group heading/subtitle text and at least 8 units from the border of its container; reserve a heading band at the top of the container.',
   labelClearance:'Move the edge label so its box does not touch any node or container outline.',
   labelCoversRoute:'An edge label background must never hide another route: widen the gap or spread the ports so the label can sit on its own route (centred on a straight segment) or beside it without touching a neighbouring route; never push the label away from its own route.',
@@ -132,6 +133,16 @@ function lowerBendMinorFinding(m){
     evidence:{measured:`anchors off the face midpoints: drawn source ${fx(m.drawn?.source)}, target ${fx(m.drawn?.target)}; same-bend witness source ${fx(m.witness?.source)}, target ${fx(m.witness?.target)}`,threshold:'non-blocking: anchors closer to the face midpoints exist with the same bends and crossings'},
     suggestion:'Optional: move the anchors toward the face midpoints when it costs nothing; this does not block acceptance.'});
 }
+function fontFitHintText(violations){
+  return violations.map(v=>v.fixByFont
+    ?`enlarge the font of ${v.nodeId} to ${v.neededSize} or more (up to ${v.maxFittingSize} fits its labelBox); it is ${v.size} units now, ${v.effective} px at the page fit (scale ${v.pageScale})`
+    :`${v.nodeId} cannot reach 12 px inside its box (${v.size} units, ${v.effective} px at scale ${v.pageScale}${v.maxFittingSize?`; at most ${v.maxFittingSize} fits`:''})${v.maxCanvas?`: reduce the canvas width to about ${v.maxCanvas.width} units or less (or the height to ${v.maxCanvas.height}) by folding or relayout, or use a smaller tier with a larger font`:': use a smaller tier with a larger font, or reduce the canvas by folding or relayout'}`).join('; ');
+}
+function fontFitMinorFinding(m){
+  return makeFinding({source:'audit',severity:'minor',rule:'labelFontFit',elements:[m.nodeId],
+    evidence:{measured:`primary label of ${m.nodeId} is ${m.size} units; ${m.maxFittingSize} would still fit its labelBox [${m.box.join(', ')}]`,threshold:'non-blocking: a label that could be 4 or more units larger inside its labelBox should use the larger font (font-fill rule)'},
+    suggestion:`Optional: enlarge the font of ${m.nodeId} from ${m.size} to ${m.maxFittingSize} (shared with comparable nodes: the smallest of their maxima); this does not block acceptance.`});
+}
 function legendMinorFinding(ev){
   const keys=ev.minorFindings.map(k=>`${k.kind}:${k.value}`);
   return makeFinding({source:'audit',severity:'minor',rule:'legendCompleteness',elements:['legend'],
@@ -152,6 +163,7 @@ export function auditToFindings(audit){
     // Non-blocking minor findings travel with a PASSing (or any) check: routeLowerBend midpoint-only witnesses (decision 2, 2026-10-03).
     if(rule==='routeLowerBend'&&Array.isArray(check?.evidence?.minorFindings))for(const m of check.evidence.minorFindings)out.push(lowerBendMinorFinding(m));
     // An incomplete (but not contradicting) legend is a minor finding that travels with the PASSing legendCompleteness check: a legend is optional.
+    if(rule==='labelFontFit'&&Array.isArray(check?.evidence?.minorFindings))for(const m of check.evidence.minorFindings)out.push(fontFitMinorFinding(m));
     if(rule==='legendCompleteness'&&check?.status==='PASS'&&Array.isArray(check.evidence?.minorFindings)&&check.evidence.minorFindings.length)out.push(legendMinorFinding(check.evidence));
     // A dense diagram's crossings travel with the PASSing routeCrossings check as one minor finding (never a FAIL, never waived).
     if(rule==='routeCrossings'&&check?.status==='PASS'&&check.evidence?.dense&&Array.isArray(check.evidence.minorFindings)&&check.evidence.minorFindings.length)out.push(denseCrossingMinorFinding(check.evidence));
@@ -161,10 +173,11 @@ export function auditToFindings(audit){
     const method=typeof ev==='object'&&ev&&typeof ev.method==='string'?ev.method:null;
     const detail=typeof ev==='string'?ev:Object.fromEntries(Object.entries(ev??{}).filter(([k])=>k!=='method'&&k!=='reasons'));
     const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):rule==='labelCoversRoute'&&Array.isArray(ev?.violations)?labelHintText(ev.violations):'';
+    const fontHint=rule==='labelFontFit'&&Array.isArray(ev?.violations)?fontFitHintText(ev.violations):'';
     const hints=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.repairHint).map(v=>[`${v.repairHint.edge}|${JSON.stringify(v.repairHint.points)}`,v.repairHint])).values()]:[];
     const f=makeFinding({source:'audit',severity:'blocking',rule,elements:[...ids],region:null,
       evidence:{measured:clip(detail),threshold:method?clip(method,240):'rule check passes (see Diagram Rules)'},
-      suggestion:(SUGGESTIONS[rule]??fallbackSuggestion(rule))+(hintText?` Repair hint (evidence from a route search with all other routes fixed; you decide): ${hintText}.`:'')});
+      suggestion:(SUGGESTIONS[rule]??fallbackSuggestion(rule))+(hintText?` Repair hint (evidence from a route search with all other routes fixed; you decide): ${hintText}.`:'')+(fontHint?` Hint: ${fontHint}.`:'')});
     if(hints.length)f.repairHints=hints;
     const moves=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.moveHint).map(v=>[JSON.stringify(v.moveHint),v.moveHint])).values()]:[];
     if(moves.length)f.moveHints=moves;

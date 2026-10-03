@@ -138,3 +138,34 @@ test('auditToFindings: routeLowerBend minorFindings become minor (never blocking
   assert.deepEqual([out[0].rule,out[0].severity,out[0].elements],['routeLowerBend','minor',['A->B']]);
   assert.match(out[0].evidence.measured,/0\.25/);
 });
+
+// ---- labelFontFit -> findings ----
+const fontAudit=ev=>({status:'FAIL',checks:{labelFontFit:{status:ev.violations?.length?'FAIL':'PASS',evidence:{method:'m',minEffectivePx:12,...ev}}}});
+test('auditToFindings: a labelFontFit FAIL is blocking and tells the author to enlarge the font to N, or to reduce the canvas width',()=>{
+  const out=auditToFindings(fontAudit({violations:[
+    {nodeId:'A',size:18,effective:9,pageScale:0.5,neededSize:24,maxFittingSize:26,fixByFont:true,box:[18,58,84,44]},
+    {nodeId:'B',size:14,effective:7,pageScale:0.5,neededSize:24,maxFittingSize:16,fixByFont:false,maxCanvas:{width:1600,height:946}}],minorFindings:[]}));
+  assert.equal(out.length,1);
+  const [x]=out;
+  assert.equal(x.rule,'labelFontFit');assert.equal(x.severity,'blocking');
+  assert.deepEqual(x.elements,['A','B']);
+  assert.match(x.suggestion,/enlarge the font of A to 24/i);
+  assert.match(x.suggestion,/reduce the canvas width to about 1600/i);
+  assert.match(x.suggestion,/12 px/);
+});
+test('auditToFindings: a label that could be 4 units larger is a minor finding with measured size, maximum and box',()=>{
+  const out=auditToFindings(fontAudit({violations:[],minorFindings:[{nodeId:'A',size:18,maxFittingSize:24,box:[18,58,84,44],effective:18},{nodeId:'B',size:20,maxFittingSize:28,box:[0,0,200,80],effective:20}]}));
+  assert.equal(out.length,2);
+  for(const m of out){assert.equal(m.severity,'minor');assert.equal(m.rule,'labelFontFit')}
+  const a=out.find(m=>m.elements[0]==='A');
+  assert.match(a.evidence.measured,/18/);assert.match(a.evidence.measured,/24/);assert.match(a.evidence.measured,/18, 58, 84, 44/);
+  assert.match(a.suggestion,/enlarge .* to 24/i);
+});
+test('auditToFindings: a passing labelFontFit with no minor entries and a NOT-CHECKABLE one produce nothing',()=>{
+  assert.deepEqual(auditToFindings(fontAudit({violations:[],minorFindings:[]})),[]);
+  assert.deepEqual(auditToFindings({status:'NOT-CHECKABLE',checks:{labelFontFit:{status:'NOT-CHECKABLE',evidence:{method:'m',untaggedNodeIds:['A']}}}}),[]);
+});
+test('textFit suggestion states the 8-unit inset',()=>{
+  const [x]=auditToFindings({status:'FAIL',checks:{textFit:{status:'FAIL',evidence:{method:'m',overflows:[{nodeId:'A',left:1}]}}}});
+  assert.match(x.suggestion,/inset by 8 units/);
+});

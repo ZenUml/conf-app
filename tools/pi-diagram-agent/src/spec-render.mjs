@@ -15,7 +15,7 @@ export class SpecError extends Error {
 
 // ---- rule constants (Diagram Rules) ----
 export const TIERS = {S: [96, 40], M: [200, 80], L: [320, 120], XL: [480, 160]};
-const NODE_R = 4, FILLET = 5, DECISION_FILLET = 10, INSET = 12, MARKER = 10, SHAFT = 8, PARALLEL = 10, DASH = '6 4';
+const NODE_R = 4, FILLET = 5, DECISION_FILLET = 10, INSET = 8, MARKER = 10, SHAFT = 8, PARALLEL = 10, DASH = '6 4';
 const FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 /** One spec shape per parser shape (`parseMermaid` names), plus `decision` for the diamond / long-text hexagon. Sources: [..] rect, (..) capsule, {..} decision,
  *  [(..)] cylinder, [[..]] subroutine, ((..)) circle, (((..))) doublecircle, {{..}} hexagon, [/../] parallelogram, [\..\] parallelogram_alt, [/..\] trapezoid,
@@ -254,7 +254,7 @@ function layoutNode(n, roles, defaultRole) {
       : shape === 'cylinder' ? [lw + 24, lh + 64] : shape === 'subroutine' ? [lw + 48, lh + 24]
       : round ? [diag + ring, diag + ring]
       : shape === 'asymmetric' ? [lw + slantOf(shape, hh) + 24, hh]
-      : SLANTED.includes(shape) ? [lw + 2 * slantOf(shape, hh) + 24, hh] : [lw + 24, lh + 24];
+      : SLANTED.includes(shape) ? [lw + 2 * slantOf(shape, hh) + 24, hh] : [lw + 2 * INSET, lh + 2 * INSET];
     x = n.centre[0] - w / 2; y = n.centre[1] - h / 2;
   }
   let lb;
@@ -282,7 +282,7 @@ function layoutNode(n, roles, defaultRole) {
   }
   const role = roles[n.role ?? defaultRole];
   return {id: n.id, group: n.group ?? null, shape, variant, x, y, w, h, lb, polygon, outline, faceDot, role, roleName: n.role ?? defaultRole,
-    text: n.text, align: n.align ?? 'center', font: n.font ?? 18, explicitLabelBox: !!(n.labelBox && shape !== 'rect' && shape !== 'capsule')};
+    text: n.text, align: n.align ?? 'center', font: n.font ?? 18, autoFont: n.font === undefined, tier: n.tier ?? null, explicitLabelBox: !!(n.labelBox && shape !== 'rect' && shape !== 'capsule')};
 }
 const bbox = n => [n.x, n.y, n.w, n.h];
 const boxOverlap = (a, b, pad = 0) => a[0] < b[0] + b[2] + pad && a[0] + a[2] > b[0] - pad && a[1] < b[1] + b[3] + pad && a[1] + a[3] > b[1] - pad;
@@ -385,6 +385,28 @@ function segRectDist(a, b, [x, y, w, h]) {
 }
 const polyDist = (pts, box) => { let m = Infinity; for (let i = 0; i + 1 < pts.length; i++) m = Math.min(m, segRectDist(pts[i], pts[i + 1], box)); return m; };
 
+// ---- font-fill rule: a primary label uses the largest whole font (14-28) at which its text fits its labelBox;
+// comparable nodes (same tier or labelBox size, same role) share the smallest of their maxima ----
+export const FONT_MIN = 14, FONT_MAX = 28;
+function fitsAt(node, size) {
+  const lines = Array.isArray(node.text) ? node.text : wrap(node.text, node.lb[2], size);
+  const lh = Math.round(size * 1.1);
+  return (lines.length - 1) * lh + 1.2 * size <= node.lb[3] + 1e-6 && Math.max(...lines.map(l => W(l, size))) <= node.lb[2] + 1e-6;
+}
+function maxFont(node) {
+  for (let size = FONT_MAX; size >= FONT_MIN; size--) if (fitsAt(node, size)) return size;
+  return FONT_MIN;
+}
+function assignAutoFonts(nodes) {
+  const peers = new Map();
+  for (const n of nodes) if (n.autoFont) {
+    const key = `${n.tier ?? n.lb.slice(2).map(Math.round).join('x')}|${n.roleName}`;
+    peers.set(key, Math.min(peers.get(key) ?? FONT_MAX, maxFont(n)));
+    n.peerKey = key;
+  }
+  for (const n of nodes) if (n.autoFont) n.font = peers.get(n.peerKey);
+}
+
 // ---- text layout ----
 function nodeLines(node) {
   const lbw = node.lb[2];
@@ -393,7 +415,7 @@ function nodeLines(node) {
 function textSvg(lines, lb, node) {
   const lh = Math.round(node.font * 1.1), cy = lb[1] + lb[3] / 2, first = cy - (lines.length - 1) * lh / 2;
   const left = node.align === 'left', x = left ? lb[0] : lb[0] + lb[2] / 2;
-  return lines.map((l, i) => `<text x="${n3(x)}" y="${n3(first + i * lh)}" text-anchor="${left ? 'start' : 'middle'}" dominant-baseline="central" font-size="${n3(node.font)}" font-weight="400" fill="${node.role.text}">${esc(l)}</text>`).join('');
+  return lines.map((l, i) => `<text x="${n3(x)}" y="${n3(first + i * lh)}" text-anchor="${left ? 'start' : 'middle'}" dominant-baseline="central" font-size="${n3(node.font)}" font-weight="400" fill="${node.role.text}" data-role="label">${esc(l)}</text>`).join('');
 }
 function nodeSvg(node) {
   const {x, y, w, h, shape, variant, role} = node, paint = `fill="${role.fill}" stroke="${role.stroke}" stroke-width="2"`;
@@ -440,6 +462,7 @@ export function renderSpec(input, {model = null} = {}) {
     findings.set(id, {id, source: 'spec-render', severity, rule, elements: [...elements], region, measured, threshold, suggestion});
   };
   const nodes = spec.nodes.map(n => layoutNode(n, roles, defaultRole)), byId = new Map(nodes.map(n => [n.id, n]));
+  assignAutoFonts(nodes);
   for (const n of nodes) n.lines = nodeLines(n);
   const groups = (spec.groups ?? []).map(g => {
     const r = g.role ? roles[g.role] : null;
@@ -523,7 +546,7 @@ export function renderSpec(input, {model = null} = {}) {
     if (need > lhBox + 1e-6) problems.push(`height ${r1(need)} (${n.lines.length} lines) > labelBox ${r1(lhBox)}`);
     if (problems.length) {
       const fits = Object.entries(TIERS).find(([, [tw, th]]) => widest <= tw && need <= th);
-      add('text-fit', 'blocking', [n.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `${problems.join('; ')} (estimate)`, 'text inside the 12-unit-inset labelBox (T2)', fits ? `this text needs tier ${fits[0]} (${fits[1][0]}x${fits[1][1]}) or fewer/shorter lines` : 'shorten or split the text, or use the largest tier (XL 480x160)');
+      add('text-fit', 'blocking', [n.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `${problems.join('; ')} (estimate)`, 'text inside the labelBox (T2)', fits ? `this text needs tier ${fits[0]} (${fits[1][0]}x${fits[1][1]}) or fewer/shorter lines` : 'shorten or split the text, or use the largest tier (XL 480x160)');
     }
     if (n.explicitLabelBox) {
       const [bx, by, bw, bh] = n.lb, corners = [[bx, by], [bx + bw, by], [bx, by + bh], [bx + bw, by + bh]];

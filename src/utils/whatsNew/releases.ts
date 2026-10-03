@@ -43,7 +43,33 @@ export interface WhatsNewRelease {
 export const WHATS_NEW_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 
 /** Newest first. */
-export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = []
+export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
+  {
+    // #660, #664, #687 — live in Lite (v2026.10.021754-lite) and in the latest
+    // Full / Diagramly tags; not in AsyncAPI's latest release, so not announced there.
+    id: '2026-10',
+    publishedAt: '2026-10-03',
+    variants: ['lite', 'full', 'diagramly'],
+    headline: 'Markdown documents, zoom on every diagram, and more room to draw',
+    items: [
+      {
+        id: 'markdown-tab',
+        title: 'Markdown tab',
+        body: 'Write a Markdown document in the editor and embed Mermaid diagrams in it with fenced code blocks.',
+      },
+      {
+        id: 'viewport-zoom',
+        title: 'Zoom and pan on every diagram',
+        body: 'Every diagram type now zooms the same way: use the toolbar buttons, or hold Ctrl (⌘ on Mac) and scroll.',
+      },
+      {
+        id: 'code-panel-toggle',
+        title: 'Hide the code panel',
+        body: 'Collapse the code panel in the editor with one click to give your diagram the full width.',
+      },
+    ],
+  },
+]
 
 /**
  * The release this load should announce, or null. Newest live entry wins, so

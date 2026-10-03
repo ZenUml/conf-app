@@ -198,6 +198,8 @@ describe('/authorize for a returning user', () => {
     const loc = new URL(res.headers.get('location')!);
     expect(loc.origin + loc.pathname).toBe(REDIRECT);
     expect(loc.searchParams.get('state')).toBe('client-state-1');
+    // RFC 9207: Codex rejects a code with no `iss` once the metadata advertises it.
+    expect(loc.searchParams.get('iss')).toBe(ORIGIN);
     const issued = await consumeCode(e.store, loc.searchParams.get('code')!);
     expect(issued?.userId).toBe(ACCOUNT);
     expect(issued?.clientId).toBe('client-A');

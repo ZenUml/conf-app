@@ -35,6 +35,7 @@ import {
   AUTHORIZE_PATH,
   CONSENT_PATH,
   DEFAULT_MCP_SCOPE,
+  issuerFor,
   MCP_SCOPES,
   resourceFor,
 } from './asMetadata';
@@ -76,6 +77,22 @@ function json(status: number, body: unknown): Response {
 
 function oauthError(status: number, error: string, description?: string): Response {
   return json(status, description ? { error, error_description: description } : { error });
+}
+
+/**
+ * A redirect back to the client's (already validated) redirect_uri.
+ *
+ * Every one carries `iss` (RFC 9207): the metadata advertises
+ * authorization_response_iss_parameter_supported, and a client that honours
+ * it — Codex does — rejects a response without one as a possible mix-up attack.
+ */
+function redirectToClient(redirectUri: string, issuer: string, params: Record<string, string | undefined>): Response {
+  const target = new URL(redirectUri);
+  for (const [key, value] of Object.entries(params)) {
+    if (value) target.searchParams.set(key, value);
+  }
+  target.searchParams.set('iss', issuer);
+  return Response.redirect(target.toString(), 302);
 }
 
 function escapeHtml(raw: string): string {
@@ -216,13 +233,10 @@ export async function validateAuthorize(request: Request, deps: AsDeps): Promise
   }
 
   const state = q.get('state') ?? undefined;
-  const fail = (error: string, description: string): AuthorizeResult => {
-    const target = new URL(redirectUri);
-    target.searchParams.set('error', error);
-    target.searchParams.set('error_description', description);
-    if (state) target.searchParams.set('state', state);
-    return { ok: false, response: Response.redirect(target.toString(), 302) };
-  };
+  const fail = (error: string, description: string): AuthorizeResult => ({
+    ok: false,
+    response: redirectToClient(redirectUri, issuerFor(url), { error, error_description: description, state }),
+  });
 
   if (q.get('response_type') !== 'code') return fail('unsupported_response_type', 'only response_type=code is supported');
   if (q.get('code_challenge_method') !== 'S256') return fail('invalid_request', 'code_challenge_method must be S256');
@@ -411,6 +425,7 @@ export async function completeAuthorization(
   pendingId: string,
   pending: PendingAuthorization,
   userId: string,
+  issuer: string,
 ): Promise<Response> {
   const now = (deps.nowMs ?? Date.now)();
   await deletePending(deps.store, pendingId);
@@ -423,23 +438,21 @@ export async function completeAuthorization(
     userId,
     createdAtMs: now,
   });
-  const target = new URL(pending.redirectUri);
-  target.searchParams.set('code', code);
-  if (pending.state) target.searchParams.set('state', pending.state);
-  return Response.redirect(target.toString(), 302);
+  return redirectToClient(pending.redirectUri, issuer, { code, state: pending.state });
 }
 
 export async function denyAuthorization(
   deps: AsDeps,
   pendingId: string,
   pending: PendingAuthorization,
+  issuer: string,
 ): Promise<Response> {
   await deletePending(deps.store, pendingId);
-  const target = new URL(pending.redirectUri);
-  target.searchParams.set('error', 'access_denied');
-  target.searchParams.set('error_description', 'the user declined');
-  if (pending.state) target.searchParams.set('state', pending.state);
-  return Response.redirect(target.toString(), 302);
+  return redirectToClient(pending.redirectUri, issuer, {
+    error: 'access_denied',
+    error_description: 'the user declined',
+    state: pending.state,
+  });
 }
 
 /** Has this user already allowed this client, for at least this much? */

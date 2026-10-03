@@ -18,6 +18,7 @@
 
 import { handleCallback } from './atlassianLeg';
 import { completeAuthorization, hasConsent, redirectToConsent } from './authServer';
+import { issuerFor } from './asMetadata';
 import { loadPending } from './asStore';
 import { returningUserCookie } from './returningUser';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
@@ -74,7 +75,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const cookies = [...(cleared ? [cleared] : []), remember];
   const deps = { store };
   if (await hasConsent(deps, outcome.accountId, pending.clientId, pending.scope)) {
-    return withCookies(await completeAuthorization(deps, pendingId, pending, outcome.accountId), cookies);
+    return withCookies(await completeAuthorization(deps, pendingId, pending, outcome.accountId, issuerFor(url)), cookies);
   }
   return redirectToConsent(deps, url, pendingId, pending, outcome.accountId, { extraCookies: cookies });
 };

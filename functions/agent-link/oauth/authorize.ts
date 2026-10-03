@@ -17,6 +17,7 @@
 //     it is what makes the credential layer testable on its own. It always
 //     goes to Atlassian; there is no client to consent to.
 
+import { issuerFor } from './asMetadata';
 import { handleAuthorize } from './atlassianLeg';
 import { completeAuthorization, hasConsent, redirectToConsent, validateAuthorize } from './authServer';
 import { loadAppConfig, loadGrantStore, type OAuthEnv } from './appConfig';
@@ -96,7 +97,7 @@ export async function routeReturningUser(
   const remember = await returningUserCookie(who.accountId, secret, url);
   const asDeps = { store, nowMs: deps.nowMs };
   if (await hasConsent(asDeps, who.accountId, pending.clientId, pending.scope)) {
-    const issued = await completeAuthorization(asDeps, pendingId, pending, who.accountId);
+    const issued = await completeAuthorization(asDeps, pendingId, pending, who.accountId, issuerFor(url));
     const headers = new Headers(issued.headers);
     headers.append('set-cookie', remember);
     return {

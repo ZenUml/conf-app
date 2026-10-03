@@ -39,7 +39,8 @@ Evidence from the 2026-10-02 runs (private run records; no customer content here
 | Author | Model session | Every position, port, route, label placement; the SVG | Certify its own output |
 | Reviewer | Separate in-process model session, fresh context, **no tools** | Visual/semantic findings with evidence | Edit files; read the run dir; see SVG text or the author's reasoning (author-controlled text is an injection channel) |
 | Auditor | Deterministic code | Mechanical rule checks with PASS / FAIL / NOT-CHECKABLE / ADJUDICATED | Turn missing evidence into PASS |
-| Judge | Fresh model session per scoring pass, **no tools**, called explicitly (`/magic-judge`) | Comparative visual scores and the IMPROVED / NOT_IMPROVED verdict | Know which image is the candidate; see source text, audit, review or the author's reasoning; find defects |
+| Judge | Fresh model session per scoring pass, **no tools**; runs inside the loop under the relaxed gate (default) and explicitly via `/magic-judge` | Comparative visual scores and the IMPROVED / NOT_IMPROVED verdict, which decides acceptance in relaxed mode | Know which image is the candidate in a scoring pass; see source text, audit, review or the author's reasoning; find defects |
+| Coach (in-loop, part of the Judge) | One short extra no-tools call after a NOT_IMPROVED verdict, told which drawing is the new one | The top 3 improvements to the candidate, as author feedback | Change the verdict |
 | User | Human | Adjudications (e.g. group conflicts), accepting residual NOT-CHECKABLE items | — |
 
 ## Judge (comparative visual gate at acceptance)
@@ -49,7 +50,7 @@ Question: is the final SVG visibly better than the original Mermaid render? Spec
 - `/magic-judge <runDir> [--vs-old <runDir>]` renders the original and the candidate (full and 1200x710 fit), then runs two passes in fresh no-tool sessions in an empty temp cwd, order swapped (original = A, then candidate = A). The model gets only four images and a fixed prompt; the candidate is never named. Pass 2 is negated, a dimension where the passes disagree is 0 and `uncertain`, and `grouping` is null (and excluded) when the diagram has no groups (read from the original render's clusters).
 - Six dimensions in -1..+1: balance, readability, aesthetics, lineClarity, pageWidth, grouping. IMPROVED = every merged dimension >= `PI_DIAGRAM_JUDGE_MIN_DIM` (-0.2) and mean >= `PI_DIAGRAM_JUDGE_MIN_MEAN` (+0.2); more than half uncertain = NOT_IMPROVED `UNSTABLE`; a pass failing after one retry = JUDGE_ERROR (never IMPROVED).
 - `judgement.json` (`pi-diagram-judgement/1`, sealed like `run.json`) binds the candidate and original sha256. `/magic-accept` refuses a missing, NOT_IMPROVED, JUDGE_ERROR, stale (hash differs) or tampered judgement unless `--override-judge "<reason>"` is given; the reason is recorded in `acceptance.judgeOverride`. `--waive` is unchanged.
-- Env: `PI_DIAGRAM_JUDGE_MODEL` (default the reviewer model), `PI_DIAGRAM_JUDGE_THINKING` (medium), `PI_DIAGRAM_JUDGE_TIMEOUT_S` (300 per pass). Native `openai-codex` only. The Judge never runs inside `/magic`; offline batch scoring (`bench/judge.mjs`) never gates.
+- Env: `PI_DIAGRAM_JUDGE_MODEL` (default the reviewer model), `PI_DIAGRAM_JUDGE_THINKING` (medium), `PI_DIAGRAM_JUDGE_TIMEOUT_S` (300 per pass). Native `openai-codex` only. Under the strict gate the Judge never runs inside `/magic` (explicit `/magic-judge` only); under the relaxed gate (default) it runs inside the loop, see [Relaxed gate](#relaxed-gate). Offline batch scoring (`bench/judge.mjs`) never gates.
 - Residual: like `run.json`, the run directory is author-writable, so a hostile author with a shell could re-seal `judgement.json`. The gate protects against forgetting and accidents, and the recorded hashes make a forged judgement visible afterwards.
 
 ## Control flow
@@ -158,3 +159,58 @@ Decisions and why:
 - Waivers are narrow on purpose. Border grazing and a crossing that code itself confirmed has no repair are the only things a geometric rule can be wrong about in a way a picture can settle; every other rule failure has a repair. Semantic failures can never be waived. The reviewer proposes, code disposes, and a human accepts each waiver by name.
 - Caps (6/16) are first estimates; run.json records per-round build_check calls, refusals, cache hits and generator errors so they can be re-measured.
 - `PI_DIAGRAM_TWO_PHASE=0` restores the one-phase submit for benchmark comparability.
+
+## Relaxed gate
+
+Why: the user's direction (2026-10-04) was "use visual judgement and relax the constraints, so the author focuses on what actually adds value; we want a better diagram, not one that satisfies hard-coded requirements". Approved: (1) only defects that make the diagram wrong or unreadable block; (2) spacing and geometry checks become advice; (3) the Judge decides acceptance: clearly better than the original; (4) on a rejection the author gets only the 3 most valuable improvements.
+
+Mode: `PI_DIAGRAM_GATE=relaxed` (default) or `strict`. `strict` is the previous behaviour exactly (every check blocks, no Judge in the loop, waivers as above). Code: `src/relaxed.mjs` (single source of truth for the blocking set and the advice impact table), `auditToFindings(audit,{relaxed})`, `geometryFindings(g,model,{relaxed})`, `auditGateReasons({relaxed})`, the Judge phase in `src/orchestrator.mjs`.
+
+```
+build_check / submit
+  │  script checks  ──blocking?──yes──▶ REVISE (blocking findings + top-3 advice)
+  ▼
+reviewer (blocking only: shape-change, label-ownership, text-overflow, heading-overlap)
+  │  blocking? ──yes──▶ REVISE
+  ▼
+gate (hash identity, no blocking audit FAIL, semantics PASS or ADJUDICATED)
+  ▼
+Judge, both passes, exact final bytes vs original   (in-loop thresholds)
+  ├─ IMPROVED ───────────▶ REVIEWED  (judgement.json sealed, /magic-accept unchanged)
+  ├─ NOT_IMPROVED ───────▶ coach call ──▶ REVISE (judge top-3 improvements + blocking + top-3 advice); costs a round
+  └─ JUDGE_ERROR ────────▶ CANDIDATE JUDGE_ERROR (never REVIEWED)
+rounds / wall clock spent while NOT_IMPROVED ──▶ CANDIDATE, reason "NOT_IMPROVED (...): ROUNDS_EXHAUSTED | WALL_CLOCK"
+```
+
+### Blocking-set mapping
+
+Evidence fields written by the auditor drive the partial checks. Evidence that lacks the needed field fails closed (stays blocking).
+
+| Check / rule id | Relaxed severity | Rule |
+|---|---|---|
+| `svgWellFormed`, `nodeIdentity`, `nodeText`, `nodeShape`, `relations`, `relationStyle`, `groups`, `groupMembership`, `originalGroupParity`, `semanticPreservation`, `sourceDefinitionConflicts` | blocking | what the diagram says |
+| early binding findings (no `data-node` / `data-source` / group id), `forbidden-construct` (incl. `context-stroke`), `candidate-missing`, `render-or-audit-failed`, `gate-*` | blocking | structural |
+| `markerDrawing` | blocking | missing or invisible arrowhead |
+| `labelCoversRoute` | blocking | a label background hides a line. Decision: `edgeLabelStyle` (border, opaque background) is style and is advice; only an actual overlap with another route is "a label covering a line" |
+| `textFit` | blocking per node | `overflows`: the largest side overflow is more than the 8-unit inset (text outside the shape itself); `structureOverlaps`: gap <= 0 (text touches a drawn stroke). Smaller overflows, gaps of 0..4 units and `labelBoxWarnings` are advice |
+| `labelClearance` | blocking per label | the label box overlaps a node whose text it covers (`coversNodeText`, new evidence field). A label touching only an outline (node or container) is advice |
+| `nodeHeadingClearance` | blocking per node | `kind: heading` with gap 0 (overlap). The 8-unit heading margin and the container-border margin are advice |
+| `routeHeadingClearance` | blocking per edge | the route is sampled inside the heading text box (`headingOverlaps`, new evidence field). The 2-unit guard is advice |
+| `routeNodeIntrusion` | blocking per edge | the route is sampled inside another node's text box (`textIntrusions`, new evidence field). Fill-only intrusions and endpoint misses are advice |
+| `label-ambiguous` (geometry) | blocking when the label box is within 0.5 units of the other route, else advice | a label on the wrong edge |
+| `label-detached`, `route-border-clearance` | advice | gap and clearance distances |
+| `routeContainerClearance`, `routePairClearance`, `routeLowerBend`, `routeCrossings`, `routeDetour`, `labelFontFit`, `legendCompleteness`, `connectorStrokeWidth`, `filletUniformity`, `markerUniformity`, `textContrast`, `labelFontWeight`, `routeCornerAnchor`, `routeUnrelatedContainerTransit`, `arrowShaft`, `edgeLabelStyle` | advice | geometry and style niceties |
+| reviewer `shape-change`, `label-ownership`, `text-overflow`, `heading-overlap` | blocking | |
+| every other reviewer rule (`detour`, `legend`, `balance`, `route-node-intrusion`, `route-crossing`, `node-heading-clearance`, `label-clearance`, `other`) | advice | |
+
+Advice findings keep the finding format with `severity: minor` and `impact` (0..1, `ADVICE_IMPACT` in `src/relaxed.mjs`: crossings 0.7, detour 0.6, label font fit 0.6, ... legend 0.1). The relaxed gate ignores audit FAILs that have no blocking part, so a passing run can still carry FAIL-status advice; the manifest residual lists it. Waivers and escalation apply only to blocking findings; advice never needs a waiver.
+
+### Judge in the loop
+
+- The Judge runs only when the round has no blocking finding, the reviewer passed and the gate's hash identity holds, on the exact final bytes against the original render (`judgeSvgs`, same renderer and prompt as `/magic-judge`). The same two passes (order swapped) apply.
+- In-loop thresholds (`acceptThresholdsFromEnv`): merged mean >= `PI_DIAGRAM_ACCEPT_MIN_MEAN` (default +0.4; the calibration showed the Judge is about 2x more generous than the user, and +0.4 matched the user on 5 of 5 pairs), every merged dimension >= `PI_DIAGRAM_ACCEPT_MIN_DIM` (default -0.2), and each pass's own mean (candidate direction) >= the mean threshold, so two agreeing votes are needed. A failing pass mean is reported as `PASS_MEAN_BELOW_MIN`. `/magic-judge` keeps its own thresholds (+0.2).
+- `judgement.json` is written in the run directory for every in-loop judgement (sealed, bound to the candidate and original hashes, `inLoop: true`, `passMeans`, `improvements`). `/magic-accept` verifies it exactly as before; a NOT_IMPROVED or JUDGE_ERROR judgement refuses acceptance.
+- **How the improvements are produced:** the scoring passes stay blind (the candidate is never named, so the verdict is not biased). After a NOT_IMPROVED verdict, one separate short no-tools call (the coach) receives the four images (original full, original fit, candidate full, candidate fit), is told which drawing is the new one and which dimensions scored lowest, and returns up to 3 `{change, dimension, why}` items, best first. The coach never changes the verdict; if it fails twice the author gets the Judge's dimension scores with `improvements: []`.
+- Revise message (relaxed): `findings` (blocking only, at most 5), `advice` (the 3 highest-impact items) with `adviceTotal`, `minorCount`, and for a NOT_IMPROVED round `judge: {verdict, reason, mean, passMeans, dimensions, improvements[<=3]}`. The full advice list is never sent.
+- Statuses: `REVIEWED` needs IMPROVED; `CANDIDATE` with reason `NOT_IMPROVED (<judge reason>): ROUNDS_EXHAUSTED | WALL_CLOCK` when the budget ends first; `CANDIDATE` with `JUDGE_ERROR: ...` when a pass still fails after its retry (treated like a reviewer error, ends the run). Best-candidate order: fewest blocking, then highest Judge mean (a judged candidate beats an unjudged one), then fewest minor findings, then the newer. A judged round does not count toward the blocking-count stagnation rule; rounds and wall clock bound it.
+- Manifest: `gate`, `judge: {enabled, thresholds, model, rounds[]}`, per-round `judgement`, `modelCalls.judge`, `tokens.judge`, `timings.judgeMs`.

@@ -66,7 +66,7 @@ The same scoring code also serves offline evaluation: comparing a new agent vers
 
 The session factory reuses `createPiReviewerFactory` (fresh in-process `createAgentSession`, `noTools:'all'`, empty temp cwd). Model: `PI_DIAGRAM_JUDGE_MODEL`, default the reviewer model (gpt-6.1-sol); thinking `PI_DIAGRAM_JUDGE_THINKING`, default `medium`.
 
-Unchanged: Author, Auditor, Reviewer, the `/magic` loop and its gate. The Judge never runs automatically.
+Unchanged: Author, Auditor, Reviewer, the `/magic` loop and its gate. The Judge never runs automatically under the strict gate. Update 2026-10-04: under the relaxed gate (default) it runs inside the `/magic` loop and decides acceptance; see `tools/pi-diagram-agent/docs/design-v2.md`, section "Relaxed gate".
 
 ## Prompt and output schema
 

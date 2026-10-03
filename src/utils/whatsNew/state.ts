@@ -116,6 +116,22 @@ function writeBannerRecord(record: WhatsNewBannerRecord): void {
 }
 
 /**
+ * E2E isolation switch, same convention as `mockAiRepairEnabled` in
+ * apis/aiTitleFeatureFlag.ts. The banner specs (paywall, CSAT) assert what the
+ * single page-banner slot does once THEIR banner is gone — that the iframe
+ * closes — and a live release would legitimately take the slot instead. Their
+ * shared reset (tests/e2e-tests/helpers/pageBanner.ts `clearAllBannerState`)
+ * sets this to 'false'.
+ */
+function isWhatsNewMockedOff(): boolean {
+  try {
+    return localStorage.getItem('mockWhatsNewEnabled') === 'false'
+  } catch {
+    return false
+  }
+}
+
+/**
  * The release to announce on this load, or null. This is the host's gate, so
  * it must stay synchronous and request-free: it runs on every page load.
  */
@@ -124,6 +140,7 @@ export function whatsNewCandidate(
   productType: ProductType = buildProductType(),
   releases: readonly WhatsNewRelease[] = WHATS_NEW_RELEASES,
 ): WhatsNewRelease | null {
+  if (isWhatsNewMockedOff()) return null
   const release = currentRelease(productType, now, releases)
   if (!release) return null
   if (!isWhatsNewAudience(now)) return null

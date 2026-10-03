@@ -161,6 +161,14 @@ describe('whatsNewCandidate — the host gate', () => {
     expect(whatsNewCandidate(NOW, 'lite', releases)).toBeNull()
   })
 
+  it('stands down when E2E switches it off', () => {
+    markWhatsNewAudience(NOW)
+    window.localStorage.setItem('mockWhatsNewEnabled', 'false')
+    expect(whatsNewCandidate(NOW, 'lite', releases)).toBeNull()
+    window.localStorage.setItem('mockWhatsNewEnabled', 'true')
+    expect(whatsNewCandidate(NOW, 'lite', releases)?.id).toBe('2026-10')
+  })
+
   it('re-arms for the next release after a dismissal', () => {
     markWhatsNewAudience(NOW)
     recordWhatsNewDismissed('2026-10')

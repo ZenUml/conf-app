@@ -12,11 +12,11 @@ const DISAGREE_MAGNITUDE=0.3; // one pass 0 and the other at least this far from
 
 const num=(v,d)=>{if(v==null||String(v).trim()==='')return d;const n=Number(v);return Number.isFinite(n)?n:d};
 /** In-loop acceptance thresholds (relaxed gate). The calibration showed the Judge is about 2x more generous than the user and +0.4 matched the user on 5 of 5 pairs.
- *  minPassMean: each pass's own mean must also reach the mean threshold, so two agreeing votes are needed. */
-export const ACCEPT_DEFAULTS={minDim:-0.2,minMean:0.4};
+ *  minPassMean: each pass's own mean must also reach this separate, lower threshold (default 0.3), so two votes must lean the same way. */
+export const ACCEPT_DEFAULTS={minDim:-0.2,minMean:0.4,minPassMean:0.3};
 export function acceptThresholdsFromEnv(env=process.env){
   const minMean=num(env.PI_DIAGRAM_ACCEPT_MIN_MEAN,ACCEPT_DEFAULTS.minMean);
-  return {minDim:num(env.PI_DIAGRAM_ACCEPT_MIN_DIM,ACCEPT_DEFAULTS.minDim),minMean,minPassMean:minMean};
+  return {minDim:num(env.PI_DIAGRAM_ACCEPT_MIN_DIM,ACCEPT_DEFAULTS.minDim),minMean,minPassMean:num(env.PI_DIAGRAM_ACCEPT_MIN_PASS,ACCEPT_DEFAULTS.minPassMean)};
 }
 export const judgeThresholdsFromEnv=(env=process.env)=>({minDim:num(env.PI_DIAGRAM_JUDGE_MIN_DIM,DEFAULT_THRESHOLDS.minDim),minMean:num(env.PI_DIAGRAM_JUDGE_MIN_MEAN,DEFAULT_THRESHOLDS.minMean)});
 export const judgeTimeoutFromEnv=(env=process.env)=>{const v=Number(env.PI_DIAGRAM_JUDGE_TIMEOUT_S);return Number.isFinite(v)&&v>0?v*1000:300_000};

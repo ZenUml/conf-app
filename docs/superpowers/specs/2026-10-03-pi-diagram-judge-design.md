@@ -153,6 +153,8 @@ Update 2026-10-04: the first two items below are now in scope under the relaxed 
 - Showing scores to Confluence end users.
 - Any provider other than native Pi openai-codex.
 
+Update 2026-10-04: the in-loop acceptance rule (not `/magic-judge`) requires merged mean >= 0.4, every merged dimension >= -0.2, and each pass's own mean >= 0.3 (`PI_DIAGRAM_ACCEPT_MIN_PASS`). The earlier both-passes-at-0.4 rule was relaxed to 0.3 per pass.
+
 ## Calibration results (2026-10-03, implementation 3aa7d114..3fc9a2d3)
 
 Aggregate numbers only; per-pair data stays in the private evidence directory.

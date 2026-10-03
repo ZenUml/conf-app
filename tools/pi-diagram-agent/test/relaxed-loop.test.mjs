@@ -83,8 +83,8 @@ function setup(over={}){
 }
 
 test('acceptance thresholds: in-loop default is +0.4 mean and -0.2 per dimension; env overrides them',()=>{
-  assert.deepEqual(acceptThresholdsFromEnv({}),{minDim:-0.2,minMean:0.4,minPassMean:0.4});
-  assert.deepEqual(acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_MEAN:'0.3',PI_DIAGRAM_ACCEPT_MIN_DIM:'-0.1'}),{minDim:-0.1,minMean:0.3,minPassMean:0.3});
+  assert.deepEqual(acceptThresholdsFromEnv({}),{minDim:-0.2,minMean:0.4,minPassMean:0.3});
+  assert.deepEqual(acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_MEAN:'0.5',PI_DIAGRAM_ACCEPT_MIN_DIM:'-0.1',PI_DIAGRAM_ACCEPT_MIN_PASS:'0.45'}),{minDim:-0.1,minMean:0.5,minPassMean:0.45});
 });
 
 test('IMPROVED in both passes at the in-loop threshold gives REVIEWED, with a sealed judgement.json bound to the final hash',async()=>{
@@ -96,7 +96,7 @@ test('IMPROVED in both passes at the in-loop threshold gives REVIEWED, with a se
     const file=path.join(t.job.runDir,'judgement.json'),j=JSON.parse(fs.readFileSync(file,'utf8'));
     assert.equal(verifyManifest(j),true);assert.equal(j.schema,'pi-diagram-judgement/1');
     assert.equal(j.verdict,'IMPROVED');assert.equal(j.candidateSha256,hash(bytes));assert.equal(j.originalSha256,hash(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')));
-    assert.deepEqual(j.thresholds,{minDim:-0.2,minMean:0.4,minPassMean:0.4});
+    assert.deepEqual(j.thresholds,{minDim:-0.2,minMean:0.4,minPassMean:0.3});
     assert.equal(j.inLoop,true);
     assert.equal(fs.statSync(file).mode&0o777,0o600);
     const m=readRunManifest(t.job.runDir);
@@ -234,9 +234,9 @@ test('decide with a per-pass floor: both pass means must reach the threshold eve
   const pm=[passMean(all(0.6),1),passMean(all(-0.2),-1)];
   assert.deepEqual(pm.map(x=>Math.round(x*100)/100),[0.6,0.2]);
   assert.equal(decide(merged,{minDim:-0.2,minMean:0.4}).verdict,'IMPROVED'); // legacy rule ignores passes
-  const d=decide(merged,{minDim:-0.2,minMean:0.4,minPassMean:0.4},{passMeans:pm});
-  assert.equal(d.verdict,'NOT_IMPROVED');assert.match(d.reason,/PASS_MEAN_BELOW_MIN: candidate-first pass mean 0.2 < 0.4/);
-  const ok=decide(mergePasses(all(0.5),all(-0.5)),{minDim:-0.2,minMean:0.4,minPassMean:0.4},{passMeans:[0.5,0.5]});
+  const d=decide(merged,{minDim:-0.2,minMean:0.4,minPassMean:0.3},{passMeans:pm});
+  assert.equal(d.verdict,'NOT_IMPROVED');assert.match(d.reason,/PASS_MEAN_BELOW_MIN: candidate-first pass mean 0.2 < 0.3/);
+  const ok=decide(mergePasses(all(0.5),all(-0.5)),{minDim:-0.2,minMean:0.4,minPassMean:0.3},{passMeans:[0.5,0.5]});
   assert.equal(ok.verdict,'IMPROVED');
 });
 
@@ -248,4 +248,21 @@ test('coach: the prompt names the new drawing; output keeps at most 3 improvemen
   assert.deepEqual(out.map(x=>x.change),['a','b','c']);assert.equal(out[1].dimension,'readability');
   assert.throws(()=>parseCoachOutput('nope'),/COACH_MALFORMED_JSON/);
   assert.throws(()=>parseCoachOutput('{"improvements":3}'),/COACH_SCHEMA/);
+});
+
+test('in-loop acceptance: merged mean 0.4 plus each pass mean 0.3 (table)',()=>{
+  const th=acceptThresholdsFromEnv({});
+  const run=(merged,pm)=>decide({dims:{balance:{score:merged,uncertain:false},readability:{score:merged,uncertain:false}},mean:merged},th,{passMeans:pm}).verdict;
+  assert.equal(run(0.46,[0.55,0.37]),'IMPROVED');
+  assert.equal(run(0.40,[0.48,0.32]),'IMPROVED');
+  assert.equal(run(0.40,[0.52,0.28]),'NOT_IMPROVED');
+  assert.equal(run(0.35,[0.40,0.30]),'NOT_IMPROVED');
+});
+
+test('PI_DIAGRAM_ACCEPT_MIN_PASS overrides the per-pass floor',()=>{
+  const dims={balance:{score:0.5,uncertain:false}};
+  const m={dims,mean:0.5};
+  assert.equal(decide(m,acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_PASS:'0.5'}),{passMeans:[0.6,0.4]}).verdict,'NOT_IMPROVED');
+  assert.equal(decide(m,acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_PASS:'0.1'}),{passMeans:[0.9,0.12]}).verdict,'IMPROVED');
+  assert.equal(acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_PASS:'x'}).minPassMean,0.3);
 });

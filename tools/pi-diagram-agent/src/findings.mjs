@@ -62,7 +62,7 @@ export function formatForAuthor(selection){
 }
 
 // ---- audit -> findings -------------------------------------------------------------------------
-const ID_KEYS=new Set(['nodeId','nodeIds','edge','edgeA','edgeB','groupId','groupIds','missing','extra','mismatchedNodeIds','mismatchedEdges','unadjudicatedNodeIds','edges','unboundLabels','malformedEdges','intrudedNodeIds','source','target','elementId','markerId']);
+const ID_KEYS=new Set(['nodeId','nodeIds','edge','edgeA','edgeB','groupId','groupIds','missing','extra','mismatchedNodeIds','mismatchedEdges','unadjudicatedNodeIds','edges','unboundLabels','malformedEdges','intrudedNodeIds','source','target','elementId','markerId','coveredEdge']);
 function collectIds(value,out,key=null){
   if(value==null)return;
   if(typeof value==='string'){if(key&&ID_KEYS.has(key)&&value.length<=120)out.add(value);return}
@@ -86,6 +86,7 @@ const SUGGESTIONS={
   textFit:'Enlarge the node or shorten line breaks so all text sits inside the outline inset by 12 units. Text must also keep 4 units from every drawn stroke of its node, and a declared data-label-box must not contain one: for a cylinder/store put the label box and text entirely below the lid arc (its lowest point, not its top edge), for a queue or subroutine keep them between the inner bars; grow the node if needed.',
   nodeHeadingClearance:'Move the listed node (and its group if needed) so its outline keeps at least 8 units from the group heading/subtitle text and at least 8 units from the border of its container; reserve a heading band at the top of the container.',
   labelClearance:'Move the edge label so its box does not touch any node or container outline.',
+  labelCoversRoute:'An edge label background must never hide another route: widen the gap or spread the ports so the label can sit on its own route (centred on a straight segment) or beside it without touching a neighbouring route; never push the label away from its own route.',
   edgeLabelStyle:'An edge label has no border and always has a background: remove every stroke from the label pill or background shape (stroke="none"), and put an opaque fill (alpha 1, no fill-opacity or group opacity) matching the canvas behind the text, covering the whole text.',
   routeNodeIntrusion:'Re-route the edge so it stays out of unrelated nodes and starts/ends on its own node outlines.',
   routeHeadingClearance:'Re-route the edge away from the group heading text (2-unit guard).',
@@ -118,6 +119,12 @@ function crossingHintText(violations){
     else if(!h&&v.moveHintReason)lines.push(`${v.edgeA} x ${v.edgeB}: ${v.moveHintReason}`);
   }
   return [...new Set(lines)].join('; ');
+}
+// Concise author-facing text for labelCoversRoute: a free stretch of the label's own route, or the reason there is none (evidence, the author decides).
+function labelHintText(violations){
+  return [...new Set(violations.map(v=>v.repairHint
+    ?`the label of ${v.edge} fits on its own route centred at (${v.repairHint.x}, ${v.repairHint.y})${v.repairHint.vertical?', drawn vertical':''}, clear of every other route`
+    :`${v.edge}: ${v.reason??'no free stretch of its own route was found'}; change the layout (widen the gap, spread the ports)`))].join('; ');
 }
 const fx=v=>v?`${v.offset} units (${v.fraction===null?'n/a':v.fraction} of the ${v.faceLength}-unit face)`:'n/a';
 function lowerBendMinorFinding(m){
@@ -153,7 +160,7 @@ export function auditToFindings(audit){
     const ids=new Set();collectIds(ev,ids);
     const method=typeof ev==='object'&&ev&&typeof ev.method==='string'?ev.method:null;
     const detail=typeof ev==='string'?ev:Object.fromEntries(Object.entries(ev??{}).filter(([k])=>k!=='method'&&k!=='reasons'));
-    const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):'';
+    const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):rule==='labelCoversRoute'&&Array.isArray(ev?.violations)?labelHintText(ev.violations):'';
     const hints=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.repairHint).map(v=>[`${v.repairHint.edge}|${JSON.stringify(v.repairHint.points)}`,v.repairHint])).values()]:[];
     const f=makeFinding({source:'audit',severity:'blocking',rule,elements:[...ids],region:null,
       evidence:{measured:clip(detail),threshold:method?clip(method,240):'rule check passes (see Diagram Rules)'},

@@ -8,7 +8,7 @@ import { createV2Run, budgetsFromEnv } from './src/orchestrator.mjs';
 import { createPiReviewerFactory, reviewerConfigFromEnv, resolveReviewerModel } from './src/reviewer.mjs';
 import { acceptRun, safeRunDir } from './src/manifest.mjs';
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
-import { createSpecRenderer, SPEC_TOOL_DESCRIPTION } from './src/spec-tool.mjs';
+import { createSpecRenderer, SPEC_TOOL_DESCRIPTION, specModeFromEnv } from './src/spec-tool.mjs';
 import { createBuildStep } from './src/build-step.mjs';
 
 /** Quote-aware argument split shared by /magic and /magic-accept. */
@@ -23,7 +23,10 @@ export default function (pi: ExtensionAPI) {
   let activeRun: any = null;
   let activeStarted = false;
   // Opt-in experiments; both default off and leave the script-mode prompt and tool list unchanged.
-  const specMode = process.env.PI_DIAGRAM_SPEC_MODE === '1';
+  // PI_DIAGRAM_SPEC_MODE: 1 offers layout.json next to make.py; required makes layout.json the only authoring path.
+  const specModeKind = specModeFromEnv();
+  const specMode = specModeKind !== 'off';
+  const specRequired = specModeKind === 'required';
   const v2Budgets0 = budgetsFromEnv(); // tool descriptions and registration follow the same env the run budgets use
 
   pi.registerCommand('magic', {
@@ -86,7 +89,7 @@ export default function (pi: ExtensionAPI) {
           (timer as any).unref?.();
         } else inspector = createAgentVisualInspector(job);
         const renderSpec = createSpecRenderer(job);
-        const buildStep = createBuildStep(job, { specMode, renderSpec });
+        const buildStep = createBuildStep(job, { specMode: specRequired ? 'required' : specMode, renderSpec });
         jobs.set(jobId, { inspect: thinking.wrap(inspector), renderSpec, ...(run ? { submit: (opts?: { svgHash?: string | null }) => run.submit(opts), ...(v2Budgets.twoPhase ? { buildCheck: (ctx: any) => run.buildCheck({ build: () => buildStep(ctx) }) } : {}) } : {}) });
         let factsText: string | null = null;
         if (process.env.PI_DIAGRAM_SOURCE_FACTS === '1') {
@@ -97,8 +100,8 @@ export default function (pi: ExtensionAPI) {
             ctx.ui.notify(`Source facts unavailable, continuing without them: ${String((error as Error).message)}`, 'warning');
           }
         }
-        if (specMode) ctx.ui.notify('Layout spec mode on: layout.json + diagram_render_spec offered', 'info');
-        pi.sendUserMessage(composePrompt(job, { jobId, specMode, factsText, v2: v2Budgets ? { maxRounds: v2Budgets.maxRounds, maxInspectionsPerRound: v2Budgets.maxInspectionsPerRound, twoPhase: v2Budgets.twoPhase, maxChecksPerRound: v2Budgets.maxChecksPerRound, maxChecksPerRun: v2Budgets.maxChecksPerRun, runDir: job.runDir } : null }), { deliverAs: 'followUp' });
+        if (specMode) ctx.ui.notify(specRequired ? 'Layout spec mode on (required): layout.json is the only authoring path; make.py is ignored' : 'Layout spec mode on: layout.json + diagram_render_spec offered', 'info');
+        pi.sendUserMessage(composePrompt(job, { jobId, specMode: specRequired ? 'required' : specMode, factsText, v2: v2Budgets ? { maxRounds: v2Budgets.maxRounds, maxInspectionsPerRound: v2Budgets.maxInspectionsPerRound, twoPhase: v2Budgets.twoPhase, maxChecksPerRound: v2Budgets.maxChecksPerRound, maxChecksPerRun: v2Budgets.maxChecksPerRun, maxGeneratorErrorsPerRound: v2Budgets.maxGeneratorErrorsPerRound, runDir: job.runDir } : null }), { deliverAs: 'followUp' });
         ctx.ui.notify(`Pi diagram agent started; private work directory: ${job.runDir}`, 'info');
       } catch (error) {
         ctx.ui.notify(`Diagram agent could not start: ${String((error as Error).message)}`, 'warning');
@@ -170,7 +173,7 @@ export default function (pi: ExtensionAPI) {
     if (v2Budgets0.twoPhase) pi.registerTool(defineTool({
       name: 'diagram_build_check',
       label: 'Build the candidate and run the binding script check',
-      description: 'The normal edit loop. In one call: (1) runs your generator (python3 make.py in the run directory, 60 s limit; or renders layout.json in spec mode; or uses candidate.svg as written), (2) hashes the resulting candidate.svg bytes, (3) runs the full deterministic auditor plus measured geometry and early checks, (4) returns TEXT ONLY: the sha256, PASS/FAIL per check, and actionable findings (including repairHint/moveHint evidence) and the check budget left. Identical bytes are served from a cache (still counted). diagram_submit accepts only a hash whose latest check has no FAIL. Not visual evidence: call diagram_inspect for images.',
+      description: 'The normal edit loop. In one call: (1) runs your generator (python3 make.py in the run directory, 60 s limit; or renders layout.json in spec mode, where PI_DIAGRAM_SPEC_MODE=required ignores make.py and candidate.svg; or uses candidate.svg as written), (2) hashes the resulting candidate.svg bytes, (3) runs the full deterministic auditor plus measured geometry and early checks, (4) returns TEXT ONLY: the sha256, PASS/FAIL per check, and actionable findings (including repairHint/moveHint evidence) and the check budget left. Identical bytes are served from a cache (still counted). diagram_submit accepts only a hash whose latest check has no FAIL. Not visual evidence: call diagram_inspect for images.',
       parameters: Type.Object({ jobId: Type.String() }),
       async execute(_id, params, _signal, _onUpdate, ctx) {
         const job = jobs.get(params.jobId);

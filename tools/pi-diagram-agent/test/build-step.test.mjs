@@ -106,3 +106,32 @@ test('a make.py that imports a sibling module from the run directory builds fine
     assert.match(t.calls[0].args.command,/PYTHONDONTWRITEBYTECODE=1/);
   }finally{t.cleanup()}
 });
+
+test('spec mode required: layout.json is used even when make.py exists (make.py is never run), and the result says so',async()=>{
+  const rendered=[];
+  const t=setup({specMode:'required',renderSpec:async()=>{rendered.push(1);return {content:[{type:'text',text:'RENDERED'}],details:{status:'RENDERED'}}}});try{
+    t.write('make.py','raise SystemExit("must not run")\n');t.write('layout.json','{}');
+    const r=await t.build(t.ctx);
+    assert.equal(r.ok,true);assert.equal(r.source,'layout.json');assert.equal(rendered.length,1);assert.equal(t.calls.length,0);
+    assert.match(r.note,/make\.py.*ignored/i);
+  }finally{t.cleanup()}
+});
+
+test('spec mode required: a missing layout.json is an error (candidate.svg as written is not accepted), with the make.py note when it exists',async()=>{
+  const t=setup({specMode:'required',renderSpec:async()=>{throw Error('must not render')}});try{
+    t.write('candidate.svg','<svg xmlns="http://www.w3.org/2000/svg"/>');
+    let r=await t.build(t.ctx);
+    assert.equal(r.ok,false);assert.equal(r.source,'layout.json');assert.match(r.message,/layout\.json/);assert.match(r.message,/not found|missing/i);
+    t.write('make.py','pass\n');
+    r=await t.build(t.ctx);
+    assert.equal(r.ok,false);assert.match(r.message,/make\.py.*ignored/i);assert.equal(t.calls.length,0);
+  }finally{t.cleanup()}
+});
+
+test('spec mode required: a schema error is returned as a clear message like a generator error',async()=>{
+  const t=setup({specMode:'required',renderSpec:async()=>({content:[{type:'text',text:'SCHEMA_ERROR: layout.json was not rendered and candidate.svg is unchanged.\n- nodes[0].rect: missing'}],details:{status:'SCHEMA_ERROR'}})});try{
+    t.write('layout.json','{}');t.write('make.py','pass\n');
+    const r=await t.build(t.ctx);
+    assert.equal(r.ok,false);assert.equal(r.source,'layout.json');assert.match(r.message,/nodes\[0\]\.rect/);assert.match(r.message,/make\.py.*ignored/i);
+  }finally{t.cleanup()}
+});

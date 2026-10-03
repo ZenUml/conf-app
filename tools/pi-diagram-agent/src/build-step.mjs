@@ -40,6 +40,17 @@ export function createBuildStep(job,{specMode=false,renderSpec=null,timeoutSecon
   /** @param ctx the extension tool context (ctx.executeTool) @returns {Promise<{ok:boolean,source:string,message?:string,ms?:number}>} */
   return async function build(ctx){
     const started=Date.now();
+    const required=specMode==='required';
+    // Under spec mode 'required' layout.json is the only authoring path: make.py is ignored and candidate.svg is never taken as written.
+    const note=required&&regular(generator)?`${GENERATOR_ENTRY} exists but is ignored: spec mode is required, so candidate.svg is rendered from layout.json only (candidate.svg is overwritten on every check).`:undefined;
+    if(required){
+      if(!renderSpec)throw Error('SPEC_RENDERER_UNAVAILABLE');
+      if(!regular(layout))return {ok:false,source:'layout.json',ms:Date.now()-started,message:`layout.json not found at ${layout}. Spec mode is required: write layout.json there (a regular file; schema in your instructions) and call diagram_build_check again. Do not write make.py or candidate.svg.${note?' '+note:''}`,...(note?{note}:{})};
+      const result=await renderSpec();
+      const text=textOf({result});
+      if(result?.details?.status==='SCHEMA_ERROR'||/^SCHEMA_ERROR/.test(text))return {ok:false,source:'layout.json',ms:Date.now()-started,message:tailOutput(text)+(note?`\n${note}`:''),...(note?{note}:{})};
+      return {ok:true,source:'layout.json',ms:Date.now()-started,...(note?{note}:{})};
+    }
     if(regular(generator)){
       if(fs.statSync(generator).size>MAX_GENERATOR_BYTES)return {ok:false,source:GENERATOR_ENTRY,message:`${GENERATOR_ENTRY} is larger than ${MAX_GENERATOR_BYTES} bytes; keep the generator small.`};
       if(typeof ctx?.executeTool!=='function')throw Error('GENERATOR_EXECUTION_UNAVAILABLE: ctx.executeTool is not available in this Pi runtime');

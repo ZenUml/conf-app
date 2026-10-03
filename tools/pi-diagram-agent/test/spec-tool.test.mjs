@@ -16,6 +16,7 @@ const MDIR=fs.mkdtempSync(path.join(os.tmpdir(),'pi-manifests-test-'));
 process.env.PI_DIAGRAM_MANIFEST_DIR=MDIR; // authoritative manifests: never the real ~ in tests
 process.on('exit',()=>fs.rmSync(MDIR,{recursive:true,force:true}));
 const ext=(await import('../pi-extension.ts')).default;
+const {specModeFromEnv}=await import('../src/spec-tool.mjs');
 
 const SRC='flowchart LR\n  A[Start] --> B[Finish]\n';
 const layout={canvas:{w:420,h:200,title:'t'},palette:{p:{fill:'#e8f1fb',stroke:'#2563a8',text:'#12355b',meaning:'Step'}},
@@ -75,5 +76,21 @@ test('/magic without the env flags sends the unchanged prompt',async()=>{
     const f=fakePi();ext(f.pi);await f.commands.get('magic').handler(input,f.ctx);
     const runDir=/private work directory: (\S+)/.exec(f.notes.map(n=>n[0]).join('\n'))[1];
     try{assert.doesNotMatch(f.sent[0],/layout\.json|diagram_render_spec|source-facts/)}finally{fs.rmSync(runDir,{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true})}
+  });
+});
+
+test('specModeFromEnv: 1 offers, required requires, anything else is off',()=>{
+  assert.equal(specModeFromEnv({}),'off');assert.equal(specModeFromEnv({PI_DIAGRAM_SPEC_MODE:'1'}),'offered');
+  assert.equal(specModeFromEnv({PI_DIAGRAM_SPEC_MODE:'required'}),'required');assert.equal(specModeFromEnv({PI_DIAGRAM_SPEC_MODE:'0'}),'off');assert.equal(specModeFromEnv({PI_DIAGRAM_SPEC_MODE:'yes'}),'off');
+});
+test('PI_DIAGRAM_SPEC_MODE=required registers diagram_render_spec and sends the required-mode loop',async()=>{
+  await withEnv({PI_DIAGRAM_SPEC_MODE:'required',PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined},async()=>{
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-spec-req-')),input=path.join(root,'s.mmd');fs.writeFileSync(input,SRC);
+    const f=fakePi();ext(f.pi);
+    assert.ok(f.tools.has('diagram_render_spec'));
+    await f.commands.get('magic').handler(input,f.ctx);
+    const runDir=/private work directory: (\S+)/.exec(f.notes.map(n=>n[0]).join('\n'))[1];
+    try{assert.match(f.sent[0],/do not write make\.py/i);assert.ok(f.notes.some(n=>/^Layout spec mode on/.test(n[0])))}
+    finally{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(runDir,{recursive:true,force:true})}
   });
 });

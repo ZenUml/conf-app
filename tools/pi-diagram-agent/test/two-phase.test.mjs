@@ -457,3 +457,13 @@ test('budgets: PI_DIAGRAM_MAX_GENERATOR_ERRORS_PER_ROUND configures the cap, def
   assert.equal(DEFAULT_BUDGETS.maxGeneratorErrorsPerRound,6);
   assert.equal(budgetsFromEnv({PI_DIAGRAM_MAX_GENERATOR_ERRORS_PER_ROUND:'3'}).maxGeneratorErrorsPerRound,3);
 });
+
+test('a build note (for example make.py ignored under spec mode required) is carried in the check reply',async()=>{
+  const t=setup();try{
+    t.write(svg('ok'));
+    const c=await t.check({build:async()=>({ok:true,source:'layout.json',note:'make.py exists but is ignored'})});
+    assert.equal(c.status,'CHECK_PASS');assert.equal(c.source,'layout.json');assert.match(c.buildNote,/make\.py.*ignored/);
+    const g=await t.check({build:async()=>({ok:false,source:'layout.json',message:'SCHEMA_ERROR: x',note:'make.py exists but is ignored'})});
+    assert.equal(g.status,'GENERATOR_ERROR');assert.match(g.buildNote,/ignored/);
+  }finally{t.cleanup()}
+});

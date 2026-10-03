@@ -292,12 +292,12 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     for(const f of c.findings)if(f.severity==='blocking')out[f.rule]='FAIL';
     return out;
   };
-  function checkReply(c,{cached,source=null}){
+  function checkReply(c,{cached,source=null,buildNote=null}){
     const blocking=c.findings.filter(f=>f.severity==='blocking');
     const sel=formatForAuthor({sent:blocking.slice(0,B.maxFindingsPerCheck).map(f=>({...f,state:'open'})),omittedBlocking:Math.max(0,blocking.length-B.maxFindingsPerCheck),minorCount:c.findings.length-blocking.length});
     const l=left(),fail=blocking.length>0;
     const last=l.checksLeftThisRound===0||l.checksLeftThisRun===0;
-    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),checks:checkStatuses(c),failed:failedRules(c),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
+    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:checkStatuses(c),failed:failedRules(c),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
       next:fail
         ?(last?`This was your last build_check ${l.checksLeftThisRun===0?'of the run':'this round'}. If you submit now with FAILs remaining, an escalation review decides: semantic FAILs are rejected, border-grazing or unavoidable-crossing FAILs may be waived, anything else comes back as layout advice. Better: fix what you can and submit.`:`Fix these findings (repairHint/moveHint are evidence you may use or ignore), then call diagram_build_check again. ${l.checksLeftThisRound} check(s) left this round.`)
         :`All script checks pass for hash ${c.hash}. Optionally call diagram_inspect (at most ${B.maxInspectionsPerRound} per round) for the visual evidence, then call diagram_submit with svgHash ${c.hash}.`});
@@ -320,18 +320,18 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     callsRound++;callsTotal++;cur.buildCheckCalls++;
     const seq=callsTotal;
     const finish=reply_=>{checkSinceMark+=now()-t0;timings.checkMs+=now()-t0;persist();return reply_};
-    let source=null;
+    let source=null,buildNote=null;
     if(build){
       let built;
       try{built=await build()}catch(error){callsRound--;callsTotal--;cur.buildCheckCalls--;throw error} // a genuine tool failure is not a spent check
-      source=built?.source??null;
+      source=built?.source??null;buildNote=built?.note??null;
       if(!built?.ok){
         // No bytes were checked, so this call is not a spent check: it counts against the separate generator-error cap only.
         callsRound--;callsTotal--;cur.buildCheckCalls--;
         generatorErrors++;cur.generatorErrors++;
         checkLog.push({seq:null,round:round+1,svgHash:null,cached:false,generatorError:true,source,failed:[],blocking:0,minor:0,ms:now()-t0});
         const l=left();
-        return finish(reply({status:'GENERATOR_ERROR',source,message:built?.message??'the generator failed',...l,next:`Fix the generator or the spec (see the message) and call diagram_build_check again. This call did not use a check; ${l.generatorErrorsLeftThisRound} generator error(s) left this round before build_check is refused.`}));
+        return finish(reply({status:'GENERATOR_ERROR',source,...(buildNote?{buildNote}:{}),message:built?.message??'the generator failed',...l,next:`Fix the generator or the spec (see the message) and call diagram_build_check again. This call did not use a check; ${l.generatorErrorsLeftThisRound} generator error(s) left this round before build_check is refused.`}));
       }
     }
     const cand=readCandidate();
@@ -345,7 +345,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       hit=await scriptCheck(cand,{eager:true});hit.checkSeq=seq;cache.set(cand.hash,hit);cur.freshChecks++;
     }
     checkLog.push({seq,round:round+1,svgHash:cand.hash,cached,source,failed:failedRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
-    return finish(checkReply(hit,{cached,source}));
+    return finish(checkReply(hit,{cached,source,buildNote}));
   }
   const buildCheck=opts=>serial(()=>buildCheckNow(opts??{}));
 

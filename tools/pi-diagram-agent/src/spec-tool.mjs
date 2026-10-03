@@ -35,10 +35,16 @@ export function createSpecRenderer(job){
   };
 }
 
-/** Short prompt paragraph for spec mode (opt-in, PI_DIAGRAM_SPEC_MODE=1). */
-export function specModeParagraph({runDir,jobId}){
+/** PI_DIAGRAM_SPEC_MODE: '1' offers layout.json next to make.py ('offered'); 'required' makes layout.json the only authoring path; anything else is 'off'. */
+export const specModeFromEnv=(env=process.env)=>env.PI_DIAGRAM_SPEC_MODE==='required'?'required':env.PI_DIAGRAM_SPEC_MODE==='1'?'offered':'off';
+
+/** Short prompt paragraph for spec mode (PI_DIAGRAM_SPEC_MODE=1 offers it, =required makes it the only path). */
+export function specModeParagraph({runDir,jobId,required=false}){
   const layoutPath=path.join(runDir,'layout.json');
-  return `Layout spec mode. Instead of writing a generator script you may write ${layoutPath} (JSON) and call diagram_render_spec with job ID ${jobId}; it draws candidate.svg exactly as specified and returns text findings. You still decide every coordinate: node positions, ports, every route point, label and legend placement. The renderer never moves, reroutes or repairs anything and does not pick a layout; findings are measurements against the rules, and you choose whether and how to fix them. Then call diagram_inspect as usual.
+  const lead=required
+    ?`Layout spec mode (required). This overrides the earlier instruction to write a diagram-specific script or SVG: you author ${layoutPath} (JSON) and our renderer draws candidate.svg from it (diagram_render_spec with job ID ${jobId} renders it on demand; diagram_build_check renders it too); it draws`
+    :`Layout spec mode. Instead of writing a generator script you may write ${layoutPath} (JSON) and call diagram_render_spec with job ID ${jobId}; it draws`;
+  return `${lead} candidate.svg exactly as specified and returns text findings. You still decide every coordinate: node positions, ports, every route point, label and legend placement. The renderer never moves, reroutes or repairs anything and does not pick a layout; findings are measurements against the rules, and you choose whether and how to fix them. Then call diagram_inspect as usual.
 Schema (all numbers are SVG units; unknown keys are errors):
 - canvas: {w, h, title, desc}
 - palette: {role: {fill, stroke, text, meaning}} as #rrggbb; meaning is required. Edges take the colour of their target's role unless the edge sets role.

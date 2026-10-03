@@ -116,3 +116,20 @@ test('reviewer facts carry definition conflicts only when present',async()=>{
   assert.deepEqual(buildReviewerFacts(parseMermaid('flowchart LR\n  A[one] --> B\n  A[two]')).conflicts,[{nodeId:'A',kinds:['text'],lines:[2,3],texts:['one','two'],shapes:['rect','rect']}]);
   assert.equal(buildReviewerFacts(parseMermaid('flowchart LR\n  A --> B')).conflicts,undefined);
 });
+
+const V2={maxRounds:4,maxInspectionsPerRound:3,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,runDir:'/run/x'};
+test('composePrompt: spec mode required makes layout.json the normal loop and forbids make.py and a hand-written candidate.svg',withJob(async job=>{
+  const p=composePrompt(job,{jobId:'J1',specMode:'required',v2:V2});
+  assert.match(p,/Normal loop: write \/run\/x\/layout\.json/);
+  assert.match(p,/positions and routes chosen by you/);
+  assert.match(p,/diagram_build_check[^.]*renders it with our renderer/);
+  assert.match(p,/do not write make\.py/i);assert.match(p,/do not (?:write|hand-write)[^.]*candidate\.svg/i);
+  assert.match(p,/overrides[^.]*script/i);
+  assert.doesNotMatch(p,/edit your generator/);
+  assert.match(p,/you (?:still )?decide every coordinate/i);
+  assert.match(p,/Phase 1 \(binding\)/);
+}));
+test('composePrompt: spec mode offered (1) keeps the make.py normal loop',withJob(async job=>{
+  const p=composePrompt(job,{jobId:'J1',specMode:true,v2:V2});
+  assert.match(p,/edit your generator \/run\/x\/make\.py/);assert.doesNotMatch(p,/do not write make\.py/i);
+}));

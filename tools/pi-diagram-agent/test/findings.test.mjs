@@ -130,3 +130,11 @@ test('ledger: a reviewer duplicate of an open audit finding (same key) is one en
   assert.equal(L.get(aud.key).history.length,2);
   assert.equal(L.openBlocking().length,1);
 });
+
+test('auditToFindings: routeLowerBend minorFindings become minor (never blocking) findings, even when the check PASSes',()=>{
+  const audit={checks:{routeLowerBend:{status:'PASS',evidence:{violations:[],minorFindings:[{edge:'A->B',kind:'midpoint',drawnBends:0,witnessBends:0,drawn:{source:{offset:15,faceLength:60,fraction:0.25},target:{offset:15,faceLength:60,fraction:0.25}},witness:{source:{offset:0,faceLength:60,fraction:0},target:{offset:0,faceLength:60,fraction:0}}}]}}}};
+  const out=auditToFindings(audit);
+  assert.equal(out.length,1);
+  assert.deepEqual([out[0].rule,out[0].severity,out[0].elements],['routeLowerBend','minor',['A->B']]);
+  assert.match(out[0].evidence.measured,/0\.25/);
+});

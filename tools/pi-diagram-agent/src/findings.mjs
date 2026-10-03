@@ -118,11 +118,19 @@ function crossingHintText(violations){
   }
   return [...new Set(lines)].join('; ');
 }
-/** Every FAIL check of an auditAgentSvg result becomes one blocking finding. NOT-CHECKABLE and PASS never produce findings. */
+const fx=v=>v?`${v.offset} units (${v.fraction===null?'n/a':v.fraction} of the ${v.faceLength}-unit face)`:'n/a';
+function lowerBendMinorFinding(m){
+  return makeFinding({source:'audit',severity:'minor',rule:'routeLowerBend',elements:[m.edge],
+    evidence:{measured:`anchors off the face midpoints: drawn source ${fx(m.drawn?.source)}, target ${fx(m.drawn?.target)}; same-bend witness source ${fx(m.witness?.source)}, target ${fx(m.witness?.target)}`,threshold:'non-blocking: anchors closer to the face midpoints exist with the same bends and crossings'},
+    suggestion:'Optional: move the anchors toward the face midpoints when it costs nothing; this does not block acceptance.'});
+}
+/** Every FAIL check of an auditAgentSvg result becomes one blocking finding; routeLowerBend midpoint-only witnesses become minor findings. NOT-CHECKABLE and PASS produce no blocking findings. */
 export function auditToFindings(audit){
   if(!audit||!audit.checks)return [];
   const out=[];
   for(const [rule,check] of Object.entries(audit.checks)){
+    // Non-blocking minor findings travel with a PASSing (or any) check: routeLowerBend midpoint-only witnesses (decision 2, 2026-10-03).
+    if(rule==='routeLowerBend'&&Array.isArray(check?.evidence?.minorFindings))for(const m of check.evidence.minorFindings)out.push(lowerBendMinorFinding(m));
     if(check?.status!=='FAIL')continue;
     const ev=check.evidence;
     const ids=new Set();collectIds(ev,ids);

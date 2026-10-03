@@ -233,6 +233,8 @@ export function parseMermaid(source) {
     }
 
     let left = readNodeGroup(); ws();
+    // A bare reference line inside a subgraph (`n1`, `a & b`) is an explicit membership declaration for a node that was only used at the top level so far.
+    if (p >= s.length && stack.length) for (const r of left) { const n = r.isGroup ? null : nodes.get(r.id); if (n && n.declGroup === null) { n.declGroup = stack.at(-1); } }
     while (p < s.length) {
       const op = readOp(), piped = readLabel();
       if (piped !== null) { if (op.label) fail(line, 'edge label', 'given twice'); op.label = piped; }
@@ -292,8 +294,10 @@ export function parseMermaid(source) {
     return [...new Set([...outer, ...lexical])].concat(g.id);
   };
   for (const n of nodes.values()) {
-    n.groupPath = pathOf(n.declGroup); n.declaredGroupPath = declaredPathOf(n.declGroup); n.group = n.groupPath.at(-1) ?? null;
     n.mermaidGroupPath = mermaidPathOf(owner(n.id));
+    // User decision 2026-10-03: a node defined only at the top level (never declared inside a subgraph) has no group declaration; its declared membership is the one Mermaid renders.
+    n.groupPath = pathOf(n.declGroup); n.group = n.groupPath.at(-1) ?? null;
+    n.declaredGroupPath = n.declGroup ? declaredPathOf(n.declGroup) : [...n.mermaidGroupPath];
     n.role = n.classes.at(-1) ?? 'neutral';
     if (n.role !== 'neutral' && !palette[n.role]) palette[n.role] = { fill: NEUTRAL.fill, stroke: NEUTRAL.stroke, text: '#17212b', meaning: n.role, declared: false };
     delete n.declGroup;

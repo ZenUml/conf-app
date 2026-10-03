@@ -351,7 +351,7 @@ const sortedUnique=list=>[...new Set(list.map(round3))].sort((a,b)=>a-b);
  * edges: [{source,target,tag,path,axialLength,spans,hulls,trunk}]  (spans/hulls from the audit's strict path readers)
  */
 export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLabels=[]},{mode='lowerBend',hintEdges=[],canvas=null,routeOverrides=null}={}){
-  const relations=[],violations=[],notCheckable=[];
+  const relations=[],violations=[],notCheckable=[],minors=[];
   const hintSet=new Set(hintEdges),hints=new Map();
   const nodeById=new Map();for(const n of nodes)if(!nodeById.has(n.id))nodeById.set(n.id,n);
   const groupProblem=groups.find(g=>!g.box||g.outline!=='rect');
@@ -507,14 +507,19 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
     }
     const eq=equal.map(c=>({c,level:evaluate(c.points),bends:route.bends,dist:midDist(c.faces[0],c.faces[1],c.points[0],c.points.at(-1))})).filter(x=>x.level>0&&x.dist<drawnDist-MIDPOINT_TOLERANCE);
     const eyes=eq.filter(x=>x.level===2);
+    // Decision 2 (user, 2026-10-03): a witness that differs only by anchors closer to the face midpoints (same bends, same crossings/collisions) is a
+    // non-blocking minor finding with measured offsets, not a FAIL. Fewer-bend witnesses and crossings stay failures (handled above).
+    let minor=null;
     if(eyes.length){
       const w=best(eyes);
-      violations.push({...record,kind:'midpoint',drawnBends:route.bends,witnessBends:w.bends,drawnAnchorOffsetFromMidpoints:round3(drawnDist),witness:fmt(w.c,w.dist)});
-      relations.push({edge:id,status:'FAIL',reason:'a feasible route with the same bends has anchors closer to the face midpoints'});continue;
-    }
-    if(eq.length){nc('a closer-to-midpoint route is blocked only by unmeasured or uncertain geometry');continue}
+      const off=(f,p)=>{const len=f.hi-f.lo,o=Math.abs(alongOf(f,p)-f.mid);return {offset:round3(o),faceLength:round3(len),fraction:len>EPS?round3(o/len):null}};
+      minor={...record,kind:'midpoint',witnessBends:w.bends,drawnAnchorOffsetFromMidpoints:round3(drawnDist),
+        drawn:{source:off(fsD,p0),target:off(ftD,pn)},
+        witness:{source:off(w.c.faces[0],w.c.points[0]),target:off(w.c.faces[1],w.c.points.at(-1)),anchors:{source:w.c.points[0].map(round3),target:w.c.points.at(-1).map(round3)},faces:{source:w.c.faces[0].name,target:w.c.faces[1].name},segments:w.c.points.slice(0,-1).map((p,k)=>[p.map(round3),w.c.points[k+1].map(round3)])}};
+      minors.push(minor);
+    }else if(eq.length){nc('a closer-to-midpoint route is blocked only by unmeasured or uncertain geometry');continue}
     if(route.bends>=4){nc('drawn route has 4 or more bends and 3-bend candidates are not searched, so absence of a 0-2 bend witness does not prove minimality');continue}
-    relations.push({edge:id,status:'PASS',drawnBends:route.bends,...(pinned?{trunk:me.trunk}:{})});
+    relations.push({edge:id,status:'PASS',drawnBends:route.bends,...(minor?{minor:'midpoint'}:{}),...(pinned?{trunk:me.trunk}:{})});
   }
   if(mode==='hint')return {hints:Object.fromEntries(hints)};
   const status=violations.length?'FAIL':notCheckable.length||!edges.length?'NOT-CHECKABLE':'PASS';
@@ -524,8 +529,8 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
     checkedRelations:relations.filter(r=>r.status!=='NOT-CHECKABLE').length,
     limitations:'witness routes have at most 2 bends, so a relationship that can only be routed with 3 or more bends is NOT-CHECKABLE; the drawn route itself is never taken as its own witness; uncertain obstacles block witnesses but never support a PASS'}};
   return {status,evidence:{
-    method:'actual SVG path reconstructed into logical bends (fillet = one bend); straight (0) and L (1) candidates, plus Z/U (2) candidates when the drawing has 3+ bends, over face midpoints, projected alignment points, drawn-anchor projections and a 4-unit face sweep, kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, and long enough for fillet trim + marker axial length + 8; ports of non-rectangular nodes are the apexes and flat faces measured on the sampled drawn outline; equal-bend midpoint comparison against enumerated L/straight candidates or anchor-shifted copies of the drawn route; a declared shared-trunk member is searched with its target anchor pinned to the trunk entry so every witness still merges validly',
-    relations,violations,notCheckable,
+    method:'actual SVG path reconstructed into logical bends (fillet = one bend); straight (0) and L (1) candidates, plus Z/U (2) candidates when the drawing has 3+ bends, over face midpoints, projected alignment points, drawn-anchor projections and a 4-unit face sweep, kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, and long enough for fillet trim + marker axial length + 8; ports of non-rectangular nodes are the apexes and flat faces measured on the sampled drawn outline; equal-bend midpoint comparison (reported as a non-blocking minorFinding with drawn and witness anchor offsets, never a FAIL) against enumerated L/straight candidates or anchor-shifted copies of the drawn route; a declared shared-trunk member is searched with its target anchor pinned to the trunk entry so every witness still merges validly',
+    relations,violations,minorFindings:minors,notCheckable,
     checkedRelations:relations.filter(r=>r.status!=='NOT-CHECKABLE').length,
     limitations:'supported node silhouettes: rectangle (incl. rounded), diamond, long-text decision hexagon, cylinder/store, queue, subroutine, capsule/stadium, circle/ellipse (convex outline with a centred apex or flat face per side); any other shape is NOT-CHECKABLE for its relationships; Z/U channels are a finite candidate set; drawings with 4+ bends can fail on a 0-2 bend witness but never PASS (3-bend candidates are not searched); a trunk member is judged with its trunk entry fixed, so a better route that moves the entry is not proposed; equal-bend midpoint for 2+ bends shifts the drawn route anchors only; declared port order, badge exclusions and other relationship-specific constraints are not read; uncertain obstacles block witnesses but never support a PASS'
   }};

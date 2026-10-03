@@ -42,13 +42,16 @@ export const EARLY_AUDIT_RULES=['nodeIdentity','relations','groups'];
 /** Layout and style rules the auditor measures from the drawn SVG (src/layout-checks.mjs); a FAIL is reported as an early finding at every inspect, not only at the gate. */
 export const EARLY_MEASURED_RULES=['connectorStrokeWidth','filletUniformity','markerUniformity','textContrast','labelFontWeight','legendCompleteness','routeDetour','routeContainerClearance','textFit','nodeHeadingClearance'];
 
+/** routeLowerBend midpoint-only findings are minor and never blocking (decision 2, 2026-10-03). */
+export const isLowerBendMinor=f=>f.rule==='routeLowerBend'&&f.severity==='minor';
+
 export function earlyFindings({svgText,audit}){
   const out=[];
   const hits=scanForbidden(svgText);
   if(hits.length)out.push(makeFinding({source:'early',severity:'blocking',rule:'forbidden-construct',elements:hits.map(h=>h.construct),
     evidence:{measured:hits.map(h=>`${h.construct} x${h.count}`).join(', '),threshold:'0 occurrences of script, foreignObject, iframe, image, href, on* handlers, context-stroke, context-fill'},
     suggestion:hits.map(h=>FORBIDDEN_FIX[h.construct]).join(' ')}));
-  for(const f of auditToFindings(audit))if(EARLY_AUDIT_RULES.includes(f.rule)||EARLY_MEASURED_RULES.includes(f.rule))out.push(makeFinding({...f,source:'early'}));
+  for(const f of auditToFindings(audit))if(EARLY_AUDIT_RULES.includes(f.rule)||EARLY_MEASURED_RULES.includes(f.rule)||isLowerBendMinor(f))out.push(makeFinding({...f,source:'early'}));
   // No bindings at all is NOT-CHECKABLE for the auditor (it cannot FAIL what it cannot see), but for the gate it is a missing binding.
   for(const rule of EARLY_AUDIT_RULES){
     const c=audit?.checks?.[rule];

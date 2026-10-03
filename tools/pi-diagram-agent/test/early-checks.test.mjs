@@ -216,3 +216,9 @@ test('earlyFindings: textFit structure and nodeHeadingClearance FAILs are blocki
   assert.match(out.find(x=>x.rule==='nodeHeadingClearance').suggestion,/8 units/);
   assert.match(out.find(x=>x.rule==='textFit').suggestion,/lid|structure|4 units/i);
 });
+
+test('earlyFindings: a routeLowerBend midpoint-only minor finding is reported as minor, never blocking',()=>{
+  const audit={checks:{routeLowerBend:{status:'PASS',evidence:{violations:[],minorFindings:[{edge:'A->B',kind:'midpoint',drawnBends:0,witnessBends:0,drawn:{source:{offset:15,faceLength:60,fraction:0.25},target:{offset:15,faceLength:60,fraction:0.25}},witness:{source:{offset:0,faceLength:60,fraction:0},target:{offset:0,faceLength:60,fraction:0}}}]}}}};
+  const out=earlyFindings({svgText:svg(''),audit});
+  assert.deepEqual(out.map(f=>[f.rule,f.severity,f.source]),[['routeLowerBend','minor','early']]);
+});

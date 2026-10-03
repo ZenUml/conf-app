@@ -5,7 +5,7 @@ import {makeFinding} from './findings.mjs';
 import {GROUP_SELECTOR} from './svg-selectors.mjs';
 const require=createRequire(import.meta.url);
 
-export const LABEL_MAX_GAP=25;        // units between an edge label box and its own route
+export const LABEL_MAX_GAP=25;        // units between an edge label box and its own route. 25 confirmed by the user 2026-10-03: good labels measure 19.5-20; ownership is handled by label-ambiguous, not by a tighter limit.
 export const AMBIGUITY_MARGIN=1;      // a label must be more than 1 unit nearer its own route than any other, else ownership is ambiguous
 export const ROUTE_MIN_CLEARANCE=12;  // units between a route and the border of an unrelated node/container
 

@@ -8,7 +8,7 @@ import {renderAgentSvg} from './agent-render.mjs';
 import {auditAgentSvg} from './agent-audit.mjs';
 import {ensureOriginal} from './agent-led.mjs';
 import {makeFinding,createLedger,selectForAuthor,formatForAuthor,auditToFindings} from './findings.mjs';
-import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,EARLY_AUDIT_RULES,EARLY_MEASURED_RULES} from './early-checks.mjs';
+import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,isLowerBendMinor,EARLY_AUDIT_RULES,EARLY_MEASURED_RULES} from './early-checks.mjs';
 import {collectGeometry,geometryFindings,geometryForReviewer,geometryNotCheckable} from './geometry.mjs';
 import {buildReviewerFacts,buildReviewerPrompt,runReviewer,selectReviewImages,reviewerConfigFromEnv} from './reviewer.mjs';
 import {auditGateReasons,evaluateGate} from './gate.mjs';
@@ -107,7 +107,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       return c;
     }
     c.stage='audit';
-    c.findings=[...earlyFindings({svgText:cand.text,audit:c.audit}),...auditToFindings(c.audit).filter(f=>!EARLY_AUDIT_RULES.includes(f.rule)&&!EARLY_MEASURED_RULES.includes(f.rule))];
+    c.findings=[...earlyFindings({svgText:cand.text,audit:c.audit}),...auditToFindings(c.audit).filter(f=>!EARLY_AUDIT_RULES.includes(f.rule)&&!EARLY_MEASURED_RULES.includes(f.rule)&&!isLowerBendMinor(f))];
     if(model&&!c.findings.some(f=>f.severity==='blocking')){
       // Measured geometry: deterministic label-detachment and route-clearance checks, and the coordinates the reviewer is given.
       try{

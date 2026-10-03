@@ -165,7 +165,7 @@ export function createAgentVisualInspector(job,{mermaidBundlePath=process.env.PI
         geoNotCheckable=geometryNotCheckable(geo,model);
       }
     }
-    const early=earlyChecks?(()=>{const f=formatForAuthor({sent:[...earlyFindings({svgText:svg,audit}),...measured].map(x=>({...x,state:'open'})),omittedBlocking:0,minorCount:0});return {findings:f.findings,blocking:f.findings.length,notCheckable:geoNotCheckable}})():null;
+    const early=earlyChecks?(()=>{const f=formatForAuthor({sent:[...earlyFindings({svgText:svg,audit}),...measured].map(x=>({...x,state:'open'})),omittedBlocking:0,minorCount:0});return {findings:f.findings,blocking:f.findings.filter(x=>x.severity==='blocking').length,minor:f.findings.filter(x=>x.severity==='minor').length,notCheckable:geoNotCheckable}})():null;
     const content=[{type:'text',text:JSON.stringify({status:'VISUAL_EVIDENCE_ONLY',round:inspections,sourceHash:job.sourceHash,svgHash,originalSvgHash:original.originalSvgHash,rulesHash:job.rulesHash,originalFull:originalFull.sha256,acceptedReference:reference?{svgHash:job.referenceHash,media:referenceMedia.map(x=>({file:x.file,sha256:x.sha256}))}:null,candidateMedia:media.map(x=>({file:x.file,sha256:x.sha256})),containFit:rendered.containFit,textAudit:rendered.textAudit,independentAudit:audit,...(early?{earlyChecks:early}:{}),warning:'Look at the original, accepted reference when supplied, candidate full image, viewer-fit image and crops. Screenshot capture and partial machine checks do not certify semantics, geometry, or visual quality.'})},
       d.image({...originalFull,path:path.join(job.runDir,originalFull.file)}),
       ...referenceMedia.map(x=>d.image(x)),

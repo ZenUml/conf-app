@@ -55,15 +55,21 @@ test('routeLowerBend fails an L when a straight route is feasible and passes the
   assert.equal(straight.checks.routeLowerBend.status,'PASS');
 });
 
-test('routeLowerBend fails off-midpoint anchors when a midpoint route has the same bends',{skip:!enabled},async()=>{
+test('routeLowerBend: off-midpoint anchors with the same bends are a non-blocking minor finding with measured offsets (decision 2)',{skip:!enabled},async()=>{
   const nodes=[lbA,lbNode('B',300,50,100,60)];
   const off=await auditAgentSvg(lbSource,lbDoc(...nodes,lbEdge('A','B','M110 95 L300 95')));
-  assert.equal(off.checks.routeLowerBend.status,'FAIL');
-  const [v]=off.checks.routeLowerBend.evidence.violations;
-  assert.deepEqual([v.kind,v.drawnBends,v.witnessBends],['midpoint',0,0]);
-  assert.deepEqual(v.witness.anchors,{source:[110,80],target:[300,80]});
+  const c=off.checks.routeLowerBend;
+  assert.equal(c.status,'PASS',JSON.stringify(c.evidence));
+  assert.deepEqual(c.evidence.violations,[]);
+  assert.equal(c.evidence.minorFindings.length,1);
+  const [m]=c.evidence.minorFindings;
+  assert.deepEqual([m.edge,m.kind,m.drawnBends,m.witnessBends],['A->B','midpoint',0,0]);
+  assert.deepEqual(m.drawn,{source:{offset:15,faceLength:60,fraction:0.25},target:{offset:15,faceLength:60,fraction:0.25}});
+  assert.deepEqual([m.witness.source,m.witness.target,m.witness.anchors],[{offset:0,faceLength:60,fraction:0},{offset:0,faceLength:60,fraction:0},{source:[110,80],target:[300,80]}]);
+  assert.equal(c.evidence.relations[0].status,'PASS');
   const mid=await auditAgentSvg(lbSource,lbDoc(...nodes,lbEdge('A','B','M110 80 L300 80')));
   assert.equal(mid.checks.routeLowerBend.status,'PASS');
+  assert.deepEqual(mid.checks.routeLowerBend.evidence.minorFindings,[]);
 });
 
 test('routeLowerBend lets a route transit its source ancestor container but not an unrelated container',{skip:!enabled},async()=>{

@@ -448,8 +448,41 @@ test('groupMembership: a subgraph re-parented by a bare reference declares the o
   assert.deepEqual(bad.checks.groupMembership.evidence.mismatchedNodeIds,['a1']);
 });
 
-test('groupMembership: a top-level-defined node used inside a subgraph keeps its declared (empty) path',{skip:!enabled},async()=>{
+test('declared membership: a node defined only at the top level and used inside a subgraph is declared where Mermaid renders it',{skip:!enabled},async()=>{
+  const {parseMermaid}=await import('../src/parser.mjs');
   const src='flowchart LR\n n1[Outside]\n subgraph G[Group G]\n n2[Inside]\n n1 --> n2\n end\n';
-  const model=(await import('../src/parser.mjs')).parseMermaid(src);
-  assert.deepEqual(model.nodes.find(n=>n.id==='n1').declaredGroupPath,[]);
+  const n1=parseMermaid(src).nodes.find(n=>n.id==='n1');
+  assert.deepEqual(n1.declaredGroupPath,['G'],'the top-level definition sets the label only; membership is the rendered one');
+  assert.deepEqual(n1.groupPath,[],'lexical groupPath is unchanged');
+  // A bare reference line inside a subgraph IS an explicit declaration there.
+  const bare=parseMermaid('flowchart LR\n A[Start]\n subgraph Y[Y]\n B[B]\n A --> B\n end\n subgraph X[X]\n A\n end\n');
+  assert.deepEqual(bare.nodes.find(n=>n.id==='A').declaredGroupPath,['X']);
+  assert.deepEqual(bare.nodes.find(n=>n.id==='A').mermaidGroupPath,['Y']);
+});
+
+// Decision 1 (user, 2026-10-03): g3 pattern = no declared-vs-rendered conflict.
+const g3Source='flowchart LR\n A[Start]\n subgraph G[Group]\n B[Finish]\n A --> B\n end\n';
+const g3Original=`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><g class="cluster" id="old-G"><rect x="0" y="20" width="550" height="130"/></g><g class="node" id="old-flowchart-A-0"><rect x="10" y="50" width="100" height="60"/></g><g class="node" id="old-flowchart-B-1"><rect x="400" y="50" width="100" height="60"/></g></svg>`;
+const g3Candidate=svg.replace('<g data-node="A">','<g data-group="G"><rect x="0" y="20" width="550" height="130"/></g><g data-node="A">');
+test('g3 pattern: top-level-defined node used inside a subgraph and drawn in it is PASS on groupMembership, originalGroupParity and semanticPreservation',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg(g3Source,g3Candidate,{originalSvg:g3Original});
+  for(const k of ['groupMembership','originalGroupParity','semanticPreservation'])assert.equal(r.checks[k].status,'PASS',`${k}: ${JSON.stringify(r.checks[k].evidence)}`);
+  assert.deepEqual(r.checks.semanticPreservation.evidence.sourceDeclarationConflictNodeIds,[]);
+});
+
+test('g3 pattern: a candidate drawing the node outside the group FAILs',{skip:!enabled},async()=>{
+  const out=g3Candidate.replace('x="0" y="20" width="550"','x="300" y="20" width="250"');
+  const r=await auditAgentSvg(g3Source,out,{originalSvg:g3Original});
+  assert.equal(r.checks.groupMembership.status,'FAIL');
+  assert.equal(r.checks.originalGroupParity.status,'FAIL');
+  assert.equal(r.checks.semanticPreservation.status,'FAIL');
+});
+
+test('a node declared explicitly inside X (bare line) but rendered in Y is still a semantic FAIL',{skip:!enabled},async()=>{
+  const src='flowchart LR\n A[Start]\n subgraph Y[Group Y]\n B[Finish]\n A --> B\n end\n subgraph X[Group X]\n A\n end\n';
+  const original=`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><g class="cluster" id="old-Y"><rect x="0" y="20" width="550" height="130"/></g><g class="cluster" id="old-X"><rect x="0" y="300" width="100" height="60"/></g><g class="node" id="old-flowchart-A-0"><rect x="10" y="50" width="100" height="60"/></g><g class="node" id="old-flowchart-B-1"><rect x="400" y="50" width="100" height="60"/></g></svg>`;
+  const cand=svg.replace('<g data-node="A">','<g data-group="Y"><rect x="0" y="20" width="550" height="130"/></g><g data-group="X"><rect x="0" y="300" width="100" height="60"/></g><g data-node="A">');
+  const r=await auditAgentSvg(src,cand,{originalSvg:original});
+  assert.equal(r.checks.semanticPreservation.status,'FAIL',JSON.stringify(r.checks.semanticPreservation.evidence));
+  assert.deepEqual(r.checks.semanticPreservation.evidence.sourceDeclarationConflictNodeIds,['A']);
 });

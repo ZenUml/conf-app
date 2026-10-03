@@ -77,7 +77,7 @@ const wellFormedAdjudication=r=>r&&typeof r==='object'&&typeof r.nodeId==='strin
 /** Audit model bindings in an independently authored SVG without requiring the old renderer schema.
  * No PASS here implies an optimal route, appropriate palette meaning, or good visual quality.
  */
-export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModulePath=process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE,browserExecutablePath=process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE,adjudications=[]}={}){
+export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModulePath=process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE,browserExecutablePath=process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE,adjudications=[],prefilter=true}={}){
   const adjudicationList=(Array.isArray(adjudications)?adjudications:[adjudications]).filter(r=>r!=null);
   const sourceBytes=Buffer.isBuffer(source)?source:Buffer.from(source,'utf8');
   const sourceText=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(sourceBytes);
@@ -94,7 +94,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   try{
     const page=await browser.newPage({javaScriptEnabled:false});
     await page.route('**/*',route=>route.abort('blockedbyclient'));
-    drawn=await page.evaluate(input=>{
+    drawn=await page.evaluate(([input,PREFILTER])=>{
       const doc=new DOMParser().parseFromString(input,'image/svg+xml');
       if(doc.querySelector('parsererror')||doc.documentElement.localName!=='svg')return {parseError:true};
       const root=document.importNode(doc.documentElement,true);
@@ -197,6 +197,15 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
           }else if(shape instanceof SVGGeometryElement){
             const cols=Math.ceil((box.w+2*labelEpsilon)/sampleStep),rows=Math.ceil((box.h+2*labelEpsilon)/sampleStep);
             if(cols*rows>400000){labelUnsupported.push({label:item.label,outline:name,reason:'label too large to sample'});continue}
+            // Prefilter: the grid lies inside the label box grown by labelEpsilon+sampleStep; a hit needs a stroke point (within the stroke's reach of the
+            // geometry bbox) or a fill point (inside the bbox). isPointInStroke ignores stroke paint, so the raw stroke-width counts even for stroke:none.
+            // Reach = half width * max(miterlimit,1.5) (miter tip / square cap) * an upper bound of the matrix norm; skipped for non-scaling strokes or non-finite values.
+            if(PREFILTER&&style.vectorEffect!=='non-scaling-stroke'){
+              const cm=root.getScreenCTM().inverse().multiply(shape.getScreenCTM());
+              const reach=(Number.parseFloat(style.strokeWidth)||0)/2*Math.max(Number.parseFloat(style.strokeMiterlimit)||4,1.5)*(Math.hypot(cm.a,cm.b)+Math.hypot(cm.c,cm.d))+1e-3;
+              const pad=labelEpsilon+sampleStep+1e-3;
+              if([b.x,b.y,b.w,b.h,box.x,box.y,box.w,box.h,reach].every(Number.isFinite)&&!overlaps({x:box.x-pad,y:box.y-pad,w:box.w+2*pad,h:box.h+2*pad},{x:b.x-reach,y:b.y-reach,w:b.w+2*reach,h:b.h+2*reach}))continue;
+            }
             const inverse=root.getScreenCTM().inverse().multiply(shape.getScreenCTM()).inverse();
             let stroke=false,inFill=false,outFill=false;
             for(let i=0;i<=cols&&!stroke;i++)for(let j=0;j<=rows;j++){
@@ -212,7 +221,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const textCount=root.querySelectorAll('text').length;
       root.remove();
       return {parseError:false,nodes,edges,groups,textCount,fitNodes,labelCount:labelElements.length,boundLabels:labelElements.map(l=>l.label),labelViolations,labelUnsupported};
-    },svgText);
+    },[svgText,prefilter]);
     if(originalSvg!==null){
       const originalBytes=Buffer.isBuffer(originalSvg)?originalSvg:Buffer.from(originalSvg,'utf8');
       if(originalBytes.length===0||originalBytes.length>2_000_000)throw Error('ORIGINAL_SVG_SIZE_LIMIT');

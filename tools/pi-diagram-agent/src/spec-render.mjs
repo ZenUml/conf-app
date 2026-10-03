@@ -17,7 +17,16 @@ export class SpecError extends Error {
 export const TIERS = {S: [96, 40], M: [200, 80], L: [320, 120], XL: [480, 160]};
 const NODE_R = 4, FILLET = 5, DECISION_FILLET = 10, INSET = 12, MARKER = 10, SHAFT = 8, PARALLEL = 10, DASH = '6 4';
 const FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
-const SHAPES = ['rect', 'capsule', 'decision', 'store', 'queue'];
+/** One spec shape per parser shape (`parseMermaid` names), plus `decision` for the diamond / long-text hexagon. Sources: [..] rect, (..) capsule, {..} decision,
+ *  [(..)] cylinder, [[..]] subroutine, ((..)) circle, (((..))) doublecircle, {{..}} hexagon, [/../] parallelogram, [\..\] parallelogram_alt, [/..\] trapezoid,
+ *  [\../] trapezoid_alt, >..] asymmetric, ([..]) stadium (drawn as capsule). */
+export const SPEC_SHAPES = ['rect', 'capsule', 'decision', 'cylinder', 'subroutine', 'circle', 'doublecircle', 'hexagon', 'parallelogram', 'parallelogram_alt', 'trapezoid', 'trapezoid_alt', 'asymmetric'];
+/** Accepted spellings that render as the canonical shape: store = cylinder, queue = subroutine ([[..]] is a rectangle with two inset bars, not a queue
+ *  cylinder), stadium = capsule (rules: a capsule/stadium node is preserved as a capsule). */
+const SHAPE_ALIASES = {store: 'cylinder', queue: 'subroutine', stadium: 'capsule', 'parallelogram-alt': 'parallelogram_alt', 'trapezoid-alt': 'trapezoid_alt'};
+const canonShape = s => SHAPE_ALIASES[s] ?? s;
+const SHAPE_NAMES = [...SPEC_SHAPES, ...Object.keys(SHAPE_ALIASES)];
+const SLANTED = ['hexagon', 'parallelogram', 'parallelogram_alt', 'trapezoid', 'trapezoid_alt', 'asymmetric'];
 const TEXT_SCALE = 0.93; // the glyph table below is a per-glyph upper bound; findings use 93% of it (the auditor measures real glyphs)
 export const LIMITS = {nodes: 200, edges: 400, groups: 50, points: 40, bytes: 400_000};
 
@@ -125,7 +134,7 @@ export function validateSpec(spec) {
     if (!isObj(n)) { E(p, 'must be an object'); return; }
     keys(p, n, KEYS.node);
     if (str(`${p}.id`, n.id)) { if (nodeIds.has(n.id)) E(`${p}.id`, `duplicate node id ${JSON.stringify(n.id)}`); nodeIds.add(n.id); }
-    if (n.shape !== undefined && !SHAPES.includes(n.shape)) E(`${p}.shape`, `must be one of ${SHAPES.join(', ')}`);
+    if (n.shape !== undefined && !SHAPE_NAMES.includes(n.shape)) E(`${p}.shape`, `must be one of ${SPEC_SHAPES.join(', ')} (aliases: ${Object.entries(SHAPE_ALIASES).map(([a, b]) => `${a}=${b}`).join(', ')})`);
     if (n.tier !== undefined && !TIERS[n.tier]) E(`${p}.tier`, `must be one of ${Object.keys(TIERS).join(', ')}`);
     if (n.rect === undefined && n.centre === undefined) E(p, 'needs "rect": [x, y, w, h] or "centre": [cx, cy] together with "tier"');
     else if (n.rect !== undefined && n.centre !== undefined) E(p, 'give either "rect" or "centre"+"tier", not both');
@@ -181,7 +190,7 @@ export function validateSpec(spec) {
         if (!['node', 'line'].includes(en.kind)) E(`${q}.kind`, 'must be node or line');
         str(`${q}.label`, en.label);
         if (en.role === undefined) E(`${q}.role`, 'is required'); else roleCheck(`${q}.role`, en.role);
-        if (en.shape !== undefined && !SHAPES.includes(en.shape)) E(`${q}.shape`, `must be one of ${SHAPES.join(', ')}`);
+        if (en.shape !== undefined && !SHAPE_NAMES.includes(en.shape)) E(`${q}.shape`, `must be one of ${SPEC_SHAPES.join(', ')} (aliases: ${Object.entries(SHAPE_ALIASES).map(([a, b]) => `${a}=${b}`).join(', ')})`);
         for (const k of ['x', 'y', 'length']) if (en[k] !== undefined) num(`${q}.${k}`, en[k]);
       });
     }
@@ -210,28 +219,69 @@ function outlineSamples(pts, r = DECISION_FILLET) {
 }
 const inPoly = (x, y, poly) => { let inside = false; for (let i = 0; i < poly.length; i++) { const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length]; if ((y1 > y) !== (y2 > y) && x < (x2 - x1) * (y - y1) / (y2 - y1) + x1) inside = !inside; } return inside; };
 
+const polySamples = pts => {
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], len = dist(a, b), steps = Math.max(1, Math.ceil(len / 0.5));
+    for (let k = 0; k < steps; k++) out.push([a[0] + (b[0] - a[0]) * k / steps, a[1] + (b[1] - a[1]) * k / steps]);
+  }
+  return out;
+};
+const ellipsePoints = (cx, cy, rx, ry, count) => Array.from({length: count}, (_, i) => { const t = 2 * Math.PI * i / count; return [cx + rx * Math.cos(t), cy + ry * Math.sin(t)]; });
+// h/3 skew of the parallelograms and trapezoids, h/4 point depth of the hexagon and the flag notch
+const slantOf = (shape, h) => shape === 'hexagon' || shape === 'asymmetric' ? h / 4 : h / 3;
+function slantedPolygon(shape, x, y, w, h) {
+  const s = slantOf(shape, h);
+  switch (shape) {
+    case 'hexagon': return [[x + s, y], [x + w - s, y], [x + w, y + h / 2], [x + w - s, y + h], [x + s, y + h], [x, y + h / 2]];
+    case 'parallelogram': return [[x + s, y], [x + w, y], [x + w - s, y + h], [x, y + h]];
+    case 'parallelogram_alt': return [[x, y], [x + w - s, y], [x + w, y + h], [x + s, y + h]];
+    case 'trapezoid': return [[x + s, y], [x + w - s, y], [x + w, y + h], [x, y + h]];
+    case 'trapezoid_alt': return [[x, y], [x + w, y], [x + w - s, y + h], [x + s, y + h]];
+    default: return [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x + s, y + h / 2]]; // asymmetric: flag with a notch in the left side
+  }
+}
+
 function layoutNode(n, roles, defaultRole) {
-  const shape = n.shape ?? 'rect', tier = n.tier ? TIERS[n.tier] : null;
+  const shape = canonShape(n.shape ?? 'rect'), tier = n.tier ? TIERS[n.tier] : null;
   let x, y, w, h, variant = shape;
   if (shape === 'decision') variant = n.variant ?? (n.rect ? (n.rect[2] <= 216.5 ? 'diamond' : 'hexagon') : n.tier === 'S' ? 'diamond' : 'hexagon');
+  const round = shape === 'circle' || shape === 'doublecircle', ring = shape === 'doublecircle' ? 36 : 24; // circle: 12 clear of the label box corners; doublecircle: the inner ring adds 12 more
   if (n.rect) [x, y, w, h] = n.rect;
   else {
-    const [lw, lh] = tier;
-    [w, h] = shape === 'decision' ? (variant === 'diamond' ? [2 * lw + 24, 2 * lh + 24] : [lw + 80, lh + 60]) : shape === 'store' ? [lw + 24, lh + 64] : shape === 'queue' ? [lw + 64, lh + 24] : [lw + 24, lh + 24];
+    const [lw, lh] = tier, diag = Math.ceil(Math.hypot(lw, lh)), hh = lh + 24;
+    [w, h] = shape === 'decision' ? (variant === 'diamond' ? [2 * lw + 24, 2 * lh + 24] : [lw + 80, lh + 60])
+      : shape === 'cylinder' ? [lw + 24, lh + 64] : shape === 'subroutine' ? [lw + 48, lh + 24]
+      : round ? [diag + ring, diag + ring]
+      : shape === 'asymmetric' ? [lw + slantOf(shape, hh) + 24, hh]
+      : SLANTED.includes(shape) ? [lw + 2 * slantOf(shape, hh) + 24, hh] : [lw + 24, lh + 24];
     x = n.centre[0] - w / 2; y = n.centre[1] - h / 2;
   }
   let lb;
   if (shape === 'decision' && variant === 'diamond') { const lw = (w - 24) / 2, lh = (h - 24) / 2; lb = [x + (w - lw) / 2, y + (h - lh) / 2, lw, lh]; }
   else if (shape === 'decision') lb = [x + 40, y + 30, w - 80, h - 60];
-  else if (shape === 'store') lb = [x + 12, y + 32, w - 24, h - 64]; // the lid arc dips to y+24: keep the label box below its stroke
-  else if (shape === 'queue') lb = [x + 32, y + 12, w - 64, h - 24]; // the bar arc reaches x+w-24: keep the label box clear of its stroke
+  else if (shape === 'cylinder') lb = [x + 12, y + 32, w - 24, h - 64]; // the lid arc dips to y+24: keep the label box below its stroke
+  else if (shape === 'subroutine') lb = [x + 24, y + 12, w - 48, h - 24]; // the bars stand 12 inside the sides: the label box starts 12 beyond them
+  else if (round) {
+    if (tier) lb = [x + (w - tier[0]) / 2, y + (h - tier[1]) / 2, tier[0], tier[1]];
+    else { const lw = Math.floor((w - ring) / Math.SQRT2), lh = Math.floor((h - ring) / Math.SQRT2); lb = [x + (w - lw) / 2, y + (h - lh) / 2, lw, lh]; } // inscribed box, corners 12 inside the outline
+  }
+  else if (shape === 'asymmetric') lb = [x + slantOf(shape, h) + 12, y + 12, w - slantOf(shape, h) - 24, h - 24];
+  else if (SLANTED.includes(shape)) lb = [x + slantOf(shape, h) + 12, y + 12, w - 2 * slantOf(shape, h) - 24, h - 24];
   else lb = [x + INSET, y + INSET, w - 2 * INSET, h - 2 * INSET];
   if (n.labelBox && shape !== 'rect' && shape !== 'capsule') lb = n.labelBox;
-  let polygon = [];
+  let polygon = [], outline = null, faceDot = 0;
   if (variant === 'diamond') polygon = [[x + w / 2, y], [x + w, y + h / 2], [x + w / 2, y + h], [x, y + h / 2]];
-  else if (variant === 'hexagon') polygon = [[x + w / 2, y], [x + w, y + 20], [x + w, y + h - 20], [x + w / 2, y + h], [x, y + h - 20], [x, y + 20]];
+  else if (variant === 'hexagon' && shape === 'decision') polygon = [[x + w / 2, y], [x + w, y + 20], [x + w, y + h - 20], [x + w / 2, y + h], [x, y + h - 20], [x, y + 20]];
+  if (polygon.length) outline = outlineSamples(polygon);
+  else if (SLANTED.includes(shape)) { polygon = slantedPolygon(shape, x, y, w, h); outline = polySamples(polygon); faceDot = 0.5; }
+  else if (round) {
+    polygon = ellipsePoints(x + w / 2, y + h / 2, w / 2, h / 2, 96);
+    outline = ellipsePoints(x + w / 2, y + h / 2, w / 2, h / 2, Math.max(96, Math.ceil(Math.PI * (w + h) / 2 / 0.5)));
+    faceDot = 0.95; // a leg must leave a circle along (nearly) a cardinal radius, as the auditor's ports are the four apexes
+  }
   const role = roles[n.role ?? defaultRole];
-  return {id: n.id, group: n.group ?? null, shape, variant, x, y, w, h, lb, polygon, outline: polygon.length ? outlineSamples(polygon) : null, role, roleName: n.role ?? defaultRole,
+  return {id: n.id, group: n.group ?? null, shape, variant, x, y, w, h, lb, polygon, outline, faceDot, role, roleName: n.role ?? defaultRole,
     text: n.text, align: n.align ?? 'center', font: n.font ?? 18, explicitLabelBox: !!(n.labelBox && shape !== 'rect' && shape !== 'capsule')};
 }
 const bbox = n => [n.x, n.y, n.w, n.h];
@@ -248,6 +298,16 @@ function nodeOutlineGap(n, p) {
 function outwardNormal(n, p) {
   const [x, y, w, h] = bbox(n), c = [[Math.abs(p[1] - y), [0, -1]], [Math.abs(p[1] - y - h), [0, 1]], [Math.abs(p[0] - x), [-1, 0]], [Math.abs(p[0] - x - w), [1, 0]]].sort((a, b) => a[0] - b[0]);
   return c[0][1];
+}
+// Outward unit normal of the polygon edge nearest to p (polygon nodes other than the decision diamond/hexagon)
+function faceNormal(n, p) {
+  const pts = n.polygon, area = pts.reduce((t, a, i) => { const b = pts[(i + 1) % pts.length]; return t + a[0] * b[1] - b[0] * a[1]; }, 0);
+  let best = Infinity, nrm = [0, -1];
+  pts.forEach((a, i) => {
+    const b = pts[(i + 1) % pts.length], dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)), d = dist(p, [a[0] + dx * t, a[1] + dy * t]);
+    if (d < best - 1e-9) { best = d; const l = Math.sqrt(l2); nrm = area > 0 ? [dy / l, -dx / l] : [-dy / l, dx / l]; }
+  });
+  return nrm;
 }
 function nodeContains(n, x, y) { return n.polygon.length ? inPoly(x, y, n.polygon) : x > n.x && x < n.x + n.w && y > n.y && y < n.y + n.h; }
 
@@ -341,15 +401,18 @@ function nodeSvg(node) {
   if (shape === 'rect') outline = `<rect x="${n3(x)}" y="${n3(y)}" width="${n3(w)}" height="${n3(h)}" rx="${NODE_R}" ${paint}/>`;
   else if (shape === 'capsule') outline = `<rect x="${n3(x)}" y="${n3(y)}" width="${n3(w)}" height="${n3(h)}" rx="${n3(h / 2)}" ${paint}/>`;
   else if (shape === 'decision') outline = `<path d="${roundedPolygon(node.polygon)}" ${paint} stroke-linejoin="round"/>`;
-  else if (shape === 'store') {
+  else if (shape === 'cylinder') {
     const d = `M ${n3(x)} ${n3(y + 12)} C ${n3(x)} ${n3(y - 4)} ${n3(x + w)} ${n3(y - 4)} ${n3(x + w)} ${n3(y + 12)} L ${n3(x + w)} ${n3(y + h - 12)} C ${n3(x + w)} ${n3(y + h + 4)} ${n3(x)} ${n3(y + h + 4)} ${n3(x)} ${n3(y + h - 12)} Z`;
     const cap = `M ${n3(x)} ${n3(y + 12)} C ${n3(x)} ${n3(y + 28)} ${n3(x + w)} ${n3(y + 28)} ${n3(x + w)} ${n3(y + 12)}`;
     outline = `<path d="${d}" ${paint}/><path d="${cap}" fill="none" stroke="${role.stroke}" stroke-width="2"/>`;
-  } else {
-    const d = `M ${n3(x + 12)} ${n3(y)} C ${n3(x - 4)} ${n3(y)} ${n3(x - 4)} ${n3(y + h)} ${n3(x + 12)} ${n3(y + h)} L ${n3(x + w - 12)} ${n3(y + h)} C ${n3(x + w + 4)} ${n3(y + h)} ${n3(x + w + 4)} ${n3(y)} ${n3(x + w - 12)} ${n3(y)} Z`;
-    const cap = `M ${n3(x + w - 12)} ${n3(y)} C ${n3(x + w - 28)} ${n3(y)} ${n3(x + w - 28)} ${n3(y + h)} ${n3(x + w - 12)} ${n3(y + h)}`;
-    outline = `<path d="${d}" ${paint}/><path d="${cap}" fill="none" stroke="${role.stroke}" stroke-width="2"/>`;
-  }
+  } else if (shape === 'subroutine') { // a rectangle with an inset vertical bar 12 inside each side
+    const bars = `M ${n3(x + 12)} ${n3(y)} L ${n3(x + 12)} ${n3(y + h)} M ${n3(x + w - 12)} ${n3(y)} L ${n3(x + w - 12)} ${n3(y + h)}`;
+    outline = `<rect x="${n3(x)}" y="${n3(y)}" width="${n3(w)}" height="${n3(h)}" rx="${NODE_R}" ${paint}/><path d="${bars}" fill="none" stroke="${role.stroke}" stroke-width="2"/>`;
+  } else if (shape === 'circle' || shape === 'doublecircle') {
+    // an <ellipse> even when rx = ry: the auditor's node-stroke checks (route endpoints, intrusion) select rect, path, ellipse and polygon, not circle
+    const cx = x + w / 2, cy = y + h / 2, ell = (rx, ry, extra) => `<ellipse cx="${n3(cx)}" cy="${n3(cy)}" rx="${n3(rx)}" ry="${n3(ry)}" ${extra}/>`;
+    outline = ell(w / 2, h / 2, paint) + (shape === 'doublecircle' ? ell(w / 2 - 6, h / 2 - 6, `fill="none" stroke="${role.stroke}" stroke-width="2"`) : '');
+  } else outline = `<polygon points="${node.polygon.map(q => `${n3(q[0])},${n3(q[1])}`).join(' ')}" ${paint} stroke-linejoin="round"/>`;
   const parent = node.group ? ` data-parent-group="${esc(node.group)}"` : '';
   return `<g data-node="${esc(node.id)}"${parent} data-shape="${variant}" data-label-box="${node.lb.map(n3).join(' ')}">${outline}${textSvg(node.lines, node.lb, node)}</g>`;
 }
@@ -398,14 +461,14 @@ export function renderSpec(input, {model = null} = {}) {
     const r = e.route; if (!r) continue;
     const ends = [['start', e.source, r.pts[0], r.pts[1]], ['end', e.target, r.pts[r.pts.length - 1], r.pts[r.pts.length - 2]]];
     for (const [which, node, p, q] of ends) {
-      const {gap, at} = nodeOutlineGap(node, p), tol = node.shape === 'store' || node.shape === 'queue' ? 3.5 : 0.75;
-      if (gap > tol) add('endpoint-on-face', 'blocking', [e.id, node.id], regionOf([p, at]), `${which} point (${p[0]}, ${p[1]}) is ${r1(gap)} from the visible outline of ${node.id}${node.outline ? ' (decision tips are pulled in by the 10-unit outline fillet)' : ''}`, `on the outline within ${tol} (rule 7: tip exactly on the edge)`, `move the ${which} point to (${r1(at[0])}, ${r1(at[1])})`);
+      const {gap, at} = nodeOutlineGap(node, p), tol = node.shape === 'cylinder' ? 3.5 : 0.75;
+      if (gap > tol) add('endpoint-on-face', 'blocking', [e.id, node.id], regionOf([p, at]), `${which} point (${p[0]}, ${p[1]}) is ${r1(gap)} from the visible outline of ${node.id}${node.shape === 'decision' ? ' (decision tips are pulled in by the 10-unit outline fillet)' : ''}`, `on the outline within ${tol} (rule 7: tip exactly on the edge)`, `move the ${which} point to (${r1(at[0])}, ${r1(at[1])})`);
       else {
-        const nrm = outwardNormal(node, p), ax = orth(p, q);
+        const nrm = node.faceDot ? faceNormal(node, p) : outwardNormal(node, p), ax = orth(p, q), horiz = Math.abs(nrm[0]) > Math.abs(nrm[1]);
         if (ax) {
           // q is the neighbouring point: the start leg runs p->q (must point out of the face), the end leg runs q->p, so p->q must also point out of the face
-          const ok = Math.sign(q[0] - p[0]) === nrm[0] && Math.sign(q[1] - p[1]) === nrm[1];
-          if (!ok) add('port-direction', 'blocking', [e.id, node.id], regionOf([p, q]), `${which} leg of ${e.id} ${which === 'start' ? 'leaves' : 'arrives at'} ${node.id} along ${ax === 'h' ? 'the horizontal' : 'the vertical'} axis, but the face normal there is ${nrm[0] ? 'horizontal' : 'vertical'}`, 'leave and arrive perpendicular to the face (rule 1)', `${which === 'start' ? 'leave' : 'arrive'} ${nrm[0] ? 'horizontally' : 'vertically'} or move the port to a face that points along the leg`);
+          const dir = [Math.sign(q[0] - p[0]), Math.sign(q[1] - p[1])], ok = node.faceDot ? dir[0] * nrm[0] + dir[1] * nrm[1] >= node.faceDot : dir[0] === nrm[0] && dir[1] === nrm[1];
+          if (!ok) add('port-direction', 'blocking', [e.id, node.id], regionOf([p, q]), `${which} leg of ${e.id} ${which === 'start' ? 'leaves' : 'arrives at'} ${node.id} along ${ax === 'h' ? 'the horizontal' : 'the vertical'} axis, but the face normal there is ${horiz ? 'horizontal' : 'vertical'}`, 'leave and arrive perpendicular to the face (rule 1)', `${which === 'start' ? 'leave' : 'arrive'} ${horiz ? 'horizontally' : 'vertically'} or move the port to a face that points along the leg`);
         }
       }
     }
@@ -548,10 +611,16 @@ function legend(lg, roles, canvas, parts, colours) {
     const r = roles[en.role], ex = en.x ?? x, ey = en.y ?? y;
     let width;
     if (en.kind === 'node') {
-      const shape = en.shape ?? 'rect';
+      const shape = canonShape(en.shape ?? 'rect'), paint = `fill="${r.fill}" stroke="${r.stroke}" stroke-width="2"`, line = d => `<path d="${d}" fill="none" stroke="${r.stroke}" stroke-width="2"/>`, cy = ey + 9;
+      const poly = pts => `<polygon points="${pts.map(q => `${n3(q[0])},${n3(q[1])}`).join(' ')}" ${paint} stroke-linejoin="round"/>`;
       let mark;
-      if (shape === 'decision') mark = `<path d="${roundedPolygon([[ex + 12, ey], [ex + 24, ey + 9], [ex + 12, ey + 18], [ex, ey + 9]], 4)}" fill="${r.fill}" stroke="${r.stroke}" stroke-width="2"/>`;
-      else mark = `<rect x="${n3(ex)}" y="${n3(ey)}" width="24" height="18" rx="${shape === 'capsule' ? 9 : NODE_R}" fill="${r.fill}" stroke="${r.stroke}" stroke-width="2"/>`;
+      if (shape === 'decision') mark = `<path d="${roundedPolygon([[ex + 12, ey], [ex + 24, ey + 9], [ex + 12, ey + 18], [ex, ey + 9]], 4)}" ${paint}/>`;
+      else if (shape === 'cylinder') mark = `<path d="M ${n3(ex)} ${n3(ey + 4)} C ${n3(ex)} ${n3(ey - 1)} ${n3(ex + 24)} ${n3(ey - 1)} ${n3(ex + 24)} ${n3(ey + 4)} L ${n3(ex + 24)} ${n3(ey + 14)} C ${n3(ex + 24)} ${n3(ey + 19)} ${n3(ex)} ${n3(ey + 19)} ${n3(ex)} ${n3(ey + 14)} Z" ${paint}/>${line(`M ${n3(ex)} ${n3(ey + 4)} C ${n3(ex)} ${n3(ey + 9)} ${n3(ex + 24)} ${n3(ey + 9)} ${n3(ex + 24)} ${n3(ey + 4)}`)}`;
+      else if (shape === 'subroutine') mark = `<rect x="${n3(ex)}" y="${n3(ey)}" width="24" height="18" rx="${NODE_R}" ${paint}/>${line(`M ${n3(ex + 5)} ${n3(ey)} L ${n3(ex + 5)} ${n3(ey + 18)} M ${n3(ex + 19)} ${n3(ey)} L ${n3(ex + 19)} ${n3(ey + 18)}`)}`;
+      else if (shape === 'circle') mark = `<circle cx="${n3(ex + 12)}" cy="${n3(cy)}" r="9" ${paint}/>`;
+      else if (shape === 'doublecircle') mark = `<circle cx="${n3(ex + 12)}" cy="${n3(cy)}" r="9" ${paint}/><circle cx="${n3(ex + 12)}" cy="${n3(cy)}" r="5" fill="none" stroke="${r.stroke}" stroke-width="2"/>`;
+      else if (SLANTED.includes(shape)) mark = poly(slantedPolygon(shape, ex, ey, 24, 18));
+      else mark = `<rect x="${n3(ex)}" y="${n3(ey)}" width="24" height="18" rx="${shape === 'capsule' ? 9 : NODE_R}" ${paint}/>`;
       parts.push(`<g data-legend="${esc(en.label)}">${mark}<text x="${n3(ex + 34)}" y="${n3(ey + 9)}" font-size="16" font-weight="400" dominant-baseline="central" fill="${canvas.ink}">${esc(en.label)}</text></g>`);
       width = 34 + measureText(en.label, 16);
     } else {
@@ -563,11 +632,17 @@ function legend(lg, roles, canvas, parts, colours) {
   }
 }
 
+const SOURCE_NOTATION = {rect: 'rect', capsule: 'capsule', diamond: 'decision', cylinder: 'cylinder', subroutine: 'subroutine'};
 function census(model, nodes, edges, add) {
   const want = new Map(model.nodes.map(n => [n.id, n])), have = new Map(nodes.map(n => [n.id, n]));
   for (const id of want.keys()) if (!have.has(id)) add('census', 'blocking', [id], null, `missing node ${id}`, 'every source node drawn', `add node ${id}`);
   for (const id of have.keys()) if (!want.has(id)) add('census', 'blocking', [id], null, `extra node ${id}`, 'no invented nodes', `remove node ${id}`);
   for (const [id, w] of want) { const h = have.get(id); if (h && norm(Array.isArray(h.text) ? h.text.join(' ') : h.text) !== norm(w.text)) add('census', 'blocking', [id], null, `text of node ${id} is ${JSON.stringify(norm(Array.isArray(h.text) ? h.text.join(' ') : h.text))}, source says ${JSON.stringify(norm(w.text))}`, 'exact source text', `use the source text for ${id}`); }
+  // shape-change (rules, Shapes): a source shape that has a rule notation keeps it. Source shapes without one (stadium, circle, hexagon, parallelograms, ...) are never checked.
+  for (const [id, w] of want) {
+    const h = have.get(id), expect = SOURCE_NOTATION[w.shape];
+    if (h && expect && h.shape !== expect) add('shape-change', 'blocking', [id], null, `node ${id} is drawn as ${h.shape}, source shape ${w.shape} is the ${expect} notation`, `${expect} (the reviewer reports any other shape as shape-change)`, `set "shape": "${expect}" on ${id}`);
+  }
   const key = e => `${e.source}->${e.target}`, pool = new Map();
   for (const e of model.edges) (pool.get(key(e)) ?? pool.set(key(e), []).get(key(e))).push(e);
   for (const e of edges) {

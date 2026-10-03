@@ -78,7 +78,7 @@ test('composePrompt: spec mode adds the schema summary and keeps the model in ch
   assert.match(p,/you (?:still )?decide every coordinate/i);
   assert.match(p,/never moves|does not move|never repairs/i);
   for(const k of ['canvas','palette','groups','nodes','edges','points','legend','tier'])assert.ok(p.includes(k),k);
-  assert.ok(p.length-job.prompt.length<4500,`spec paragraph is short (${p.length-job.prompt.length} chars)`);
+  assert.ok(p.length-job.prompt.length<4800,`spec paragraph is short (${p.length-job.prompt.length} chars)`);
 }));
 test('composePrompt: source facts block is appended after the source and labelled reference only',withJob(async job=>{
   const p=composePrompt(job,{jobId:'J1',factsText:'<source-facts>\nreference only\n</source-facts>'});

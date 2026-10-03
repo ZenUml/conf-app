@@ -149,7 +149,7 @@ function edgePathHasCurve(svgText,source,target){
   return null;
 }
 
-const SHAPE_WORDS=[[/diamond|decision|gateway|hexagon/i,'decision'],[/cylinder|database|data ?store|datastore|\bstore\b|storage/i,'cylinder'],[/queue/i,'queue'],[/capsule|stadium|terminator|pill/i,'capsule'],[/subroutine/i,'subroutine'],[/circle/i,'circle']];
+const SHAPE_WORDS=[[/diamond|decision|gateway|hexagon/i,'decision'],[/cylinder|database|data ?store|datastore|\bstore\b|storage/i,'cylinder'],[/queue/i,'queue'],[/capsule|stadium|terminator|pill/i,'capsule'],[/subroutine/i,'subroutine'],[/circle/i,'circle'],[/parallelogram/i,'parallelogram'],[/trapezoid/i,'trapezoid'],[/asymmetric|flag/i,'asymmetric']];
 /** What a legend finding names: shape classes (by word, or via a node id the auditor mapped), fill colours, dashed connectors. */
 function legendCites(f,ev){
   const text=[f.evidence?.measured,f.evidence?.threshold,f.suggestion,typeof f.evidence==='string'?f.evidence:'',...f.elements].filter(x=>typeof x==='string').join(' ');

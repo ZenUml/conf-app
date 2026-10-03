@@ -401,11 +401,14 @@ export function shapeClass(name){
   if(RECT_LIKE.test(s))return 'rect';
   if(/diamond|decision|gateway|hexagon/.test(s))return 'decision';
   if(/cylinder|^cyl$|store|database|^db$/.test(s))return 'cylinder';
+  if(/parallelogram/.test(s))return 'parallelogram'; // both slants are one notation
+  if(/trapezoid/.test(s))return 'trapezoid';
+  if(/circle/.test(s))return 'circle'; // circle and doublecircle
   if(/queue|subroutine/.test(s))return 'subroutine'; // [[x]] is drawn as a rectangle with two bars; the diagrams call it queue or subroutine
   if(/capsule|stadium|pill|terminator|^(?:start|end)$/.test(s))return 'capsule';
   return s;
 }
-const CAPTION_SHAPES=[[/diamond|decision|gateway|hexagon/,'decision'],[/cylinder|database|data ?store|datastore|storage|\bstore\b/,'cylinder'],[/queue|subroutine/,'subroutine'],[/capsule|stadium|terminator/,'capsule']];
+const CAPTION_SHAPES=[[/diamond|decision|gateway|hexagon/,'decision'],[/cylinder|database|data ?store|datastore|storage|\bstore\b/,'cylinder'],[/queue|subroutine/,'subroutine'],[/capsule|stadium|terminator/,'capsule'],[/parallelogram/,'parallelogram'],[/trapezoid/,'trapezoid']];
 /** A path made only of M/L vertical lines (one or more bars of a subroutine glyph). */
 function isVerticalBars(m){
   if(m.tag==='line')return m.w<1&&m.h>0.5; // a bar drawn as its own <line>
@@ -469,7 +472,17 @@ export function swatchGeometryClass(m){
   return null;
 }
 function polygonClass(pts){
-  if(pts.length===4)return pts.every((p,i)=>{const q=pts[(i+1)%4];return Math.abs(p[0]-q[0])<0.5||Math.abs(p[1]-q[1])<0.5})?'rect':'decision';
+  if(pts.length===4){
+    if(pts.every((p,i)=>{const q=pts[(i+1)%4];return Math.abs(p[0]-q[0])<0.5||Math.abs(p[1]-q[1])<0.5}))return 'rect';
+    // two horizontal edges and two slanted ones: equal lengths = parallelogram, unequal = trapezoid (a diamond has no horizontal edge)
+    const horizontal=pts.map((p,i)=>({p,q:pts[(i+1)%4]})).filter(({p,q})=>Math.abs(p[1]-q[1])<0.5);
+    if(horizontal.length===2)return Math.abs(Math.abs(horizontal[0].p[0]-horizontal[0].q[0])-Math.abs(horizontal[1].p[0]-horizontal[1].q[0]))<0.5?'parallelogram':'trapezoid';
+    return 'decision';
+  }
+  if(pts.length===5){ // the flag: a rectangle with a notch in one side, i.e. a concave pentagon (a convex pentagon, such as an arrow, stays unclassified)
+    const turn=pts.map((p,i)=>{const a=pts[(i+4)%5],b=pts[(i+1)%5];return Math.sign((p[0]-a[0])*(b[1]-p[1])-(p[1]-a[1])*(b[0]-p[0]))});
+    return Math.min(turn.filter(t=>t>0).length,turn.filter(t=>t<0).length)===1?'asymmetric':null;
+  }
   if(pts.length===6)return 'decision';
   return null;
 }
@@ -496,7 +509,7 @@ function classifySwatches(marks){
 }
 
 /** Shape classes shapeClass() and swatchGeometryClass() both know; a node outside this set (e.g. a parallelogram) makes a drawn swatch class unreliable. */
-const KNOWN_CLASSES=new Set(['rect','decision','cylinder','subroutine','capsule','circle','ellipse']);
+const KNOWN_CLASSES=new Set(['rect','decision','cylinder','subroutine','capsule','circle','ellipse','parallelogram','trapezoid','asymmetric']);
 const roundish=c=>c==='circle'||c==='ellipse';
 /** A legend is optional (rules C1/C5 only ask that a drawn legend stays aligned with actual use).
  *  - no legend drawn: PASS, basis "no legend; legend is optional".

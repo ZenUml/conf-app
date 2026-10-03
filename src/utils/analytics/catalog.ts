@@ -1108,6 +1108,14 @@ export type AnalyticsEventName =
   | "agent_link_oauth_authorized"
   | "agent_link_oauth_refresh_failed"
   | "agent_link_oauth_revoked"
+  // `_authorize_routed` fires once per MCP /authorize request and says where
+  // it went (`oauth_route`, AgentLinkOAuthRoute): to Atlassian, straight to our
+  // consent screen, or straight to a code. The last two exist only because the
+  // signed returning-user cookie let /authorize skip the Atlassian hop; when it
+  // did not, `reason` (AgentLinkOAuthAtlassianReason) says why. The
+  // 'atlassian' share is the number of consent screens we still cost a
+  // returning user.
+  | "agent_link_oauth_authorize_routed"
   // X — headless writes (design §7/§10). Backend-emitted, for the same reason
   // as the pair above. `_created` carries the AddToPageResult-shaped outcome
   // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate
@@ -1310,6 +1318,28 @@ export type AgentLinkMacroKeySource = "cached" | "discovered";
 // is dead whether the user knows it or not; 'reauthorized' = superseded by a
 // fresh consent for the same user.
 export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
+
+// Where an MCP /authorize request was sent (agent_link_oauth_authorize_routed).
+// 'atlassian' = the full trip through Atlassian's 3LO screen; 'consent' = a
+// recognised user with a live grant, sent straight to our per-client consent
+// screen; 'issued' = recognised, live grant, and this client already approved,
+// so a code was issued with no screen at all.
+export type AgentLinkOAuthRoute = "atlassian" | "consent" | "issued";
+
+// Why an MCP /authorize request still went to Atlassian. 'no_cookie' = first
+// visit in this browser, or the cookie expired; 'invalid_cookie' = present but
+// its signature did not verify; 'no_grant' = recognised, but no grant is stored
+// (never seeded, or deleted); 'reauthorize_required' = the stored grant's
+// refresh token was refused; 'refresh_failed' = Atlassian errored transiently
+// while refreshing; 'forced' = the request carried prompt=login (switch account
+// or site).
+export type AgentLinkOAuthAtlassianReason =
+  | "no_cookie"
+  | "invalid_cookie"
+  | "no_grant"
+  | "reauthorize_required"
+  | "refresh_failed"
+  | "forced";
 
 // The outcome of a headless write (agent_link_diagram_created / _updated).
 // Mirrors AddToPageResult so the headless and byline paths are comparable:

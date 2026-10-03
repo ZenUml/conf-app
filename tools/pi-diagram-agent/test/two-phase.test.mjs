@@ -394,3 +394,31 @@ test('run.json records per-round build_check calls, refusals, cache hits and gen
     assert.ok(m.timings.checkMs>=0);
   }finally{t.cleanup()}
 });
+
+test('submit with the check budget exhausted and no readable candidate is refused (no throw), and the author can still recover by writing the file',async()=>{
+  const t=setup({budgets:{maxChecksPerRound:1}});try{
+    t.write(svg('a FAIL:textFit'));await t.check();           // spends the only check of the round
+    fs.rmSync(t.job.outputPath);                              // candidate missing, as after a generator error
+    const r=await t.out();
+    assert.equal(r.status,'REFUSED');assert.equal(r.code,'NO_CANDIDATE');assert.match(r.message,/candidate\.svg/);assert.equal(r.countedAsRound,false);
+    t.write(svg('b'));                                        // unchecked bytes after the budget: the orchestrator checks them itself
+    const r2=await t.out();assert.notEqual(r2.status,'REFUSED');
+  }finally{t.cleanup()}
+});
+
+test('submit with the wall clock spent and no readable candidate finalises as CANDIDATE instead of throwing',async()=>{
+  const t=setup({budgets:{maxWallMs:1000}});try{
+    t.clock.t=5000;
+    const r=await t.out();
+    assert.equal(r.status,'CANDIDATE');assert.match(r.statusReason??'',/WALL_CLOCK/);
+  }finally{t.cleanup()}
+});
+
+test('submit with the budget exhausted, no candidate and the last round allowed does not throw (no hashing of a missing candidate)',async()=>{
+  const t=setup({budgets:{maxChecksPerRound:1,maxRounds:1}});try{
+    t.write(svg('a FAIL:textFit'));await t.check();
+    fs.rmSync(t.job.outputPath);
+    const r=await t.out();
+    assert.equal(r.status,'REFUSED');assert.equal(r.code,'NO_CANDIDATE');
+  }finally{t.cleanup()}
+});

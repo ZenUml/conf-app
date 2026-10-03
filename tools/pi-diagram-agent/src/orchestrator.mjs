@@ -355,7 +355,8 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       // Binding rule: only bytes whose latest diagram_build_check has no FAIL may be submitted; a refusal is never a round.
       // Exceptions that cannot deadlock the run: the wall clock is spent (no review anyway), or the check budget is spent (escalation rules apply).
       if(cand.ok&&svgHash&&svgHash!==cand.hash)return refuse('STALE_HASH',{message:`candidate.svg now has hash ${cand.hash}, not the ${svgHash} you named: the bytes changed after that diagram_build_check.`,next:'Run diagram_build_check on the current bytes, then submit the hash it returns.'});
-      if(!cand.ok&&!wallNow&&!exhausted())return refuse('NO_CANDIDATE',{message:cand.error,next:`Write the SVG to ${job.outputPath}, run diagram_build_check, then submit.`});
+      // An unreadable candidate is never passed on: there is nothing to hash, audit or review. With the check budget spent the author can still write the file and submit it (the orchestrator then checks the bytes itself).
+      if(!cand.ok&&!wallNow)return refuse('NO_CANDIDATE',{message:cand.error,next:exhausted()?`Write the SVG to ${job.outputPath} (or fix and run your generator yourself), then call diagram_submit; no diagram_build_check calls remain, so the orchestrator checks the bytes itself.`:`Write the SVG to ${job.outputPath}, run diagram_build_check, then submit.`});
       if(cand.ok){
         hit=cache.get(cand.hash)??null;
         if(!hit){

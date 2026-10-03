@@ -82,8 +82,8 @@ function setup(over={}){
   return {job,run,clock,calls,write,out,cleanup};
 }
 
-test('acceptance thresholds: in-loop default is +0.4 mean and -0.2 per dimension; env overrides them',()=>{
-  assert.deepEqual(acceptThresholdsFromEnv({}),{minDim:-0.2,minMean:0.4,minPassMean:0.3});
+test('acceptance thresholds: in-loop default is +0.2 mean, +0.1 per pass and -0.2 per dimension; env overrides them',()=>{
+  assert.deepEqual(acceptThresholdsFromEnv({}),{minDim:-0.2,minMean:0.2,minPassMean:0.1});
   assert.deepEqual(acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_MEAN:'0.5',PI_DIAGRAM_ACCEPT_MIN_DIM:'-0.1',PI_DIAGRAM_ACCEPT_MIN_PASS:'0.45'}),{minDim:-0.1,minMean:0.5,minPassMean:0.45});
 });
 
@@ -96,7 +96,7 @@ test('IMPROVED in both passes at the in-loop threshold gives REVIEWED, with a se
     const file=path.join(t.job.runDir,'judgement.json'),j=JSON.parse(fs.readFileSync(file,'utf8'));
     assert.equal(verifyManifest(j),true);assert.equal(j.schema,'pi-diagram-judgement/1');
     assert.equal(j.verdict,'IMPROVED');assert.equal(j.candidateSha256,hash(bytes));assert.equal(j.originalSha256,hash(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')));
-    assert.deepEqual(j.thresholds,{minDim:-0.2,minMean:0.4,minPassMean:0.3});
+    assert.deepEqual(j.thresholds,{minDim:-0.2,minMean:0.2,minPassMean:0.1});
     assert.equal(j.inLoop,true);
     assert.equal(fs.statSync(file).mode&0o777,0o600);
     const m=readRunManifest(t.job.runDir);
@@ -129,8 +129,8 @@ test('a geometry FAIL no longer blocks: advice-only audit FAILs reach the review
   }finally{t.cleanup()}
 });
 
-test('one pass below the in-loop threshold (mean 0.4 but a pass at 0.2) is NOT_IMPROVED: a revise round with the judge improvements, blocking findings and the top-3 advice only',async()=>{
-  const t=setup({judge:[{p1:0.6,p2:0.2},{p1:0.6,p2:0.6}]});try{
+test('one pass below the in-loop threshold (merged mean 0.225 but a pass at 0.05) is NOT_IMPROVED: a revise round with the judge improvements, blocking findings and the top-3 advice only',async()=>{
+  const t=setup({judge:[{p1:0.4,p2:0.05},{p1:0.6,p2:0.6}]});try{
     t.write(svg('FAIL:routeCrossings,routePairClearance,routeDetour,labelFontWeight,filletUniformity'));
     const r=await t.out();
     assert.equal(r.status,'REVISE');assert.equal(r.round,1);
@@ -162,14 +162,14 @@ test('a NOT_IMPROVED judgement is written to judgement.json too, and /magic-acce
 });
 
 test('rounds exhausted while NOT_IMPROVED ends as CANDIDATE with reason NOT_IMPROVED; the best judged candidate is kept',async()=>{
-  const t=setup({judge:[{p1:0.1,p2:0.1},{p1:0.3,p2:0.3},{p1:0.2,p2:0.2}],budgets:{maxRounds:3}});try{
+  const t=setup({judge:[{p1:0.05,p2:0.05},{p1:0.15,p2:0.15},{p1:0.1,p2:0.1}],budgets:{maxRounds:3}});try{
     const bytes=[svg('a'),svg('b'),svg('c')];
     t.write(bytes[0]);assert.equal((await t.out()).status,'REVISE');
     t.write(bytes[1]);assert.equal((await t.out()).status,'REVISE');
     t.write(bytes[2]);
     const r=await t.out();
     assert.equal(r.status,'CANDIDATE');assert.match(r.statusReason,/^NOT_IMPROVED/);assert.match(r.statusReason,/ROUNDS_EXHAUSTED/);
-    assert.equal(r.svgHash,hash(bytes[1])); // highest judge mean (0.3), restored on disk
+    assert.equal(r.svgHash,hash(bytes[1])); // highest judge mean (0.15), restored on disk
     assert.equal(hash(fs.readFileSync(t.job.outputPath)),hash(bytes[1]));
     const m=readRunManifest(t.job.runDir);
     assert.equal(m.status,'CANDIDATE');assert.equal(m.finalSvgSha256,hash(bytes[1]));
@@ -177,7 +177,7 @@ test('rounds exhausted while NOT_IMPROVED ends as CANDIDATE with reason NOT_IMPR
 });
 
 test('best-candidate order: a judged zero-blocking candidate beats an unjudged one with the same blocking counts, by highest judge mean',async()=>{
-  const t=setup({judge:[{p1:0.1,p2:0.1},{p1:0.3,p2:0.3}],budgets:{maxRounds:2}});try{
+  const t=setup({judge:[{p1:0.05,p2:0.05},{p1:0.15,p2:0.15}],budgets:{maxRounds:2}});try{
     t.write(svg('a'));await t.out();
     const b=svg('b');t.write(b);
     const r=await t.out();
@@ -250,13 +250,13 @@ test('coach: the prompt names the new drawing; output keeps at most 3 improvemen
   assert.throws(()=>parseCoachOutput('{"improvements":3}'),/COACH_SCHEMA/);
 });
 
-test('in-loop acceptance: merged mean 0.4 plus each pass mean 0.3 (table)',()=>{
+test('in-loop acceptance: merged mean 0.2 plus each pass mean 0.1 (table)',()=>{
   const th=acceptThresholdsFromEnv({});
   const run=(merged,pm)=>decide({dims:{balance:{score:merged,uncertain:false},readability:{score:merged,uncertain:false}},mean:merged},th,{passMeans:pm}).verdict;
-  assert.equal(run(0.46,[0.55,0.37]),'IMPROVED');
-  assert.equal(run(0.40,[0.48,0.32]),'IMPROVED');
-  assert.equal(run(0.40,[0.52,0.28]),'NOT_IMPROVED');
-  assert.equal(run(0.35,[0.40,0.30]),'NOT_IMPROVED');
+  assert.equal(run(0.25,[0.30,0.20]),'IMPROVED');
+  assert.equal(run(0.20,[0.28,0.12]),'IMPROVED');
+  assert.equal(run(0.20,[0.32,0.08]),'NOT_IMPROVED');
+  assert.equal(run(0.15,[0.20,0.10]),'NOT_IMPROVED');
 });
 
 test('PI_DIAGRAM_ACCEPT_MIN_PASS overrides the per-pass floor',()=>{
@@ -264,5 +264,6 @@ test('PI_DIAGRAM_ACCEPT_MIN_PASS overrides the per-pass floor',()=>{
   const m={dims,mean:0.5};
   assert.equal(decide(m,acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_PASS:'0.5'}),{passMeans:[0.6,0.4]}).verdict,'NOT_IMPROVED');
   assert.equal(decide(m,acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_PASS:'0.1'}),{passMeans:[0.9,0.12]}).verdict,'IMPROVED');
-  assert.equal(acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_PASS:'x'}).minPassMean,0.3);
+  assert.equal(decide({dims,mean:0.5},acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_MEAN:'0.6'}),{passMeans:[0.6,0.6]}).verdict,'NOT_IMPROVED');
+  assert.equal(acceptThresholdsFromEnv({PI_DIAGRAM_ACCEPT_MIN_PASS:'x'}).minPassMean,0.1);
 });

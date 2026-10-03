@@ -11,9 +11,9 @@ const EPS=1e-9;
 const DISAGREE_MAGNITUDE=0.3; // one pass 0 and the other at least this far from 0: uncertain
 
 const num=(v,d)=>{if(v==null||String(v).trim()==='')return d;const n=Number(v);return Number.isFinite(n)?n:d};
-/** In-loop acceptance thresholds (relaxed gate). The calibration showed the Judge is about 2x more generous than the user and +0.4 matched the user on 5 of 5 pairs.
- *  minPassMean: each pass's own mean must also reach this separate, lower threshold (default 0.3), so two votes must lean the same way. */
-export const ACCEPT_DEFAULTS={minDim:-0.2,minMean:0.4,minPassMean:0.3};
+/** In-loop acceptance thresholds (relaxed gate). History: 0.4 with both passes at 0.4, then 0.4/0.3 (26e10d9b), then 0.2/0.1 on 2026-10-04 by the user's decision. (The calibration showed the Judge is about 2x more generous than the user and +0.4 matched the user on 5 of 5 pairs.)
+ *  minPassMean: each pass's own mean must also reach this separate, lower threshold (default 0.1), so two votes must lean the same way. */
+export const ACCEPT_DEFAULTS={minDim:-0.2,minMean:0.2,minPassMean:0.1};
 export function acceptThresholdsFromEnv(env=process.env){
   const minMean=num(env.PI_DIAGRAM_ACCEPT_MIN_MEAN,ACCEPT_DEFAULTS.minMean);
   return {minDim:num(env.PI_DIAGRAM_ACCEPT_MIN_DIM,ACCEPT_DEFAULTS.minDim),minMean,minPassMean:num(env.PI_DIAGRAM_ACCEPT_MIN_PASS,ACCEPT_DEFAULTS.minPassMean)};

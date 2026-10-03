@@ -43,7 +43,11 @@ test('reviewer prompt carries the rules context: allowed decision hexagon, other
   const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7});
   assert.match(text,/hexagon[^.]*points at the top and bottom[^.]*ALLOWED/is);
   assert.match(text,/shape-change/);assert.match(text,/capsule/i);assert.match(text,/diamond.*rect/is);
-  assert.match(text,/legend[^.]*colour, shape and line-style/is);
+  assert.match(text,/legend is optional/i);
+  assert.match(text,/do not report a missing legend/i);
+  assert.match(text,/contradicts actual use[^.]*blocking[^.]*rule legend/is);
+  assert.match(text,/missing keys[^.]*existing legend[^.]*minor/is);
+  assert.doesNotMatch(text,/must have colour, shape and line-style keys|Omitting a kind of key that is in use is blocking|a missing legend key kind/i);
   assert.match(text,/blocking.*for example/is);assert.match(text,/minor.*for example/is);
   assert.match(text,/3x[^.]*Manhattan/is);assert.match(text,/recolou?r/i);
   assert.match(text,/"measured"/);assert.match(text,/"threshold"/);
@@ -254,7 +258,7 @@ test('reviewer prompt tells the reviewer which layout rules the auditor measures
     legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'untagged shapes'}},
   }};
   const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:measured,geometry,imageLabels:labels7});
-  assert.match(text,/connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight and legend completeness/);
+  assert.match(text,/connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight and legend consistency/);
   const summary=JSON.parse(/<audit-summary>\n([\s\S]*?)\n<\/audit-summary>/.exec(text)[1]);
   assert.deepEqual(summary.layoutMeasured,{connectorStrokeWidth:{checkedEdges:3,emphasised:0},filletUniformity:{radii:[5],checkedBends:4},textContrast:{checkedTexts:9,threshold:4.5}});
   assert.match(text,/NOT-CHECKABLE[^.]*judge/i);
@@ -293,7 +297,8 @@ test('reviewer config: the report prompt is the default; delegate (alias skip) r
 test('reviewer prompt states the line-style legend rule explicitly and includes the count of distinct connector styles',()=>{
   const singleStyle={direction:'LR',groups:[],nodes:[{id:'A',text:'Start',shape:'rect'},{id:'B',text:'End',shape:'rect'}],edges:[{id:'e1',source:'A',target:'B',style:'solid'},{id:'e2',source:'A',target:'B',style:'solid'}]};
   const text=buildReviewerPrompt({facts:buildReviewerFacts(singleStyle),audit,geometry,imageLabels:labels7});
-  assert.match(text,/line-?style[^.]*key[^.]*required only when[^.]*more than one/i);
+  assert.match(text,/line-?style[^.]*key[^.]*optional/i);
+  assert.doesNotMatch(text,/key is required|key is required only when/i);
   assert.match(text,/distinct.*style|style.*count|connector.*style.*(\d+)/i);
 });
 
@@ -322,4 +327,29 @@ test('a stray old "reading-order" reply is mapped to rule other with minor sever
   }
   const acc=parseReviewerOutput(good({findings:[{rule:'reading-order',severity:'blocking',elements:['A'],evidence:'e',measured:'m',threshold:'t',suggestion:'s'}],verdict:'accept'}),{model,natural,imageCount:7});
   assert.equal(acc.verdict,'accept');
+});
+
+test('every reviewer prompt variant says the legend is optional and none requires one',()=>{
+  const base={facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7};
+  const variants={skip:{},report:{measured:'report'},twoPhase:{twoPhase:true},diagnosis:{twoPhase:true,diagnosis:[{id:'f1',rule:'routePairClearance'}]}};
+  for(const [name,extra] of Object.entries(variants)){
+    const text=buildReviewerPrompt({...base,...extra});
+    assert.match(text,/legend is optional/i,name);
+    assert.match(text,/do not report a missing legend/i,name);
+    assert.match(text,/contradicts actual use[^.]*blocking/i,name);
+    assert.match(text,/missing keys in an existing legend are minor/i,name);
+    assert.doesNotMatch(text,/must have colour|Omitting a kind of key|missing legend key kind|legend key is required|key is required/i,name);
+    assert.doesNotMatch(text,/does the legend explain every/i,name);
+  }
+  const item=REVIEWER_CHECKLIST.find(c=>c.rule==='legend');
+  assert.match(item.text,/optional/i);assert.match(item.text,/contradict/i);assert.doesNotMatch(item.text,/completeness|explain every/i);
+});
+test('the two-phase focus item for the legend only asks about a drawn legend and its swatches',()=>{
+  const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7,twoPhase:true});
+  assert.match(text,/legend appearance, only if a legend is drawn/i);
+  assert.doesNotMatch(text,/legend completeness/i);
+});
+test('a blocking "missing legend" reviewer reply parses as a blocking legend finding; the code-level absence downgrade lives in applyCoverage',()=>{
+  const r=parseReviewerOutput(good({findings:[{rule:'legend',severity:'blocking',elements:['legend'],evidence:'there is no legend',measured:'0 legends',threshold:'legend',suggestion:'add a legend'}],verdict:'revise'}),{model,natural,imageCount:7});
+  assert.equal(r.findings[0].rule,'legend');assert.equal(r.findings[0].severity,'blocking');
 });

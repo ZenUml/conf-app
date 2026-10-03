@@ -181,7 +181,9 @@ export const collectLayoutFacts=([input,GROUP,PREFILTER=true])=>{
       if(host){host.els.push(p.sw.el,p.text.el,...decorOf(p.sw).map(d=>d.el));used.add(p)}
     }
     const looseSwatches=prim.filter(m=>!pairs.some(p=>p.sw===m&&used.has(p))).length;
-    const legend={present:scopes.length>0||titled.length>0,scoped:scopes.length>0,authoritative:scopes.some(s=>s.authoritative),via:[...new Set(scopes.map(s=>s.via))],headings:headingTexts.slice(0,4),ambiguousSwatches:looseSwatches,fills:[],dataShapes:[],captions:[],marks:[],dashed:false};
+    // fills drawn outside every legend scope (nodes, containers, label pills, canvas): the only fills a legend swatch can honestly explain
+    const usedFills=[...new Set([...root.querySelectorAll('path,rect,circle,ellipse,polygon,polyline')].filter(el=>el instanceof SVGGeometryElement&&!inDefs(el)&&!inEls(el,scopes)).map(el=>{const st=getComputedStyle(el),c=parseColor(st.fill);return st.fill!=='none'&&c&&c.alpha>0?c.hex:null}).filter(Boolean))];
+    const legend={usedFills,present:scopes.length>0||titled.length>0,scoped:scopes.length>0,authoritative:scopes.some(s=>s.authoritative),via:[...new Set(scopes.map(s=>s.via))],headings:headingTexts.slice(0,4),ambiguousSwatches:looseSwatches,fills:[],dataShapes:[],captions:[],marks:[],dashed:false};
     let scopeIndex=-1;
     for(const scope of scopes){
       scopeIndex++;
@@ -192,9 +194,10 @@ export const collectLayoutFacts=([input,GROUP,PREFILTER=true])=>{
         if(!(el instanceof SVGGeometryElement))continue;
         const st=getComputedStyle(el),c=parseColor(st.fill),dash=st.strokeDasharray;
         if(st.fill!=='none'&&c&&c.alpha>0)legend.fills.push(c.hex);
-        if(dash!=='none'&&(dash.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).some(v=>Number(v)>0))legend.dashed=true;
+        const isDashed=dash!=='none'&&(dash.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).some(v=>Number(v)>0);
+        if(isDashed)legend.dashed=true;
         const b=el.getBBox();
-        legend.marks.push({tag:el.localName,d:el.getAttribute('d'),points:el.getAttribute('points'),x:b.x,y:b.y,w:b.width,h:b.height,rx:Number(el.getAttribute('rx')||0),ry:Number(el.getAttribute('ry')||0),painted:st.fill!=='none'&&!!c&&c.alpha>0,scope:scopeIndex});
+        legend.marks.push({tag:el.localName,d:el.getAttribute('d'),points:el.getAttribute('points'),x:b.x,y:b.y,w:b.width,h:b.height,rx:Number(el.getAttribute('rx')||0),ry:Number(el.getAttribute('ry')||0),painted:st.fill!=='none'&&!!c&&c.alpha>0,fill:st.fill!=='none'&&c&&c.alpha>0?c.hex:null,dashed:isDashed,scope:scopeIndex});
       }
     }
     legend.fills=[...new Set(legend.fills)];
@@ -475,6 +478,8 @@ function swatchBodyIsCylinder(m){
   const segs=parsePath(m.d);if(!segs)return false;
   return segs.filter(g=>g.k==='L'&&Math.abs(g.to[0]-g.from[0])<0.5&&Math.abs(g.to[1]-g.from[1])>0.5).length>=2&&segs.some(g=>g.k==='C'||g.k==='A'||g.k==='Q');
 }
+/** An open path of straight segments only (a bar or a line sample): its default black fill paints no area. */
+function openStraightPath(m){return m.tag==='path'&&!/z\s*$/i.test(m.d??'')&&!/[CcQqAaSsTt]/.test(m.d??'')}
 /** Classify every painted swatch in the legend; a rectangle swatch with vertical bars inside it is one subroutine glyph, not two things. */
 function classifySwatches(marks){
   const bars=marks.filter(isVerticalBars);
@@ -490,8 +495,16 @@ function classifySwatches(marks){
   });
 }
 
+/** Shape classes shapeClass() and swatchGeometryClass() both know; a node outside this set (e.g. a parallelogram) makes a drawn swatch class unreliable. */
+const KNOWN_CLASSES=new Set(['rect','decision','cylinder','subroutine','capsule','circle','ellipse']);
+const roundish=c=>c==='circle'||c==='ellipse';
+/** A legend is optional (rules C1/C5 only ask that a drawn legend stays aligned with actual use).
+ *  - no legend drawn: PASS, basis "no legend; legend is optional".
+ *  - legend drawn, an entry contradicts actual use and the drawn geometry shows it (dashed key with no dashed connector, fill swatch no drawn node/container uses, shape swatch no node is drawn as): FAIL, wrongEntries.
+ *  - legend drawn, some fill role / shape / line style in use has no key: PASS with evidence.minorFindings (never blocking).
+ *  Contradictions the geometry cannot show are left to the reviewer. */
 export function legendCompleteness(facts){
-  const method='node fill roles (computed fill of the largest painted node shape), node shape classes (data-shape) and dashed connectors (computed stroke-dasharray) versus the keys in the legend (an explicit g[data-legend] tag, a heading such as Legend/Key/Notation/Colour key/Diagram key, or a structural cluster of two or more swatch+caption pairs); a legend shape key is recognised only by the drawn geometry of one swatch (one shape class per swatch; captions and data-shape claims do not count), a fill key by swatch fill, a dashed key by a dashed sample or a dash/dotted caption';
+  const method='node fill roles (computed fill of the largest painted node shape), node shape classes (data-shape) and dashed connectors (computed stroke-dasharray) versus the entries of a drawn legend (an explicit g[data-legend] tag, a heading such as Legend/Key/Notation/Colour key/Diagram key, or a structural cluster of two or more swatch+caption pairs); a legend shape key is recognised only by the drawn geometry of one swatch (one shape class per swatch; captions and data-shape claims do not count), a fill key by swatch fill, a dashed key by a dashed sample or a dash/dotted caption. A legend is optional: only an entry that contradicts the drawn diagram fails; missing keys are minor findings';
   const nodes=facts.nodes;
   if(!nodes.length)return unavailable('no node tagging (g[data-node]) to derive fill roles or shapes');
   const fillNodes=new Map();
@@ -501,36 +514,57 @@ export function legendCompleteness(facts){
   const dashedEdges=facts.edges.filter(e=>e.dashed).map(edgeId);
   const untagged=nodes.filter(n=>!n.shape).map(n=>n.id);
   const multiRole=fillNodes.size>1;
-  const needs=[...(multiRole?[`${fillNodes.size} node fill roles`]:[]),...(shapeNodes.size?[`non-rectangular shapes: ${[...shapeNodes.keys()].join(', ')}`]:[]),...(dashedEdges.length?[`${dashedEdges.length} dashed connector(s)`]:[])];
   const base={method,fillRoles:[...fillNodes.keys()],specialShapes:[...shapeNodes.keys()],dashedEdges};
-  const neededKeys=[...(multiRole?[...fillNodes].map(([value,nodeIds])=>({kind:'fill',value,nodeIds})):[]),...[...shapeNodes].map(([value,nodeIds])=>({kind:'shape',value,nodeIds})),...(dashedEdges.length?[{kind:'dashed',value:'dashed',edge:dashedEdges}]:[])];
-  const ambiguous=!!facts.legend.ambiguousSwatches&&!facts.legend.authoritative;
-  const ambiguousResult=()=>({status:'NOT-CHECKABLE',evidence:{...base,reason:`legend detection is ambiguous: ${facts.legend.ambiguousSwatches} loose swatch-like mark(s) outside any tagged, titled or clustered legend, so a missing key cannot be asserted`,looseSwatches:facts.legend.ambiguousSwatches}});
-  if(!facts.legend.present||(!facts.legend.scoped&&ambiguous)){
-    if(needs.length&&ambiguous)return ambiguousResult();
-    if(needs.length)return {status:'FAIL',evidence:{...base,missingKeys:neededKeys,reason:`no legend while the diagram uses ${needs.join('; ')}`,nodeIds:[...new Set(neededKeys.flatMap(k=>k.nodeIds??[]))],...(dashedEdges.length?{edge:dashedEdges}:{})}};
-    if(untagged.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'nodes without data-shape: special shapes cannot be ruled out',untaggedNodeIds:untagged}};
-    return {status:'PASS',evidence:{...base,note:'one fill role, only rectangular nodes and solid connectors: no legend required'}};
+  const L=facts.legend;
+  const ambiguous=!!L.ambiguousSwatches&&!L.authoritative;
+  if(!L.present||!L.scoped){
+    if(!L.present||ambiguous)return {status:'PASS',evidence:{...base,basis:'no legend; legend is optional',...(ambiguous?{looseSwatches:L.ambiguousSwatches}:{})}};
+    return {status:'PASS',evidence:{...base,basis:'a legend heading exists but its swatch+caption entries cannot be delimited; a legend is optional and entries the code cannot read are left to the reviewer'}};
   }
-  if(!facts.legend.scoped)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'a legend heading exists but its swatch+caption entries cannot be delimited (tag entries g[data-legend] or group them with the title)'}};
-  const L=facts.legend,swatches=classifySwatches(L.marks);
-  // A shape key is a swatch whose DRAWN geometry is that class. Captions and data-shape claims on the legend entry never satisfy it, and one swatch has exactly one class.
+  const swatches=classifySwatches(L.marks);
   const declared=new Set(swatches.map(x=>x.cls).filter(Boolean));
+  const dashedKey=!!(L.dashed||L.captions.some(c=>/dash|dotted/i.test(c)));
+  // ---- entries that contradict actual use (blocking). Only what the drawn legend geometry shows; skipped when legend detection is ambiguous.
+  const wrongEntries=[];
+  if(!ambiguous){
+    const lineSample=m=>m.dashed&&!m.painted&&(m.tag==='line'||(m.tag==='path'&&!/z\s*$/i.test(m.d??'')));
+    if(facts.edges.length&&!dashedEdges.length&&L.marks.some(lineSample))wrongEntries.push({kind:'dashed',value:'dashed',reason:'the legend has a dashed line key but no connector is drawn dashed'});
+    if(Array.isArray(L.usedFills)){
+      const used=new Set([...L.usedFills,'#ffffff']),seen=new Set();
+      const decor=m=>L.marks.some(o=>o!==m&&o.scope===m.scope&&o.tag==='path'&&m.tag==='ellipse'&&m.x>=o.x-1&&m.y>=o.y-1&&m.x+m.w<=o.x+o.w+1&&m.y+m.h<=o.y+o.h+1);
+      const nested=m=>L.marks.some(o=>o!==m&&o.scope===m.scope&&o.painted&&o.fill&&o.fill!==m.fill&&o.x>=m.x-1&&o.y>=m.y-1&&o.x+o.w<=m.x+m.w+1&&o.y+o.h<=m.y+m.h+1);
+      for(const m of L.marks){
+        if(!m.painted||!m.fill||m.w<3||m.h<3||m.w>90||m.h>60||m.tag==='line'||isVerticalBars(m)||openStraightPath(m)||decor(m)||nested(m)||used.has(m.fill)||seen.has(m.fill))continue;
+        seen.add(m.fill);
+        wrongEntries.push({kind:'fill',value:m.fill,reason:`a legend swatch is filled ${m.fill} but no node, container or label in the diagram uses that fill`});
+      }
+    }
+    const classes=new Set(nodes.map(n=>shapeClass(n.shape)));
+    if(!untagged.length&&[...classes].every(c=>KNOWN_CLASSES.has(c))){
+      const seenCls=new Set();
+      // a mark whose centre lies inside another swatch of the same entry is that swatch's decoration (a cylinder lid drawn as its own ellipse), not a key of its own
+      const inside=(m,o)=>o!==m&&o.scope===m.scope&&m.x+m.w/2>=o.x-2&&m.x+m.w/2<=o.x+o.w+2&&m.y+m.h/2>=o.y-2&&m.y+m.h/2<=o.y+o.h+2;
+      for(const {cls,mark} of swatches){
+        if(!cls||cls==='rect'||seenCls.has(cls)||swatches.some(o=>inside(mark,o.mark)))continue;
+        if(classes.has(cls)||(roundish(cls)&&[...classes].some(roundish)))continue;
+        seenCls.add(cls);
+        wrongEntries.push({kind:'shape',value:cls,reason:`a legend swatch is drawn as a ${cls} but no node is that shape`});
+      }
+    }
+  }
+  if(wrongEntries.length)return {status:'FAIL',evidence:{...base,detection:L.via,wrongEntries,reason:`legend entry contradicts actual use: ${wrongEntries.map(w=>w.reason).join('; ')}`,legendFills:L.fills}};
+  // ---- keys missing from a drawn legend: minor, never blocking
   const unclassified=swatches.filter(x=>!x.cls);
   const claimed=new Set([...L.dataShapes.map(shapeClass),...L.captions.flatMap(c=>CAPTION_SHAPES.filter(([re])=>re.test(c.toLowerCase())).map(([,cls])=>cls))].filter(Boolean));
-  const missingKeys=[];
-  if(multiRole)for(const [fill,ids] of fillNodes)if(!L.fills.includes(fill))missingKeys.push({kind:'fill',value:fill,nodeIds:ids});
-  const uncheckedShapes=[];
-  for(const [cls,ids] of shapeNodes)if(!declared.has(cls)){
-    // Not drawn as that class. If some swatch could not be classified and the legend claims the class, the check cannot rule it out; otherwise the key is missing.
-    if(unclassified.length&&claimed.has(cls))uncheckedShapes.push(cls);else missingKeys.push({kind:'shape',value:cls,nodeIds:ids});
+  const minorFindings=[];
+  if(!ambiguous){
+    if(multiRole)for(const [fill,ids] of fillNodes)if(!L.fills.includes(fill))minorFindings.push({kind:'fill',value:fill,nodeIds:ids});
+    for(const [cls,ids] of shapeNodes)if(!declared.has(cls)&&!(unclassified.length&&claimed.has(cls)))minorFindings.push({kind:'shape',value:cls,nodeIds:ids});
+    if(dashedEdges.length&&!dashedKey)minorFindings.push({kind:'dashed',value:'dashed',edge:dashedEdges});
   }
-  if(dashedEdges.length&&!(L.dashed||L.captions.some(c=>/dash|dotted/i.test(c))))missingKeys.push({kind:'dashed',value:'dashed',edge:dashedEdges});
-  if(missingKeys.length&&ambiguous)return ambiguousResult();
-  if(missingKeys.length)return {status:'FAIL',evidence:{...base,detection:L.via,missingKeys,nodeIds:[...new Set(missingKeys.flatMap(k=>k.nodeIds??[]))],...(dashedEdges.length&&missingKeys.some(k=>k.kind==='dashed')?{edge:dashedEdges}:{}),legendFills:L.fills}};
-  if(uncheckedShapes.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:`legend swatch geometry cannot be classified, so the key for ${uncheckedShapes.join(', ')} is not verified (a caption alone does not count)`,unclassifiedSwatches:unclassified.length,uncheckedShapes}};
-  if(untagged.length)return {status:'NOT-CHECKABLE',evidence:{...base,reason:'nodes without data-shape: shape keys cannot be fully verified',untaggedNodeIds:untagged}};
-  return {status:'PASS',evidence:{...base,legendFills:L.fills,legendShapes:[...declared].filter(c=>c!=='rect'),legendDashed:!!(L.dashed||L.captions.some(c=>/dash|dotted/i.test(c))),nodeShapes:Object.fromEntries(nodes.filter(n=>n.shape).map(n=>[n.id,shapeClass(n.shape)])),nodeFills:Object.fromEntries(nodes.filter(n=>n.fill).map(n=>[n.id,n.fill]))}};
+  const evidence={...base,detection:L.via,legendFills:L.fills,legendShapes:[...declared].filter(c=>c!=='rect'),legendDashed:dashedKey,nodeShapes:Object.fromEntries(nodes.filter(n=>n.shape).map(n=>[n.id,shapeClass(n.shape)])),nodeFills:Object.fromEntries(nodes.filter(n=>n.fill).map(n=>[n.id,n.fill]))};
+  if(minorFindings.length)return {status:'PASS',evidence:{...evidence,basis:`legend drawn; no entry contradicts the diagram; keys missing for ${minorFindings.map(k=>k.kind+':'+k.value).join(', ')} (minor: a legend is optional)`,minorFindings}};
+  return {status:'PASS',evidence:{...evidence,basis:'legend drawn; no entry contradicts the diagram and every fill role, shape and line style in use has a key'}};
 }
 
 /** All six checks from one browser fact collection. */

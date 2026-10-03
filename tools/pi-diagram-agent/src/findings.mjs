@@ -97,7 +97,7 @@ const SUGGESTIONS={
   markerUniformity:'Use one arrowhead marker geometry for every connector: markerUnits="userSpaceOnUse", identical markerWidth/markerHeight and path, refX at the tip, explicit hex fill (no context-stroke).',
   textContrast:'Change the listed text or its background to a documented subtle/bold pair that reaches 4.5:1, keeping the semantic hue.',
   labelFontWeight:'Use font-weight 400 for node labels and descriptions; express hierarchy with size. Only group headings may be heavier.',
-  legendCompleteness:'Add a legend key for every node fill role, every non-rectangular node shape and dashed lines in use (or draw a legend if there is none).',
+  legendCompleteness:'A legend is optional, but a drawn legend must match actual use. Fix or remove each entry listed in wrongEntries (a dashed key with no dashed connector, a fill no node uses, a shape no node is drawn as); do not add a legend.',
   routeDetour:'Shorten the listed route: a much shorter feasible route exists (see the witness in the evidence); do not wrap a connector around other nodes or the canvas when a direct leg is free; move a node or the port if needed.',
   routeContainerClearance:'Move the listed route or edge label so it keeps at least 8 units (at least 12 units for a run longer than 100) from every container border it does not need to cross (routes may only cross a border at its entry or exit point), and keep edge labels at least 4 units from a container border; widen a narrow gutter between containers.',
   arrowShaft:'Lengthen the final straight segment before the arrowhead to the required visible shaft.',
@@ -124,6 +124,12 @@ function lowerBendMinorFinding(m){
     evidence:{measured:`anchors off the face midpoints: drawn source ${fx(m.drawn?.source)}, target ${fx(m.drawn?.target)}; same-bend witness source ${fx(m.witness?.source)}, target ${fx(m.witness?.target)}`,threshold:'non-blocking: anchors closer to the face midpoints exist with the same bends and crossings'},
     suggestion:'Optional: move the anchors toward the face midpoints when it costs nothing; this does not block acceptance.'});
 }
+function legendMinorFinding(ev){
+  const keys=ev.minorFindings.map(k=>`${k.kind}:${k.value}`);
+  return makeFinding({source:'audit',severity:'minor',rule:'legendCompleteness',elements:['legend'],
+    evidence:{measured:`the drawn legend has no key for ${keys.join(', ')}`,threshold:'non-blocking: a legend is optional and an incomplete legend never blocks acceptance'},
+    suggestion:'Optional: add a key for the listed fill roles, shapes or line styles, or leave the legend as it is; this does not block acceptance.'});
+}
 /** Every FAIL check of an auditAgentSvg result becomes one blocking finding; routeLowerBend midpoint-only witnesses become minor findings. NOT-CHECKABLE and PASS produce no blocking findings. */
 export function auditToFindings(audit){
   if(!audit||!audit.checks)return [];
@@ -131,6 +137,8 @@ export function auditToFindings(audit){
   for(const [rule,check] of Object.entries(audit.checks)){
     // Non-blocking minor findings travel with a PASSing (or any) check: routeLowerBend midpoint-only witnesses (decision 2, 2026-10-03).
     if(rule==='routeLowerBend'&&Array.isArray(check?.evidence?.minorFindings))for(const m of check.evidence.minorFindings)out.push(lowerBendMinorFinding(m));
+    // An incomplete (but not contradicting) legend is a minor finding that travels with the PASSing legendCompleteness check: a legend is optional.
+    if(rule==='legendCompleteness'&&check?.status==='PASS'&&Array.isArray(check.evidence?.minorFindings)&&check.evidence.minorFindings.length)out.push(legendMinorFinding(check.evidence));
     if(check?.status!=='FAIL')continue;
     const ev=check.evidence;
     const ids=new Set();collectIds(ev,ids);

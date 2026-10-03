@@ -173,7 +173,23 @@ function verifyLegendCites(f,ev){
   return missing.length?{refused:`no verified legend swatch for ${missing.join(', ')}`}:{verified};
 }
 
+/** A reviewer legend finding that only reports absence or omission (no legend, a missing or omitted key) is not a defect: a legend is optional and an incomplete one is minor.
+ *  A finding that also says a drawn entry contradicts actual use (wrong, mismatched, unused, misleading...) is never touched. Free text cannot be classified perfectly, so the
+ *  contradiction pattern wins any tie and the reviewer prompt carries the same policy. Only blocking source=review rule=legend findings are considered. */
+const LEGEND_ABSENCE=/\b(?:missing|omit(?:s|ted|ting)?|omission|absent|absence|lacks?|lacking|without|incomplete|unexplained|undocumented|unkeyed|not keyed|not (?:explained|included|covered|listed|shown|described|mentioned)|no (?:legend|key|keys|entry|entries|swatch|swatches))\b|\bhas no\b|\bhave no\b|\bnot (?:have|draw|include|explain|show|list)\b|\bdoes(?:n't| not) (?:have|include|explain|show|list|cover|mention)\b/i;
+const LEGEND_CONTRADICTION=/contradict|wrong|incorrect|mislead|mismatch|inconsisten|does(?:n't| not) match|do(?:n't| not) match|not match|differs?\b|different (?:from|shape|colou?r|fill)|\bunused\b|not used|isn't used|no (?:node|nodes|connector|connectors|edge|edges)\b[^.]{0,40}\b(?:use|uses|is|are|has|have|drawn|dashed)\b|nothing (?:uses|is)|none of the|never used|opposite|swaps?\b|drawn as|looks? like|resembles/i;
+export function legendAbsenceOnly(f){
+  if(f.rule!=='legend'||f.source!=='review'||f.severity!=='blocking')return false;
+  const text=[f.evidence?.measured,f.evidence?.threshold,f.evidence?.detail,f.suggestion].filter(x=>typeof x==='string').join(' ');
+  return LEGEND_ABSENCE.test(text)&&!LEGEND_CONTRADICTION.test(text);
+}
+const legendOptionalDowngrade=f=>({...f,severity:'minor',downgraded:{by:'legend-optional',check:'legend-optional',findingKey:f.key,evidencePointer:null,
+  reason:'a legend is optional (rule C5 only keeps a drawn legend aligned with use): the finding reports a missing legend or missing keys, not an entry that contradicts actual use'}});
+
 export function applyCoverage(findings,{audit,svgText,model}){
+  return applyCoverageByAudit(findings,{audit,svgText,model}).map(f=>legendAbsenceOnly(f)?legendOptionalDowngrade(f):f);
+}
+function applyCoverageByAudit(findings,{audit,svgText,model}){
   return findings.map(f=>{
     const rule=COVERAGE[f.rule];
     if(f.severity!=='blocking'||f.source!=='review'||!rule||!model||(rule.kind!=='global'&&!f.elements.length))return f;

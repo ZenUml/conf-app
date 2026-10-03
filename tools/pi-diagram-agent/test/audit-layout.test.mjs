@@ -144,33 +144,76 @@ test('labelFontWeight allows a heavier group heading (container membership) but 
 // 6. legendCompleteness (C1/C5)
 const legendFill=(label,fill,x=300)=>`<g data-legend="${label}"><rect x="${x}" y="20" width="24" height="18" rx="4" fill="${fill}" stroke="#2f6fad" stroke-width="2"/><text x="${x+34}" y="29" font-size="16" font-weight="400" dominant-baseline="central" fill="#173a63">${label}</text></g>`;
 const cylinderB='<g data-node="B" data-shape="cylinder"><path d="M300 192 C300 176 420 176 420 192 L420 232 C420 248 300 248 300 232 Z" fill="#fff4d6" stroke="#2f6fad" stroke-width="2"/><text x="360" y="214" text-anchor="middle" font-size="18" font-weight="400" fill="#4d3a00">Finish</text></g>';
-test('legendCompleteness FAILs two fill roles with no legend',{skip:!enabled},async()=>{
+test('legendCompleteness: no legend is allowed even with two fill roles, a special shape and a dashed connector (PASS, never FAIL, never blocking)',{skip:!enabled},async()=>{
+  const {auditToFindings}=await import('../src/findings.mjs');
   const r=await run(fixture({fillB:'#fff4d6',textFillB:'#4d3a00'}));
-  assert.equal(check(r,'legendCompleteness')?.status,'FAIL');
-  assert.match(JSON.stringify(check(r,'legendCompleteness')?.evidence),/no legend/i);
+  assert.equal(check(r,'legendCompleteness')?.status,'PASS');
+  assert.match(check(r,'legendCompleteness')?.evidence?.basis,/no legend; legend is optional/);
+  assert.equal(check(r,'legendCompleteness')?.evidence?.minorFindings,undefined);
+  const rich=await run(fixture({nodeB:cylinderB,edgeAttrs:'stroke-dasharray="6 4"'}));
+  assert.equal(check(rich,'legendCompleteness')?.status,'PASS',JSON.stringify(check(rich,'legendCompleteness')));
+  assert.match(check(rich,'legendCompleteness')?.evidence?.basis,/legend is optional/);
+  assert.ok(!auditToFindings(rich).some(f=>f.rule==='legendCompleteness'));
 });
-test('legendCompleteness FAILs a legend missing a fill key, and PASSes when every fill role has a key',{skip:!enabled},async()=>{
+test('legendCompleteness: a legend missing a fill key is a minor finding only (PASS), and a complete legend has none',{skip:!enabled},async()=>{
+  const {auditToFindings}=await import('../src/findings.mjs');
   const two={fillB:'#fff4d6',textFillB:'#4d3a00'};
   const missing=await run(fixture({...two,body:legendFill('Process','#eaf3ff')}));
-  assert.equal(check(missing,'legendCompleteness')?.status,'FAIL');
-  assert.deepEqual(check(missing,'legendCompleteness')?.evidence?.missingKeys?.map(k=>[k.kind,k.value]),[['fill','#fff4d6']]);
+  assert.equal(check(missing,'legendCompleteness')?.status,'PASS',JSON.stringify(check(missing,'legendCompleteness')));
+  assert.deepEqual(check(missing,'legendCompleteness')?.evidence?.minorFindings?.map(k=>[k.kind,k.value]),[['fill','#fff4d6']]);
+  assert.notEqual(missing.status,'FAIL');
+  const findings=auditToFindings(missing).filter(f=>f.rule==='legendCompleteness');
+  assert.deepEqual(findings.map(f=>f.severity),['minor']);
+  assert.ok(!auditToFindings(missing).some(f=>f.severity==='blocking'));
   const complete=await run(fixture({...two,body:legendFill('Process','#eaf3ff')+legendFill('Store','#fff4d6',420)}));
   assert.equal(check(complete,'legendCompleteness')?.status,'PASS');
+  assert.equal(check(complete,'legendCompleteness')?.evidence?.minorFindings,undefined);
 });
-test('legendCompleteness FAILs a special shape without a shape key and PASSes with one (data-shape on the key)',{skip:!enabled},async()=>{
+test('legendCompleteness: a legend missing one used shape is a minor finding; no revise round is caused by it',{skip:!enabled},async()=>{
+  const {auditToFindings}=await import('../src/findings.mjs');
+  const r=await run(fixture({nodeB:cylinderB,body:legendFill('Process','#eaf3ff')+legendFill('Store','#fff4d6',420)}));
+  assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
+  assert.deepEqual(check(r,'legendCompleteness')?.evidence?.minorFindings?.map(k=>[k.kind,k.value]),[['shape','cylinder']]);
+  assert.ok(auditToFindings(r).every(f=>f.severity==='minor'||f.rule!=='legendCompleteness'));
+  assert.ok(!auditToFindings(r).some(f=>f.rule==='legendCompleteness'&&f.severity==='blocking'));
+});
+test('legendCompleteness: a legend entry that contradicts actual use is a blocking FAIL (dashed key with no dashed connector; fill used by no node; shape drawn by no node)',{skip:!enabled},async()=>{
+  const {auditToFindings}=await import('../src/findings.mjs');
+  const dashedKey='<g data-legend="Optional flow"><path d="M300 29 L340 29" stroke="#2f6fad" stroke-width="1" stroke-dasharray="6 4" fill="none"/><text x="352" y="29" font-size="16" font-weight="400" fill="#173a63">Optional flow</text></g>';
+  const d=await run(fixture({body:legendFill('Process','#eaf3ff',100)+dashedKey}));
+  assert.equal(check(d,'legendCompleteness')?.status,'FAIL',JSON.stringify(check(d,'legendCompleteness')));
+  assert.deepEqual(check(d,'legendCompleteness')?.evidence?.wrongEntries?.map(k=>k.kind),['dashed']);
+  assert.equal(d.status,'FAIL');
+  const f=auditToFindings(d).find(x=>x.rule==='legendCompleteness');
+  assert.equal(f?.severity,'blocking');assert.doesNotMatch(f.suggestion,/draw a legend/i);
+  const ghost=await run(fixture({body:legendFill('Process','#eaf3ff',100)+legendFill('Ghost','#ffcccc',250)}));
+  assert.equal(check(ghost,'legendCompleteness')?.status,'FAIL',JSON.stringify(check(ghost,'legendCompleteness')));
+  assert.deepEqual(check(ghost,'legendCompleteness')?.evidence?.wrongEntries?.map(k=>[k.kind,k.value]),[['fill','#ffcccc']]);
+  const hex=await run(fixture({body:legendFill('Process','#eaf3ff',100)+hexSwatch(250,'Decision')}));
+  assert.equal(check(hex,'legendCompleteness')?.status,'FAIL',JSON.stringify(check(hex,'legendCompleteness')));
+  assert.deepEqual(check(hex,'legendCompleteness')?.evidence?.wrongEntries?.map(k=>[k.kind,k.value]),[['shape','decision']]);
+});
+test('legendCompleteness: a wrong entry stays blocking even when other keys are also missing',{skip:!enabled},async()=>{
+  const r=await run(fixture({fillB:'#fff4d6',textFillB:'#4d3a00',body:legendFill('Ghost','#ffcccc')}));
+  assert.equal(check(r,'legendCompleteness')?.status,'FAIL',JSON.stringify(check(r,'legendCompleteness')));
+});
+test('legendCompleteness: a special shape without a shape key is minor, and PASSes clean with one (data-shape on the key)',{skip:!enabled},async()=>{
   const noKey=await run(fixture({nodeB:cylinderB,fillB:'#eaf3ff',body:legendFill('Process','#eaf3ff')}));
   // cylinder node uses fill #fff4d6; the legend lacks both that fill and the cylinder shape
-  assert.equal(check(noKey,'legendCompleteness')?.status,'FAIL');
-  const kinds=check(noKey,'legendCompleteness')?.evidence?.missingKeys?.map(k=>k.kind).sort();
+  assert.equal(check(noKey,'legendCompleteness')?.status,'PASS',JSON.stringify(check(noKey,'legendCompleteness')));
+  const kinds=check(noKey,'legendCompleteness')?.evidence?.minorFindings?.map(k=>k.kind).sort();
   assert.deepEqual(kinds,['fill','shape']);
   const keyed=await run(fixture({nodeB:cylinderB,body:legendFill('Process','#eaf3ff')+'<g data-legend="Datastore" data-shape="cylinder"><path d="M420 20 C420 14 444 14 444 20 L444 36 C444 42 420 42 420 36 Z" fill="#fff4d6" stroke="#2f6fad" stroke-width="2"/><text x="454" y="29" font-size="16" font-weight="400" fill="#173a63">Datastore</text></g>'}));
   assert.equal(check(keyed,'legendCompleteness')?.status,'PASS',JSON.stringify(check(keyed,'legendCompleteness')));
 });
-test('legendCompleteness FAILs a dashed connector without a dashed key, and PASSes with one',{skip:!enabled},async()=>{
+test('legendCompleteness: a dashed connector without a dashed key is minor when a legend exists, allowed when none does, and PASSes clean with a key',{skip:!enabled},async()=>{
   const dashed=fixture({edgeAttrs:'stroke-dasharray="6 4"'});
-  const noKey=await run(dashed);
-  assert.equal(check(noKey,'legendCompleteness')?.status,'FAIL');
-  assert.deepEqual(check(noKey,'legendCompleteness')?.evidence?.missingKeys?.map(k=>k.kind),['dashed']);
+  const none=await run(dashed);
+  assert.equal(check(none,'legendCompleteness')?.status,'PASS');
+  assert.match(check(none,'legendCompleteness')?.evidence?.basis,/legend is optional/);
+  const noKey=await run(fixture({edgeAttrs:'stroke-dasharray="6 4"',body:legendFill('Process','#eaf3ff',100)+legendFill('Process 2','#eaf3ff',230)}));
+  assert.equal(check(noKey,'legendCompleteness')?.status,'PASS',JSON.stringify(check(noKey,'legendCompleteness')));
+  assert.deepEqual(check(noKey,'legendCompleteness')?.evidence?.minorFindings?.map(k=>k.kind),['dashed']);
   const keyed=await run(fixture({edgeAttrs:'stroke-dasharray="6 4"',body:'<g data-legend="Optional flow"><path d="M300 29 L340 29" stroke="#2f6fad" stroke-width="1" stroke-dasharray="6 4" fill="none"/><text x="352" y="29" font-size="16" font-weight="400" fill="#173a63">Optional flow</text></g>'}));
   assert.equal(check(keyed,'legendCompleteness')?.status,'PASS');
 });
@@ -178,11 +221,10 @@ test('legendCompleteness: a diagram with one fill role, plain rectangles and sol
   const r=await run(fixture());
   assert.equal(check(r,'legendCompleteness')?.status,'PASS');
 });
-test('legendCompleteness is NOT-CHECKABLE when shape tagging is missing and nothing else shows a violation',{skip:!enabled},async()=>{
+test('legendCompleteness is PASS (legend optional), not NOT-CHECKABLE noise, when shape tagging is missing and no legend is drawn',{skip:!enabled},async()=>{
   const untagged=fixture().replaceAll(/ data-shape="[a-z]+"/g,'');
   const r=await run(untagged);
-  assert.equal(check(r,'legendCompleteness')?.status,'NOT-CHECKABLE');
-  assert.notEqual(r.status,'PASS');
+  assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
 });
 test('legendCompleteness recognises a text-titled legend group ("Legend") as the legend scope',{skip:!enabled},async()=>{
   const two={fillB:'#fff4d6',textFillB:'#4d3a00'};
@@ -211,7 +253,8 @@ test('legendCompleteness recognises a subroutine key drawn as a rectangle with t
   const keyed=await run(fixture({nodeB:subroutineB,body:legend(true)}));
   assert.equal(check(keyed,'legendCompleteness')?.status,'PASS',JSON.stringify(check(keyed,'legendCompleteness')));
   const plain=await run(fixture({nodeB:subroutineB,body:legend(false)}));
-  assert.equal(check(plain,'legendCompleteness')?.status,'FAIL');
+  assert.equal(check(plain,'legendCompleteness')?.status,'PASS');
+  assert.deepEqual(check(plain,'legendCompleteness')?.evidence?.minorFindings?.map(k=>[k.kind,k.value]),[['shape','subroutine']]);
 });
 test('legendCompleteness reads a data-legend-item entry (item name as caption, geometry as mark)',{skip:!enabled},async()=>{
   const hex='<path d="M376 20 Q376 15 381 14 L398 11 L415 14 Q420 15 420 20 L420 34 Q420 39 415 40 L398 43 L381 40 Q376 39 376 34 Z" fill="#eaf3ff" stroke="#2f6fad" stroke-width="2"/>';
@@ -219,16 +262,17 @@ test('legendCompleteness reads a data-legend-item entry (item name as caption, g
   const keyed=await run(fixture({nodeB:diamondB,body:`<g data-legend-item="decision">${hex}<text x="432" y="29" font-size="16" font-weight="400" fill="#173a63">Check</text></g>`}));
   assert.equal(check(keyed,'legendCompleteness')?.status,'PASS',JSON.stringify(check(keyed,'legendCompleteness')));
   const none=await run(fixture({nodeB:diamondB}));
-  assert.equal(check(none,'legendCompleteness')?.status,'FAIL');
+  assert.equal(check(none,'legendCompleteness')?.status,'PASS');
+  assert.match(check(none,'legendCompleteness')?.evidence?.basis,/legend is optional/);
 });
 
 // T13: a shape key needs a swatch whose drawn geometry is that shape class; a caption word alone no longer counts.
 const hexNode=fixture().match(/<g data-node="B"[\s\S]*?<\/g>/)[0].replace('data-shape="rect"','data-shape="hexagon"');
 const hexSwatch=(x,cap)=>`<g data-legend="${cap}"><path d="M${x+6} 20 L${x+18} 20 L${x+24} 29 L${x+18} 38 L${x+6} 38 L${x} 29 Z" fill="#eaf3ff" stroke="#2f6fad" stroke-width="2"/><text x="${x+34}" y="29" font-size="16" font-weight="400" fill="#173a63">${cap}</text></g>`;
-test('legendCompleteness FAILs a rectangle swatch whose caption merely says decision (T12 f2 false PASS)',{skip:!enabled},async()=>{
+test('legendCompleteness: a rectangle swatch whose caption merely says decision does not count as the decision key (minor finding)',{skip:!enabled},async()=>{
   const r=await run(fixture({nodeB:hexNode,body:legendFill('Workflow step / decision','#eaf3ff')}));
-  assert.equal(check(r,'legendCompleteness')?.status,'FAIL',JSON.stringify(check(r,'legendCompleteness')));
-  assert.deepEqual(check(r,'legendCompleteness')?.evidence?.missingKeys?.map(k=>[k.kind,k.value]),[['shape','decision']]);
+  assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
+  assert.deepEqual(check(r,'legendCompleteness')?.evidence?.minorFindings?.map(k=>[k.kind,k.value]),[['shape','decision']]);
 });
 test('legendCompleteness PASSes a hexagon swatch whatever its caption, and lists it as verified evidence',{skip:!enabled},async()=>{
   const r=await run(fixture({nodeB:hexNode,body:hexSwatch(300,'Branch point')}));
@@ -237,13 +281,14 @@ test('legendCompleteness PASSes a hexagon swatch whatever its caption, and lists
 });
 test('legendCompleteness: a single swatch cannot stand for two shape classes',{skip:!enabled},async()=>{
   const r=await run(fixture({nodeB:cylinderB,shapeA:'diamond',body:hexSwatch(300,'Decision / store')}));
-  assert.equal(check(r,'legendCompleteness')?.status,'FAIL',JSON.stringify(check(r,'legendCompleteness')));
-  assert.deepEqual(check(r,'legendCompleteness')?.evidence?.missingKeys?.filter(k=>k.kind==='shape').map(k=>k.value),['cylinder']);
+  assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
+  assert.deepEqual(check(r,'legendCompleteness')?.evidence?.minorFindings?.filter(k=>k.kind==='shape').map(k=>k.value),['cylinder']);
 });
-test('legendCompleteness is NOT-CHECKABLE when the swatch geometry cannot be classified',{skip:!enabled},async()=>{
+test('legendCompleteness leaves an unclassifiable swatch to the reviewer: PASS with a note, never FAIL or NOT-CHECKABLE noise',{skip:!enabled},async()=>{
   const odd='<g data-legend="Decision"><path d="M300 20 L324 20 L330 29 L324 38 L300 38 Z" fill="#eaf3ff" stroke="#2f6fad" stroke-width="2"/><text x="340" y="29" font-size="16" font-weight="400" fill="#173a63">Decision</text></g>';
   const r=await run(fixture({nodeB:hexNode,body:odd}));
-  assert.equal(check(r,'legendCompleteness')?.status,'NOT-CHECKABLE',JSON.stringify(check(r,'legendCompleteness')));
+  assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
+  assert.equal(check(r,'legendCompleteness')?.evidence?.minorFindings,undefined);
 });
 
 // T13 calibration: real swatch forms found in T9/T12/v2 output that the geometry classifier must recognise.
@@ -264,10 +309,11 @@ test('legendCompleteness: a cylinder swatch drawn with arcs plus a lid ellipse, 
     assert.equal(check(r,'legendCompleteness')?.status,'PASS',JSON.stringify(check(r,'legendCompleteness')));
   }
 });
-test('legendCompleteness: a plain oval is not a cylinder key',{skip:!enabled},async()=>{
+test('legendCompleteness: a plain oval is not a cylinder key; an oval swatch no node is drawn as contradicts the diagram (blocking)',{skip:!enabled},async()=>{
   const oval='<ellipse cx="317" cy="29" rx="14" ry="9" fill="#fff4d6" stroke="#2f6fad"/>';
   const r=await run(fixture({nodeB:cylinderB,body:legendFill('Process','#eaf3ff',100)+sw(oval,'Store')}));
   assert.equal(check(r,'legendCompleteness')?.status,'FAIL');
+  assert.deepEqual(check(r,'legendCompleteness')?.evidence?.wrongEntries?.map(k=>[k.kind,k.value]),[['shape','ellipse']]);
 });
 
 // T17: legend detection beyond g[data-legend] and a bare "Legend" text (false positives seen on real candidate output).
@@ -286,8 +332,8 @@ test('legendCompleteness recognises a titled legend whose heading and swatches a
   const ok=await legendStatus({...two2,body});
   assert.equal(ok.status,'PASS',JSON.stringify(ok));
   const missing=await legendStatus({...two2,body:`<text x="300" y="14" font-size="16" fill="#173a63">Notation</text>${pair(300,24,'#eaf3ff','Process')}${pair(300,52,'#eaf3ff','Other')}`});
-  assert.equal(missing.status,'FAIL',JSON.stringify(missing));
-  assert.deepEqual(missing.evidence.missingKeys.map(k=>k.value),['#fff4d6']);
+  assert.equal(missing.status,'PASS',JSON.stringify(missing));
+  assert.deepEqual(missing.evidence.minorFindings.map(k=>k.value),['#fff4d6']);
 });
 test('legendCompleteness recognises an untitled legend that is a cluster of swatch+caption pairs',{skip:!enabled},async()=>{
   const body=`<g>${pair(300,24,'#eaf3ff','Process')}${pair(300,52,'#fff4d6','Store')}</g>`;
@@ -296,17 +342,18 @@ test('legendCompleteness recognises an untitled legend that is a cluster of swat
   const loose=await legendStatus({...two2,body:pair(300,24,'#eaf3ff','Process')+pair(300,52,'#fff4d6','Store')});
   assert.equal(loose.status,'PASS',JSON.stringify(loose));
   const missing=await legendStatus({...two2,body:pair(300,24,'#eaf3ff','Process')+pair(300,52,'#eaf3ff','Other')});
-  assert.equal(missing.status,'FAIL',JSON.stringify(missing));
+  assert.equal(missing.status,'PASS',JSON.stringify(missing));
+  assert.deepEqual(missing.evidence.minorFindings.map(k=>k.value),['#fff4d6']);
 });
-test('legendCompleteness is NOT-CHECKABLE (never FAIL) when only one loose swatch+caption exists',{skip:!enabled},async()=>{
+test('legendCompleteness is PASS (never FAIL, never NOT-CHECKABLE noise) when only one loose swatch+caption exists',{skip:!enabled},async()=>{
   const r=await legendStatus({...two2,body:pair(300,24,'#eaf3ff','Process')});
-  assert.equal(r.status,'NOT-CHECKABLE',JSON.stringify(r));
+  assert.equal(r.status,'PASS',JSON.stringify(r));
 });
 test('legendCompleteness: edge labels and node text are never mistaken for a swatch+caption cluster',{skip:!enabled},async()=>{
   const label='<g data-edge-label-source="A" data-edge-label-target="B"><rect x="200" y="140" width="40" height="18" rx="9" fill="#ffffff"/><text x="206" y="149" font-size="14">yes</text></g><g data-edge-label-source="B" data-edge-label-target="A"><rect x="200" y="170" width="40" height="18" rx="9" fill="#ffffff"/><text x="206" y="179" font-size="14">no</text></g>';
   const r=await legendStatus({...two2,body:label});
-  assert.equal(r.status,'FAIL',JSON.stringify(r));
-  assert.match(r.evidence.reason,/no legend/i);
+  assert.equal(r.status,'PASS',JSON.stringify(r));
+  assert.match(r.evidence.basis,/no legend; legend is optional/i);
 });
 test('legendCompleteness classifies a subroutine swatch whose bars are <line> elements',{skip:!enabled},async()=>{
   const swatch=`<rect x="300" y="52" width="34" height="22" rx="3" fill="#eaf3ff" stroke="#2f6fad"/><line x1="305" y1="52" x2="305" y2="74" stroke="#2f6fad"/><line x1="329" y1="52" x2="329" y2="74" stroke="#2f6fad"/><text x="344" y="63" font-size="16" fill="#173a63">Job</text>`;

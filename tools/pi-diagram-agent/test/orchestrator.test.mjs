@@ -205,12 +205,31 @@ test('downgrade does not apply to a curved edge: finding stands and blocks',asyn
 const legendAudit=ev=>text=>{const a=setupClean();a.checks.legendCompleteness={status:'PASS',evidence:{method:'m',legendShapes:[],legendFills:[],legendDashed:false,nodeShapes:{},nodeFills:{},...ev}};return a};
 const setupClean=()=>({status:'NOT-CHECKABLE',checks:{svgWellFormed:{status:'PASS'},nodeIdentity:{status:'PASS',evidence:{missing:[],extra:[]}},relations:{status:'PASS'},groups:{status:'PASS'},semanticPreservation:{status:'PASS'},
   textFit:{status:'PASS',evidence:{method:'m',checkedNodes:2,overflows:[]}},routeCrossings:{status:'PASS',evidence:{method:'m',checkedEdges:1,violations:[]}},routeNodeIntrusion:{status:'PASS',evidence:{method:'m',checkedEdges:1}},routeGeometry:{status:'NOT-CHECKABLE',evidence:'x'},visualQuality:{status:'NOT-CHECKABLE',evidence:'x'}}});
-const legendReview=()=>rv([{...rf('legend',['legend']),measured:'the hexagon decision node has no key'}]);
+const legendReview=()=>rv([{...rf('legend',['legend']),measured:'the hexagon decision key swatch is wrong'}]);
 test('legend downgrade is refused without a verified swatch for the cited shape; the finding blocks and the REVISE result says why',async()=>{
   const t=setup({auditFor:legendAudit({legendShapes:[]}),replies:[legendReview()]});try{
     t.write(svg('v1',STRAIGHT));
     const r=await t.out();
     assert.equal(r.status,'REVISE');assert.equal(r.findings[0].rule,'legend');assert.equal(r.findings[0].severity,'blocking');
+  }finally{t.cleanup()}
+});
+test('an incomplete legend (minor audit finding) and a reviewer "missing legend" finding cause no revise round; the downgrade is recorded',async()=>{
+  const t=setup({auditFor:legendAudit({minorFindings:[{kind:'shape',value:'decision',nodeIds:['A']}]}),replies:[rv([{...rf('legend',['legend']),measured:'the legend is missing a key for the decision shape'}])]});try{
+    t.write(svg('v1',STRAIGHT));
+    const r=await t.out();
+    assert.equal(r.status,'REVIEWED',JSON.stringify(r));
+    assert.equal(t.calls.audit.length,1);assert.equal(t.calls.reviewer.length,1);
+    assert.equal(r.downgrades.length,1);assert.equal(r.downgrades[0].rule,'legend');assert.equal(r.downgrades[0].check,'legend-optional');
+  }finally{t.cleanup()}
+});
+test('a contradicting legend entry flagged by the code blocks the gate and asks for a fix, not for a legend',async()=>{
+  const t=setup({auditFor:text=>{const a=setupClean();a.checks.legendCompleteness={status:'FAIL',evidence:{method:'m',wrongEntries:[{kind:'dashed',value:'dashed',reason:'the legend has a dashed key but no connector is dashed'}]}};return a},replies:[]});try{
+    t.write(svg('v1',STRAIGHT));
+    const r=await t.out();
+    assert.equal(r.status,'REVISE');
+    const f=r.findings.find(x=>x.rule==='legendCompleteness');
+    assert.equal(f.severity,'blocking');assert.doesNotMatch(f.suggestion,/draw a legend/i);
+    assert.equal(t.calls.reviewer.length,0);
   }finally{t.cleanup()}
 });
 test('every downgrade is recorded in run.json and in the diagram_submit result',async()=>{

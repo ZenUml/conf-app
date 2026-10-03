@@ -261,3 +261,19 @@ test('author prompt does not tell the author the reviewer judges reading order',
     if(twoPhase)assert.match(text,/label ownership/i);
   }
 });
+
+test('author prompt says a legend is optional and, if drawn, must match actual use; it never asks for one',()=>{
+  const {root,input}=fixture();
+  try{
+    for(const opts of [{}]){
+      const job=prepareAgentTask(input,opts);
+      assert.match(job.prompt,/legend is optional/i);
+      assert.match(job.prompt,/if you draw one[^.]*(match|actual use)/i);
+      assert.doesNotMatch(job.prompt,/missing legend|legend completeness|draw a legend|legend is required|must (?:have|draw) a legend/i);
+    }
+    for(const twoPhase of [false,true]){
+      const p=v2Paragraph({maxRounds:3,maxInspectionsPerRound:2,twoPhase});
+      assert.doesNotMatch(p,/legend completeness|missing legend|draw a legend/i);
+    }
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});

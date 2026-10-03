@@ -163,7 +163,8 @@ test('applyCoverage: a reviewer legend finding is downgraded only when legendCom
   legend.evidence.measured='the hexagon decision node has no key in the legend';
   const down=applyCoverage([legend],{audit:pass,svgText:svg(''),model});
   assert.equal(down[0].severity,'minor');assert.equal(down[0].downgraded.by,'legendCompleteness');
-  const nc=applyCoverage([legend],{audit:{checks:{legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'x'}}}},svgText:svg(''),model});
+  const wrongKey={...legend,evidence:{...legend.evidence,measured:'the hexagon decision key swatch is wrong'}};
+  const nc=applyCoverage([wrongKey],{audit:{checks:{legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'x'}}}},svgText:svg(''),model});
   assert.equal(nc[0].severity,'blocking');
   const balance=makeFinding({source:'review',severity:'blocking',rule:'balance',elements:['canvas'],evidence:{measured:'m',threshold:'t'},suggestion:'s'});
   assert.equal(applyCoverage([balance],{audit:pass,svgText:svg(''),model})[0].severity,'blocking');
@@ -177,12 +178,35 @@ test('applyCoverage legend: a cited shape with no verified swatch stays blocking
   assert.equal(out[0].severity,'blocking');assert.equal(out[0].downgraded,undefined);
   assert.equal(out[0].downgradeRefused.check,'legendCompleteness');assert.match(out[0].downgradeRefused.reason,/decision/);
 });
-test('applyCoverage legend: a finding that names no shape, fill or dashed role cannot be matched to evidence and stays blocking',()=>{
-  const out=applyCoverage([legendF('legend is incomplete')],{audit:legPass({legendShapes:['decision']}),svgText:svg(''),model});
+test('applyCoverage legend: a finding that names no shape, fill or dashed role cannot be matched to evidence; if it only says something is missing it is minor (legend is optional), otherwise it stays blocking',()=>{
+  const out=applyCoverage([legendF('the key swatches look wrong')],{audit:legPass({legendShapes:['decision']}),svgText:svg(''),model});
   assert.equal(out[0].severity,'blocking');assert.ok(out[0].downgradeRefused);
+  const absent=applyCoverage([legendF('legend is incomplete')],{audit:legPass({legendShapes:['decision']}),svgText:svg(''),model});
+  assert.equal(absent[0].severity,'minor');assert.equal(absent[0].downgraded.by,'legend-optional');
+});
+test('applyCoverage legend: a reviewer finding about a missing or omitted legend is minor, whatever the auditor said (a legend is optional)',()=>{
+  for(const text of ['missing legend','there is no legend','the legend omits the dashed line style','legend lacks a key for the cylinder store','no key for the hexagon decision']){
+    for(const audit of [legPass({}),{checks:{legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'x'}}}},{checks:{}}]){
+      const out=applyCoverage([legendF(text)],{audit,svgText:svg(''),model});
+      assert.equal(out[0].severity,'minor',text);
+      assert.ok(out[0].downgraded?.reason,text);assert.equal(out[0].downgraded.findingKey,out[0].key);
+    }
+  }
+});
+test('applyCoverage legend: a finding that says a drawn entry contradicts actual use stays blocking, even when it also says something is missing',()=>{
+  for(const text of ['the dashed key contradicts the diagram: no connector is dashed','legend swatch colour does not match the nodes it explains','the Store key is drawn as a circle but the stores are cylinders and a key is missing','legend entry is wrong: red means error but red nodes are warnings']){
+    const out=applyCoverage([legendF(text)],{audit:{checks:{}},svgText:svg(''),model});
+    assert.equal(out[0].severity,'blocking',text);
+  }
+});
+test('applyCoverage legend: only blocking review findings of rule legend are touched by the absence downgrade',()=>{
+  const other=makeFinding({source:'review',severity:'blocking',rule:'balance',elements:['canvas'],evidence:{measured:'missing legend space',threshold:'t'},suggestion:'s'});
+  assert.equal(applyCoverage([other],{audit:{checks:{}},svgText:svg(''),model})[0].severity,'blocking');
+  const audit=makeFinding({source:'audit',severity:'blocking',rule:'legend',elements:['legend'],evidence:{measured:'missing legend',threshold:'t'},suggestion:'s'});
+  assert.equal(applyCoverage([audit],{audit:{checks:{}},svgText:svg(''),model})[0].severity,'blocking');
 });
 test('applyCoverage legend: downgrade only when every cited item has a verified swatch, and the record names the finding key, check and evidence pointer',()=>{
-  const f=legendF('hexagon decision is not keyed; dashed lines unexplained');
+  const f=legendF('hexagon decision swatch is wrong; dashed key swatch is wrong');
   const bad=applyCoverage([f],{audit:legPass({legendShapes:['decision'],legendDashed:false}),svgText:svg(''),model});
   assert.equal(bad[0].severity,'blocking');
   const ok=applyCoverage([f],{audit:legPass({legendShapes:['decision'],legendDashed:true}),svgText:svg(''),model});
@@ -193,7 +217,7 @@ test('applyCoverage legend: downgrade only when every cited item has a verified 
   assert.deepEqual(ok[0].downgraded.verified.sort(),['dashed','shape:decision']);
 });
 test('applyCoverage legend: a cited node id is matched through the auditor node shape and fill map',()=>{
-  const f=legendF('node C has no key',['C']);
+  const f=legendF('node C is keyed with a wrong swatch',['C']);
   const none=applyCoverage([f],{audit:legPass({nodeShapes:{C:'decision'},legendShapes:[]}),svgText:svg(''),model});
   assert.equal(none[0].severity,'blocking');
   const yes=applyCoverage([f],{audit:legPass({nodeShapes:{C:'decision'},legendShapes:['decision']}),svgText:svg(''),model});

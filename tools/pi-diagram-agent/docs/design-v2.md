@@ -84,7 +84,7 @@ Status semantics:
 - **Deterministic checks return reasons, not just exceptions**: every FAIL names the rule, the elements, the measured value and the threshold. (Kit lesson.)
 - **Findings ledger**: stable key = rule id + sorted element ids; each finding is `open | fixed | regressed` across rounds. At most 5 blocking findings are sent per round, highest severity first.
 - **Verifying reviewer findings**: a reviewer blocking finding is downgraded only when the auditor actually measured those elements with a method that covers that geometry (e.g. straight-span checks do not cover curves or fillets). Otherwise it stands.
-- **Reviewer checklist** (defects the auditor cannot see, all observed in runs): label on the wrong edge or detached from it, avoidable long detours, legend completeness (colour, shape and line keys), heading or text overflowing its frame, overall balance at 1200×710.
+- **Reviewer checklist** (defects the auditor cannot see, all observed in runs): label on the wrong edge or detached from it, avoidable long detours, legend consistency (a legend is optional; a drawn entry that contradicts actual use is blocking, missing keys are minor), heading or text overflowing its frame, overall balance at 1200×710.
 - **Early mechanical checks at every author inspection**, not only at the gate: `context-stroke`, missing node/relation/group bindings, uninspected final bytes.
 - **Manifest** (authoritative copy outside the run directory, mirrored to `run.json`): source, rules, adjudication, final SVG and media hashes; per-round audit and review results; per-role timings and token counts; final status.
 

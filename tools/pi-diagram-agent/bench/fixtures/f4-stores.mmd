@@ -1,0 +1,6 @@
+flowchart LR
+  A[Ingest events] --> B[(Event store)]
+  B --> C[Transform records]
+  C --> D[[Work queue]]
+  D --> E[Publish results]
+  C -.-> F[Audit log]

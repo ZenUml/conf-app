@@ -1,0 +1,6 @@
+flowchart TB
+  A[Receive request] --> B[Check request] --> C{Request valid?}
+  C -- "Yes" --> D[Accept request]
+  C -- "No" --> E[Reject request]
+  D --> F[Close record]
+  E --> F

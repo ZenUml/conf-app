@@ -10,14 +10,14 @@ import { safeRunDir } from './src/manifest.mjs';
 import { judgeRunDir, acceptWithJudge } from './src/judge-run.mjs';
 import { createPiJudgeFactory, resolveJudgeModel, judgeThinkingFromEnv } from './src/judge.mjs';
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
-import { createSpecRenderer, SPEC_TOOL_DESCRIPTION, specModeFromEnv } from './src/spec-tool.mjs';
+import { createSpecRenderer, writeLayoutArgument, SPEC_TOOL_DESCRIPTION, specModeFromEnv } from './src/spec-tool.mjs';
 import { createBuildStep } from './src/build-step.mjs';
 
 /** Quote-aware argument split shared by /magic and /magic-accept. */
 const tokenize = (args: string) => args.trim().match(/"[^"]*"|'[^']*'|\S+/g)?.map(value => value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_all, double, single) => double ?? single)) ?? [];
 
 export default function (pi: ExtensionAPI) {
-  const jobs = new Map<string, { inspect: () => Promise<unknown>; renderSpec: () => Promise<unknown>; submit?: (opts?: { svgHash?: string | null }) => Promise<unknown>; buildCheck?: (ctx: any) => Promise<unknown> }>();
+  const jobs = new Map<string, { runDir: string; inspect: () => Promise<unknown>; renderSpec: () => Promise<unknown>; submit?: (opts?: { svgHash?: string | null }) => Promise<unknown>; buildCheck?: (ctx: any) => Promise<unknown> }>();
   // v2 (independent reviewer + deterministic gate) is the default; PI_DIAGRAM_V2=0 restores the single-session loop for benchmark comparability.
   const v2On = process.env.PI_DIAGRAM_V2 !== '0';
   const runsByDir = new Map<string, any>();
@@ -92,7 +92,7 @@ export default function (pi: ExtensionAPI) {
         } else inspector = createAgentVisualInspector(job);
         const renderSpec = createSpecRenderer(job);
         const buildStep = createBuildStep(job, { specMode: specRequired ? 'required' : specMode, renderSpec });
-        jobs.set(jobId, { inspect: thinking.wrap(inspector), renderSpec, ...(run ? { submit: (opts?: { svgHash?: string | null }) => run.submit(opts), ...(v2Budgets.twoPhase ? { buildCheck: (ctx: any) => run.buildCheck({ build: () => buildStep(ctx) }) } : {}) } : {}) });
+        jobs.set(jobId, { runDir: job.runDir, inspect: thinking.wrap(inspector), renderSpec, ...(run ? { submit: (opts?: { svgHash?: string | null }) => run.submit(opts), ...(v2Budgets.twoPhase ? { buildCheck: (ctx: any) => run.buildCheck({ build: () => buildStep(ctx) }) } : {}) } : {}) });
         let factsText: string | null = null;
         if (process.env.PI_DIAGRAM_SOURCE_FACTS === '1') {
           try {
@@ -207,10 +207,12 @@ export default function (pi: ExtensionAPI) {
       name: 'diagram_build_check',
       label: 'Build the candidate and run the binding script check',
       description: 'The normal edit loop. In one call: (1) runs your generator (python3 make.py in the run directory, 60 s limit; or renders layout.json in spec mode, where PI_DIAGRAM_SPEC_MODE=required ignores make.py and candidate.svg; or uses candidate.svg as written), (2) hashes the resulting candidate.svg bytes, (3) runs the full deterministic auditor plus measured geometry and early checks, (4) returns TEXT ONLY: the sha256, PASS/FAIL per check, and actionable findings (including repairHint/moveHint evidence) and the check budget left. Identical bytes are served from a cache (still counted). diagram_submit accepts only a hash whose latest check has no FAIL. Not visual evidence: call diagram_inspect for images.',
-      parameters: Type.Object({ jobId: Type.String() }),
+      parameters: Type.Object({ jobId: Type.String(), layout: Type.Optional(Type.String({ description: 'Spec mode only: the whole layout JSON. Written to layout.json in the run directory, then built in this same call.' })) }),
       async execute(_id, params, _signal, _onUpdate, ctx) {
         const job = jobs.get(params.jobId);
         if (!job?.buildCheck) throw Error('UNKNOWN_DIAGRAM_JOB');
+        const refused = specMode ? writeLayoutArgument(job.runDir, params.layout) : null;
+        if (refused) return { content: [{ type: 'text', text: refused }], details: { status: 'SCHEMA_ERROR' } };
         return await job.buildCheck(ctx);
       },
     }));
@@ -231,10 +233,12 @@ export default function (pi: ExtensionAPI) {
       name: 'diagram_render_spec',
       label: 'Render layout.json to candidate.svg',
       description: SPEC_TOOL_DESCRIPTION,
-      parameters: Type.Object({ jobId: Type.String() }),
+      parameters: Type.Object({ jobId: Type.String(), layout: Type.Optional(Type.String({ description: 'Spec mode only: the whole layout JSON. Written to layout.json in the run directory, then built in this same call.' })) }),
       async execute(_id, params) {
         const job = jobs.get(params.jobId);
         if (!job) throw Error('UNKNOWN_DIAGRAM_JOB');
+        const refused = writeLayoutArgument(job.runDir, params.layout);
+        if (refused) return { content: [{ type: 'text', text: refused }], details: { status: 'SCHEMA_ERROR' } };
         return await job.renderSpec();
       },
     }));

@@ -9,7 +9,7 @@ import {auditAgentSvg} from './agent-audit.mjs';
 import {parseMermaid} from './parser.mjs';
 import {denseInfo,denseRelationThreshold} from './dense.mjs';
 import {collectOriginalLayout,formatSourceFacts} from './source-facts.mjs';
-import {specModeParagraph} from './spec-tool.mjs';
+import {specModeParagraph,specModeFromEnv} from './spec-tool.mjs';
 import {earlyFindings} from './early-checks.mjs';
 import {formatForAuthor} from './findings.mjs';
 import {collectGeometry,geometryFindings,geometryNotCheckable} from './geometry.mjs';
@@ -77,7 +77,12 @@ export function prepareAgentTask(inputPath,{cwd=process.cwd(),maxSourceBytes=128
   if(referenceSvgPath){const referencePath=fs.realpathSync(path.resolve(cwd,referenceSvgPath)),item=fs.statSync(referencePath);if(!item.isFile()||item.size===0||item.size>2_000_000)throw Error('REFERENCE_SVG_UNAVAILABLE');referenceSvgBytes=fs.readFileSync(referencePath);referenceHash=hash(referenceSvgBytes)}
   let feedback='';if(feedbackPath){const file=fs.realpathSync(path.resolve(cwd,feedbackPath)),item=fs.statSync(file);if(!item.isFile()||item.size===0||item.size>8_000)throw Error('REVIEW_FEEDBACK_UNAVAILABLE');feedback=exactUtf8(fs.readFileSync(file))}
   const upgradeInstruction=previousRulesHash?`The pinned Diagram Rules changed from SHA-256 ${previousRulesHash} to ${rulesHash}. Re-evaluate this existing candidate under the entire new rules text below and perform a fresh image inspection; old inspection receipts do not certify the new revision.\n`:'';
-  const continuation=resumeRunDir?`This is a continuation of your own earlier candidate in ${runDir}. ${upgradeInstruction}Read and revise its existing generator and candidate.svg; preserve source semantics. The independent reviewer found the following concrete issues; resolve them and then inspect again:\n<review-feedback>\n${feedback||'Review the accepted reference and current candidate for remaining defects.'}\n</review-feedback>\n`:'Start a fresh candidate; no prior output is supplied.\n';
+  // Spec-mode resume: the author's whole state is layout.json, so inline it instead of spending read round trips on it.
+  const inlineLayoutPath=resumeRunDir&&specModeFromEnv()!=='off'?path.join(runDir,'layout.json'):null;
+  const inlineItem=inlineLayoutPath?fs.lstatSync(inlineLayoutPath,{throwIfNoEntry:false}):null;
+  const inlineLayout=inlineItem?.isFile()&&!inlineItem.isSymbolicLink()&&inlineItem.size<=400_000?exactUtf8(fs.readFileSync(inlineLayoutPath)):null;
+  const layoutInstruction=inlineLayout?`Your current layout.json is reproduced below in full; candidate.svg is exactly its render. Do not read files to recover state: revise this layout and pass the whole revised JSON as the \`layout\` argument of the build tool.\n<current-layout-json>\n${inlineLayout}\n</current-layout-json>\n`:'';
+  const continuation=resumeRunDir?`This is a continuation of your own earlier candidate in ${runDir}. ${upgradeInstruction}${layoutInstruction}${inlineLayout?'Revise that layout;':'Read and revise its existing generator and candidate.svg;'} preserve source semantics. The independent reviewer found the following concrete issues; resolve them and then inspect again:\n<review-feedback>\n${feedback||'Review the accepted reference and current candidate for remaining defects.'}\n</review-feedback>\n`:'Start a fresh candidate; no prior output is supplied.\n';
   const referenceInstruction=referenceSvgBytes?`An accepted prior SVG is supplied only as a visual quality reference (SHA-256 ${referenceHash}); diagram_inspect will show its full and viewer-fit images. Compare quality, including legend and connector clarity, but do not copy its coordinates or reuse it as the output.\n`:'';
   const grp=g=>g==null?'none (top level)':JSON.stringify(String(g));
   const adjudicationInstruction=adjudications.length?`User-authorised group adjudications (supplied by the human operator through the command, outside your run directory). These override the "preserve original visible membership by default" instruction above for exactly the nodes listed, and only for them:\n${adjudications.map(r=>`- node ${JSON.stringify(String(r?.nodeId))}: declared group ${grp(r?.declaredGroup)}, rendered group ${grp(r?.renderedGroup)}, chosen group ${grp(r?.chosenGroup)}. The user authorised drawing node ${JSON.stringify(String(r?.nodeId))} in ${grp(r?.chosenGroup)}; draw it there. The audit will record this as ADJUDICATED, not PASS.`).join('\n')}\nEvery other node keeps its original visible membership.\n\n`:'';

@@ -47,7 +47,7 @@ test('v2 is the default: diagram_submit and /magic-accept are registered and the
     const f=fakePi();ext(f.pi);
     assert.ok(f.tools.has('diagram_submit'));assert.ok(f.tools.has('diagram_inspect'));assert.ok(f.commands.has('magic-accept'));
     assert.ok(f.tools.has('diagram_build_check'));assert.equal(f.tools.has('diagram_check'),false);
-    assert.deepEqual(Object.keys(f.tools.get('diagram_build_check').parameters.properties),['jobId']);
+    assert.deepEqual(Object.keys(f.tools.get('diagram_build_check').parameters.properties),['jobId','layout']);
     assert.deepEqual(Object.keys(f.tools.get('diagram_submit').parameters.properties),['jobId','svgHash']);
     const s=await start(f);
     try{

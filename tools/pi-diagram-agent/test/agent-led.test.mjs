@@ -278,3 +278,22 @@ test('author prompt says a legend is optional and, if drawn, must match actual u
     }
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+
+test('a spec-mode continuation inlines the current layout.json; script mode does not',()=>{
+  const {root,input}=fixture();
+  const old=process.env.PI_DIAGRAM_SPEC_MODE;
+  try{
+    const job=prepareAgentTask(input);
+    fs.writeFileSync(job.outputPath,'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>');
+    fs.writeFileSync(path.join(job.runDir,'layout.json'),'{"canvas":{"w":10,"h":10},"marker":"INLINE-ME"}');
+    process.env.PI_DIAGRAM_SPEC_MODE='required';
+    const spec=prepareAgentTask(input,{resumeRunDir:job.runDir});
+    assert.match(spec.prompt,/<current-layout-json>\n\{"canvas":\{"w":10,"h":10\},"marker":"INLINE-ME"\}\n<\/current-layout-json>/);
+    assert.match(spec.prompt,/Do not read files to recover state/);
+    delete process.env.PI_DIAGRAM_SPEC_MODE;
+    const script=prepareAgentTask(input,{resumeRunDir:job.runDir});
+    assert.doesNotMatch(script.prompt,/current-layout-json/);
+    assert.match(script.prompt,/Read and revise its existing generator/);
+    fs.rmSync(job.runDir,{recursive:true,force:true});
+  }finally{if(old===undefined)delete process.env.PI_DIAGRAM_SPEC_MODE;else process.env.PI_DIAGRAM_SPEC_MODE=old;fs.rmSync(root,{recursive:true,force:true})}
+});

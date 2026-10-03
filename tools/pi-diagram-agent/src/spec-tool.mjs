@@ -8,6 +8,22 @@ export const SPEC_TOOL_DESCRIPTION='Render the layout.json you wrote in your run
 const MAX_RENDERS=80;
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
+/** Optional `layout` tool argument: write the full JSON body to runDir/layout.json (atomic, never through a symlink) so one edit is one tool call.
+ * Returns null when there is no argument or it was written; otherwise the SCHEMA_ERROR text to return without building. */
+export function writeLayoutArgument(runDir,layout){
+  if(layout===undefined||layout===null)return null;
+  const body=typeof layout==='string'?layout:JSON.stringify(layout);
+  const bytes=Buffer.byteLength(body,'utf8');
+  if(bytes>LIMITS.bytes)return `SCHEMA_ERROR: the layout argument is ${bytes} bytes; the limit is ${LIMITS.bytes}. layout.json was not changed.`;
+  const layoutPath=path.join(runDir,'layout.json');
+  const item=fs.lstatSync(layoutPath,{throwIfNoEntry:false});
+  if(item?.isSymbolicLink())return `SCHEMA_ERROR: layout.json is a symbolic link; replace it with a regular file. Nothing was written.`;
+  if(item&&!item.isFile())return `SCHEMA_ERROR: layout.json is not a regular file. Nothing was written.`;
+  const temp=path.join(runDir,`.layout.${randomUUID()}.tmp`);
+  try{fs.writeFileSync(temp,body,{flag:'wx',mode:0o600});fs.renameSync(temp,layoutPath)}finally{fs.rmSync(temp,{force:true})}
+  return null;
+}
+
 /** Per-job renderer behind the diagram_render_spec tool. Always resolves to a text result; schema errors are reported in the text and leave candidate.svg untouched. */
 export function createSpecRenderer(job){
   let renders=0;
@@ -52,5 +68,5 @@ Schema (all numbers are SVG units; unknown keys are errors):
 - nodes: [{id, group?, shape (one of rect|capsule|decision|cylinder|subroutine|circle|doublecircle|hexagon|parallelogram|parallelogram_alt|trapezoid|trapezoid_alt|asymmetric), rect:[x,y,w,h] or centre:[cx,cy]+tier S|M|L|XL, text: string (wrapped in the label box) or [lines], role, align?: center|left, font?: number: omit it and the renderer picks the largest whole font (14 to 28) that fits the label box, comparable nodes uniform}]. Source to shape: [..] rect, (..) and ([..]) capsule, {..} decision, [(..)] cylinder, [[..]] subroutine (a rect with an inset bar near each side, not a cylinder), ((..)) circle, (((..))) doublecircle, {{..}} hexagon (points left and right; a decision hexagon points up and down), [/../] parallelogram, [\\..\\] parallelogram_alt, [/..\\] trapezoid, [\\../] trapezoid_alt, >..] asymmetric (flag). rect, capsule, decision, cylinder and subroutine must keep their shape or the code reports shape-change; the others have no rule notation. Aliases: store, queue, stadium. Label box inside the outline: rect/capsule inset 8; subroutine inset 24 left and right; cylinder inset 32 top and bottom; circle diameter = tier diagonal + 24 (doublecircle + 36); hexagon, parallelogram, trapezoid, asymmetric add a slant per side of h/4 (hexagon, asymmetric) or h/3, h = tier height + 24; tiers S 96x40, M 200x80, L 320x120, XL 480x160. Endpoints sit on the outline with legs perpendicular to the face (circle: cardinal points only); ports on parallelogram, trapezoid and asymmetric are NOT-CHECKABLE for the auditor. A decision's visible outline tip is pulled in from the nominal vertex (about 4.5 left/right, 2.2 top/bottom on an S diamond); findings give the exact point.
 - edges: [{id?, source, target, points: [[x,y],...] explicit orthogonal corners including both endpoints on the node outlines, dashed?, role?, label?: {text, x, y, vertical?: boolean} with x,y the centre of the label pill, trunk?: string}]. Edge labels: a label of fewer than 4 words should float on its own route, centred on a straight segment; vertical: true draws the label rotated -90 degrees around the centre (reading bottom to top) and every clearance check then uses the rotated box, so use it on a vertical or mostly vertical route. A label has no border and an opaque background (the renderer draws the canvas colour with stroke none); its background must never hide another route, so if the label cannot sit on or beside its own route without that, change the layout (widen the gap, spread the ports) instead of moving the label away. At or above 20 source relations (PI_DIAGRAM_DENSE_RELATIONS) a crossing is reported as minor: minimise crossings with port order and lanes, do not chase zero. trunk declares a shared final trunk (rule 10): give every connector that converges on the same target from the same direction the same trunk id; each keeps its own full points route and the coincident final leg is exempt from parallel clearance only when ids and target match and the overlap ends at the target (one arrowhead is drawn where the heads coincide). Bends get uniform r=5 fillets and a per-colour arrowhead automatically.
 - legend: {x, y, direction?: down|right, entries: [{kind: node|line, role, label, shape? (any node shape above, drawn as a small glyph), dashed?}]}
-The findings cover orthogonality, endpoints and ports, rule 13 final leg (>= fillet + 10 + 8), fillet room, parallel spans (>= 10), crossings, node/group/heading intrusion, text fit, group membership, label clearance, contrast, canvas bounds and a node/edge census against the source.`;
+One call per edit: pass the whole JSON as the \`layout\` argument of diagram_build_check or diagram_render_spec; it is written to layout.json and built.\nThe findings cover orthogonality, endpoints and ports, rule 13 final leg (>= fillet + 10 + 8), fillet room, parallel spans (>= 10), crossings, node/group/heading intrusion, text fit, group membership, label clearance, contrast, canvas bounds and a node/edge census against the source.`;
 }

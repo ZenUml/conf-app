@@ -1,4 +1,4 @@
-import { shallowMount } from '@vue/test-utils'
+import { shallowMount, enableAutoUnmount } from '@vue/test-utils'
 import Editor from '@/components/Editor/Editor.vue'
 import store from "@/model/store2";
 import {DiagramType} from "@/model/Diagram/Diagram";
@@ -36,6 +36,9 @@ document.createRange = () => {
   };
   return range;
 }
+// Cancel the component's validation debounce before mocks or store state reset.
+enableAutoUnmount(afterEach);
+
 describe('Editor', () => {
   beforeEach(() => {
     store.commit('updateDiagramType', DiagramType.Sequence);

@@ -824,6 +824,9 @@ jobs:
     secrets: inherit
 
   staging-asyncapi:
+    # Downstream jobs override implicit success(): main intentionally skips the
+    # PR selector ancestor. Require successful direct prerequisites explicitly
+    # so a skipped selector can continue, but failed deployment/tests cannot.
     needs: [staging-diagramly, staging-diagramly-e2e, gate]
     # Default-branch-only, matching staging-full / staging-diagramly. To validate
     # an in-flight asyncapi PR against asyncapi-stg.atlassian.net before merge,
@@ -835,7 +838,7 @@ jobs:
     # AsyncAPI shares the lite Cloudflare Pages project for now (per
     # scripts/forge-wizard.mjs); swap to a dedicated `conf-stg-asyncapi`
     # project when one is stood up.
-    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.staging-diagramly-e2e.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "Deploy: AsyncAPI"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -848,7 +851,7 @@ jobs:
   staging-asyncapi-e2e:
     # Mirror the staging-asyncapi gate so the e2e runs whenever a fresh build
     # is deployed. Skips on draft PRs (matches staging-lite-e2e behaviour).
-    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
+    if: ${{ !cancelled() && needs.staging-asyncapi.result == 'success' && needs.e2e-auth-asyncapi.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
     needs: [staging-asyncapi, e2e-auth-asyncapi, gate]
     name: "E2E: AsyncAPI"
     uses: ./.github/workflows/e2e-test.yml
@@ -871,7 +874,7 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-diagramly-e2e:
-    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.e2e-auth-diagramly.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     needs: [staging-diagramly, e2e-auth-diagramly, gate]
     name: "E2E: Diagramly"
     uses: ./.github/workflows/e2e-test.yml
@@ -1003,7 +1006,7 @@ jobs:
     name: "Draft: Diagramly"
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the default branch, to avoid cutting releases from feature branches
-    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    if: ${{ !cancelled() && needs.staging-diagramly-e2e.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.build-prod.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     needs: [staging-diagramly-e2e, build, version, build-prod, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1048,7 +1051,7 @@ jobs:
     # published from this draft will trigger the prod deploy automatically.
     # Until then the draft is a no-op artifact (intentional: keeps the
     # release cadence aligned across variants).
-    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    if: ${{ !cancelled() && needs.staging-asyncapi-e2e.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.build-prod.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     needs: [staging-asyncapi-e2e, build, version, build-prod, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5

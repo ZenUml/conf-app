@@ -52,7 +52,8 @@ export function derivePorts(samples){
   if(hull.length<3)return {error:'degenerate outline'};
   for(const p of samples){
     let d=Infinity;
-    for(let i=0;i<hull.length;i++)d=Math.min(d,segDistance(p,hull[i],hull[(i+1)%hull.length]));
+    // Only d>HULL_TOLERANCE matters, so stop at the first hull edge within tolerance (same verdict, no full scan for samples on the hull).
+    for(let i=0;i<hull.length&&d>HULL_TOLERANCE;i++)d=Math.min(d,segDistance(p,hull[i],hull[(i+1)%hull.length]));
     if(d>HULL_TOLERANCE)return {error:'non-convex outline (no supported port definition)'};
   }
   const faces=[],mid={x:(x0+x1)/2,y:(y0+y1)/2};

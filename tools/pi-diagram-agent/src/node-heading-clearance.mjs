@@ -12,11 +12,14 @@ function extent(node){
   return null;
 }
 /** Gap between a node's drawn outline (rect box or sampled path) and a heading box; 0 when they overlap. */
-function outlineGap(node,box){
+function outlineGap(node,box,bound=null){
   if(node.kind==='rect'){
     const o=node.outline;
     return Math.hypot(Math.max(o.x-(box.x+box.w),0,box.x-(o.x+o.w)),Math.max(o.y-(box.y+box.h),0,box.y-(o.y+o.h)));
   }
+  // Prefilter: every sample lies in the sample bbox, so the bbox-to-box gap lower-bounds the outline gap. Callers that only act on a gap below
+  // `bound` pass it and get back Infinity when the bbox alone already proves the gap is at least that large.
+  if(bound!==null&&node.extent&&Math.max(node.extent.x-(box.x+box.w),0,box.x-(node.extent.x+node.extent.w))**2+Math.max(node.extent.y-(box.y+box.h),0,box.y-(node.extent.y+node.extent.h))**2>=bound*bound+1e-6)return Infinity;
   let best=Infinity;for(const p of node.samples)best=Math.min(best,rectGap(p,box));
   return best;
 }
@@ -28,7 +31,7 @@ export function checkNodeHeadingClearance({nodes,groups}){
   const measured=[];
   for(const node of nodes){
     if(!extent(node)){notCheckableNodeIds.push(node.id);reasons[node.id]=node.reason??'outline not measurable';continue}
-    measured.push(node);
+    measured.push(node.kind==='shape'?{...node,extent:extent(node)}:node);
   }
   groups=groups.filter(g=>!g.isNode); // a node element may carry data-group membership metadata; it is not a container
   const usable=groups.filter(g=>g.box&&g.box.w>0&&g.box.h>0);
@@ -36,7 +39,7 @@ export function checkNodeHeadingClearance({nodes,groups}){
   for(const node of measured){
     for(const g of groups){
       for(const h of headingsOf(g)){
-        const gap=outlineGap(node,h);
+        const gap=outlineGap(node,h,HEADING_CLEARANCE);
         if(gap<HEADING_CLEARANCE)violations.push({kind:'heading',nodeId:node.id,groupId:g.id,gap:r2(gap),required:HEADING_CLEARANCE,heading:{x:r2(h.x),y:r2(h.y),w:r2(h.w),h:r2(h.h)}});
       }
     }

@@ -8,7 +8,7 @@ export const CONTRAST_MIN=4.5;
 const eps=1e-6;
 
 /** Runs inside Chromium (page.evaluate): self-contained, no outer references. Returns plain facts. */
-export const collectLayoutFacts=([input,GROUP])=>{
+export const collectLayoutFacts=([input,GROUP,PREFILTER=true])=>{
   const doc=new DOMParser().parseFromString(input,'image/svg+xml');
   if(doc.querySelector('parsererror')||doc.documentElement.localName!=='svg')return {parseError:true};
   const root=document.importNode(doc.documentElement,true);
@@ -73,6 +73,12 @@ export const collectLayoutFacts=([input,GROUP])=>{
       let top=null;
       for(const p of painted){
         if(!(p.shape.compareDocumentPosition(text)&Node.DOCUMENT_POSITION_FOLLOWING))continue;
+        // Prefilter: a point outside the shape's root-space bbox (the transformed local bbox) is outside its fill.
+        if(PREFILTER){
+          if(p.box===undefined){try{p.box=rootBox(p.shape)}catch{p.box=null}}
+          const b=p.box;
+          if(b&&[b.x,b.y,b.w,b.h].every(Number.isFinite)&&(pt.x<b.x-1e-3||pt.x>b.x+b.w+1e-3||pt.y<b.y-1e-3||pt.y>b.y+b.h+1e-3))continue;
+        }
         const local=new DOMPoint(pt.x,pt.y).matrixTransform(root.getScreenCTM().inverse().multiply(p.shape.getScreenCTM()).inverse());
         if(p.shape.isPointInFill(local))top=p;
       }

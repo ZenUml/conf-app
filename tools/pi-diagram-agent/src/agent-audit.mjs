@@ -9,6 +9,7 @@ import {GROUP_SELECTOR} from './svg-selectors.mjs';
 import {checkNodeHeadingClearance} from './node-heading-clearance.mjs';
 import {resolveLabels} from './geometry.mjs';
 import {collectLayoutFacts,layoutChecks,layoutChecksUnavailable} from './layout-checks.mjs';
+import {denseInfo,denseRelationThreshold} from './dense.mjs';
 import {isAcceptedTrunkOverlap,summariseTrunks,checkTrunkSemantics,unrecognisedTrunkAttributes,TRUNK_HINT} from './trunk.mjs';
 
 const require=createRequire(import.meta.url);
@@ -455,7 +456,12 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         if(v.fixed>h.lo+eps&&v.fixed<h.hi-eps&&h.fixed>v.lo+eps&&h.fixed<v.hi-eps)violations.push({edgeA:routeSpans[i].edge,edgeB:routeSpans[j].edge,x:v.fixed,y:h.fixed});
       }
     }
-    return {status:violations.length?'FAIL':'PASS',evidence:{method:'exact interior intersections among actual straight SVG centerline spans after fillet trims; curved portions and declared junction topology remain outside this subcheck',violations,checkedEdges:routeSpans.length}};
+    const method='exact interior intersections among actual straight SVG centerline spans after fillet trims; curved portions and declared junction topology remain outside this subcheck';
+    // Dense diagram (user decision 2026-10-03): from the threshold up, crossings are measured and reported but are minor findings, not a FAIL, and never need a waiver.
+    const relationCount=model.edges.length,dense=denseInfo(relationCount);
+    const base={relationCount,denseThreshold:denseRelationThreshold()};
+    if(dense&&violations.length)return {status:'PASS',evidence:{method,...base,dense,crossings:violations.length,violations:[],minorFindings:violations,basis:`${dense.reason}: ${violations.length} crossing(s) measured and reported as minor (non-blocking); minimise them with port order and lanes, do not chase zero`,checkedEdges:routeSpans.length}};
+    return {status:violations.length?'FAIL':'PASS',evidence:{method,...base,...(dense?{dense}:{}),violations,checkedEdges:routeSpans.length}};
   })():{status:'NOT-CHECKABLE',evidence:'edge drawing uses unsupported SVG path grammar or exact relation binding unavailable'};
   const arrowShaft=relations.status==='PASS'&&routeSpans.every(e=>e.spans?.length&&e.spans.lastCommand==='L')&&drawn.edges.every(e=>Number.isFinite(e.markerDrawing?.axialLength))?(()=>{
     const failures=routeSpans.flatMap((e,i)=>{const required=drawn.edges[i].markerDrawing.axialLength+8;return e.spans.at(-1).length<required-eps?[{edge:e.edge,drawnLastShaft:e.spans.at(-1).length,required}]:[]});

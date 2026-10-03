@@ -3,6 +3,7 @@
 // throws on a rule violation: violations come back as findings. Only malformed JSON or schema errors throw (SpecError).
 
 import { isAcceptedTrunkOverlap } from './trunk.mjs';
+import { denseInfo } from './dense.mjs';
 
 export class SpecError extends Error {
   constructor(errors) {
@@ -409,6 +410,8 @@ export function renderSpec(input, {model = null} = {}) {
     if (r.legAxis[r.legAxis.length - 1] && final < need - 1e-6) add('final-leg', 'blocking', [e.id], regionOf(r.pts.slice(-2)), `final leg ${r1(final)}`, `>= ${r1(need)} (fillet ${r1(r.bends ? r.lastTrim : 0)} + arrowhead ${MARKER} + shaft ${SHAFT}; rule 13)`, `lengthen the last leg by ${r1(need - final)} or move the target face`);
   }
 
+  // Dense diagram (user decision 2026-10-03): from the threshold up, crossings are measured but minor, and zero is not the goal.
+  const dense = denseInfo(model?.edges?.length ?? edges.length);
   // pairwise: crossings and parallel clearance (post-fillet straight spans, as the auditor measures)
   for (let i = 0; i < edges.length; i++) for (let j = i + 1; j < edges.length; j++) {
     const A = edges[i], B = edges[j]; if (!A.route || !B.route) continue;
@@ -418,7 +421,7 @@ export function renderSpec(input, {model = null} = {}) {
         if (overlap > 1e-6 && sep < PARALLEL - 1e-6 && !isAcceptedTrunkOverlap({trunk: A.trunk, target: A.target.id, spans: A.route.spans}, {trunk: B.trunk, target: B.target.id, spans: B.route.spans}, a, b)) add('parallel-clearance', 'blocking', [A.id, B.id], regionOf([[a.axis === 'h' ? Math.max(a.lo, b.lo) : a.fixed, a.axis === 'h' ? a.fixed : Math.max(a.lo, b.lo)], [a.axis === 'h' ? Math.min(a.hi, b.hi) : b.fixed, a.axis === 'h' ? b.fixed : Math.min(a.hi, b.hi)]]), `${a.axis === 'h' ? 'horizontal' : 'vertical'} spans ${r1(sep)} apart over ${r1(overlap)} units${sep < 1e-6 ? ' (coincident; only a final portion shared at one target by connectors with the same trunk id is exempt)' : ''}`, `centreline separation >= ${PARALLEL} (rule 14)`, `move one span by ${r1(PARALLEL - sep)} or more, or route them apart`);
       } else {
         const h = a.axis === 'h' ? a : b, v = a.axis === 'v' ? a : b;
-        if (v.fixed > h.lo + 1e-6 && v.fixed < h.hi - 1e-6 && h.fixed > v.lo + 1e-6 && h.fixed < v.hi - 1e-6) add('crossing', 'blocking', [A.id, B.id], regionOf([[v.fixed - 5, h.fixed - 5], [v.fixed + 5, h.fixed + 5]]), `${A.id} and ${B.id} cross at (${r1(v.fixed)}, ${r1(h.fixed)})`, 'no crossings (rule 12)', 'reroute one of them around the other, or reorder ports/nodes to remove the crossing');
+        if (v.fixed > h.lo + 1e-6 && v.fixed < h.hi - 1e-6 && h.fixed > v.lo + 1e-6 && h.fixed < v.hi - 1e-6) add('crossing', dense ? 'minor' : 'blocking', [A.id, B.id], regionOf([[v.fixed - 5, h.fixed - 5], [v.fixed + 5, h.fixed + 5]]), `${A.id} and ${B.id} cross at (${r1(v.fixed)}, ${r1(h.fixed)})${dense ? ` (${dense.reason})` : ''}`, dense ? 'non-blocking in a dense diagram: minimise crossings with port order and lanes, do not chase zero' : 'no crossings (rule 12)', dense ? 'optional: reorder ports or lanes if it costs nothing' : 'reroute one of them around the other, or reorder ports/nodes to remove the crossing');
       }
     }
   }

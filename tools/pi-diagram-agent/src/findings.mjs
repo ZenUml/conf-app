@@ -130,6 +130,12 @@ function legendMinorFinding(ev){
     evidence:{measured:`the drawn legend has no key for ${keys.join(', ')}`,threshold:'non-blocking: a legend is optional and an incomplete legend never blocks acceptance'},
     suggestion:'Optional: add a key for the listed fill roles, shapes or line styles, or leave the legend as it is; this does not block acceptance.'});
 }
+function denseCrossingMinorFinding(ev){
+  const edges=ev.minorFindings.flatMap(v=>[v.edgeA,v.edgeB]);
+  return makeFinding({source:'audit',severity:'minor',rule:'routeCrossings',elements:edges,
+    evidence:{measured:`${ev.crossings} crossing(s) measured; ${ev.dense.reason}`,threshold:'non-blocking: in a dense diagram zero crossings is not the goal (Diagram Rules, dense diagrams)'},
+    suggestion:'Optional: reduce crossings with port order and routing lanes where it costs nothing; do not chase zero. This does not block acceptance and never needs a waiver.'});
+}
 /** Every FAIL check of an auditAgentSvg result becomes one blocking finding; routeLowerBend midpoint-only witnesses become minor findings. NOT-CHECKABLE and PASS produce no blocking findings. */
 export function auditToFindings(audit){
   if(!audit||!audit.checks)return [];
@@ -139,6 +145,8 @@ export function auditToFindings(audit){
     if(rule==='routeLowerBend'&&Array.isArray(check?.evidence?.minorFindings))for(const m of check.evidence.minorFindings)out.push(lowerBendMinorFinding(m));
     // An incomplete (but not contradicting) legend is a minor finding that travels with the PASSing legendCompleteness check: a legend is optional.
     if(rule==='legendCompleteness'&&check?.status==='PASS'&&Array.isArray(check.evidence?.minorFindings)&&check.evidence.minorFindings.length)out.push(legendMinorFinding(check.evidence));
+    // A dense diagram's crossings travel with the PASSing routeCrossings check as one minor finding (never a FAIL, never waived).
+    if(rule==='routeCrossings'&&check?.status==='PASS'&&check.evidence?.dense&&Array.isArray(check.evidence.minorFindings)&&check.evidence.minorFindings.length)out.push(denseCrossingMinorFinding(check.evidence));
     if(check?.status!=='FAIL')continue;
     const ev=check.evidence;
     const ids=new Set();collectIds(ev,ids);

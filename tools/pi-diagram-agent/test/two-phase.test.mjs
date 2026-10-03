@@ -288,7 +288,8 @@ test('reviewer prompt in two-phase mode states that the script checks passed and
     t.write(svg('clean'));await t.check();await t.out();
     const p=t.calls.reviewer[0].text;
     assert.match(p,/ZERO failures|zero failures/);assert.match(p,/FOCUS/);
-    for(const w of ['reading order','label ownership','legend','balance'])assert.match(p,new RegExp(w,'i'));
+    for(const w of ['label ownership','legend','balance'])assert.match(p,new RegExp(w,'i'));
+    assert.doesNotMatch(p,/reading[- ]order/i);assert.match(p,/FOCUS first, in this order: \(1\) label ownership/);
     assert.match(p,/anything else you can see|any other defect you can see/i);
   }finally{t.cleanup()}
 });

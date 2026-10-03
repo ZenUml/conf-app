@@ -124,7 +124,7 @@ export function applyStability(findings,{previous,svgText}){
 }
 
 // ---- reviewer findings vs auditor coverage -----------------------------------------------------
-export const REVIEW_RULES=['reading-order','label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','node-heading-clearance','label-clearance','other'];
+export const REVIEW_RULES=['label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','node-heading-clearance','label-clearance','other'];
 
 /** A reviewer rule is "covered" only for the geometry the named audit check measures. Everything not listed here is NOT covered and the finding stands.
  *  curveSafe=false: the check measures straight spans only (curves and fillets are outside it), so any curved named edge leaves the finding standing. */

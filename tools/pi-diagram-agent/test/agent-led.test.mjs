@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {prepareAgentTask,createAgentVisualInspector} from '../src/agent-led.mjs';
+import {prepareAgentTask,createAgentVisualInspector,v2Paragraph} from '../src/agent-led.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const source='flowchart LR\n  A[Start] --> B[Finish]\n';
@@ -252,4 +252,12 @@ test('agent prompt states the one shared-trunk convention and rejects invented a
     assert.match(prompt,/exactly one visible arrowhead/);
     assert.match(prompt,/data-shared-bus[^.]*not recognised/);
   }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
+test('author prompt does not tell the author the reviewer judges reading order',()=>{
+  for(const twoPhase of [true,false]){
+    const text=v2Paragraph({maxRounds:3,maxInspectionsPerRound:2,twoPhase,runDir:'/r',jobId:'j'});
+    assert.doesNotMatch(text,/reading[- ]order/i,String(twoPhase));
+    if(twoPhase)assert.match(text,/label ownership/i);
+  }
 });

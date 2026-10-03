@@ -59,8 +59,9 @@ test('regionSignature changes when elements in the finding region or bound to it
   assert.notEqual(regionSignature(a,reg),regionSignature(bMoved,reg));
 });
 
+test('REVIEW_RULES excludes the retired reading-order rule',()=>{assert.ok(!REVIEW_RULES.includes('reading-order'));});
 test('REVIEW_RULES is the fixed reviewer vocabulary from the checklist',()=>{
-  for(const r of ['reading-order','label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','label-clearance'])assert.ok(REVIEW_RULES.includes(r),r);
+  for(const r of ['label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','label-clearance'])assert.ok(REVIEW_RULES.includes(r),r);
 });
 
 const rf=(rule,elements)=>makeFinding({source:'review',severity:'blocking',rule,elements,region:null,evidence:{measured:'m',threshold:'t'},suggestion:'s'});
@@ -84,7 +85,7 @@ test('applyCoverage: audit not PASS, elements unknown, unmapped rule, or partial
   const base={svgText:edgesSvg('M0 0 L100 0'),model};
   assert.equal(applyCoverage([rf('route-crossing',['A->B'])],{...base,audit:{checks:{routeCrossings:{status:'NOT-CHECKABLE',evidence:'x'}}}})[0].severity,'blocking');
   assert.equal(applyCoverage([rf('route-crossing',['A->Z'])],{...base,audit:auditPass('routeCrossings')})[0].severity,'blocking');
-  assert.equal(applyCoverage([rf('reading-order',['A'])],{...base,audit:auditPass('routeCrossings')})[0].severity,'blocking'); // default = not covered
+  assert.equal(applyCoverage([rf('balance',['A'])],{...base,audit:auditPass('routeCrossings')})[0].severity,'blocking'); // default = not covered
   assert.equal(applyCoverage([rf('label-ownership',['A->B'])],{...base,audit:auditPass('labelClearance')})[0].severity,'blocking');
   assert.equal(applyCoverage([rf('route-crossing',['A->B'])],{...base,audit:auditPass('routeCrossings',{checkedEdges:1})})[0].severity,'blocking');
 });

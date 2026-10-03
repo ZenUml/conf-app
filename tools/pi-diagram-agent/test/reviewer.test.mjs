@@ -25,7 +25,7 @@ const geometry={units:'SVG user units',canvas:{w:600,h:200},nodes:[{id:'A',box:[
 test('reviewer prompt: checklist, vocabulary, image list, facts, measured geometry and audit statuses; no SVG text, no audit evidence strings, no author text',()=>{
   const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7});
   for(const item of REVIEWER_CHECKLIST)assert.ok(text.includes(item.rule),item.rule);
-  for(const w of ['reading order','wrong edge','detour','legend','shape','line','overflow','balance'])assert.match(text,new RegExp(w,'i'));
+  for(const w of ['wrong edge','detour','legend','shape','line','overflow','balance'])assert.match(text,new RegExp(w,'i'));
   assert.match(text,/Image 1: the original/i);assert.match(text,/Image 7: the candidate fitted to a 1200x710/);
   assert.match(text,/"id":"A->B"/);
   assert.match(text,/<geometry>[\s\S]*"box":\[0,0,100,60\][\s\S]*<\/geometry>/);
@@ -301,4 +301,25 @@ test('reviewer prompt correctly identifies when multiple connector styles are us
   const multiStyle={direction:'LR',groups:[],nodes:[{id:'A',text:'Start',shape:'rect'},{id:'B',text:'End',shape:'rect'}],edges:[{id:'e1',source:'A',target:'B',style:'solid'},{id:'e2',source:'A',target:'B',style:'dashed'}]};
   const text=buildReviewerPrompt({facts:buildReviewerFacts(multiStyle),audit,geometry,imageLabels:labels7});
   assert.match(text,/line-?style[^.]*key|connector.*style/i);
+});
+
+const DIRECTION_SENTENCE='Layout direction, folding and the placement of groups are the author\'s choice; do not report them as a defect under any rule.';
+test('no reviewer prompt variant mentions reading order, and every one carries the direction/folding sentence',()=>{
+  const base={facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7};
+  const variants={skip:{},report:{measured:'report'},twoPhase:{twoPhase:true},diagnosis:{twoPhase:true,diagnosis:[{id:'f1',rule:'routePairClearance'}]}};
+  for(const [name,extra] of Object.entries(variants)){
+    const text=buildReviewerPrompt({...base,...extra});
+    assert.doesNotMatch(text,/reading[- ]order/i,name);
+    assert.ok(text.includes(DIRECTION_SENTENCE),name);
+  }
+  assert.ok(!REVIEWER_CHECKLIST.some(c=>c.rule==='reading-order'||/reading[- ]order/i.test(c.text)));
+});
+test('a stray old "reading-order" reply is mapped to rule other with minor severity, and cannot fail an accept verdict',()=>{
+  const reply=sev=>good({findings:[{rule:'reading-order',severity:sev,elements:['A'],evidence:'e',measured:'m',threshold:'t',suggestion:'s'}],verdict:sev==='blocking'?'revise':'accept'});
+  for(const sev of ['blocking','minor']){
+    const r=parseReviewerOutput(reply(sev),{model,natural,imageCount:7});
+    assert.equal(r.findings[0].rule,'other');assert.equal(r.findings[0].severity,'minor');
+  }
+  const acc=parseReviewerOutput(good({findings:[{rule:'reading-order',severity:'blocking',elements:['A'],evidence:'e',measured:'m',threshold:'t',suggestion:'s'}],verdict:'accept'}),{model,natural,imageCount:7});
+  assert.equal(acc.verdict,'accept');
 });

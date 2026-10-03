@@ -27,6 +27,27 @@ export function polylineGap(rect,points){
   return best;
 }
 
+// Prefilter support: every sampled point lies in the polyline's bbox, so the bbox-to-rect distance lower-bounds any point-to-rect distance.
+// Callers skip a polyline only when that bound already rules out the outcome they test for (never changes a result).
+const BOUND_SLACK=1e-9;
+const boundsOf=new WeakMap();
+function pointBounds(points){
+  let b=boundsOf.get(points);
+  if(b===undefined){
+    b=points.length?{x0:Infinity,y0:Infinity,x1:-Infinity,y1:-Infinity}:null;
+    for(const [x,y] of points){if(x<b.x0)b.x0=x;if(x>b.x1)b.x1=x;if(y<b.y0)b.y0=y;if(y>b.y1)b.y1=y}
+    if(b&&![b.x0,b.y0,b.x1,b.y1].every(Number.isFinite))b=null;
+    boundsOf.set(points,b);
+  }
+  return b;
+}
+/** Lower bound of the distance from any point of `points` to `rect` (0 when unknown). */
+function gapLowerBound(points,rect){
+  const b=pointBounds(points);
+  if(!b)return 0;
+  return Math.hypot(Math.max(rect.x-b.x1,0,b.x0-(rect.x+rect.w)),Math.max(rect.y-b.y1,0,b.y0-(rect.y+rect.h)))-BOUND_SLACK;
+}
+
 const containsBox=(outer,inner)=>inner.x>=outer.x-1&&inner.y>=outer.y-1&&inner.x+inner.w<=outer.x+outer.w+1&&inner.y+inner.h<=outer.y+outer.h+1;
 
 function unrelatedBorders(g,edge){
@@ -64,6 +85,7 @@ export function geometryMeasurements(g,model){
   const clearances=g.edges.map(e=>{
     let nearest=null;
     for(const b of unrelatedBorders(g,e)){
+      if(nearest&&gapLowerBound(e.points,b.box)>=nearest.dist)continue; // cannot be strictly nearer than the current best
       if(e.points.some(p=>strictlyInside(p,b.box)))continue; // the route enters it: that is an intrusion/transit, owned by the auditor
       let d=Infinity;
       for(const p of e.points){const x=rectDistance(p,b.box);if(x<d)d=x}
@@ -95,7 +117,7 @@ export function geometryFindings(g,model){
   for(const l of m.labels){
     if(l.gap===null||!Number.isFinite(l.gap))continue;
     let other=null;
-    for(const e of g.edges){if(e.id===l.edge||!e.points?.length)continue;const d=polylineGap(l.box,e.points);if(d<l.gap-AMBIGUITY_MARGIN&&(!other||d<other.gap))other={id:e.id,gap:round(d)}}
+    for(const e of g.edges){if(e.id===l.edge||!e.points?.length)continue;if(gapLowerBound(e.points,l.box)>=Math.min(l.gap-AMBIGUITY_MARGIN,other?other.gap:Infinity))continue;const d=polylineGap(l.box,e.points);if(d<l.gap-AMBIGUITY_MARGIN&&(!other||d<other.gap))other={id:e.id,gap:round(d)}}
     if(other&&byId.has(l.edge))out.push(makeFinding({source:'early',severity:'blocking',rule:'label-ambiguous',elements:[l.edge,other.id],
       evidence:{measured:`the label of ${l.edge} is ${l.gap} units from its own route but ${other.gap} units from the route of ${other.id}`,threshold:'own route strictly nearer than every other route'},
       suggestion:`Move the label of ${l.edge} onto or beside its own route, clear of ${other.id}'s route.`}));

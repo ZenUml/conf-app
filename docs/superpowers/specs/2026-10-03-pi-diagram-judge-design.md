@@ -150,3 +150,20 @@ Only after calibration are the 35 finished top-200 diagrams judged, with the sco
 - Using scores to pick the best round or as feedback to the author.
 - Showing scores to Confluence end users.
 - Any provider other than native Pi openai-codex.
+
+## Calibration results (2026-10-03, implementation 3aa7d114..3fc9a2d3)
+
+Aggregate numbers only; per-pair data stays in the private evidence directory.
+
+| Step | Result |
+|---|---|
+| 1. Identity (5 synthetic finals vs themselves) | Merged mean 0.000 on all 5: the A/B swap cancels position bias |
+| 2. Degradation (3 synthetic finals) | Halved fonts: readability fell to about −0.7 and pageWidth to about −0.85. Displaced nodes: lineClarity −1, mean about −0.72. All degraded variants NOT_IMPROVED |
+| 3. Human agreement (5 customer pairs, scored blind by the user) | Dimension direction agreed on 17 of 20 dimensions; verdict agreed on 3 of 5. The Judge's magnitudes are about 1.5–2.5× the user's, so its +0.2 mean threshold is looser than the user's own standard. A mean threshold of about +0.4 matched the user on all 5 pairs (5 samples; provisional) |
+| 4. Stability (10 customer pairs, judged twice) | Verdicts agreed on 10 of 10; merged mean differed by 0.027 on average (max 0.06). Verdicts within about 0.05 of a threshold are not reliable |
+
+Cost: about 19 s and 21–27k tokens per judgement (two passes).
+
+Threshold: left at the specified default (+0.2) by decision; `PI_DIAGRAM_JUDGE_MIN_MEAN=0.4` reproduces the user's verdicts on the calibration set.
+
+Finding: undegraded synthetic finals and half of the REVIEWED customer finals scored NOT_IMPROVED against the original, mainly on pageWidth (text smaller than the original at the 1200×710 fit). The rectangle inset and font-fill rule (13d64f2f) raised the page-fit text size on 3 of 5 regenerated customer diagrams and their Judge means rose (+0.09 to +0.15); the other 2 kept small fonts because the fill rule's finding is minor and is not sent to the author.

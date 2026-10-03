@@ -100,6 +100,7 @@ const SUGGESTIONS={
   legendCompleteness:'Add a legend key for every node fill role, every non-rectangular node shape and dashed lines in use (or draw a legend if there is none).',
   routeDetour:'Shorten the listed route: a much shorter feasible route exists (see the witness in the evidence); do not wrap a connector around other nodes or the canvas when a direct leg is free; move a node or the port if needed.',
   routeContainerClearance:'Move the listed route or edge label so it keeps at least 8 units (at least 12 units for a run longer than 100) from every container border it does not need to cross (routes may only cross a border at its entry or exit point), and keep edge labels at least 4 units from a container border; widen a narrow gutter between containers.',
+  routeCornerAnchor:'Move the listed connector end along its face so it keeps at least max(8 units, 10% of the face length) from both face ends (never at a box corner); prefer the face midpoint, or the even k/(n+1) slots when several connectors share the face (see the repairHint in the evidence). Not waivable.',
   arrowShaft:'Lengthen the final straight segment before the arrowhead to the required visible shaft.',
 };
 const fallbackSuggestion=rule=>`Resolve the ${rule} failure shown in the evidence, then re-render.`;
@@ -136,11 +137,11 @@ export function auditToFindings(audit){
     const ids=new Set();collectIds(ev,ids);
     const method=typeof ev==='object'&&ev&&typeof ev.method==='string'?ev.method:null;
     const detail=typeof ev==='string'?ev:Object.fromEntries(Object.entries(ev??{}).filter(([k])=>k!=='method'&&k!=='reasons'));
-    const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):'';
+    const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):rule==='routeCornerAnchor'&&Array.isArray(ev?.violations)?ev.violations.map(v=>v.repairHint?.text).filter(Boolean).join('; '):'';
     const hints=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.repairHint).map(v=>[`${v.repairHint.edge}|${JSON.stringify(v.repairHint.points)}`,v.repairHint])).values()]:[];
     const f=makeFinding({source:'audit',severity:'blocking',rule,elements:[...ids],region:null,
       evidence:{measured:clip(detail),threshold:method?clip(method,240):'rule check passes (see Diagram Rules)'},
-      suggestion:(SUGGESTIONS[rule]??fallbackSuggestion(rule))+(hintText?` Repair hint (evidence from a route search with all other routes fixed; you decide): ${hintText}.`:'')});
+      suggestion:(SUGGESTIONS[rule]??fallbackSuggestion(rule))+(hintText?(rule==='routeCornerAnchor'?` Repair hint: ${hintText}.`:` Repair hint (evidence from a route search with all other routes fixed; you decide): ${hintText}.`):'')});
     if(hints.length)f.repairHints=hints;
     const moves=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.moveHint).map(v=>[JSON.stringify(v.moveHint),v.moveHint])).values()]:[];
     if(moves.length)f.moveHints=moves;

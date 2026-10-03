@@ -69,6 +69,17 @@ test('audit FAIL: orchestrator renders the exact final bytes itself and returns 
   }finally{t.cleanup()}
 });
 
+test('routeCornerAnchor FAIL blocks REVIEWED: early blocking finding returned to the author, reviewer not called; the corrected candidate is REVIEWED',async()=>{
+  const t=setup({replies:[rv([])]});try{
+    t.write(svg('FAIL:routeCornerAnchor'));
+    const r1=await t.out();
+    assert.equal(r1.status,'REVISE');assert.equal(t.calls.reviewer.length,0);
+    assert.deepEqual(r1.findings.map(f=>[f.rule,f.severity]),[['routeCornerAnchor','blocking']]);
+    t.write(svg('midpoint'));
+    assert.equal((await t.out()).status,'REVIEWED');
+  }finally{t.cleanup()}
+});
+
 test('reviewer blocking finding returns to the author; fixed candidate then passes the gate: REVIEWED with identical hashes',async()=>{
   const t=setup({replies:[rv([rf('label-ownership',['A->B'])]),rv([])]});try{
     t.write(svg('v1'));

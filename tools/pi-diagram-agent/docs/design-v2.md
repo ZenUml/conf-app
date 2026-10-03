@@ -183,6 +183,18 @@ Judge, both passes, exact final bytes vs original   (in-loop thresholds)
 rounds / wall clock spent while NOT_IMPROVED ──▶ CANDIDATE, reason "NOT_IMPROVED (...): ROUNDS_EXHAUSTED | WALL_CLOCK"
 ```
 
+### Check feedback loop (relaxed gate)
+
+Why: two live runs (per-check log) showed 7-9 blocking rule kinds on the first check, only 2-5 kinds fixed per check, a rule fixed at check 2 and broken again at check 3, an 8-finding cap that hid the full blocking list, and a spare check spent on advisory items after CHECK_PASS. Changes, relaxed gate only (strict keeps `maxFindingsPerCheck` = 8 and its old texts):
+
+1. **Complete blocking list.** The `diagram_build_check` reply lists every blocking finding (`omittedBlocking` is always 0). Above 8 findings the evidence text is compressed (measured 200 chars, threshold 80, suggestion 240), never the list. Advice stays at the 3 highest-impact items plus `advisoryMore` (the count of the rest, also written as "+N more" in `next`).
+2. **Regression flag.** The orchestrator keeps, per run, the history of each blocking finding key (`rule|elements`). A key that was present, absent at check #N, and present again is marked `REGRESSION: fixed in check #N, broken again`, listed first (state `regressed`), and echoed in a top-level `regressions` array. Each `run.json` `twoPhase.checks` entry carries `regressions` (count). Cache hits advance the history like any other check; implicit submit-time checks do not.
+3. **Submit right after a pass.** A CHECK_PASS reply says: "No blocking findings. Submit now with diagram_submit (svgHash ...). Do not spend more checks on advisory items."
+4. **Repeat check refused (decision, 2026-10-04).** After a CHECK_PASS, a further `diagram_build_check` is refused (`status REFUSED`, `code UNCHANGED_PASSING_BYTES`, `countedAsCheck false`) while `candidate.svg` still has the hash of that pass. The refusal is not a check: `checksUsed*` do not move and the entry is not in `twoPhase.checks`; it is recorded in `twoPhase.refusals`. Any change to the bytes allows the next check. Safe because the check is a deterministic function of the bytes (a repeat is a cache hit and returns the same findings), `diagram_submit` reads the same cache so nothing is lost, and failing bytes may still be re-checked. The latch is cleared when a submit round ends, so after a revise message the author can check again. A generator (`make.py` / `layout.json`) still runs before the comparison, because only the built bytes show whether anything changed.
+5. **First-draft semantics.** The author prompt (relaxed, two-phase) tells the author to verify every node's group and every edge's endpoints and direction against the source facts before the first `diagram_build_check`. One short paragraph (`RELAXED_CHECK_PARAGRAPH`).
+
+Tests: `test/check-feedback.test.mjs`.
+
 ### Blocking-set mapping
 
 Evidence fields written by the auditor drive the partial checks. Evidence that lacks the needed field fails closed (stays blocking).

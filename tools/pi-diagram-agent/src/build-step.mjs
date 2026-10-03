@@ -14,7 +14,7 @@ export const GENERATOR_TIMEOUT_S=60;
 export const MAX_GENERATOR_OUTPUT_CHARS=1500;
 const MAX_GENERATOR_BYTES=1_000_000;
 // Files the orchestrator and the inspector themselves create in the run directory while a generator may be running (inspect calls can run in parallel).
-const TOOL_OWNED=/^(?:candidate\.[0-9a-f]{12}\.|orch\.|source\.|accepted-reference|\.)/;
+const TOOL_OWNED=/^(?:__pycache__$|candidate\.[0-9a-f]{12}\.|orch\.|source\.|accepted-reference|\.)/;
 
 const shellQuote=s=>`'${String(s).replace(/'/g,`'\\''`)}'`;
 const snapshot=dir=>{
@@ -44,7 +44,7 @@ export function createBuildStep(job,{specMode=false,renderSpec=null,timeoutSecon
       if(fs.statSync(generator).size>MAX_GENERATOR_BYTES)return {ok:false,source:GENERATOR_ENTRY,message:`${GENERATOR_ENTRY} is larger than ${MAX_GENERATOR_BYTES} bytes; keep the generator small.`};
       if(typeof ctx?.executeTool!=='function')throw Error('GENERATOR_EXECUTION_UNAVAILABLE: ctx.executeTool is not available in this Pi runtime');
       const before=snapshot(job.runDir);
-      const outcome=await ctx.executeTool('bash',{command:`cd ${shellQuote(job.runDir)} && python3 ${GENERATOR_ENTRY}`,timeout:timeoutSeconds});
+      const outcome=await ctx.executeTool('bash',{command:`cd ${shellQuote(job.runDir)} && PYTHONDONTWRITEBYTECODE=1 python3 ${GENERATOR_ENTRY}`,timeout:timeoutSeconds});
       const out=tailOutput(textOf(outcome));
       if(outcome?.isError){
         const timedOut=/timeout|timed out/i.test(out);

@@ -66,6 +66,9 @@ const TWO_PHASE_PREAMBLE=`Phase 1 is complete: the binding script check (the ful
 FOCUS first, in this order: (1) reading order of groups and sections against the source direction, (2) label ownership and label appearance (wrong edge, ambiguous, detached, hard to read, covered), (3) legend appearance (is it readable, placed sensibly, do its swatches look like what they explain), (4) overall balance at the 1200x710 fit (crowding, empty areas, off-centre composition, unreadably small text).
 Then also report anything else you can see (shape change, text overflow, avoidable detour, arrowheads, colour use, anything a maintainer would send back): breadth matters, because a visible defect you stay silent about may be lost. A finding that repeats something the script checks already verified is deduplicated by code and costs nothing, so do not hold back for fear of duplicates.`;
 
+/** Escalation: every script check except the listed findings passed, so the reviewer still need not re-measure; its visual breadth is unchanged. */
+const DIAGNOSIS_PREAMBLE=`Phase 1 note: the binding script check (the full deterministic auditor plus measured geometry) passed on every check except those listed under DIAGNOSIS MODE below, so everything else code can measure is verified for the geometry it measured (see layoutMeasured); do not re-measure it. Judge the diagram visually as well: reading order, label ownership and appearance, legend appearance, overall balance, and anything else you can see.`;
+
 function diagnosisSection(findings){
   return `
 
@@ -106,7 +109,7 @@ ${JSON.stringify(geometry)}
 <audit-summary>
 ${JSON.stringify(auditSummary(audit))}
 </audit-summary>
-${twoPhase?TWO_PHASE_PREAMBLE:measured==='report'?MEASURED_REPORT:MEASURED_SKIP}
+${twoPhase?(diagnosis?DIAGNOSIS_PREAMBLE:TWO_PHASE_PREAMBLE):measured==='report'?MEASURED_REPORT:MEASURED_SKIP}
 
 Rules to apply:
 - Shapes: a node whose facts carry shapeCheck "not-checkable" has a source shape the rules have no notation for; never report shape-change for it. Otherwise every node keeps its source notation shape. A decision node may be the normal diamond; the long-text variant, a horizontally extended hexagon with its points at the top and bottom, is ALLOWED by the rules and is not a shape change. Any other shape change is blocking under rule shape-change, for example a subroutine or queue drawn as a capsule, a cylinder drawn as a rectangle, a diamond turned into a rectangle.

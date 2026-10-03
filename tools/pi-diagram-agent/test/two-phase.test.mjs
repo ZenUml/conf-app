@@ -204,6 +204,8 @@ test('escalation: routeCrossings with null repair/move hints + a reviewer waiver
     assert.match(r.message,/\/magic-accept/);assert.match(r.message,/routeCrossings/);assert.equal(r.publishAsDefault,false);
     // The prompt sent to the reviewer is the diagnosis prompt: it carries the script findings.
     assert.match(t.calls.reviewer[0].text,/DIAGNOSIS/);assert.match(t.calls.reviewer[0].text,/routeCrossings/);
+    assert.doesNotMatch(t.calls.reviewer[0].text,/ZERO failures|zero failures/); // the normal-mode preamble would contradict the listed FAILs
+    assert.match(t.calls.reviewer[0].text,/every (?:other )?check except those listed/i);
     const m=readRunManifest(t.job.runDir);
     assert.equal(m.status,'REVIEWED_WITH_EXCEPTIONS');assert.equal(m.finalSvgSha256,hash(bytes));
     assert.deepEqual(m.exceptions.map(x=>x.check),['routeCrossings']);assert.equal(m.exceptions[0].svgSha256,hash(bytes));

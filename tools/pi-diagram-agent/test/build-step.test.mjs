@@ -96,3 +96,13 @@ test('a symlinked make.py is not run; a missing ctx.executeTool with a generator
     await assert.rejects(()=>t.build({}),/GENERATOR_EXECUTION_UNAVAILABLE/);
   }finally{t.cleanup()}
 });
+
+test('a make.py that imports a sibling module from the run directory builds fine: bytecode is not written (no __pycache__ false positive)',async()=>{
+  const t=setup();try{
+    t.write('helpers.py','def svg():\n    return "<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 1 1\'/>"\n');
+    t.write('make.py','import helpers\nopen("candidate.svg","w").write(helpers.svg())\n');
+    const r=await t.build(t.ctx);
+    assert.equal(r.ok,true,r.message);assert.equal(fs.existsSync(path.join(t.job.runDir,'__pycache__')),false);
+    assert.match(t.calls[0].args.command,/PYTHONDONTWRITEBYTECODE=1/);
+  }finally{t.cleanup()}
+});

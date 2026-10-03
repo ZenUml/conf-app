@@ -151,16 +151,20 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
  * every other call here: a slow Mixpanel must not delay a view.
  */
 /**
- * Protocol revisions we can speak, newest first.
+ * MCP PROTOCOL revisions we can speak, newest first.
  *
- * This used to answer every initialize with a hardcoded '2024-11-05' whatever
- * the client asked for. That revision predates the `_meta`/extensions machinery
- * MCP Apps is built on, so pinning a session to it can only hurt: a host has no
- * reason to enable Apps on a session it negotiated down to 2024-11-05. We now
- * echo the client's version when we know it and fall back to our newest
- * otherwise, which is the normal MCP handshake.
+ * These are revisions of the MCP protocol itself. '2026-01-26' was in this list
+ * and must never be again: that is the date of the MCP APPS EXTENSION spec, not
+ * a protocol revision, and because it sorted first every client that asked for
+ * anything unlisted was answered with it. A version string no client
+ * recognises fails the whole connection — Claude Desktop reported "zenuml
+ * returned an error when connecting" and 13 of 13 handshakes on 2026-10-03 were
+ * answered '2026-01-26' before this was caught.
+ *
+ * Keep protocol revisions and extension-spec dates apart. The extension version
+ * belongs in the capability payload (mcpApps.ts), never here.
  */
-const SUPPORTED_PROTOCOL_VERSIONS = ['2026-01-26', '2025-06-18', '2025-03-26', '2024-11-05'];
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 function negotiateProtocolVersion(requested: unknown): string {
   return typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)

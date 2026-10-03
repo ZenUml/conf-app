@@ -360,12 +360,12 @@ describe('initialize', () => {
     const env = makeEnv();
     const token = await tokenFor(env.store);
     const res = await call(env, token, 'initialize', {
-      protocolVersion: '2026-01-26',
+      protocolVersion: '2025-06-18',
       capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } },
       clientInfo: { name: 'probe', version: '1' },
     });
     const body = await res.json();
-    expect(body.result.protocolVersion).toBe('2026-01-26');
+    expect(body.result.protocolVersion).toBe('2025-06-18');
   });
 
   it('falls back to its newest when the client asks for one it does not know', async () => {
@@ -373,7 +373,21 @@ describe('initialize', () => {
     const token = await tokenFor(env.store);
     const res = await call(env, token, 'initialize', { protocolVersion: '1999-01-01' });
     const body = await res.json();
-    expect(body.result.protocolVersion).toBe('2026-01-26');
+    expect(body.result.protocolVersion).toBe('2025-06-18');
+  });
+
+  // The regression that broke every connection: '2026-01-26' is the MCP Apps
+  // EXTENSION spec date, not a protocol revision. Answering it told clients to
+  // speak something that does not exist.
+  it('never answers an extension-spec date as a protocol version', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    for (const asked of ['2026-01-26', undefined, '1999-01-01']) {
+      const res = await call(env, token, 'initialize', asked ? { protocolVersion: asked } : {});
+      const body = await res.json();
+      expect(body.result.protocolVersion).not.toBe('2026-01-26');
+      expect(['2025-06-18', '2025-03-26', '2024-11-05']).toContain(body.result.protocolVersion);
+    }
   });
 });
 

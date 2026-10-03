@@ -294,6 +294,8 @@ const MAX_PAGES_SAMPLED = 3;
  */
 export async function resolveMacroIdentity(get: ConfluenceGet): Promise<IdentityResult> {
   let sawAnyContent = false;
+  let contentSeen = 0;
+  let pagesSampled = 0;
   let lastProbeError: string | undefined;
 
   for (const profile of VARIANTS) {
@@ -314,8 +316,10 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
       const hits = readCustomContentHits(res.body);
       if (hits.length === 0) continue;
       sawAnyContent = true;
+      contentSeen += hits.length;
 
       for (const hit of hits.slice(0, MAX_PAGES_SAMPLED)) {
+        pagesSampled += 1;
         const pageRes = await get(
           `/wiki/api/v2/pages/${encodeURIComponent(hit.pageId)}?body-format=atlas_doc_format`,
         );
@@ -360,16 +364,30 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
   }
 
   if (sawAnyContent) {
+    // The app IS on this site — custom content was found. What is missing is a
+    // macro node to lift <appId>/<environmentId>/static/ from. Saying "cannot
+    // work out which app" here sent a user to Confluence admin to check an
+    // install that was fine (2026-10-03). Carry what we saw, including any
+    // probe error, so the caller can say something true.
     return {
       ok: false,
       reason: 'no_extension_node',
-      detail: lastProbeError ?? 'custom content exists but no page referenced it with a macro node',
+      detail:
+        `found ${contentSeen} ZenUML custom content item(s) but no parseable macro node on the ` +
+        `${pagesSampled} page(s) sampled` +
+        (lastProbeError ? `; last probe issue: ${lastProbeError}` : ''),
     };
   }
   if (lastProbeError) {
     return { ok: false, reason: 'probe_failed', detail: lastProbeError };
   }
-  return { ok: false, reason: 'no_macro_on_site' };
+  return {
+    ok: false,
+    reason: 'no_macro_on_site',
+    detail: lastProbeError
+      ? `no ZenUML custom content found; last probe issue: ${lastProbeError}`
+      : 'no ZenUML custom content found on this site',
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -327,7 +327,7 @@ describe('resolveMacroIdentity', () => {
 
   it('refuses with no_macro_on_site when nothing is installed', async () => {
     const { get } = fakeSite({});
-    expect(await resolveMacroIdentity(get)).toEqual({ ok: false, reason: 'no_macro_on_site' });
+    expect(await resolveMacroIdentity(get)).toMatchObject({ ok: false, reason: 'no_macro_on_site' });
   });
 
   it('refuses with no_extension_node when custom content is orphaned', async () => {
@@ -490,5 +490,58 @@ describe('resolveMacroIdentityCached', () => {
     };
     const result = await resolveMacroIdentityCached(site().get, 'cloud-1', broken);
     expect(result).toMatchObject({ ok: true, source: 'discovered' });
+  });
+});
+
+/**
+ * What a refusal tells the caller.
+ *
+ * 'no_extension_node' used to carry nothing, and the message built from it
+ * ("could not work out which app") read as "not installed" — a user went to
+ * Confluence admin to check an install that was fine (2026-10-03). The reason
+ * is reached only AFTER our custom content has been found, so the detail must
+ * say that.
+ */
+describe('refusal detail', () => {
+  it('says content was found when there is simply no macro node', async () => {
+    const get: ConfluenceGet = async (path) => {
+      if (path.includes('custom-content?type=')) {
+        return path.includes('zenuml-content-sequence')
+          ? { status: 200, body: { results: [{ id: 'cc-1', pageId: 'p-1' }] } }
+          : { status: 404, body: {} };
+      }
+      // the page exists but carries no extension node at all
+      return { status: 200, body: { id: 'p-1', body: { atlas_doc_format: { value: JSON.stringify({ type: 'doc', content: [] }) } } } };
+    };
+    const res = await resolveMacroIdentity(get);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('no_extension_node');
+    expect(res.detail).toMatch(/custom content item/);
+    expect(res.detail).toMatch(/page\(s\) sampled/);
+  });
+
+  it('carries the probe error when pages could not be read', async () => {
+    const get: ConfluenceGet = async (path) => {
+      if (path.includes('custom-content?type=')) {
+        return path.includes('zenuml-content-sequence')
+          ? { status: 200, body: { results: [{ id: 'cc-1', pageId: 'p-1' }] } }
+          : { status: 404, body: {} };
+      }
+      return { status: 403, body: {} };
+    };
+    const res = await resolveMacroIdentity(get);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('no_extension_node');
+    expect(res.detail).toMatch(/403/);
+  });
+
+  it('says so plainly when the site has no ZenUML content at all', async () => {
+    const res = await resolveMacroIdentity(async () => ({ status: 200, body: { results: [] } }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('no_macro_on_site');
+    expect(res.detail).toMatch(/no ZenUML custom content/);
   });
 });

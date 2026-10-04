@@ -250,8 +250,8 @@ export function parseMermaid(source) {
     if (op.arrow !== 'normal') notCheckable.push({ construct: `edge arrowhead ${op.arrow}`, line });
     if (op.bidirectional) notCheckable.push({ construct: 'bidirectional edge', line });
     if (a.isGroup || b.isGroup) {
+      // Checkable: the auditor binds a group end by data-*-kind="group" or by a source group id, so this is not a notCheckable caveat.
       groupEdges.push({ id: `g${groupEdges.length + 1}`, source: a.id, target: b.id, sourceIsGroup: a.isGroup, targetIsGroup: b.isGroup, ...base });
-      notCheckable.push({ construct: 'group-endpoint edge', line });
     } else edges.push({ id: `e${edges.length + 1}`, source: a.id, target: b.id, ...base });
   }
 

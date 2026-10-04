@@ -31,7 +31,7 @@ export function formatSourceFacts(model,layout){
   L.push('edges: id | source -> target | label | style (thick edges and arrowheads other than a normal arrow are marked)');
   for(const e of model.edges)L.push(`${e.id} | ${e.source} -> ${e.target} | ${e.label?q(e.label):'-'} | ${edgeStyle(e)}`);
   if(model.groupEdges?.length){
-    L.push('group edges: id | source -> target | label | style (an endpoint marked (group) is a subgraph, not a node)');
+    L.push('group edges: id | source -> target | label | style (an endpoint marked (group) is a subgraph, not a node: its end sits on the group outline, never on a member node; every one must be drawn and is checked like a node relation)');
     for(const e of model.groupEdges)L.push(`${e.id} | ${e.source}${e.sourceIsGroup?' (group)':''} -> ${e.target}${e.targetIsGroup?' (group)':''} | ${e.label?q(e.label):'-'} | ${edgeStyle(e)}`);
   }
   if(model.layoutLinks?.length)L.push(`layout links (invisible, not relations): ${model.layoutLinks.map(l=>`${l.source} ~~~ ${l.target}`).join('; ')}`);

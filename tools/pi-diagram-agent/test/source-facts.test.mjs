@@ -78,7 +78,8 @@ test('composePrompt: spec mode adds the schema summary and keeps the model in ch
   assert.match(p,/you (?:still )?decide every coordinate/i);
   assert.match(p,/never moves|does not move|never repairs/i);
   for(const k of ['canvas','palette','groups','nodes','edges','points','legend','tier'])assert.ok(p.includes(k),k);
-  assert.ok(p.length-job.prompt.length<5000,`spec paragraph is short (${p.length-job.prompt.length} chars)`);
+  // 5000 -> 5250 (2026-10-04): the edges line now says a group id is a valid endpoint and node-to-group relations must be drawn (r111 redrew them to member nodes).
+  assert.ok(p.length-job.prompt.length<5250,`spec paragraph is short (${p.length-job.prompt.length} chars)`);
 }));
 test('composePrompt: source facts block is appended after the source and labelled reference only',withJob(async job=>{
   const p=composePrompt(job,{jobId:'J1',factsText:'<source-facts>\nreference only\n</source-facts>'});
@@ -101,7 +102,8 @@ test('group-endpoint edges, layout links, markup and a not-checkable note are li
   const text=formatSourceFacts(m,{canvas:{w:10,h:10},nodes:{},groups:{},renderedGroups:{A:['S']}});
   assert.match(text,/group edges: .*g1 \| A -> S \(group\)/s);
   assert.match(text,/layout links \(invisible, not relations\): A ~~~ B/);
-  assert.match(text,/not checkable by the auditor: .*group-endpoint edge/);
+  assert.doesNotMatch(text,/not checkable by the auditor: .*group-endpoint edge/);
+  assert.match(text,/group edges: .*every one must be drawn/s);
   assert.match(text,/^A \| "Bold" \| rect \|.*markup b/m);
 });
 

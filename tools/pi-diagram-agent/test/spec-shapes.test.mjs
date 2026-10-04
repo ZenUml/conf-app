@@ -163,3 +163,12 @@ test('the required-mode prompt lists every spec shape and the source-to-shape ma
   for(const s of ['rect','capsule','decision','cylinder','subroutine','circle','doublecircle','hexagon','parallelogram','parallelogram_alt','trapezoid','trapezoid_alt','asymmetric'])assert.ok(p.includes(s),s);
   assert.match(p,/\[\[\.\.\]\] subroutine/);assert.match(p,/\[\(\.\.\)\] cylinder/);assert.doesNotMatch(p,/\[\[\.\.\]\] queue/);
 });
+
+test('the spec prompt says an edge endpoint may be a group id and that node-to-group relations must be drawn',()=>{
+  const p=specModeParagraph({runDir:'/tmp/x',jobId:'j',required:true});
+  const edges=p.split('\n').find(l=>l.startsWith('- edges:'));
+  assert.match(edges,/source and target are node ids or group ids/);
+  assert.match(edges,/on the group rectangle/);
+  assert.match(edges,/every source relation.*node-to-group.*must be drawn/i);
+  assert.match(edges,/never redirect/i);
+});

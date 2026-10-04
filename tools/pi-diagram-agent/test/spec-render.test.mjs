@@ -218,6 +218,105 @@ test('census findings compare against the parsed source model when supplied',asy
   assert.match(c,/missing relation B->D/);assert.match(c,/text .*A/);assert.match(c,/missing node D/);assert.match(c,/extra node Z/);assert.match(c,/A->B is dashed/);assert.match(c,/label.*B->C/);
 });
 
+// ---- node-to-group relations: an endpoint may be a group id (Mermaid `A --> SomeGroup`) ----
+const GROUP_SOURCE='flowchart LR\n  A[Start] --> G\n  subgraph G["Workers"]\n    B[Job]\n  end\n  G -. "done" .-> C[End]\n  A --> D[Other]\n';
+const groupEdgeSpec=()=>({
+  canvas:{w:820,h:300},palette:{p:{fill:'#e8f1fb',stroke:'#2563a8',text:'#12355b',meaning:'Step'}},
+  groups:[{id:'G',label:'Workers',rect:[240,60,280,200]}],
+  nodes:[{id:'A',shape:'rect',rect:[20,120,120,64],text:'Start',role:'p'},{id:'B',group:'G',shape:'rect',rect:[320,140,120,64],text:'Job',role:'p'},
+    {id:'C',shape:'rect',rect:[660,120,120,64],text:'End',role:'p'},{id:'D',shape:'rect',rect:[20,220,120,64],text:'Other',role:'p'}],
+  edges:[{source:'A',target:'D',points:[[80,184],[80,220]]},{source:'A',target:'G',points:[[140,152],[240,152]]},{source:'G',target:'C',dashed:true,points:[[520,152],[660,152]],label:{text:'done',x:590,y:134}}]});
+test('a group id is a valid edge endpoint: drawn on the group outline, bound and marked as a group in the SVG',async()=>{
+  const {parseMermaid}=await import('../src/parser.mjs');
+  const r=renderSpec(groupEdgeSpec(),{model:parseMermaid(GROUP_SOURCE)});
+  assert.deepEqual(r.findings,[],JSON.stringify(r.findings,null,1));
+  assert.match(r.svg,/<path[^>]*data-source="A" data-target="G" data-target-kind="group"/);
+  assert.match(r.svg,/<path[^>]*data-source="G" data-target="C" data-source-kind="group"/);
+  assert.doesNotMatch(r.svg,/data-source="A" data-target="G"[^>]*data-source-kind/);
+  assert.match(r.svg,/<g data-edge-label-source="G" data-edge-label-target="C">/);
+});
+test('a group endpoint is held to the endpoint-on-face and perpendicular-leg rules of its rectangle',()=>{
+  let s=groupEdgeSpec();s.edges[1].points=[[140,152],[230,152]];
+  assert.ok(find(renderSpec(s),'endpoint-on-face','G').length,'end point 10 short of the group border');
+  s=groupEdgeSpec();s.edges[1].points=[[80,120],[80,60],[300,60]];
+  assert.ok(find(renderSpec(s),'port-direction','G').length,'horizontal leg arriving on the top face');
+  s=groupEdgeSpec();s.edges[1].points=[[80,120],[80,30],[300,30],[300,60]];
+  assert.equal(find(renderSpec(s),'port-direction').length,0,'vertical leg onto the top face is perpendicular');
+});
+test('a route ending on its own group border is not transit through that group or through a parent group',()=>{
+  const s=groupEdgeSpec();s.groups.unshift({id:'P',label:'Outer',rect:[200,20,360,270]});s.canvas.h=320;
+  const r=renderSpec(s);
+  assert.equal(find(r,'group-transit').length,0,JSON.stringify(find(r,'group-transit')));
+  s.groups.push({id:'X',label:'Other',rect:[160,100,30,100]});
+  assert.ok(find(renderSpec(s),'group-transit','X').length,'an unrelated group on the way still counts');
+});
+test('census requires every node-to-group relation: a group arrow redrawn to a member node is extra + missing',async()=>{
+  const {parseMermaid}=await import('../src/parser.mjs');
+  const model=parseMermaid(GROUP_SOURCE);
+  let s=groupEdgeSpec();s.edges[1]={source:'A',target:'B',points:[[140,172],[320,172]]};
+  let c=find(renderSpec(s,{model}),'census').map(f=>`${f.severity} ${f.measured}`).join('\n');
+  assert.match(c,/blocking extra relation A->B/);assert.match(c,/blocking missing relation A->G \(group\)/);
+  s=groupEdgeSpec();s.edges.pop();
+  c=find(renderSpec(s,{model}),'census').map(f=>f.measured).join('\n');
+  assert.match(c,/missing relation G \(group\)->C/);
+  s=groupEdgeSpec();s.edges[2].dashed=false;s.edges[2].label.text='finished';
+  c=find(renderSpec(s,{model}),'census').map(f=>f.measured).join('\n');
+  assert.match(c,/G \(group\)->C is solid, source says dashed/);assert.match(c,/label of G \(group\)->C/);
+});
+const auditOn=!!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE;
+test('audit: node-to-group relations are verified by binding, so relations PASS and the route checks run',{skip:!auditOn},async()=>{
+  const r=renderSpec(groupEdgeSpec());
+  const result=await auditAgentSvg(GROUP_SOURCE,Buffer.from(r.svg));
+  for(const id of ['nodeIdentity','relations','relationStyle','markerDrawing','routeNodeIntrusion','routePairClearance','routeCrossings','arrowShaft','routeUnrelatedContainerTransit','groups','groupMembership'])
+    assert.equal(result.checks[id].status,'PASS',`${id}: ${JSON.stringify(result.checks[id].evidence)}`);
+  for(const id of ['labelClearance','labelCoversRoute'])assert.notEqual(result.checks[id].status,'FAIL',`${id}: ${JSON.stringify(result.checks[id].evidence)}`);
+  const ev=result.checks.relations.evidence;
+  assert.deepEqual([ev.expected,ev.drawn,ev.groupExpected,ev.groupDrawn],[1,1,2,2]);
+  assert.deepEqual([ev.missingGroupEdges,ev.extraGroupEdges],[[],[]]);
+  assert.equal(result.checks.markerDrawing.evidence.checkedEdges,3);
+  // A hand-written SVG may omit data-*-kind: an id that is a source group (and never a node) binds as a group end.
+  const bare=await auditAgentSvg(GROUP_SOURCE,Buffer.from(r.svg.replace(/ data-(source|target)-kind="group"/g,'')));
+  assert.equal(bare.checks.relations.status,'PASS',JSON.stringify(bare.checks.relations.evidence));
+});
+test('audit: a group relation redrawn to a member node, or missing, fails relations',{skip:!auditOn},async()=>{
+  let s=groupEdgeSpec();s.edges[1]={source:'A',target:'B',points:[[140,172],[320,172]]};
+  let result=await auditAgentSvg(GROUP_SOURCE,Buffer.from(renderSpec(s).svg));
+  assert.equal(result.checks.relations.status,'FAIL');
+  assert.deepEqual(result.checks.relations.evidence.missingGroupEdges,['A->G (group)']);
+  s=groupEdgeSpec();s.edges.pop();
+  result=await auditAgentSvg(GROUP_SOURCE,Buffer.from(renderSpec(s).svg));
+  assert.equal(result.checks.relations.status,'FAIL');
+  assert.deepEqual(result.checks.relations.evidence.missingGroupEdges,['G (group)->C']);
+  // an extra arrow to the group that the source does not have
+  s=groupEdgeSpec();s.edges.push({source:'D',target:'G',points:[[140,252],[240,252]]});
+  result=await auditAgentSvg(GROUP_SOURCE,Buffer.from(renderSpec(s).svg));
+  assert.equal(result.checks.relations.status,'FAIL');
+  assert.deepEqual(result.checks.relations.evidence.extraGroupEdges,['D->G (group)']);
+});
+test('audit: a group relation without an arrowhead fails markerDrawing; a solid one where the source is dashed fails relationStyle',{skip:!auditOn},async()=>{
+  const svg=renderSpec(groupEdgeSpec()).svg;
+  const noHead=svg.replace(/(<path[^>]*data-source="A" data-target="G"[^>]*?) marker-end="[^"]*"/,'$1');
+  assert.notEqual(noHead,svg);
+  let result=await auditAgentSvg(GROUP_SOURCE,Buffer.from(noHead));
+  assert.equal(result.checks.relations.status,'FAIL','a relation path without a marker is malformed');
+  const s=groupEdgeSpec();s.edges[2].dashed=false;
+  result=await auditAgentSvg(GROUP_SOURCE,Buffer.from(renderSpec(s).svg));
+  assert.equal(result.checks.relationStyle.status,'FAIL',JSON.stringify(result.checks.relationStyle.evidence));
+});
+test('audit: other unverifiable constructs keep relations NOT-CHECKABLE, but a missing group relation still fails',{skip:!auditOn},async()=>{
+  const src=GROUP_SOURCE.replace('A --> D[Other]','A --o D[Other]');
+  let result=await auditAgentSvg(src,Buffer.from(renderSpec(groupEdgeSpec()).svg));
+  assert.equal(result.checks.relations.status,'NOT-CHECKABLE');
+  assert.deepEqual(result.checks.relations.evidence.constructs,['edge arrowhead circle']);
+  const s=groupEdgeSpec();s.edges.pop();
+  result=await auditAgentSvg(src,Buffer.from(renderSpec(s).svg));
+  assert.equal(result.checks.relations.status,'FAIL');
+});
+test('an edge endpoint that is neither a node nor a group is still a schema error',()=>{
+  const s=groupEdgeSpec();s.edges[1].target='Nope';
+  const e=errs(s);assert.equal(e[0].path,'edges[1].target');assert.match(e[0].message,/unknown node "Nope".*group/);
+});
+
 // ---- schema errors: precise path + message, and nothing else fails ----
 const errs=(s)=>{try{renderSpec(s);return []}catch(e){assert.ok(e instanceof SpecError,String(e));return e.errors}};
 test('malformed JSON reports a position',()=>{

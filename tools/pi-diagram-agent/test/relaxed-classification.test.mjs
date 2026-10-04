@@ -182,3 +182,26 @@ test('audit evidence: a route inside a heading box (not only its 2-unit guard) i
   assert.equal(r.checks.routeHeadingClearance.status,'FAIL');
   assert.deepEqual(ev.headingOverlaps,[{edge:'A->B',groupIds:['G']}]);
 });
+
+// Node-to-group relations (Mermaid `A --> SomeGroup`) at the gate: a group arrow redrawn to a member node (measured on a real run: 21 node edges +
+// 4 group edges drawn as 25 node edges, gate passed) must block in the relaxed gate; the correct drawing must not.
+test('gate: a node-to-group relation drawn to a member node instead blocks the relaxed gate through relations; the correct drawing does not',{skip:!enabled},async()=>{
+  const {renderSpec}=await import('../src/spec-render.mjs');
+  const source='flowchart LR\n  A[Start] --> G\n  subgraph G["Workers"]\n    B[Job]\n  end\n  A --> D[Other]\n';
+  const spec=toB=>({canvas:{w:600,h:300},palette:{p:{fill:'#e8f1fb',stroke:'#2563a8',text:'#12355b',meaning:'Step'}},
+    groups:[{id:'G',label:'Workers',rect:[240,60,280,200]}],
+    nodes:[{id:'A',rect:[20,120,120,64],text:'Start',role:'p'},{id:'B',group:'G',rect:[320,140,120,64],text:'Job',role:'p'},{id:'D',rect:[20,220,120,64],text:'Other',role:'p'}],
+    edges:[{source:'A',target:'D',points:[[80,184],[80,220]]},toB?{source:'A',target:'B',points:[[140,152],[320,152]]}:{source:'A',target:'G',points:[[140,152],[240,152]]}]});
+  const wrong=await auditAgentSvg(source,Buffer.from(renderSpec(spec(true)).svg));
+  assert.equal(wrong.checks.relations.status,'FAIL');
+  const reasons=auditGateReasons({audit:wrong,relaxed:true});
+  const fail=reasons.find(r=>r.code==='AUDIT_FAIL');
+  assert.ok(fail&&fail.detail.split(', ').includes('relations'),JSON.stringify(reasons));
+  assert.ok(BLOCKING_AUDIT_RULES.includes('relations'));
+  assert.deepEqual(auditToFindings(wrong,R).filter(f=>f.rule==='relations').map(f=>f.severity),['blocking']);
+  const right=await auditAgentSvg(source,Buffer.from(renderSpec(spec(false)).svg));
+  assert.equal(right.checks.relations.status,'PASS',JSON.stringify(right.checks.relations.evidence));
+  const ok=auditGateReasons({audit:right,relaxed:true}).find(r=>r.code==='AUDIT_FAIL');
+  assert.ok(!ok||!ok.detail.split(', ').includes('relations'),JSON.stringify(ok));
+  assert.deepEqual(auditToFindings(right,R).filter(f=>f.rule==='relations'),[]);
+});

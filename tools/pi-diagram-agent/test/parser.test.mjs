@@ -173,7 +173,8 @@ test('edges to and from subgraph ids are group-endpoint edges, not nodes',()=>{
   assert.deepEqual(m.nodes.map(n=>n.id).sort(),['A','B','C','D']);
   assert.deepEqual(pairs(m),[]);
   assert.deepEqual(m.groupEdges.map(e=>[e.source,e.sourceIsGroup,e.target,e.targetIsGroup,e.label]),[['A',false,'S',true,''],['S',true,'C',false,'out'],['S',true,'S2',true,'']]);
-  assert.ok(m.notCheckable.some(c=>/group/i.test(c.construct)));
+  // checkable since the auditor binds group ends (data-*-kind="group" or a source group id): no longer a not-checkable caveat
+  assert.ok(!m.notCheckable.some(c=>/group/i.test(c.construct)));
 });
 test('invisible links are layout hints: kept as layoutLinks between subgraphs and between nodes, never as relations',()=>{
   const m=ok('flowchart LR\n  subgraph S1\n  A\n  end\n  subgraph S2\n  B\n  end\n  S1 ~~~ S2\n  A ~~~ B\n  B ~~~~ C');

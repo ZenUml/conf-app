@@ -389,13 +389,19 @@ test('nested subgraphs: membership is the whole path, checked by actual containm
   assert.equal(wrong.checks.groupMembership.status,'FAIL');
   assert.deepEqual(wrong.checks.groupMembership.evidence.mismatchedNodeIds,['B']);
 });
-test('relations the auditor cannot verify (open link, group endpoint, bidirectional) are NOT-CHECKABLE, never PASS',{skip:!enabled},async()=>{
-  for(const src of ['flowchart LR\n  A[Start] --- B[Finish]\n','flowchart LR\n  A[Start] <--> B[Finish]\n','flowchart LR\n  subgraph G\n    A[Start]\n  end\n  G --> B[Finish]\n']){
+test('relations the auditor cannot verify (open link, bidirectional) are NOT-CHECKABLE, never PASS',{skip:!enabled},async()=>{
+  for(const src of ['flowchart LR\n  A[Start] --- B[Finish]\n','flowchart LR\n  A[Start] <--> B[Finish]\n']){
     const r=await auditAgentSvg(src,svg.replace('x="20" y="80">Start','x="30" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Finish'));
     assert.equal(r.checks.relations.status,'NOT-CHECKABLE',src);
     assert.match(JSON.stringify(r.checks.relations.evidence),/not checkable|NOT-CHECKABLE|cannot/i);
     assert.notEqual(r.status,'PASS');
   }
+});
+test('a group-endpoint relation is checked by binding: drawing G --> B as a member node arrow A --> B FAILs relations',{skip:!enabled},async()=>{
+  const r=await auditAgentSvg('flowchart LR\n  subgraph G\n    A[Start]\n  end\n  G --> B[Finish]\n',svg.replace('x="20" y="80">Start','x="30" y="85">Start').replace('x="410" y="80">Finish','x="430" y="85">Finish'));
+  assert.equal(r.checks.relations.status,'FAIL');
+  assert.deepEqual(r.checks.relations.evidence.missingGroupEdges,['G (group)->B']);
+  assert.equal(r.checks.relations.evidence.drawn,1);assert.equal(r.checks.relations.evidence.expected,0);
 });
 
 // --- review fixes (2026-10-02) ---

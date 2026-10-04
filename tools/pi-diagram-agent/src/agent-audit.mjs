@@ -131,7 +131,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
       const within=(p,r)=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h;
       const edges=[...root.querySelectorAll('[data-source][data-target]')].map(el=>{
         const source=el.getAttribute('data-source'),target=el.getAttribute('data-target');
-        const result={source,target,tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end'),trunk:el.getAttribute('data-shared-trunk'),trunkLikeAttributes:[...el.attributes].filter(x=>/bus|trunk|merge|junction|shared/i.test(x.name)).map(x=>({name:x.name,value:x.value}))};
+        const result={source,target,sourceKind:el.getAttribute('data-source-kind'),targetKind:el.getAttribute('data-target-kind'),tag:el.localName,path:el.getAttribute('d')??el.getAttribute('points')??'',marker:el.getAttribute('marker-end'),trunk:el.getAttribute('data-shared-trunk'),trunkLikeAttributes:[...el.attributes].filter(x=>/bus|trunk|merge|junction|shared/i.test(x.name)).map(x=>({name:x.name,value:x.value}))};
         const dash=getComputedStyle(el).strokeDasharray;
         result.style={dash:dash==='none'?'':dash.replace(/\s+/g,''),width:Number.parseFloat(getComputedStyle(el).strokeWidth),stroke:getComputedStyle(el).stroke};
         result.dashed=dash!=='none'&&(dash.match(/[-+]?(?:\d+\.?\d*|\.\d+)/g)??[]).some(value=>Number(value)>0);
@@ -441,7 +441,7 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     const violations=drawn.labelViolations,unsupported=drawn.labelUnsupported;
     // Every labelled source edge needs its own bound label drawing; a partially tagged candidate cannot PASS on the labels it chose to tag.
     let unboundLabels=null;
-    if(model){const bound=multiset(drawn.boundLabels);unboundLabels=[];for(const e of model.edges.filter(e=>norm(e.label))){const key=`${e.source}->${e.target}`;if(bound.get(key))bound.set(key,bound.get(key)-1);else unboundLabels.push(key)}}
+    if(model){const bound=multiset(drawn.boundLabels);unboundLabels=[];for(const e of [...model.edges,...(model.groupEdges??[])].filter(e=>norm(e.label))){const key=`${e.source}->${e.target}`;if(bound.get(key))bound.set(key,bound.get(key)-1);else unboundLabels.push(key)}}
     const unbound=!model||unboundLabels.length>0;
     const status=violations.length?'FAIL':unbound||unsupported.length?'NOT-CHECKABLE':'PASS';
     return {status,evidence:{method,epsilon:0.5,violations,unsupported,checkedLabels:drawn.labelCount,...(unbound?{unboundLabels,reason:model?'a labelled source edge has no bound edge-label drawing':'source labels cannot be established'}:{})}};
@@ -468,24 +468,45 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
   const nodeIdentity=drawn.nodes.length?{status:equalSets(expectedNodes,actualNodes)?'PASS':'FAIL',evidence:{expected:model.nodes.length,drawn:drawn.nodes.length,missing:model.nodes.filter(n=>!actualNodes.has(n.id)).map(n=>n.id),extra:drawn.nodes.filter(n=>!expectedNodes.has(n.id)).map(n=>n.id)}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-node semantic binding; SVG may still be visually valid'};
   const textMismatches=drawn.nodes.filter(n=>{const sourceNode=model.nodes.find(x=>x.id===n.id);return sourceNode&&norm(sourceNode.text)!==norm(n.text)}).map(n=>n.id);
   const nodeText=nodeIdentity.status==='PASS'?{status:textMismatches.length?'FAIL':'PASS',evidence:{mismatchedNodeIds:textMismatches,method:'actual text descendants; whitespace-normalized'}}:{status:'NOT-CHECKABLE',evidence:'node identities unavailable or mismatched'};
+  // Node-to-group relations (Mermaid `A --> SomeGroup`, model.groupEdges): an end binds to a group when the drawing says data-*-kind="group", or, without that
+  // attribute, when its id is a source group id and not a node id (the parser refuses node/subgraph id collisions). They are split off drawn.edges HERE, before
+  // any route check: every check below indexes node-to-node routes by position and looks endpoints up among nodes. Group relations are verified by binding
+  // (relations), arrowhead (markerDrawing) and dashing (relationStyle).
+  const sourceGroupIds=new Set(model.groups.map(g=>g.id)),sourceNodeIds=new Set(model.nodes.map(n=>n.id));
+  const groupEnd=(kind,id)=>kind==='group'||(kind!=='node'&&sourceGroupIds.has(id)&&!sourceNodeIds.has(id));
+  for(const e of drawn.edges){e.sourceIsGroup=groupEnd(e.sourceKind,e.source);e.targetIsGroup=groupEnd(e.targetKind,e.target)}
+  drawn.groupEdges=drawn.edges.filter(e=>e.sourceIsGroup||e.targetIsGroup);
+  drawn.edges=drawn.edges.filter(e=>!(e.sourceIsGroup||e.targetIsGroup));
+  const relKey=e=>`${e.source}${e.sourceIsGroup?' (group)':''}->${e.target}${e.targetIsGroup?' (group)':''}`;
   const expectedEdges=multiset(model.edges.map(e=>`${e.source}\0${e.target}`)),actualEdges=multiset(drawn.edges.map(e=>`${e.source}\0${e.target}`));
-  const malformedEdges=drawn.edges.filter(e=>!['path','polyline','line'].includes(e.tag)||!e.path&&e.tag!=='line'||!e.marker).map(e=>`${e.source}->${e.target}`);
-  const caveats=model.notCheckable??[];
-  const relations=caveats.length?{status:'NOT-CHECKABLE',evidence:{reason:'the source has relations the auditor cannot verify against a drawn directed marker (not checkable)',constructs:[...new Set(caveats.map(c=>c.construct))],lines:caveats.map(c=>c.line)}}:drawn.edges.length?{status:equalSets(expectedEdges,actualEdges)&&malformedEdges.length===0?'PASS':'FAIL',evidence:{expected:model.edges.length,drawn:drawn.edges.length,malformedEdges,method:'visible path/polyline/line elements with source-target bindings'}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
+  const malformed=e=>!['path','polyline','line'].includes(e.tag)||!e.path&&e.tag!=='line'||!e.marker;
+  const malformedEdges=[...drawn.edges,...drawn.groupEdges].filter(malformed).map(relKey);
+  const sourceGroupEdges=model.groupEdges??[],groupPool=multiset(sourceGroupEdges.map(relKey)),missingGroupEdges=[],extraGroupEdges=[];
+  for(const e of drawn.groupEdges){const k=relKey(e);if(groupPool.get(k))groupPool.set(k,groupPool.get(k)-1);else extraGroupEdges.push(k)}
+  for(const [k,n] of groupPool)for(let i=0;i<n;i++)missingGroupEdges.push(k);
+  const groupBinding={groupExpected:sourceGroupEdges.length,groupDrawn:drawn.groupEdges.length,missingGroupEdges,extraGroupEdges};
+  // A group-endpoint edge is checkable now (by binding); the remaining caveats (arrowheads other than a normal arrow, bidirectional) still make the node
+  // relation set NOT-CHECKABLE, but a missing or extra group relation is a definite defect whatever else the source contains.
+  const caveats=(model.notCheckable??[]).filter(c=>c.construct!=='group-endpoint edge');
+  const groupBindingFails=missingGroupEdges.length>0||extraGroupEdges.length>0;
+  const relations=caveats.length&&!groupBindingFails?{status:'NOT-CHECKABLE',evidence:{reason:'the source has relations the auditor cannot verify against a drawn directed marker (not checkable)',constructs:[...new Set(caveats.map(c=>c.construct))],lines:caveats.map(c=>c.line),...groupBinding}}
+    :caveats.length?{status:'FAIL',evidence:{reason:'node-to-group relations are missing or extra; node relations are not checkable (see constructs)',constructs:[...new Set(caveats.map(c=>c.construct))],lines:caveats.map(c=>c.line),...groupBinding,method:'source-target bindings of node-to-group relations'}}
+    :drawn.edges.length||drawn.groupEdges.length?{status:equalSets(expectedEdges,actualEdges)&&malformedEdges.length===0&&!groupBindingFails?'PASS':'FAIL',evidence:{expected:model.edges.length,drawn:drawn.edges.length,...groupBinding,malformedEdges,method:'visible path/polyline/line elements with source-target bindings; a group end is data-*-kind="group" or a source group id'}}:{status:'NOT-CHECKABLE',evidence:'no neutral per-relation semantic binding; SVG may still be visually valid'};
   const relationStyle=relations.status==='PASS'?(()=>{
     const mismatches=[],ambiguous=[];
-    for(const drawnEdge of drawn.edges){
-      const expected=model.edges.filter(e=>e.source===drawnEdge.source&&e.target===drawnEdge.target);
-      if(expected.length!==1){ambiguous.push(`${drawnEdge.source}->${drawnEdge.target}`);continue}
-      if(drawnEdge.dashed!==(expected[0].style==='dashed'))mismatches.push(`${drawnEdge.source}->${drawnEdge.target}`);
+    for(const drawnEdge of [...drawn.edges,...drawn.groupEdges]){
+      const expected=[...model.edges,...sourceGroupEdges].filter(e=>relKey(e)===relKey(drawnEdge));
+      if(expected.length!==1){ambiguous.push(relKey(drawnEdge));continue}
+      if(drawnEdge.dashed!==(expected[0].style==='dashed'))mismatches.push(relKey(drawnEdge));
     }
-    const thick=model.edges.filter(e=>e.thick).map(e=>`${e.source}->${e.target}`);
+    const thick=[...model.edges,...sourceGroupEdges].filter(e=>e.thick).map(relKey);
     // Only dashing is measured; a thick source relation drawn thin must not PASS by default.
-    return {status:mismatches.length?'FAIL':ambiguous.length||thick.length?'NOT-CHECKABLE':'PASS',evidence:{method:'source Mermaid edge style against actual computed SVG stroke-dasharray; parallel same-endpoint relations require independent ID binding',mismatches,ambiguous,checkedEdges:drawn.edges.length-ambiguous.length,...(thick.length?{thickEdges:thick,reason:'thick source relations: stroke weight is not compared (not checkable)'}:{})}};
+    return {status:mismatches.length?'FAIL':ambiguous.length||thick.length?'NOT-CHECKABLE':'PASS',evidence:{method:'source Mermaid edge style against actual computed SVG stroke-dasharray; parallel same-endpoint relations require independent ID binding',mismatches,ambiguous,checkedEdges:drawn.edges.length+drawn.groupEdges.length-ambiguous.length,...(thick.length?{thickEdges:thick,reason:'thick source relations: stroke weight is not compared (not checkable)'}:{})}};
   })():{status:'NOT-CHECKABLE',evidence:'directed relation binding unavailable'};
   const markerDrawing=relations.status==='PASS'?(()=>{
-    const mismatches=drawn.edges.filter(e=>!e.markerDrawing?.found||e.markerDrawing.shapeCount!==1||!e.markerDrawing.visible||!e.markerDrawing.colorMatches).map(e=>`${e.source}->${e.target}`);
-    return {status:mismatches.length?'FAIL':'PASS',evidence:{method:'actual marker child shape, computed paint/visibility, nonzero transform and path stroke color; marker silhouette and clipping not proved',mismatchedEdges:mismatches,checkedEdges:drawn.edges.length}};
+    const all=[...drawn.edges,...drawn.groupEdges];
+    const mismatches=all.filter(e=>!e.markerDrawing?.found||e.markerDrawing.shapeCount!==1||!e.markerDrawing.visible||!e.markerDrawing.colorMatches).map(relKey);
+    return {status:mismatches.length?'FAIL':'PASS',evidence:{method:'actual marker child shape, computed paint/visibility, nonzero transform and path stroke color; marker silhouette and clipping not proved',mismatchedEdges:mismatches,checkedEdges:all.length}};
   })():{status:'NOT-CHECKABLE',evidence:'exact relation binding unavailable'};
   const routeNodeIntrusion=relations.status==='PASS'&&drawn.edges.every(e=>e.geometry)?(()=>{
     const endpointErrors=drawn.edges.filter(e=>!e.geometry.startOnSource||!e.geometry.endOnTarget).map(e=>`${e.source}->${e.target}`);
@@ -726,5 +747,5 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     routeGeometry:{status:'NOT-CHECKABLE',evidence:'supported checks cover actual path endpoints, sampled node intrusion, unrelated-container straight-span transit, straight-span crossings/parallel clearance, and final shaft; routeLowerBend adds a witness search (see its limitations); continuous curved-path/label exclusion remains unproved'},
     visualQuality:{status:'NOT-CHECKABLE',evidence:'requires Pi to inspect original and candidate full images plus crops'}};
   const status=Object.values(checks).some(c=>c.status==='FAIL')?'FAIL':'NOT-CHECKABLE';
-  return {status,sourceHash:model.sourceHash,svgHash:hash(svgBytes),originalSvgHash,checks,drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length,groups:drawn.groups.length,text:drawn.textCount},...(timing?{timing:{...timings,...Object.fromEntries(Object.entries(drawn.timing??{})),totalMs:performance.now()-wall}}:{})};
+  return {status,sourceHash:model.sourceHash,svgHash:hash(svgBytes),originalSvgHash,checks,drawnCounts:{nodes:drawn.nodes.length,edges:drawn.edges.length+drawn.groupEdges.length,groups:drawn.groups.length,text:drawn.textCount},...(timing?{timing:{...timings,...Object.fromEntries(Object.entries(drawn.timing??{})),totalMs:performance.now()-wall}}:{})};
 }

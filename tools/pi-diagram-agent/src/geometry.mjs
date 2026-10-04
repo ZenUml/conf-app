@@ -53,7 +53,8 @@ const containsBox=(outer,inner)=>inner.x>=outer.x-1&&inner.y>=outer.y-1&&inner.x
 
 function unrelatedBorders(g,edge){
   const ends=[edge.source,edge.target];
-  const endBoxes=g.nodes.filter(n=>ends.includes(n.id)).map(n=>n.box);
+  // A node-to-group relation ends on its group's border: that group (and any group holding it) is related, like a container holding an end node.
+  const endBoxes=[...g.nodes,...(g.groups??[])].filter(n=>ends.includes(n.id)&&n.box).map(n=>n.box);
   const nodes=g.nodes.filter(n=>!ends.includes(n.id)).map(n=>({id:n.id,kind:'node',box:n.box}));
   const groups=(g.groups??[]).filter(gr=>!endBoxes.some(b=>containsBox(gr.box,b))).map(gr=>({id:gr.id,kind:'group',box:gr.box}));
   return [...nodes,...groups];

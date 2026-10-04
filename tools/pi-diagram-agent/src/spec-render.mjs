@@ -158,7 +158,8 @@ export function validateSpec(spec) {
         if (!isObj(e)) { E(p, 'must be an object'); return; }
         keys(p, e, KEYS.edge);
         if (e.id !== undefined && str(`${p}.id`, e.id)) { if (ids.has(e.id)) E(`${p}.id`, `duplicate edge id ${JSON.stringify(e.id)}`); ids.add(e.id); }
-        for (const k of ['source', 'target']) if (str(`${p}.${k}`, e[k]) && !nodeIds.has(e[k])) E(`${p}.${k}`, `unknown node ${JSON.stringify(e[k])}`);
+        // An endpoint is a node id or, for a Mermaid node-to-group relation (`A --> SomeGroup`), a group id.
+        for (const k of ['source', 'target']) if (str(`${p}.${k}`, e[k]) && !nodeIds.has(e[k]) && !groupIds.has(e[k])) E(`${p}.${k}`, `unknown node ${JSON.stringify(e[k])} (neither a node id nor a group id)`);
         if (!Array.isArray(e.points) || e.points.length < 2) E(`${p}.points`, 'must be an array of at least 2 [x, y] points, including both endpoints');
         else if (e.points.length > LIMITS.points) E(`${p}.points`, `at most ${LIMITS.points} points`);
         else e.points.forEach((pt, j) => point(`${p}.points[${j}]`, pt));
@@ -470,10 +471,13 @@ export function renderSpec(input, {model = null} = {}) {
       heading: [g.rect[0] + 16, g.rect[1] + 13, measureText(g.label, 18) * 1.05, 22]};
   });
   const groupById = new Map(groups.map(g => [g.id, g]));
+  // A group endpoint is measured like a rect node on the group's outline (the container border); isGroup marks it in the SVG and the census.
+  const groupEnd = new Map((spec.groups ?? []).map(g => [g.id, {id: g.id, isGroup: true, shape: 'rect', variant: 'rect', x: g.rect[0], y: g.rect[1], w: g.rect[2], h: g.rect[3], polygon: [], outline: null, faceDot: 0, roleName: g.role ?? defaultRole}]));
+  const endpoint = id => byId.get(id) ?? groupEnd.get(id);
 
   // edges
   const edges = (spec.edges ?? []).map((e, i) => {
-    const id = e.id ?? `e${i + 1}`, source = byId.get(e.source), target = byId.get(e.target);
+    const id = e.id ?? `e${i + 1}`, source = endpoint(e.source), target = endpoint(e.target);
     const roleName = e.role ?? target.roleName, role = roles[roleName];
     const route = analyseRoute(e.points, add, id);
     return {id, e, source, target, role, roleName, route, raw: e.points, trunk: e.trunk ?? null};
@@ -489,8 +493,9 @@ export function renderSpec(input, {model = null} = {}) {
       else {
         const nrm = node.faceDot ? faceNormal(node, p) : outwardNormal(node, p), ax = orth(p, q), horiz = Math.abs(nrm[0]) > Math.abs(nrm[1]);
         if (ax) {
-          // q is the neighbouring point: the start leg runs p->q (must point out of the face), the end leg runs q->p, so p->q must also point out of the face
-          const dir = [Math.sign(q[0] - p[0]), Math.sign(q[1] - p[1])], ok = node.faceDot ? dir[0] * nrm[0] + dir[1] * nrm[1] >= node.faceDot : dir[0] === nrm[0] && dir[1] === nrm[1];
+          // q is the neighbouring point: the start leg runs p->q (must point out of the face), the end leg runs q->p, so p->q must also point out of the face.
+          // A group border may be reached from inside the group too (a member's arrow to its own group), so a group endpoint needs only a perpendicular leg.
+          const dir = [Math.sign(q[0] - p[0]), Math.sign(q[1] - p[1])], ok = node.isGroup ? (ax === 'h') === horiz : node.faceDot ? dir[0] * nrm[0] + dir[1] * nrm[1] >= node.faceDot : dir[0] === nrm[0] && dir[1] === nrm[1];
           if (!ok) add('port-direction', 'blocking', [e.id, node.id], regionOf([p, q]), `${which} leg of ${e.id} ${which === 'start' ? 'leaves' : 'arrives at'} ${node.id} along ${ax === 'h' ? 'the horizontal' : 'the vertical'} axis, but the face normal there is ${horiz ? 'horizontal' : 'vertical'}`, 'leave and arrive perpendicular to the face (rule 1)', `${which === 'start' ? 'leave' : 'arrive'} ${horiz ? 'horizontally' : 'vertically'} or move the port to a face that points along the leg`);
         }
       }
@@ -613,7 +618,7 @@ export function renderSpec(input, {model = null} = {}) {
   const colours = new Set();
   for (const e of edges) if (e.route) {
     colours.add(e.role.stroke);
-    parts.push(`<path id="${esc(e.id)}" data-edge="${esc(e.id)}" data-source="${esc(e.source.id)}" data-target="${esc(e.target.id)}"${e.trunk ? ` data-shared-trunk="${esc(e.trunk)}"` : ''} d="${e.route.d}" fill="none" stroke="${e.role.stroke}" stroke-width="1"${e.e.dashed ? ` stroke-dasharray="${DASH}"` : ''} marker-end="url(#arrow-${hex6(e.role.stroke)})"/>`);
+    parts.push(`<path id="${esc(e.id)}" data-edge="${esc(e.id)}" data-source="${esc(e.source.id)}" data-target="${esc(e.target.id)}"${e.source.isGroup ? ' data-source-kind="group"' : ''}${e.target.isGroup ? ' data-target-kind="group"' : ''}${e.trunk ? ` data-shared-trunk="${esc(e.trunk)}"` : ''} d="${e.route.d}" fill="none" stroke="${e.role.stroke}" stroke-width="1"${e.e.dashed ? ` stroke-dasharray="${DASH}"` : ''} marker-end="url(#arrow-${hex6(e.role.stroke)})"/>`);
   }
   for (const n of nodes) parts.push(nodeSvg(n));
   for (const p of pills) parts.push(`<g data-edge-label-source="${esc(p.edge.source.id)}" data-edge-label-target="${esc(p.edge.target.id)}"${p.vertical ? ` transform="rotate(-90 ${n3(p.cx)} ${n3(p.cy)})"` : ''}><rect x="${n3(p.cx - p.w / 2)}" y="${n3(p.cy - p.h / 2)}" width="${p.w}" height="${p.h}" rx="${p.h / 2}" fill="${p.bg}" stroke="none"/><text x="${n3(p.cx)}" y="${n3(p.cy)}" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="400" fill="${p.edge.role.text}">${esc(p.text)}</text></g>`);
@@ -666,10 +671,12 @@ function census(model, nodes, edges, add) {
     const h = have.get(id), expect = SOURCE_NOTATION[w.shape];
     if (h && expect && h.shape !== expect) add('shape-change', 'blocking', [id], null, `node ${id} is drawn as ${h.shape}, source shape ${w.shape} is the ${expect} notation`, `${expect} (the reviewer reports any other shape as shape-change)`, `set "shape": "${expect}" on ${id}`);
   }
-  const key = e => `${e.source}->${e.target}`, pool = new Map();
-  for (const e of model.edges) (pool.get(key(e)) ?? pool.set(key(e), []).get(key(e))).push(e);
+  // Node edges and node-to-group edges (model.groupEdges) are one pool: the key marks each group end, so a group arrow redrawn to a member node is extra + missing.
+  const end = (id, isGroup) => `${id}${isGroup ? ' (group)' : ''}`;
+  const key = e => `${end(e.source, e.sourceIsGroup)}->${end(e.target, e.targetIsGroup)}`, pool = new Map();
+  for (const e of [...model.edges, ...(model.groupEdges ?? [])]) (pool.get(key(e)) ?? pool.set(key(e), []).get(key(e))).push(e);
   for (const e of edges) {
-    const k = `${e.source.id}->${e.target.id}`, list = pool.get(k) ?? [], i = list.findIndex(w => (w.style === 'dashed') === !!e.e.dashed && norm(w.label) === norm(e.e.label?.text));
+    const k = `${end(e.source.id, e.source.isGroup)}->${end(e.target.id, e.target.isGroup)}`, list = pool.get(k) ?? [], i = list.findIndex(w => (w.style === 'dashed') === !!e.e.dashed && norm(w.label) === norm(e.e.label?.text));
     const at = i >= 0 ? i : 0, w = list[at];
     if (!w) { add('census', 'blocking', [e.id], null, `extra relation ${k}`, 'no invented relations', `remove ${e.id}`); continue; }
     list.splice(at, 1);

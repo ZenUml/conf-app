@@ -73,6 +73,12 @@ test('geometryFindings: unrelated container borders count; a container holding a
   assert.equal(out.length,1);assert.deepEqual(out[0].elements,['A->B','G2']);
 });
 
+test('geometryFindings: a node-to-group route ending on its own group border is not near an unrelated border; an outer group holding that group is related too',()=>{
+  const m={...model,groups:[{id:'G'},{id:'P'}],groupEdges:[{source:'A',target:'G',sourceIsGroup:false,targetIsGroup:true}]};
+  // A at (0..100, 0..60); the route runs along y=30 and stops on G's left border at x=200; P holds G.
+  const g=geo({groups:[{id:'G',box:R(200,-20,150,100)},{id:'P',box:R(180,-40,190,140)}],edges:[{id:'A->G',source:'A',target:'G',points:line(100,30,200)}],labels:[]});
+  assert.deepEqual(geometryFindings(g,m).filter(x=>x.rule==='route-border-clearance'),[]);
+});
 test('geometryForReviewer: compact coordinates and measurements as data (no SVG text)',()=>{
   const out=geometryForReviewer(geo(),model);
   assert.deepEqual(out.nodes.find(n=>n.id==='A'),{id:'A',box:[0,0,100,60]});

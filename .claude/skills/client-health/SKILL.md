@@ -81,3 +81,7 @@ before treating it as a genuine upsell candidate.
 - `paywall` — CSS enrollment and paywall friction mechanics (the
   `paywall_friction` signal here is a coarse count, not the full
   A/B analysis that skill does).
+
+## Customer follow-up boundary
+
+This score ranks active Lite sites within its cohort. It does not verify whether the same site already has Full or whether a person can buy. Before an upgrade decision, use `tenant` for cross-product licenses/payments and verify the contact role. Return unknown if that check was not made. Known placeholder accounts are excluded from creator counts; activity window, anonymity and prior-window-zero caveats still apply. Use `customer-followup` for the final decision and authorised action.

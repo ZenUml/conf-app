@@ -103,6 +103,13 @@ export const APPS = {
     },
     manifestEdits: [
       {
+        // Plan and Usage is the Lite limit page; keep other globalPage entries
+        // intact for Full. Mirrored in staging-deploy.yml and release.yml.
+        description: 'Remove zenuml-plan-usage-page from confluence:globalPage (Full has no Lite usage limit)',
+        yqEvalExpr:
+          'del(.modules["confluence:globalPage"][] | select(.key == "zenuml-plan-usage-page"))',
+      },
+      {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
         // `zenuml-asyncapi-embed-macro` (embed reference) — only the
         // asyncapi variant ships these.
@@ -132,23 +139,17 @@ export const APPS = {
         // and zenuml-byline-diagrams is the Lite diagram index — Full has no
         // byline surface of its own.
         //
-        // The expression below normalizes byline-diagrams' displayConditions
-        // BEFORE deleting the module — dropping the `not: zenuml-full-active`
-        // leg while keeping the entityPropertyEqualTo wrapper. A no-op today
-        // (the del in the same expression removes the whole module), it exists
-        // so that un-stripping is safe by construction: that leg is Lite-only
-        // semantics, and a Full byline that kept it would subtract Full's OWN
-        // presence marker and hide itself on every space. If Full ever keeps
-        // the module, remove only its key from the del — the normalization is
-        // already done — and ship an enrolment writer first: the templated
-        // property key resolves to `zenuml-byline` on Full (${LITE_KEY_SUFFIX}
-        // is empty), and nothing writes that key yet, so the un-stripped
-        // byline would be fail-closed hidden until a writer exists.
+        // zenuml-byline-diagrams' only display condition (`not
+        // entityPropertyExists zenuml-full-active`) is Lite-only semantics: a
+        // Full byline that kept it would subtract Full's OWN presence marker
+        // and hide itself on every space. If Full ever keeps the module,
+        // replace that condition in this same edit before removing its key
+        // from the del.
         // Mirrored in release.yml and staging-deploy.yml.
         description:
           'Remove zenuml-byline-aiaide and zenuml-byline-diagrams from confluence:contentBylineItem (keep zenuml-byline-newuser)',
         yqEvalExpr:
-          '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
       },
       {
         // The unplaced-diagram banner is gated on a content property that only
@@ -178,7 +179,7 @@ export const APPS = {
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline" or .key == "byline-visibility-hourly"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline"))',
       },
       {
         description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
@@ -272,7 +273,7 @@ export const APPS = {
       {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "bylineVisibilityFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "full-lite2full-hourly" or .key == "byline-visibility-hourly" or .key == "full-presence-daily"))',
+          'del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -389,7 +390,7 @@ export const APPS = {
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "bylineVisibilityFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger)',
+          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger)',
       },
     ],
     sites: {

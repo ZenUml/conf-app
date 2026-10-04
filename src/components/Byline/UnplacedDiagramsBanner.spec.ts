@@ -97,6 +97,7 @@ describe('UnplacedDiagramsBanner', () => {
   enableAutoUnmount(afterEach);
 
   beforeEach(() => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-31T00:00:00.000Z'));
     vi.clearAllMocks();
     window.localStorage.clear();
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
@@ -108,6 +109,10 @@ describe('UnplacedDiagramsBanner', () => {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
     });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe('verification — the marker is a candidate, never a claim', () => {
@@ -666,6 +671,8 @@ describe('UnplacedDiagramsBanner', () => {
       await wrapper.find('[data-testid="unplaced-banner-dismiss"]').trigger('click');
       await flushPromises();
 
+      // A new marker version must have a distinct timestamp to re-arm dismissal.
+      vi.mocked(Date.now).mockReturnValue(Date.now() + 1);
       writeUnplacedMarker(IDENTITY, [STRAY, SECOND], FALLBACK);
 
       expect(isUnplacedBannerCandidate(IDENTITY)).toBe(true);

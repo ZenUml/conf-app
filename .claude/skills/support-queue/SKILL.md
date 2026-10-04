@@ -4,13 +4,13 @@ description: >
   Read and triage the ZEN service-desk queue on zenuml.atlassian.net — what tickets
   are open, who is waiting on a reply, which granted extensions are about to expire.
   Use for any QUEUE-shaped question: "any new tickets", "who is waiting on me",
-  "did <tenant> ever file a ticket", "what came in since <date>", "工单", "谁在等回复",
+  "did this tenant ever file a ticket", "what came in since a given date", "工单", "谁在等回复",
   "有没有新工单", or when a paywall/churn analysis needs the support-ticket signal.
   Read-only. To FULFIL a specific request (write the KV licence, draft the reply)
   use `extend-space-license` instead.
   Discriminator, one rule: the question names a specific ticket or hands over a
-  request to fulfil -> `extend-space-license`; the question is about the queue, a
-  time window, "anything new", or who is waiting -> this skill.
+  request to fulfil uses `extend-space-license`; the question is about the queue, a
+  time window, "anything new", or who is waiting uses this skill.
 ---
 
 # Support queue (ZEN service desk)
@@ -42,13 +42,13 @@ Which credential does what — the two are NOT interchangeable:
 Do not run a queue read through the Forge credential; its 403 reads as "no
 tickets" rather than as a permission error.
 
-**Browser path (Playwright MCP) is now the fallback**, for anything the REST API
-cannot do or when the token is rejected. Note that in-page `fetch` writes issued
+**The browser path is agent-browser with the support@ persistent profile**, for anything the REST API
+cannot do or when the token is rejected. Run the warm-up first (`~/.claude/skills/browser-check/scripts/atlassian-warmup.zsh zenuml`; exit 0 = signed in), then `agent-browser --session support --profile ~/.agent-browser/profiles/atlassian open https://zenuml.atlassian.net/jira/servicedesk/projects` and run queries with `eval`. Playwright MCP (below) is the last fallback. Note that in-page `fetch` writes issued
 through a browser JS tool can be refused by the Claude Code auto-mode classifier
 (observed 2026-08-16 on a `servicedeskapi` comment POST); the curl path is not
 subject to that.
 
-### Connecting the fallback browser
+### Connecting the last-fallback browser (Playwright MCP)
 
 ```zsh
 ~/.agents/skills/connect-playwright-profile/scripts/preflight.zsh --runtime claude
@@ -200,6 +200,8 @@ activity. **If the tenant is paying and inactive, propose no contact — not a
 reply, not a courtesy close, not a status update.** An unsolicited message to a
 dormant subscriber is a prompt to reconsider the subscription, and the ticket
 being old is not a reason to accept that risk.
+
+Read purchase and settlement separately: an effective commercial order with Open settlement is not a free prospect. Do not bypass this no-contact policy because `paying` is unknown or the latest invoice has not been confirmed settled; retain the commercial purchase context and any prior paid evidence.
 
 This overrides signal A and signal B: "we owe a reply" is a triage fact, not an
 instruction to send one. Report the ticket as **parked — inactive payer**, name

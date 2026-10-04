@@ -3,8 +3,8 @@ name: E2E flake ranking
 # Weekly ranking of the E2E specs that passed only on retry or failed
 # (ADR-0007 §6). Every shard uploads its Playwright blob report whether or
 # not the run was green, so the week's flakes are all on disk already; this
-# job merges them and counts, per test, how often it was `flaky` (passed on a
-# retry) or `failed`/`timedOut`. The ranking goes to the job summary; the
+# job merges each run's shards, then counts across runs, per test, how often
+# it was `flaky` (passed on a retry) or `failed`/`timedOut`. The ranking goes to the job summary; the
 # point is to give the next fix a target, not to gate anything.
 
 on:
@@ -24,7 +24,7 @@ permissions:
 jobs:
   rank:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
@@ -48,40 +48,64 @@ jobs:
               --jq '.workflow_runs[] | select(.status == "completed") | .id'
           done | sort -u > run-ids.txt
           echo "$(wc -l < run-ids.txt) runs"
+          # One directory per run: a shard's blob is named report-<suite>-<hash>-<n>.zip
+          # and the SAME name recurs in every run, so a flat directory keeps only
+          # the last run's copy of each (the first ranking, run 34666457162,
+          # merged 565 blobs from 350 runs into a single flaky test that way).
           while read -r RUN; do
             gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/artifacts?per_page=100" \
               --jq '.artifacts[] | select(.name | startswith("blob-report-")) | select(.expired | not) | "\(.id) \(.name)"' \
             | while read -r ID NAME; do
-                gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ID/zip" > "blobs/$RUN-$NAME.zip" || echo "::warning::could not download artifact $ID ($NAME) of run $RUN"
+                # blob-report-<suite suffix>-shard-<n>: one directory per run and
+                # suite, since merge-reports merges the shards of ONE invocation.
+                SUITE=${NAME#blob-report-}; SUITE=${SUITE%-shard-*}
+                mkdir -p "blobs/$RUN/$SUITE"
+                gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ID/zip" > "blobs/$RUN/$SUITE/$NAME.zip" || echo "::warning::could not download artifact $ID ($NAME) of run $RUN"
               done
           done < run-ids.txt
-          echo "$(ls blobs | wc -l) blob reports"
-          # Each artifact zip holds one report-*.zip; merge-reports wants them side by side.
-          mkdir -p merged-input
-          for Z in blobs/*.zip; do unzip -q -o "$Z" -d merged-input/ || true; done
-          ls merged-input | head
-      - name: Merge and rank
+          echo "$(find blobs -name '*.zip' | wc -l) blob reports from $(ls blobs | wc -l) runs"
+          # Each artifact zip holds one report-*.zip; merge-reports wants a
+          # suite's shards side by side, and nothing else.
+          for D in blobs/*/*/; do
+            REL=${D#blobs/}; mkdir -p "merged-input/$REL"
+            for Z in "$D"*.zip; do unzip -q -o "$Z" -d "merged-input/$REL" || true; done
+          done
+      - name: Merge each run and rank across runs
         run: |
           set -euo pipefail
           cd tests/e2e-tests
           if [ -z "$(ls -A ../../merged-input 2>/dev/null)" ]; then
             echo "no blob reports in the period" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
           fi
-          pnpm exec playwright merge-reports --reporter=json ../../merged-input > ../../merged.json
-          # Walk suites recursively; each spec's tests carry per-project results
-          # with a status of expected | flaky | unexpected | skipped.
-          jq -r '
-            def walk_suites: .suites[]? | ( ( .specs[]? | {file: .file, title: .title, tests: .tests} ), walk_suites );
-            [ walk_suites | . as $s | .tests[] | {file: $s.file, title: $s.title, status: .status} ]
+          # Merge per run (that is what merge-reports is for), then flatten each
+          # run's JSON into one row per test × project: status is
+          # expected | flaky | unexpected | skipped, `flaky` meaning it passed
+          # only on a retry. Rows from every run are then counted together.
+          : > ../../rows.jsonl
+          for D in ../../merged-input/*/*/; do
+            RUN=$(basename "$(dirname "$D")"); SUITE=$(basename "$D"); OUT="../../merged-$RUN-$SUITE"
+            if ! pnpm exec playwright merge-reports --reporter=json "$D" > "$OUT.json" 2> "$OUT.err"; then
+              echo "::warning::merge-reports failed for run $RUN suite $SUITE: $(head -c 300 "$OUT.err")"; continue
+            fi
+            jq -c --arg run "$RUN" '
+              def walk_suites: .suites[]? | ( ( .specs[]? | {file: .file, title: .title, tests: .tests} ), walk_suites );
+              walk_suites | . as $s | .tests[] | {run: $run, file: $s.file, title: $s.title, status: .status}' \
+              "$OUT.json" >> ../../rows.jsonl
+          done
+          echo "$(wc -l < ../../rows.jsonl) test results from $(ls -d ../../merged-input/*/ | wc -l) runs"
+          jq -r -s '
+            map(select(.status != "skipped"))
             | group_by(.file + " › " + .title)
             | map({ name: (.[0].file + " › " + .[0].title),
                     runs: length,
                     flaky: (map(select(.status == "flaky")) | length),
-                    failed: (map(select(.status == "unexpected")) | length) })
+                    failed: (map(select(.status == "unexpected")) | length),
+                    last_flaky_run: (map(select(.status != "expected") | .run) | sort | last) })
             | map(select(.flaky + .failed > 0))
             | sort_by(-(.flaky + .failed))
-            | (["| test | runs | passed on retry | failed |","|---|---|---|---|"] + map("| \(.name) | \(.runs) | \(.flaky) | \(.failed) |"))
-            | .[]' ../../merged.json > ../../ranking.md || true
+            | (["| test | runs | passed on retry | failed | last non-green run |","|---|---|---|---|---|"]
+               + map("| \(.name) | \(.runs) | \(.flaky) | \(.failed) | \(.last_flaky_run) |"))
+            | .[]' ../../rows.jsonl > ../../ranking.md || true
           {
             echo "## E2E flake ranking (last ${DAYS:-7} days)"
             echo
@@ -95,5 +119,5 @@ jobs:
           name: e2e-flake-ranking
           path: |
             ranking.md
-            merged.json
+            rows.jsonl
           if-no-files-found: ignore

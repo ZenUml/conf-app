@@ -21,6 +21,10 @@ describe('loadMermaid', () => {
     const importer = vi.fn().mockResolvedValue({ default: instance });
     await Promise.all([loadMermaid({ importer }), loadMermaid({ importer })]);
     expect(registerExternalDiagrams).toHaveBeenCalledTimes(1);
+    expect(instance.initialize).toHaveBeenCalledWith({
+      startOnLoad: false,
+      theme: 'neutral',
+    });
     const [extensions, options] = registerExternalDiagrams.mock.calls[0];
     expect(options).toEqual({ lazyLoad: true });
     expect(extensions[0].id).toBe('zenuml');

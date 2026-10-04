@@ -1,5 +1,6 @@
 import { Page, FrameLocator, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../config/test-config.js';
+import { provisionParentFixture } from '../helpers/parentFixture.js';
 import { dismissPaywallGate } from '../helpers/paywallGate.js';
 import { dismissStarterGalleryIfPresent } from '../helpers/starterGallery.js';
 import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
@@ -40,9 +41,7 @@ export class ConfluenceEditorPage {
   // ── Navigation ──
 
   async navigateToParentPage(): Promise<void> {
-    if (!testConfig.parentPageId) {
-      throw new Error(`No parent page ID configured for domain: ${testConfig.domain}. Set APP env var or PARENT_PAGE_ID.`);
-    }
+    if (!testConfig.parentPageId) await provisionParentFixture(this.page.request, testConfig);
     // Arm before navigating — this is the single choke point every editor
     // flow passes through before createChildPage()/clickInsertElements()/etc,
     // and the handler stays armed for the page's whole lifetime (including
@@ -367,19 +366,39 @@ export class ConfluenceEditorPage {
     if (testConfig.appLabel) {
       option = option.filter({ hasText: testConfig.appLabel });
     }
-    const matchCount = await option.count();
-    if (matchCount === 0) {
+    // Wait on the TARGET option, not the first result: the list above can be an
+    // intermediate render of the search (main run 36981022124 read 5 options at
+    // click time; the dialog showed 3 a minute later).
+    const found = await option.first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true, () => false);
+    if (!found) {
       throw new Error(
         `Macro "${macroName}"${testConfig.appLabel ? ` (${testConfig.appLabel})` : ''} not found when searching "${searchTerm}" on ${testConfig.domain}. ` +
         `Available options: ${JSON.stringify(optionTexts)}`
       );
     }
-    await option.first().click();
 
+    // A click that lands while the results re-render selects nothing, and the
+    // Insert that follows is then a no-op: the Browse dialog stays open and the
+    // caller waits 60s for a macro editor that was never requested. So the
+    // insertion is confirmed by the dialog closing, and re-attempted once.
+    // (`isVisible({ timeout })` is no guard here — Playwright ignores the timeout
+    // and answers immediately.)
+    const browseDialog = this.page.getByRole('dialog', { name: /Browse|Insert|Element/i });
     const insertButton = visibleDialog.getByRole('button', { name: 'Insert' });
-    if (await insertButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await insertButton.click();
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await option.first().click();
+      if (await browseDialog.isVisible()) {
+        await insertButton.click({ timeout: 3000 }).catch(() => null);
+      }
+      const closed = await expect(browseDialog)
+        .toBeHidden({ timeout: 5000 })
+        .then(() => true, () => false);
+      if (closed) return;
+      console.warn(`  [debug] Browse dialog still open after Insert (attempt ${attempt}) — re-selecting "${macroName}"`);
     }
+    throw new Error(`Inserting "${macroName}" left the Browse dialog open after 2 attempts on ${testConfig.domain}.`);
   }
 
   // ── Cursor Positioning ──

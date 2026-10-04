@@ -22,8 +22,14 @@ import type {
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
+  AgentLinkMacroKeySource,
+  AgentLinkIdentityFailure,
+  AgentLinkOAuthRevokeReason,
+  AgentLinkPaywallGate,
+  AgentLinkWriteResult,
   ActivationPath,
   GalleryOpenTrigger,
+  CodePanelToggleTrigger,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
   GraphEditorModeValue,
@@ -35,9 +41,12 @@ import type {
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
   AuthoringOutcome,
+  MagicFailureReason,
   FeedbackCaptureMethod,
   FeedbackDismissReason,
   FeedbackHandoffOutcome,
+  CreateGuideVariant,
+  CreateGuideCloseMethod,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -61,9 +70,26 @@ export type AnalyticsProperties = {
   // customContentId, or the custom-content GET failed), recorded explicitly
   // rather than omitted.
   macro_type?: MacroTypeValue;
-  // Mermaid pan/zoom toolbar. This is the user's explicit control
-  // intent, not every intermediate wheel, drag, or pinch callback.
+  /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
+  magic_failure_reason?: MagicFailureReason;
+  /** Automatic Fullscreen assessment; includes a normal absent-artifact state. */
+  magic_availability?: 'available' | 'missing_artifact' | 'stale_source' | 'invalid_artifact' | 'unsafe_svg' | 'check_failed';
+  /** Initial display outcome after availability and browser-local preference resolve. */
+  magic_default_result?: 'magic_shown' | 'original_preferred' | 'original_unavailable' | 'original_render_failed';
+  /** Automatic default or deliberate toolbar click; never identifies the diagram. */
+  magic_activation?: 'automatic' | 'manual';
+  /** Explicit browser-local viewer choice; choosing Original is not a rating. */
+  magic_preference?: 'magic' | 'original';
+  magic_preference_storage?: 'persistent' | 'session';
+  /** Explicit comparative feedback; never inferred from the displayed view. */
+  magic_layout_preference?: 'magic' | 'original' | 'no_preference';
+  // Diagram viewport pan/zoom. This is the user's explicit control intent, not
+  // every intermediate wheel, drag, or pinch callback.
   viewport_action?: "zoom_in" | "zoom_out";
+  // Which control the reader used to zoom. `wheel` is one whole Ctrl/Cmd +
+  // scroll gesture, not one per step, so a wheel zoom and a button click cost
+  // the same one event and the two are directly comparable.
+  viewport_input?: "toolbar" | "wheel";
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;
@@ -228,8 +254,19 @@ export type AnalyticsProperties = {
   chat_message_count?: number;
   turn_index?: number;
   input_source?: "typed" | "suggestion" | "syntax_repair";
+  // AI Chat prompt submissions and AI Repair requests use this to distinguish
+  // an explicit user retry from the first attempt. Pair with ai_model to compare
+  // the normal model with the stronger repair fallback.
   retry_after_failure?: boolean;
+  // Shared by the AI-chat open/close + code-visibility toggles and by
+  // editor_code_panel_toggled (the editor's left source pane). Always the
+  // state the surface moved INTO, never the state it came from.
   interaction_state?: "opened" | "closed" | "shown" | "hidden";
+  // editor_code_panel_toggled only: which affordance the user used. Separate
+  // from `interaction_state` because the two answer different questions — how
+  // often the panel is hidden vs. which control gets reached for — and only
+  // 'gutter_drag' is one-way (there is no drag-open).
+  code_panel_trigger?: CodePanelToggleTrigger;
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;
   version_number?: number;
@@ -251,6 +288,11 @@ export type AnalyticsProperties = {
   feedback_has_screenshot?: boolean;
   feedback_dismiss_reason?: FeedbackDismissReason;
   feedback_handoff_outcome?: FeedbackHandoffOutcome;
+  // Viewer Create slash-command guide (create_guide_*).
+  create_guide_variant?: CreateGuideVariant;
+  create_guide_close_method?: CreateGuideCloseMethod;
+  /** Milliseconds from the modal opening to it closing. */
+  create_guide_watched_ms?: number;
   // Content
   content_id?: string;
   content_type?: string;
@@ -715,7 +757,9 @@ export type AnalyticsProperties = {
     | string
     | AgentLinkDisconnectReason
     | AgentLinkGuardrailRejectReason
-    | AgentLinkSessionSuspendReason;
+    | AgentLinkSessionSuspendReason
+    | AgentLinkIdentityFailure
+    | AgentLinkOAuthRevokeReason;
   session_duration_ms?: number;
   edits_count?: number;
   // #314 (agent_link_session_expired only): true when the session had
@@ -763,6 +807,22 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  // V — headless macro-identity resolution (agent_link_identity_resolved only).
+  // The refusal side rides the shared `reason` field above as an
+  // AgentLinkIdentityFailure.
+  macro_key_source?: AgentLinkMacroKeySource;
+  // W — headless authorization (agent_link_oauth_*). `site_count` is how many
+  // Atlassian sites the grant reaches, from accessible-resources. The revoke
+  // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason.
+  site_count?: number;
+  // X — headless writes (agent_link_diagram_created / _updated). The outcome
+  // rides the shared `result` field above as an AgentLinkWriteResult.
+  // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,
+  // including 'count_unknown' for its fail-open path; `guardrail_rejected`
+  // marks an update the write guard refused (parse error or data loss) rather
+  // than one that reached Confluence.
+  paywall_gate?: AgentLinkPaywallGate;
+  guardrail_rejected?: boolean;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

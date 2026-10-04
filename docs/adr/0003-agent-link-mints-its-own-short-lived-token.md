@@ -1,7 +1,7 @@
 # 0003 — Agent Link mints its own short-lived session token
 
 Date: 2026-08-16
-Status: accepted
+Status: accepted; Decision 3 ("No OAuth") superseded for the headless actor only by [ADR 0008](0008-agent-link-runs-its-own-authorization-server.md) (2026-09-19). Decisions 1–2 stand unchanged for the live relay.
 Related: [docs/superpowers/specs/2026-07-08-live-agent-link-design.md](../superpowers/specs/2026-07-08-live-agent-link-design.md), [docs/features/copy-for-ai.md](../features/copy-for-ai.md), `functions/agent-link/sessionToken.ts`
 
 > **Why this ADR exists.** The reasoning below was decided verbally and never

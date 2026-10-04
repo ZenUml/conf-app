@@ -3,13 +3,13 @@
 
 Sources (they answer THREE DIFFERENT questions — see SKILL.md):
   1. Metrics KV  -> current inventory, reported-on-save, keyed by space KEY
-  2. D1          -> lifetime-created macro rows, keyed by numeric spaceId
+  2. D1          -> successfully synced historical macro rows, keyed by numeric spaceId
   3. Mixpanel    -> distinct macro_uuid VIEWED in last 90d, keyed by space KEY
 
 Why they won't match exactly, and the key-vs-id join trap, are documented in
 SKILL.md. This script just gathers all three and lines up KV + Mixpanel by space
 KEY (they share it), printing D1 separately because it keys by numeric spaceId
-and only scopes to a client for Connect installs.
+and this helper queries legacy AppInstance mappings only.
 
 Usage:
     python3 macro_count.py --domain example-tenant
@@ -150,15 +150,14 @@ def run_d1(sql):
         raise RuntimeError(proc.stderr.strip() or "wrangler failed")
     # wrangler --json prints [{"results":[...], "success":true, ...}]
     payload = json.loads(proc.stdout)
-    if isinstance(payload, list) and payload:
-        return payload[0].get("results", [])
-    return []
+    if (not isinstance(payload, list) or not payload or not isinstance(payload[0], dict) or payload[0].get("success") is not True
+            or not isinstance(payload[0].get("results"), list)):
+        raise RuntimeError("D1 response incomplete or unsuccessful; results unknown")
+    return payload[0]["results"]
 
 
 def fetch_d1(bare_domain):
-    """Connect macros for this client, grouped by numeric spaceId. Forge macros
-    can't be scoped to a client in D1 (UUID appId, no clientDomain) — we detect
-    that case and say so."""
+    """Legacy AppInstance-join coverage only; not complete Forge tenant inventory."""
     result = {"connect_spaces": [], "is_connect": False, "note": None, "error": None}
     try:
         # Is this domain a Connect install at all?
@@ -180,9 +179,8 @@ def fetch_d1(bare_domain):
         result["connect_spaces"] = rows
         if not result["is_connect"]:
             result["note"] = (
-                "No AppInstance row -> not a Connect client. If they're a Forge "
-                "install (most prod tenants), D1 cannot scope macros to this "
-                "client (shared UUID appId, no clientDomain). Use KV + Mixpanel."
+                "No legacy AppInstance mapping found. This query does not cover Forge cloudId mappings. "
+                "Use KV/Mixpanel and verify current deployed schema before a Forge-specific D1 query."
             )
         elif not rows:
             result["note"] = "Connect install present, but 0 macros in CustomContent."
@@ -347,11 +345,11 @@ def print_report(bare, full, kv, kv_errors, d1, mp):
           "macros exist right now'.\n"
           "- Mixpanel = distinct `macro_uuid` (Forge localId = per *placement*) "
           "VIEWED in the window. Counts since-deleted and duplicated placements, "
-          "so it can run ABOVE KV; but the Forge **graph** viewer emits no view "
-          "event and never-viewed macros are absent, pulling it DOWN. Net: a "
+          "so it can run ABOVE KV. Current Graph emits views, but historical coverage "
+          "and never-viewed macros still matter. Net: a "
           "usage signal, not an inventory count — don't expect it to equal KV.\n"
-          "- D1 = cumulative rows ever created (may include since-deleted "
-          "macros); per-client only for Connect installs.\n"
+          "- D1 = successfully synced historical rows, potentially incomplete or since deleted. "
+          "This helper only queries legacy AppInstance mappings; no live-inventory bound.\n"
           "The three answer different questions, so divergence is expected and "
           "informative — large gaps are signal, not error.")
 

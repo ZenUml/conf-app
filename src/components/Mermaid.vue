@@ -8,319 +8,163 @@
     Alice-&gt;&gt;John: Hello John!
     John--&gt;&gt;Alice: Hi Alice!</pre>
     </div>
-    <div
+    <DiagramViewport
       v-else
       ref="viewport"
-      class="mermaid-viewport"
-      :class="{
-        'mermaid-viewport--interactive': isInteractiveViewport,
-        'mermaid-viewport--fullscreen': isFullscreenMode,
-      }"
-    >
-      <div ref="diagram" class="mermaid-diagram flex justify-center" v-html="svg"></div>
-      <div
-        v-if="isInteractiveViewport"
-        class="mermaid-viewport-toolbar"
-        role="toolbar"
-        aria-label="Mermaid zoom controls"
-      >
-        <button type="button" class="mermaid-viewport-button" aria-label="Zoom out" title="Zoom out" @click="zoomOut">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></svg>
-        </button>
-        <button type="button" class="mermaid-viewport-button" aria-label="Zoom in" title="Zoom in" @click="zoomIn">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></svg>
-        </button>
-      </div>
-    </div>
+      macro-type="mermaid"
+      label="Mermaid"
+      content-class="mermaid-diagram flex justify-center"
+      :html="svg"
+    />
   </div>
 </template>
 
 <script>
-import { loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { renderMermaid } from '@/utils/mermaid/renderMermaid'
 import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
-import { hasSvgLayout } from '@/utils/mermaid/viewportLayout'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import { hasLayout, awaitLayout } from '@/utils/renderGate/documentLayout';
+import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
-import svgPanZoom from 'svg-pan-zoom';
-import Hammer from 'hammerjs';
+import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 
 export default {
   name: "Mermaid",
+  components: { DiagramViewport },
   data() {
     return {
       svg: null,
-      renderId: null,
-      panZoom: null,
-      panZoomSvg: null,
-      panZoomDirty: false,
-      panZoomResizeObserver: null,
-      inlineViewportAspectRatio: null,
-      inlineViewportMaxWidth: null,
+      renderGeneration: 0,
+      layoutWaitController: null,
     }
   },
   computed: {
     mermaidCode() {
-      return this.$store.state.diagram.diagramType === DiagramType.Mermaid && this.$store.state.diagram.mermaidCode;
+      const { diagramType, mermaidCode } = this.$store.state.diagram;
+      if (diagramType !== DiagramType.Mermaid || !mermaidCode) return false;
+      // A body of only blank lines or U+00A0 is "no diagram", not a diagram
+      // mermaid can be asked to parse: it throws "No diagram type detected".
+      return normalizeMermaidWhitespace(mermaidCode).trim() ? mermaidCode : false;
     },
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
     },
-    isFullscreenMode() {
-      return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
-    },
-    isInteractiveViewport() {
-      const modal = window.forgeGlobal?.forgeContext?.extension?.modal;
-      return modal?.openExport !== true;
-    },
-    viewportSurface() {
-      if (this.isFullscreenMode) return 'fullscreen';
-      return this.isDisplayMode ? 'viewer' : 'editor';
-    },
   },
   async mounted() {
-    if (!this.mermaidCode) return;
-    // Phase 0b: render_ms = loadMermaid + mermaid.render — exactly what an SVG
-    // cache (Lever D) would skip. Only the initial mount render is timed
-    // (renderPerf records once); the watch-driven re-render below is not.
-    this.svg = await renderPerf.time('render', () => this.render(this.mermaidCode));
-    await this.initializeViewport();
-    trackRenderTime('mermaid', this.isDisplayMode);
-    // Type may have switched during the async render — the gated computed
-    // would then be `false` and the store diagramType stale. Skip; the new
-    // type's component emits its own diagramLoaded.
-    if (this.mermaidCode) {
-      EventBus.$emit('diagramLoaded', this.mermaidCode, DiagramType.Mermaid);
+    const code = this.mermaidCode;
+    if (!code) return;
+    const applied = await this.renderAndApply(code, true);
+    if (applied) {
+      trackRenderTime('mermaid', this.isDisplayMode);
+      EventBus.$emit('diagramLoaded', code, DiagramType.Mermaid);
     }
     await globals.apWrapper.initializeContext();
   },
   beforeUnmount() {
-    this.destroyViewport();
+    // An already queued render may finish after this component is gone.
+    this.renderGeneration++;
+    this.layoutWaitController?.abort();
+    this.layoutWaitController = null;
   },
   watch: {
     async mermaidCode(newVal) {
       if (!newVal) {
+        this.renderGeneration++;
+        this.layoutWaitController?.abort();
+        this.layoutWaitController = null;
         this.svg = null;
       } else {
-        this.svg = await this.render(this.mermaidCode);
-        await this.initializeViewport();
+        await this.renderAndApply(newVal);
       }
     }
   },
   methods: {
-    async initializeViewport() {
+    /** Re-bind the pan/zoom viewport after the slotted SVG changes. */
+    initializeViewport() {
+      return this.$refs.viewport?.attach();
+    },
+    async renderAndApply(code, measureInitialAttempt = false) {
+      this.layoutWaitController?.abort();
+      const layoutWaitController = new AbortController();
+      this.layoutWaitController = layoutWaitController;
+      const generation = ++this.renderGeneration;
+      let svg;
+      try {
+        svg = await this.render(code, measureInitialAttempt, layoutWaitController.signal);
+      } finally {
+        if (this.layoutWaitController === layoutWaitController) {
+          this.layoutWaitController = null;
+        }
+      }
+      // Latest request wins. This also prevents a queued result from writing
+      // into a component that changed diagram type or was unmounted.
+      if (!svg || generation !== this.renderGeneration || this.mermaidCode !== code) {
+        return false;
+      }
+      this.svg = svg;
       await this.$nextTick();
-      if (!this.isInteractiveViewport) {
-        this.destroyViewport();
-        return;
+      if (generation !== this.renderGeneration || this.mermaidCode !== code) {
+        return false;
       }
-      const svgElement = this.$refs.diagram?.querySelector('svg');
-      if (!svgElement || svgElement === this.panZoomSvg) return;
-
-      this.destroyViewport();
-      // svg-pan-zoom inverts the SVG's screen matrix during setup. Mermaid can
-      // finish rendering before its Forge iframe has layout, leaving that
-      // matrix singular (a 0 x 0 SVG) and causing an InvalidStateError. Wait
-      // for layout rather than turning a transient host state into a render
-      // crash.
-      const svgRect = svgElement.getBoundingClientRect();
-      if (!hasSvgLayout(svgRect)) {
-        this.observeViewportLayout(svgElement);
-        return;
-      }
-      if (this.isDisplayMode && !this.isFullscreenMode) {
-        const viewBox = svgElement.viewBox?.baseVal;
-        this.inlineViewportAspectRatio = viewBox?.width > 0 && viewBox?.height > 0
-          ? viewBox.width / viewBox.height
-          : svgRect.width / svgRect.height;
-        const computedMaxWidth = Number.parseFloat(getComputedStyle(svgElement).maxWidth);
-        this.inlineViewportMaxWidth = Number.isFinite(computedMaxWidth)
-          ? computedMaxWidth
-          : svgRect.width || null;
-        this.syncInlineViewportHeight();
-        this.$refs.diagram.style.height = '100%';
-        svgElement.style.height = '100%';
-      }
-      // Capture inline Mermaid's natural aspect-ratio height first, then let
-      // the pan/zoom viewport use the full width of its host surface.
-      svgElement.style.maxWidth = 'none';
-      let hammer;
-      this.panZoom = svgPanZoom(svgElement, {
-        center: true,
-        controlIconsEnabled: false,
-        customEventsHandler: {
-          haltEventListeners: ['touchstart', 'touchend', 'touchmove', 'touchleave', 'touchcancel'],
-          init: (options) => {
-            const instance = options.instance;
-            let initialScale = 1;
-            let pannedX = 0;
-            let pannedY = 0;
-            hammer = new Hammer(options.svgElement);
-            const resetPanned = () => {
-              pannedX = 0;
-              pannedY = 0;
-            };
-            const panByGesture = (event) => {
-              instance.panBy({ x: event.deltaX - pannedX, y: event.deltaY - pannedY });
-              pannedX = event.deltaX;
-              pannedY = event.deltaY;
-            };
-            hammer.get('pinch').set({ enable: true });
-            hammer.on('panstart panmove', (event) => {
-              if (event.type === 'panstart') resetPanned();
-              panByGesture(event);
-            });
-            hammer.on('pinchstart pinchmove', (event) => {
-              if (event.type === 'pinchstart') {
-                initialScale = instance.getZoom();
-                resetPanned();
-              }
-              instance.zoomAtPoint(initialScale * event.scale, event.center);
-              panByGesture(event);
-            });
-          },
-          destroy: () => hammer?.destroy(),
-        },
-        fit: true,
-        maxZoom: 12,
-        minZoom: 0.2,
-        onPan: () => { this.panZoomDirty = true; },
-        onZoom: () => { this.panZoomDirty = true; },
-        panEnabled: true,
-        zoomEnabled: true,
-      });
-      this.panZoomSvg = svgElement;
-      this.panZoom.disableDblClickZoom();
-      this.resetViewport();
-
-      if (typeof ResizeObserver !== 'undefined') {
-        this.panZoomResizeObserver = new ResizeObserver(() => {
-          this.syncInlineViewportHeight();
-          this.panZoom?.resize();
-          if (!this.panZoomDirty) this.resetViewport();
-        });
-        this.panZoomResizeObserver.observe(this.$refs.viewport);
-      }
-    },
-    observeViewportLayout(svgElement) {
-      if (typeof ResizeObserver === 'undefined' || !this.$refs.viewport) return;
-      this.panZoomResizeObserver = new ResizeObserver(() => {
-        const rect = svgElement.getBoundingClientRect();
-        if (!hasSvgLayout(rect)) return;
-        this.panZoomResizeObserver?.disconnect();
-        this.panZoomResizeObserver = null;
-        void this.initializeViewport();
-      });
-      this.panZoomResizeObserver.observe(this.$refs.viewport);
-    },
-    destroyViewport() {
-      this.panZoomResizeObserver?.disconnect();
-      this.panZoomResizeObserver = null;
-      this.panZoom?.destroy();
-      this.panZoom = null;
-      this.panZoomSvg = null;
-      this.panZoomDirty = false;
-      this.inlineViewportAspectRatio = null;
-      this.inlineViewportMaxWidth = null;
-      this.$refs.viewport?.style.removeProperty('height');
-      this.$refs.diagram?.style.removeProperty('height');
-    },
-    syncInlineViewportHeight() {
-      if (!this.inlineViewportAspectRatio || !this.inlineViewportMaxWidth || !this.$refs.viewport) return;
-      const width = Math.min(this.$refs.viewport.clientWidth, this.inlineViewportMaxWidth);
-      if (width > 0) this.$refs.viewport.style.height = `${width / this.inlineViewportAspectRatio}px`;
-    },
-    trackViewportAction(viewportAction) {
-      trackAnalyticsEvent('mermaid_viewport_control_used', {
-        feature_area: 'macro',
-        surface: this.viewportSurface,
-        macro_type: 'mermaid',
-        viewport_action: viewportAction,
-      });
-    },
-    resetViewport() {
-      if (!this.panZoom) return;
-      this.panZoom.reset();
-      // Match Mermaid Live: leave breathing room for the floating toolbar.
-      this.panZoom.zoom(0.875);
-      this.panZoomDirty = false;
-    },
-    zoomIn() {
-      this.panZoom?.zoomIn();
-      this.trackViewportAction('zoom_in');
-    },
-    zoomOut() {
-      this.panZoom?.zoomOut();
-      this.trackViewportAction('zoom_out');
+      await this.initializeViewport();
+      return true;
     },
     async runMermaid(code) {
-      // Generate a unique ID to avoid conflicts
-      this.renderId = `mermaid-${crypto.randomUUID()}`;
-      const mermaid = await loadMermaid();
+      const renderId = `mermaid-${crypto.randomUUID()}`;
       // Bodies stored before the save-time normalisation still carry pasted
       // U+00A0, which mermaid's Langium grammars refuse. Normalising here is
       // what makes those diagrams render again without a data migration.
       const source = normalizeMermaidWhitespace(code);
-      // Use the unique ID to render, avoiding creating extra elements in the body
-      const { svg } = await mermaid.render(this.renderId, source);
+      const { svg } = await renderMermaid(renderId, source);
       // A `useMaxWidth: false` diagram carries a fixed height that our flex
       // wrapper cannot shrink, which letterboxes the drawing. See
       // normalizeSvgSizing for the measurement.
       return normalizeSvgSizing(svg);
     },
-    removeTempNode() {
-      if (!this.renderId) return;
-      document.getElementById(`d${this.renderId}`)?.remove();
-    },
     reportCrash(error) {
       console.error('mermaid render error', error);
       // reliability-audit-2026-08-06 §3/§12.1: a mermaid.js exception used to
-      // be console.error-only — the blank result still got recorded as a
-      // successful macro_viewed by mounted()'s unconditional trackRenderTime.
-      // This adds the missing failure signal without changing that existing
-      // (silent-degrade) UX.
+      // be console.error-only and the blank result was recorded as a successful
+      // macro_viewed. This path runs only after any safe retry is exhausted;
+      // mounted() now records macro_viewed only when an SVG was actually applied.
       trackViewerRenderCrash('mermaid', this.isDisplayMode, error);
-      this.removeTempNode();
     },
-    async render(code) {
+    isTransientRenderError(error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      return message.includes('svg element not in render tree')
+        || /matrix (?:is )?(?:not |non[- ]?)invertible/i.test(message);
+    },
+    async render(code, measureInitialAttempt = false, signal) {
+      const firstAttempt = () => measureInitialAttempt
+        ? renderPerf.time('render', () => this.runMermaid(code))
+        : this.runMermaid(code);
       try {
-        return await this.runMermaid(code);
+        return await firstAttempt();
       } catch (error) {
-        this.removeTempNode();
-        // mermaid measures a temp node with getBBox. In a document with no
-        // layout box that measurement throws `svg element not in render tree`
-        // and the same input renders cleanly once the box exists (reproduced
-        // against mermaid 11.12.2 in Chrome — see renderGate/documentLayout).
-        // Retry rather than leave the reader with a permanently blank diagram.
-        if (!hasLayout()) {
-          // Off the awaited path on purpose: the wait can last until a hidden
-          // iframe is shown, and folding that into the caller would report it
-          // as render_ms. The retry assigns this.svg when it lands.
-          this.retryAfterLayout(code);
+        if (signal?.aborted) return;
+        // Parser and module-load failures are deterministic here. Waiting for
+        // layout cannot change them, so preserve the original failure signal.
+        if (!this.isTransientRenderError(error)) {
+          this.reportCrash(error);
           return;
         }
-        // With a layout box present the failure is deterministic (bad syntax,
-        // an unsupported diagram type); a retry would only repeat it.
-        this.reportCrash(error);
-      }
-    },
-    async retryAfterLayout(code) {
-      await awaitLayout();
-      try {
-        const svg = await this.runMermaid(code);
-        // The diagram may have been edited or switched away during the wait.
-        if (this.mermaidCode === code) {
-          this.svg = svg;
-          await this.initializeViewport();
+        // Mermaid's own failure condition is a 0 x 0 SVG text getBBox(), not
+        // merely a missing body rect. Wait until that exact measurement works.
+        // There is deliberately no ten-second deadline: a collapsed or
+        // virtualised Confluence macro can stay hidden longer, and PR #691's
+        // timed retry produced the same guaranteed failure a second time.
+        const measurable = await awaitSvgTextLayout({ signal });
+        if (!measurable || signal?.aborted) return;
+        try {
+          return await this.runMermaid(code);
+        } catch (retryError) {
+          if (signal?.aborted) return;
+          this.reportCrash(retryError);
         }
-      } catch (error) {
-        this.reportCrash(error);
       }
     }
   }
@@ -328,97 +172,11 @@ export default {
 </script>
 
 <style scoped>
-.mermaid-root--editor,
-.mermaid-root--editor .mermaid-viewport,
-.mermaid-root--editor .mermaid-diagram {
+/* The editor preview is a fixed-height pane (Workspace.vue makes the column a
+   flex box). This is the first link of the chain that lets DiagramViewport fill
+   it instead of collapsing to the diagram's height. */
+.mermaid-root--editor {
   height: 100%;
   min-height: 0;
 }
-
-.mermaid-viewport {
-  position: relative;
-  width: 100%;
-}
-
-.mermaid-viewport--fullscreen {
-  height: max(280px, calc(100vh - 190px));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.mermaid-viewport--interactive {
-  overflow: hidden;
-}
-
-.mermaid-viewport--fullscreen .mermaid-diagram {
-  width: 100%;
-  height: 100%;
-}
-
-.mermaid-viewport--interactive .mermaid-diagram :deep(svg) {
-  width: 100%;
-  cursor: grab;
-  touch-action: none;
-}
-
-.mermaid-viewport--fullscreen .mermaid-diagram :deep(svg) {
-  height: 100%;
-}
-
-.mermaid-root--editor .mermaid-diagram :deep(svg) {
-  height: 100%;
-}
-
-.mermaid-viewport--interactive .mermaid-diagram :deep(svg:active) {
-  cursor: grabbing;
-}
-
-.mermaid-viewport-toolbar {
-  position: absolute;
-  z-index: 2;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px;
-  border: 1px solid #d9d7d2;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 2px 8px rgba(9, 30, 66, 0.18);
-}
-
-.mermaid-viewport-button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 6px;
-  color: #44546f;
-  background: transparent;
-  cursor: pointer;
-}
-
-.mermaid-viewport-button:hover {
-  color: #172b4d;
-  background: #f1f2f4;
-}
-
-.mermaid-viewport-button:focus-visible {
-  outline: 2px solid #0c66e4;
-  outline-offset: 1px;
-}
-
-.mermaid-viewport-button svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 </style>

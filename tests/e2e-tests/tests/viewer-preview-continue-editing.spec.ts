@@ -28,7 +28,7 @@ import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('editor-preview.html')
 
-test.describe('Editor-modal paywall gate — retired block', () => {
+test.describe('Editor-modal paywall gate — retired block', { tag: ['@editor', '@paywall'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } })
 
   test('Over-limit space still mounts the editor directly; no paywall gate appears', async ({ page }) => {

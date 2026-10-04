@@ -25,18 +25,50 @@ on:
   # Allows the release workflow to create fresh, tested drafts without a
   # no-op commit to main.
   workflow_dispatch:
+    inputs:
+      force-all:
+        type: boolean
+        default: false
+        description: 'Human test:all override'
+      pr-number:
+        type: string
+        default: ''
+        description: 'PR number when dispatched by test:all label'
 
-# Cancel superseded runs on the same branch. The default branch never cancels
-# so release drafts are never lost mid-flight. `head_ref` is the source branch on
-# pull_request events; `ref_name` is the short branch name on push events.
-# Both resolve to the bare branch name, so push + pull_request synchronize
-# events on the same branch share one concurrency group (deduplicated).
+# Shared environment ownership spans every staging deployment and test in this run.
+# This initial conservative implementation also queues build jobs; splitting those
+# out is a later optimization, not a reason to release ownership before tests finish.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+  group: conf-app-staging
+  cancel-in-progress: false
+  queue: max
 
 jobs:
+  gate:
+    name: Select authoritative event
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          SHOULD_RUN=true
+          if [ "$EVENT" = push ] && [ "$BRANCH" != "$DEFAULT_BRANCH" ]; then
+            COUNT=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq "[.[] | select(.head.ref == env.BRANCH)] | length")
+            [ "$COUNT" = 0 ] || SHOULD_RUN=false
+          fi
+          echo "run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+
   build:
+    if: needs.gate.outputs.run == 'true'
+    needs: gate
     name: Build and Unit Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -106,6 +138,8 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: "true"
   
   preview-e2e:
+    if: needs.gate.outputs.run == 'true'
+    needs: gate
     # The one E2E project that needs no Confluence site, no Forge app and no
     # OTP: the viewer/editor preview specs drive a local Vite dev server, so
     # they cost a runner and nothing else. That makes this the cheapest real
@@ -208,9 +242,8 @@ jobs:
   # Gated exactly like the suites that consume them, so a draft PR (which runs
   # no E2E) logs in to nothing.
   e2e-auth-lite:
-    if: |
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    needs: gate
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) }}
     name: "E2E auth: Lite"
     uses: ./.github/workflows/e2e-auth.yml
     with:
@@ -223,7 +256,8 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   e2e-auth-full:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: gate
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "E2E auth: Full"
     uses: ./.github/workflows/e2e-auth.yml
     with:
@@ -235,7 +269,8 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   e2e-auth-diagramly:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: gate
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "E2E auth: Diagramly"
     uses: ./.github/workflows/e2e-auth.yml
     with:
@@ -247,7 +282,8 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   e2e-auth-asyncapi:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: gate
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "E2E auth: AsyncAPI"
     uses: ./.github/workflows/e2e-auth.yml
     with:
@@ -266,21 +302,27 @@ jobs:
   # at t=0 under the deploys, with VITE_APP_VERSION already set to the tag —
   # the only build-time input that differs from the staging build — and
   # attached to the drafts, so release.yml deploys instead of rebuilding.
+  #
+  # The timestamp is AEST (UTC+10), the team's local time. Australia/Brisbane
+  # is fixed +10:00 with no daylight saving, so a tag never silently becomes
+  # AEDT in summer. Before 2026-09-15 the runner default (UTC) was used, so
+  # older tags such as v2026.09.142327 read 10 hours earlier than local time.
   version:
+    needs: gate
     name: "Version"
-    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 1
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
       - id: v
-        run: echo "version=$(date +'%Y.%m.%d%H%M')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(TZ=Australia/Brisbane date +'%Y.%m.%d%H%M')" >> "$GITHUB_OUTPUT"
 
   build-prod:
     name: "Build prod: ${{ matrix.variant }}"
-    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    needs: [version]
+    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [version, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -350,9 +392,141 @@ jobs:
   # It also requires the PR run's E2E jobs to have RUN and passed — a draft
   # PR's run is green with its E2E skipped, which proves nothing. Anything it
   # cannot establish (no merge parent, no run, jobs missing) means no reuse.
+  jev-classify:
+    needs: gate
+    name: Jev category selection
+    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name == 'pull_request' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Run only classifier code already on the trusted PR base.
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+      - name: Classify candidate tree
+        env:
+          TYPESAFE_API_KEY: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.TYPESAFE_API_KEY || (github.event_name != 'pull_request' && secrets.TYPESAFE_API_KEY) || '' }}
+          CANDIDATE: ${{ github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HUMAN_FULL: ${{ inputs.force-all || contains(github.event.pull_request.labels.*.name, 'test:all') }}
+        run: |
+          git fetch origin "$CANDIDATE"
+          if [ -f scripts/test-selection/classify.mjs ]; then
+            BASE_SHA="$BASE"
+            # Main may have collapsed pending runs: absent proven baseline, full fallback.
+            [ -n "$BASE_SHA" ] || BASE_SHA="$CANDIDATE"
+            node scripts/test-selection/classify.mjs --base "$BASE_SHA" --head "$CANDIDATE" \
+              --pr-head "$PR_HEAD" --pr "$PR_NUMBER" --human-full "$HUMAN_FULL" \
+              --mode enabled --output test-selection.json
+          else
+            # Bootstrap PR: trusted base predates the classifier; never execute candidate code with the key.
+            node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('test-selection.json',JSON.stringify({schema_version:1,head_sha:process.env.CANDIDATE,pr_head_sha:process.env.PR_HEAD,mode:'all',execution_mode:'observe',categories:{},required:['smoke'],fallback_reason:'trusted-base-predates-classifier'}));"
+          fi
+          cat test-selection.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-selection.json
+          retention-days: 30
+
+  select:
+    needs: [gate, jev-classify]
+    # The trusted resolver unions smoke, Jev categories and the established
+    # deterministic coverage floor. Missing/failed Jev means full coverage.
+    # Main skips this job and always runs full normal suites.
+    name: "Select E2E for this PR"
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      grep: ${{ steps.select.outputs.grep }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Selection code, like classifier code, comes from the trusted base.
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v6
+        continue-on-error: true
+        with:
+          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: jev-selection
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          # No install here — the selector has no dependencies — and the
+          # default `package-manager-cache: true` fails without pnpm on PATH.
+          package-manager-cache: false
+      - name: Select specs from the PR's changed files
+        id: select
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          CANDIDATE: ${{ github.sha }}
+          SELECTION_PATH: jev-selection/test-selection.json
+          HUMAN_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'test:all') }}
+        run: |
+          set -euo pipefail
+          if [ "$HUMAN_FULL" = true ]; then
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'grep=' >> "$GITHUB_OUTPUT"
+            echo '{"mode":"all","grep":"","reasons":["human-test-all"]}' > selection.json
+            touch changed-files.txt
+            echo 'Human test:all override: full E2E coverage' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # The PR's file list from the API (base...head), not a checkout diff:
+          # the merge ref's depth games are not worth it. Paginated: up to 3000.
+          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > changed-files.txt; then
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'grep=' >> "$GITHUB_OUTPUT"
+            echo '{"mode":"all","grep":"","reasons":["changed-files-api-failure"]}' > selection.json
+            echo 'Changed file discovery failed: running full coverage' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git fetch origin "$CANDIDATE"
+          export CANDIDATE_TREE=$(git rev-parse "$CANDIDATE^{tree}")
+          if [ -f scripts/test-selection/resolve.mjs ]; then
+            node scripts/test-selection/resolve.mjs > selection.json
+          else
+            # Activation bootstrap: old trusted base cannot authorize selection.
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'grep=' >> "$GITHUB_OUTPUT"
+            echo '{"mode":"all","grep":"","reasons":["trusted-base-predates-activation"]}' > selection.json
+          fi
+          MODE=$(jq -r .mode selection.json); GREP=$(jq -r .grep selection.json)
+          {
+            if [ "$MODE" = "selected" ]; then
+              echo "### E2E selection: \`--grep=$GREP\`"
+            else
+              echo "### E2E selection: full suite"
+            fi
+            echo; echo "<details><summary>$(wc -l < changed-files.txt) changed files</summary>"; echo; echo '```'
+            jq -r '.reasons[]' selection.json; echo '```'; echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "mode=$MODE grep=$GREP"
+      - name: Keep the file list for the AI pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-selection-${{ github.run_id }}
+          path: |
+            changed-files.txt
+            selection.json
+          retention-days: 3
+
   reuse-check:
+    needs: gate
     name: "Reuse PR E2E?"
-    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -387,6 +561,8 @@ jobs:
                   --jq '.workflow_runs[0].id // empty')
           [ -n "$RUN" ] || no "no successful pull_request run for $H"
           # Every Lite E2E shard of the three suites must have RUN and passed.
+          # A selected PR run (ADR-0007 §5) names its jobs "E2E: Lite (selected)"
+          # and so never matches: only a full-suite PR run can be reused.
           # `skipped` is what a draft PR's run shows — and a suite that never
           # ran covers nothing. Counted per suite so a suite missing entirely is
           # also caught.
@@ -399,6 +575,10 @@ jobs:
           SUITES=$(jq -r .suites <<<"$SUMMARY"); SHARDS=$(jq -r .shards <<<"$SUMMARY"); PASSED=$(jq -r .passed <<<"$SUMMARY")
           [ "$SUITES" = "3" ] || no "PR run $RUN ran $SUITES of the 3 Lite E2E suites"
           { [ "$SHARDS" -gt 0 ] && [ "$PASSED" = "$SHARDS" ]; } || no "PR run $RUN: $PASSED of $SHARDS Lite shards passed"
+          mkdir -p reuse-evidence
+          gh run download "$RUN" --pattern 'test-plan-*' --dir reuse-evidence || no "missing concrete PR test plans"
+          gh run download "$RUN" --pattern 'test-evidence-*' --dir reuse-evidence || no "missing concrete PR test evidence"
+          node scripts/test-selection/reuse.mjs reuse-evidence "$MERGE_TREE" || no "PR evidence does not prove exact-tree full Lite coverage"
           URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN"
           {
             echo "reuse=true"
@@ -409,6 +589,8 @@ jobs:
           echo "### Lite E2E reused from [PR run $RUN]($URL) — identical tree \`$MERGE_TREE\`" >> "$GITHUB_STEP_SUMMARY"
 
   staging-lite:
+    if: needs.gate.outputs.run == 'true'
+    needs: gate
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -432,20 +614,20 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: |
-      !cancelled()
-      && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-          (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
-      && needs.staging-lite.result == 'success'
-      && needs.e2e-auth-lite.result == 'success'
-      && needs.reuse-check.outputs.reuse != 'true'
-    needs: [staging-lite, e2e-auth-lite, reuse-check]
-    name: "E2E: Lite"
+    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
+    needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
+    # "(selected)" when the PR's selection narrowed the suite (see `select`).
+    name: "E2E: Lite${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
     uses: ./.github/workflows/e2e-test.yml
     with:
+      planned: true
       app: zenuml-lite@stg
-      suite: insert
+      # PR discovery spans all normal live projects; render stays separate.
+      # Main keeps its established insert + graph-publish layout.
+      suite: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
       auth-artifact: auth-state-pre-lite-stg
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ needs.select.outputs.grep }}
       # 10 shards, not the default 5. `--shard` splits the test list
       # contiguously, and the byline tests are the expensive ones (a page
       # creation each): under 8 the split put byline-create #2, byline-paywall
@@ -494,20 +676,18 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: |
-      !cancelled()
-      && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-          (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
-      && needs.staging-lite.result == 'success'
-      && needs.e2e-auth-lite.result == 'success'
-      && needs.reuse-check.outputs.reuse != 'true'
-    needs: [staging-lite, e2e-auth-lite, reuse-check]
-    name: "E2E: Lite DrawIO Publish"
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
+    needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
+    # "(selected)" when the PR's selection narrowed the suite (see `select`).
+    name: "E2E: Lite DrawIO Publish${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
     uses: ./.github/workflows/e2e-test.yml
     with:
+      planned: true
       app: zenuml-lite@stg
       suite: graph-publish
       auth-artifact: auth-state-pre-lite-stg
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ needs.select.outputs.grep }}
       # graph-edit.spec.ts declares `test.describe.configure({ mode: 'parallel' })`,
       # so `--shard=N/M` splits its 8 tests across shards instead of stacking all
       # of them on shard 1 (which made this job an 8-minute critical path).
@@ -536,20 +716,18 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: |
-      !cancelled()
-      && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-          (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
-      && needs.staging-lite.result == 'success'
-      && needs.e2e-auth-lite.result == 'success'
-      && needs.reuse-check.outputs.reuse != 'true'
-    needs: [staging-lite, e2e-auth-lite, reuse-check]
-    name: "E2E: Lite render"
+    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
+    needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
+    # "(selected)" when the PR's selection narrowed the suite (see `select`).
+    name: "E2E: Lite render${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
     uses: ./.github/workflows/e2e-test.yml
     with:
+      planned: true
       app: zenuml-lite@stg
       suite: render
       auth-artifact: auth-state-pre-lite-stg
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ needs.select.outputs.grep }}
       artifact-suffix: lite-stg-render
       # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
       # creates any fixture missing from config/render-fixtures.json, and
@@ -563,10 +741,11 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-full:
+    needs: gate
     # Lite is representative for feature-branch validation. Full + Diagramly
     # only run on the default branch to catch variant-specific regressions before release;
     # this halves the per-push minutes on feature branches.
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "Deploy: Full"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -594,27 +773,12 @@ jobs:
   # runs; `Draft: Full` accepts either. The two jobs are call sites only —
   # every input is identical, so a change to one must be made to both.
   staging-full-e2e:
-    if: |
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-      && !(contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')
-      && !cancelled()
-      && needs.staging-full.result == 'success'
-      && needs.e2e-auth-full.result == 'success'
-    # staging-lite-e2e is a WAIT, not a gate: any terminal result of Lite's E2E
-    # (including failure) releases this lane — the point is runner pressure,
-    # not Lite's verdict, which Full's own shards do not depend on. That is why
-    # the `if` names the two real prerequisites and `!cancelled()` rather than
-    # relying on the default all-succeeded semantics of `needs`.
-    #
-    # Known wrinkle: even when this lane is NOT selected, GitHub evaluates its
-    # `if` only once every `needs` entry has finished, so `Draft: Full` (which
-    # needs both lanes) still waits for Lite's E2E in the `now` case. Full's
-    # draft is never what a person waits for, so this is accepted rather than
-    # worked around with a third job.
-    needs: [staging-full, e2e-auth-full, staging-lite-e2e]
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now') && !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
+    needs: [staging-full, e2e-auth-full, staging-lite-e2e, gate]
     name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml
     with:
+      planned: true
       app: zenuml-full@stg
       suite: insert
       auth-artifact: auth-state-pre-full-stg
@@ -629,13 +793,12 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-full-e2e-now:
-    if: |
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-      && (contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')
-    needs: [staging-full, e2e-auth-full]
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')) }}
+    needs: [staging-full, e2e-auth-full, gate]
     name: "E2E: Full (now)"
     uses: ./.github/workflows/e2e-test.yml
     with:
+      planned: true
       app: zenuml-full@stg
       suite: insert
       auth-artifact: auth-state-pre-full-stg
@@ -648,8 +811,9 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-diagramly:
+    needs: [staging-lite, staging-lite-e2e, staging-lite-fullscreen-e2e, staging-lite-render-e2e, reuse-check, gate]
     # See note on staging-full — default-branch-only.
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.staging-lite.result == 'success' && (needs.reuse-check.outputs.reuse == 'true' || (needs.staging-lite-e2e.result == 'success' && needs.staging-lite-fullscreen-e2e.result == 'success' && needs.staging-lite-render-e2e.result == 'success')) }}
     name: "Deploy: Diagramly"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -660,6 +824,10 @@ jobs:
     secrets: inherit
 
   staging-asyncapi:
+    # Downstream jobs override implicit success(): main intentionally skips the
+    # PR selector ancestor. Require successful direct prerequisites explicitly
+    # so a skipped selector can continue, but failed deployment/tests cannot.
+    needs: [staging-diagramly, staging-diagramly-e2e, gate]
     # Default-branch-only, matching staging-full / staging-diagramly. To validate
     # an in-flight asyncapi PR against asyncapi-stg.atlassian.net before merge,
     # add a temporary `github.head_ref == '<branch>' || github.ref_name ==
@@ -670,7 +838,7 @@ jobs:
     # AsyncAPI shares the lite Cloudflare Pages project for now (per
     # scripts/forge-wizard.mjs); swap to a dedicated `conf-stg-asyncapi`
     # project when one is stood up.
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.staging-diagramly-e2e.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "Deploy: AsyncAPI"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -683,13 +851,12 @@ jobs:
   staging-asyncapi-e2e:
     # Mirror the staging-asyncapi gate so the e2e runs whenever a fresh build
     # is deployed. Skips on draft PRs (matches staging-lite-e2e behaviour).
-    if: |
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-      && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)
-    needs: [staging-asyncapi, e2e-auth-asyncapi]
+    if: ${{ !cancelled() && needs.staging-asyncapi.result == 'success' && needs.e2e-auth-asyncapi.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
+    needs: [staging-asyncapi, e2e-auth-asyncapi, gate]
     name: "E2E: AsyncAPI"
     uses: ./.github/workflows/e2e-test.yml
     with:
+      planned: true
       app: asyncapi@stg
       suite: asyncapi
       auth-artifact: auth-state-pre-asyncapi-stg
@@ -707,11 +874,12 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-diagramly-e2e:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    needs: [staging-diagramly, e2e-auth-diagramly]
+    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.e2e-auth-diagramly.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [staging-diagramly, e2e-auth-diagramly, gate]
     name: "E2E: Diagramly"
     uses: ./.github/workflows/e2e-test.yml
     with:
+      planned: true
       app: diagramly@stg
       suite: insert
       auth-artifact: auth-state-pre-diagramly-stg
@@ -747,18 +915,8 @@ jobs:
     # E2E is either this run's (both suites green) or a PR run's on the
     # identical tree (reuse-check said so and the suites skipped themselves) —
     # ADR-0007 §2. The staging deploy must have happened in THIS run either way.
-    if: |
-      !cancelled()
-      && github.event_name != 'pull_request'
-      && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-      && needs.build.result == 'success'
-      && needs.build-prod.result == 'success'
-      && needs.staging-lite.result == 'success'
-      && (
-        (needs.staging-lite-e2e.result == 'success' && needs.staging-lite-fullscreen-e2e.result == 'success')
-        || needs.reuse-check.outputs.reuse == 'true'
-      )
-    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e, build, staging-lite, reuse-check, version, build-prod]
+    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.build.result == 'success' && needs.build-prod.result == 'success' && needs.staging-lite.result == 'success' && ( (needs.staging-lite-e2e.result == 'success' && needs.staging-lite-fullscreen-e2e.result == 'success') || needs.reuse-check.outputs.reuse == 'true' )) }}
+    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e, build, staging-lite, reuse-check, version, build-prod, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -808,14 +966,8 @@ jobs:
     # Either Full E2E lane (see staging-full-e2e) may have run; the other is
     # skipped, which a plain `needs` would propagate. Require `build` and
     # whichever lane ran.
-    if: |
-      !cancelled()
-      && github.event_name != 'pull_request'
-      && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-      && needs.build.result == 'success'
-      && needs.build-prod.result == 'success'
-      && (needs.staging-full-e2e.result == 'success' || needs.staging-full-e2e-now.result == 'success')
-    needs: [staging-full-e2e, staging-full-e2e-now, build, version, build-prod]
+    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.build.result == 'success' && needs.build-prod.result == 'success' && (needs.staging-full-e2e.result == 'success' || needs.staging-full-e2e-now.result == 'success')) }}
+    needs: [staging-full-e2e, staging-full-e2e-now, build, version, build-prod, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -854,8 +1006,8 @@ jobs:
     name: "Draft: Diagramly"
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the default branch, to avoid cutting releases from feature branches
-    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-diagramly-e2e, build, version, build-prod]
+    if: ${{ !cancelled() && needs.staging-diagramly-e2e.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.build-prod.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [staging-diagramly-e2e, build, version, build-prod, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -899,8 +1051,8 @@ jobs:
     # published from this draft will trigger the prod deploy automatically.
     # Until then the draft is a no-op artifact (intentional: keeps the
     # release cadence aligned across variants).
-    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [staging-asyncapi-e2e, build, version, build-prod]
+    if: ${{ !cancelled() && needs.staging-asyncapi-e2e.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.build-prod.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [staging-asyncapi-e2e, build, version, build-prod, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -937,8 +1089,8 @@ jobs:
 
   deploy-cron-worker:
     name: "Cron: Deploy"
-    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    needs: [build]
+    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [build, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -27,6 +27,15 @@ export type FeatureArea =
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 
+/** Magic's finite failure vocabulary; never send source, SVG, or hashes. */
+export type MagicFailureReason =
+  | "missing_artifact"
+  | "invalid_artifact"
+  | "stale_source"
+  | "unsafe_svg"
+  | "render_failed"
+  | "source_changed";
+
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
@@ -192,6 +201,19 @@ export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
 // surfaces stay comparable on the same axis.
 export type GalleryOpenTrigger = "auto_first_open" | "manual";
 
+// Which control the user reached for to hide/show the editor's left code
+// panel. 'panel_button' is the toggle pinned to the panel's bottom-left
+// corner — one button that both hides and shows, so it is not two values;
+// 'gutter_drag' is the split gutter dragged to the far left until the pane
+// snapped shut. Both live at the panel's edge: the toolbar carries no control
+// for this pane at all.
+// Kept on one event (editor_code_panel_toggled) rather than split per control,
+// because the question is "how often is the panel hidden", with "by which
+// affordance" as a breakdown. Which direction a given event went is
+// `interaction_state`, never the trigger — a drag only ever closes the panel,
+// so pairing the two values into a funnel would be lopsided by construction.
+export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
+
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a macro create/edit start forced recording independently of the Forge
 // flag cohort. See macro_create_started / macro_edit_started below.
@@ -244,6 +266,16 @@ export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
 
 /** Observable outcome when the saved report hands off to public support. */
 export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
+
+/** Which slash-command creation guide the viewer's Create button opened. */
+export type CreateGuideVariant = "zenuml" | "graph" | "api";
+
+/**
+ * How the creation guide modal closed. `button` / `escape` come from the guide's own
+ * controls (via view.close payload); `host` is any Confluence-side close (blanket click,
+ * Escape while focus is on Confluence's dialog element) that reaches onClose without one.
+ */
+export type CreateGuideCloseMethod = "button" | "escape" | "host";
 
 export type AnalyticsEventName =
   // Markdown: debounced document render starts/completes in editor or viewer.
@@ -429,6 +461,10 @@ export type AnalyticsEventName =
   | "ai_chat_opened"
   | "ai_chat_closed"
   | "ai_chat_suggestion_selected"
+  // Model attribution: prompt_submitted records the exact model requested from
+  // conf-app; no_change / change_applied / prompt_failed / prompt_cancelled
+  // repeat it so every terminal outcome can be grouped without joining client
+  // events. Never attach prompt or diagram text.
   | "ai_chat_prompt_submitted"
   // Ordinary chat only: the backend exhausted its validation attempts with an
   // unchanged diagram and completed the request as a benign no-change result.
@@ -461,7 +497,9 @@ export type AnalyticsEventName =
   | "ai_repair_button_shown"
   // AI Repair performance lifecycle. requested fires immediately before the
   // start request and carries poll_interval_ms + timeout_budget_ms plus the
-  // requested ai_model / reasoning_disabled overrides when supplied. succeeded /
+  // requested ai_model / reasoning_disabled overrides when supplied. A
+  // user-triggered retry repeats requested with retry_after_failure=true; that
+  // retry's ai_model is the stronger fallback selected by conf-app. succeeded /
   // failed close the same user-perceived interval with duration_ms, poll_count,
   // and any backend timing/attempt/config metadata returned by job-status.
   // backend_duration_ms covers the whole Diagramly worker interval, while
@@ -473,6 +511,25 @@ export type AnalyticsEventName =
   | "ai_repair_failed"
   | "ai_repair_applied"
   | "ai_repair_dismissed"
+  // Fullscreen Mermaid Magic: requested on manual click or automatic default,
+  // succeeded only after the prepared SVG is visible, failed on validation or
+  // render rejection, restored on an explicit Original click. All use
+  // feature_area=ai, surface=fullscreen, macro_type=mermaid;
+  // magic_availability_checked counts one current source/artifact assessment,
+  // including absent/stale artifacts, without treating those as user-facing
+  // errors. magic_default_resolved records the initial view decision. Both
+  // exclude obsolete async attempts. magic_activation distinguishes automatic
+  // from manual show requests. No source, SVG, hashes, or comment text.
+  | "magic_availability_checked"
+  | "magic_default_resolved"
+  | "magic_view_requested"
+  | "magic_view_succeeded"
+  | "magic_view_failed"
+  | "magic_view_restored"
+  | "magic_preference_changed"
+  | "magic_layout_feedback_prompt_shown"
+  | "magic_layout_feedback_submitted"
+  | "magic_layout_feedback_updated"
   | "upgrade_modal_shown"
   | "paywall_triggered"
   | "paywall_blocked_create"
@@ -573,11 +630,40 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
-  // Mermaid viewport controls in fullscreen, normal viewer, and editor preview.
-  // Fires for the two discrete toolbar
-  // actions only; wheel/pan/pinch are deliberately not emitted because their
-  // high-frequency callbacks would create noisy, expensive event streams.
-  | "mermaid_viewport_control_used"
+  // Diagram viewport (pan/zoom) controls in fullscreen, normal viewer, and editor
+  // preview. `macro_type` says which renderer was being zoomed, `viewport_input`
+  // which control did it.
+  //
+  // Still one event per act of intent, never per callback: a toolbar click is
+  // one, and a whole Ctrl/Cmd + scroll gesture is one (createGestureGate closes
+  // for the rest of the gesture), so the two are directly comparable and neither
+  // produces the high-frequency stream that kept wheel out of this event
+  // originally. Pan and pinch remain unemitted -- they have no discrete moment
+  // to attach to.
+  //
+  // Two changes worth knowing when reading a report across them:
+  //   2026-09-11 renamed from `mermaid_viewport_control_used`, which shipped
+  //     with the mermaid-only viewport and carries ~2 days of data. The property
+  //     shape was unchanged, so a report spanning it unions both names.
+  //   2026-09-13 wheel gestures started firing it, alongside the new
+  //     `viewport_input` property. Volume steps up on that date for reasons that
+  //     are not a behaviour change; filter `viewport_input == "toolbar"` for a
+  //     series comparable with what came before (older events carry no
+  //     `viewport_input` at all, so treat absent as toolbar).
+  | "viewport_control_used"
+  // Shown when a reader wheels over a diagram WITHOUT the Ctrl/Cmd modifier on a
+  // surface where a plain wheel has nowhere to go (fullscreen and the editor
+  // preview both set `overflow: hidden`), so the gesture did nothing and the
+  // overlay tells them the modifier. Not fired on the page viewer, where a plain
+  // wheel correctly scrolls the Confluence page.
+  //
+  // This is the discovery half of the wheel gate: `viewport_control_used`
+  // counts people who already know how to zoom, and this counts people who
+  // tried and could not. A hint count that stays high per user is the signal
+  // that the affordance is not landing. Fires at most twice per viewer instance
+  // (createZoomHintTrigger) — someone who has been told twice and keeps
+  // wheeling is scrolling, not searching for the zoom.
+  | "viewport_zoom_hint_shown"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).
@@ -597,6 +683,16 @@ export type AnalyticsEventName =
   // diagram-only fallback (page context unavailable) and an outright
   // clipboard-write failure.
   | "copy_for_ai_clicked"
+  // Viewer "Create" slash-command guide. The top-actions Create button opens an
+  // untitled Forge medium modal that loops a silent video of: Edit the page ->
+  // place the caret -> type "/" + macro name -> pick the macro. impression fires
+  // once per eligible viewer instance (button rendered); opened on click;
+  // closed when the modal closes, with how and how long it was watched;
+  // open_failed when the Forge bridge rejects openModal.
+  | "create_guide_impression"
+  | "create_guide_opened"
+  | "create_guide_closed"
+  | "create_guide_open_failed"
   // Every accepted, user-attributed CodeMirror transaction that replaces at
   // least 95% of the editable OLD document. This is an operation signal; a
   // saved outcome is established separately by macro_save_succeeded carrying
@@ -1023,6 +1119,48 @@ export type AnalyticsEventName =
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
   | "agent_link_list_performed"
+  // V — headless macro-identity resolution (design
+  // 2026-09-19-headless-diagram-mcp-design.md §6). Emitted by the BACKEND, not
+  // the macro: a headless create has no iframe to report from. `_resolved`
+  // carries `macro_key_source` so a cache-hit rate is readable; `_unresolved`
+  // carries the refusal in `reason` (AgentLinkIdentityFailure). The refusal is
+  // the load-bearing one — a site we cannot identify is a site where creating
+  // a macro would publish a broken extension, so the resolver declines and
+  // this event is the only record that a user hit that wall.
+  | "agent_link_identity_resolved"
+  | "agent_link_identity_unresolved"
+  // W — headless authorization (design §5/§11 Phase 3). Backend-emitted like
+  // the identity pair above. `_authorized` fires once per completed consent,
+  // carrying how many Atlassian sites the grant reaches (`site_count`);
+  // `_refresh_failed` fires when a rotating refresh token no longer works,
+  // which is the signal that a user must re-consent and the only warning we
+  // get before every headless call for them starts failing; `_revoked` fires
+  // when a grant is dropped, whether the user asked or a refresh died.
+  | "agent_link_oauth_authorized"
+  | "agent_link_oauth_refresh_failed"
+  | "agent_link_oauth_revoked"
+  // X — headless writes (design §7/§10). Backend-emitted, for the same reason
+  // as the pair above. `_created` carries the AddToPageResult-shaped outcome
+  // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate
+  // decided it. That property is the load-bearing one: the gate fails OPEN
+  // when the space's macro count is unknown (the #302 shape, matching what the
+  // frontend does), so 'count_unknown' volume is the only measure of how often
+  // the limit is skipped rather than applied — the number the decision to fail
+  // closed, or not, has to be made on. `_updated` has no gate (updating an
+  // existing diagram consumes no limit, §9.1) and instead carries
+  // `guardrail_rejected`, so the write guard's refusal rate is readable on the
+  // headless path the way it already is on the relay.
+  | "agent_link_diagram_created"
+  | "agent_link_diagram_updated"
+  // Y — headless PAGE writes, as distinct from the diagram writes above. A
+  // page is not a macro, so no §9.1 paywall gate applies and `paywall_gate`
+  // is absent here. What these carry instead is `guardrail_rejected`: a page
+  // body is replaced wholesale, so the accident worth counting is an agent
+  // truncating somebody's page. `result` uses the same AgentLinkWriteResult
+  // vocabulary, so page and diagram writes share one conflict/success
+  // breakdown.
+  | "agent_link_page_created"
+  | "agent_link_page_updated"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1055,6 +1193,18 @@ export type AnalyticsEventName =
   // auto-open-on-empty-macro surface exists yet, so `trigger: 'auto_first_open'`
   // is reserved for when one is built.
   | "editor_starter_shown"
+  // Editor code-panel collapse (the left source pane of the text-DSL editor:
+  // sequence / mermaid / plantuml / markdown). The user hides the code to give
+  // the diagram preview the full width, and shows it again to edit. Fires once
+  // per user-initiated toggle, from any of the panel's collapse controls;
+  // `interaction_state` carries the state the panel moved INTO ('hidden' on
+  // collapse, 'shown' on expand), so collapse rate is a groupBy rather than a
+  // diff of two event names, and `code_panel_trigger` carries which control
+  // did it (toolbar button / panel footer button / dragging the gutter shut). The AI-chat panel's own code toggle keeps its
+  // existing `ai_chat_code_visibility_toggled` event — same underlying pane,
+  // but a different surface and a different question ("does AI chat need the
+  // code visible?"), so the two are not merged.
+  | "editor_code_panel_toggled"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A
@@ -1169,6 +1319,51 @@ export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "e
 // estate (no space/page filter). Search (agent_link_search_performed) is always
 // site-wide by design, so it has no scope field.
 export type AgentLinkListScope = "page" | "space" | "site";
+
+// Where a resolved headless macro identity came from (agent_link_identity_resolved).
+// 'cached' = reused a previously resolved identity for this cloudId; 'discovered'
+// = lifted fresh from an existing macro node on the site. A low 'discovered'
+// share means the cache is doing its job; a rising one means it is not.
+export type AgentLinkMacroKeySource = "cached" | "discovered";
+
+// Why the resolver refused to hand back an identity (agent_link_identity_unresolved).
+// 'no_macro_on_site' = the site has no ZenUML custom content to lift a key from,
+// so the variant and environment cannot be proven — the expected outcome on a
+// brand-new tenant, and a refusal rather than a guess by design.
+// 'no_extension_node' = custom content exists but no page ADF references it with
+// an extension node (orphaned content).
+// 'app_id_mismatch' = the lifted extensionKey names an appId that is not the one
+// the custom-content type implies; the two disagreeing means something is wrong
+// with our assumptions, not with the page, so we refuse rather than pick one.
+// 'probe_failed' = a Confluence call failed; retryable, unlike the three above.
+// Why an Atlassian grant ended (agent_link_oauth_revoked). 'user' = asked for
+// it; 'refresh_rejected' = the rotating refresh token was refused, so the grant
+// is dead whether the user knows it or not; 'reauthorized' = superseded by a
+// fresh consent for the same user.
+export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
+
+// The outcome of a headless write (agent_link_diagram_created / _updated).
+// Mirrors AddToPageResult so the headless and byline paths are comparable:
+// 'already_present' is a SUCCESS (an agent retried; nothing was duplicated)
+// and 'conflict' is a deliberate refusal (a human edited the page first and
+// we never force-publish).
+export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "updated";
+
+// Which branch of the §9.1 Lite paywall gate decided a headless create.
+// 'paid' = a live space or user licence, or a non-Lite variant, so the limit
+// does not apply; 'under_limit' = counted and below the limit;
+// 'limit_reached' = counted and refused; 'count_unknown' = the space's macro
+// count could not be read, and the create was ALLOWED anyway. The last one is
+// the fail-open path (the #302 shape, matching the frontend's own behaviour on
+// an unknown count) and the reason this property exists: its share of creates
+// is what says whether failing open is a rounding error or the normal case.
+export type AgentLinkPaywallGate = "paid" | "under_limit" | "limit_reached" | "count_unknown";
+
+export type AgentLinkIdentityFailure =
+  | "no_macro_on_site"
+  | "no_extension_node"
+  | "app_id_mismatch"
+  | "probe_failed";
 
 // Graph (DrawIO) editor chrome. `diagram` is Atlas/standard; `board` is
 // Sketch. Unknown persisted values must normalize to `diagram`.

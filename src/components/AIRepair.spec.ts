@@ -120,6 +120,7 @@ describe('AIRepair analytics', () => {
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_requested', expect.objectContaining({
       ai_model: 'openai/gpt-5.6-luna',
+      retry_after_failure: false,
     }))
     wrapper.unmount()
   })
@@ -237,7 +238,7 @@ describe('AIRepair analytics', () => {
     await triggerRepair(wrapper)
 
     expect(wrapper.get('[data-testid="ai-repair-error"]').text()).toContain('ran out of time')
-    expect(wrapper.get('[data-testid="ai-repair-retry"]').text()).toBe('Try again')
+    expect(wrapper.get('[data-testid="ai-repair-retry"]').text()).toBe('Try a stronger fix')
     expect(wrapper.findAll('button').find(button => button.text().includes('Apply Code'))?.attributes('disabled')).toBeDefined()
 
     const closeBtn = wrapper.find('[data-testid="ai-repair-dialog-content"] button')
@@ -247,13 +248,55 @@ describe('AIRepair analytics', () => {
     wrapper.unmount()
   })
 
-  it('starts a fresh repair job when the user retries a timeout', async () => {
+  it.each([TIMEOUT_STATUS, FAILED_STATUS])('waits for the user before retrying a failed repair (%j)', async (failureStatus) => {
     vi.mocked(startFixDiagram as any)
       .mockResolvedValueOnce({ jobId: 'j-timeout' })
       .mockResolvedValueOnce({ jobId: 'j-retry' })
     vi.mocked(getFixDiagramStatus as any)
-      .mockResolvedValueOnce(TIMEOUT_STATUS)
+      .mockResolvedValueOnce(failureStatus)
       .mockResolvedValueOnce(COMPLETED_STATUS)
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(startFixDiagram).toHaveBeenCalledTimes(1)
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(1)
+    await wrapper.get('[data-testid="ai-repair-retry"]').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(startFixDiagram).toHaveBeenCalledTimes(2)
+    expect(getFixDiagramStatus).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(startFixDiagram as any).mock.calls[1]).toEqual([
+      ORIGINAL_CODE,
+      'syntax error on line 1',
+      'Sequence',
+      { model: 'anthropic/claude-sonnet-5' },
+    ])
+    expect(wrapper.find('[data-testid="ai-repair-error"]').exists()).toBe(false)
+    expect(wrapper.findAll('button').find(button => button.text().includes('Apply Code'))?.attributes('disabled')).toBeUndefined()
+    const requestedEvents = vi.mocked(trackAnalyticsEvent).mock.calls.filter(
+      call => call[0] === 'ai_repair_requested',
+    )
+    expect(requestedEvents).toHaveLength(2)
+    expect(requestedEvents[0][1]).toEqual(expect.objectContaining({
+      ai_model: 'openai/gpt-5.6-luna',
+      retry_after_failure: false,
+    }))
+    expect(requestedEvents[1][1]).toEqual(expect.objectContaining({
+      ai_model: 'anthropic/claude-sonnet-5',
+      retry_after_failure: true,
+    }))
+    wrapper.unmount()
+  })
+
+  it.each([FAILED_STATUS, TIMEOUT_STATUS])('stops after a retry fails (%j)', async (retryFailureStatus) => {
+    vi.mocked(startFixDiagram as any)
+      .mockResolvedValueOnce({ jobId: 'j-initial' })
+      .mockResolvedValueOnce({ jobId: 'j-retry' })
+    vi.mocked(getFixDiagramStatus as any)
+      .mockResolvedValueOnce(FAILED_STATUS)
+      .mockResolvedValueOnce(retryFailureStatus)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -261,13 +304,69 @@ describe('AIRepair analytics', () => {
     await flushPromises()
     await nextTick()
 
+    expect(wrapper.find('[data-testid="ai-repair-retry"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="ai-repair-error"]').text().toLowerCase()).toContain('continue editing manually')
+    expect(wrapper.findAll('button').some(button => button.text().includes('Continue editing'))).toBe(true)
+    expect(wrapper.findAll('button').find(button => button.text().includes('Apply Code'))?.attributes('disabled')).toBeDefined()
+
+    await vi.advanceTimersByTimeAsync(120_000)
     expect(startFixDiagram).toHaveBeenCalledTimes(2)
+
+    const continueEditing = wrapper.findAll('button').find(button => button.text().includes('Continue editing'))
+    await continueEditing!.trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('does not start another request when the retry button is clicked twice quickly', async () => {
+    let resolveRetryStart: (value: { jobId: string }) => void = () => {}
+    vi.mocked(startFixDiagram as any)
+      .mockResolvedValueOnce({ jobId: 'j-initial' })
+      .mockImplementationOnce(() => new Promise(resolve => { resolveRetryStart = resolve }))
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(FAILED_STATUS)
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+    const retryButton = wrapper.get('[data-testid="ai-repair-retry"]')
+    await Promise.all([retryButton.trigger('click'), retryButton.trigger('click')])
+
+    expect(startFixDiagram).toHaveBeenCalledTimes(2)
+    resolveRetryStart({ jobId: 'j-retry' })
+    await flushPromises()
+    await nextTick()
     expect(getFixDiagramStatus).toHaveBeenCalledTimes(2)
-    expect(wrapper.find('[data-testid="ai-repair-error"]').exists()).toBe(false)
-    expect(wrapper.findAll('button').find(button => button.text().includes('Apply Code'))?.attributes('disabled')).toBeUndefined()
-    expect(
-      vi.mocked(trackAnalyticsEvent).mock.calls.filter(call => call[0] === 'ai_repair_requested'),
-    ).toHaveLength(2)
+    expect(startFixDiagram).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('allows one retry again after closing and reopening the dialog', async () => {
+    vi.mocked(startFixDiagram as any)
+      .mockResolvedValueOnce({ jobId: 'j-first-session' })
+      .mockResolvedValueOnce({ jobId: 'j-first-session-retry' })
+      .mockResolvedValueOnce({ jobId: 'j-second-session' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(FAILED_STATUS)
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+    await wrapper.get('[data-testid="ai-repair-retry"]').trigger('click')
+    await flushPromises()
+    await nextTick()
+    expect(wrapper.find('[data-testid="ai-repair-retry"]').exists()).toBe(false)
+
+    await wrapper.findAll('button').find(button => button.text().includes('Continue editing'))!.trigger('click')
+    await wrapper.setProps({ showDialog: false })
+    await wrapper.setProps({ showDialog: true })
+    await flushPromises()
+    await nextTick()
+
+    expect(startFixDiagram).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(startFixDiagram as any).mock.calls[2]).toEqual([
+      ORIGINAL_CODE,
+      'syntax error on line 1',
+      'Sequence',
+      { model: 'openai/gpt-5.6-luna' },
+    ])
+    expect(wrapper.find('[data-testid="ai-repair-retry"]').exists()).toBe(true)
     wrapper.unmount()
   })
 

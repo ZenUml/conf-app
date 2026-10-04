@@ -34,8 +34,9 @@ import { getGuideByUri, listGuideResources, selectInstructions } from './dslGuid
 import { sessionRegistry } from './registrySingleton';
 import { effectiveExpiryMs } from './sessionToken';
 import type { SessionRecord, SessionState } from './sessionToken';
+import { handleHeadlessRpc, looksLikeRelayToken, type HeadlessEnv } from './oauth/headlessMcp';
 
-interface Env {
+interface Env extends HeadlessEnv {
   AGENT_LINK?: DurableObjectNamespace;
 }
 
@@ -331,6 +332,26 @@ export async function onRequestOptions(): Promise<Response> {
   return new Response(null, { headers: CORS_HEADERS });
 }
 
+/**
+ * GET and DELETE belong to the parts of the Streamable HTTP transport we do
+ * not implement: GET opens a server-initiated SSE stream, DELETE ends a
+ * session. Every reply here rides its own POST response, so both get a clean
+ * 405 with `Allow`, which is how the spec says a server declines them.
+ *
+ * Without this they fell through the Pages router to the SPA, so a client
+ * opening a stream received an HTML page with status 200 — the kind of reply
+ * that makes a client hang rather than move on. Found while checking what
+ * Claude Desktop would see (2026-09-26).
+ */
+const METHOD_NOT_ALLOWED = () =>
+  new Response(JSON.stringify({ error: 'method_not_allowed', message: 'This MCP endpoint accepts POST.' }), {
+    status: 405,
+    headers: { ...JSON_HEADERS, Allow: 'POST, OPTIONS' },
+  });
+
+export const onRequestGet: PagesFunction<Env> = async () => METHOD_NOT_ALLOWED();
+export const onRequestDelete: PagesFunction<Env> = async () => METHOD_NOT_ALLOWED();
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const url = new URL(request.url);
   const token = extractToken(request, url);
@@ -341,7 +362,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // expired vs. live) is answered below by whichever backing store is live
   // in this environment.
   if (!token || token.trim().length === 0) {
-    return jsonRpcError(401, null, RPC_AUTH_ERROR, authErrorMessage('missing'), { code: 'missing' });
+    // Only the relay can answer a token-less request with a bare 401. If
+    // headless mode is configured, the 401 has to carry the RFC 9728
+    // challenge instead, which is what tells a first-time MCP client where to
+    // authorize — so that case falls through to handleHeadlessRpc below.
+    if (!env?.OAUTH_GRANT_KV) {
+      return jsonRpcError(401, null, RPC_AUTH_ERROR, authErrorMessage('missing'), { code: 'missing' });
+    }
   }
 
   // Body is parsed BEFORE auth (ordering change, spec 2026-07-13): computing
@@ -359,6 +386,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   if (!body || typeof body !== 'object' || typeof body.method !== 'string') {
     return jsonRpcError(400, body?.id ?? null, RPC_INVALID_REQUEST, 'Invalid Request: missing "method"');
+  }
+
+  // MODE SELECTION (design §11 Phase 5). One endpoint, two credentials: the
+  // relay's `CL-XXXX-XXXX` session token, which needs the macro's tab open,
+  // and an OAuth token we issued, which does not. The shapes are distinct, so
+  // the split costs no lookup and neither path has to fail first. A token of
+  // neither shape is headless's to answer, because its 401 is the one that
+  // carries the discovery challenge.
+  if (env?.OAUTH_GRANT_KV && !looksLikeRelayToken(token)) {
+    return handleHeadlessRpc(request, env, body);
   }
 
   // Bump-worthiness (spec 2026-07-13 §3): real work slides the idle window;

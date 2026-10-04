@@ -76,6 +76,20 @@ describe('Header', () => {
     expect(wrapper.emitted('toggle-ai-chat')).toHaveLength(1)
   })
 
+  it('carries no code-panel control at all — the panel owns its own', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await flushPromises()
+
+    // Hiding and showing the source pane both happen at the pane's own edge
+    // (Workspace.vue renders those controls). A toggle creeping back into the
+    // toolbar would put a third, distant control on the same state.
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Hide code')
+    expect(wrapper.text()).not.toContain('Show code')
+  })
+
   it('tracks each AI Chat button visibility transition without counting re-renders', async () => {
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.isNew = false
@@ -127,6 +141,21 @@ describe('Header', () => {
       localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
       const w = mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });
       await w.vm.$nextTick();
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
+    it('applies before the AI Chat flag answers, not after its round trip', () => {
+      // The preference must land in mount's synchronous part. forgeIndex reads
+      // doc.diagramType (the same object as store.state.diagram) right after
+      // mountRoot to label macro_create_started, and the Sequence placeholder
+      // renders — firing macro_viewed(sequence) — while mounted() awaits. With
+      // the flag read ahead of this block, every new Lite diagram with a
+      // remembered Mermaid preference was counted as a sequence create and
+      // view from 2026-08-31 (v2026.08.302214-lite).
+      vi.mocked(isAiChatEnabled).mockReturnValue(new Promise(() => {}));
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
+      mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });
 
       expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
     });

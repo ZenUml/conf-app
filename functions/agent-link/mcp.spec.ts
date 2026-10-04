@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { onRequestPost, onRequestOptions } from './mcp';
+import { onRequestPost, onRequestOptions, onRequestGet, onRequestDelete } from './mcp';
 import { onRequestPost as sessionPost } from './session';
 import { sessionRegistry } from './registrySingleton';
 import { IDLE_TTL_MS } from './sessionToken';
@@ -714,5 +714,19 @@ describe('POST /agent-link/mcp — per-dialect guide serving', () => {
     const list = await postWithEnv(rpc('tools/list'), env);
     const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
     expect(update.description).toMatch(/must match the bound diagram type/);
+  });
+});
+
+describe('transport methods we do not implement', () => {
+  it('declines GET with 405 and Allow, rather than falling through to the SPA', async () => {
+    const res = await onRequestGet({} as never);
+    expect(res.status).toBe(405);
+    expect(res.headers.get('Allow')).toContain('POST');
+    expect(res.headers.get('Content-Type')).toContain('application/json');
+  });
+
+  it('declines DELETE the same way', async () => {
+    const res = await onRequestDelete({} as never);
+    expect(res.status).toBe(405);
   });
 });

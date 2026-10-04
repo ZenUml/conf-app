@@ -213,7 +213,7 @@ def parse_creators_rows(rows):
     per_domain = defaultdict(set)
     for row in rows:
         domain, user_id = row["key"]
-        if user_id:
+        if user_id and str(user_id).strip().lower() not in {"unknown_user_account_id", "unknown", "anonymous", "null", "undefined"}:
             per_domain[domain].add(user_id)
     return {domain: len(users) for domain, users in per_domain.items()}
 

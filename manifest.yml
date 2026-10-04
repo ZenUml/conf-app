@@ -395,28 +395,6 @@ modules:
     - key: lite-macro-count-daily
       function: macroCountSnapshotFn
       interval: day
-    # Lite-only. Variant builds strip this from Full, Diagramly, and AsyncAPI.
-    # Sweeps the per-space enrolment property that the fail-closed
-    # displayConditions on zenuml-byline-diagrams reads, so this trigger is the
-    # only thing that can turn that entry on — the byline cannot repair its own
-    # gate, because a hidden byline is never opened (src/byline-visibility.ts).
-    #
-    # Steady-state cost per hourly tick: a SUPPRESSED installation pays one
-    # Forge-storage read and zero Confluence calls; an ENROLLED one pays the
-    # spaces listing plus one property GET per space (writes only on drift).
-    # The enrolled sweep cannot be short-circuited by the settled marker —
-    # it is also what enrols spaces CREATED after enrolment.
-    #
-    # AS OF 2026-08-22 the rollout is general (every identifiable installation
-    # is enrolled — src/byline-visibility.ts `decide`), so essentially EVERY
-    # install now takes the enrolled path rather than the one-storage-read
-    # suppressed path. That is the condition this comment previously named as
-    # the trigger for cheapening the sweep (daily full pass + hourly new-space
-    # check); it is now met, and the change is pending. Watch Forge Functions
-    # GB-seconds — see the forge-functions-cost skill.
-    - key: byline-visibility-hourly
-      function: bylineVisibilityFn
-      interval: hour
     # Diagramly-only. CI yq-strips this entry for lite/full so it never runs
     # on those variants. Polls the enrollment KV and creates a demo page for
     # any enrolled space that doesn't yet have one. Interval is a safety net
@@ -613,51 +591,38 @@ modules:
     - key: zenuml-byline-diagrams
       resource: main
       title: Diagrams${LITE_TITLE_SUFFIX}
-      # Fail-CLOSED gate on SPACE properties, two legs ANDed. Since 2026-08-22
-      # the rollout is GENERAL: src/byline-visibility.ts `decide` enrols every
-      # installation whose cloudId the runtime can resolve, so this entry is
-      # live in production rather than dark. (It was previously restricted to a
-      # two-site cloudId allowlist, removed with the rollout — see `git log`.)
-      # Rollout scope remains a change to `decide`, not to this condition — and
-      # leg 2 below still suppresses the byline wherever Full is installed.
+      # Gate: hidden only where `zenuml-full-active` exists on the space. The
+      # FULL app's daily sweep (src/full-presence.ts, Full variant only) marks
+      # its presence per space, and the Lite byline hides itself where Full
+      # already provides its own surfaces. Space properties are site-global
+      # across apps, which is what makes a marker written by Full readable here.
       #
-      # 1. The variant's OWN enrolment property must say enabled. The key is
-      #    templated like every other per-variant key in this manifest:
-      #    `zenuml-byline${LITE_KEY_SUFFIX}` resolves to `zenuml-byline-lite`
-      #    on Lite (the key src/byline-visibility.ts writes — keep them in
-      #    lockstep) and `zenuml-byline` on Full/Diagramly/AsyncAPI. It is
-      #    written to every space by the Lite `byline-visibility-hourly` sweep
-      #    on every identifiable installation. Absent property = no byline.
-      # 2. `zenuml-full-active` must NOT exist — the FULL app's daily sweep
-      #    (src/full-presence.ts, Full variant only) marks its presence per
-      #    space, and the Lite byline hides itself where Full already provides
-      #    its own surfaces. Space properties are site-global across apps,
-      #    which is what makes a marker written by Full readable here.
+      # There is deliberately NO enrolment leg. Until 2026-10 this was ANDed
+      # with `entityPropertyEqualTo zenuml-byline${LITE_KEY_SUFFIX}`, a
+      # fail-closed per-space property that an hourly Lite sweep
+      # (`bylineVisibilityFn`) wrote to every space of every installation. Once
+      # the rollout went general (2026-08-22) that leg was true wherever it
+      # existed, so it only delayed new spaces and new installs — and the sweep
+      # behind it was the largest Forge Functions GB-seconds source (one
+      # property GET per space per installation per hour). Spaces still carry
+      # the stale `zenuml-byline-lite` property; nothing reads it.
       #
-      # Leg 2 is LITE-ONLY SEMANTICS that env substitution cannot remove: a
-      # Full deployment of this module would subtract Full's own presence
-      # marker and hide itself on every space. Full strips this whole module
-      # today; whichever change un-strips it MUST also delete the `not` leg in
-      # the same per-variant edit (see the byline strip in
-      # scripts/forge-wizard.mjs) and ship a writer for `zenuml-byline`.
+      # If per-space or per-site control is ever needed again, add an OPT-OUT
+      # property ANDed here (`not entityPropertyExists <key>-off`): absent means
+      # visible, so it needs a write only where someone opts out, never a sweep
+      # of every space. Re-adding an opt-IN leg hides the byline everywhere
+      # until a sweep has written every space.
       #
-      # `objectName` + object value is the encoding PROVEN on this surface —
-      # a bare value's string-conversion semantics is where this gate failed
-      # twice. PROPERTY_FIELD in src/byline-visibility.ts is the other half of
-      # the pair; renaming one side alone hides the byline everywhere silently.
-      # `value` MUST stay the string "true": forge lint rejects a boolean.
-      # Only one property condition may sit per tree level, hence the nesting.
+      # This condition is LITE-ONLY SEMANTICS: a Full deployment of this module
+      # would subtract Full's own presence marker and hide itself on every
+      # space. Full strips this whole module today; whichever change un-strips
+      # it MUST replace this condition in the same per-variant edit (see the
+      # byline strip in scripts/forge-wizard.mjs).
       displayConditions:
-        and:
-          entityPropertyEqualTo:
+        not:
+          entityPropertyExists:
             entity: space
-            propertyKey: zenuml-byline${LITE_KEY_SUFFIX}
-            objectName: enabled
-            value: "true"
-          not:
-            entityPropertyExists:
-              entity: space
-              propertyKey: zenuml-full-active
+            propertyKey: zenuml-full-active
       # zenuml.com's own favicon, matching the panel's header. It is a square
       # mark drawn to be read at favicon size, so it survives the ~16px
       # Confluence gives a byline icon — unlike the stacked wordmark tried
@@ -765,10 +730,6 @@ modules:
       handler: createDemoPage.handler
     - key: createDemoPageScheduled
       handler: createDemoPage.scheduledHandler
-    - key: bylineVisibilityFn
-      handler: byline-visibility.scheduledHandler
-      # Sweeps every space (property read+write per space), not one property.
-      timeoutSeconds: 900
     - key: fullPresenceFn
       handler: full-presence.scheduledHandler
       timeoutSeconds: 900

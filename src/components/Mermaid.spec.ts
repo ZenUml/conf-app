@@ -47,19 +47,27 @@ const hammerManagerMock = vi.hoisted(() => ({
 }));
 vi.mock('hammerjs', () => ({ default: vi.fn(() => hammerManagerMock) }));
 
-const hasLayoutMock = vi.hoisted(() => vi.fn(() => true));
-const awaitLayoutMock = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
+const awaitSvgTextLayoutMock = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
 vi.mock('@/utils/renderGate/documentLayout', () => ({
-  hasLayout: hasLayoutMock,
-  awaitLayout: awaitLayoutMock,
+  awaitSvgTextLayout: awaitSvgTextLayoutMock,
 }));
 
 const viewerLoadFailedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
 
-describe('Mermaid render-failure telemetry', () => {
-  enableAutoUnmount(afterEach);
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
+enableAutoUnmount(afterEach);
+
+describe('Mermaid render-failure telemetry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isDisplayModeMock.mockReturnValue(true);
@@ -90,6 +98,7 @@ describe('Mermaid render-failure telemetry', () => {
       failure_stage: 'render_crash',
       failure_reason: 'mermaid boom',
     });
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(false);
   });
 
   it('does not fire viewer_load_failed on a clean render', async () => {
@@ -104,6 +113,28 @@ describe('Mermaid render-failure telemetry', () => {
     });
 
     expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  // `mermaid.render()` on a body with no diagram text throws
+  // `No diagram type detected matching given configuration for text: `. An
+  // empty string is already skipped, but a whitespace-only body (blank lines,
+  // or only U+00A0 pasted in) is truthy, so it reached mermaid and every view
+  // of that macro fired viewer_load_failed (84 events in 7 days, one tenant).
+  it.each([
+    ['blank lines', '\n\n  \n'],
+    ['non-breaking spaces', '\u00a0\u00a0\n\u00a0'],
+  ])('does not call mermaid or report a crash for a %s-only body', async (_label, code) => {
+    const render = vi.fn(() => Promise.reject(new Error('No diagram type detected matching given configuration for text: ')));
+    loadMermaidMock.mockResolvedValue({ render });
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: code };
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(render).not.toHaveBeenCalled();
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+    expect(wrapper.text()).toContain('Start with Mermaid');
   });
 
   // The isDisplayMode=false (editor-preview) gate itself is unit-tested in
@@ -123,8 +154,7 @@ describe('Mermaid render retry when the document has no layout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isDisplayModeMock.mockReturnValue(true);
-    hasLayoutMock.mockReturnValue(true);
-    awaitLayoutMock.mockResolvedValue(true);
+    awaitSvgTextLayoutMock.mockResolvedValue(true);
     window.__macroLoadStart = 0;
     store.state.diagram = {
       ...NULL_DIAGRAM,
@@ -134,8 +164,6 @@ describe('Mermaid render retry when the document has no layout', () => {
   });
 
   it('renders on the second attempt once the document gains a layout box', async () => {
-    hasLayoutMock.mockReturnValue(false);
-    awaitLayoutMock.mockResolvedValue(true);
     const render = vi
       .fn()
       .mockRejectedValueOnce(new Error('svg element not in render tree'))
@@ -152,9 +180,7 @@ describe('Mermaid render retry when the document has no layout', () => {
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
 
-  it('reports the failure when the retry also fails', async () => {
-    hasLayoutMock.mockReturnValue(false);
-    awaitLayoutMock.mockResolvedValue(false);
+  it('reports the failure when the retry also fails after SVG text becomes measurable', async () => {
     const render = vi.fn(() => Promise.reject(new Error('svg element not in render tree')));
     loadMermaidMock.mockResolvedValue({ render });
 
@@ -171,8 +197,7 @@ describe('Mermaid render retry when the document has no layout', () => {
     });
   });
 
-  it('does not retry a failure raised while the document has layout', async () => {
-    hasLayoutMock.mockReturnValue(true);
+  it('does not retry a deterministic parser failure', async () => {
     const render = vi.fn(() => Promise.reject(new Error('Parse error on line 2')));
     loadMermaidMock.mockResolvedValue({ render });
 
@@ -183,7 +208,153 @@ describe('Mermaid render retry when the document has no layout', () => {
 
     // A syntax error is deterministic; retrying it only doubles the work.
     expect(render).toHaveBeenCalledTimes(1);
-    expect(awaitLayoutMock).not.toHaveBeenCalled();
+    expect(awaitSvgTextLayoutMock).not.toHaveBeenCalled();
+  });
+
+  it('retries the transient detached-SVG failure even when the body has layout', async () => {
+    const render = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('svg element not in render tree'))
+      .mockResolvedValueOnce({ svg: '<svg>recovered</svg>' });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => {
+      expect(wrapper.vm.svg).toBe('<svg>recovered</svg>');
+    });
+
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('does not force a retry while a long-hidden iframe still cannot measure SVG text', async () => {
+    const layoutReady = deferred<boolean>();
+    awaitSvgTextLayoutMock.mockReturnValueOnce(layoutReady.promise);
+    const render = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('svg element not in render tree'))
+      .mockResolvedValueOnce({ svg: '<svg>late</svg>' });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(awaitSvgTextLayoutMock).toHaveBeenCalledTimes(1));
+
+    // PR #691 retried after a fixed 10-second wait even when the iframe was
+    // still hidden. The replacement wait remains pending, so no false failure
+    // is emitted and no doomed second render starts.
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+
+    layoutReady.resolve(true);
+    await vi.waitFor(() => expect(wrapper.vm.svg).toBe('<svg>late</svg>'));
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('cancels a hidden-iframe wait on unmount without retrying or reporting a failure', async () => {
+    awaitSvgTextLayoutMock.mockImplementationOnce(({ signal }: { signal: AbortSignal }) =>
+      new Promise<boolean>((resolve) => {
+        signal.addEventListener('abort', () => resolve(false), { once: true });
+      }),
+    );
+    const render = vi.fn(() => Promise.reject(new Error('svg element not in render tree')));
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(awaitSvgTextLayoutMock).toHaveBeenCalledTimes(1));
+    wrapper.unmount();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('retries a transient non-invertible SVG matrix failure once', async () => {
+    const render = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('The matrix is not invertible.'))
+      .mockResolvedValueOnce({ svg: '<svg>recovered</svg>' });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(wrapper.vm.svg).toBe('<svg>recovered</svg>'));
+
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+});
+
+describe('Mermaid overlapping renders', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isDisplayModeMock.mockReturnValue(true);
+    awaitSvgTextLayoutMock.mockResolvedValue(true);
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: '',
+    };
+  });
+
+  it('does not let an older failed render remove the newer render temporary SVG', async () => {
+    const first = deferred<{ svg: string }>();
+    const second = deferred<{ svg: string }>();
+    const render = vi.fn((id: string) => {
+      const temp = document.createElement('div');
+      temp.id = `d${id}`;
+      document.body.append(temp);
+      return render.mock.calls.length === 1 ? first.promise : second.promise;
+    });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    const firstResult = wrapper.vm.render('flowchart LR\nA-->B');
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+    const secondResult = wrapper.vm.render('flowchart LR\nA-->C');
+    await Promise.resolve();
+    // The newer request stays queued until the older request, including its
+    // ID-scoped cleanup, has completely finished.
+    expect(render).toHaveBeenCalledTimes(1);
+
+    first.reject(new Error('older render failed'));
+    await firstResult;
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
+    const secondId = render.mock.calls[1][0];
+
+    if (!document.getElementById(`d${secondId}`)) {
+      second.reject(new Error('svg element not in render tree'));
+    } else {
+      second.resolve({ svg: '<svg>newer</svg>' });
+    }
+
+    await expect(secondResult).resolves.toBe('<svg>newer</svg>');
+    expect(viewerLoadFailedCalls()).toHaveLength(1);
+    expect(viewerLoadFailedCalls()[0][1]).toMatchObject({
+      failure_reason: 'older render failed',
+    });
+  });
+
+  it('applies only the newest result when source changes while a render is queued', async () => {
+    const first = deferred<{ svg: string }>();
+    const second = deferred<{ svg: string }>();
+    const render = vi.fn((_id: string, source: string) =>
+      source.includes('A-->B') ? first.promise : second.promise);
+    loadMermaidMock.mockResolvedValue({ render });
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+
+    store.state.diagram.mermaidCode = 'flowchart LR\nA-->B';
+    await wrapper.vm.$nextTick();
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+
+    store.state.diagram.mermaidCode = 'flowchart LR\nA-->C';
+    await wrapper.vm.$nextTick();
+    first.resolve({ svg: '<svg>stale</svg>' });
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
+    expect(wrapper.vm.svg).not.toBe('<svg>stale</svg>');
+
+    second.resolve({ svg: '<svg>current</svg>' });
+    await vi.waitFor(() => expect(wrapper.vm.svg).toBe('<svg>current</svg>'));
   });
 });
 
@@ -193,7 +364,7 @@ describe('Mermaid pasted-whitespace normalisation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isDisplayModeMock.mockReturnValue(true);
-    hasLayoutMock.mockReturnValue(true);
+    awaitSvgTextLayoutMock.mockResolvedValue(true);
     window.__macroLoadStart = 0;
   });
 
@@ -246,7 +417,7 @@ describe('Mermaid pasted-whitespace normalisation', () => {
 describe('Mermaid fullscreen viewport controls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    hasLayoutMock.mockReturnValue(true);
+    awaitSvgTextLayoutMock.mockResolvedValue(true);
     window.__macroLoadStart = 0;
     store.state.diagram = {
       ...NULL_DIAGRAM,
@@ -288,11 +459,12 @@ describe('Mermaid fullscreen viewport controls', () => {
     expect(panZoomInstanceMock.zoomOut).toHaveBeenCalledTimes(zoomOutCalls + 1);
     expect(panZoomInstanceMock.zoomIn).toHaveBeenCalledTimes(zoomInCalls + 1);
     expect(panZoomInstanceMock.reset).toHaveBeenCalled();
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_viewport_control_used', {
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', {
       feature_area: 'macro',
       surface: 'fullscreen',
       macro_type: 'mermaid',
       viewport_action: 'zoom_in',
+      viewport_input: 'toolbar',
     });
   });
 
@@ -309,8 +481,8 @@ describe('Mermaid fullscreen viewport controls', () => {
       expect(svgPanZoomMock).toHaveBeenCalled();
     });
     expect(wrapper.find('[aria-label="Zoom in"]').exists()).toBe(true);
-    expect(wrapper.get('.mermaid-viewport').classes()).toContain('mermaid-viewport--interactive');
-    expect(wrapper.get('.mermaid-viewport').classes()).not.toContain('mermaid-viewport--fullscreen');
+    expect(wrapper.get('.diagram-viewport').classes()).toContain('diagram-viewport--interactive');
+    expect(wrapper.get('.diagram-viewport').classes()).not.toContain('diagram-viewport--fullscreen');
   });
 
   it('preserves the natural Mermaid height for the inline pan/zoom viewport', async () => {
@@ -334,11 +506,11 @@ describe('Mermaid fullscreen viewport controls', () => {
     const wrapper = mount(Mermaid, { global: { plugins: [store] } });
 
     await vi.waitFor(() => expect(svgPanZoomMock).toHaveBeenCalled());
-    expect(wrapper.get('.mermaid-viewport').attributes('style')).toContain('height: 200px');
+    expect(wrapper.get('.diagram-viewport').attributes('style')).toContain('height: 200px');
 
     clientWidthSpy.mockReturnValue(300);
-    wrapper.vm.syncInlineViewportHeight();
-    expect(wrapper.get('.mermaid-viewport').attributes('style')).toContain('height: 150px');
+    wrapper.vm.$refs.viewport.syncInlineHeight();
+    expect(wrapper.get('.diagram-viewport').attributes('style')).toContain('height: 150px');
 
     rectSpy.mockRestore();
     computedStyleSpy.mockRestore();

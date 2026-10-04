@@ -59,6 +59,31 @@ describe("_middleware", () => {
     expect(redactedRequestUrlForLogging(url)).toBe(url);
   });
 
+  it("redacts credential query parameters wherever they appear", () => {
+    // The OAuth callback: Atlassian's authorization code, written to
+    // Cloudflare logs verbatim until 2026-09-26.
+    const callback = redactedRequestUrlForLogging(
+      "https://conf-stg-lite.zenuml.com/agent-link/oauth/callback?state=abc123&code=eyJraWQiOiJBVVRI",
+    );
+    expect(callback).not.toContain("eyJraWQiOiJBVVRI");
+    expect(callback).not.toContain("abc123");
+    expect(callback).toContain("/agent-link/oauth/callback");
+
+    // The consent hop: this id alone used to complete an authorization.
+    expect(
+      redactedRequestUrlForLogging("https://conf-stg-lite.zenuml.com/agent-link/oauth/consent?auth=pending-abc"),
+    ).not.toContain("pending-abc");
+
+    // The relay still accepts a session token in the query string.
+    expect(
+      redactedRequestUrlForLogging("https://conf-lite.zenuml.com/agent-link/mcp?token=CL-7F3K-Q9M2"),
+    ).not.toContain("CL-7F3K-Q9M2");
+
+    // A URL carrying none of them is untouched.
+    const plain = "https://conf-lite.zenuml.com/agent-link/oauth/register?x=1";
+    expect(redactedRequestUrlForLogging(plain)).toBe(plain);
+  });
+
   it("answers deeplink-ticket CORS preflight without requiring a Forge token", async () => {
     const next = vi.fn();
     const response = await authMiddleware({

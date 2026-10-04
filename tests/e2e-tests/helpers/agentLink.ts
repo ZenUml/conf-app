@@ -1,4 +1,6 @@
-import { Page } from '@playwright/test';
+import { Page, expect } from '@playwright/test';
+import { PageCreator } from '../utils/page-creator.js';
+import { testConfig } from '../config/test-config.js';
 
 /**
  * Helpers for the Live Agent Link end-to-end test. Two actors share one
@@ -20,8 +22,10 @@ import { Page } from '@playwright/test';
  *    dedicated pairing envelope.
  */
 
-// lite-stg backend (REMOTE_BASE_URL_MAP STAGING_LITE in src/model/globals/forgeGlobal.ts).
-export const AGENT_LINK_STG_BASE = 'https://conf-stg-lite.zenuml.com';
+// Match the active staging app's remote (Diagramly shares Lite's backend).
+export const AGENT_LINK_STG_BASE = testConfig.productType === 'full'
+  ? 'https://conf-stg-full.zenuml.com'
+  : 'https://conf-stg-lite.zenuml.com';
 export const agentLinkMcpUrl = (base = AGENT_LINK_STG_BASE) => `${base}/agent-link/mcp`;
 
 export interface McpResult {
@@ -95,13 +99,42 @@ export async function enableAgentLinkOverrides(page: Page): Promise<void> {
     try {
       localStorage.setItem('mockAgentLinkEnabled', 'true');
       localStorage.setItem('mockSpacePaid', 'true');
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith('agentLinkSession:'))
-        .forEach((k) => localStorage.removeItem(k));
+      // A newly opened fullscreen iframe must retain the inline macro's handoff.
+      // Each normal test owns fresh content, so no previous session needs clearing.
     } catch {
       /* origin without storage access — ignore */
     }
   });
+}
+
+/** A private diagram per test prevents another user's session from blocking mint. */
+export async function openIsolatedAgentLinkPage(page: Page): Promise<void> {
+  if (testConfig.isProd) throw new Error('Agent Link isolated fixtures require a staging profile');
+  await enableAgentLinkOverrides(page);
+  await page.goto(testConfig.baseUrl, { waitUntil: 'domcontentloaded' });
+  const pageId = await new PageCreator(page).createTestPage({ sequence: true });
+  if (!pageId) throw new Error('Agent Link fixture creation returned no page ID');
+  await openMacroPage(page, testConfig.pageUrl(pageId));
+}
+
+/** Mint precedes the fullscreen relay WebSocket bootstrap; wait for readiness. */
+export async function waitForAgentLinkReady(token: string): Promise<void> {
+  await expect.poll(async () => (await agentLinkMcp(token, 'get_status')).status, {
+    timeout: 20000,
+    message: 'fullscreen relay accepts the minted session',
+  }).toBe(200);
+}
+
+/** Disconnect only this test's own live UI session before closing its page. */
+export async function disconnectAgentLink(page: Page): Promise<void> {
+  for (const frame of forgeFrames(page)) {
+    const button = frame.getByTestId('agent-link-disconnect-btn');
+    if (await button.isVisible().catch(() => false)) {
+      await button.click();
+      await expect.poll(() => readPanelClass(page)).toContain('closed');
+      return;
+    }
+  }
 }
 
 /** Navigate to a page with a ZenUML macro and wait for its Forge frame. */
@@ -119,11 +152,7 @@ export async function clickConnectToAgent(page: Page): Promise<boolean> {
   for (const f of forgeFrames(page)) {
     const text = await f.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
     if (/connect to agent/i.test(text)) {
-      await f
-        .getByText(/connect to agent/i)
-        .first()
-        .click({ timeout: 9000 })
-        .catch(() => {});
+      await f.getByRole('button', { name: 'Connect to Agent', exact: true }).click({ timeout: 9000 });
       return true;
     }
   }

@@ -1,0 +1,16 @@
+import {verifyPlan} from './verify-plan.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import {spawnSync} from 'node:child_process';
+const a=Object.fromEntries(process.argv.slice(2).reduce((r,x,i,all)=>x.startsWith('--')?[...r,[x.slice(2),all[i+1]]]:r,[]));
+const plan=JSON.parse(fs.readFileSync(a.plan));
+verifyPlan(plan);
+const shard=plan.shards.find(s=>s.index===Number(a.shard ?? 1));
+if (!shard?.test_ids.length) throw new Error('Unknown or empty shard');
+const tests=plan.tests.filter(t=>shard.test_ids.includes(t.id));
+const list=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'jev-tests-')),'tests.txt');
+fs.writeFileSync(list,tests.map(t=>`[${t.project}] › ${t.file} › ${t.title_path.join(' › ')}`).join('\n'));
+const result=spawnSync('pnpm',['exec','playwright','test','--test-list',list,...shard.projects.map(p=>`--project=${p}`),'--reporter=list,blob,../../scripts/test-selection/evidence.mjs','--ignore-snapshots',...(a.retries ? [`--retries=${a.retries}`] : []),...(a.list ? ['--list'] : [])],{stdio:'inherit',env:{...process.env,TEST_PLAN_PATH:path.resolve(a.plan),TEST_SHARD:String(shard.index)}});
+fs.rmSync(path.dirname(list),{recursive:true,force:true});
+process.exit(result.status ?? 1);

@@ -70,7 +70,27 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
 
-**The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — per-worktree setup cost, start-of-issue steps, cleanup.
+**The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — the overlap scan, per-worktree setup cost, start-of-issue steps, cleanup.
+
+### Scan for overlapping work before starting a branch
+
+Before you create a branch or a worktree for any non-trivial change, check whether the work already
+exists — several sessions and the user work this repo in parallel:
+
+```bash
+git fetch --prune origin
+git branch -r --sort=-committerdate --format='%(committerdate:short)  %(refname:short)  %(contents:subject)' | head -30
+git worktree list
+gh pr list --state open --json number,title,headRefName,updatedAt   # container: mcp__github__list_pull_requests
+```
+
+Judge a candidate by `git diff --name-only origin/main...origin/<branch>`, not by its name. If an
+open PR already does it, **stop and report it** instead of opening a competing branch; if a branch
+holds partial work that is not yours, ask before building on it and never rebase or force-push it.
+In the remote agent container the clone may hold only `main` and your own branch, so `git branch -r`
+alone is not evidence — use the `mcp__github__*` tools.
+
+Full decision table: [docs/policies/git-workflow.md](docs/policies/git-workflow.md#before-starting-scan-for-overlapping-work).
 
 ### Never disrupt another session's working tree
 
@@ -184,9 +204,13 @@ So when checking a PR before merge:
 - The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
 - `.md` / `docs/**` / `.claude/**` / `.cursor/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
 
+### Release order — diagramly → lite → full
+
+Production releases go **Diagramly first** (canary), then **Lite** for the same commit SHA, then **Full** no sooner than 7 days after Lite; AsyncAPI is independent. Never offer Lite or Full as the first release step. Gates and scripts: the **release-app** skill, "Variants & gates".
+
 ### Release pipeline time budget
 
-Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. Full's E2E on `main` waits for Lite's unless the merge message carries `[full-first]` or the repo variable `FULL_DRAFT_LANE` is `now`. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. Full's E2E on `main` waits for Lite's unless the merge message carries `[full-first]` or the repo variable `FULL_DRAFT_LANE` is `now`. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared file runs everything, and `main` always does. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
 
 ### Analytics & observability
 
@@ -213,7 +237,17 @@ Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). 
 agent-browser --session conf-app --restore=stg <command>
 ```
 
-`--session conf-app --restore=stg` loads a saved login state from `~/.agent-browser/sessions/stg-conf-app.json` (robot1yanhui, `cloud.session.token` valid to 2026-09-15). Without it every invocation starts on a blank profile and lands on the Atlassian login page. The SSO token covers any `*.atlassian.net` site the account belongs to; a site's first visit costs one redirect, then its cookie is cached.
+`--session conf-app --restore=stg` loads a saved login state from `~/.agent-browser/sessions/stg-conf-app.json` (robot1yanhui) and re-saves it after every run; the id.atlassian.com session is valid to 2026-10-09 as of 2026-09-30. Keep this session name fixed — every new session name leaves another cookie file. Without it every invocation starts on a blank profile and lands on the Atlassian login page. The SSO token covers any `*.atlassian.net` site the account belongs to; a site's first visit costs one redirect, then its cookie is cached.
+
+Identity to mechanism:
+
+| Identity | Mechanism | Use for |
+|---|---|---|
+| robot1yanhui@aol.com (non-admin test user) | `agent-browser --session conf-app --restore=stg` | conf-app staging checks, customer-like view |
+| support@zenuml.com (org admin) | `agent-browser --session <name> --profile ~/.agent-browser/profiles/atlassian`, after `~/.claude/skills/browser-check/scripts/atlassian-warmup.zsh <site>...` (subdomains, e.g. `zenuml lite-stg`; exit 0 = signed in) | admin pages, JSM support queue, AsyncAPI |
+| eagle.xiao@gmail.com (`FORGE_EMAIL`) | `agent-browser --profile "Profile 8"` | forge tunnel only |
+
+JS inside a cross-origin macro iframe: `agent-browser --session S frame --url <substring>` (or `frame @eNNN` from a snapshot ref), then `eval -b <base64>` / `eval "<js>"`, then `frame main` to return. `localStorage` set/get works in the iframe's origin. When several frames match one `--url`, `eval` runs in one of them — use a more specific substring or a snapshot ref. Read and click inside iframes with snapshot refs (`click @eNNN`); use `keyboard type` for real keystrokes (`fill` bypasses input events). Playwright MCP is the fallback when agent-browser fails, and is still required for file upload inside a Forge iframe (untested with agent-browser).
 
 | Tool | OOPIF snapshot | OOPIF `eval` | OOPIF console | snapshot token |
 |---|---|---|---|---|
@@ -245,7 +279,7 @@ The DrawIO **instance** is a separate matter: the deployed build keeps its UI ob
 
 Kimi WebBridge cannot be used for Forge work at all: its snapshot omits OOPIF subtrees, and its `cdp` passthrough is `chrome.debugger`, which rejects `Target.getTargets` and `Target.attachToTarget` with `Not allowed`.
 
-**This section overrides the skills.** Twelve `.claude/skills/*/SKILL.md` files still spell their browser steps as `mcp__playwright__*` calls. Their *logic* (which page, which selector, which assertion) is still correct — translate the mechanics to agent-browser as you go:
+**This section overrides any skill that still spells browser steps as `mcp__playwright__*` calls.** Their *logic* (which page, which selector, which assertion) is correct — translate the mechanics to agent-browser as you go:
 
 | Playwright MCP | agent-browser (prefix every call with `--session conf-app --restore=stg`) |
 |---|---|

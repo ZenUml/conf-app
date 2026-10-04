@@ -71,7 +71,8 @@ export const Document: Story = {
 
 export const BrokenDiagram: Story = {
   decorators: [() => {
-    configure(document + '\n## Invalid diagram\n\n```mermaid\nthis is not a diagram\n```\n\nText after the invalid diagram stays visible.\n')
+    configure(document + '\n## Invalid diagram\n\n```mermaid\nthis is not a diagram\n```\n\nText after the invalid diagram stays visible.\n'
+      + '\n## Semicolon in a sequence note\n\n```mermaid\nsequenceDiagram\n  participant Script\n  participant Integ\n  Note over Script,Integ: Files left untouched;<br/>next cap_end retries\n```\n')
     return { template: '<story />' }
   }],
 }

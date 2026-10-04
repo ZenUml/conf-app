@@ -290,6 +290,8 @@ test('a spec-mode continuation inlines the current layout.json; script mode does
     const spec=prepareAgentTask(input,{resumeRunDir:job.runDir});
     assert.match(spec.prompt,/<current-layout-json>\n\{"canvas":\{"w":10,"h":10\},"marker":"INLINE-ME"\}\n<\/current-layout-json>/);
     assert.match(spec.prompt,/Do not read files to recover state/);
+    assert.match(spec.prompt,/edit tool on layout\.json/);
+    assert.doesNotMatch(spec.prompt,/`layout` argument/);
     delete process.env.PI_DIAGRAM_SPEC_MODE;
     const script=prepareAgentTask(input,{resumeRunDir:job.runDir});
     assert.doesNotMatch(script.prompt,/current-layout-json/);

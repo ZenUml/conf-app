@@ -36,7 +36,7 @@ test('diagram_render_spec is registered only in spec mode; diagram_inspect alway
   await withEnv({PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined},()=>{const f=fakePi();ext(f.pi);
     assert.ok(f.tools.has('diagram_inspect'));assert.equal(f.tools.has('diagram_render_spec'),false);assert.ok(f.commands.has('magic'))});
   await withEnv({PI_DIAGRAM_SPEC_MODE:'1'},()=>{const f=fakePi();ext(f.pi);
-    const t=f.tools.get('diagram_render_spec');assert.ok(t);assert.deepEqual(Object.keys(t.parameters.properties),['jobId','layout']);
+    const t=f.tools.get('diagram_render_spec');assert.ok(t);assert.deepEqual(Object.keys(t.parameters.properties),['jobId']);
     assert.match(t.description,/layout\.json/);assert.match(t.description,/never moves|does not move/i);assert.ok(f.tools.has('diagram_inspect'))});
 });
 
@@ -95,28 +95,17 @@ test('PI_DIAGRAM_SPEC_MODE=required registers diagram_render_spec and sends the 
   });
 });
 
-test('a `layout` argument writes layout.json and renders it in the same call; oversize or a symlinked layout.json is refused',async()=>{
-  await withEnv({PI_DIAGRAM_SPEC_MODE:'1',PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined},async()=>{
-    const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-spec-arg-')),input=path.join(root,'s.mmd');fs.writeFileSync(input,SRC);
+test('spec prompt asks for small edits to layout.json and never a re-sent layout; the tools take only a jobId',async()=>{
+  await withEnv({PI_DIAGRAM_SPEC_MODE:'required',PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined},async()=>{
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-spec-edit-')),input=path.join(root,'s.mmd');fs.writeFileSync(input,SRC);
     const f=fakePi();ext(f.pi);
     await f.commands.get('magic').handler(input,f.ctx);
     const runDir=/private work directory: (\S+)/.exec(f.notes.map(n=>n[0]).join('\n'))[1];
     try{
-      const jobId=/job ID: ([0-9a-f-]{36})/.exec(f.sent[0])[1];
-      assert.match(f.sent[0],/`layout` argument/);
-      const tool=f.tools.get('diagram_render_spec');
-      const good={...layout,edges:[{source:'A',target:'B',points:[[140,92],[260,92]]}]};
-      let r=await tool.execute('a1',{jobId,layout:JSON.stringify(good)});
-      assert.match(r.content[0].text,/Rendered candidate\.svg.*2 nodes, 1 edges/);
-      assert.deepEqual(JSON.parse(fs.readFileSync(path.join(runDir,'layout.json'),'utf8')),good);
-      const before=fs.readFileSync(path.join(runDir,'layout.json'),'utf8');
-      r=await tool.execute('a2',{jobId,layout:'x'.repeat(2_000_001)});
-      assert.match(r.content[0].text,/SCHEMA_ERROR: the layout argument is \d+ bytes/);
-      assert.equal(fs.readFileSync(path.join(runDir,'layout.json'),'utf8'),before,'an oversize argument leaves layout.json untouched');
-      fs.rmSync(path.join(runDir,'layout.json'));fs.symlinkSync(path.join(root,'elsewhere.json'),path.join(runDir,'layout.json'));
-      r=await tool.execute('a3',{jobId,layout:JSON.stringify(good)});
-      assert.match(r.content[0].text,/SCHEMA_ERROR: layout\.json is a symbolic link/);
-      assert.equal(fs.existsSync(path.join(root,'elsewhere.json')),false,'never writes through a symlink');
+      assert.doesNotMatch(f.sent[0],/`layout` argument/);
+      assert.match(f.sent[0],/edit tool on layout\.json/);
+      assert.match(f.sent[0],/never rewrite or re-send the whole layout/);
+      assert.deepEqual(Object.keys(f.tools.get('diagram_render_spec').parameters.properties),['jobId']);
     }finally{fs.rmSync(runDir,{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true})}
   });
 });

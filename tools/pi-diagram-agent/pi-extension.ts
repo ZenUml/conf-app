@@ -11,7 +11,7 @@ import { safeRunDir } from './src/manifest.mjs';
 import { judgeRunDir, acceptWithJudge } from './src/judge-run.mjs';
 import { createPiJudgeFactory, resolveJudgeModel, judgeThinkingFromEnv } from './src/judge.mjs';
 import { createThinkingSwitch, resolveFirstDraftThinking } from './src/thinking-switch.mjs';
-import { createSpecRenderer, writeLayoutArgument, SPEC_TOOL_DESCRIPTION, specModeFromEnv } from './src/spec-tool.mjs';
+import { createSpecRenderer, SPEC_TOOL_DESCRIPTION, specModeFromEnv } from './src/spec-tool.mjs';
 import { createBuildStep } from './src/build-step.mjs';
 import { createCallGuard, maxCallMsFromEnv } from './src/call-guard.mjs';
 
@@ -244,12 +244,10 @@ export default function (pi: ExtensionAPI) {
       name: 'diagram_build_check',
       label: 'Build the candidate and run the binding script check',
       description: 'The normal edit loop. In one call: (1) runs your generator (python3 make.py in the run directory, 60 s limit; or renders layout.json in spec mode, where PI_DIAGRAM_SPEC_MODE=required ignores make.py and candidate.svg; or uses candidate.svg as written), (2) hashes the resulting candidate.svg bytes, (3) runs the full deterministic auditor plus measured geometry and early checks, (4) returns TEXT ONLY: the sha256, PASS/FAIL per check, and actionable findings (including repairHint/moveHint evidence) and the check budget left. Identical bytes are served from a cache (still counted). diagram_submit accepts only a hash whose latest check has no FAIL. Not visual evidence: call diagram_inspect for images.',
-      parameters: Type.Object({ jobId: Type.String(), layout: Type.Optional(Type.String({ description: 'Spec mode only: the whole layout JSON. Written to layout.json in the run directory, then built in this same call.' })) }),
+      parameters: Type.Object({ jobId: Type.String() }),
       async execute(_id, params, _signal, _onUpdate, ctx) {
         const job = jobs.get(params.jobId);
         if (!job?.buildCheck) throw Error('UNKNOWN_DIAGRAM_JOB');
-        const refused = specMode ? writeLayoutArgument(job.runDir, params.layout) : null;
-        if (refused) return { content: [{ type: 'text', text: refused }], details: { status: 'SCHEMA_ERROR' } };
         return await job.buildCheck(ctx);
       },
     }));
@@ -270,12 +268,10 @@ export default function (pi: ExtensionAPI) {
       name: 'diagram_render_spec',
       label: 'Render layout.json to candidate.svg',
       description: SPEC_TOOL_DESCRIPTION,
-      parameters: Type.Object({ jobId: Type.String(), layout: Type.Optional(Type.String({ description: 'Spec mode only: the whole layout JSON. Written to layout.json in the run directory, then built in this same call.' })) }),
+      parameters: Type.Object({ jobId: Type.String() }),
       async execute(_id, params) {
         const job = jobs.get(params.jobId);
         if (!job) throw Error('UNKNOWN_DIAGRAM_JOB');
-        const refused = writeLayoutArgument(job.runDir, params.layout);
-        if (refused) return { content: [{ type: 'text', text: refused }], details: { status: 'SCHEMA_ERROR' } };
         return await job.renderSpec();
       },
     }));

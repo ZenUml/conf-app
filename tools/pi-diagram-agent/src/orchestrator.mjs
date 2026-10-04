@@ -339,6 +339,8 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     for(const f of c.findings)if(f.severity==='blocking')out[f.rule]='FAIL';
     return out;
   };
+  // Relaxed CHECK_PASS: no blocking finding exists, so any audit FAIL left in the map is advisory-only; it is shown as ADVISORY so it does not read as work to do.
+  const advisoryStatuses=m=>Object.fromEntries(Object.entries(m).map(([k,v])=>[k,v==='FAIL'?'ADVISORY':v]));
   // Relaxed gate: advance the blocking-finding history by one check. Returns the findings fixed earlier and broken again, with the check that fixed them.
   function trackBlocking(c,seq){
     const cur_=new Map(c.findings.filter(f=>f.severity==='blocking').map(f=>[f.key,f]));
@@ -376,7 +378,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const relaxedFail=()=>`Fix ALL ${blocking.length} blocking finding(s) listed (repairHint/moveHint are evidence you may use or ignore), then call diagram_build_check again. ${l.checksLeftThisRound} check(s) left this round.${advisoryMore?` Advice: top 3 shown, +${advisoryMore} more not shown.`:''}`;
     // Relaxed CHECK_PASS: no advisory detail (rule names, advice, +N more), so nothing in the reply invites another polishing check.
     const relaxedPass=relaxed&&!fail;
-    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:checkStatuses(c),failed:failedRules(c),...(relaxedPass?{}:{advisoryRules:advisoryRules(c)}),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,...(relaxed&&fail?{advice:minors.slice(0,3).map(toAdviceItem),advisoryMore,...(regressions?.length?{regressions}:{})}:{}),notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
+    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:relaxedPass?advisoryStatuses(checkStatuses(c)):checkStatuses(c),failed:failedRules(c),...(relaxedPass?{}:{advisoryRules:advisoryRules(c)}),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,...(relaxed&&fail?{advice:minors.slice(0,3).map(toAdviceItem),advisoryMore,...(regressions?.length?{regressions}:{})}:{}),notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
       next:fail
         ?(last?`${relaxed?regressionNote:''}This was your last build_check ${l.checksLeftThisRun===0?'of the run':'this round'}. If you submit now with FAILs remaining, an escalation review decides: semantic FAILs are rejected, border-grazing or unavoidable-crossing FAILs may be waived, anything else comes back as layout advice. Better: fix what you can and submit.`:relaxed?regressionNote+relaxedFail():`Fix these findings (repairHint/moveHint are evidence you may use or ignore), then call diagram_build_check again. ${l.checksLeftThisRound} check(s) left this round.`)
         :relaxed?submitNowText(c.hash)

@@ -258,3 +258,37 @@ test('strict: diagram_inspect is not annotated',async()=>{
     assert.equal('next' in inspectBody(t.run.annotateInspection(inspectResult())),false);
   }finally{t.cleanup()}
 });
+
+test('relaxed: a CHECK_PASS reply shows advisory-only audit FAILs as ADVISORY in checks',async()=>{
+  const t=setup();
+  try{
+    t.write(withMarker('a',ADVICE));
+    const r=await t.check();
+    assert.equal(r.status,'CHECK_PASS');
+    assert.equal(Object.values(r.checks).includes('FAIL'),false);
+    for(const k of ADVICE)if(k in r.checks)assert.equal(r.checks[k],'ADVISORY',k);
+    assert.equal(r.checks.routeCrossings,'ADVISORY');
+    assert.equal(r.checks.nodeIdentity,'PASS');
+  }finally{t.cleanup()}
+});
+
+test('relaxed: a CHECK_FAIL reply keeps FAIL for advisory audit checks',async()=>{
+  const t=setup();
+  try{
+    t.write(withMarker('a',['nodeText',...ADVICE]));
+    const r=await t.check();
+    assert.equal(r.status,'CHECK_FAIL');
+    assert.equal(r.checks.routeCrossings,'FAIL');assert.equal(r.checks.nodeText,'FAIL');
+    assert.equal(Object.values(r.checks).includes('ADVISORY'),false);
+  }finally{t.cleanup()}
+});
+
+test('strict: a CHECK_PASS reply never shows ADVISORY in checks',async()=>{
+  const t=setup({gate:'strict'});
+  try{
+    t.write(svg('clean'));
+    const r=await t.check();
+    assert.equal(r.status,'CHECK_PASS');
+    assert.equal(Object.values(r.checks).includes('ADVISORY'),false);
+  }finally{t.cleanup()}
+});

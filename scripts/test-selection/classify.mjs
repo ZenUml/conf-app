@@ -4,7 +4,7 @@ import { writeFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { CATEGORY_VERSION, CATEGORIES } from '../../tests/e2e-tests/config/categories.mjs';
 
-export const POLICY_VERSION = 'v2-guarded-uncalibrated';
+export const POLICY_VERSION = 'v3-guarded-uncalibrated';
 export const MAX_DIFF_BYTES = 180000;
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
 export function pathRule(path) {

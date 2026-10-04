@@ -88,7 +88,7 @@ const SUGGESTIONS={
   labelFontFit:'After the whole SVG is scaled to fit 1200x710, every primary node label (data-role="label") must be at least 12 px. Enlarge the font within the labelBox (the largest whole size that fits, up to 28), use a smaller tier with a larger font, or fold or relayout to reduce the canvas.',
   nodeHeadingClearance:'Move the listed node (and its group if needed) so its outline keeps at least 8 units from the group heading/subtitle text and at least 8 units from the border of its container; reserve a heading band at the top of the container.',
   labelClearance:'Move the edge label so its box does not touch any node or container outline.',
-  labelCoversRoute:'An edge label background must never hide another route: widen the gap or spread the ports so the label can sit on its own route (centred on a straight segment) or beside it without touching a neighbouring route; never push the label away from its own route.',
+  labelCoversRoute:'An edge label background must never hide another route or any arrowhead, its own included (a label on its own arrowhead: move the label along its own route away from the arrowhead): widen the gap or spread the ports so the label can sit on its own route (centred on a straight segment) or beside it without touching a neighbouring route; never push the label away from its own route.',
   edgeLabelStyle:'An edge label has no border and always has a background: remove every stroke from the label pill or background shape (stroke="none"), and put an opaque fill (alpha 1, no fill-opacity or group opacity) matching the canvas behind the text, covering the whole text.',
   routeNodeIntrusion:'Re-route the edge so it stays out of unrelated nodes and starts/ends on its own node outlines.',
   routeHeadingClearance:'Re-route the edge away from the group heading text (2-unit guard).',
@@ -125,7 +125,7 @@ function crossingHintText(violations){
 // Concise author-facing text for labelCoversRoute: a free stretch of the label's own route, or the reason there is none (evidence, the author decides).
 function labelHintText(violations){
   return [...new Set(violations.map(v=>v.repairHint
-    ?`the label of ${v.edge} fits on its own route centred at (${v.repairHint.x}, ${v.repairHint.y})${v.repairHint.vertical?', drawn vertical':''}, clear of every other route`
+    ?`the label of ${v.edge} fits on its own route centred at (${v.repairHint.x}, ${v.repairHint.y})${v.repairHint.vertical?', drawn vertical':''}, clear of every other route and every arrowhead`
     :`${v.edge}: ${v.reason??'no free stretch of its own route was found'}; change the layout (widen the gap, spread the ports)`))].join('; ');
 }
 const fx=v=>v?`${v.offset} units (${v.fraction===null?'n/a':v.fraction} of the ${v.faceLength}-unit face)`:'n/a';

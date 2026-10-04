@@ -25,7 +25,8 @@ function actualStraightSpans(d){
   const tokens=[];let at=0;
   const token=/\s*,?\s*([MLQA]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/y;
   while(at<d.length){if(!d.slice(at).trim())break;token.lastIndex=at;const m=token.exec(d);if(!m)return null;tokens.push(m[1]);at=token.lastIndex}
-  const spans=[];let point=null,lastCommand=null,pending=null;
+  const spans=[];let point=null,lastCommand=null,pending=null,endDir=null;
+  const unitDir=(from,to)=>{const dx=to[0]-from[0],dy=to[1]-from[1],l=Math.hypot(dx,dy);return l>eps?[dx/l,dy/l]:null};
   for(let i=0;i<tokens.length;){
     const command=tokens[i++],arity={M:2,L:2,Q:4,A:7}[command];
     lastCommand=command;
@@ -33,8 +34,10 @@ function actualStraightSpans(d){
     const args=tokens.slice(i,i+arity).map(Number);i+=arity;
     if(!args.every(Number.isFinite))return null;
     const next=command==='A'?[args[5],args[6]]:[args.at(-2),args.at(-1)];
-    if(command==='M'){point=next;pending=null;continue}
+    if(command==='M'){point=next;pending=null;endDir=null;continue}
     if(!point)return null;
+    // Direction at the drawn end (where marker-end sits): a line's own direction, a quadratic's end tangent, unknown after an arc.
+    endDir=command==='L'?unitDir(point,next)??endDir:command==='Q'?unitDir([args[0],args[1]],next)??unitDir(point,next):null;
     // A fillet's control point is the logical corner of the straight span before it.
     if(command==='Q'&&pending)pending.corner=pending.axis==='h'?args[0]:args[1];
     pending=null;
@@ -51,6 +54,8 @@ function actualStraightSpans(d){
     point=next;
   }
   spans.lastCommand=lastCommand;
+  spans.endPoint=point;
+  spans.endDir=endDir;
   return spans;
 }
 
@@ -150,7 +155,9 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
         const viewBoxUnit=viewBox?.length===4&&viewBox.every(Number.isFinite)&&Math.abs(viewBox[0])<1e-8&&Math.abs(viewBox[1])<1e-8&&Math.abs(viewBox[2]-Number(marker?.getAttribute('markerWidth')))<1e-8&&Math.abs(viewBox[3]-Number(marker?.getAttribute('markerHeight')))<1e-8;
         const markerScale=marker?.hasAttribute('viewBox')&&!viewBoxUnit?NaN:marker?.getAttribute('markerUnits')==='userSpaceOnUse'?1:strokeWidth;
         const axialLength=markerBox&&Number.isFinite(refX)&&Number.isFinite(markerScale)?Math.max(0,(refX-markerBox.x)*markerScale):null;
-        result.markerDrawing={found:!!marker,shapeCount:markerChildren.length,visible:!!markerStyle&&markerStyle.fill!=='none'&&markerStyle.fill!=='rgba(0, 0, 0, 0)'&&markerStyle.display!=='none'&&markerStyle.visibility==='visible'&&Number(markerStyle.opacity)>0&&!!markerBox&&markerBox.width>0&&markerBox.height>0&&Math.abs(markerDeterminant)>1e-8,colorMatches:!!markerStyle&&(markerStyle.fill===edgeStroke||markerStyle.fill==='context-stroke'),axialLength};
+        // Head footprint around the path end, measured from the same marker box and scale: back/forward along the end direction, perpendicular extent beside it.
+        const head=markerBox&&Number.isFinite(refX)&&Number.isFinite(markerScale)&&Number.isFinite(Number(marker?.getAttribute('refY')??0))?(()=>{const refY=Number(marker.getAttribute('refY')??0);return {back:Math.max(0,(refX-markerBox.x)*markerScale),forward:Math.max(0,(markerBox.x+markerBox.width-refX)*markerScale),perpLo:(markerBox.y-refY)*markerScale,perpHi:(markerBox.y+markerBox.height-refY)*markerScale}})():null;
+        result.markerDrawing={found:!!marker,head,shapeCount:markerChildren.length,visible:!!markerStyle&&markerStyle.fill!=='none'&&markerStyle.fill!=='rgba(0, 0, 0, 0)'&&markerStyle.display!=='none'&&markerStyle.visibility==='visible'&&Number(markerStyle.opacity)>0&&!!markerBox&&markerBox.width>0&&markerBox.height>0&&Math.abs(markerDeterminant)>1e-8,colorMatches:!!markerStyle&&(markerStyle.fill===edgeStroke||markerStyle.fill==='context-stroke'),axialLength};
         if(!(el instanceof SVGGeometryElement))return result;
         const length=el.getTotalLength();
         const start=el.getPointAtLength(0),end=el.getPointAtLength(length);
@@ -567,9 +574,10 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     else for(const v of routeCrossings.evidence.violations){v.repairHint=null;v.reason='no neutral per-relation binding, so no route search was possible'}
   }
   // R4(b) (user decision 2026-10-03): an edge label's box (its rotated footprint when rotated) must not intersect any route other than its own.
-  // Node and container outlines are labelClearance's; this check only looks at other routes, so nothing is reported twice.
+  // User rule 2026-10-05 ("标签覆盖箭头的时候应该判定失败"): it must not cover any arrowhead either, its own route's included; its own straight shaft stays allowed (R2).
+  // Node and container outlines are labelClearance's; this check only looks at routes and arrowheads, so nothing is reported twice.
   const labelCoversRoute=timed('node.labelCoversRoute',()=>{
-    const method='tagged edge-label box in root user space (rotated footprint when rotated) versus the actual straight SVG centerline spans of every other route, 0.5-unit stroke allowance; a curve envelope overlap with no straight-span hit is unknown, not evidence; node and container outlines belong to labelClearance';
+    const method='tagged edge-label box in root user space (rotated footprint when rotated) versus (a) the actual straight SVG centerline spans of every other route and (b) the arrowhead of every route including its own: the measured marker-end footprint (axial length back from the path end, any forward overhang, measured width) aligned with the drawn end direction, 0.5-unit allowance on both; a curve envelope overlap with no straight-span hit, or a label within 20 units of an end whose head geometry cannot be measured, is unknown, not evidence; marker-start is not read (bidirectional edges are not checkable in the parser); node and container outlines belong to labelClearance';
     if(!(relations.status==='PASS'&&routeSpans.every(e=>e.spans)))return {status:'NOT-CHECKABLE',evidence:'edge drawing uses unsupported SVG path grammar or exact relation binding unavailable'};
     const PAD=0.5,STEP=2,TAIL=20;
     const labels=(drawn.labelBoxes??[]).filter(l=>l.box);
@@ -577,10 +585,23 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
     const hitSpan=(b,sp)=>sp.axis==='h'?sp.fixed>b.y-PAD&&sp.fixed<b.y+b.h+PAD&&sp.hi>b.x-PAD&&sp.lo<b.x+b.w+PAD:sp.fixed>b.x-PAD&&sp.fixed<b.x+b.w+PAD&&sp.hi>b.y-PAD&&sp.lo<b.y+b.h+PAD;
     const hitBox=(a,c,pad=0)=>a.x<c.x+c.w+pad&&a.x+a.w>c.x-pad&&a.y<c.y+c.h+pad&&a.y+a.h>c.y-pad;
     const r1=v=>Math.round(v*10)/10;
+    // Arrowhead box per route: the measured head footprint, its axes aligned with the end direction (marker local y = direction rotated +90 degrees).
+    const heads=routeSpans.map((route,i)=>{
+      const md=drawn.edges[i].markerDrawing,end=route.spans.endPoint,dir=route.spans.endDir;
+      if(!md?.found)return {edge:route.edge,box:null,end:null};
+      const h=md.head;
+      if(!h||!end||!dir)return {edge:route.edge,box:null,end};
+      const [dx,dy]=dir,xs=[],ys=[];
+      for(const along of [-h.back,h.forward])for(const across of [h.perpLo,h.perpHi]){xs.push(end[0]+along*dx-across*dy);ys.push(end[1]+along*dy+across*dx)}
+      return {edge:route.edge,box:{x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)},end};
+    });
     const violations=[],unknown=[];
     for(const l of labels){
-      const own=`${l.source}->${l.target}`,found=new Map();
+      const own=`${l.source}->${l.target}`,found=new Map(),headHits=new Map();
       routeSpans.forEach((route,i)=>{
+        const head=heads[i];
+        if(head.box&&hitBox(l.box,head.box,PAD)){const c=head.box,x0=Math.max(l.box.x,c.x),y0=Math.max(l.box.y,c.y);headHits.set(route.edge,{x:x0,y:y0,w:Math.max(0,Math.min(l.box.x+l.box.w,c.x+c.w)-x0),h:Math.max(0,Math.min(l.box.y+l.box.h,c.y+c.h)-y0)})}
+        else if(!head.box&&head.end&&hitBox(l.box,{x:head.end[0],y:head.end[1],w:0,h:0},TAIL))unknown.push({edge:own,coveredEdge:route.edge,reason:'the label is near a route end whose arrowhead geometry could not be measured'});
         if(route.edge===own)return;
         for(const sp of route.spans){
           if(!hitSpan(l.box,sp))continue;
@@ -590,28 +611,33 @@ export async function auditAgentSvg(source,svg,{originalSvg=null,playwrightModul
           if(!prev)found.set(route.edge,o);
           else{const x0=Math.min(prev.x,o.x),y0=Math.min(prev.y,o.y),x1=Math.max(prev.x+prev.w,o.x+o.w),y1=Math.max(prev.y+prev.h,o.y+o.h);found.set(route.edge,{x:x0,y:y0,w:x1-x0,h:y1-y0})}
         }
-        if(!found.has(route.edge)&&hulls[i]?.some(c=>hitBox(l.box,c)))unknown.push({edge:own,coveredEdge:route.edge,reason:'the label overlaps only the conservative envelope of a curved portion'});
+        if(!found.has(route.edge)&&!headHits.has(route.edge)&&hulls[i]?.some(c=>hitBox(l.box,c)))unknown.push({edge:own,coveredEdge:route.edge,reason:'the label overlaps only the conservative envelope of a curved portion'});
       });
-      for(const [covered,o] of found){
-        // Repair hint: a stretch of the label's own straight segments where the label, centred on the segment, touches no other route, node or label.
-        const ownSpans=routeSpans.find(e=>e.edge===own)?.spans??[];
-        const long=Math.max(l.box.w,l.box.h),short=Math.min(l.box.w,l.box.h);
-        const otherLabels=labels.filter(x=>x!==l).map(x=>x.box),nodeBoxes=drawn.lbNodes.map(n=>n.bbox).filter(Boolean);
-        let hint=null;
-        for(const sp of [...ownSpans].sort((a,b)=>b.length-a.length)){
-          const horizontal=sp.axis==='h',w=horizontal?long:short,h=horizontal?short:long,half=(horizontal?w:h)/2;
-          const lo=sp.lo+half,hi=sp.hi-half-(sp===ownSpans.at(-1)?TAIL:0);
-          if(hi<lo)continue;
-          const mid=Math.min(hi,Math.max(lo,(sp.lo+sp.hi)/2));
-          for(let k=0;k<=Math.ceil((hi-lo)/STEP)&&!hint;k++)for(const pos of k===0?[mid]:[mid-k*STEP,mid+k*STEP]){
-            if(pos<lo||pos>hi)continue;
-            const b=horizontal?{x:pos-w/2,y:sp.fixed-h/2,w,h}:{x:sp.fixed-w/2,y:pos-h/2,w,h};
-            const clear=!routeSpans.some(r=>r.edge!==own&&r.spans.some(o2=>hitSpan(b,o2)))&&!nodeBoxes.some(n=>hitBox(b,n))&&!otherLabels.some(n=>hitBox(b,n));
-            if(clear){hint={edge:own,x:r1(horizontal?pos:sp.fixed),y:r1(horizontal?sp.fixed:pos),axis:sp.axis,vertical:!horizontal};break}
-          }
-          if(hint)break;
+      if(!found.size&&!headHits.size)continue;
+      // Repair hint: a stretch of the label's own straight segments where the label, centred on the segment, touches no other route, no arrowhead, node or label.
+      const ownSpans=routeSpans.find(e=>e.edge===own)?.spans??[];
+      const long=Math.max(l.box.w,l.box.h),short=Math.min(l.box.w,l.box.h);
+      const otherLabels=labels.filter(x=>x!==l).map(x=>x.box),nodeBoxes=drawn.lbNodes.map(n=>n.bbox).filter(Boolean),headBoxes=heads.map(h=>h.box).filter(Boolean);
+      let hint=null;
+      for(const sp of [...ownSpans].sort((a,b)=>b.length-a.length)){
+        const horizontal=sp.axis==='h',w=horizontal?long:short,h=horizontal?short:long,half=(horizontal?w:h)/2;
+        const lo=sp.lo+half,hi=sp.hi-half-(sp===ownSpans.at(-1)?TAIL:0);
+        if(hi<lo)continue;
+        const mid=Math.min(hi,Math.max(lo,(sp.lo+sp.hi)/2));
+        for(let k=0;k<=Math.ceil((hi-lo)/STEP)&&!hint;k++)for(const pos of k===0?[mid]:[mid-k*STEP,mid+k*STEP]){
+          if(pos<lo||pos>hi)continue;
+          const b=horizontal?{x:pos-w/2,y:sp.fixed-h/2,w,h}:{x:sp.fixed-w/2,y:pos-h/2,w,h};
+          const clear=!routeSpans.some(r=>r.edge!==own&&r.spans.some(o2=>hitSpan(b,o2)))&&!headBoxes.some(c=>hitBox(b,c,PAD))&&!nodeBoxes.some(n=>hitBox(b,n))&&!otherLabels.some(n=>hitBox(b,n));
+          if(clear){hint={edge:own,x:r1(horizontal?pos:sp.fixed),y:r1(horizontal?sp.fixed:pos),axis:sp.axis,vertical:!horizontal};break}
         }
-        violations.push({edge:own,coveredEdge:covered,overlap:{x:r1(o.x),y:r1(o.y),w:r1(o.w),h:r1(o.h)},labelBox:{x:r1(l.box.x),y:r1(l.box.y),w:r1(l.box.w),h:r1(l.box.h)},repairHint:hint,...(hint?{}:{reason:'no straight stretch of its own route is long enough and free of other routes, nodes and labels to hold the label'})});
+        if(hint)break;
+      }
+      for(const covered of new Set([...found.keys(),...headHits.keys()])){
+        const o=found.get(covered),hh=headHits.get(covered);
+        const coveredPart=o&&hh?'route and arrowhead':hh?'arrowhead':'route';
+        const finding=`label of ${own} covers the ${coveredPart==='route'?'route':coveredPart==='arrowhead'?'arrowhead':'route and the arrowhead'} of ${covered}`;
+        const box=hh&&o?{x:Math.min(o.x,hh.x),y:Math.min(o.y,hh.y),w:Math.max(o.x+o.w,hh.x+hh.w)-Math.min(o.x,hh.x),h:Math.max(o.y+o.h,hh.y+hh.h)-Math.min(o.y,hh.y)}:o??hh;
+        violations.push({edge:own,coveredEdge:covered,coveredPart,finding,overlap:{x:r1(box.x),y:r1(box.y),w:r1(box.w),h:r1(box.h)},labelBox:{x:r1(l.box.x),y:r1(l.box.y),w:r1(l.box.w),h:r1(l.box.h)},repairHint:hint,...(hint?{}:{reason:'no straight stretch of its own route is long enough and free of other routes, arrowheads, nodes and labels to hold the label'})});
       }
     }
     const unbound=(labelClearance.evidence.unboundLabels?.length??0)>0;

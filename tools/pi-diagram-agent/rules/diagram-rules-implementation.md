@@ -59,5 +59,5 @@ For every transformation:
 
 1. Compare the rendered original and transformed SVG.
 2. Check that node count, labels, and relationship count/direction are unchanged unless the user explicitly approved a semantic change. A relationship whose endpoint is a subgraph (`A --> SomeGroup`) is a relationship too: draw it to the group outline and count it; redrawing it to a member node changes the semantics (one extra and one missing relationship).
-3. Run geometric checks for unintended crossings, node collisions, marker orientation, endpoint placement, and label/line overlap.
+3. Run geometric checks for unintended crossings, node collisions, marker orientation, endpoint placement, and label/line overlap. A label that covers any arrowhead, including its own route's, fails (blocking: audit `labelCoversRoute`, spec renderer `label-on-arrowhead`); move the label along its own route away from the arrowhead.
 4. Inspect representative rendered regions; report remaining visual defects separately from semantic/design questions.

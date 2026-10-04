@@ -63,3 +63,20 @@ test('spec renderer: label.vertical must be a boolean; unknown label keys stay e
   assert.throws(()=>renderSpec(withLabel({text:'Yes',x:487,y:142,vertical:'yes'})),e=>e.errors?.[0]?.path==='edges[1].label.vertical'&&/true or false/.test(e.errors[0].message));
   assert.throws(()=>renderSpec(withLabel({text:'Yes',x:487,y:142,angle:90})),e=>e.errors?.[0]?.path==='edges[1].label.angle');
 });
+
+// User rule (2026-10-05): a label over an arrowhead blocks, including its own route's arrowhead. B->C ends at (540,160): head x 530..540, y 155..165.
+test('spec renderer: a label over its own arrowhead is a blocking label-on-arrowhead finding; mid-leg on its own route is not',()=>{
+  const onHead=renderSpec(withLabel({text:'Yes',x:515,y:160}));
+  const [f]=rulesOf(onHead,'label-on-arrowhead');
+  assert.ok(f,JSON.stringify(onHead.findings.map(x=>x.rule)));
+  assert.equal(f.severity,'blocking');
+  assert.equal(f.elements.length,1,'own arrowhead: one element');
+  assert.match(f.measured,/covers the arrowhead of/);
+  assert.match(f.threshold,/标签覆盖箭头/);
+  assert.match(f.suggestion,/move the label along its own route away from the arrowhead/);
+  const mid=renderSpec(withLabel({text:'Yes',x:470,y:160}));
+  assert.equal(rulesOf(mid,'label-on-arrowhead').length,0,JSON.stringify(rulesOf(mid,'label-on-arrowhead')));
+  // another route's arrowhead counts too: B->D ends at (540,312), head x 530..540, y 307..317
+  const other=renderSpec(withLabel({text:'Yes',x:515,y:300}));
+  assert.ok(rulesOf(other,'label-on-arrowhead').some(x=>x.elements.length===2),JSON.stringify(rulesOf(other,'label-on-arrowhead')));
+});

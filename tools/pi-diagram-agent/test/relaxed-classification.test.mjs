@@ -205,3 +205,17 @@ test('gate: a node-to-group relation drawn to a member node instead blocks the r
   assert.ok(!ok||!ok.detail.split(', ').includes('relations'),JSON.stringify(ok));
   assert.deepEqual(auditToFindings(right,R).filter(f=>f.rule==='relations'),[]);
 });
+
+// User rule (2026-10-05) "标签覆盖箭头的时候应该判定失败": a label over its own route's arrowhead blocks the relaxed gate through labelCoversRoute
+// (measured on a real run: labelCoversRoute PASS, labelClearance FAIL but advisory, so the gate passed). Mid-segment on its own route still passes (R2).
+test('gate: a label on its own arrowhead blocks the relaxed gate through labelCoversRoute; mid-segment on its own route does not',{skip:!enabled},async()=>{
+  const {H_SRC,hBase,doc,label}=await import('./helpers/label-fixtures.mjs');
+  const onHead=await auditAgentSvg(H_SRC,doc(...hBase(),label({s:'A',t:'B',cx:425,cy:330})));
+  const fail=auditGateReasons({audit:onHead,relaxed:true}).find(r=>r.code==='AUDIT_FAIL');
+  assert.ok(fail&&fail.detail.split(', ').includes('labelCoversRoute'),JSON.stringify(onHead.checks.labelCoversRoute));
+  assert.deepEqual(auditToFindings(onHead,R).filter(f=>f.rule==='labelCoversRoute').map(f=>f.severity),['blocking']);
+  const mid=await auditAgentSvg(H_SRC,doc(...hBase(),label({s:'A',t:'B',cx:305,cy:330})));
+  assert.equal(mid.checks.labelCoversRoute.status,'PASS',JSON.stringify(mid.checks.labelCoversRoute.evidence));
+  // the synthetic fixture's node text is a placeholder, so semantics stay unestablished; what matters is that no audit FAIL blocks
+  assert.equal(auditGateReasons({audit:mid,relaxed:true}).find(r=>r.code==='AUDIT_FAIL'),undefined,JSON.stringify(auditGateReasons({audit:mid,relaxed:true})));
+});

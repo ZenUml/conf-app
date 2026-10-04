@@ -439,6 +439,7 @@ function nodeSvg(node) {
   const parent = node.group ? ` data-parent-group="${esc(node.group)}"` : '';
   return `<g data-node="${esc(node.id)}"${parent} data-shape="${variant}" data-label-box="${node.lb.map(n3).join(' ')}">${outline}${textSvg(node.lines, node.lb, node)}</g>`;
 }
+const ARROW_LEN = 10, ARROW_W = 10; // the marker below: 10 along the leg (refX = 10 puts the tip on the route end), 10 wide
 const markerDef = c => `<marker id="arrow-${hex6(c)}" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#${hex6(c)}"/></marker>`;
 
 // ---- main entry ----
@@ -584,6 +585,18 @@ export function renderSpec(input, {model = null} = {}) {
     for (const other of edges) {
       if (!other.route || other === edge) continue;
       if (other.route.spans.some(s => boxOverlap(box, spanBox(s), 0.5))) add('label-on-route', 'blocking', [edge.id, other.id], region, `label "${p.text}" of ${edge.id} sits on the route of ${other.id}`, 'a label never covers another connector (rule 11/T1)', 'move the label beside its own route');
+    }
+    // User rule 2026-10-05 ("标签覆盖箭头的时候应该判定失败"): no label covers any arrowhead, its own route's included. The spec marker is a 10x10
+    // userSpaceOnUse triangle with its tip on the route end, so its footprint is 10 back along the final leg and 10 wide, centred on the leg.
+    for (const other of edges) {
+      const pts = other.route?.pts;
+      if (!pts || pts.length < 2) continue;
+      const [ex, ey] = pts[pts.length - 1], [px, py] = pts[pts.length - 2], l = Math.hypot(ex - px, ey - py);
+      if (!(l > 0)) continue;
+      const dx = (ex - px) / l, dy = (ey - py) / l, xs = [], ys = [];
+      for (const along of [-ARROW_LEN, 0]) for (const across of [-ARROW_W / 2, ARROW_W / 2]) { xs.push(ex + along * dx - across * dy); ys.push(ey + along * dy + across * dx); }
+      const head = [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+      if (boxOverlap(box, head, 0.5)) add('label-on-arrowhead', 'blocking', other === edge ? [edge.id] : [edge.id, other.id], region, `label "${p.text}" of ${edge.id} covers the arrowhead of ${other.id}`, 'a label never covers an arrowhead, its own route\'s included (user rule: 标签覆盖箭头的时候应该判定失败)', 'move the label along its own route away from the arrowhead');
     }
     for (const q of pills) if (q !== p && boxOverlap(box, q.box)) add('label-overlap', 'blocking', [edge.id, q.edge.id], region, `labels "${p.text}" and "${q.text}" overlap`, 'no text collisions (T1)', 'separate the labels');
     if (edge.route) {

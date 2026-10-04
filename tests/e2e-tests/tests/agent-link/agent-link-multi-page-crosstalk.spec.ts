@@ -133,7 +133,7 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@t
     try {
       // ---- Connect + pair each page FULLY, one at a time ----
       // Deliberately sequential, not "click both then wait once": two
-      // Fullscreen dialogs (each a heavy Vue bundle + WS handshake) loading
+      // macro relay sessions (each a heavy Vue bundle + WS handshake) starting
       // at the same instant in one browser process starve each other of
       // CPU/network, and starving the WS-open step past its window leaves a
       // token that minted (HTTP 200, localStorage record present) but never
@@ -151,7 +151,7 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@t
         onToken: (token: string) => void,
       ): Promise<{ token: string; dsl: string; diagramType: string }> {
         await openIsolatedAgentLinkPage(page);
-        expect(await clickConnectToAgent(page), `${label} renders "Connect to Agent"`).toBe(true);
+        expect(await clickConnectToAgent(page), `${label} renders "Connect MCP"`).toBe(true);
         let token: string | null = null;
         await expect.poll(async () => {
           token = await readSessionToken(page);

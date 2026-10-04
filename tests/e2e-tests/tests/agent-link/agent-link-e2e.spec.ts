@@ -83,7 +83,7 @@ test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', 
     let token: string | null = null;
     let originalDsl = '';
     try {
-      expect(await clickConnectToAgent(page), 'macro renders a "Connect to Agent" affordance').toBe(true);
+      expect(await clickConnectToAgent(page), 'macro renders a "Connect MCP" affordance').toBe(true);
       await expect.poll(async () => {
         token = await readSessionToken(page);
         return token;
@@ -141,7 +141,7 @@ test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', 
       // ---- macro side: Connect -> mint -> waiting ----
       await openIsolatedAgentLinkPage(page);
 
-      expect(await clickConnectToAgent(page), 'macro renders a "Connect to Agent" affordance').toBe(true);
+      expect(await clickConnectToAgent(page), 'macro renders a "Connect MCP" affordance').toBe(true);
       await expect.poll(async () => {
         token = await readSessionToken(page);
         return token;

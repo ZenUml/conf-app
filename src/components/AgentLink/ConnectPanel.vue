@@ -203,10 +203,8 @@ import AgentStatusHeader from './AgentStatusHeader.vue'
 import SessionTtl from './SessionTtl.vue'
 import RailActions from './RailActions.vue'
 import SessionNotice from './SessionNotice.vue'
+import { MCP_ADD_COMMAND, buildConnectPrompt } from '@/composables/agentLink/connectInstructions'
 
-// The MCP command from the design doc (§9 / relay host decision §14.3 —
-// zenapi.zenuml.com to avoid a new egress host / re-consent).
-const MCP_ADD_COMMAND = 'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
 
 const props = withDefaults(
   defineProps<{
@@ -269,14 +267,7 @@ const SetupInstructions = defineComponent({
   },
 })
 
-const promptText = computed(() => {
-  const sessionToken = props.token ?? ''
-  return [
-    'Connect to my ZenUML diagram via the conf-agent MCP.',
-    `session: ${sessionToken}`,
-    '# reads this page · edits this diagram · 10 min idle / 60 min max',
-  ].join('\n')
-})
+const promptText = computed(() => buildConnectPrompt(props.token))
 
 type CopyState = 'default' | 'copied' | 'failed'
 const copyState = ref<CopyState>('default')

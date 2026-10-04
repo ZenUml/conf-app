@@ -817,11 +817,10 @@ describe('GenericViewer (chrome-less)', () => {
       expect(s).toHaveLength(5)
       expect(s[0].body).toMatch(/\.viewer-act-source \.viewer-btn-label/)
       expect(s[0].body).toMatch(/\.viewer-act-copy \.viewer-btn-label/)
-      expect(s[0].body).toMatch(/\.viewer-act-connect :deep\(\.agent-link-connect-btn__label\)/)
       expect(s[1].body).toMatch(/\.viewer-act-edit \.viewer-btn-label/)
       expect(s[1].body).toMatch(/\.viewer-act-fullscreen \.viewer-btn-label/)
       expect(s[2].body).toMatch(/\.viewer-act-create \.viewer-btn-label/)
-      expect(s[3].body).toMatch(/\.viewer-act-copy,\s*(\.viewer-top-actions )?\.viewer-act-connect \{ display: none; \}/)
+      expect(s[3].body).toMatch(/\.viewer-act-copy \{ display: none; \}/)
       expect(s[4].body).toMatch(/\.viewer-act-source \{ display: none; \}/)
     })
 
@@ -2347,51 +2346,113 @@ describe('GenericViewer (chrome-less)', () => {
     }
     afterEach(() => { delete (window as any).forgeGlobal })
 
-    it('does NOT render Connect to Agent when the flag resolves false (default)', async () => {
+    it('keeps Copy for AI and renders no Connect MCP when the flag resolves false (default)', async () => {
       const wrapper = mountViewer()
       await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
-    it('renders Connect to Agent in the action area when the flag resolves true', async () => {
+    it('replaces Copy for AI with Connect MCP when the flag resolves true', async () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(true)
+      const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+      expect(btn.exists()).toBe(true)
+      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
+      expect(btn.classes()).toContain('viewer-act-copy')
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
     })
 
-    it('does not render Connect to Agent for a non-MVP diagram type (graph) even when the flag is on', async () => {
+    it('does not fire the Copy for AI impression when Connect MCP takes its slot', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.map(([name]) => name)).not.toContain('copy_for_ai_impression')
+    })
+
+    it('keeps Copy for AI for a non-MVP diagram type (markdown) even when the flag is on', async () => {
+      store.commit('updateDiagramType', DiagramType.Markdown)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
+    })
+
+    it('does not render Connect MCP for a graph diagram even when the flag is on', async () => {
       store.commit('updateDiagramType', DiagramType.Graph)
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
     })
 
-    it('clicking Connect to Agent starts the session and opens Fullscreen', async () => {
+    it('clicking Connect MCP starts the session and opens the dialog inline, without Fullscreen', async () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const spy = vi.spyOn(EventBus, '$emit')
       const wrapper = mountViewer()
       await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(false)
 
-      await wrapper.find('[data-testid="agent-link-connect-btn"]').trigger('click')
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
 
-      expect(spy).toHaveBeenCalledWith('fullscreen')
+      expect(spy).not.toHaveBeenCalledWith('fullscreen')
+      const dialog = wrapper.find('[data-testid="connect-mcp-dialog"]')
+      expect(dialog.exists()).toBe(true)
+      expect(dialog.attributes('data-agent-link-state')).toBe('waiting')
+      expect(dialog.find('[data-testid="connect-mcp-setup-command"]').text()).toContain('claude mcp add --transport http conf-agent')
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--connect-mcp')
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_connect_clicked',
         expect.objectContaining({ feature_area: 'agent_link', macro_type: DiagramType.Sequence })
       )
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ feature_area: 'agent_link', surface: 'viewer', agent_link_state: 'idle' })
+      )
     })
 
-    it('mounts the Fullscreen Connect rail (not the small-macro button/badge) when in fullscreen with the flag on', async () => {
+    it('closes the Connect MCP dialog on Escape and reports the state it closed in', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(false)
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_closed',
+        expect.objectContaining({ agent_link_state: 'waiting', dwell_ms: expect.any(Number) })
+      )
+      wrapper.unmount()
+    })
+
+    it('reopening the dialog keeps the live session instead of minting another', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+      await wrapper.find('[data-testid="connect-mcp-close"]').trigger('click')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.map(([name]) => name)).not.toContain('agent_link_connect_clicked')
+      expect(wrapper.find('[data-testid="connect-mcp-dialog"]').attributes('data-agent-link-state')).toBe('waiting')
+    })
+
+    it('mounts the Fullscreen Connect rail (not the inline Connect MCP button/badge) when in fullscreen with the flag on', async () => {
       setFullscreen(true)
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
 
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 

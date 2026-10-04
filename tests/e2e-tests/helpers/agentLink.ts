@@ -117,11 +117,11 @@ export async function openIsolatedAgentLinkPage(page: Page): Promise<void> {
   await openMacroPage(page, testConfig.pageUrl(pageId));
 }
 
-/** Mint precedes the fullscreen relay WebSocket bootstrap; wait for readiness. */
+/** Mint precedes the macro's relay WebSocket bootstrap; wait for readiness. */
 export async function waitForAgentLinkReady(token: string): Promise<void> {
   await expect.poll(async () => (await agentLinkMcp(token, 'get_status')).status, {
     timeout: 20000,
-    message: 'fullscreen relay accepts the minted session',
+    message: 'relay accepts the minted session',
   }).toBe(200);
 }
 
@@ -147,12 +147,12 @@ export async function openMacroPage(page: Page, pageUrl: string, timeout = 60000
   await page.waitForTimeout(6000); // let the macro mount + resolve the flag
 }
 
-/** Click the inline macro's "Connect to Agent" (mints a session, opens Fullscreen). */
+/** Click the inline macro's "Connect MCP" (mints a session, opens the inline dialog). */
 export async function clickConnectToAgent(page: Page): Promise<boolean> {
   for (const f of forgeFrames(page)) {
-    const text = await f.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
-    if (/connect to agent/i.test(text)) {
-      await f.getByRole('button', { name: 'Connect to Agent', exact: true }).click({ timeout: 9000 });
+    const button = f.getByTestId('connect-mcp-btn');
+    if (await button.count().catch(() => 0)) {
+      await button.click({ timeout: 9000 });
       return true;
     }
   }
@@ -181,13 +181,20 @@ export async function readSessionToken(page: Page): Promise<string | null> {
   return null;
 }
 
-/** The ConnectPanel state class suffix, e.g. 'agent-link-panel--waiting'. */
+/**
+ * The session state as a ConnectPanel-style class suffix, e.g.
+ * 'agent-link-panel--waiting'. Reads the Fullscreen rail when one is mounted,
+ * else the inline Connect MCP dialog's data-agent-link-state.
+ */
 export async function readPanelClass(page: Page): Promise<string | null> {
   for (const f of forgeFrames(page)) {
     const c = await f
       .evaluate(() => {
         const p = document.querySelector('.agent-link-panel');
-        return p ? p.className.replace('agent-link-panel ', '') : null;
+        if (p) return p.className.replace('agent-link-panel ', '');
+        const d = document.querySelector('[data-testid="connect-mcp-dialog"]');
+        const state = d?.getAttribute('data-agent-link-state');
+        return state ? `agent-link-panel--${state}` : null;
       })
       .catch(() => null);
     if (c) return c;

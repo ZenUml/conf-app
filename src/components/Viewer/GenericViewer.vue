@@ -16,7 +16,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--connect-mcp': showConnectMcpDialog}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -127,7 +127,28 @@
                    differs by job. Same gate as View Source (text-DSL types
                    only) — not restricted by edit permission or fullscreen,
                    mirroring that button's audience. -->
-              <div v-if="showViewSource" class="copy-for-ai-split viewer-act-copy">
+              <!-- Connect MCP (Live Agent Link): takes the Copy for AI slot where
+                   the agent-link flag is on and the type is agent-editable
+                   (showAgentLinkConnect). Opens ConnectMcpDialog over the macro
+                   with the MCP setup command and this diagram's session
+                   prompt; the agent's edits then render live inline. -->
+              <button
+                v-if="showAgentLinkConnect"
+                type="button"
+                class="viewer-btn-ghost viewer-act-copy"
+                aria-label="Connect MCP"
+                title="Connect an AI agent to this diagram over MCP"
+                data-testid="connect-mcp-btn"
+                :aria-expanded="showConnectMcpDialog ? 'true' : 'false'"
+                aria-haspopup="dialog"
+                @click="openConnectMcpDialog"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                </svg>
+                <span class="viewer-btn-label">Connect MCP</span>
+              </button>
+              <div v-else-if="showViewSource" class="copy-for-ai-split viewer-act-copy">
                 <button
                   type="button"
                   class="viewer-btn-ghost copy-for-ai-split-primary"
@@ -204,7 +225,6 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
-              <ConnectButton v-if="showAgentLinkConnect" class="viewer-act-connect" @connect="connectToAgent" />
               <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" title="Fullscreen" class="viewer-btn-primary viewer-act-fullscreen">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
@@ -420,9 +440,10 @@
         </div>
         <!-- Fullscreen Connect rail (design §5.1, §9) — only mounted when the
              flag is on, the diagram type is MVP-supported, and we're actually
-             in the Fullscreen modal. See connectToAgent()'s comment: this
-             panel is driven by ITS OWN useAgentLinkSession() instance
-             (a fresh Vue app boot inside the Fullscreen modal's iframe). -->
+             in the Fullscreen modal. This panel is driven by ITS OWN
+             useAgentLinkSession() instance (a fresh Vue app boot inside the
+             Fullscreen modal's iframe) and displays the session the inline
+             macro's Connect MCP dialog started (sessionHandoff.ts). -->
         <aside
           v-if="showAgentLinkPanel"
           class="agent-link-rail"
@@ -452,6 +473,17 @@
           :fullscreen="isFullscreenMode"
           @close="showSourcePanel = false"
           @copy="onViewSourceCopied"
+        />
+        <ConnectMcpDialog
+          v-if="showAgentLinkConnect"
+          :visible="showConnectMcpDialog"
+          :state="agentLinkState"
+          :token="agentLinkToken"
+          :diagram-title="title"
+          @close="closeConnectMcpDialog"
+          @retry="onAgentLinkReconnect"
+          @disconnect="onAgentLinkDisconnect"
+          @copy="onConnectMcpCopied"
         />
       </div>
     </template>
@@ -490,7 +522,7 @@ import { buildCopyForAiPrompt } from '@/utils/copyForAi/buildCopyForAiPrompt'
 import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
-import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
+import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -565,6 +597,12 @@ export default {
     // controls the ENTIRE feature — until it resolves true, this macro
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
+    // Settles once the flag lookup finishes, either way. The Copy for AI
+    // impression waits on it: with the flag on, that slot shows Connect MCP.
+    agentLinkFlagResolved: false,
+    // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
+    showConnectMcpDialog: false,
+    connectMcpDialogOpenedAt: 0,
     architectureTokensEnabled: false,
     createGuideFeatureEnabled: false,
     createGuideImpressionTracked: false,
@@ -605,7 +643,7 @@ export default {
     CopyForAiMenu,
     DiagramViewport,
     ViewSourcePanel,
-    ConnectButton,
+    ConnectMcpDialog,
     ConnectPanel,
     LinkStatusChip,
     LiveBadge,
@@ -748,6 +786,8 @@ export default {
     },
     copyForAiImpressionEligible() {
       return this.copyForAiPermissionResolved
+        && this.agentLinkFlagResolved
+        && !this.showAgentLinkConnect
         && this.isDisplayMode
         && !this.hideHeader
         && !this.isLoadFailed
@@ -1007,9 +1047,9 @@ export default {
   },
   created() {
     // One useAgentLinkSession() instance per GenericViewer mount, shared by
-    // the Connect button / live badge / Fullscreen rail below (whichever
-    // template branch is active in THIS mount — see the cross-iframe note
-    // on connectToAgent()). This placeholder instance is provisional: the
+    // the Connect MCP dialog / live badge / Fullscreen rail below (whichever
+    // template branch is active in THIS mount; Fullscreen is a separate
+    // iframe with its own instance). This placeholder instance is provisional: the
     // agent-link flag resolves async in mounted() below, and nothing in this
     // window can invoke startConnect()/applyEdit() — the Connect affordance
     // is flag-gated and not yet rendered. mounted() swaps in the real
@@ -1088,6 +1128,8 @@ export default {
     } catch (e) {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
+    } finally {
+      this.agentLinkFlagResolved = true;
     }
     try {
       this.architectureTokensEnabled = await isArchitectureTokensEnabled();
@@ -1146,8 +1188,8 @@ export default {
     }
     // Fullscreen hydration (finding #3, manual test 2026-07-08; finding #4,
     // live spot-check 2026-07-09): this mount may BE the separate Fullscreen
-    // iframe/Vue-app instance that connectToAgent() opens (see that method's
-    // comment) — freshly idle, with no token of its own. If the inline
+    // iframe/Vue-app instance Forge opens for Fullscreen — freshly idle,
+    // with no token of its own. If the inline
     // instance already persisted a live session (sessionHandoff.ts), show it
     // instead of rendering ConnectPanel with nothing. hydrateFrom() is
     // display-only — never mints a second token or opens a second relay
@@ -1403,6 +1445,10 @@ export default {
     onEscapeKeydown(e) {
       if (e.key !== 'Escape') return;
       if (this.$refs.copyForAiMenu?.open) return;
+      if (this.showConnectMcpDialog) {
+        this.closeConnectMcpDialog();
+        return;
+      }
       if (!this.showSourcePanel) return;
       this.showSourcePanel = false;
     },
@@ -1543,20 +1589,50 @@ export default {
         macro_type: this.diagramType ?? 'none',
       });
     },
-    // Connect-to-Agent affordance (design §5.1, §9): kicks off this mount's
-    // local session state, then reuses the EXISTING, unmodified Fullscreen
-    // open path (EventBus 'fullscreen' -> forgeIndex.ts's openModal). Forge
-    // opens Fullscreen as a SEPARATE modal iframe (confirmed by onClose's
-    // location.reload() on the underlying macro) — that iframe re-boots this
-    // same component fresh, with its OWN useAgentLinkSession() instance. Real
-    // state continuity across that boundary (so the rail shows the token this
-    // click minted) is handled by sessionHandoff.ts's localStorage handoff +
-    // this mount's own hydrateFrom() call above — see that file's header
-    // comment for the fix and its same-origin assumption; see
-    // docs/superpowers/specs/2026-07-08-live-agent-link-design.md §4.3.
-    connectToAgent() {
-      this.agentLinkSession?.startConnect();
-      this.fullscreen();
+    // Connect MCP (replaces Copy for AI when the agent-link flag is on):
+    // starts this inline mount's session and shows ConnectMcpDialog with the
+    // MCP setup command and the session prompt. This mount owns the relay
+    // socket, so the agent's edits render live in the macro without opening
+    // Fullscreen. A terminal session (ended/expired/failed) is replaced by a
+    // fresh one; a live or pending one is shown as-is.
+    openConnectMcpDialog() {
+      const session = this.agentLinkSession;
+      const state = this.agentLinkState;
+      if (state === 'idle') {
+        session?.startConnect();
+      } else if (['closed', 'expired', 'failed'].includes(state)) {
+        session?.revokeAndRelink();
+      }
+      this.showSourcePanel = false;
+      this.showConnectMcpDialog = true;
+      this.connectMcpDialogOpenedAt = Date.now();
+      trackAnalyticsEvent('agent_link_mcp_dialog_opened', {
+        feature_area: 'agent_link',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        agent_link_state: state,
+      });
+    },
+    closeConnectMcpDialog() {
+      if (!this.showConnectMcpDialog) return;
+      this.showConnectMcpDialog = false;
+      trackAnalyticsEvent('agent_link_mcp_dialog_closed', {
+        feature_area: 'agent_link',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        agent_link_state: this.agentLinkState,
+        dwell_ms: Date.now() - this.connectMcpDialogOpenedAt,
+      });
+    },
+    onConnectMcpCopied(target, ok) {
+      trackAnalyticsEvent('agent_link_mcp_dialog_copied', {
+        feature_area: 'agent_link',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        mcp_copy_target: target,
+        outcome: ok ? 'copied' : 'clipboard_failed',
+        agent_link_state: this.agentLinkState,
+      });
     },
     onAgentLinkDisconnect() {
       this.agentLinkSession?.disconnect('user');
@@ -2007,6 +2083,10 @@ export default {
 }
 .viewer-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
 .viewer-frame--wide { width: 100%; }
+/* Connect MCP dialog open (inline): the dialog overlays .viewer-frame, so give
+   the frame room for it. Inline autoResize then grows the Forge iframe; the
+   frame shrinks back when the dialog closes. */
+.viewer-frame--connect-mcp { min-height: 380px; min-width: min(460px, 100%); }
 
 /* Fullscreen modal gets the whole browser viewport (Forge's autoResize is
    disabled there — see forgeIndex.ts), but .viewer-frame itself has no height
@@ -2490,13 +2570,12 @@ export default {
    auto frame is fit-content, and containment there would drop the header's width from the
    frame and shrink every small diagram's card. Each breakpoint leaves the title ~120px.
    Kept after the button rules: they set display at the same specificity.
-   Order: Source/Copy for AI/Connect labels → Edit/Fullscreen labels → Create label → Copy for AI
-   and Connect hidden → Source hidden. Edit, Fullscreen and Create always stay. */
+   Order: Source/Copy for AI (or Connect MCP) labels → Edit/Fullscreen labels → Create label →
+   Copy for AI / Connect MCP hidden → Source hidden. Edit, Fullscreen and Create always stay. */
 .generic.viewer { container: viewer-header / inline-size; }
 @container viewer-header (max-width: 659px) {
   .viewer-act-source .viewer-btn-label,
-  .viewer-act-copy .viewer-btn-label,
-  .viewer-act-connect :deep(.agent-link-connect-btn__label) { display: none; }
+  .viewer-act-copy .viewer-btn-label { display: none; }
   /* Icon-only Copy for AI drops the constant-width sizer: inactive cells would keep the
      button as wide as "Nothing to copy". A transient state shows its text briefly. */
   .viewer-act-copy .copy-for-ai-label-cell[data-active="false"] { display: none; }
@@ -2509,9 +2588,7 @@ export default {
   .viewer-act-create .viewer-btn-label { display: none; }
 }
 @container viewer-header (max-width: 379px) {
-  /* ConnectButton styles its own root in another stylesheet; outrank it. */
-  .viewer-act-copy,
-  .viewer-top-actions .viewer-act-connect { display: none; }
+  .viewer-act-copy { display: none; }
 }
 @container viewer-header (max-width: 319px) {
   .viewer-act-source { display: none; }

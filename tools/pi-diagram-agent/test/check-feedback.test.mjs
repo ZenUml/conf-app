@@ -178,7 +178,7 @@ test('relaxed: failing bytes may be re-checked unchanged (cache hit, counted as 
 
 test('author prompt asks for a source-facts verification before the first draft and stays short',()=>{
   const job={prompt:'P',runDir:'/run/x'};
-  const p=composePrompt(job,{jobId:'j',v2:{maxRounds:4,maxInspectionsPerRound:3,twoPhase:true,maxChecksPerRound:3,maxChecksPerRun:16,relaxed:true}});
+  const p=composePrompt(job,{jobId:'j',v2:{maxRounds:4,maxInspectionsPerRound:3,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,relaxed:true}});
   assert.match(p,/Before your first diagram_build_check, verify every node's group and every edge's endpoints and direction against the source facts/);
   assert.match(p,/diagram_submit at once/);
   const s=composePrompt(job,{jobId:'j',v2:{maxRounds:4,maxInspectionsPerRound:3,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,relaxed:false}});

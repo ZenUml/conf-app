@@ -86,35 +86,35 @@ function setup(over={}){
 import {budgetsFromEnv,DEFAULT_BUDGETS} from '../src/orchestrator.mjs';
 import {composePrompt} from '../src/agent-led.mjs';
 
-test('check cap defaults: 3 per round in the relaxed gate, 6 in strict; env still overrides; per-run cap stays 16',()=>{
-  assert.equal(budgetsFromEnv({}).maxChecksPerRound,3);
-  assert.equal(budgetsFromEnv({PI_DIAGRAM_GATE:'relaxed'}).maxChecksPerRound,3);
+test('check cap defaults: 6 per round in both the relaxed gate and strict (cap 3 lost the 14-run A/B); env still overrides; per-run cap stays 16',()=>{
+  assert.equal(budgetsFromEnv({}).maxChecksPerRound,6);
+  assert.equal(budgetsFromEnv({PI_DIAGRAM_GATE:'relaxed'}).maxChecksPerRound,6);
   assert.equal(budgetsFromEnv({PI_DIAGRAM_GATE:'strict'}).maxChecksPerRound,6);
-  assert.equal(budgetsFromEnv({PI_DIAGRAM_MAX_CHECKS_PER_ROUND:'6'}).maxChecksPerRound,6);
+  assert.equal(budgetsFromEnv({PI_DIAGRAM_MAX_CHECKS_PER_ROUND:'3'}).maxChecksPerRound,3);
   assert.equal(budgetsFromEnv({PI_DIAGRAM_GATE:'strict',PI_DIAGRAM_MAX_CHECKS_PER_ROUND:'2'}).maxChecksPerRound,2);
   assert.equal(budgetsFromEnv({}).maxChecksPerRun,16);assert.equal(DEFAULT_BUDGETS.maxChecksPerRun,16);
   const relaxed=setup(),strict=setup({gate:'strict'});
-  try{assert.equal(relaxed.run.budgets.maxChecksPerRound,3);assert.equal(strict.run.budgets.maxChecksPerRound,6);assert.equal(relaxed.run.budgets.maxChecksPerRun,16)}
+  try{assert.equal(relaxed.run.budgets.maxChecksPerRound,6);assert.equal(strict.run.budgets.maxChecksPerRound,6);assert.equal(relaxed.run.budgets.maxChecksPerRun,16)}
   finally{relaxed.cleanup();strict.cleanup()}
 });
 
 test('author prompt states the per-round check budget it is given',()=>{
   const job={prompt:'P',runDir:'/run/x'};
-  const p=composePrompt(job,{jobId:'j',v2:{maxRounds:4,maxInspectionsPerRound:3,twoPhase:true,maxChecksPerRound:3,maxChecksPerRun:16,relaxed:true}});
-  assert.match(p,/at most 3 diagram_build_check calls per round/);
+  const p=composePrompt(job,{jobId:'j',v2:{maxRounds:4,maxInspectionsPerRound:3,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,relaxed:true}});
+  assert.match(p,/at most 6 diagram_build_check calls per round/);
   assert.match(p,/Advisory findings \(severity minor\) never block/);
   const s=composePrompt(job,{jobId:'j',v2:{maxRounds:4,maxInspectionsPerRound:3,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,relaxed:false}});
   assert.match(s,/at most 6 diagram_build_check calls per round/);
   assert.doesNotMatch(s,/Advisory findings \(severity minor\) never block/);
 });
 
-test('relaxed: after 3 checks a candidate with only advisory findings goes to the reviewer and the Judge: no refusal, no escalation',async()=>{
+test('relaxed: after 6 checks a candidate with only advisory findings goes to the reviewer and the Judge: no refusal, no escalation',async()=>{
   const t=setup({judge:[{p1:0.6,p2:0.6}]});try{
     let last;
-    for(let i=1;i<=3;i++){t.write(svg(`FAIL:routeCrossings,routePairClearance v${i}`));last=await t.check()}
+    for(let i=1;i<=6;i++){t.write(svg(`FAIL:routeCrossings,routePairClearance v${i}`));last=await t.check()}
     assert.equal(last.status,'CHECK_PASS');assert.deepEqual(last.failed,[]);assert.ok(last.minorCount>0);assert.equal(last.checksLeftThisRound,0);
     assert.match(last.next,/diagram_submit/);
-    t.write(svg('FAIL:routeCrossings,routePairClearance v3')); // same bytes as the last check
+    t.write(svg('FAIL:routeCrossings,routePairClearance v6')); // same bytes as the last check
     const over=await t.check();
     assert.equal(over.status,'CHECK_LIMIT_REACHED');assert.doesNotMatch(over.next,/escalation/);assert.match(over.next,/advisory/i);
     const r=await t.out();
@@ -122,13 +122,13 @@ test('relaxed: after 3 checks a candidate with only advisory findings goes to th
     assert.equal(t.calls.reviewer.length,1);assert.equal(t.calls.judge.length,2);
     const m=readRunManifest(t.job.runDir);
     assert.deepEqual(m.twoPhase.refusals,[]);assert.deepEqual(m.twoPhase.escalations,[]);
-    assert.equal(m.twoPhase.checksTotal,3);
+    assert.equal(m.twoPhase.checksTotal,6);
   }finally{t.cleanup()}
 });
 
-test('relaxed: after 3 checks, advisory-only bytes written AFTER the cap are also reviewed and judged, with no refusal and no diagnosis escalation',async()=>{
+test('relaxed: after 6 checks, advisory-only bytes written AFTER the cap are also reviewed and judged, with no refusal and no diagnosis escalation',async()=>{
   const t=setup({judge:[{p1:0.6,p2:0.6}]});try{
-    for(let i=1;i<=3;i++){t.write(svg(`FAIL:routeCrossings v${i}`));await t.check()}
+    for(let i=1;i<=6;i++){t.write(svg(`FAIL:routeCrossings v${i}`));await t.check()}
     t.write(svg('FAIL:routeCrossings v4 unchecked'));
     const r=await t.out();
     assert.equal(r.status,'REVIEWED');
@@ -138,10 +138,10 @@ test('relaxed: after 3 checks, advisory-only bytes written AFTER the cap are als
   }finally{t.cleanup()}
 });
 
-test('relaxed: after 3 checks a candidate with a blocking failure still follows the existing escalation path (hard rule: rejected, no reviewer)',async()=>{
+test('relaxed: after 6 checks a candidate with a blocking failure still follows the existing escalation path (hard rule: rejected, no reviewer)',async()=>{
   const t=setup();try{
     let last;
-    for(let i=1;i<=3;i++){t.write(svg(`FAIL:relations v${i}`));last=await t.check()}
+    for(let i=1;i<=6;i++){t.write(svg(`FAIL:relations v${i}`));last=await t.check()}
     assert.equal(last.status,'CHECK_FAIL');assert.deepEqual(last.failed,['relations']);
     const r=await t.out();
     assert.equal(r.status,'REVISE');assert.equal(r.escalation.outcome,'rejected-semantic');

@@ -195,6 +195,10 @@ Why: two live runs (per-check log) showed 7-9 blocking rule kinds on the first c
 
 Tests: `test/check-feedback.test.mjs`.
 
+### Check cap
+
+The relaxed gate briefly defaulted to 3 checks per round (c35656e7). A 14-run A/B on 7 customer diagrams (cap 3 against cap 6, 1 run per diagram per arm) reverted it: cap 3 gave a median of 905 s against 829 s for cap 6, 14 rounds against 11, and a median Judge score of 0.55 against 0.60. The relaxed default is back to 6, the same as strict. `PI_DIAGRAM_MAX_CHECKS_PER_ROUND` still overrides it. The advisory pass-through after the cap, the per-check log, and the check feedback loop above are unchanged.
+
 ### Blocking-set mapping
 
 Evidence fields written by the auditor drive the partial checks. Evidence that lacks the needed field fails closed (stays blocking).

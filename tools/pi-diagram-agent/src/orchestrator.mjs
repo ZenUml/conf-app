@@ -21,11 +21,11 @@ import {writeManifests,authoritativeManifestPath,manifestDirFromEnv} from './man
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const HARD_FORBIDDEN=['script','foreignObject','iframe','image','href','event-handler']; // these make the renderer/auditor refuse the SVG, so it is never rendered
 
-// Two-phase gate: diagram_build_check (text only, binding) <= 6 calls per round (strict gate; 3 in the relaxed gate, see defaultBudgetsFor) and <= 16 per run; diagram_inspect (images) stays <= 3 per round and is not a gate.
+// Two-phase gate: diagram_build_check (text only, binding) <= 6 calls per round (both gates; see defaultBudgetsFor) and <= 16 per run; diagram_inspect (images) stays <= 3 per round and is not a gate.
 export const DEFAULT_BUDGETS=Object.freeze({maxRounds:4,maxWallMs:25*60_000,maxInspectionsPerRound:3,maxBlockingPerRound:5,stagnationRounds:2,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,maxGeneratorErrorsPerRound:6,maxFindingsPerCheck:8});
 
-/** Relaxed gate: 3 checks per round, then the next submit goes to review and the Judge (advisory findings never block). Strict keeps the 6. */
-export const RELAXED_MAX_CHECKS_PER_ROUND=3;
+/** Relaxed gate: 6 checks per round (same as strict), then the next submit goes to review and the Judge (advisory findings never block). Cap 3 was tried and reverted: 14-run A/B, median 905 s vs 829 s, 14 rounds vs 11, median Judge 0.55 vs 0.60. */
+export const RELAXED_MAX_CHECKS_PER_ROUND=6;
 export const defaultBudgetsFor=(gate)=>gate==='strict'?{...DEFAULT_BUDGETS}:{...DEFAULT_BUDGETS,maxChecksPerRound:RELAXED_MAX_CHECKS_PER_ROUND};
 
 export function budgetsFromEnv(env=process.env){

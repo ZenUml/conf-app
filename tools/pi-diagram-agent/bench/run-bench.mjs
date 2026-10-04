@@ -19,7 +19,7 @@ const ENV_DEFAULTS={
 for(const [k,v] of Object.entries(ENV_DEFAULTS))process.env[k]??=v; // the in-process auditor reads these too
 
 function parseArgs(argv){
-  const o={env:{},reps:1,concurrency:1,timeoutMin:15,magicOptions:'',piBin:'pi',auditor:path.join(worktreePkg,'src/agent-audit.mjs')};
+  const o={env:{},reps:1,concurrency:1,timeoutMin:20,magicOptions:'',piBin:'pi',auditor:path.join(worktreePkg,'src/agent-audit.mjs')};
   for(let i=0;i<argv.length;i++){
     const a=argv[i],next=()=>{if(i+1>=argv.length)throw Error(`missing value for ${a}`);return argv[++i]};
     if(a==='--package')o.package=next();
@@ -35,7 +35,7 @@ function parseArgs(argv){
     else if(a==='--env'){const kv=next(),i=kv.indexOf('=');if(i<1)throw Error('--env expects KEY=VALUE');o.env[kv.slice(0,i)]=kv.slice(i+1)}
     else throw Error(`unknown argument ${a}`);
   }
-  if(!o.package||!o.out)throw Error('usage: run-bench.mjs --package <pkg root> --fixtures <glob|list> --reps N --concurrency K --out <dir outside repo> [--magic-options "..."] [--pi-bin <path>] [--model <id>] [--timeout-min 15] [--env KEY=VALUE]...');
+  if(!o.package||!o.out)throw Error('usage: run-bench.mjs --package <pkg root> --fixtures <glob|list> --reps N --concurrency K --out <dir outside repo> [--magic-options "..."] [--pi-bin <path>] [--model <id>] [--timeout-min 20] [--env KEY=VALUE]...');
   if(!(o.reps>=1)||!(o.concurrency>=1))throw Error('--reps and --concurrency must be >= 1');
   return o;
 }

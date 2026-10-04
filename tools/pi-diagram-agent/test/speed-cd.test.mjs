@@ -15,7 +15,8 @@ test('D: direct-draft instruction appears only when requested',()=>{
     const on=prepareAgentTask(input,{directDraft:true}),off=prepareAgentTask(input,{directDraft:false});
     assert.match(on.prompt,/write the first candidate directly/i);
     assert.match(on.prompt,/no separate planning message/i);
-    assert.match(on.prompt,/review carefully/i);
+    assert.match(on.prompt,/After that inspection, fix what blocks; if the latest check passed, submit it\./);
+    assert.doesNotMatch(on.prompt,/full rigour/i);
     assert.doesNotMatch(off.prompt,/write the first candidate directly/i);
     fs.rmSync(on.runDir,{recursive:true,force:true});fs.rmSync(off.runDir,{recursive:true,force:true});
   }finally{fs.rmSync(root,{recursive:true,force:true})}

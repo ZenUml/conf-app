@@ -184,3 +184,77 @@ test('author prompt asks for a source-facts verification before the first draft 
   const s=composePrompt(job,{jobId:'j',v2:{maxRounds:4,maxInspectionsPerRound:3,twoPhase:true,maxChecksPerRound:6,maxChecksPerRun:16,relaxed:false}});
   assert.doesNotMatch(s,/Do not spend more checks on advisory items/);
 });
+
+// Submit right after a pass (2026-10-05): the pass reply carries nothing that invites polishing, and diagram_inspect says a pass exists.
+test('relaxed: a CHECK_PASS reply carries no advice list, no advisoryMore and no advisory rule names',async()=>{
+  const t=setup();
+  try{
+    t.write(withMarker('a',ADVICE));
+    const r=await t.check();
+    assert.equal(r.status,'CHECK_PASS');
+    for(const k of ['advice','advisoryMore','advisoryRules'])assert.equal(k in r,false,`${k} must not be in a relaxed CHECK_PASS reply`);
+    assert.ok(r.minorCount>0);
+    assert.equal(r.next,`No blocking findings. Submit now with diagram_submit (svgHash ${r.svgHash}). Do not spend more checks on advisory items.`);
+    assert.doesNotMatch(r.next,/more not shown|Advice/);
+  }finally{t.cleanup()}
+});
+
+test('strict: a CHECK_PASS reply is unchanged (advisoryRules kept, no advice fields)',async()=>{
+  const t=setup({gate:'strict'});
+  try{
+    t.write(svg('clean'));
+    const r=await t.check();
+    assert.equal(r.status,'CHECK_PASS');
+    assert.ok(Array.isArray(r.advisoryRules));
+    assert.equal('advice' in r,false);
+    assert.match(r.next,/All script checks pass/);
+  }finally{t.cleanup()}
+});
+
+const inspectResult=()=>({content:[{type:'text',text:JSON.stringify({status:'VISUAL_EVIDENCE_ONLY',round:1})},{type:'image',data:'x',mimeType:'image/png'}],details:{round:1}});
+const inspectBody=r=>JSON.parse(r.content[0].text);
+
+test('relaxed: diagram_inspect after a pass on the current bytes tells the author to submit',async()=>{
+  const t=setup();
+  try{
+    t.write(withMarker('a',['nodeText']));await t.check();
+    assert.equal('next' in inspectBody(t.run.annotateInspection(inspectResult())),false,'no pass yet: no note');
+    t.write(withMarker('b',ADVICE));const r=await t.check();assert.equal(r.status,'CHECK_PASS');
+    const a=t.run.annotateInspection(inspectResult());
+    const want=`Check #2 passed for hash ${r.svgHash}. Submit it now with diagram_submit; advisory items are not a reason for another check.`;
+    assert.equal(inspectBody(a).next,want);assert.equal(a.details.next,want);
+    assert.equal(a.content.length,2,'images untouched');
+  }finally{t.cleanup()}
+});
+
+test('relaxed: diagram_inspect after a pass with changed bytes names the passing hash and says the current bytes are unchecked',async()=>{
+  const t=setup();
+  try{
+    t.write(withMarker('a',ADVICE));const r=await t.check();
+    t.write(withMarker('b',ADVICE));
+    const cur=hash(fs.readFileSync(t.job.outputPath));
+    const n=inspectBody(t.run.annotateInspection(inspectResult())).next;
+    assert.match(n,new RegExp(`Check #1 passed for hash ${r.svgHash}`));
+    assert.match(n,new RegExp(`${cur}.*unchecked`));
+    assert.doesNotMatch(n,/Submit it now/);
+  }finally{t.cleanup()}
+});
+
+test('relaxed: diagram_inspect when the current bytes failed after an earlier pass says they fail',async()=>{
+  const t=setup();
+  try{
+    t.write(withMarker('a',ADVICE));const r=await t.check();
+    t.write(withMarker('b',['nodeText']));await t.check();
+    const n=inspectBody(t.run.annotateInspection(inspectResult())).next;
+    assert.match(n,new RegExp(`Check #1 passed for hash ${r.svgHash}`));
+    assert.match(n,/blocking/);assert.doesNotMatch(n,/unchecked/);
+  }finally{t.cleanup()}
+});
+
+test('strict: diagram_inspect is not annotated',async()=>{
+  const t=setup({gate:'strict'});
+  try{
+    t.write(svg('clean'));assert.equal((await t.check()).status,'CHECK_PASS');
+    assert.equal('next' in inspectBody(t.run.annotateInspection(inspectResult())),false);
+  }finally{t.cleanup()}
+});

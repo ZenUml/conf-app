@@ -93,6 +93,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   // Relaxed gate feedback state: blocking-finding history across the checks of the run (regression flags) and the latest check (repeat-check refusal).
   const blockingHistory=new Map(); // finding key -> {rule,present,fixedInCheck}
   let lastCheck=null; // {hash,pass}
+  let lastPass=null; // relaxed: the most recent CHECK_PASS this round, {hash,seq}; diagram_inspect points the author back to it
   const modelCallTimeouts=[];
   let callsRound=0,callsTotal=0,checkSinceMark=0,exceptions=[],authorCalls=0,reviewerCalls=0,generatorErrors=0,cacheHits=0;
   const freshStats=()=>({buildCheckCalls:0,freshChecks:0,cacheHits:0,refusals:0,generatorErrors:0,limitHits:0});
@@ -373,11 +374,36 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const advisoryMore=Math.max(0,minors.length-3);
     const regressionNote=regressions?.length?`${regressions.length} REGRESSION(S) listed first: fixed earlier, broken again; do not undo earlier fixes. `:'';
     const relaxedFail=()=>`Fix ALL ${blocking.length} blocking finding(s) listed (repairHint/moveHint are evidence you may use or ignore), then call diagram_build_check again. ${l.checksLeftThisRound} check(s) left this round.${advisoryMore?` Advice: top 3 shown, +${advisoryMore} more not shown.`:''}`;
-    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:checkStatuses(c),failed:failedRules(c),advisoryRules:advisoryRules(c),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,...(relaxed?{advice:minors.slice(0,3).map(toAdviceItem),advisoryMore,...(regressions?.length?{regressions}:{})}:{}),notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
+    // Relaxed CHECK_PASS: no advisory detail (rule names, advice, +N more), so nothing in the reply invites another polishing check.
+    const relaxedPass=relaxed&&!fail;
+    return reply({status:fail?'CHECK_FAIL':'CHECK_PASS',svgHash:c.hash,cached,...(source?{source}:{}),...(buildNote?{buildNote}:{}),checks:checkStatuses(c),failed:failedRules(c),...(relaxedPass?{}:{advisoryRules:advisoryRules(c)}),findings:sel.findings,omittedBlocking:sel.omittedBlocking,minorCount:sel.minorCount,...(relaxed&&fail?{advice:minors.slice(0,3).map(toAdviceItem),advisoryMore,...(regressions?.length?{regressions}:{})}:{}),notCheckable:notCheckable(c),...(c.notes.length?{notes:c.notes}:{}),...l,
       next:fail
         ?(last?`${relaxed?regressionNote:''}This was your last build_check ${l.checksLeftThisRun===0?'of the run':'this round'}. If you submit now with FAILs remaining, an escalation review decides: semantic FAILs are rejected, border-grazing or unavoidable-crossing FAILs may be waived, anything else comes back as layout advice. Better: fix what you can and submit.`:relaxed?regressionNote+relaxedFail():`Fix these findings (repairHint/moveHint are evidence you may use or ignore), then call diagram_build_check again. ${l.checksLeftThisRound} check(s) left this round.`)
         :relaxed?submitNowText(c.hash)
         :`All script checks pass for hash ${c.hash}. Optionally call diagram_inspect (at most ${B.maxInspectionsPerRound} per round) for the visual evidence, then call diagram_submit with svgHash ${c.hash}.`});
+  }
+
+  /** Relaxed gate: the `next` text appended to a diagram_inspect result when a CHECK_PASS exists this round, else null. */
+  function inspectionNext(){
+    if(!relaxed||!lastPass)return null;
+    const cand=readCandidate();
+    const passed=`Check #${lastPass.seq} passed for hash ${lastPass.hash}.`;
+    if(cand.ok&&cand.hash===lastPass.hash)return `${passed} Submit it now with diagram_submit; advisory items are not a reason for another check.`;
+    if(!cand.ok)return `${passed} candidate.svg is now unreadable (${cand.error}); restore the passing bytes and submit hash ${lastPass.hash}.`;
+    const h=cache.get(cand.hash);
+    if(h&&h.findings.some(f=>f.severity==='blocking'))return `${passed} The current candidate.svg bytes (hash ${cand.hash}) differ from it and have blocking findings; fix them and check again, or restore the passing bytes and submit hash ${lastPass.hash}.`;
+    if(h)return `${passed} The current candidate.svg bytes (hash ${cand.hash}) differ from it and also passed; submit them with diagram_submit.`;
+    return `${passed} The current candidate.svg bytes (hash ${cand.hash}) differ from it and are unchecked: call diagram_build_check before submitting them, or restore the passing bytes and submit hash ${lastPass.hash}.`;
+  }
+  /** Appends inspectionNext() to a diagram_inspect result (first text block, JSON body) and its details. Returns the result unchanged when there is no note. */
+  function annotateInspection(result){
+    const next=inspectionNext();
+    const first=result?.content?.[0];
+    if(!next||first?.type!=='text')return result;
+    let body;try{body=JSON.parse(first.text)}catch{body=null}
+    result.content[0]={...first,text:body&&typeof body==='object'?JSON.stringify({...body,next}):`${first.text}\n${JSON.stringify({next})}`};
+    result.details={...result.details,next};
+    return result;
   }
 
   /** The one binding script check: build step (the author's generator) -> hash -> phase-1 check -> cache. Text only. Every call counts against the caps. */
@@ -430,7 +456,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     }
     checkLog.push({seq,round:round+1,svgHash:cand.hash,cached,source,outcome:hit.findings.some(f=>f.severity==='blocking')?'CHECK_FAIL':'CHECK_PASS',failed:failedRules(hit),advisory:advisoryRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
     const entry=checkLog.at(-1),replyBody=checkReply(hit,{cached,source,buildNote,seq});
-    if(relaxed){entry.regressions=hit.regressionCount??0;lastCheck={hash:cand.hash,pass:entry.outcome==='CHECK_PASS'}}
+    if(relaxed){entry.regressions=hit.regressionCount??0;lastCheck={hash:cand.hash,pass:entry.outcome==='CHECK_PASS'};if(lastCheck.pass)lastPass={hash:cand.hash,seq}}
     return finish(replyBody);
   }
   const buildCheck=opts=>serial(()=>buildCheckNow(opts??{}));
@@ -499,7 +525,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     }
     // Late defensive check: a pass must also leave no open blocking finding in the ledger.
     if(!reverted&&c.gate?.pass&&ledger.openBlocking().length>0)c.gate={pass:false,reasons:[{code:'OPEN_BLOCKING',detail:`${ledger.openBlocking().length} open blocking finding(s) in the ledger`}]};
-    doneRounds.push({round,...cur});cur=freshStats();callsRound=0;lastCheck=null; // the per-round check budget resets when a round ends
+    doneRounds.push({round,...cur});cur=freshStats();callsRound=0;lastCheck=null;lastPass=null; // the per-round check budget resets when a round ends
     let result;
     const judgeOk=!relaxed||c.judgement?.verdict==='IMPROVED'; // relaxed: REVIEWED needs the Judge's IMPROVED on exactly these bytes; fail closed
     const niNote=(()=>{const j=c.judgement??best?.judgement;return j?.verdict==='NOT_IMPROVED'?`NOT_IMPROVED (${j.verdictReason}): `:''})();
@@ -565,7 +591,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   persist(); // status RUNNING, before the first author turn
 
   return {
-    submit,buildCheck,finalizeWithoutSubmit,expireWallClock,finalizeModelCallTimeout,noteModelCallTimeout,wallExceeded,manifest:()=>lastManifest,manifestPath,
+    submit,buildCheck,annotateInspection,finalizeWithoutSubmit,expireWallClock,finalizeModelCallTimeout,noteModelCallTimeout,wallExceeded,manifest:()=>lastManifest,manifestPath,
     addAuthorUsage:u=>{tokens.author=addUsage(tokens.author,u)},
     noteAuthorCall:()=>{authorCalls++},
     state:()=>({status,statusReason,round,rounds,ledger:ledger.snapshot(),oscillationsInReverted,best:best?{hash:best.hash,score:best.score}:null,manifest:lastManifest}),

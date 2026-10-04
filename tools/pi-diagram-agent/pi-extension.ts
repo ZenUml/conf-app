@@ -113,7 +113,7 @@ export default function (pi: ExtensionAPI) {
         } else inspector = createAgentVisualInspector(job);
         const renderSpec = createSpecRenderer(job);
         const buildStep = createBuildStep(job, { specMode: specRequired ? 'required' : specMode, renderSpec });
-        jobs.set(jobId, { runDir: job.runDir, inspect: thinking.wrap(inspector), renderSpec, ...(run ? { submit: (opts?: { svgHash?: string | null }) => run.submit(opts), ...(v2Budgets.twoPhase ? { buildCheck: (ctx: any) => run.buildCheck({ build: () => buildStep(ctx) }) } : {}) } : {}) });
+        jobs.set(jobId, { runDir: job.runDir, inspect: thinking.wrap(run ? async () => run.annotateInspection(await inspector()) : inspector), renderSpec, ...(run ? { submit: (opts?: { svgHash?: string | null }) => run.submit(opts), ...(v2Budgets.twoPhase ? { buildCheck: (ctx: any) => run.buildCheck({ build: () => buildStep(ctx) }) } : {}) } : {}) });
         let factsText: string | null = null;
         if (process.env.PI_DIAGRAM_SOURCE_FACTS === '1') {
           try {

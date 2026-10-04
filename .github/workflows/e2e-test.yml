@@ -224,6 +224,12 @@ jobs:
         with:
           name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
           path: selection
+      - name: Download trusted resolved selection when present
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: e2e-selection-${{ github.run_id }}
+          path: resolved-selection
       - id: plan
         name: Discover and plan concrete test identities
         env:
@@ -240,12 +246,18 @@ jobs:
           MAX_SHARDS=$(node -e 'process.stdout.write(String(JSON.parse(process.env.SHARD_MATRIX).length))')
           export MAX_SHARDS
           [ ! -f selection/test-selection.json ] || export SELECTION_PATH="$PWD/selection/test-selection.json"
+          [ ! -f resolved-selection/selection.json ] || export RESOLVED_SELECTION_PATH="$PWD/resolved-selection/selection.json"
           cd tests/e2e-tests
           node ../../scripts/test-selection/prepare-plan.mjs
       - uses: actions/upload-artifact@v6
         with:
           name: test-plan-${{ inputs.artifact-suffix }}
           path: tests/e2e-tests/test-plan.json
+          retention-days: 30
+      - uses: actions/upload-artifact@v6
+        with:
+          name: selection-metrics-${{ inputs.artifact-suffix }}
+          path: tests/e2e-tests/selection-metrics.json
           retention-days: 30
 
   # Log in ONCE per run and publish the storageState so every shard reuses it

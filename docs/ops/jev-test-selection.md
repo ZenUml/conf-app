@@ -1,19 +1,22 @@
 # Jev test selection and daily regression
 
 PR classification now requests `--mode enabled`. Successful trusted decisions
-run **smoke + Jev-selected categories + the existing deterministic mapped tags**.
+run **smoke + Jev-selected categories + the independently resolved legacy test IDs**.
 PR discovery covers all normal live Lite projects plus the render project, so
 selected categories outside the old insert/render/graph scopes can run too.
 Variant applicability still applies: Full-only tests run in daily Full
 regression, not against the Lite PR deployment. Main retains its existing Full
 suite. The graph-only PR lane is skipped
 because its tests are included in the expanded live lane; main keeps its layout.
-The deterministic tags remain a coverage floor: Jev cannot remove tests that the
-previous selector would run. Shared or unmapped changes, human `test:all`, API
+Each scope resolves the legacy filter independently, including the previous
+empty-render fallback to its full inventory. Its concrete test IDs form a floor:
+Jev cannot remove tests that the previous selector would run. Category grep
+matches complete tag tokens: `@test:sequence` does not match
+`@test:sequence-edit` or `@test:sequence-render`. Shared or unmapped changes, human `test:all`, API
 failure, missing artifacts, malformed decisions, or stale tree/policy metadata
 run the full normal suite. Main and daily regression also retain full coverage.
 
-The policy is `v2-guarded-uncalibrated`. Category recall and time savings have not
+The policy is `v3-guarded-uncalibrated`. Category recall and time savings have not
 been established; the 0.1 probability threshold is provisional. The floor makes
 activation conservative and may limit savings. Removing that floor requires a
 reviewed catalog evaluation across representative narrow, multi-area, shared,
@@ -28,6 +31,21 @@ change the workflow classifier mode to `observe`; the resolver then fails full.
 Slack integration is deferred at the user’s request. No workflow sends Slack
 messages. Regression verdicts are available in the Actions summary and
 `regression-results-<run-id>-<attempt>` artifact.
+
+## Selection measurements
+
+Every concrete plan includes `selection_metrics`, also uploaded as
+`selection-metrics-<lane>` and shown in the plan job summary. It records full
+inventory, legacy floor, smoke + Jev and final counts; added and retained IDs;
+missing floor IDs (which must be empty); API outcome, model, token usage and
+request duration; and fallback reasons. The plan fingerprint includes these
+measurements. Main/nightly and unverified decisions report full coverage with
+Jev not applied. These are planned counts, not measured runtime savings.
+
+The `v3` planner rejects `v2` decisions; the policy-change PR therefore runs full
+coverage until its trusted base contains the new policy. No model threshold or
+calibration claim changed. Historical response replays validate planning only;
+they do not prove candidate execution or recall.
 
 ## Actions configuration
 

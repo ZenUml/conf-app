@@ -182,6 +182,13 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))' -i manifest.yml
+      # Plan and Usage is the Lite limit page. Keep Full's other globalPage
+      # entries intact. Mirrors the Full manifestEdits in forge-wizard.mjs.
+      - name: Remove Lite Plan and Usage page from Full manifest.yml
+        if: ${{ steps.properties.outputs.license == 'full' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalPage"][] | select(.key == "zenuml-plan-usage-page"))' -i manifest.yml
       # No asyncapi step here on purpose: it drops the whole module in its own
       # block further below, alongside globalSettings and globalPage.
       # All non-asyncapi variants: strip the Connect lifecycle module

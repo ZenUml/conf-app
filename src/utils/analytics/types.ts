@@ -27,6 +27,8 @@ import type {
   AgentLinkOAuthRevokeReason,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
+  AgentLinkMcpCopyTarget,
+  AgentLinkStateValue,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -802,6 +804,12 @@ export type AnalyticsProperties = {
   // than one that reached Confluence.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `agent_link_state` is
+  // the session state when the dialog opened/closed; `mcp_copy_target` says
+  // which block a Copy click targeted. The copy outcome rides the shared
+  // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
+  agent_link_state?: AgentLinkStateValue;
+  mcp_copy_target?: AgentLinkMcpCopyTarget;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

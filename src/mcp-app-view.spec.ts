@@ -41,6 +41,20 @@ describe('extractDiagram', () => {
     expect(extractDiagram(result)).toEqual({ diagramType: 'sequence', dsl: 'A->B: hi', title: 'Order Service' });
   });
 
+  it('takes the source field that matches the stored type, not the stale tabs', () => {
+    const stored = {
+      title: 'Flow',
+      diagramType: 'mermaid',
+      code: 'A->B: stale zenuml draft',
+      mermaidCode: 'graph TD; A-->B;',
+      plantUmlCode: '@startuml\nA -> B\n@enduml',
+    };
+    expect(extractDiagram({ structuredContent: { source: JSON.stringify(stored) } })?.dsl).toBe('graph TD; A-->B;');
+    expect(
+      extractDiagram({ structuredContent: { source: JSON.stringify({ ...stored, diagramType: 'plantuml' }) } }),
+    ).toEqual({ diagramType: 'plantuml', dsl: '@startuml\nA -> B\n@enduml', title: 'Flow' });
+  });
+
   it('skips a read_diagram source that is bare DSL with no type', () => {
     expect(extractDiagram({ structuredContent: { title: 'x', source: 'A->B: hi' } })).toBeNull();
   });

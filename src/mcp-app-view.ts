@@ -106,7 +106,17 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
     try {
       const stored = JSON.parse(source) as Record<string, unknown>;
       if (stored && typeof stored === 'object') {
-        candidates.push({ ...stored, title: stored.title ?? (candidate as { title?: unknown }).title });
+        // The stored body keeps one source field per type (the editor's tabs):
+        // `code` is ZenUML, `mermaidCode` Mermaid, `plantUmlCode` PlantUML, and
+        // the inactive ones keep stale drafts. Only the field for `diagramType`
+        // is the diagram the page shows.
+        const type = typeof stored.diagramType === 'string' ? stored.diagramType.toLowerCase() : '';
+        const field = type === 'mermaid' ? 'mermaidCode' : type === 'plantuml' ? 'plantUmlCode' : 'code';
+        candidates.push({
+          diagramType: stored.diagramType,
+          dsl: stored[field],
+          title: stored.title ?? (candidate as { title?: unknown }).title,
+        });
       }
     } catch {
       // an older record whose source is bare DSL carries no diagramType; skip it

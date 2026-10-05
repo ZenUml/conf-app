@@ -282,7 +282,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   function buildManifest(){
     const bestC=best;
-    const finalMedia=bestC?.render?{full:bestC.render.full?.sha256??null,fit:bestC.render.fullscreen?.sha256??null,...(bestC.render.presentationImage?{presentation:bestC.render.presentationImage.sha256}: {})}:null;
+    const finalMedia=bestC?.render?{full:bestC.render.full?.sha256??null,fit:bestC.render.fullscreen?.sha256??null,...(bestC.render.presentationImage?{presentation:bestC.render.presentationImage.sha256}: {}),...(bestC.render.interactive?{interactive:bestC.render.interactive.sha256}:{})}:null;
     const ledgerSnap=ledger.snapshot();
     const residual=[...(bestC?.findings??[]).map(brief),...(bestC?.carried??[]).map(f=>({...brief(f),carried:true})),...extraResidual];
     const openRound=cur.buildCheckCalls||cur.refusals||cur.limitHits||cur.generatorErrors?[{round:doneRounds.length+1,open:true,...cur}]:[];
@@ -291,6 +291,8 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       sourceHash:job.sourceHash,rulesHash:job.rulesHash,rulesHistory:job.manifest?.rulesHistory??[],presentation,
       adjudication:job.manifest?.adjudication?{sha256:job.manifest.adjudication.sha256,records:job.manifest.adjudication.records?.length??0}:null,
       finalSvgSha256:bestC?.hash??null,finalMedia,originalSvgHash:bestC?.audit?.originalSvgHash??null,
+      ...(bestC?.render?.interactive?{interactive:bestC.render.interactive}:{}),
+      ...(bestC?.render?.interactiveExportError?{interactiveExportError:bestC.render.interactiveExportError}:{}),
       rounds,downgrades:downgradeList(),ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC),
       exceptions:status==='REVIEWED_WITH_EXCEPTIONS'||status==='VALIDATED'?exceptions:[],...(status==='REVIEWED_WITH_EXCEPTIONS'?{publishAsDefault:false}:{}),
       twoPhase:{enabled:twoPhase,caps:{perRound:B.maxChecksPerRound,perRun:B.maxChecksPerRun,generatorErrorsPerRound:B.maxGeneratorErrorsPerRound,findingsPerCheck:B.maxFindingsPerCheck},checksTotal:callsTotal,cacheHits,generatorErrors,perRound:[...doneRounds,...openRound],checks:checkLog,refusals,escalations},
@@ -321,6 +323,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       ?`REVIEWED_WITH_EXCEPTIONS: the reviewer's diagnosis waived ${exceptions.length} script FAIL(s) that code permits to waive (${[...new Set(exceptions.map(e=>e.check))].join(', ')}); every other script check passed and no blocking visual finding remains. Waived: ${exceptions.map(e=>`${e.check} on ${e.elements.join(', ')||'(no element ids)'} (measured ${String(e.measured).slice(0,120)}; reviewer reason: ${e.reason})`).join(' | ')}. This status is NOT published as the default Magic image. Only a human can promote it: /magic-accept ${job.runDir} ${m.finalSvgSha256} --waive ${[...new Set(exceptions.map(e=>e.check))].join(',')} (the command must name every waived check). Stop and report: candidate path, hash ${m.finalSvgSha256}, status REVIEWED_WITH_EXCEPTIONS, each waived check with its element ids, measured value and reason, the NOT-CHECKABLE rules ${m.notCheckable.join(', ')||'(none)'}. Do not edit candidate.svg again.`
       :`CANDIDATE: did not pass the gate (${reason}). The best candidate (fewest blocking${relaxed?', then highest Judge mean':''}, then fewest minor findings) is restored at ${job.outputPath}, hash ${m.finalSvgSha256}. Stop and report: candidate path, hash, status CANDIDATE, and the residual findings below. Do not claim it is reviewed or validated.`;
     finalDetail={status:newStatus,statusReason:reason,round,svgHash:m.finalSvgSha256,candidatePath:job.outputPath,residual,notCheckable:m.notCheckable,runManifest:manifestPath,message:text,downgrades:m.downgrades,...(newStatus==='REVIEWED_WITH_EXCEPTIONS'?{exceptions,publishAsDefault:false}:{}),
+      ...(m.interactive?{interactivePath:m.interactive.path}:{}),...(m.interactiveExportError?{interactiveExportError:m.interactiveExportError}:{}),
       findings:newStatus==='CANDIDATE'?formatForAuthor(selectForAuthor(ledger,{max:B.maxBlockingPerRound})).findings:[]};
     finalResult={content:[{type:'text',text:JSON.stringify(finalDetail)}],details:finalDetail};
     return finalResult;

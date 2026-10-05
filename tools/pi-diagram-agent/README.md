@@ -1,5 +1,15 @@
 # Pi diagram improvement agent
 
+Every safe SVG render also writes a self-contained `.interactive.html` companion. Hover a node to highlight its direct relations and opposite endpoints; hover a line to highlight that relation and its endpoints. Click or tap to keep the selection, click it again or the background to clear it, and use Enter/Space or Escape with a keyboard. A shared suffix selects the exact relations coincident on that section, proved from the actual SVG geometry. The wrapper includes Fit and 100% views, requires no network or model call, and leaves the audited SVG unchanged. Its file and source SVG hashes are recorded with the final run artifacts. An unsafe SVG is never exported as executable HTML; any export error is reported separately from the static rendering result.
+
+To add the same interaction to an existing SVG with `g[data-node]` and `path[data-source][data-target]` bindings (`data-edge` is optional; missing IDs are assigned only in the wrapper):
+
+```sh
+node tools/pi-diagram-agent/kit/export-interactive.mjs /absolute/diagram.svg /absolute/interactive.html
+```
+
+This uses the same configured Playwright/Chromium runtime as rendering. The HTML can be viewed offline; PNG exports remain static images.
+
 This local prototype has one product entry point: the Pi `/magic` command. It starts a **real model turn**. Pi receives the complete pinned Diagram Rules and exact original Mermaid bytes, creates a diagram-specific native SVG, inspects the original and candidate images, and revises the candidate. It does not call a fixed layout pipeline to choose the design. The earlier deterministic experiment remains in the separate prototype repository history for research, not as a supported conversion fallback.
 
 Load the extension with the Pi 1.0.0 runtime (RPC clients finish a run on `agent_settled`, not `agent_end`):

@@ -3,6 +3,7 @@ import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {resolvePresentation} from './presentation.mjs';
+import {collectInteractiveFacts,exportInteractiveSvg} from './interactive-export.mjs';
 
 const require=createRequire(import.meta.url);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -35,6 +36,7 @@ export async function renderAgentSvg(svgBytes,{outPrefix,displayWidth=1200,displ
     },{displayWidth,displayHeight});
     if(size.natural.w*size.pageScale*size.natural.h*size.pageScale*4>40_000_000)throw Error('RENDER_PIXEL_BUDGET_EXCEEDED');
     await page.evaluate(()=>document.fonts.ready);
+    const interactiveFacts=await page.evaluate(collectInteractiveFacts);
     const svg=page.locator('svg'),box=await svg.boundingBox();
     if(!box||box.width<=0||box.height<=0)throw Error('SVG_BOUNDS_UNAVAILABLE');
     await page.setViewportSize({width:Math.ceil(box.x+box.width),height:Math.ceil(box.y+box.height)});
@@ -62,7 +64,13 @@ export async function renderAgentSvg(svgBytes,{outPrefix,displayWidth=1200,displ
     const presented=size.fontSizes.map(n=>n*display.scale).sort((a,b)=>a-b);
     const presentationView={...display,viewport:{width:actualWidth,height:actualHeight},textCount:presented.length,minCssPx:presented[0]??null,referenceOnly:false};
     const effective=size.fontSizes.map(n=>n*size.fullScale).sort((a,b)=>a-b),mid=Math.floor(effective.length/2);
+    let interactive=null,interactiveExportError=null;
+    try{
+      interactive=await exportInteractiveSvg(svgBytes,{outPath:`${stem}.interactive.html`,facts:interactiveFacts});
+      files.push(interactive);
+    }catch(error){interactiveExportError=error.message}
     return {status:'PASS',svgHash,full,crops,fullscreen,displayWidth,displayHeight,deviceScaleFactor:2,
+      ...(interactive?{interactive}:{}),...(interactiveExportError?{interactiveExportError}:{}),
       natural:size.natural,pageScale:size.pageScale,presentationImage,presentationView,containFit:{scale:size.fullScale,fitBounds,textCount:effective.length,minCssPx:effective[0]??null,medianCssPx:effective.length?(effective.length%2?effective[mid]:(effective[mid-1]+effective[mid])/2):null,under10CssPx:effective.filter(n=>n<10).length},textAudit:size.textAudit,
       limitations:['Text overlap and offscreen checks are geometric observations, not a full visual or routing audit.']};
   }catch(error){for(const file of files)fs.rmSync(file.path,{force:true});throw error}

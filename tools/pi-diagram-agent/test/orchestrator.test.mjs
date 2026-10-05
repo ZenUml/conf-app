@@ -33,7 +33,7 @@ function setup(over={}){
     return a;
   };
   const deps={
-    render:async bytes=>{calls.render.push(hash(bytes));clock.t+=100;return {svgHash:hash(bytes),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200}}},
+    render:async bytes=>{calls.render.push(hash(bytes));clock.t+=100;return {svgHash:hash(bytes),full:rec('full'),crops:[rec('c0'),rec('c1'),rec('c2'),rec('c3')],fullscreen:rec('fit'),natural:{w:600,h:200},...(over.renderExtra?.(bytes)??{})}},
     audit:async bytes=>{calls.audit.push(hash(bytes));clock.t+=50;return (over.auditFor??auditFor)(bytes.toString())},
     original:async()=>({rendered:{originalSvgHash:'o'.repeat(64),media:{full:rec('orig')}},svgBytes:Buffer.from('<svg/>')}),
     image:r=>({type:'image',data:r.sha256,mimeType:'image/png'}),
@@ -53,6 +53,27 @@ function setup(over={}){
 }
 const rv=(findings=[],verdict)=>({findings,verdict:verdict??(findings.some(f=>f.severity==='blocking')?'revise':'accept')}); // imagesSeen is filled in by the fake reviewer from the images it was sent
 const rf=(rule,elements,severity='blocking')=>({rule,severity,elements,evidence:'seen in the image',measured:'about 40 units',threshold:'<= 25 units',suggestion:'fix it'});
+
+test('final manifest and response identify the interactive companion bound to the kept SVG',async()=>{
+  const t=setup({replies:[rv([])],renderExtra:bytes=>({interactive:{file:'preview.html',path:'/synthetic/preview.html',sha256:'html-hash',sourceSvgSha256:hash(bytes),sharedSectionCount:1}})});
+  try{
+    const bytes=svg('interactive');t.write(bytes);const result=await t.out(),manifest=readRunManifest(t.job.runDir);
+    assert.equal(result.status,'REVIEWED');assert.equal(result.interactivePath,'/synthetic/preview.html');
+    assert.equal(manifest.interactive.sourceSvgSha256,manifest.finalSvgSha256);
+    assert.equal(manifest.finalSvgSha256,hash(bytes));assert.equal(manifest.finalMedia.interactive,'html-hash');
+    assert.equal(verifyManifest(manifest),true);
+  }finally{t.cleanup()}
+});
+
+test('interactive export failure is explicit and does not change the static gate',async()=>{
+  const t=setup({replies:[rv([])],renderExtra:()=>({interactiveExportError:'SVG_EXTERNAL_REFERENCE_UNSUPPORTED'})});
+  try{
+    t.write(svg('unavailable'));const result=await t.out(),manifest=readRunManifest(t.job.runDir);
+    assert.equal(result.status,'REVIEWED');assert.equal(result.interactiveExportError,'SVG_EXTERNAL_REFERENCE_UNSUPPORTED');
+    assert.equal(manifest.interactiveExportError,result.interactiveExportError);assert.equal(manifest.interactive,undefined);
+    assert.equal(manifest.finalMedia.interactive,undefined);
+  }finally{t.cleanup()}
+});
 
 test('audit FAIL: orchestrator renders the exact final bytes itself and returns structured findings; reviewer is not called',async()=>{
   const t=setup();try{

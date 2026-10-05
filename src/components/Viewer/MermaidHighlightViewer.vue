@@ -1,7 +1,7 @@
 <template>
   <GenericViewer :wide="wide" :hide-header="hideHeader" @capture-mode-change="onCaptureModeChange">
     <template #viewer-actions>
-      <button v-if="ready || supported" class="highlight-toggle" :aria-pressed="enabled" @click="toggle">◎ Relationship highlights <span class="toggle-dot" :class="{on:enabled}" /></button>
+      <button v-if="ready || supported" class="highlight-toggle" aria-label="Relationship highlights" title="Highlight connected nodes and lines on hover or selection" :aria-pressed="enabled" @click="toggle"><span aria-hidden="true">◎</span><span class="highlight-label">Highlight</span><span class="toggle-dot" :class="{on:enabled}" /></button>
     </template>
     <Mermaid ref="renderer" :relationship-highlights="enabled" @highlight-ready="onReady($event)" @highlight-used="onUsed" />
     <template #viewer-sidebar>
@@ -91,6 +91,12 @@ function toggle() {
 .highlight-toggle:focus-visible {
   outline: 2px solid #2371c5;
   outline-offset: 3px;
+}
+:global(.viewer-edge-top:has(.highlight-toggle)) {
+  container: mermaid-highlight-header viewer-header / inline-size;
+}
+@container mermaid-highlight-header (max-width: 600px) {
+  .highlight-label { display: none; }
 }
 .toggle-dot {
   width: 23px;

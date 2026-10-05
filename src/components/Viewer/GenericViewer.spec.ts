@@ -418,6 +418,25 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
     })
 
+    it('adds adjacent layout only when a sidebar slot is supplied', () => {
+      const plain = mountViewer()
+      expect(plain.find('.viewer-body').classes()).not.toContain('viewer-body--with-sidebar')
+      plain.unmount()
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        slots: {
+          default: '<div class="diagram-stub">diagram</div>',
+          'viewer-actions': '<button class="extra-action">Highlights</button>',
+          'viewer-sidebar': '<aside class="extra-sidebar">Feedback</aside>',
+        },
+      })
+      expect(wrapper.find('.viewer-top-actions .extra-action').exists()).toBe(true)
+      expect(wrapper.find('.viewer-body').classes()).toContain('viewer-body--with-sidebar')
+      expect(wrapper.find('.extra-sidebar').element.previousElementSibling?.classList.contains('viewer-surface')).toBe(true)
+      expect(wrapper.find('.screen-capture-content .diagram-stub').exists()).toBe(true)
+      wrapper.unmount()
+    })
+
     it('falls back to a default title when the diagram has no title', () => {
       store.state.diagram.title = ''
       const wrapper = mountViewer()

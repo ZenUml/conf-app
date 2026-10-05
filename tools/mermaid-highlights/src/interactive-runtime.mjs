@@ -32,10 +32,10 @@ export function installInteractiveSvg(svg,sharedSections=[],status=null){
   const label=id=>nodes.get(id)?.querySelector('[data-role="label"]')?.textContent.trim()||nodes.get(id)?.textContent.trim().replace(/\s+/g,' ')||id;
   const element=name=>document.createElementNS(ns,name),hits=element('g'),overlays=element('g'),nodePaint=element('g'),nodeHits=element('g');
   hits.classList.add('interaction-hit-layer');overlays.classList.add('interaction-overlay-layer');nodePaint.classList.add('interaction-node-overlay-layer');nodeHits.classList.add('interaction-node-hit-layer');
-  overlays.setAttribute('pointer-events','none');nodePaint.setAttribute('pointer-events','none');svg.append(hits,overlays,nodePaint,nodeHits);
+  overlays.setAttribute('pointer-events','none');nodePaint.setAttribute('pointer-events','none');const layerParent=svg.querySelector('g.svg-pan-zoom_viewport')||svg;layerParent.append(hits,overlays,nodePaint,nodeHits);
   let hover=null,focus=null,selection=null,destroyed=false,forwarding=false;
   const same=(a,b)=>a&&b&&a.kind===b.kind&&a.id===b.id;
-  const rootTransform=(source,clone)=>{const root=svg.getScreenCTM(),matrix=source.getScreenCTM();if(!root||!matrix)throw Error('SVG transform unavailable');const m=root.inverse().multiply(matrix);clone.setAttribute('transform',`matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`)};
+  const rootTransform=(source,clone)=>{const root=layerParent.getScreenCTM(),matrix=source.getScreenCTM();if(!root||!matrix)throw Error('SVG transform unavailable');const m=root.inverse().multiply(matrix);clone.setAttribute('transform',`matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`)};
   const all=[...nodes.values(),...[...edges.values()].map(e=>e.element)];
   function paintNode(node){
     const copy=node.cloneNode(true),originals=[node,...node.querySelectorAll('*')],clones=[copy,...copy.querySelectorAll('*')];

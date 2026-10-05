@@ -1,6 +1,6 @@
 # Mermaid highlights
 
-A standalone local developer tool and browser module for highlighting connections in an existing Mermaid flowchart. It does not integrate with the Confluence app, backend, or analytics.
+A standalone local developer tool and browser module for highlighting connections in an existing Mermaid flowchart. The app's real Mermaid component can opt into this module; the viewer feedback composition below is available for Storybook review.
 
 Hover or focus a node to trace its incident connectors and neighbors. Hover a connector to trace its endpoints. Click, Enter, or Space locks the selection; a second click or Escape clears it. `reset()` clears interaction state. `destroy()` removes the installed layers and restores renderer attributes and status content. Node and edge hit areas forward clicks to the original elements, preserving direct and delegated callbacks.
 
@@ -61,16 +61,16 @@ With the three environment variables configured, run:
 node --test tools/mermaid-highlights/test/mermaid-highlights.test.mjs
 ```
 
-There are eight tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, and label preservation. Seven browser tests skip when Playwright module or Mermaid bundle paths are missing.
+There are nine tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, and pan/zoom geometry. Eight browser tests skip when Playwright module or Mermaid bundle paths are missing.
 
 Extracted from commit `bd78520a683e978f665219b8e0c87794c01328cf`, originally under `tools/pi-diagram-agent/`. Runtime environment variables and Symbol namespaces now belong to this independent tool. The generic runtime retains optional `sharedSections` support; the Mermaid adapter installs no shared sections. No static SVG exporter is required.
 
-## Viewer feedback Storybook prototype
+## Real viewer feedback Storybook review
 
-The throwaway `src/components/Viewer/MermaidHighlightFeedbackPrototype.vue` explores when and where to ask readers for feedback. Run `pnpm storybook` and open **Viewer / MermaidHighlightFeedbackPrototype**. The five stories start at interactive, visible question, liked, disliked/reason, and dismissed states. On the same story route, `?variant=footer`, `?variant=toolbar`, and `?variant=sidebar` compare inline footer feedback, a toolbar popover, and an adjacent card. The floating prototype tray switches variants and restarts the experience.
+Open **Viewer / MermaidHighlightFeedbackPrototype** in Storybook. The five existing stories cover interactive, question, liked, disliked/reason, and dismissed states. The selected design is the adjacent 260 px sidebar card. The floating review tray only restarts the experience and shows memory-only state and events.
 
-The fixture is a synthetic eight-node order flow. The real standalone module drives highlighting. The question appears only after a continuous 700 ms hover or node/edge click or focus; the toolbar variant then offers a feedback button. The reserved footer keeps the canvas height stable. Dislike offers optional bounded reasons; dismissing feedback leaves highlighting enabled. The toolbar separately controls highlighting.
+The story composes the real `GenericViewer`, `Mermaid`, and `DiagramViewport` components through the opt-in `MermaidHighlightViewer` wrapper. Source, diagram zoom, and pan use the existing viewer implementation. The real Mermaid component attaches the relationship highlighter only when explicitly enabled. No production callsite enables this wrapper automatically.
 
-All state and the small event log live in memory. Storybook aliases `trackAnalyticsEvent` to its noop stub, so there is no real telemetry or backend request. Planned events are registered in the app analytics catalog before the prototype; no production viewer imports this component. The dark tray shows prototype state and events separately from the product UI. These alternatives are for review, not a production implementation.
+The synthetic fixture has eight nodes and ten connectors. Actual highlighting usage (700 ms continuous hover, click, or keyboard focus) gates the feedback question. Like shows thanks; dislike offers optional bounded reasons. Closing or skipping leaves highlighting enabled and keeps feedback closed across toggle cycles. The header toggle controls highlighting independently. Footer and toolbar feedback variants have been removed.
 
-Live Storybook review confirmed the initial hidden prompt, node click and keyboard reveal, like confirmation, optional dislike reason, dismissal with no inferred answer, independent highlight disable, and all three placements. The actual fixture rendered eight nodes and ten connectors. The 700 ms hover gate is present in code; isolated hover timing was not separately driven in that UI review. No prototype render error was observed.
+`MermaidHighlightFeedback` owns the reusable feedback flow and planned analytics events. Storybook uses local bundled Mermaid, a Vuex fixture, safe Forge/AP stubs, and the analytics noop alias. It sends no feedback or telemetry. State and the debug event log stay in memory; source, tenant, and free-text feedback are never added to event payloads. This is an opt-in review composition, with no rollout or deployment.

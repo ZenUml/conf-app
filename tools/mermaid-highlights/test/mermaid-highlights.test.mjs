@@ -127,3 +127,35 @@ test('direct export preserves a nonbreaking space inside a quoted Mermaid label'
     assert.equal(await page.locator('.active-node-overlay .nodeLabel').filter({hasText:'Hello'}).textContent(),'Hello\u00a0World');
   }finally{fs.rmSync(dir,{recursive:true,force:true})}
 }));
+
+
+test('pan/zoom viewport keeps hit areas and paint aligned through later transforms', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser);
+  await page.evaluate(()=>{
+    window.control.destroy();
+    const svg=document.querySelector('svg'),viewport=document.createElementNS(svg.namespaceURI,'g');
+    viewport.classList.add('svg-pan-zoom_viewport');
+    for(const child of [...svg.children])if(child.localName==='g')viewport.append(child);
+    svg.append(viewport);viewport.setAttribute('transform','translate(20 30) scale(0.8)');
+    window.control=attachMermaidHighlights(svg,window.model);
+  });
+  const geometry=()=>page.evaluate(()=>{
+    const svg=document.querySelector('svg'),node=svg.querySelector('g[data-node="A-B"]'),nodeHit=svg.querySelector('.node-hit[data-hit-node="A-B"]');
+    const edge=svg.querySelector('path[data-edge]'),hit=svg.querySelector('.edge-hit');
+    const rect=el=>{const b=el.getBoundingClientRect();return [b.x,b.y,b.width,b.height]};
+    const point=el=>{const p=el.getPointAtLength(el.getTotalLength()/2);const q=new DOMPoint(p.x,p.y).matrixTransform(el.getScreenCTM());return [q.x,q.y]};
+    return {node:rect(node),nodeHit:rect(nodeHit),edge:point(edge),hit:point(hit),layers:[...svg.querySelectorAll('.interaction-hit-layer,.interaction-overlay-layer,.interaction-node-overlay-layer,.interaction-node-hit-layer')].every(el=>el.parentElement.classList.contains('svg-pan-zoom_viewport'))};
+  });
+  for(const transform of ['translate(20 30) scale(0.8)','translate(105 68) scale(1.3)']){
+    await page.evaluate(value=>document.querySelector('.svg-pan-zoom_viewport').setAttribute('transform',value),transform);
+    const g=await geometry();assert.equal(g.layers,true);
+    for(let i=0;i<4;i++)assert.ok(Math.abs(g.node[i]-g.nodeHit[i])<0.3,JSON.stringify(g));
+    for(let i=0;i<2;i++)assert.ok(Math.abs(g.edge[i]-g.hit[i])<0.3,JSON.stringify(g));
+    await page.evaluate(()=>document.querySelector('.node-hit[data-hit-node="A-B"]').dispatchEvent(new MouseEvent('click',{bubbles:true})));
+    const paint=await page.evaluate(()=>{const rect=el=>{const b=el.getBoundingClientRect();return [b.x,b.y,b.width,b.height]};return {node:rect(document.querySelector('g[data-node="A-B"]')),paint:rect([...document.querySelectorAll('.active-node-overlay')].find(el=>el.textContent.includes('Input')))}});
+    for(let i=0;i<4;i++)assert.ok(Math.abs(paint.node[i]-paint.paint[i])<0.3,JSON.stringify(paint));
+    await page.evaluate(()=>window.control.reset());
+  }
+  await page.evaluate(()=>{window.control.destroy();window.control=attachMermaidHighlights(document.querySelector('svg'),window.model)});
+  assert.equal(await page.locator('.interaction-hit-layer').count(),1);assert.deepEqual(errors,[]);
+}));

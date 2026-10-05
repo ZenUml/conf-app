@@ -288,6 +288,7 @@ export type AnalyticsEventName =
   // Existing macro_type_changed tracks every tab selection; normal macro
   // create/edit/publish lifecycle events track persistence outcomes.
   | "markdown_seeded_from_mermaid"
+  // macro_viewed: sequence renders also carry diagram_font=plex|fallback (hosted IBM Plex Sans loaded before first render).
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
   // is sent. Editor entries must emit the event from the iframe that owns the

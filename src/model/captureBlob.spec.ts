@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as htmlToImage from 'html-to-image';
 import { captureBlob, prepareSequenceCaptureSvg } from './captureBlob';
+import { getDiagramFontEmbedCss } from '../utils/fonts/diagramFontEmbedCss';
+
+vi.mock('../utils/fonts/diagramFontEmbedCss', () => ({
+  getDiagramFontEmbedCss: vi.fn(async () => undefined),
+}));
 
 // The defect these tests pin down: html-to-image's own toBlob() resolves ONLY
 // from inside a requestAnimationFrame callback, and Chrome runs no animation
@@ -115,6 +120,21 @@ describe('captureBlob', () => {
     stubImage('ok');
     await captureBlob(node, { backgroundColor: 'white', skipFonts: true });
     expect(htmlToImage.toSvg).toHaveBeenCalledWith(node, { backgroundColor: 'white', skipFonts: true });
+  });
+
+  it('adds the hosted-font fontEmbedCSS to toSvg when available, keeping the caller options', async () => {
+    stubImage('ok');
+    const css = '@font-face{font-family:"IBM Plex Sans"}';
+    vi.mocked(getDiagramFontEmbedCss).mockResolvedValueOnce(css);
+    await captureBlob(node, { backgroundColor: 'white', skipFonts: true });
+    expect(htmlToImage.toSvg).toHaveBeenCalledWith(node, { backgroundColor: 'white', skipFonts: true, fontEmbedCSS: css });
+  });
+
+  it('does not override a caller-supplied fontEmbedCSS', async () => {
+    stubImage('ok');
+    vi.mocked(getDiagramFontEmbedCss).mockResolvedValueOnce('hosted');
+    await captureBlob(node, { fontEmbedCSS: 'mine' });
+    expect(htmlToImage.toSvg).toHaveBeenCalledWith(node, { fontEmbedCSS: 'mine' });
   });
 
   it('DOCUMENTS THE DEFECT: html-to-image createImage() never settles without animation frames', async () => {

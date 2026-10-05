@@ -88,6 +88,12 @@ test('repeated attach and destroy restore exact Mermaid SVG and preserve existin
   assert.equal(await page.locator('#status').textContent(),'Initial status');
   await page.evaluate(()=>document.querySelector('path.flowchart-link').dispatchEvent(new MouseEvent('click',{bubbles:true})));
   assert.deepEqual(await page.evaluate(()=>[window.edgeDirect,window.edgeDelegated]),[3,3]);
+  await page.evaluate(()=>window.control=attachMermaidHighlights(document.querySelector('svg'),window.model));
+  await page.locator('.node-hit[data-hit-node="A-B"]').click();
+  assert.ok(await page.locator('.interaction-inactive').count()>0);
+  await page.evaluate(()=>window.control.destroy());
+  assert.equal(await page.locator('.interaction-inactive,.active-node-overlay,.active-edge-overlay,.node-hit,.edge-hit').count(),0);
+  assert.equal(await page.evaluate(()=>document.querySelector('svg').outerHTML===window.originalSvg),true);
   assert.deepEqual(errors,[]);
 }));
 

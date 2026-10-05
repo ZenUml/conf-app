@@ -934,6 +934,10 @@ export default {
     },
   },
   watch: {
+    showExportModal: {
+      flush: 'sync',
+      handler(active) { this.$emit('capture-mode-change', active); },
+    },
     showCreateGuide: {
       immediate: true,
       handler(shown) {

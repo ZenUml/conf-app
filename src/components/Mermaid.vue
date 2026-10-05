@@ -36,11 +36,15 @@ import { attachMermaidHighlights } from '../../tools/mermaid-highlights/src/merm
 export default {
   name: "Mermaid",
   components: { DiagramViewport },
-  props: { relationshipHighlights: { type: Boolean, default: false } },
+  props: {
+    relationshipHighlights: { type: Boolean, default: false },
+    readOnly: { type: Boolean, default: false },
+  },
   emits: ['highlight-ready', 'highlight-used'],
   data() {
     return {
       svg: null,
+      captureMode: false,
       highlightController: null,
       highlightCleanup: null,
       currentFlowchartModel: null,
@@ -59,6 +63,11 @@ export default {
     },
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
+    },
+    highlightSurfaceAllowed() {
+      // Export-entry renders are photographed at native size, never interactive.
+      return this.isDisplayMode && !this.readOnly && !this.captureMode
+        && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport !== true;
     },
   },
   async mounted() {
@@ -79,16 +88,20 @@ export default {
     this.layoutWaitController = null;
   },
   watch: {
+    readOnly() {
+      this.clearHighlights();
+      if (this.relationshipHighlights && this.highlightSurfaceAllowed && this.mermaidCode) this.renderAndApply(this.mermaidCode);
+    },
     relationshipHighlights() {
       this.clearHighlights();
-      if (this.relationshipHighlights && this.isDisplayMode) {
+      if (this.relationshipHighlights && this.highlightSurfaceAllowed) {
         if (this.currentFlowchartModel) this.installHighlights();
         else if (this.mermaidCode) this.renderAndApply(this.mermaidCode);
       }
     },
     isDisplayMode() {
       this.clearHighlights();
-      if (this.relationshipHighlights && this.isDisplayMode && this.mermaidCode) this.renderAndApply(this.mermaidCode);
+      if (this.relationshipHighlights && this.highlightSurfaceAllowed && this.mermaidCode) this.renderAndApply(this.mermaidCode);
     },
     async mermaidCode(newVal) {
       if (!newVal) {
@@ -104,6 +117,15 @@ export default {
     }
   },
   methods: {
+    /** Synchronous capture boundary: call before ExportModal starts cloning DOM. */
+    setCaptureMode(active) {
+      this.captureMode = !!active;
+      this.clearHighlights();
+      if (!this.captureMode && this.relationshipHighlights && this.highlightSurfaceAllowed) {
+        if (this.currentFlowchartModel) this.installHighlights();
+        else if (this.mermaidCode) this.renderAndApply(this.mermaidCode);
+      }
+    },
     clearHighlights() {
       this.highlightCleanup?.();
       this.highlightCleanup = null;
@@ -112,7 +134,7 @@ export default {
       this.$emit('highlight-ready', false);
     },
     installHighlights() {
-      if (!this.relationshipHighlights || !this.isDisplayMode || !this.currentFlowchartModel) return;
+      if (!this.relationshipHighlights || !this.highlightSurfaceAllowed || !this.currentFlowchartModel) return;
       const svg = this.$refs.viewport?.$el?.querySelector('svg');
       if (!svg) return;
       try {
@@ -190,7 +212,7 @@ export default {
       // U+00A0, which mermaid's Langium grammars refuse. Normalising here is
       // what makes those diagrams render again without a data migration.
       const source = normalizeMermaidWhitespace(code);
-      const captureFlowchartModel = this.relationshipHighlights && this.isDisplayMode;
+      const captureFlowchartModel = this.relationshipHighlights && this.highlightSurfaceAllowed;
       const { svg, flowchartModel } = captureFlowchartModel
         ? await renderMermaid(renderId, source, { captureFlowchartModel: true })
         : await renderMermaid(renderId, source);

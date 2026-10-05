@@ -688,12 +688,11 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
-  // Planned ahead of the Mermaid highlighting Storybook prototype. These are
-  // registered before any producer exists so the prototype can review one
-  // stable contract. Every event uses feature_area=macro, surface=viewer,
+  // Planned ahead of the Mermaid highlighting implementation. Every event
+  // uses feature_area=macro, surface=viewer or fullscreen,
   // and macro_type=mermaid. Do not send
   // source, node/edge IDs or text, diagram IDs, free text, or customer data.
-  // `used` fires once per viewer session after meaningful node/edge tracing,
+  // `used` fires once per diagram render session after meaningful node/edge tracing,
   // never for pointermove. `feedback_shown` fires only when the prompt is
   // actually visible. `feedback_answered` is an explicit like/dislike click;
   // `feedback_reason_selected` is an optional bounded reason after dislike.

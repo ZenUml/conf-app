@@ -418,6 +418,15 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
     })
 
+    it('emits export capture mode synchronously on every open and close', () => {
+      const wrapper = mountViewer()
+      wrapper.vm.showExportModal = true
+      expect(wrapper.emitted('capture-mode-change')).toEqual([[true]])
+      wrapper.vm.showExportModal = false
+      expect(wrapper.emitted('capture-mode-change')).toEqual([[true], [false]])
+      wrapper.unmount()
+    })
+
     it('adds adjacent layout only when a sidebar slot is supplied', () => {
       const plain = mountViewer()
       expect(plain.find('.viewer-body').classes()).not.toContain('viewer-body--with-sidebar')

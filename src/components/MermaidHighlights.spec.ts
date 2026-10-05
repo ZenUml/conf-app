@@ -13,15 +13,17 @@ function fixture() {
   const controller = { destroy: vi.fn() };
   attach.mockReturnValue(controller);
   const vm: any = {
-    relationshipHighlights: true, isDisplayMode: true, currentFlowchartModel: {},
+    relationshipHighlights: true, isDisplayMode: true, readOnly: false, captureMode: false, currentFlowchartModel: {},
     renderGeneration: 1, highlightUsedGeneration: -1, $refs: { viewport: { $el: root } }, $emit: vi.fn(),
   };
+  Object.defineProperty(vm, 'highlightSurfaceAllowed', {get: () => Mermaid.computed.highlightSurfaceAllowed.call(vm)});
   vm.clearHighlights = Mermaid.methods.clearHighlights.bind(vm);
-  const install = () => Mermaid.methods.installHighlights.call(vm);
+  vm.installHighlights = Mermaid.methods.installHighlights.bind(vm);
+  const install = () => vm.installHighlights();
   return { vm, root, controller, install, node: root.querySelector('g')!, edge: root.querySelector('path')! };
 }
 
-afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); document.body.replaceChildren(); });
+afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); document.body.replaceChildren(); delete window.forgeGlobal; });
 
 describe('Mermaid opt-in highlight lifecycle', () => {
   it('reports a selected target once per diagram, including after disable/reinstall', () => {
@@ -53,6 +55,36 @@ describe('Mermaid opt-in highlight lifecycle', () => {
     install(); edge.dispatchEvent(new Event('pointerover', {bubbles:true}));
     vi.advanceTimersByTime(700);
     expect(vm.$emit).toHaveBeenCalledWith('highlight-used',{kind:'edge'});
+  });
+
+  it('synchronously removes interaction before capture and reinstalls after closing', () => {
+    const {vm, controller, install} = fixture();
+    install();
+    Mermaid.methods.setCaptureMode.call(vm, true);
+    expect(controller.destroy).toHaveBeenCalledTimes(1);
+    expect(vm.highlightController).toBeNull();
+    install();
+    expect(attach).toHaveBeenCalledTimes(1);
+    Mermaid.methods.setCaptureMode.call(vm, false);
+    expect(attach).toHaveBeenCalledTimes(2);
+    expect(vm.$emit).toHaveBeenLastCalledWith('highlight-ready',true);
+  });
+
+  it('captures a model on close when the initial render happened during capture', () => {
+    const {vm} = fixture();
+    vm.currentFlowchartModel=null; vm.mermaidCode='flowchart LR;A-->B'; vm.renderAndApply=vi.fn();
+    Mermaid.methods.setCaptureMode.call(vm,true);
+    Mermaid.methods.setCaptureMode.call(vm,false);
+    expect(vm.renderAndApply).toHaveBeenCalledWith(vm.mermaidCode);
+  });
+
+  it('suppresses interaction on export-entry and read-only surfaces', () => {
+    const {vm, install} = fixture();
+    window.forgeGlobal = {forgeContext: {extension: {modal: {openExport: true}}}} as any;
+    install(); expect(attach).not.toHaveBeenCalled();
+    delete window.forgeGlobal;
+    vm.readOnly=true; install(); expect(attach).not.toHaveBeenCalled();
+    vm.readOnly=false; install(); expect(attach).toHaveBeenCalledTimes(1);
   });
 
   it('leaves the diagram intact when attachment fails and never installs in editor mode', () => {

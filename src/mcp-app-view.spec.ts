@@ -27,6 +27,24 @@ describe('extractDiagram', () => {
       .toEqual({ diagramType: 'sequence', dsl: 'A->B: hi', title: undefined });
   });
 
+  it('unwraps the stored body that read_diagram actually returns', () => {
+    // The real shape, as Codex hands it to the view: the diagram lives in
+    // `source`, a JSON string, not at the top level.
+    const read = {
+      contentId: '11698177',
+      title: 'Order Service',
+      type: 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
+      version: 5,
+      source: JSON.stringify({ title: 'Order Service', code: 'A->B: hi', diagramType: 'sequence' }),
+    };
+    const result = { content: [{ type: 'text', text: JSON.stringify(read) }], structuredContent: read };
+    expect(extractDiagram(result)).toEqual({ diagramType: 'sequence', dsl: 'A->B: hi', title: 'Order Service' });
+  });
+
+  it('skips a read_diagram source that is bare DSL with no type', () => {
+    expect(extractDiagram({ structuredContent: { title: 'x', source: 'A->B: hi' } })).toBeNull();
+  });
+
   it('prefers structuredContent over a text block that disagrees', () => {
     const result = {
       structuredContent: { diagramType: 'mermaid', dsl: 'from-structured' },

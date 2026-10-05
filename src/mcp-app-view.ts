@@ -96,6 +96,23 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
   }
   if (result && typeof result === 'object') candidates.push(result);
 
+  // read_diagram answers with the stored custom-content body as it is in
+  // Confluence: `source` is a JSON STRING holding `{title, code, diagramType}`.
+  // Without unwrapping it no real read_diagram result ever renders — the shapes
+  // above only match payloads we wrote ourselves.
+  for (const candidate of [...candidates]) {
+    const source = (candidate as { source?: unknown } | null)?.source;
+    if (typeof source !== 'string') continue;
+    try {
+      const stored = JSON.parse(source) as Record<string, unknown>;
+      if (stored && typeof stored === 'object') {
+        candidates.push({ ...stored, title: stored.title ?? (candidate as { title?: unknown }).title });
+      }
+    } catch {
+      // an older record whose source is bare DSL carries no diagramType; skip it
+    }
+  }
+
   for (const candidate of candidates) {
     const c = candidate as { diagramType?: unknown; dsl?: unknown; code?: unknown; title?: unknown };
     const type = typeof c?.diagramType === 'string' ? c.diagramType : undefined;

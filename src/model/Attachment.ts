@@ -264,7 +264,7 @@ async function toPng(): Promise<Blob | null | undefined> {
     // model/captureBlob.ts for the measurement. The timeout stays as a bound
     // on any future never-settling path.
     return await withTimeout(
-      captureBlob(node, { backgroundColor: 'white', skipFonts: true }),
+      captureBlob(node, { backgroundColor: 'white', skipFonts: false }),
       TOPNG_CAPTURE_TIMEOUT_MS,
       () => new ToPngTimeoutError(),
     );

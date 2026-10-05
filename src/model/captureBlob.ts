@@ -1,5 +1,4 @@
 import * as htmlToImage from 'html-to-image';
-import { getDiagramFontEmbedCss } from '../utils/fonts/diagramFontEmbedCss';
 
 /**
  * DOM -> PNG Blob, without html-to-image's `toBlob()`.
@@ -40,8 +39,6 @@ import { getDiagramFontEmbedCss } from '../utils/fonts/diagramFontEmbedCss';
 export interface CaptureBlobOptions {
   backgroundColor?: string;
   skipFonts?: boolean;
-  /** Overrides html-to-image's font embedding; filled with the hosted Plex face when omitted. */
-  fontEmbedCSS?: string;
   /** Defaults to `window.devicePixelRatio`, matching html-to-image. */
   pixelRatio?: number;
 }
@@ -136,11 +133,7 @@ export async function captureBlob(
   node: HTMLElement,
   options: CaptureBlobOptions = {},
 ): Promise<Blob | null> {
-  // Every export path funnels through here. `fontEmbedCSS` takes priority over
-  // `skipFonts` in html-to-image, so other web fonts stay un-embedded as before
-  // while the hosted diagram font (the one layout was measured with) is kept.
-  const fontEmbedCSS = options.fontEmbedCSS ?? (await getDiagramFontEmbedCss());
-  const svg = await htmlToImage.toSvg(node, fontEmbedCSS ? { ...options, fontEmbedCSS } : options);
+  const svg = await htmlToImage.toSvg(node, options);
   const svgDataUrl = prepareSequenceCaptureSvg(svg, node);
   const img = await loadImage(svgDataUrl);
 

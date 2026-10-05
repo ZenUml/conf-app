@@ -490,7 +490,7 @@ async function acquireBaseBlob(
   // throttled (offscreen) Forge iframe never services — see model/captureBlob.ts.
   const blob = await captureBlob(captureNode, {
     backgroundColor: effectiveBg ?? undefined,
-    skipFonts: true,
+    skipFonts: false,
   });
   if (!blob) {
     console.warn('[useExportEngine] capture returned null');

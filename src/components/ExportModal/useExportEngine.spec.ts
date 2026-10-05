@@ -529,6 +529,17 @@ describe('useExportEngine', () => {
       expect(captureBlob).toHaveBeenCalledWith(el, expect.any(Object));
     });
 
+    it('lets html-to-image embed web fonts (skipFonts: false)', async () => {
+      const el = document.createElement('div');
+      el.className = 'screen-capture-content';
+      document.body.appendChild(el);
+      vi.mocked(captureBlob).mockResolvedValue(null);
+
+      const { exportDiagram } = useExportEngine();
+      await exportDiagram(baseOptions(), 'Login flow');
+      expect(captureBlob).toHaveBeenCalledWith(el, expect.objectContaining({ skipFonts: false }));
+    });
+
     it('prefers the explicit node over any global .screen-capture-content match', async () => {
       const globalEl = document.createElement('div');
       globalEl.className = 'screen-capture-content';

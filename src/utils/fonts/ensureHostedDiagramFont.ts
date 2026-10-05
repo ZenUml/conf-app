@@ -8,44 +8,70 @@
 // we register the identical face (byte-for-byte the file core embeds) first;
 // core then finds the family already loaded and measures with it.
 //
+// Registered as a CSS `@font-face` rule (a <style data-diagram-font> element),
+// not via the FontFace API, on purpose: html-to-image only discovers fonts from
+// `@font-face` rules in document.styleSheets (it never reads document.fonts),
+// so PNG exports run with `skipFonts: false` and embed this same woff2 as a
+// data: URL. `plexUrl` is the Vite asset URL, possibly relative (`base: './'`);
+// a <style> in the document resolves it against the document base.
+//
 // Must therefore resolve BEFORE the first zenuml.render().
 import plexUrl from '@ibm/plex-sans/fonts/split/woff2/IBMPlexSans-Regular-Latin1.woff2?url';
 import { setDiagramFontState, type DiagramFontValue } from './diagramFontState';
 
 export const FONT_LOAD_TIMEOUT_MS = 1500;
 
+const FAMILY = 'IBM Plex Sans';
+
 let pending: Promise<DiagramFontValue> | undefined;
-let timedOut = false;
+let styleEl: HTMLStyleElement | undefined;
+
+function removeStyle(): void {
+  styleEl?.remove();
+  styleEl = undefined;
+}
+
+function hasLoadedFace(): boolean {
+  for (const face of document.fonts as unknown as Iterable<FontFace>) {
+    if (face.family.replace(/^["']|["']$/g, '') === FAMILY && face.status === 'loaded') return true;
+  }
+  return false;
+}
 
 async function load(): Promise<DiagramFontValue> {
   if (typeof document === 'undefined' || typeof FontFace === 'undefined' || !document.fonts) {
     return 'fallback';
   }
   try {
-    const face = new FontFace('IBM Plex Sans', `url(${plexUrl}) format('woff2')`, {
-      weight: '400',
-      style: 'normal',
-    });
-    const loaded = await face.load();
-    if (timedOut) return 'fallback';
-    document.fonts.add(loaded);
+    const el = document.createElement('style');
+    el.setAttribute('data-diagram-font', '');
+    el.textContent =
+      `@font-face{font-family:"${FAMILY}";src:url(${plexUrl}) format("woff2");font-weight:400;font-style:normal}`;
+    document.head.appendChild(el);
+    styleEl = el;
+    await document.fonts.load(`16px "${FAMILY}"`);
+    // The timeout removes the element; a late success must not switch fonts mid-session.
+    if (styleEl !== el || !hasLoadedFace()) {
+      if (styleEl === el) removeStyle();
+      return 'fallback';
+    }
     return 'plex';
   } catch {
+    removeStyle();
     return 'fallback';
   }
 }
 
 /**
  * Idempotent, memoised, never rejects. Resolves 'plex' once the hosted face is
- * registered, or 'fallback' on any failure or after FONT_LOAD_TIMEOUT_MS.
+ * loaded, or 'fallback' on any failure or after FONT_LOAD_TIMEOUT_MS.
  */
 export function ensureHostedDiagramFont(): Promise<DiagramFontValue> {
   if (pending) return pending;
-  timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<DiagramFontValue>((resolve) => {
     timer = setTimeout(() => {
-      timedOut = true;
+      removeStyle();
       resolve('fallback');
     }, FONT_LOAD_TIMEOUT_MS);
   });
@@ -59,5 +85,5 @@ export function ensureHostedDiagramFont(): Promise<DiagramFontValue> {
 
 export function _resetForTesting(): void {
   pending = undefined;
-  timedOut = false;
+  removeStyle();
 }

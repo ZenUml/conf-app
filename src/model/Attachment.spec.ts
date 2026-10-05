@@ -1123,7 +1123,7 @@ describe('Attachment', () => {
 
       await createAttachmentIfContentChanged('test content');
 
-      expect(captureBlob).toHaveBeenCalledWith(mockElement, { backgroundColor: 'white', skipFonts: true });
+      expect(captureBlob).toHaveBeenCalledWith(mockElement, { backgroundColor: 'white', skipFonts: false });
     });
 
     it('treats a toPng (html-to-image) async rejection as a clean capture skip, not an upload failure', async () => {

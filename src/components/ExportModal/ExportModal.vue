@@ -306,7 +306,7 @@ export default defineComponent({
         // canvas. Capture at 2x so that display-only enlargement stays sharp;
         // the export path captures the source independently at native pixels.
         const previewBlob = await captureBlob(node, {
-          skipFonts: true,
+          skipFonts: false,
           pixelRatio: 2,
           // Keep the cached base transparent. ExportWorkspace paints the
           // selected background behind it, so changing background never

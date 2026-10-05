@@ -184,7 +184,7 @@ test('groups: membership, heading clearance and unrelated-container transit',()=
     groups:[{id:'G',label:'Group heading text',rect:[10,20,520,260]}],
     nodes:[{id:'P',group:'G',shape:'rect',rect:[20,100,120,64],text:'P',role:'p'},{id:'Q',group:'G',shape:'rect',rect:[360,100,120,64],text:'Q',role:'p'}],
     edges:[{source:'P',target:'Q',points:[[80,100],[80,44],[420,44],[420,100]]}]};
-  assert.ok(find(renderSpec(h),'heading-intrusion','e1').length);
+  assert.equal(find(renderSpec(h),'heading-intrusion','e1').length,0,'group headings are not route obstacles');
   h.edges[0].points=[[140,132],[360,132]];
   assert.equal(find(renderSpec(h),'heading-intrusion').length,0);
 });

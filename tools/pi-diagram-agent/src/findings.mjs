@@ -85,17 +85,21 @@ const SUGGESTIONS={
   semanticPreservation:'Keep the original visible group membership for the listed nodes (the user has not adjudicated a change).',
   sourceDefinitionConflicts:'The source defines the listed nodes more than once with different text or shape. Draw the last definition, as Mermaid does; the ambiguity stays a failure until the user fixes the source.',
   textFit:'Enlarge the node or shorten line breaks so all text sits inside the outline inset by 8 units. Text must also keep 4 units from every drawn stroke of its node, and a declared data-label-box must not contain one: for a cylinder/store put the label box and text entirely below the lid arc (its lowest point, not its top edge), for a queue or subroutine keep them between the inner bars; grow the node if needed.',
-  labelFontFit:'After the whole SVG is scaled to fit 1200x710, every primary node label (data-role="label") must be at least 12 px. Enlarge the font within the labelBox (the largest whole size that fits, up to 28), use a smaller tier with a larger font, or fold or relayout to reduce the canvas.',
+  labelFontFit:'At the caller-declared fit viewport or native zoom, every primary label must be at least 12 effective px. Enlarge comparable fonts together within their boxes or select a larger common box tier; for fit presentation, fold or relayout to reduce the canvas. Do not change SVG metadata to claim a different display scale.',
   nodeHeadingClearance:'Move the listed node (and its group if needed) so its outline keeps at least 8 units from the group heading/subtitle text and at least 8 units from the border of its container; reserve a heading band at the top of the container.',
   labelClearance:'Move the edge label so its box does not touch any node or container outline.',
   labelCoversRoute:'An edge label background must never hide another route or any arrowhead, its own included (a label on its own arrowhead: move the label along its own route away from the arrowhead): widen the gap or spread the ports so the label can sit on its own route (centred on a straight segment) or beside it without touching a neighbouring route; never push the label away from its own route.',
   edgeLabelStyle:'An edge label has no border and always has a background: remove every stroke from the label pill or background shape (stroke="none"), and put an opaque fill (alpha 1, no fill-opacity or group opacity) matching the canvas behind the text, covering the whole text.',
   routeNodeIntrusion:'Re-route the edge so it stays out of unrelated nodes and starts/ends on its own node outlines.',
-  routeHeadingClearance:'Re-route the edge away from the group heading text (2-unit guard).',
+  routeHeadingClearance:'Group heading crossings are allowed; do not detour just to avoid a group title. Keep node and edge-label text readable.',
+  routeBoundaryCoincidence:'Move the route off the group border. A transverse border crossing is allowed; riding along any container border is forbidden even for a short span.',
+  siblingGroupOverlap:'Separate sibling containers; only source-declared ancestor nesting is allowed. Preserve node membership and reroute affected edges.',
+  boxSizeConsistency:'Use the shared code-owned box tiers, grow on the common grid for long text, and keep comparable nodes in one family/layer/shape at one consistent size. Add explicit sizeFamily and sizeTier declarations; do not clip text to force a tier.',
+  routeEarlyMerge:'Join semantically related incoming connectors before their premerge crossings or duplicate parallel lanes when a whole-family feasible layout exists. Preserve each complete relation and the entire downstream shared suffix.',
   routeUnrelatedContainerTransit:'Re-route the edge so it does not cross a container that contains neither endpoint.',
   arrowEndStartClearance:'Separate the incoming arrow end from every other connector start port and first shaft; move a port or reroute locally. Do not remove a relation or waive this overlap in dense diagrams.',
   markerDrawing:'Give the arrowhead marker a visible fill matching the edge stroke (no context-stroke).',
-  routePairClearance:'Separate the listed parallel route spans to at least the required clearance. A declared shared trunk must carry one relation style (dash, width, colour), no edge label on or within 4 units of the shared run, and every member entering from the same side; otherwise give each connector its own port or route (no head-on T-junction between two sources).',
+  routePairClearance:'Separate the listed parallel route spans to at least the required clearance. A declared shared trunk must carry one relation style (dash, width, colour), no edge label on or within 4 units of the shared run, and a proved continuous same-direction suffix reaching the common target; branches may join incrementally before shared bends. Otherwise give each connector its own port or route (no head-on T-junction between two sources).',
   routeCrossings:'Re-route so the listed edges do not cross; move a bend or port.',
   connectorStrokeWidth:'Draw every connector at stroke-width 1; a heavier line needs a data-emphasis role whose meaning is written in the SVG palette comment.',
   filletUniformity:'Round every connector bend with one uniform r=5 fillet (a Q/A corner with 5-unit legs); no sharp 90-degree corners, no other radii.',
@@ -103,7 +107,7 @@ const SUGGESTIONS={
   textContrast:'Change the listed text or its background to a documented subtle/bold pair that reaches 4.5:1, keeping the semantic hue.',
   labelFontWeight:'Use font-weight 400 for node labels and descriptions; express hierarchy with size. Only group headings may be heavier.',
   legendCompleteness:'A legend is optional, but a drawn legend must match actual use. Fix or remove each entry listed in wrongEntries (a dashed key with no dashed connector, a fill no node uses, a shape no node is drawn as); do not add a legend.',
-  routeDetour:'Shorten the listed route: a much shorter feasible route exists (see the witness in the evidence); do not wrap a connector around other nodes or the canvas when a direct leg is free; move a node or the port if needed.',
+  routeDetour:'Preserve the approved whole shared suffix and compare feasible family routes before shortening the listed route: a much shorter feasible route exists (see the witness in the evidence); do not wrap a connector around other nodes or the canvas when a direct leg is free; move a node or the port if needed.',
   routeContainerClearance:'Move the listed route or edge label so it keeps at least 8 units (at least 12 units for a run longer than 100) from every container border it does not need to cross (routes may only cross a border at its entry or exit point), and keep edge labels at least 4 units from a container border; widen a narrow gutter between containers.',
   arrowShaft:'Lengthen the final straight segment before the arrowhead to the required visible shaft.',
 };
@@ -138,6 +142,7 @@ function lowerBendMinorFinding(m){
 function fontFitHintText(violations){
   return violations.map(v=>v.fixByFont
     ?`enlarge the font of ${v.nodeId} to ${v.neededSize} or more (up to ${v.maxFittingSize} fits its labelBox); it is ${v.size} units now, ${v.effective} px at the page fit (scale ${v.pageScale})`
+    :v.presentation?.mode==='native'?`${v.nodeId} needs readable text at native zoom ${v.presentation.scale}; enlarge the common box tier and font, or change the actual viewer zoom, not just SVG metadata`
     :`${v.nodeId} cannot reach 12 px inside its box (${v.size} units, ${v.effective} px at scale ${v.pageScale}${v.maxFittingSize?`; at most ${v.maxFittingSize} fits`:''})${v.maxCanvas?`: reduce the canvas width to about ${v.maxCanvas.width} units or less (or the height to ${v.maxCanvas.height}) by folding or relayout, or use a smaller tier with a larger font`:': use a smaller tier with a larger font, or reduce the canvas by folding or relayout'}`).join('; ');
 }
 function fontFitMinorFinding(m){
@@ -167,7 +172,7 @@ export function auditToFindings(audit,{relaxed=false}={}){
     const method=typeof ev==='object'&&ev&&typeof ev.method==='string'?ev.method:null;
     const detail=typeof ev==='string'?ev:Object.fromEntries(Object.entries(ev??{}).filter(([k])=>k!=='method'&&k!=='reasons'));
     const hintText=rule==='routeCrossings'&&Array.isArray(ev?.violations)?crossingHintText(ev.violations):rule==='labelCoversRoute'&&Array.isArray(ev?.violations)?labelHintText(ev.violations):'';
-    const fontHint=rule==='labelFontFit'&&Array.isArray(ev?.violations)?fontFitHintText(ev.violations):'';
+    const fontHint=rule==='labelFontFit'&&Array.isArray(ev?.violations)?fontFitHintText(ev.violations.map(v=>({...v,presentation:ev.presentation}))):'';
     const hints=rule==='routeCrossings'&&Array.isArray(ev?.violations)?[...new Map(ev.violations.filter(v=>v.repairHint).map(v=>[`${v.repairHint.edge}|${JSON.stringify(v.repairHint.points)}`,v.repairHint])).values()]:[];
     const f=makeFinding({source:'audit',severity,rule,elements:[...ids],region:null,
       evidence:{measured:clip(detail),threshold:method?clip(method,240):'rule check passes (see Diagram Rules)'},
@@ -185,6 +190,7 @@ export function auditToFindings(audit,{relaxed=false}={}){
     if(rule==='legendCompleteness'&&check?.status==='PASS'&&Array.isArray(check.evidence?.minorFindings)&&check.evidence.minorFindings.length)out.push(legendMinorFinding(check.evidence));
     // A dense diagram's crossings travel with the PASSing routeCrossings check as one minor finding (never a FAIL, never waived).
     if(rule==='routeCrossings'&&check?.status==='PASS'&&check.evidence?.dense&&Array.isArray(check.evidence.minorFindings)&&check.evidence.minorFindings.length)out.push(denseCrossingMinorFinding(check.evidence));
+    if(rule==='boxSizeConsistency'&&Array.isArray(check?.evidence?.advisories)&&check.evidence.advisories.length)out.push(build(rule,{method:check.evidence.method,advisories:check.evidence.advisories},'minor'));
     if(check?.status!=='FAIL')continue;
     if(!relaxed){out.push(build(rule,check.evidence,'blocking'));continue}
     // Relaxed gate: only the part of a FAIL that makes the diagram wrong or unreadable blocks; the rest is advice (see relaxed.mjs).

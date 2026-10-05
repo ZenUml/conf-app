@@ -247,10 +247,10 @@ test('agent prompt states the one shared-trunk convention and rejects invented a
   try{
     const {prompt}=prepareAgentTask(input);
     assert.match(prompt,/data-shared-trunk="<id>"/);
-    assert.match(prompt,/same target, the same relation style \(dash, width, colour\) and the same entry side/);
+    assert.match(prompt,/one target[\s\S]*relation style \(dash, width, colour\)/);
     assert.match(prompt,/within 4 units of the shared run/);
-    assert.match(prompt,/own complete source-to-target path/);
-    assert.match(prompt,/exactly one visible arrowhead/);
+    assert.match(prompt,/full source-to-target connector path/);
+    assert.match(prompt,/one visible arrowhead/);
     assert.match(prompt,/data-shared-bus[^.]*not recognised/);
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });

@@ -2,8 +2,10 @@
 // what the spec says and measures it against the Diagram Rules. It NEVER repairs, moves or reroutes anything and NEVER
 // throws on a rule violation: violations come back as findings. Only malformed JSON or schema errors throw (SpecError).
 
-import { isAcceptedTrunkOverlap } from './trunk.mjs';
+import { isAcceptedTrunkOverlap, isSharedTrunkJoin } from './trunk.mjs';
 import { denseInfo } from './dense.mjs';
+import { BOX_RULES_PROFILE } from './rules-profile.mjs';
+import { resolvePresentation } from './presentation.mjs';
 
 export class SpecError extends Error {
   constructor(errors) {
@@ -14,7 +16,8 @@ export class SpecError extends Error {
 }
 
 // ---- rule constants (Diagram Rules) ----
-export const TIERS = {S: [96, 40], M: [200, 80], L: [320, 120], XL: [480, 160]};
+export const TIERS = Object.fromEntries(['S', 'M', 'L', 'XL'].map((name, i) => [name, BOX_RULES_PROFILE.sizingContract.tiers[i]]));
+export const SIZE_TIERS = Object.fromEntries(['compact', 'standard', 'wide', 'extra'].map((name, i) => [name, BOX_RULES_PROFILE.sizingContract.tiers[i]]));
 const NODE_R = 4, FILLET = 5, DECISION_FILLET = 10, INSET = 8, MARKER = 10, SHAFT = 8, PARALLEL = 10, DASH = '6 4';
 const FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 /** One spec shape per parser shape (`parseMermaid` names), plus `decision` for the diamond / long-text hexagon. Sources: [..] rect, (..) capsule, {..} decision,
@@ -73,11 +76,13 @@ const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
 const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
 const KEYS = {
-  root: ['canvas', 'palette', 'groups', 'nodes', 'edges', 'legend'],
+  root: ['canvas', 'palette', 'groups', 'nodes', 'edges', 'legend', 'presentation'],
+  presentation: ['mode', 'width', 'height', 'scale'],
   canvas: ['w', 'h', 'fill', 'ink', 'title', 'desc'],
   role: ['fill', 'stroke', 'text', 'meaning'],
-  group: ['id', 'label', 'rect', 'role', 'subtitle'],
-  node: ['id', 'group', 'shape', 'rect', 'centre', 'tier', 'text', 'role', 'align', 'font', 'variant', 'labelBox'],
+  group: ['id', 'label', 'rect', 'role', 'subtitle', 'parent'],
+  node: ['id', 'group', 'shape', 'rect', 'centre', 'tier', 'text', 'role', 'align', 'font', 'variant', 'labelBox', 'sizeFamily', 'sizeTier', 'layer', 'sizeExtension'],
+  extension: ['width', 'height'],
   edge: ['id', 'source', 'target', 'points', 'dashed', 'role', 'label', 'trunk'],
   label: ['text', 'x', 'y', 'vertical'],
   legend: ['x', 'y', 'direction', 'gap', 'entries'],
@@ -101,6 +106,15 @@ export function validateSpec(spec) {
     for (const k of ['w', 'h']) if (num(`canvas.${k}`, spec.canvas[k]) && (spec.canvas[k] <= 0 || spec.canvas[k] > 8000)) E(`canvas.${k}`, 'must be between 1 and 8000');
     for (const k of ['fill', 'ink']) if (spec.canvas[k] !== undefined) color(`canvas.${k}`, spec.canvas[k]);
     for (const k of ['title', 'desc']) if (spec.canvas[k] !== undefined && typeof spec.canvas[k] !== 'string') E(`canvas.${k}`, 'must be a string');
+  }
+  if (spec.presentation !== undefined) {
+    const p = spec.presentation;
+    if (!isObj(p)) E('presentation', 'must be {mode: fit|native, width?, height?, scale?}');
+    else {
+      keys('presentation', p, KEYS.presentation);
+      if (!['fit', 'native'].includes(p.mode)) E('presentation.mode', 'must be fit or native');
+      for (const k of ['width', 'height', 'scale']) if (p[k] !== undefined && !(isNum(p[k]) && p[k] > 0)) E(`presentation.${k}`, 'must be a positive number');
+    }
   }
   const roles = isObj(spec.palette) ? Object.keys(spec.palette) : [];
   if (!isObj(spec.palette) || !roles.length) E('palette', 'is required: {roleName: {fill, stroke, text, meaning}} with at least one role');
@@ -126,6 +140,16 @@ export function validateSpec(spec) {
       roleCheck(`${p}.role`, g.role);
     });
   }
+  const groupMap = new Map((Array.isArray(spec.groups) ? spec.groups : []).filter(isObj).map(g => [g.id, g]));
+  for (const [i, g] of (Array.isArray(spec.groups) ? spec.groups : []).entries()) {
+    if (!isObj(g) || g.parent === undefined) continue;
+    if (!groupIds.has(g.parent)) E(`groups[${i}].parent`, 'must name a declared group');
+    const seen = new Set([g.id]);
+    for (let id = g.parent; groupMap.has(id); id = groupMap.get(id).parent) {
+      if (seen.has(id)) { E(`groups[${i}].parent`, 'group nesting must not contain a cycle'); break; }
+      seen.add(id);
+    }
+  }
   const nodeIds = new Set();
   if (!Array.isArray(spec.nodes) || !spec.nodes.length) E('nodes', 'is required: a non-empty array');
   else if (spec.nodes.length > LIMITS.nodes) E('nodes', `at most ${LIMITS.nodes} nodes`);
@@ -135,11 +159,17 @@ export function validateSpec(spec) {
     keys(p, n, KEYS.node);
     if (str(`${p}.id`, n.id)) { if (nodeIds.has(n.id)) E(`${p}.id`, `duplicate node id ${JSON.stringify(n.id)}`); nodeIds.add(n.id); }
     if (n.shape !== undefined && !SHAPE_NAMES.includes(n.shape)) E(`${p}.shape`, `must be one of ${SPEC_SHAPES.join(', ')} (aliases: ${Object.entries(SHAPE_ALIASES).map(([a, b]) => `${a}=${b}`).join(', ')})`);
+    for (const k of ['sizeFamily', 'layer']) if (n[k] !== undefined) str(`${p}.${k}`, n[k]);
+    if (n.sizeTier !== undefined && !SIZE_TIERS[n.sizeTier]) E(`${p}.sizeTier`, `must be one of ${Object.keys(SIZE_TIERS).join(', ')}`);
+    if (n.sizeExtension !== undefined) {
+      if (!isObj(n.sizeExtension)) E(`${p}.sizeExtension`, 'must be {width, height} in whole nonnegative profile grid steps');
+      else { keys(`${p}.sizeExtension`, n.sizeExtension, KEYS.extension); for (const k of ['width', 'height']) if (!Number.isInteger(n.sizeExtension[k]) || n.sizeExtension[k] < 0) E(`${p}.sizeExtension.${k}`, 'must be a whole nonnegative grid-step count'); }
+    }
     if (n.tier !== undefined && !TIERS[n.tier]) E(`${p}.tier`, `must be one of ${Object.keys(TIERS).join(', ')}`);
     if (n.rect === undefined && n.centre === undefined) E(p, 'needs "rect": [x, y, w, h] or "centre": [cx, cy] together with "tier"');
     else if (n.rect !== undefined && n.centre !== undefined) E(p, 'give either "rect" or "centre"+"tier", not both');
     else if (n.rect !== undefined) rect(`${p}.rect`, n.rect, 'x, y, w, h');
-    else { point(`${p}.centre`, n.centre); if (n.tier === undefined) E(`${p}.tier`, '"centre" needs a "tier" (S, M, L, XL)'); }
+    else { point(`${p}.centre`, n.centre); if (n.tier === undefined && n.sizeTier === undefined) E(`${p}.tier`, '"centre" needs a "tier" (S, M, L, XL)'); }
     if (!(typeof n.text === 'string' && n.text.length || Array.isArray(n.text) && n.text.length && n.text.every(t => typeof t === 'string'))) E(`${p}.text`, 'must be a string or an array of line strings');
     roleCheck(`${p}.role`, n.role);
     if (n.group !== undefined && n.group !== null && !groupIds.has(n.group)) E(`${p}.group`, `unknown group ${JSON.stringify(n.group)}${groupIds.size ? ` (defined: ${[...groupIds].join(', ')})` : ' (no groups are defined)'}`);
@@ -244,9 +274,10 @@ function slantedPolygon(shape, x, y, w, h) {
 }
 
 function layoutNode(n, roles, defaultRole) {
-  const shape = canonShape(n.shape ?? 'rect'), tier = n.tier ? TIERS[n.tier] : null;
+  const shape = canonShape(n.shape ?? 'rect'), baseTier = n.tier ? TIERS[n.tier] : n.sizeTier ? SIZE_TIERS[n.sizeTier] : null;
+  const tier = baseTier?.map((d, i) => d + (n.sizeExtension?.[i ? 'height' : 'width'] ?? 0) * BOX_RULES_PROFILE.gridStep);
   let x, y, w, h, variant = shape;
-  if (shape === 'decision') variant = n.variant ?? (n.rect ? (n.rect[2] <= 216.5 ? 'diamond' : 'hexagon') : n.tier === 'S' ? 'diamond' : 'hexagon');
+  if (shape === 'decision') variant = n.variant ?? (n.rect ? (n.rect[2] <= 216.5 ? 'diamond' : 'hexagon') : baseTier?.[0] === TIERS.S[0] ? 'diamond' : 'hexagon');
   const round = shape === 'circle' || shape === 'doublecircle', ring = shape === 'doublecircle' ? 36 : 24; // circle: 12 clear of the label box corners; doublecircle: the inner ring adds 12 more
   if (n.rect) [x, y, w, h] = n.rect;
   else {
@@ -283,7 +314,7 @@ function layoutNode(n, roles, defaultRole) {
   }
   const role = roles[n.role ?? defaultRole];
   return {id: n.id, group: n.group ?? null, shape, variant, x, y, w, h, lb, polygon, outline, faceDot, role, roleName: n.role ?? defaultRole,
-    text: n.text, align: n.align ?? 'center', font: n.font ?? 18, autoFont: n.font === undefined, tier: n.tier ?? null, explicitLabelBox: !!(n.labelBox && shape !== 'rect' && shape !== 'capsule')};
+    text: n.text, align: n.align ?? 'center', font: n.font ?? 18, autoFont: n.font === undefined, tier: n.tier ?? n.sizeTier ?? null, sizeFamily: n.sizeFamily, sizeTier: n.sizeTier, layer: n.layer, sizeExtension: n.sizeExtension, explicitLabelBox: !!(n.labelBox && shape !== 'rect' && shape !== 'capsule')};
 }
 const bbox = n => [n.x, n.y, n.w, n.h];
 const boxOverlap = (a, b, pad = 0) => a[0] < b[0] + b[2] + pad && a[0] + a[2] > b[0] - pad && a[1] < b[1] + b[3] + pad && a[1] + a[3] > b[1] - pad;
@@ -360,7 +391,7 @@ function analyseRoute(raw, add, id) {
     const a = out[i], b = out[i + 1], s = Math.sign(ax === 'h' ? b[0] - a[0] : b[1] - a[1]);
     const start = (ax === 'h' ? a[0] : a[1]) + s * trim[i], end = (ax === 'h' ? b[0] : b[1]) - s * trim[i + 1];
     const lo = Math.min(start, end), hi = Math.max(start, end);
-    if (hi - lo > 1e-6) spans.push({axis: ax, fixed: ax === 'h' ? a[1] : a[0], lo, hi, end});
+    if (hi - lo > 1e-6) spans.push({axis: ax, fixed: ax === 'h' ? a[1] : a[0], lo, hi, start, end, corner: ax === 'h' ? b[0] : b[1], dir: s});
   }
   return {pts: out, d, spans, bends: isBend.filter(Boolean).length, lastTrim: trim[n - 2] ?? 0, legAxis, len};
 }
@@ -401,7 +432,7 @@ function maxFont(node) {
 function assignAutoFonts(nodes) {
   const peers = new Map();
   for (const n of nodes) if (n.autoFont) {
-    const key = `${n.tier ?? n.lb.slice(2).map(Math.round).join('x')}|${n.roleName}`;
+    const key = `${n.tier ?? ''}|${n.lb.slice(2).map(Math.round).join('x')}|${n.roleName}|${n.shape}|${n.sizeFamily ?? ''}|${n.layer ?? ''}`;
     peers.set(key, Math.min(peers.get(key) ?? FONT_MAX, maxFont(n)));
     n.peerKey = key;
   }
@@ -437,14 +468,15 @@ function nodeSvg(node) {
     outline = ell(w / 2, h / 2, paint) + (shape === 'doublecircle' ? ell(w / 2 - 6, h / 2 - 6, `fill="none" stroke="${role.stroke}" stroke-width="2"`) : '');
   } else outline = `<polygon points="${node.polygon.map(q => `${n3(q[0])},${n3(q[1])}`).join(' ')}" ${paint} stroke-linejoin="round"/>`;
   const parent = node.group ? ` data-parent-group="${esc(node.group)}"` : '';
-  return `<g data-node="${esc(node.id)}"${parent} data-shape="${variant}" data-label-box="${node.lb.map(n3).join(' ')}">${outline}${textSvg(node.lines, node.lb, node)}</g>`;
+  const sizeTags = ['sizeFamily', 'sizeTier', 'layer'].filter(k => node[k] !== undefined).map(k => ` data-${k.replace(/[A-Z]/g, c => '-' + c.toLowerCase())}="${esc(node[k])}"`).join('');
+  return `<g data-node="${esc(node.id)}"${parent}${sizeTags}${node.sizeExtension ? ` data-size-extension="${esc(JSON.stringify(node.sizeExtension))}"` : ''} data-shape="${variant}" data-label-box="${node.lb.map(n3).join(' ')}">${outline}${textSvg(node.lines, node.lb, node)}</g>`;
 }
 const ARROW_LEN = 10, ARROW_W = 10; // the marker below: 10 along the leg (refX = 10 puts the tip on the route end), 10 wide
 const markerDef = c => `<marker id="arrow-${hex6(c)}" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#${hex6(c)}"/></marker>`;
 
 // ---- main entry ----
 /** Render a layout spec. Returns {svg, findings, stats}. Throws SpecError only for malformed JSON or schema errors. */
-export function renderSpec(input, {model = null} = {}) {
+export function renderSpec(input, {model = null, presentation: callerDisplay = null} = {}) {
   let spec = input;
   if (typeof input === 'string') {
     try { spec = JSON.parse(input); } catch (e) { throw new SpecError([{path: '$', message: `invalid JSON: ${e.message}`}]); }
@@ -457,10 +489,10 @@ export function renderSpec(input, {model = null} = {}) {
   for (const [k, r] of Object.entries(spec.palette)) roles[k] = {fill: '#' + hex6(r.fill), stroke: '#' + hex6(r.stroke), text: '#' + hex6(r.text), meaning: r.meaning};
   const defaultRole = roles.neutral ? 'neutral' : Object.keys(roles)[0];
   const findings = new Map();
-  const add = (rule, severity, elements, region, measured, threshold, suggestion) => {
-    const id = `${rule}:${[...elements].sort().join('+')}`;
+  const add = (rule, severity, elements, region, measured, threshold, suggestion, location = null) => {
+    const id = `${rule}:${location ?? [...elements].sort().join('+')}`;
     const f = findings.get(id);
-    if (f) { if (f.measured.length < 600) f.measured += `; ${measured}`; return; }
+    if (f) { f.elements = [...new Set([...f.elements, ...elements])]; if (f.measured.length < 600) f.measured += `; ${measured}`; return; }
     findings.set(id, {id, source: 'spec-render', severity, rule, elements: [...elements], region, measured, threshold, suggestion});
   };
   const nodes = spec.nodes.map(n => layoutNode(n, roles, defaultRole)), byId = new Map(nodes.map(n => [n.id, n]));
@@ -468,10 +500,16 @@ export function renderSpec(input, {model = null} = {}) {
   for (const n of nodes) n.lines = nodeLines(n);
   const groups = (spec.groups ?? []).map(g => {
     const r = g.role ? roles[g.role] : null;
-    return {id: g.id, label: g.label, subtitle: g.subtitle, rect: g.rect, fill: r?.fill ?? '#f8fafc', stroke: r?.stroke ?? '#94a3b8', text: r?.text ?? canvas.ink,
+    return {id: g.id, parent: g.parent ?? null, label: g.label, subtitle: g.subtitle, rect: g.rect, fill: r?.fill ?? '#f8fafc', stroke: r?.stroke ?? '#94a3b8', text: r?.text ?? canvas.ink,
       heading: [g.rect[0] + 16, g.rect[1] + 13, measureText(g.label, 18) * 1.05, 22]};
   });
   const groupById = new Map(groups.map(g => [g.id, g]));
+  const ancestor = (parent, child) => { for (let g = groupById.get(child); g; g = groupById.get(g.parent)) if (g.id === parent) return true; return false; };
+  for (let i = 0; i < groups.length; i++) for (let j = i + 1; j < groups.length; j++) {
+    const a = groups[i], b = groups[j];
+    if (boxOverlap(a.rect, b.rect) && !ancestor(a.id, b.id) && !ancestor(b.id, a.id)) add('group-overlap', 'blocking', [a.id, b.id], regionOf([[a.rect[0], a.rect[1]], [b.rect[0] + b.rect[2], b.rect[1] + b.rect[3]]]), `${a.id} and ${b.id} overlap without declared nesting`, 'sibling groups do not overlap (B10)', 'separate the group rectangles; preserve source membership');
+    for (const [parent, child] of [[a, b], [b, a]]) if (child.parent === parent.id && !(child.rect[0] >= parent.rect[0] && child.rect[1] >= parent.rect[1] && child.rect[0] + child.rect[2] <= parent.rect[0] + parent.rect[2] && child.rect[1] + child.rect[3] <= parent.rect[1] + parent.rect[3])) add('group-membership', 'blocking', [parent.id, child.id], regionOf([[child.rect[0], child.rect[1]], [child.rect[0] + child.rect[2], child.rect[1] + child.rect[3]]]), `${child.id} is outside declared parent ${parent.id}`, 'nested groups inside their declared parent', 'enlarge the parent or move the child');
+  }
   // A group endpoint is measured like a rect node on the group's outline (the container border); isGroup marks it in the SVG and the census.
   const groupEnd = new Map((spec.groups ?? []).map(g => [g.id, {id: g.id, isGroup: true, shape: 'rect', variant: 'rect', x: g.rect[0], y: g.rect[1], w: g.rect[2], h: g.rect[3], polygon: [], outline: null, faceDot: 0, roleName: g.role ?? defaultRole}]));
   const endpoint = id => byId.get(id) ?? groupEnd.get(id);
@@ -484,6 +522,7 @@ export function renderSpec(input, {model = null} = {}) {
     return {id, e, source, target, role, roleName, route, raw: e.points, trunk: e.trunk ?? null};
   });
 
+  const trunkRoute = e => ({trunk: e.trunk, target: e.target.id, points: e.route.pts, spans: e.route.spans, style: {dash: e.e.dashed ? DASH : '', width: 1, stroke: e.role.stroke}});
   // R1/R7/R13: endpoints, ports, final leg
   for (const e of edges) {
     const r = e.route; if (!r) continue;
@@ -513,14 +552,14 @@ export function renderSpec(input, {model = null} = {}) {
     for (const a of A.route.spans) for (const b of B.route.spans) {
       if (a.axis === b.axis) {
         const overlap = Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo), sep = Math.abs(a.fixed - b.fixed);
-        if (overlap > 1e-6 && sep < PARALLEL - 1e-6 && !isAcceptedTrunkOverlap({trunk: A.trunk, target: A.target.id, spans: A.route.spans}, {trunk: B.trunk, target: B.target.id, spans: B.route.spans}, a, b)) add('parallel-clearance', 'blocking', [A.id, B.id], regionOf([[a.axis === 'h' ? Math.max(a.lo, b.lo) : a.fixed, a.axis === 'h' ? a.fixed : Math.max(a.lo, b.lo)], [a.axis === 'h' ? Math.min(a.hi, b.hi) : b.fixed, a.axis === 'h' ? b.fixed : Math.min(a.hi, b.hi)]]), `${a.axis === 'h' ? 'horizontal' : 'vertical'} spans ${r1(sep)} apart over ${r1(overlap)} units${sep < 1e-6 ? ' (coincident; only a final portion shared at one target by connectors with the same trunk id is exempt)' : ''}`, `centreline separation >= ${PARALLEL} (rule 14)`, `move one span by ${r1(PARALLEL - sep)} or more, or route them apart`);
+        if (overlap > 1e-6 && sep < PARALLEL - 1e-6 && !isAcceptedTrunkOverlap(trunkRoute(A), trunkRoute(B), a, b)) add('parallel-clearance', 'blocking', [A.id, B.id], regionOf([[a.axis === 'h' ? Math.max(a.lo, b.lo) : a.fixed, a.axis === 'h' ? a.fixed : Math.max(a.lo, b.lo)], [a.axis === 'h' ? Math.min(a.hi, b.hi) : b.fixed, a.axis === 'h' ? b.fixed : Math.min(a.hi, b.hi)]]), `${a.axis === 'h' ? 'horizontal' : 'vertical'} spans ${r1(sep)} apart over ${r1(overlap)} units${sep < 1e-6 ? ' (coincident; only a final portion shared at one target by connectors with the same trunk id is exempt)' : ''}`, `centreline separation >= ${PARALLEL} (rule 14)`, `move one span by ${r1(PARALLEL - sep)} or more, or route them apart`);
       } else {
         const h = a.axis === 'h' ? a : b, v = a.axis === 'v' ? a : b;
-        if (v.fixed > h.lo + 1e-6 && v.fixed < h.hi - 1e-6 && h.fixed > v.lo + 1e-6 && h.fixed < v.hi - 1e-6) add('crossing', dense ? 'minor' : 'blocking', [A.id, B.id], regionOf([[v.fixed - 5, h.fixed - 5], [v.fixed + 5, h.fixed + 5]]), `${A.id} and ${B.id} cross at (${r1(v.fixed)}, ${r1(h.fixed)})${dense ? ` (${dense.reason})` : ''}`, dense ? 'non-blocking in a dense diagram: minimise crossings with port order and lanes, do not chase zero' : 'no crossings (rule 12)', dense ? 'optional: reorder ports or lanes if it costs nothing' : 'reroute one of them around the other, or reorder ports/nodes to remove the crossing');
+        if (v.fixed > h.lo + 1e-6 && v.fixed < h.hi - 1e-6 && h.fixed > v.lo + 1e-6 && h.fixed < v.hi - 1e-6 && !isSharedTrunkJoin(trunkRoute(A), trunkRoute(B), {x: v.fixed, y: h.fixed})) add('crossing', dense ? 'minor' : 'blocking', [A.id, B.id], regionOf([[v.fixed - 5, h.fixed - 5], [v.fixed + 5, h.fixed + 5]]), `${A.id} and ${B.id} cross at (${r1(v.fixed)}, ${r1(h.fixed)})${dense ? ` (${dense.reason})` : ''}`, dense ? 'non-blocking in a dense diagram: minimise crossings with port order and lanes, do not chase zero' : 'no crossings (rule 12)', dense ? 'optional: reorder ports or lanes if it costs nothing' : 'reroute one of them around the other, or reorder ports/nodes to remove the crossing', `${n3(v.fixed)},${n3(h.fixed)}`);
       }
     }
   }
-  // node intrusion, group transit, heading intrusion
+  // Node and container protection; headings are not routing obstacles.
   for (const e of edges) {
     if (!e.route) continue;
     for (const s of e.route.spans) {
@@ -532,9 +571,13 @@ export function renderSpec(input, {model = null} = {}) {
         if (hit) add('node-intrusion', 'blocking', [e.id, n.id], regionOf([[...(s.axis === 'h' ? [s.lo, s.fixed] : [s.fixed, s.lo])], [...(s.axis === 'h' ? [s.hi, s.fixed] : [s.fixed, s.hi])]]), `${e.id} runs through node ${n.id}`, 'routes stay outside unrelated nodes (rule 6)', `route around ${n.id} or move it`);
       }
       for (const g of groups) {
+        const borderAxis = s.axis === 'h' ? [g.rect[1], g.rect[1] + g.rect[3]] : [g.rect[0], g.rect[0] + g.rect[2]];
+        const lo = s.axis === 'h' ? g.rect[0] : g.rect[1], hi = lo + (s.axis === 'h' ? g.rect[2] : g.rect[3]);
+        const overlap = Math.min(s.hi, hi) - Math.max(s.lo, lo);
+        if (overlap > 1e-6 && borderAxis.some(v => Math.abs(s.fixed - v) < 1e-6)) add('group-border-riding', 'blocking', [e.id, g.id], regionOf(s.axis === 'h' ? [[Math.max(s.lo, lo), s.fixed], [Math.min(s.hi, hi), s.fixed]] : [[s.fixed, Math.max(s.lo, lo)], [s.fixed, Math.min(s.hi, hi)]]), `${e.id} rides ${r1(overlap)} units along the border of ${g.id}`, 'no positive-length group-border riding, including endpoint ancestors', 'route across the border transversely or leave a visible gap');
         const holds = n => n.x >= g.rect[0] - 0.25 && n.y >= g.rect[1] - 0.25 && n.x + n.w <= g.rect[0] + g.rect[2] + 0.25 && n.y + n.h <= g.rect[1] + g.rect[3] + 0.25;
         if (!(holds(e.source) || holds(e.target)) && spanHitsBox(s, g.rect, 1)) add('group-transit', 'blocking', [e.id, g.id], regionOf([[...(s.axis === 'h' ? [s.lo, s.fixed] : [s.fixed, s.lo])], [...(s.axis === 'h' ? [s.hi, s.fixed] : [s.fixed, s.hi])]]), `${e.id} crosses the interior of group ${g.id}, which holds neither endpoint`, 'routes avoid unrelated containers (rule 6)', `route around group ${g.id}`);
-        if (spanHitsBox(s, [g.heading[0] - 2, g.heading[1] - 2, g.heading[2] + 4, g.heading[3] + 4])) add('heading-intrusion', 'blocking', [e.id, g.id], regionOf([[...(s.axis === 'h' ? [s.lo, s.fixed] : [s.fixed, s.lo])], [...(s.axis === 'h' ? [s.hi, s.fixed] : [s.fixed, s.hi])]]), `${e.id} passes through the heading of group ${g.id}`, 'no connector through a heading (T1)', `route the connector below the heading row (y > ${r1(g.heading[1] + g.heading[3] + 2)})`);
+
       }
     }
   }
@@ -543,7 +586,7 @@ export function renderSpec(input, {model = null} = {}) {
   for (const n of nodes) {
     const inside = (g, pad) => n.x >= g.rect[0] + pad && n.y >= g.rect[1] + pad && n.x + n.w <= g.rect[0] + g.rect[2] - pad && n.y + n.h <= g.rect[1] + g.rect[3] - pad;
     if (n.group) { const g = groupById.get(n.group); if (!inside(g, 0)) add('group-membership', 'blocking', [n.id, g.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `${n.id} is declared in group ${g.id} but is not inside its rectangle`, 'declared members drawn inside their container (B10)', `enlarge group ${g.id} or move ${n.id} inside it`); else if (!inside(g, 4)) add('group-membership', 'minor', [n.id, g.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `${n.id} is within 4 units of the border of ${g.id}`, 'margin >= 4 (B10)', 'leave margin between the node and the container border'); }
-    for (const g of groups) if (g.id !== n.group && inside(g, 0)) add('group-membership', 'blocking', [n.id, g.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `${n.id} is drawn inside group ${g.id} but is declared ${n.group ? 'in ' + n.group : 'ungrouped'}`, 'drawn containment equals declared membership', `set "group": "${g.id}" on ${n.id} or move it out of ${g.id}`);
+    for (const g of groups) if (!ancestor(g.id, n.group) && inside(g, 0)) add('group-membership', 'blocking', [n.id, g.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `${n.id} is drawn inside group ${g.id} but is declared ${n.group ? 'in ' + n.group : 'ungrouped'}`, 'drawn containment equals declared membership', `set "group": "${g.id}" on ${n.id} or move it out of ${g.id}`);
     for (const g of groups) if (boxOverlap(bbox(n), [g.heading[0], g.heading[1], g.heading[2], g.heading[3]])) add('heading-intrusion', 'blocking', [n.id, g.id], regionOf([[n.x, n.y], [g.heading[0] + g.heading[2], g.heading[1] + g.heading[3]]]), `${n.id} overlaps the heading of group ${g.id}`, 'no collision with headings (T1)', `move ${n.id} below y=${r1(g.heading[1] + g.heading[3] + 2)}`);
     // text fit (T2): width and height in the labelBox
     const lh = Math.round(n.font * 1.1), need = (n.lines.length - 1) * lh + 1.2 * n.font, widest = Math.max(...n.lines.map(l => W(l, n.font))), [, , lw, lhBox] = n.lb;
@@ -558,6 +601,14 @@ export function renderSpec(input, {model = null} = {}) {
       const [bx, by, bw, bh] = n.lb, corners = [[bx, by], [bx + bw, by], [bx, by + bh], [bx + bw, by + bh]];
       if (!corners.every(([x, y]) => n.polygon.length ? inPoly(x, y, n.polygon) : x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h)) add('label-box', 'blocking', [n.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `declared labelBox [${n.lb.map(r1).join(', ')}] has a corner outside ${n.id}'s shape`, 'labelBox inside the node outline', 'shrink or move the labelBox, or enlarge the node');
     }
+  }
+  const presentation = resolvePresentation(callerDisplay??spec.presentation, canvas);
+  const pageScale = presentation.scale;
+  for (const n of nodes) if (n.font * pageScale < 12 - 1e-6) add('label-font-legibility', 'minor', [n.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `effective font ${r1(n.font * pageScale)} px (${presentation.mode}, scale ${r1(pageScale)})`, 'effective primary label >= 12 px in the declared presentation', 'enlarge the font within the box or reduce the canvas');
+  // Declared sizing is measured, never used to resize an explicit rectangle.
+  for (const n of nodes) if (n.sizeTier) {
+    const base = SIZE_TIERS[n.sizeTier], step = BOX_RULES_PROFILE.gridStep, dims = n.lb.slice(2);
+    if (dims.some((d, i) => Math.abs(d - base[i] - (n.sizeExtension?.[i ? 'height' : 'width'] ?? 0) * step) > EPS)) add('node-size-tier', 'minor', [n.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `labelBox ${dims.map(r1).join('x')} differs from ${n.sizeTier} ${base.join('x')} plus declared ${step}-unit sizeExtension steps`, 'declared size tier and grid growth (B1)', 'choose a profile tier or enlarge the label box on the profile grid');
   }
   // labels
   const pills = [];
@@ -626,7 +677,7 @@ export function renderSpec(input, {model = null} = {}) {
   const parts = [];
   for (const g of groups) {
     const sub = g.subtitle ? `<text x="${n3(g.rect[0] + 16)}" y="${n3(g.rect[1] + 46)}" font-size="15" font-weight="400" dominant-baseline="central" fill="${g.text}">${esc(g.subtitle)}</text>` : '';
-    parts.push(`<g data-group="${esc(g.id)}" data-container-id="${esc(g.id)}"><rect x="${n3(g.rect[0])}" y="${n3(g.rect[1])}" width="${n3(g.rect[2])}" height="${n3(g.rect[3])}" rx="${NODE_R}" fill="${g.fill}" stroke="${g.stroke}" stroke-width="1"/><text x="${n3(g.rect[0] + 16)}" y="${n3(g.rect[1] + 24)}" font-size="18" font-weight="600" dominant-baseline="central" fill="${g.text}">${esc(g.label)}</text>${sub}</g>`);
+    parts.push(`<g data-group="${esc(g.id)}" data-container-id="${esc(g.id)}"${g.parent ? ` data-parent-group="${esc(g.parent)}"` : ''}><rect x="${n3(g.rect[0])}" y="${n3(g.rect[1])}" width="${n3(g.rect[2])}" height="${n3(g.rect[3])}" rx="${NODE_R}" fill="${g.fill}" stroke="${g.stroke}" stroke-width="1"/><text x="${n3(g.rect[0] + 16)}" y="${n3(g.rect[1] + 24)}" font-size="18" font-weight="600" dominant-baseline="central" fill="${g.text}">${esc(g.label)}</text>${sub}</g>`);
   }
   const colours = new Set();
   for (const e of edges) if (e.route) {

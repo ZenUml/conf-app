@@ -4,17 +4,17 @@
 export const gateModeFromEnv=(env=process.env)=>String(env.PI_DIAGRAM_GATE??'').trim().toLowerCase()==='strict'?'strict':'relaxed';
 
 /** Audit checks whose FAIL always blocks: what the diagram says (bindings, identity, relations, groups, shapes), a missing or invisible arrowhead, and a label covering another route. */
-export const BLOCKING_AUDIT_RULES=['svgWellFormed','nodeIdentity','nodeText','nodeShape','relations','relationStyle','groups','groupMembership','originalGroupParity','semanticPreservation','sourceDefinitionConflicts','markerDrawing','labelCoversRoute','arrowEndStartClearance'];
+export const BLOCKING_AUDIT_RULES=['svgWellFormed','nodeIdentity','nodeText','nodeShape','relations','relationStyle','groups','groupMembership','originalGroupParity','semanticPreservation','sourceDefinitionConflicts','markerDrawing','labelCoversRoute','arrowEndStartClearance','routeBoundaryCoincidence','siblingGroupOverlap'];
 /** Audit checks that block only for the part of their evidence that is a real defect (see PARTIAL below); the rest of that evidence becomes advice. */
-export const PARTIAL_AUDIT_RULES=['textFit','labelClearance','nodeHeadingClearance','routeHeadingClearance','routeNodeIntrusion'];
+export const PARTIAL_AUDIT_RULES=['textFit','labelClearance','nodeHeadingClearance','routeNodeIntrusion'];
 /** Findings that are blocking as constructed (not audit checks): structural failures, forbidden constructs, gate conditions, and label-ambiguous (decided where it is built: blocking only when the label sits on another route). */
 export const STRUCTURAL_RULES=['candidate-missing','render-or-audit-failed','forbidden-construct','label-ambiguous','relayout'];
 /** Reviewer rules that stay blocking. Every other reviewer rule is advice. */
-export const REVIEW_BLOCKING_RULES=['shape-change','label-ownership','text-overflow','heading-overlap'];
+export const REVIEW_BLOCKING_RULES=['shape-change','label-ownership','text-overflow','boundary-coincidence','group-overlap'];
 
 /** Advice ranking: how much fixing it improves the picture (0..1). Higher goes to the author first. Unlisted rules get DEFAULT_IMPACT. */
 export const ADVICE_IMPACT=Object.freeze({
-  routeCrossings:0.7,'route-crossing':0.7,routeDetour:0.6,detour:0.6,labelFontFit:0.6,textContrast:0.5,balance:0.5,
+  routeEarlyMerge:0.65,'early-merge':0.65,boxSizeConsistency:0.4,'box-size-consistency':0.4,routeCrossings:0.7,'route-crossing':0.7,routeDetour:0.6,detour:0.6,labelFontFit:0.6,textContrast:0.5,balance:0.5,
   'label-detached':0.5,'label-ambiguous':0.55,routeNodeIntrusion:0.5,'route-node-intrusion':0.5,textFit:0.45,
   labelClearance:0.4,'label-clearance':0.4,nodeHeadingClearance:0.4,'node-heading-clearance':0.4,routeHeadingClearance:0.4,routeUnrelatedContainerTransit:0.4,
   routePairClearance:0.35,edgeLabelStyle:0.35,routeContainerClearance:0.3,'route-border-clearance':0.3,arrowShaft:0.3,other:0.3,
@@ -62,13 +62,6 @@ const PARTIAL={
     if(!isObj(ev)||!Array.isArray(ev.violations)||!ev.violations.length)return {blocking:ev,advice:null};
     const overlap=v=>v?.kind==='heading'&&(!num(v.gap)||v.gap<=0);
     return result(ev,['violations'],{violations:ev.violations.filter(overlap)},{violations:ev.violations.filter(v=>!overlap(v))});
-  },
-  /** A route sampled inside a heading text box blocks; the 2-unit guard around it is advice. Evidence without the overlap list fails closed. */
-  routeHeadingClearance(ev){
-    if(!isObj(ev)||!Array.isArray(ev.intrusions)||!ev.intrusions.length)return {blocking:ev,advice:null};
-    if(!Array.isArray(ev.headingOverlaps))return {blocking:ev,advice:null};
-    const hit=new Set(ev.headingOverlaps.map(x=>x.edge));
-    return result(ev,['intrusions'],{intrusions:ev.intrusions.filter(x=>hit.has(x.edge))},{intrusions:ev.intrusions.filter(x=>!hit.has(x.edge))});
   },
   /** A route through another node's text blocks. A route over a node's fill only, or an end that misses its own node, is advice. */
   routeNodeIntrusion(ev){

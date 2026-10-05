@@ -39,7 +39,7 @@ test('reviewer prompt lists only the images actually sent (focus mode sends 3)',
   const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:['the original Mermaid render (full)','the candidate (full, 2x)','the candidate fitted to a 1200x710 viewer']});
   assert.match(text,/3 PNG images/);assert.match(text,/Image 3: the candidate fitted/);assert.doesNotMatch(text,/Image 4/);
 });
-test('reviewer prompt carries the rules context: allowed decision hexagon, other shape changes blocking, legend keys, severity examples, 3x detour, recolouring minor, measured evidence',()=>{
+test('reviewer prompt carries the rules context: allowed decision hexagon, other shape changes blocking, legend keys, severity examples, shared-family detour, recolouring minor, measured evidence',()=>{
   const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit,geometry,imageLabels:labels7});
   assert.match(text,/hexagon[^.]*points at the top and bottom[^.]*ALLOWED/is);
   assert.match(text,/shape-change/);assert.match(text,/capsule/i);assert.match(text,/diamond.*rect/is);
@@ -49,7 +49,8 @@ test('reviewer prompt carries the rules context: allowed decision hexagon, other
   assert.match(text,/missing keys[^.]*existing legend[^.]*minor/is);
   assert.doesNotMatch(text,/must have colour, shape and line-style keys|Omitting a kind of key that is in use is blocking|a missing legend key kind/i);
   assert.match(text,/blocking.*for example/is);assert.match(text,/minor.*for example/is);
-  assert.match(text,/3x[^.]*Manhattan/is);assert.match(text,/recolou?r/i);
+  assert.match(text,/complete family route[^.]*preserving its approved continuous shared suffix/is);
+  assert.match(text,/shorter individual branch[^.]*not a valid witness/is);assert.match(text,/recolou?r/i);
   assert.match(text,/"measured"/);assert.match(text,/"threshold"/);
   assert.match(text,/25 units/);assert.match(text,/12 units/); // already enforced by code: do not duplicate
 });
@@ -258,7 +259,7 @@ test('reviewer prompt tells the reviewer which layout rules the auditor measures
     legendCompleteness:{status:'NOT-CHECKABLE',evidence:{reason:'untagged shapes'}},
   }};
   const text=buildReviewerPrompt({facts:buildReviewerFacts(model),audit:measured,geometry,imageLabels:labels7});
-  assert.match(text,/connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight, node label font size at the 1200x710 fit \(labelFontFit\) and legend consistency/);
+  assert.match(text,/connector stroke width, bend radius, arrowhead marker uniformity, text contrast, node label font weight, node label font size at the declared presentation \(default 1200x710 fit; labelFontFit\) and legend consistency/);
   const summary=JSON.parse(/<audit-summary>\n([\s\S]*?)\n<\/audit-summary>/.exec(text)[1]);
   assert.deepEqual(summary.layoutMeasured,{connectorStrokeWidth:{checkedEdges:3,emphasised:0},filletUniformity:{radii:[5],checkedBends:4},textContrast:{checkedTexts:9,threshold:4.5}});
   assert.match(text,/NOT-CHECKABLE[^.]*judge/i);
@@ -352,4 +353,13 @@ test('the two-phase focus item for the legend only asks about a drawn legend and
 test('a blocking "missing legend" reviewer reply parses as a blocking legend finding; the code-level absence downgrade lives in applyCoverage',()=>{
   const r=parseReviewerOutput(good({findings:[{rule:'legend',severity:'blocking',elements:['legend'],evidence:'there is no legend',measured:'0 legends',threshold:'legend',suggestion:'add a legend'}],verdict:'revise'}),{model,natural,imageCount:7});
   assert.equal(r.findings[0].rule,'legend');assert.equal(r.findings[0].severity,'blocking');
+});
+
+test('reviewer receives the actual caller presentation alongside the standard fit reference',()=>{
+ const rec=path=>({path,file:path,sha256:path});
+ const render={full:rec('full'),fullscreen:rec('fit'),crops:[0,1,2,3].map(i=>rec('c'+i)),natural:{w:2400,h:710},presentationImage:rec('native'),presentationView:{mode:'native',scale:1,viewport:{width:2400,height:710}}};
+ const chosen=selectReviewImages({originalFull:rec('original'),render});
+ assert.deepEqual(chosen.map(i=>i.record.path),['original','full','fit','native']);
+ assert.match(chosen.at(-1).label,/caller-declared native presentation/);
+ assert.equal(selectReviewImages({originalFull:rec('original'),render:{...render,presentationImage:render.fullscreen}}).length,3);
 });

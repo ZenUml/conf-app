@@ -114,7 +114,7 @@ test('two actual orthogonal connector interiors cannot cross unnoticed',{skip:!e
   const result=await auditAgentSvg(crossingSource,crossingSvg);
   assert.equal(result.checks.routeCrossings.status,'FAIL');
   const {repairHint,reason,...at}=result.checks.routeCrossings.evidence.violations[0];
-  assert.deepEqual(at,{edgeA:'A->B',edgeB:'C->D',x:270,y:80});
+  assert.deepEqual(at,{edgeA:'A->B',edgeB:'C->D',x:270,y:80,edgePairs:[{edgeA:'A->B',edgeB:'C->D',edgeAId:'relation-0',edgeBId:'relation-1'}]});
   assert.ok(repairHint===null?typeof reason==='string':repairHint.edge&&repairHint.points.length>=2); // every crossing carries a hint or a reason
 });
 
@@ -124,11 +124,12 @@ test('a path ending in a curve cannot borrow an earlier straight span for arrow 
   assert.equal(result.checks.arrowShaft.status,'NOT-CHECKABLE');
 });
 
-test('a connector through actual group heading text fails clearance',{skip:!enabled},async()=>{
+test('a connector through actual group heading text is allowed and remains observed',{skip:!enabled},async()=>{
   const grouped='flowchart LR\n subgraph G[Group]\n A[Start]\n end\n B[Finish]\n A --> B\n';
   const drawn=svg.replace('<g data-node="A">','<g data-group="G"><rect x="0" y="20" width="200" height="130"/><text x="145" y="79">Heading</text></g><g data-node="A">');
   const result=await auditAgentSvg(grouped,drawn);
-  assert.equal(result.checks.routeHeadingClearance.status,'FAIL');
+  assert.equal(result.checks.routeHeadingClearance.status,'PASS');
+  assert.equal(result.checks.routeHeadingClearance.evidence.allowed,true);
   assert.deepEqual(result.checks.routeHeadingClearance.evidence.intrusions,[{edge:'A->B',groupIds:['G']}]);
 });
 

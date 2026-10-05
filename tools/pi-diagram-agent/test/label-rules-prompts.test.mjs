@@ -105,5 +105,5 @@ test('spec schema text documents the optional font and its automatic fill',()=>{
 });
 test('reviewer prompt lists labelFontFit among the measured checks',()=>{
   const t=reviewer(3);
-  assert.match(t,/node label font size at the 1200x710 fit/i);
+  assert.match(t,/node label font size at the declared presentation \(default 1200x710 fit/i);
 });

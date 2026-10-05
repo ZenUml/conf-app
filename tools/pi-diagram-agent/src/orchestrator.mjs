@@ -6,7 +6,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {parseMermaid} from './parser.mjs';
 import {renderAgentSvg} from './agent-render.mjs';
 import {auditAgentSvg} from './agent-audit.mjs';
-import {ensureOriginal} from './agent-led.mjs';
+import {ensureOriginal,jobPresentation,assertJobManifest} from './agent-led.mjs';
 import {makeFinding,createLedger,selectForAuthor,formatForAuthor,auditToFindings,selectAdvice,toAdviceItem} from './findings.mjs';
 import {gateModeFromEnv,relaxFindings} from './relaxed.mjs';
 import {judgeSvgs,writeJudgement,hasGroupsFromOriginalSvg} from './judge-run.mjs';
@@ -48,8 +48,8 @@ const exactUtf8=bytes=>{
 
 function defaultDeps(job){
   return {
-    render:bytes=>renderAgentSvg(bytes,{outPrefix:path.join(job.runDir,'orch'),displayWidth:1200,displayHeight:710}),
-    audit:(bytes,{originalSvg})=>auditAgentSvg(job.sourceBytes,bytes,{originalSvg,adjudications:job.manifest?job.manifest.adjudication?.records??[]:job.adjudications??[]}),
+    render:(bytes,options)=>renderAgentSvg(bytes,{outPrefix:path.join(job.runDir,'orch'),displayWidth:1200,displayHeight:710,...options}),
+    audit:(bytes,{originalSvg,presentation})=>auditAgentSvg(job.sourceBytes,bytes,{originalSvg,presentation,adjudications:job.manifest?job.manifest.adjudication?.records??[]:job.adjudications??[]}),
     original:()=>ensureOriginal(job),
     geometry:bytes=>collectGeometry(bytes),
     image:rec=>{
@@ -71,6 +71,7 @@ const betterOrEqual=(c,b)=>cmpPair(c.score,b.score)?cmpPair(c.score,b.score)<0:j
 
 /** @param job result of prepareAgentTask  @param opts {deps, reviewerFactory, budgets, now, onRoundEnd} */
 export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null,manifestDir=manifestDirFromEnv(),gate=gateModeFromEnv(),judgeFactory=null,judgeModel=null,acceptThresholds=acceptThresholdsFromEnv()}={}){
+  const presentation=jobPresentation(job);
   const reviewerCfg=reviewer??reviewerConfigFromEnv();
   // Gate mode. relaxed (default): only wrong-or-unreadable defects block, everything else is advice, and the Judge decides acceptance inside the loop. strict: the previous behaviour, no Judge.
   const relaxed=gate!=='strict';
@@ -105,6 +106,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   const timed=async(fn)=>{const s=now();try{return await fn()}finally{timings.orchestratorMs+=now()-s}};
 
   function readCandidate(){
+    assertJobManifest(job);
     const item=fs.lstatSync(job.outputPath,{throwIfNoEntry:false});
     if(!item?.isFile()||item.isSymbolicLink()||item.size===0||item.size>2_000_000)return {ok:false,error:'candidate.svg is missing, empty, over 2 MB, or not a regular file'};
     const bytes=fs.readFileSync(job.outputPath),text=exactUtf8(bytes);
@@ -141,8 +143,9 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     if(c.forbidden.some(h=>HARD_FORBIDDEN.includes(h.construct))){c.stage='early';c.findings=earlyFindings({svgText:cand.text,audit:null});return c}
     try{
       const original=await d.original();
-      if(!eager)c.render=await timed(()=>d.render(cand.bytes)); // one-phase: render before the audit, as before
-      c.audit=await timed(()=>d.audit(cand.bytes,{originalSvg:original.svgBytes}));
+      if(!eager)c.render=await timed(()=>d.render(cand.bytes,{presentation})); // one-phase: render before the audit, as before
+      c.audit=await timed(()=>d.audit(cand.bytes,{originalSvg:original.svgBytes,presentation}));
+      assertJobManifest(job);
     }catch(error){c.stage='early';c.findings=renderOrAuditFailed(error);return c}
     c.stage='audit';
     c.findings=[...earlyFindings({svgText:cand.text,audit:c.audit,relaxed}),...auditToFindings(c.audit,{relaxed}).filter(f=>!EARLY_AUDIT_RULES.includes(f.rule)&&!EARLY_MEASURED_RULES.includes(f.rule)&&!isLowerBendMinor(f))];
@@ -177,7 +180,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   }
   const ensureRender=async c=>{
     if(c.render)return true;
-    try{c.render=await timed(()=>d.render(c.bytes));return true}
+    try{c.render=await timed(()=>d.render(c.bytes,{presentation}));return true}
     catch(error){c.stage='early';c.findings=renderOrAuditFailed(error);return false}
   };
 
@@ -279,13 +282,13 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   function buildManifest(){
     const bestC=best;
-    const finalMedia=bestC?.render?{full:bestC.render.full?.sha256??null,fit:bestC.render.fullscreen?.sha256??null}:null;
+    const finalMedia=bestC?.render?{full:bestC.render.full?.sha256??null,fit:bestC.render.fullscreen?.sha256??null,...(bestC.render.presentationImage?{presentation:bestC.render.presentationImage.sha256}: {})}:null;
     const ledgerSnap=ledger.snapshot();
     const residual=[...(bestC?.findings??[]).map(brief),...(bestC?.carried??[]).map(f=>({...brief(f),carried:true})),...extraResidual];
     const openRound=cur.buildCheckCalls||cur.refusals||cur.limitHits||cur.generatorErrors?[{round:doneRounds.length+1,open:true,...cur}]:[];
     return {schema:'pi-diagram-run/3',v2:true,gate,...(relaxed?{judge:{enabled:true,inLoop:true,thresholds:acceptThresholds,model:judgeModel,rounds:judgeRounds}}:{}),status,statusReason,
       startedAt:new Date(startedAt).toISOString(),finishedAt:new Date(now()).toISOString(),
-      sourceHash:job.sourceHash,rulesHash:job.rulesHash,rulesHistory:job.manifest?.rulesHistory??[],
+      sourceHash:job.sourceHash,rulesHash:job.rulesHash,rulesHistory:job.manifest?.rulesHistory??[],presentation,
       adjudication:job.manifest?.adjudication?{sha256:job.manifest.adjudication.sha256,records:job.manifest.adjudication.records?.length??0}:null,
       finalSvgSha256:bestC?.hash??null,finalMedia,originalSvgHash:bestC?.audit?.originalSvgHash??null,
       rounds,downgrades:downgradeList(),ledger:ledgerSnap,residual,notCheckable:notCheckable(bestC),
@@ -410,6 +413,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   /** The one binding script check: build step (the author's generator) -> hash -> phase-1 check -> cache. Text only. Every call counts against the caps. */
   async function buildCheckNow({build=null}={}){
+    assertJobManifest(job);
     if(!twoPhase)throw Error('DIAGRAM_BUILD_CHECK_DISABLED');
     if(finalResult)return finalResult;
     if(callsRound>=B.maxChecksPerRound||callsTotal>=B.maxChecksPerRun){

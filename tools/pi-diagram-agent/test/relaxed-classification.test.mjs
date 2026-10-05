@@ -73,7 +73,7 @@ test('heading checks block only on actual overlap; the 8-unit and 12-unit margin
   const border=fail({method:'m',violations:[{kind:'container-border',nodeId:'A',groupId:'G',gap:0,required:8}]});
   assert.deepEqual(sev('nodeHeadingClearance',border),['minor']);
   const routeOverlap=fail({method:'m',intrusions:[{edge:'A->B',groupIds:['G']}],headingOverlaps:[{edge:'A->B',groupIds:['G']}]});
-  assert.deepEqual(sev('routeHeadingClearance',routeOverlap),['blocking']);
+  assert.deepEqual(sev('routeHeadingClearance',routeOverlap),['minor']);
   const routeGuard=fail({method:'m',intrusions:[{edge:'A->B',groupIds:['G']}],headingOverlaps:[]});
   assert.deepEqual(sev('routeHeadingClearance',routeGuard),['minor']);
 });
@@ -120,10 +120,10 @@ test('geometry findings under relaxed: detached and border-clearance are advice;
   assert.equal(amb2.severity,'minor');
 });
 
-test('reviewer findings under relaxed: only shape-change, label-ownership, text-overflow and heading-overlap stay blocking',()=>{
-  assert.deepEqual([...REVIEW_BLOCKING_RULES].sort(),['heading-overlap','label-ownership','shape-change','text-overflow']);
+test('reviewer findings under relaxed: semantic errors, border coincidence and group overlap stay blocking',()=>{
+  assert.deepEqual([...REVIEW_BLOCKING_RULES].sort(),['boundary-coincidence','group-overlap','label-ownership','shape-change','text-overflow']);
   const mk=(rule,source='review')=>makeFinding({source,severity:'blocking',rule,elements:['A'],evidence:{measured:'x',threshold:'y'},suggestion:'s'});
-  const rules=['label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','node-heading-clearance','label-clearance','other'];
+  const rules=['label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','node-heading-clearance','label-clearance','boundary-coincidence','group-overlap','box-size-consistency','early-merge','other'];
   const out=Object.fromEntries(relaxFindings(rules.map(r=>mk(r))).map(f=>[f.rule,f.severity]));
   for(const r of rules)assert.equal(out[r],REVIEW_BLOCKING_RULES.includes(r)?'blocking':'minor',r);
   const adv=relaxFindings([mk('balance')])[0];
@@ -179,7 +179,8 @@ test('audit evidence: a route inside a heading box (not only its 2-unit guard) i
   const grouped=base.replace('<g data-node="A">','<g data-group="G"><rect x="0" y="20" width="200" height="130" stroke="black" fill="none"/><text x="140" y="80">Group</text></g><g data-node="A">');
   const r=await auditAgentSvg(gsrc,grouped);
   const ev=r.checks.routeHeadingClearance.evidence;
-  assert.equal(r.checks.routeHeadingClearance.status,'FAIL');
+  assert.equal(r.checks.routeHeadingClearance.status,'PASS');
+  assert.equal(ev.allowed,true);
   assert.deepEqual(ev.headingOverlaps,[{edge:'A->B',groupIds:['G']}]);
 });
 

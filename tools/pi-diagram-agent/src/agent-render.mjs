@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
+import {resolvePresentation} from './presentation.mjs';
 
 const require=createRequire(import.meta.url);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const save=(file,bytes)=>{const temp=path.join(path.dirname(file),`.${path.basename(file)}.${randomUUID()}.tmp`);try{fs.writeFileSync(temp,bytes,{flag:'wx',mode:0o600});fs.renameSync(temp,file)}finally{fs.rmSync(temp,{force:true})};};
 
 /** Presentation-neutral browser images for Pi's actual original/candidate comparison. */
-export async function renderAgentSvg(svgBytes,{outPrefix,displayWidth=1200,displayHeight=710,
+export async function renderAgentSvg(svgBytes,{outPrefix,displayWidth=1200,displayHeight=710,presentation=null,
   playwrightModulePath=process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE,
   browserExecutablePath=process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE}={}){
   if(!Buffer.isBuffer(svgBytes)||svgBytes.length===0||svgBytes.length>2_000_000)throw Error('INVALID_SVG_BYTES');
@@ -47,9 +48,22 @@ export async function renderAgentSvg(svgBytes,{outPrefix,displayWidth=1200,displ
     const fitBounds=await svg.boundingBox();
     if(!fitBounds||Math.abs(fitBounds.x+fitBounds.width/2-displayWidth/2)>1||Math.abs(fitBounds.y+fitBounds.height/2-displayHeight/2)>1)throw Error('CONTAIN_FIT_NOT_CENTERED');
     const fullscreen=await add('contain-2x',await page.screenshot());
+    // Keep the standard contain-fit reference and show the actual caller-declared presentation separately.
+    const display=resolvePresentation(presentation,size.natural);
+    if(display.error)throw Error(`INVALID_PRESENTATION: ${display.error}`);
+    let presentationImage=fullscreen;
+    const actualWidth=display.mode==='fit'?display.width:Math.ceil(size.natural.w*display.scale),actualHeight=display.mode==='fit'?display.height:Math.ceil(size.natural.h*display.scale);
+    if(actualWidth*actualHeight*4>40_000_000||actualWidth>8000||actualHeight>8000||actualWidth<1||actualHeight<1)throw Error('PRESENTATION_PIXEL_BUDGET_EXCEEDED');
+    if(display.mode==='native'||actualWidth!==displayWidth||actualHeight!==displayHeight){
+      await page.evaluate(({scale,w,h})=>{const svg=document.querySelector('svg');svg.style.width=`${w*scale}px`;svg.style.height=`${h*scale}px`},{scale:display.scale,w:size.natural.w,h:size.natural.h});
+      await page.setViewportSize({width:Math.ceil(actualWidth),height:Math.ceil(actualHeight)});
+      presentationImage=await add('presentation-2x',await page.screenshot());
+    }
+    const presented=size.fontSizes.map(n=>n*display.scale).sort((a,b)=>a-b);
+    const presentationView={...display,viewport:{width:actualWidth,height:actualHeight},textCount:presented.length,minCssPx:presented[0]??null,referenceOnly:false};
     const effective=size.fontSizes.map(n=>n*size.fullScale).sort((a,b)=>a-b),mid=Math.floor(effective.length/2);
     return {status:'PASS',svgHash,full,crops,fullscreen,displayWidth,displayHeight,deviceScaleFactor:2,
-      natural:size.natural,pageScale:size.pageScale,containFit:{scale:size.fullScale,fitBounds,textCount:effective.length,minCssPx:effective[0]??null,medianCssPx:effective.length?(effective.length%2?effective[mid]:(effective[mid-1]+effective[mid])/2):null,under10CssPx:effective.filter(n=>n<10).length},textAudit:size.textAudit,
+      natural:size.natural,pageScale:size.pageScale,presentationImage,presentationView,containFit:{scale:size.fullScale,fitBounds,textCount:effective.length,minCssPx:effective[0]??null,medianCssPx:effective.length?(effective.length%2?effective[mid]:(effective[mid-1]+effective[mid])/2):null,under10CssPx:effective.filter(n=>n<10).length},textAudit:size.textAudit,
       limitations:['Text overlap and offscreen checks are geometric observations, not a full visual or routing audit.']};
   }catch(error){for(const file of files)fs.rmSync(file.path,{force:true});throw error}
   finally{await browser.close()}

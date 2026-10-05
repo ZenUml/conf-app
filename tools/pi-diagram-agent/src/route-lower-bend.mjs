@@ -12,14 +12,14 @@
 // relationship NOT-CHECKABLE. A non-rectangular unrelated node blocks a leg only through its convex hull; a leg that only
 // touches its bounding box is "maybe" (never a PASS), and a node with no usable outline falls back to its bounding box as "maybe".
 //
-// Shared trunks (rule 10): when a connector is an accepted member of a declared data-shared-trunk (its final span coincides with a
-// partner's, same target and end), its witness must keep that trunk, so the target anchor is pinned to the drawn trunk entry and the
-// final leg may coincide with partners' final spans. A witness that would leave the trunk is not a witness.
+// Shared trunks: prove a continuous same-direction suffix from actual SVG geometry.
+// Witnesses preserve that complete suffix and search bounded upstream joins.
+// Heading text is traversable; positive-length coincidence with any group border is not.
+import {checkRouteBoundaryCoincidence} from './geometry-policy.mjs';
 import {derivePorts,hullSpanAt} from './shape-ports.mjs';
-import {isAcceptedTrunkOverlap} from './trunk.mjs';
+import {isAcceptedTrunkOverlap,sharedSuffix,isSharedTrunkJoin} from './trunk.mjs';
 const EPS=1e-6;
 const GUARD=1;                 // clearance (units) kept between a candidate leg and a node/container/label rectangle
-const HEADING_GUARD=2;         // matches the existing heading-clearance guard
 const PARALLEL_CLEARANCE=10;   // rule 14
 const DEFAULT_TRIM=5;          // rule 3 fillet radius when the drawn route has no fillet to measure
 const SHAFT=8;                 // rule 13 visible shaft
@@ -137,9 +137,11 @@ function makeEvaluator(ctx){
     }
     const trimmed=segs.map((s,i)=>{
       const a=s.s0+(i>0?s.dir*trim:0),b=s.s1-(i<n-1?s.dir*trim:0);
-      return {axis:s.axis,fixed:s.fixed,lo:Math.min(a,b),hi:Math.max(a,b)};
+      return {axis:s.axis,fixed:s.fixed,lo:Math.min(a,b),hi:Math.max(a,b),dir:s.dir,start:a,end:b};
     });
-    let soft=false;
+    const boundary=checkRouteBoundaryCoincidence({groups:ctx.boundaryGroups??[],nodes:ctx.boundaryNodes??[],edges:[{source:ctx.edgeSource,target:ctx.edgeTarget,strokeWidth:ctx.edgeStrokeWidth??1,spans:trimmed.filter(s=>s.hi-s.lo>EPS)}]});
+    if(boundary.status==='FAIL')return 0;
+    let soft=boundary.status==='NOT-CHECKABLE';
     const touch=(s,node)=>{const h=nodeHit(s,node,GUARD);if(h===2)return true;if(h===1)soft=true;return false};
     for(let i=0;i<n;i++){
       const s=segs[i];
@@ -147,12 +149,12 @@ function makeEvaluator(ctx){
       if(i>0&&touch(s,ctx.source))return 0;
       if(i<n-1&&touch(s,ctx.target))return 0;
       for(const box of ctx.unrelatedGroups)if(hits(s,box,GUARD))return 0;
-      for(const box of ctx.headings)if(hits(s,box,HEADING_GUARD))return 0;
+      // Group headings are permitted routing transit regions.
       for(const box of ctx.labels)if(hits(s,box,GUARD))return 0;
     }
     for(let i=0;i<trimmed.length;i++)for(const b of ctx.otherSpans){
       const a=trimmed[i];
-      if(i===trimmed.length-1&&ctx.trunkFinals.has(b))continue;   // the shared final portion of a declared trunk
+      if(ctx.sharedWith?.(points,a,b)||i===trimmed.length-1&&ctx.trunkFinals.has(b))continue;   // the shared final portion of a declared trunk
       if(a.axis===b.axis){
         if(Math.min(a.hi,b.hi)-Math.max(a.lo,b.lo)>EPS&&Math.abs(a.fixed-b.fixed)<PARALLEL_CLEARANCE-EPS)return 0;
       }else{
@@ -166,9 +168,9 @@ function makeEvaluator(ctx){
       for(let i=0;i<n;i++){
         const a=segs[i],alo=Math.min(a.s0,a.s1),ahi=Math.max(a.s0,a.s1);
         for(const b of ctx.otherSpans){
-          if(i===n-1&&ctx.trunkFinals.has(b))continue;
+          if(ctx.sharedWith?.(points,{...a,lo:alo,hi:ahi},b)||i===n-1&&ctx.trunkFinals.has(b))continue;
           if(a.axis===b.axis){if(Math.min(ahi,b.hi)-Math.max(alo,b.lo)>EPS&&Math.abs(a.fixed-b.fixed)<PARALLEL_CLEARANCE-EPS)return 0}
-          else if(b.fixed>=alo-EPS&&b.fixed<=ahi+EPS&&a.fixed>=b.lo-EPS&&a.fixed<=b.hi+EPS)return 0;
+          else if(b.fixed>=alo-EPS&&b.fixed<=ahi+EPS&&a.fixed>=b.lo-EPS&&a.fixed<=b.hi+EPS){const point=a.axis==='h'?{x:b.fixed,y:a.fixed}:{x:a.fixed,y:b.fixed};if(!ctx.joinWith?.(points,point,b))return 0;}
         }
       }
     }
@@ -205,7 +207,7 @@ function gridWitness({fs0,ftList,valuesFor,ctx,boxes,evaluate,trim,axial,otherSp
   if(X.length*Y.length>MAX_GRID*MAX_GRID)return null;
   const xi=new Map(X.map((v,i)=>[v,i])),yi=new Map(Y.map((v,i)=>[v,i]));
   const scanCache=new Map();
-  const rects=[...ctx.nodes.map(n=>[n.bbox,GUARD]),...ctx.unrelatedGroups.map(b=>[b,GUARD]),...ctx.headings.map(b=>[b,HEADING_GUARD]),...ctx.labels.map(b=>[b,GUARD])];
+  const rects=[...ctx.nodes.map(n=>[n.bbox,GUARD]),...ctx.unrelatedGroups.map(b=>[b,GUARD]),...ctx.labels.map(b=>[b,GUARD])];
   const rectIv=(r,g,axis,fixed)=>axis==='h'?(fixed>r.y-g&&fixed<r.y+r.h+g?[r.x-g,r.x+r.w+g]:null):(fixed>r.x-g&&fixed<r.x+r.w+g?[r.y-g,r.y+r.h+g]:null);
   const scan=(axis,fixed)=>{
     const key=axis+fixed;let iv=scanCache.get(key);if(iv)return iv;
@@ -403,6 +405,50 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
       if(!o.spans||!o.hulls){unknown=true;continue}
       otherSpans.push(...o.spans);hulls.push(...o.hulls);
     }
+    // Approved full suffixes are never compared with an independent direct
+    // source-to-target route. Search bounded source prefixes into upstream joins.
+    const mine={...e,points:route.points,trim:route.trim,lastCommand:e.spans?.lastCommand};
+    const peers=others2.filter(({o,j})=>!routes[j].error&&sharedSuffix(mine,{...o,points:routes[j].points,trim:routes[j].trim})).map(({o,j})=>({...o,points:routes[j].points,trim:routes[j].trim}));
+    const incompatible=others2.some(({o,j})=>e.trunk&&o.trunk===e.trunk&&o.target===e.target&&!routes[j].error&&sharedSuffix({...mine,trim:undefined,style:undefined},{...o,points:routes[j].points,trim:undefined,style:undefined})&&!sharedSuffix(mine,{...o,points:routes[j].points,trim:routes[j].trim}));
+    if(incompatible){nc('declared shared suffix has incompatible measured fillet radii or line styles');continue}
+    if(peers.length){
+      const approved=peers.map(p=>sharedSuffix(mine,p)).sort((a,b)=>b.length-a.length)[0];
+      const ownerOf=new Map();for(const peer of peers)for(const span of peer.spans??[])ownerOf.set(span,peer);
+      const ctx={source:obstacle(S),target:obstacle(T),nodes:others.map(obstacle),unrelatedGroups:groups.filter(g=>!contains(g.box,GS.outline)&&!contains(g.box,GT.outline)).map(g=>g.box),headings:[],boundaryGroups:groups,boundaryNodes:nodes,edgeSource:e.source,edgeTarget:e.target,edgeStrokeWidth:e.strokeWidth??e.style?.width??1,labels,otherSpans,hulls:[],unknown,trim:route.trim,axial:e.axialLength,trunkFinals:new Set(),strict:mode==='hint',joinWith:(points,point,b)=>{const peer=ownerOf.get(b);return !!peer&&isSharedTrunkJoin({...mine,points},peer,point)},sharedWith:(points,a,b)=>{const peer=ownerOf.get(b);return !!peer&&isAcceptedTrunkOverlap({...mine,points},peer,a,b)}};
+      const baseEval=makeEvaluator(ctx),evaluate=pts=>{
+        const level=baseEval(pts);if(!level)return 0;
+        // Curved obstacles retain uncertainty for the upstream prefix. Shared
+        // downstream fillets are unchanged actual SVG geometry, not new guesses.
+        const segs=toSegs(pts);let soft=level===1;
+        for(const {o,j} of others2){if(!o.hulls){soft=true;continue}for(const hull of o.hulls)for(const seg of segs){if(!hits(seg,hull,0))continue;const peer=peers.find(p=>p===ownerOf.get(o.spans?.[0]));const suffix=peer&&sharedSuffix({...mine,points:pts},peer);const lo=Math.min(seg.s0,seg.s1),hi=Math.max(seg.s0,seg.s1);if(!suffix?.sections.some(t=>t.axis===seg.axis&&Math.abs(t.fixed-seg.fixed)<=EPS&&lo>=t.lo-EPS&&hi<=t.hi+EPS))soft=true}}
+        return soft?1:2;
+      };
+      const joins=[approved.points];
+      // Retain every approved downstream point; an earlier peer join can extend
+      // that suffix but cannot move or delete it.
+      for(const peer of peers){for(let k=1;k<peer.points.length-1;k++){
+        const tail=peer.points.slice(k),probe={...mine,points:tail};const kept=sharedSuffix(probe,{...mine,points:approved.points});if(kept&&kept.length>=approved.length-EPS)joins.push(tail);
+      }}
+      const simplify=pts=>{const out=[];for(const p of pts){if(out.length&&Math.hypot(p[0]-out.at(-1)[0],p[1]-out.at(-1)[1])<=EPS)continue;out.push(p);while(out.length>=3){const [a,b,c]=out.slice(-3),u=unit(a,b),v=unit(b,c);if(u[0]*v[1]-u[1]*v[0])break;if(u[0]*v[0]+u[1]*v[1]<0)return null;out.splice(-2,1)}}return out};
+      const candidates=[],seen=new Set();
+      for(const tail of joins){const join=tail[0];for(const face of fs0){for(const value of values(face,[alongOf(face,p0),alongOf(face,join)])){
+        const start=pointOn(face,value),prefixes=[];
+        if(Math.abs(start[0]-join[0])<=EPS||Math.abs(start[1]-join[1])<=EPS)prefixes.push([start,join]);
+        prefixes.push([start,[start[0],join[1]],join],[start,[join[0],start[1]],join]);
+        const channels=[(start[0]+join[0])/2,(start[1]+join[1])/2,...[10,20,40,80].map(d=>face.fixed+(face.normal[0]||face.normal[1])*d)];
+        for(const c of channels)prefixes.push([start,[c,start[1]],[c,join[1]],join],[start,[start[0],c],[join[0],c],join]);
+        for(const prefix of prefixes){const pts=simplify([...prefix,...tail.slice(1)]);if(!pts||pts.length<2)continue;const d=unit(pts[0],pts[1]);if(d[0]!==face.normal[0]||d[1]!==face.normal[1])continue;const key=JSON.stringify(pts);if(seen.has(key))continue;seen.add(key);const level=evaluate(pts);if(level)candidates.push({points:pts,level,bends:pts.length-2,length:manhattan(pts),face})}
+      }}}
+      const yes=candidates.filter(c=>c.level===2).sort((a,b)=>a.bends-b.bends||a.length-b.length),maybe=candidates.filter(c=>c.level===1),drawnLength=manhattan(route.points),record={edge:id,trunk:e.trunk,drawnBends:route.bends,preservedSuffix:approved.points.map(p=>p.map(round3))};
+      if(mode==='hint'){const w=yes[0];hints.set(id,w?{edge:id,hint:{edge:id,points:w.points.map(p=>p.map(round3)),bends:w.bends,length:round3(w.length),preservedSuffix:record.preservedSuffix}}:{edge:id,hint:null,reason:'no certain feasible upstream join preserving the complete approved shared suffix'});continue}
+      const w=mode==='detour'?yes.sort((a,b)=>a.length-b.length)[0]:yes.find(c=>c.bends<route.bends);
+      if(w&&(mode==='detour'?drawnLength>detourLimit(w.length)+EPS:true)){
+        violations.push({...record,kind:mode==='detour'?'detour':'lowerBend',...(mode==='detour'?{drawnLength:round3(drawnLength),witnessLength:round3(w.length),limit:round3(detourLimit(w.length))}:{}),witnessBends:w.bends,witness:{faces:{source:w.face.name,target:ftD.name},anchors:{source:w.points[0].map(round3),target:w.points.at(-1).map(round3)},segments:w.points.slice(0,-1).map((p,k)=>[p.map(round3),w.points[k+1].map(round3)]),bends:w.bends,preservedSuffix:record.preservedSuffix}});relations.push({edge:id,status:'FAIL',reason:'feasible upstream route preserves the complete approved shared suffix'});continue;
+      }
+      if(maybe.some(c=>mode==='detour'?drawnLength>detourLimit(c.length)+EPS:c.bends<route.bends)||!yes.length){nc('bounded upstream join search cannot establish a certain witness while preserving the full approved shared suffix');continue}
+      if(route.bends>=4){nc('bounded upstream join search does not exhaust 3+ bend prefix alternatives; complete approved suffix preserved');continue}
+      relations.push({edge:id,status:'PASS',...record,...(mode==='detour'?{drawnLength:round3(drawnLength),witnessLength:round3(w?.length??yes[0].length)}:{})});continue;
+    }
     // Shared trunk: accepted membership pins the target anchor to the drawn trunk entry and exempts the shared final portion.
     const me={trunk:e.trunk||null,target:e.target,spans:e.spans,lastCommand:e.spans?.lastCommand};
     const trunkFinals=new Set();
@@ -411,7 +457,7 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
     }
     const pinned=trunkFinals.size>0,pinValue=round3(alongOf(ftD,pn));
     const ancestor=g=>contains(g.box,GS.outline)||contains(g.box,GT.outline);
-    const ctx={source:obstacle(S),target:obstacle(T),nodes:others.map(obstacle),unrelatedGroups:groups.filter(g=>!ancestor(g)).map(g=>g.box),headings:groups.flatMap(g=>g.headings),labels,otherSpans,hulls,unknown,trim:route.trim,axial:e.axialLength,trunkFinals,strict:mode==='hint'};
+    const ctx={source:obstacle(S),target:obstacle(T),nodes:others.map(obstacle),unrelatedGroups:groups.filter(g=>!ancestor(g)).map(g=>g.box),headings:[],boundaryGroups:groups,boundaryNodes:nodes,edgeSource:e.source,edgeTarget:e.target,edgeStrokeWidth:e.strokeWidth??e.style?.width??1,labels,otherSpans,hulls,unknown,trim:route.trim,axial:e.axialLength,trunkFinals,strict:mode==='hint'};
     const evaluate=makeEvaluator(ctx);
     const midDist=(fs,ft,a,b)=>Math.abs(alongOf(fs,a)-fs.mid)+Math.abs(alongOf(ft,b)-ft.mid);
     const drawnDist=midDist(fsD,ftD,p0,pn);
@@ -524,15 +570,15 @@ export function checkRouteLowerBend({nodes,groups,edges,labelBoxes=[],unboundLab
   if(mode==='hint')return {hints:Object.fromEntries(hints)};
   const status=violations.length?'FAIL':notCheckable.length||!edges.length?'NOT-CHECKABLE':'PASS';
   if(mode==='detour')return {status,evidence:{
-    method:`drawn Manhattan route length versus the shortest feasible witness from the same search as routeLowerBend (straight, L, Z/U candidates over face midpoints, alignment points and a face sweep; kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, long enough for fillet trim + marker + shaft, shared-trunk entry pinned); FAIL when the drawn length exceeds max(${DETOUR_RATIO}x, +${DETOUR_EXTRA} units) of the witness; NOT-CHECKABLE when no feasible witness exists`,
+    method:`drawn Manhattan route length versus the shortest feasible witness from the same search as routeLowerBend (straight, L, Z/U candidates over face midpoints, alignment points and a face sweep; kept only when perpendicular, clear of unrelated nodes/containers/labels; group headings traversable; no positive-length group-border coincidence, free of non-shared crossings, >=10 from parallel spans, long enough for fillet trim + marker + shaft, complete approved shared suffix preserved with bounded upstream join search); FAIL when the drawn length exceeds max(${DETOUR_RATIO}x, +${DETOUR_EXTRA} units) of the witness; NOT-CHECKABLE when no feasible witness exists`,
     thresholds:{ratio:DETOUR_RATIO,extraUnits:DETOUR_EXTRA},relations,violations,notCheckable,
     checkedRelations:relations.filter(r=>r.status!=='NOT-CHECKABLE').length,
     limitations:'witness routes have at most 2 bends, so a relationship that can only be routed with 3 or more bends is NOT-CHECKABLE; the drawn route itself is never taken as its own witness; uncertain obstacles block witnesses but never support a PASS'}};
   return {status,evidence:{
-    method:'actual SVG path reconstructed into logical bends (fillet = one bend); straight (0) and L (1) candidates, plus Z/U (2) candidates when the drawing has 3+ bends, over face midpoints, projected alignment points, drawn-anchor projections and a 4-unit face sweep, kept only when perpendicular, clear of unrelated nodes/containers/headings/labels, free of non-shared crossings, >=10 from parallel spans, and long enough for fillet trim + marker axial length + 8; ports of non-rectangular nodes are the apexes and flat faces measured on the sampled drawn outline; equal-bend midpoint comparison (reported as a non-blocking minorFinding with drawn and witness anchor offsets, never a FAIL) against enumerated L/straight candidates or anchor-shifted copies of the drawn route; a declared shared-trunk member is searched with its target anchor pinned to the trunk entry so every witness still merges validly',
+    method:'actual SVG path reconstructed into logical bends (fillet = one bend); straight (0) and L (1) candidates, plus Z/U (2) candidates when the drawing has 3+ bends, over face midpoints, projected alignment points, drawn-anchor projections and a 4-unit face sweep, kept only when perpendicular, clear of unrelated nodes/containers/labels; group headings traversable; no positive-length group-border coincidence, free of non-shared crossings, >=10 from parallel spans, and long enough for fillet trim + marker axial length + 8; ports of non-rectangular nodes are the apexes and flat faces measured on the sampled drawn outline; equal-bend midpoint comparison (reported as a non-blocking minorFinding with drawn and witness anchor offsets, never a FAIL) against enumerated L/straight candidates or anchor-shifted copies of the drawn route; a declared shared-trunk member uses bounded upstream joins that preserve its complete approved shared suffix',
     relations,violations,minorFindings:minors,notCheckable,
     checkedRelations:relations.filter(r=>r.status!=='NOT-CHECKABLE').length,
-    limitations:'supported node silhouettes: rectangle (incl. rounded), diamond, long-text decision hexagon, cylinder/store, queue, subroutine, capsule/stadium, circle/ellipse (convex outline with a centred apex or flat face per side); any other shape is NOT-CHECKABLE for its relationships; Z/U channels are a finite candidate set; drawings with 4+ bends can fail on a 0-2 bend witness but never PASS (3-bend candidates are not searched); a trunk member is judged with its trunk entry fixed, so a better route that moves the entry is not proposed; equal-bend midpoint for 2+ bends shifts the drawn route anchors only; declared port order, badge exclusions and other relationship-specific constraints are not read; uncertain obstacles block witnesses but never support a PASS'
+    limitations:'supported node silhouettes: rectangle (incl. rounded), diamond, long-text decision hexagon, cylinder/store, queue, subroutine, capsule/stadium, circle/ellipse (convex outline with a centred apex or flat face per side); any other shape is NOT-CHECKABLE for its relationships; Z/U channels are a finite candidate set; drawings with 4+ bends can fail on a 0-2 bend witness but never PASS (3-bend candidates are not searched); a trunk member uses a finite prefix/join candidate set while retaining its complete approved suffix; uncertain prefix alternatives stay NOT-CHECKABLE; equal-bend midpoint for 2+ bends shifts the drawn route anchors only; declared port order, badge exclusions and other relationship-specific constraints are not read; uncertain obstacles block witnesses but never support a PASS'
   }};
 }
 

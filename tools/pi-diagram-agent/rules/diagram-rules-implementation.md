@@ -27,14 +27,18 @@ Put deterministic geometry in scripts, not in an AI-only workflow:
 
 - assign ordered source and target ports;
 - allocate orthogonal routing tracks;
-- when relationships share a visual trunk or rail, keep every relationship as its own complete source-to-target SVG path; make common segments geometrically overlap rather than replacing them with a separate decorative connector;
+- when relationships share a visual trunk or rail, keep every relationship as its own complete source-to-target SVG path; declare a `data-shared-trunk` family with compatible style, join as early as useful without premerge crossings, and overlap one continuous downstream suffix, possibly with bends, without split/rejoin; compare route alternatives as a whole family preserving the suffix;
 - minimize crossings before minimizing length;
 - avoid unrelated nodes and keep endpoints perpendicular to box faces;
 - render every logical 90-degree connector bend with one uniform `r=5` corner radius; preserve straight T-junctions and shared trunks;
 - make arrowheads follow the final segment and place the tip exactly on the target edge: never leave a visible gap and never let the marker intrude into the target; use one uniform marker size across the diagram;
 - enforce at least 10 SVG units of centerline separation for every pair of distinct parallel straight spans with positive projected overlap after fillet trimming, unless an explicit shared bus/junction topology is declared;
 - enforce line width, marker size, corner treatment, and contrast;
-- detect segment intersections after generation.
+- detect visible geometric crossing locations once, deduplicating shared logical paths and excluding valid merge joins;
+- forbid positive-length riding on any group border, including endpoint ancestors, while allowing transverse crossings; group headings are not route obstacles;
+- reject sibling-group overlap; only explicit nesting permits containment;
+- use BOX_RULES_PROFILE label-box tiers and grid growth; neutral sizeFamily/sizeTier/layer tags are declarations, not geometric proof; render declared coordinates without auto resizing or routing;
+- audit effective label size in the externally declared fit/native presentation (default fit 1200×710, minimum 12 px).
 
 An intersection is a failure unless it is a shared endpoint or an explicitly documented shared route. The generated SVG must not retain conflicting default and replacement marker or stroke rules.
 
@@ -45,7 +49,7 @@ Keep connector routing orthogonal: corner smoothing is a fillet on a right-angle
 Use AI for decisions a geometry script cannot establish reliably:
 
 - whether a Diagram Rule applies to this diagram genre;
-- whether multiple paths represent the same handoff and may visually share a final trunk;
+- whether incoming paths are semantically related enough to declare one continuous downstream trunk suffix (equal targets alone are insufficient);
 - whether the task is faithful reproduction or has permission for structural redesign;
 - diagnosing exceptions and performing final render-and-look review.
 

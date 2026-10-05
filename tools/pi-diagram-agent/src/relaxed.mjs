@@ -4,7 +4,7 @@
 export const gateModeFromEnv=(env=process.env)=>String(env.PI_DIAGRAM_GATE??'').trim().toLowerCase()==='strict'?'strict':'relaxed';
 
 /** Audit checks whose FAIL always blocks: what the diagram says (bindings, identity, relations, groups, shapes), a missing or invisible arrowhead, and a label covering another route. */
-export const BLOCKING_AUDIT_RULES=['svgWellFormed','nodeIdentity','nodeText','nodeShape','relations','relationStyle','groups','groupMembership','originalGroupParity','semanticPreservation','sourceDefinitionConflicts','markerDrawing','labelCoversRoute'];
+export const BLOCKING_AUDIT_RULES=['svgWellFormed','nodeIdentity','nodeText','nodeShape','relations','relationStyle','groups','groupMembership','originalGroupParity','semanticPreservation','sourceDefinitionConflicts','markerDrawing','labelCoversRoute','arrowEndStartClearance'];
 /** Audit checks that block only for the part of their evidence that is a real defect (see PARTIAL below); the rest of that evidence becomes advice. */
 export const PARTIAL_AUDIT_RULES=['textFit','labelClearance','nodeHeadingClearance','routeHeadingClearance','routeNodeIntrusion'];
 /** Findings that are blocking as constructed (not audit checks): structural failures, forbidden constructs, gate conditions, and label-ambiguous (decided where it is built: blocking only when the label sits on another route). */

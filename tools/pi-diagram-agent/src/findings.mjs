@@ -93,6 +93,7 @@ const SUGGESTIONS={
   routeNodeIntrusion:'Re-route the edge so it stays out of unrelated nodes and starts/ends on its own node outlines.',
   routeHeadingClearance:'Re-route the edge away from the group heading text (2-unit guard).',
   routeUnrelatedContainerTransit:'Re-route the edge so it does not cross a container that contains neither endpoint.',
+  arrowEndStartClearance:'Separate the incoming arrow end from every other connector start port and first shaft; move a port or reroute locally. Do not remove a relation or waive this overlap in dense diagrams.',
   markerDrawing:'Give the arrowhead marker a visible fill matching the edge stroke (no context-stroke).',
   routePairClearance:'Separate the listed parallel route spans to at least the required clearance. A declared shared trunk must carry one relation style (dash, width, colour), no edge label on or within 4 units of the shared run, and every member entering from the same side; otherwise give each connector its own port or route (no head-on T-junction between two sources).',
   routeCrossings:'Re-route so the listed edges do not cross; move a bend or port.',

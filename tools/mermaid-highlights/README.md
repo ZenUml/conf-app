@@ -64,3 +64,13 @@ node --test tools/mermaid-highlights/test/mermaid-highlights.test.mjs
 There are eight tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, and label preservation. Seven browser tests skip when Playwright module or Mermaid bundle paths are missing.
 
 Extracted from commit `bd78520a683e978f665219b8e0c87794c01328cf`, originally under `tools/pi-diagram-agent/`. Runtime environment variables and Symbol namespaces now belong to this independent tool. The generic runtime retains optional `sharedSections` support; the Mermaid adapter installs no shared sections. No static SVG exporter is required.
+
+## Viewer feedback Storybook prototype
+
+The throwaway `src/components/Viewer/MermaidHighlightFeedbackPrototype.vue` explores when and where to ask readers for feedback. Run `pnpm storybook` and open **Viewer / MermaidHighlightFeedbackPrototype**. The five stories start at interactive, visible question, liked, disliked/reason, and dismissed states. On the same story route, `?variant=footer`, `?variant=toolbar`, and `?variant=sidebar` compare inline footer feedback, a toolbar popover, and an adjacent card. The floating prototype tray switches variants and restarts the experience.
+
+The fixture is a synthetic eight-node order flow. The real standalone module drives highlighting. The question appears only after a continuous 700 ms hover or node/edge click or focus; the toolbar variant then offers a feedback button. The reserved footer keeps the canvas height stable. Dislike offers optional bounded reasons; dismissing feedback leaves highlighting enabled. The toolbar separately controls highlighting.
+
+All state and the small event log live in memory. Storybook aliases `trackAnalyticsEvent` to its noop stub, so there is no real telemetry or backend request. Planned events are registered in the app analytics catalog before the prototype; no production viewer imports this component. The dark tray shows prototype state and events separately from the product UI. These alternatives are for review, not a production implementation.
+
+Live Storybook review confirmed the initial hidden prompt, node click and keyboard reveal, like confirmation, optional dislike reason, dismissal with no inferred answer, independent highlight disable, and all three placements. The actual fixture rendered eight nodes and ten connectors. The 700 ms hover gate is present in code; isolated hover timing was not separately driven in that UI review. No prototype render error was observed.

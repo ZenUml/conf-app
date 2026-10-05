@@ -37,22 +37,48 @@ export interface CloseGuardHandler {
   (): void | Promise<void>;
 }
 
-export function setupCloseGuard(handler: CloseGuardHandler): () => void {
-  let active = true;
+// Forge documents one onClose callback, but does not promise that registering
+// another preserves the first. Keep one bridge callback for this iframe and
+// dispatch to every local subscriber (draft flush, cancellation telemetry,
+// etc.). Records are distinct even when callers pass the same function.
+const handlers = new Set<{ handler: CloseGuardHandler }>();
+let bridgeRegistration: 'idle' | 'pending' | 'registered' = 'idle';
 
-  const wrapped = async () => {
-    if (!active) return;
+function reportHandlerError(error: unknown): void {
+  console.error('[closeGuard] handler error:', error);
+}
+
+function dispatchClose(): Promise<void> {
+  const pending: Promise<void>[] = [];
+  // Start every active callback synchronously. A slow or failed callback must
+  // not prevent a later subscriber from flushing its own state before teardown.
+  for (const record of Array.from(handlers)) {
+    // An earlier callback may have unmounted a later subscriber during this
+    // dispatch. A newly registered subscriber is absent from the snapshot.
+    if (!handlers.has(record)) continue;
     try {
-      await handler();
-    } catch (e) {
-      console.error('[closeGuard] handler error:', e);
+      const result = record.handler();
+      if (result) pending.push(Promise.resolve(result).catch(reportHandlerError));
+    } catch (error) {
+      reportHandlerError(error);
     }
-  };
+  }
+  // Preserve the bridge callback's wait contract while isolating failures.
+  return Promise.all(pending).then(() => undefined);
+}
+
+function reportRegistrationFailure(error: unknown): void {
+  bridgeRegistration = 'idle';
+  trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
+  console.warn('[closeGuard] view.onClose rejected, ignoring:', error);
+}
+
+function registerBridgeCallback(): void {
+  if (bridgeRegistration !== 'idle') return;
 
   // view.onClose returns a Promise<void>; the handler stays registered for
-  // the lifetime of the view. There is no documented unregister API, so we
-  // gate the handler with `active` to make this teardown safe to call
-  // multiple times and from beforeUnmount.
+  // the lifetime of the view. There is no documented unregister API, so the
+  // single bridge hook survives periods with zero local subscribers.
   //
   // Defensive guard: if @forge/bridge is older than 5.16 (or running in a
   // non-Forge sandbox), `view.onClose` may be undefined. We swallow the
@@ -60,18 +86,29 @@ export function setupCloseGuard(handler: CloseGuardHandler): () => void {
   // saver — still completes. The localStorage draft is the safety net.
   try {
     if (typeof (view as any).onClose === 'function') {
-      void (view as any).onClose(wrapped).catch((e: unknown) => {
-        trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
-        console.warn('[closeGuard] view.onClose rejected, ignoring:', e);
-      });
+      bridgeRegistration = 'pending';
+      void Promise.resolve((view as any).onClose(dispatchClose)).then(
+        () => { bridgeRegistration = 'registered'; },
+        reportRegistrationFailure,
+      );
     } else {
       console.warn('[closeGuard] view.onClose unavailable — relying on per-keystroke draft only.');
     }
   } catch (e) {
+    bridgeRegistration = 'idle';
+    trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
     console.warn('[closeGuard] view.onClose threw, ignoring:', e);
   }
+}
+
+export function setupCloseGuard(handler: CloseGuardHandler): () => void {
+  const record = { handler };
+  handlers.add(record);
+  // A failed registration keeps all subscribers. A later explicit setup call
+  // retries once; no background retry loop can race the host's close.
+  registerBridgeCallback();
 
   return () => {
-    active = false;
+    handlers.delete(record);
   };
 }

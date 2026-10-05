@@ -1,3 +1,4 @@
+import { setEditJourneyMeta } from '@/utils/journeyTracking';
 import { Component } from 'vue';
 import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
@@ -271,6 +272,11 @@ export async function tryPageEditorPaywall(opts: {
     action_type: actionType,
     ...getUpgradeContext(),
   });
+
+  // Make this session identifiable on macro_authoring_ended. The editors
+  // disagree on whether they emit macro_create_started around the gate, so the
+  // terminal event is the one place every blocked session is visible.
+  setEditJourneyMeta({ paywallBlocked: true });
 
   await mountUnderPaywallGate({
     doc: opts.doc,

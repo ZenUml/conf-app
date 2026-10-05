@@ -1,5 +1,5 @@
 import * as htmlToImage from 'html-to-image';
-import { getDiagramFontEmbedCss } from '../utils/fonts/diagramFontEmbedCss';
+import { getDiagramFontState } from '../utils/fonts/diagramFontState';
 
 /**
  * DOM -> PNG Blob, without html-to-image's `toBlob()`.
@@ -129,6 +129,16 @@ function clampCanvas(canvas: HTMLCanvasElement): void {
   } else {
     canvas.width = Math.max(1, Math.round(width * (CANVAS_DIMENSION_LIMIT / height)));
     canvas.height = CANVAS_DIMENSION_LIMIT;
+  }
+}
+
+/** Core's data-URI Plex face, only when the hosted face loaded; never rejects. The core chunk is already cached by then. */
+async function getDiagramFontEmbedCss(): Promise<string | undefined> {
+  if (getDiagramFontState() !== 'plex') return undefined;
+  try {
+    return await (await import('@zenuml/core')).getDiagramFontFaceCss();
+  } catch {
+    return undefined;
   }
 }
 

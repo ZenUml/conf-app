@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Sequence from '@/components/Sequence.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { getDiagramFontState, _resetDiagramFontStateForTesting } from '@/utils/fonts/diagramFontState';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -30,15 +31,13 @@ const ZenUmlCtor = vi.hoisted(() =>
     vi.fn(function ZenUml() {
       return zenumlInstance;
     }),
-    { version: 'test' },
+    { version: 'test', setDiagramFontUrl: vi.fn() },
   ),
 );
 vi.mock('@zenuml/core', () => ({ default: ZenUmlCtor }));
 
-// Controllable font load: default resolves immediately; the ordering test
-// swaps in a deferred promise.
-const ensureFont = vi.hoisted(() => vi.fn());
-vi.mock('@/utils/fonts/ensureHostedDiagramFont', () => ({ ensureHostedDiagramFont: ensureFont }));
+vi.mock('@zenuml/core/fonts/IBMPlexSans-Regular-Latin1.woff2?url', () => ({ default: '/assets/plex.woff2' }));
+vi.mock('@zenuml/core/fonts/MS-Sans-Serif.ttf?url', () => ({ default: '/assets/mssans.ttf' }));
 
 const viewerLoadFailedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
@@ -48,7 +47,7 @@ describe('Sequence render-failure telemetry', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    ensureFont.mockReset().mockResolvedValue('plex');
+    _resetDiagramFontStateForTesting();
     zenumlInstance.render.mockReset().mockResolvedValue(undefined);
     store.state.diagram = {
       ...NULL_DIAGRAM,
@@ -95,21 +94,26 @@ describe('Sequence render-failure telemetry', () => {
     });
   });
 
-  // Core caches text widths on first measure and never clears them, so the
-  // hosted font must be settled before the first render() call.
-  it('awaits the hosted diagram font before the first zenuml.render()', async () => {
-    let release!: (v: 'plex') => void;
-    ensureFont.mockReturnValue(new Promise((r) => { release = r; }));
+  // Core awaits the font inside render(), but the URLs must be configured first.
+  it('configures both diagram font URLs before the first zenuml.render()', async () => {
+    const setUrl = vi.mocked(ZenUmlCtor.setDiagramFontUrl);
+    setUrl.mockClear();
+    zenumlInstance.render.mockImplementation(() => {
+      expect(setUrl).toHaveBeenCalledWith('/assets/plex.woff2');
+      expect(setUrl).toHaveBeenCalledWith('/assets/mssans.ttf', 'MS Sans Serif');
+      return Promise.resolve();
+    });
 
     mount(Sequence, { global: { plugins: [store] } });
 
-    await vi.waitFor(() => expect(ensureFont).toHaveBeenCalledTimes(1));
-    // Core chunk has long since resolved; render must still be held back.
-    await new Promise((r) => setTimeout(r, 50));
-    expect(zenumlInstance.render).not.toHaveBeenCalled();
-
-    release('plex');
     await vi.waitFor(() => expect(zenumlInstance.render).toHaveBeenCalledTimes(1));
+    expect(setUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it("records diagram font state from document.fonts after the render ('fallback' in jsdom)", async () => {
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(getDiagramFontState()).toBe('fallback'));
   });
 
   it('does not fire viewer_load_failed on a clean render', async () => {

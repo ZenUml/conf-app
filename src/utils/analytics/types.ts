@@ -47,6 +47,11 @@ import type {
   FeedbackHandoffOutcome,
   CreateGuideVariant,
   CreateGuideCloseMethod,
+  HighlightTargetType,
+  HighlightFeedback,
+  HighlightFeedbackReason,
+  HighlightFeedbackVariant,
+  HighlightDismissStage,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -277,6 +282,17 @@ export type AnalyticsProperties = {
   lines_removed?: number;
   cancel_reason?: "panel_closed" | "component_unmounted";
   close_reason?: "user_closed";
+  // Planned Mermaid highlight viewer feedback. All are bounded interaction
+  // fields only: never add source, node/edge IDs or text, diagram IDs, free
+  // text, or customer data. `highlight_target_type` is used by the once-per-
+  // viewer-session `mermaid_highlight_used` event; feedback fields are used
+  // only by their corresponding planned prompt events.
+  highlight_target_type?: HighlightTargetType;
+  highlight_feedback?: HighlightFeedback;
+  highlight_feedback_reason?: HighlightFeedbackReason;
+  highlight_feedback_variant?: HighlightFeedbackVariant;
+  highlight_dismiss_stage?: HighlightDismissStage;
+  highlight_enabled?: boolean;
   // Feedback
   feedback_score?: number;
   feedback_text?: string;

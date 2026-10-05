@@ -47,6 +47,25 @@ export type MacroTypeValue =
   | "plantuml"
   | "none";
 
+/** Target kind traced by the planned Mermaid highlight viewer interaction. */
+export type HighlightTargetType = "node" | "edge";
+
+/** Explicit answer to the planned Mermaid highlight feedback prompt. */
+export type HighlightFeedback = "like" | "dislike";
+
+/** Bounded follow-up reason shown after a Mermaid highlight dislike. */
+export type HighlightFeedbackReason =
+  | "unclear"
+  | "distracting"
+  | "not_useful"
+  | "other";
+
+/** Surface variant that displayed the Mermaid highlight feedback prompt. */
+export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar";
+
+/** Prompt step at which planned Mermaid highlight feedback was dismissed. */
+export type HighlightDismissStage = "question" | "reason";
+
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
   // ApWrapper2.isDisplayMode(). Builds before 2026-07-19 stamped the native
@@ -669,6 +688,24 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Planned ahead of the Mermaid highlighting Storybook prototype. These are
+  // registered before any producer exists so the prototype can review one
+  // stable contract. Every event uses feature_area=macro, surface=viewer,
+  // and macro_type=mermaid. Do not send
+  // source, node/edge IDs or text, diagram IDs, free text, or customer data.
+  // `used` fires once per viewer session after meaningful node/edge tracing,
+  // never for pointermove. `feedback_shown` fires only when the prompt is
+  // actually visible. `feedback_answered` is an explicit like/dislike click;
+  // `feedback_reason_selected` is an optional bounded reason after dislike.
+  // `feedback_dismissed` records a prompt close/skip and its optional stage;
+  // `preference_changed` records the explicit highlighter on/off choice and
+  // is separate from liking the interaction.
+  | "mermaid_highlight_used"
+  | "mermaid_highlight_feedback_shown"
+  | "mermaid_highlight_feedback_answered"
+  | "mermaid_highlight_feedback_reason_selected"
+  | "mermaid_highlight_feedback_dismissed"
+  | "mermaid_highlight_preference_changed"
   // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
   // instance; menu_opened fires on every closed -> open transition.
   | "copy_for_ai_impression"

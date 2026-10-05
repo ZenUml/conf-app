@@ -1322,8 +1322,9 @@ export type AgentLinkMacroKeySource = "cached" | "discovered";
 // 'no_macro_on_site' = the site has no ZenUML custom content to lift a key from,
 // so the variant and environment cannot be proven — the expected outcome on a
 // brand-new tenant, and a refusal rather than a guess by design.
-// 'no_extension_node' = custom content exists but no page ADF references it with
-// an extension node (orphaned content).
+// 'no_extension_node' = custom content exists but none of the sampled pages holds
+// a Forge macro node from that app — orphaned content, or pages carrying only
+// legacy Connect-format macros, which record no appId/environmentId.
 // 'app_id_mismatch' = the lifted extensionKey names an appId that is not the one
 // the custom-content type implies; the two disagreeing means something is wrong
 // with our assumptions, not with the page, so we refuse rather than pick one.

@@ -58,7 +58,7 @@ The adapter depends on Mermaid's flowchart database and rendered DOM structure; 
 With the three environment variables configured, run:
 
 ```sh
-node --test tools/mermaid-highlights/test/mermaid-highlights.test.mjs
+node --test tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs
 ```
 
 There are nine tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, and pan/zoom geometry. Eight browser tests skip when Playwright module or Mermaid bundle paths are missing.

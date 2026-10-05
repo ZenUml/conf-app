@@ -1,18 +1,11 @@
 ---
 name: release-app
 description: >
-  Release ZenUML Forge apps (lite, full, diagramly, and/or asyncapi) to production via the full CI/CD pipeline.
-  Reuses an existing fresh draft release when available (the common case after a recent merge),
-  composes delta-derived release notes (replacing the auto-draft placeholder), publishes it to
-  production, verifies with PVT, then runs a spot check — targeted coverage for what shipped this
-  iteration (not keyword→skill matching alone). Falls back to manually
-  triggering a fresh build only when no recent draft exists. Supports a read-only `preflight`
-  mode that reports exactly what an existing candidate would release without changing GitHub,
-  deploying, or running production validation.
-  Use when the user wants to release, deploy, ship, or push the lite, full, diagramly (or dia), or asyncapi (or async/api)
-  Forge app to production. Triggers on "release lite", "release full", "release diagramly", "release dia", "release asyncapi", "release async", "release api", "deploy to prod",
-  "ship forge app", "push to production", "release forge app", "release app", "release-app preflight", or any request to
-  promote staging builds to production for the conf-app project.
+  Release named ZenUML Forge variants (lite, full, diagramly/dia, asyncapi/async/api) to production via CI/CD.
+  Reuse fresh drafts, compose delta-derived notes, enforce variant gates, publish, verify with PVT,
+  and run focused spot checks. Supports read-only `preflight` previews of exact candidates, deltas,
+  notes, gates, and planned checks. Use when the user asks to release, deploy, ship, or promote
+  staging for a named variant, or asks for `release-app preflight`.
 ---
 
 # Release Forge App to Production
@@ -28,7 +21,10 @@ means `asyncapi`. Normalize aliases to their canonical variant names before
 selecting drafts, checking prerequisites, composing notes, or publishing.
 
 - **If no variant is specified, STOP and ASK which variant(s) to release. Do NOT release anything by default.** There is no "release all" default — an unscoped invocation is a question to the user, never a command to ship.
+- If a requested variant is unknown or is not one of the supported canonical names or aliases, STOP and ASK which supported variant(s) to release; never infer a variant.
 - The user must name one or more variants. Release **only** the named variant(s) — never a variant the user didn't name. `/release-app lite` releases lite and nothing else; do **not** continue to full (or any other tier) afterward. An explicit variant is not authorization for adjacent tiers.
+- A direct user command naming variant(s) to release (for example, `release dia` or `/release-app lite`) authorizes the normal release workflow for exactly those variant(s), including dispatching a fresh build when no usable draft exists. Do not ask for a second confirmation. Before publishing, still show the exact app/variant, draft tag/version, pinned commit SHA, previous published tag, and delta-derived release content; after showing it, continue without waiting for a reply. This authorization never bypasses prerequisite gates or validation.
+- A `preflight`, status, or "what would ship" request does not authorize release mutations. Preflight remains read-only.
 - `asyncapi` has **no canary ordering or timing constraint** — it can be released at any time, independently of the other three (see "Variants & gates").
 - `preflight` is a read-only mode, not a release. `/release-app preflight full` answers: "If we published today, exactly what would Full release to production?" It must name at least one variant and analyzes only the named variant(s).
 
@@ -173,8 +169,11 @@ gh workflow run build-test-deploy.yml --repo ZenUml/conf-app --ref main
 ```
 
 This dispatch starts the normal build, staging deploy, E2E, and draft-release
-jobs without changing `main`. Show the user that a fresh build is needed and
-obtain explicit confirmation before dispatching it, then proceed to 1.3.
+jobs without changing `main`. For a direct release command naming this variant,
+the request already authorizes this normal build step: report that a fresh build
+is needed and dispatch it without asking for another confirmation, then proceed
+to 1.3. If the user did not directly request a release (for example, they
+requested preflight), do not dispatch.
 
 #### 1.3 Wait for the build workflow (release mode)
 
@@ -250,12 +249,27 @@ E2E: <the provenance line the draft was created with, verbatim>
 
 If 2.2 shows **no product commits** since the previous published tag (e.g. a re-trigger), say so (`- Maintenance release; no user-facing changes.`) rather than leaving the placeholder.
 
-In normal release mode, set the notes on the still-draft release, then show them to the user as
-part of the publish confirmation (always confirm before publishing):
+In normal release mode, set the notes on the still-draft release:
 
 ```bash
 gh release edit <new-draft-tag> --repo ZenUml/conf-app --notes-file release-notes-{variant}.md
 ```
+
+After setting the notes and before publishing, show the complete pre-publish
+payload to the user:
+
+- **App/variant:** the exact canonical app and variant being published
+- **Draft tag/version:** the exact tag and version
+- **Target commit:** the full pinned commit SHA
+- **Previous published tag:** the exact delta starting point
+- **Gate result:** the exact prerequisite-script `OK` result
+- **Release content:** the complete delta-derived notes body, including its `E2E:` provenance line
+
+This payload listing is required; do not omit it. A direct release command for
+the named variant already authorizes publishing, so after showing the payload
+continue to Step 2.4 without waiting for a confirmation. If no direct release
+command authorized the mutation, stop before publishing and obtain explicit
+authorization. Preflight never reaches this mutation.
 
 #### 2.4 Publish, then start the spot check as soon as the deploy job is green
 
@@ -437,5 +451,5 @@ Summarize each released variant:
 - The build workflow supports `workflow_dispatch`; use it on `main` only when no usable draft exists.
 - Draft releases are only created on `main` (not on PRs or other branches).
 - lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped, so the manual PVT in 2.5 is its only production check; the e2e account has had access since 2026-08-21).
-- Always confirm with the user before manually dispatching a fresh build or publishing releases.
+- A direct user command naming variant(s) authorizes the normal release workflow for exactly those variants, including a fresh-build dispatch when no usable draft exists; do not ask for a second confirmation. Before each publish, always show the exact app/variant, draft tag/version, pinned commit SHA, previous published tag, gate result, and complete delta-derived release content, then continue without waiting for a reply. Preflight, status, and unscoped requests do not authorize release mutations, and unknown variants require asking.
 - All order/timing rules live in **"Variants & gates"** — the canary order (diagramly → lite → full), the lite-needs-diagramly prerequisite, and the full ≥ 1-week soak. Don't restate them; reference that section.

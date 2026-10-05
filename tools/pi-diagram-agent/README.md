@@ -10,6 +10,31 @@ node tools/pi-diagram-agent/kit/export-interactive.mjs /absolute/diagram.svg /ab
 
 This uses the same configured Playwright/Chromium runtime as rendering. The HTML can be viewed offline; PNG exports remain static images.
 
+The same browser runtime can attach directly to a mounted Mermaid **flowchart** SVG, including curves, parallel edges and HTML labels. `src/mermaid-highlights.mjs` is browser safe and uses Mermaid's database IDs to bind endpoints, without splitting IDs on underscores or hyphens. Snapshot the database within the same serialized render operation, before a later render changes shared Mermaid state:
+
+```js
+import {readMermaidFlowchartModel, attachMermaidHighlights} from './src/mermaid-highlights.mjs';
+
+const diagram = await mermaid.mermaidAPI.getDiagramFromText(source);
+const model = readMermaidFlowchartModel(diagram);
+const result = await mermaid.render(renderId, source);
+host.innerHTML = result.svg;
+result.bindFunctions?.(host);
+const highlight = attachMermaidHighlights(host.querySelector('svg'), model);
+// Before replacing or removing this render:
+highlight.destroy();
+```
+
+Repeated attachment cleans up the previous handlers; `reset()` clears selection and `destroy()` restores the original SVG attributes. Existing node and edge click callbacks remain active. Other Mermaid diagram types and edges to subgraph containers are explicitly unsupported by this adapter. The agent SVG validator remains unchanged and still rejects `foreignObject`.
+
+For an offline preview made from the local Mermaid renderer's actual output:
+
+```sh
+node tools/pi-diagram-agent/kit/export-mermaid-interactive.mjs /absolute/source.mmd /absolute/mermaid-interactive.html
+```
+
+This requires `PI_DIAGRAM_MERMAID_BUNDLE` as well as the rendering runtime. The saved HTML contains the rendered SVG and highlight code, and makes no further Mermaid render or network request when opened.
+
 This local prototype has one product entry point: the Pi `/magic` command. It starts a **real model turn**. Pi receives the complete pinned Diagram Rules and exact original Mermaid bytes, creates a diagram-specific native SVG, inspects the original and candidate images, and revises the candidate. It does not call a fixed layout pipeline to choose the design. The earlier deterministic experiment remains in the separate prototype repository history for research, not as a supported conversion fallback.
 
 Load the extension with the Pi 1.0.0 runtime (RPC clients finish a run on `agent_settled`, not `agent_end`):

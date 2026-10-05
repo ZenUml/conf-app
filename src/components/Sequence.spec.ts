@@ -35,6 +35,11 @@ const ZenUmlCtor = vi.hoisted(() =>
 );
 vi.mock('@zenuml/core', () => ({ default: ZenUmlCtor }));
 
+// Controllable font load: default resolves immediately; the ordering test
+// swaps in a deferred promise.
+const ensureFont = vi.hoisted(() => vi.fn());
+vi.mock('@/utils/fonts/ensureHostedDiagramFont', () => ({ ensureHostedDiagramFont: ensureFont }));
+
 const viewerLoadFailedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
 
@@ -43,6 +48,7 @@ describe('Sequence render-failure telemetry', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    ensureFont.mockReset().mockResolvedValue('plex');
     zenumlInstance.render.mockReset().mockResolvedValue(undefined);
     store.state.diagram = {
       ...NULL_DIAGRAM,
@@ -87,6 +93,23 @@ describe('Sequence render-failure telemetry', () => {
       failure_stage: 'render_crash',
       failure_reason: 're-render boom',
     });
+  });
+
+  // Core caches text widths on first measure and never clears them, so the
+  // hosted font must be settled before the first render() call.
+  it('awaits the hosted diagram font before the first zenuml.render()', async () => {
+    let release!: (v: 'plex') => void;
+    ensureFont.mockReturnValue(new Promise((r) => { release = r; }));
+
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(ensureFont).toHaveBeenCalledTimes(1));
+    // Core chunk has long since resolved; render must still be held back.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(zenumlInstance.render).not.toHaveBeenCalled();
+
+    release('plex');
+    await vi.waitFor(() => expect(zenumlInstance.render).toHaveBeenCalledTimes(1));
   });
 
   it('does not fire viewer_load_failed on a clean render', async () => {

@@ -662,7 +662,7 @@ jobs:
       # evidence while retaining the existing main/release insert budget.
       timeout-minutes: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
       artifact-suffix: lite-stg
-      timing-job-prefix: E2E: Lite
+      timing-job-prefix: "E2E: Lite"
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
@@ -704,7 +704,7 @@ jobs:
       # the auth.setup dependency test and reads one higher per shard.
       timeout-minutes: 12
       artifact-suffix: lite-stg-graph-publish
-      timing-job-prefix: E2E: Lite DrawIO Publish
+      timing-job-prefix: "E2E: Lite DrawIO Publish"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -731,7 +731,7 @@ jobs:
       # Empty on main and on an unselective PR run (whole suite).
       grep: ${{ needs.select.outputs.grep }}
       artifact-suffix: lite-stg-render
-      timing-job-prefix: E2E: Lite render
+      timing-job-prefix: "E2E: Lite render"
       # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
       # creates any fixture missing from config/render-fixtures.json, and
       # running it on multiple shards at once would race them into creating
@@ -790,7 +790,7 @@ jobs:
       shard-matrix: '[1, 2, 3, 4]'
       timeout-minutes: 11
       artifact-suffix: full-stg
-      timing-job-prefix: E2E: Full
+      timing-job-prefix: "E2E: Full"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -809,7 +809,7 @@ jobs:
       shard-matrix: '[1, 2, 3, 4]'
       timeout-minutes: 11
       artifact-suffix: full-stg
-      timing-job-prefix: E2E: Full (now)
+      timing-job-prefix: "E2E: Full (now)"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -873,7 +873,7 @@ jobs:
       # every shard busy, same critical path.
       shard-matrix: '[1, 2, 3]'
       artifact-suffix: asyncapi-stg
-      timing-job-prefix: E2E: AsyncAPI
+      timing-job-prefix: "E2E: AsyncAPI"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -906,7 +906,7 @@ jobs:
       shard-matrix: '[1, 2, 3, 4]'
       timeout-minutes: 11
       artifact-suffix: diagramly-stg
-      timing-job-prefix: E2E: Diagramly
+      timing-job-prefix: "E2E: Diagramly"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}

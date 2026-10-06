@@ -14,7 +14,7 @@ describe('independent legacy ID floor', () => {
   it('unions concrete IDs, keeps smoke, and fingerprints the measured counts', () => {
     const plan = scopedPlan(options);
     expect(plan.tests.map(t => t.id).sort()).toEqual(['floor', 'jev', 'smoke']);
-    expect(plan.selection_metrics).toMatchObject({ full_count: 4, legacy_count: 2, jev_count: 2, final_count: 3, smoke_count: 1, missing_floor_ids: [], retained_from_legacy_ids: ['floor'], added_to_legacy_ids: ['jev'] });
+    expect(plan.selection_metrics).toMatchObject({ deterministic_behavior_selectors: ['@smoke', '@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid'], jev_behavior_selectors: ['@test:sequence'], full_count: 4, legacy_count: 2, jev_count: 2, final_count: 3, final_test_ids: ['smoke', 'floor', 'jev'], smoke_count: 1, missing_floor_ids: [], retained_from_legacy_ids: ['floor'], added_to_legacy_ids: ['jev'] });
     expect(plan.dependencies).toEqual(['auth']);
     expect(plan.shards.flatMap(s => s.test_ids).sort()).toEqual(['floor', 'jev', 'smoke']);
   });

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {createRequire} from 'node:module';
-import {readMermaidFlowchartModel, attachMermaidHighlights} from '../src/mermaid-highlights.mjs';
+import {readMermaidFlowchartModel, attachMermaidHighlights, attachPreparedSvgHighlights, requireMountedFlowchart, installValidatedBindings} from '../src/mermaid-highlights.mjs';
 import {installInteractiveSvg, INTERACTIVE_SVG_STYLE} from '../src/interactive-runtime.mjs';
 import {exportMermaidInteractive} from '../src/mermaid-interactive-export.mjs';
 
@@ -18,7 +18,7 @@ async function setup(browser,source=SOURCE,options={}){
   const page=await browser.newPage({viewport:{width:1100,height:800},...options}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.setContent('<!doctype html><div id="diagram"></div><p id="status">Initial status</p>');
   await page.addScriptTag({content:fs.readFileSync(process.env.MERMAID_HIGHLIGHTS_MERMAID_BUNDLE,'utf8')});
-  await page.addScriptTag({content:`const INTERACTIVE_SVG_STYLE=${JSON.stringify(INTERACTIVE_SVG_STYLE)};const installInteractiveSvg=(${installInteractiveSvg.toString()});const readMermaidFlowchartModel=(${readMermaidFlowchartModel.toString()});const attachMermaidHighlights=(${attachMermaidHighlights.toString()});`});
+  await page.addScriptTag({content:`const INTERACTIVE_SVG_STYLE=${JSON.stringify(INTERACTIVE_SVG_STYLE)};const installInteractiveSvg=(${installInteractiveSvg.toString()});const readMermaidFlowchartModel=(${readMermaidFlowchartModel.toString()});const requireMountedFlowchart=(${requireMountedFlowchart.toString()});const installValidatedBindings=(${installValidatedBindings.toString()});const attachMermaidHighlights=(${attachMermaidHighlights.toString()});const attachPreparedSvgHighlights=(${attachPreparedSvgHighlights.toString()});`});
   await page.evaluate(async source=>{
     mermaid.initialize({startOnLoad:false,theme:'neutral',securityLevel:'strict'});
     const parsed=await mermaid.mermaidAPI.getDiagramFromText(source);window.model=readMermaidFlowchartModel(parsed);
@@ -72,6 +72,40 @@ test('a source group endpoint binds to its actual Mermaid cluster and traces bot
   await page.mouse.click(border.x,border.y);
   assert.equal((await state(page)).kind,'group');
   assert.match(await page.locator('g.cluster[data-group="G"]').getAttribute('aria-label'),/^Trace group /);
+  assert.deepEqual(errors,[]);
+}));
+
+test('prepared SVG binds every source node, group and directed connector before enabling hover', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,GROUP_SOURCE);
+  await page.evaluate(()=>{
+    window.control.destroy();
+    document.getElementById('diagram').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220">
+      <g data-group="G"><rect x="180" y="30" width="120" height="150" fill="none" stroke="black"/></g>
+      <g data-node="A"><rect x="20" y="80" width="80" height="40"/><text x="30" y="105">Start</text></g>
+      <g data-node="B"><rect x="200" y="80" width="80" height="40"/><text x="210" y="105">Inside</text></g>
+      <g data-node="C"><rect x="380" y="80" width="80" height="40"/><text x="390" y="105">End</text></g>
+      <path data-edge="prepared-1" data-source="A" data-target="G" d="M100 100L180 100" stroke="black"/>
+      <path data-edge="prepared-2" data-source="G" data-target="C" d="M300 100L380 100" stroke="black"/>
+    </svg>`;
+    window.prepared=document.querySelector('svg');
+    window.control=attachPreparedSvgHighlights(window.prepared,window.model);
+  });
+  assert.equal(await page.evaluate(()=>window.control.nodeCount),4);
+  assert.equal(await page.evaluate(()=>window.prepared.querySelectorAll('.edge-hit').length),2);
+  await page.locator('#diagram .node-hit[data-hit-group="G"]').dispatchEvent('click');
+  assert.deepEqual(await page.evaluate(()=>[...window.prepared.querySelectorAll('path[data-edge].is-active')].map(e=>e.dataset.edge).sort()),['prepared-1','prepared-2']);
+  await page.evaluate(()=>window.control.destroy());
+  const result=await page.evaluate(()=>{
+    const svg=window.prepared, failures=[];
+    const expectFailure=(change,restore)=>{change();const before=svg.outerHTML;try{attachPreparedSvgHighlights(svg,window.model);failures.push('false pass')}catch(e){failures.push(e.message)}if(svg.outerHTML!==before)failures.push('mutation');restore()};
+    const a=svg.querySelector('g[data-node="A"]'),edge=svg.querySelector('path[data-edge="prepared-1"]'),group=svg.querySelector('g[data-group="G"]');
+    expectFailure(()=>a.dataset.node='B',()=>a.dataset.node='A');
+    expectFailure(()=>edge.dataset.target='C',()=>edge.dataset.target='G');
+    expectFailure(()=>edge.removeAttribute('data-source'),()=>edge.dataset.source='A');
+    expectFailure(()=>group.removeAttribute('data-group'),()=>group.dataset.group='G');
+    return failures;
+  });
+  assert.equal(result.length,4);for(const failure of result)assert.match(failure,/MAGIC_HIGHLIGHTS_/);
   assert.deepEqual(errors,[]);
 }));
 

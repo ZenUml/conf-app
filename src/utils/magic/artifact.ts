@@ -34,6 +34,10 @@ const PRESENTATION = new Set([
   'stop-color', 'stop-opacity', 'marker-start', 'marker-mid', 'marker-end',
 ]);
 const LOCAL_URL = /^url\(#[A-Za-z_][\w.-]*\)$/;
+// These inert identifiers let the existing relationship highlighter bind a
+// prepared SVG to the independently parsed Mermaid source. All other producer
+// metadata is discarded. Never treat their mere presence as a valid binding.
+const SEMANTIC_DATA = new Set(['data-node', 'data-node-id', 'data-group', 'data-edge', 'data-edge-id', 'data-source', 'data-target']);
 
 function safeValue(value: string): boolean {
   return !/[<>;{}\\]/.test(value)
@@ -116,7 +120,20 @@ export function sanitizeMagicSvg(markup: string): string | null {
       // createElementNS + XMLSerializer emits this automatically; copying the
       // declaration would produce a duplicate xmlns and invalid XML.
       if (name === 'xmlns') continue;
-      if (name.startsWith('data-')) continue;
+      if (name.startsWith('data-')) {
+        if (!SEMANTIC_DATA.has(name)) continue;
+        // Older Pi output uses empty data-group on ungrouped nodes. That is a
+        // harmless absence, not a group binding; do not retain it.
+        if (name === 'data-group' && !value) continue;
+        if (!value || value.length > 256 || /[\x00-\x1f\x7f]/.test(value)) {
+          unsafe = true;
+          continue;
+        }
+        const canonical = name === 'data-node-id' ? 'data-node' : name === 'data-edge-id' ? 'data-edge' : name;
+        if (copy.hasAttribute(canonical)) { unsafe = true; continue; }
+        copy.setAttribute(canonical, value);
+        continue;
+      }
       if (name === 'style') {
         inlineStyle = value;
         continue;

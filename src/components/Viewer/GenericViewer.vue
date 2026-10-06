@@ -518,6 +518,9 @@ import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
 import { validateMagicArtifact } from '@/utils/magic/artifact'
 import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
+import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
+import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
+import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -542,7 +545,13 @@ export default {
   // in place (e.g. the AsyncAPI embed macro) suppress the Edit pencil entirely.
   // Editing the source happens at the origin; re-targeting which doc is
   // embedded is a page-editor (macro-config) operation.
-  props: ['wide', 'hideHeader', 'hideEdit'],
+  props: {
+    wide: Boolean,
+    hideHeader: Boolean,
+    hideEdit: Boolean,
+    relationshipHighlights: { type: Boolean, default: false },
+  },
+  emits: ['capture-mode-change', 'magic-highlight-ready', 'magic-highlight-used'],
   data: () => ({
     canUserEdit: true,
     isHovering: false,
@@ -582,6 +591,8 @@ export default {
     retryOutcomeEmitted: false,
     magicActive: false,
     magicSvg: null,
+    magicHighlightController: null,
+    magicHighlightCleanup: null,
     magicPending: false,
     magicGeneration: 0,
     magicStartedAt: null,
@@ -938,7 +949,15 @@ export default {
   watch: {
     showExportModal: {
       flush: 'sync',
-      handler(active) { this.$emit('capture-mode-change', active); },
+      handler(active) {
+        this.$emit('capture-mode-change', active);
+        if (active) this.clearMagicHighlights();
+        else if (this.magicActive) this.$nextTick(this.installMagicHighlights);
+      },
+    },
+    relationshipHighlights() {
+      this.clearMagicHighlights();
+      if (this.magicActive) this.$nextTick(this.installMagicHighlights);
     },
     showCreateGuide: {
       immediate: true,
@@ -1202,6 +1221,7 @@ export default {
     }
   },
   beforeUnmount() {
+    this.clearMagicHighlights();
     this.magicGeneration++;
     document.removeEventListener('keydown', this.onEscapeKeydown, true);
     EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
@@ -1335,6 +1355,7 @@ export default {
       });
     },
     resetMagic(preserveAvailable = false) {
+      this.clearMagicHighlights();
       const wasAvailable = this.magicAvailable;
       if (this.magicPending && this.magicStartedAt != null) {
         this.magicEvent('magic_view_failed', {
@@ -1397,6 +1418,8 @@ export default {
         if (!this.$refs.magicViewport?.$el?.querySelector('svg')) throw new Error('Magic SVG did not render');
         await this.$refs.magicViewport.attach();
         if (generation === this.magicGeneration) {
+          await this.installMagicHighlights();
+          if (generation !== this.magicGeneration) return;
           if (activation === 'manual') this.persistMagicChoice('magic', artifact.sourceHash);
           this.magicEvent('magic_view_succeeded', { magic_activation: activation, duration_ms: Math.round(performance.now() - started) });
           await this.loadMagicFeedback(artifact, source);
@@ -1413,6 +1436,59 @@ export default {
           this.magicPending = false;
           this.magicStartedAt = null;
         }
+      }
+    },
+    clearMagicHighlights() {
+      this.magicHighlightCleanup?.();
+      this.magicHighlightCleanup = null;
+      this.magicHighlightController?.destroy();
+      this.magicHighlightController = null;
+      this.$emit('magic-highlight-ready', false);
+    },
+    async installMagicHighlights() {
+      if (!this.magicActive || !this.relationshipHighlights || this.showExportModal
+        || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+      const generation = this.magicGeneration;
+      const source = this.diagram?.mermaidCode ?? '';
+      const artifact = this.diagram?.magic;
+      try {
+        const model = await parseMermaidFlowchart(normalizeMermaidWhitespace(source));
+        if (generation !== this.magicGeneration || !this.magicActive || !this.relationshipHighlights
+          || this.showExportModal || this.diagram?.mermaidCode !== source || this.diagram?.magic !== artifact) return;
+        const svg = this.$refs.magicViewport?.$el?.querySelector('svg');
+        if (!svg) return;
+        this.clearMagicHighlights();
+        this.magicHighlightController = attachPreparedSvgHighlights(svg, model);
+        let used = false, timer = null, hovered = null;
+        const target = event => {
+          const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
+          if (!el || !svg.contains(el)) return null;
+          return { el, kind: el.hasAttribute('data-hit-group') || el.hasAttribute('data-group')
+            ? 'group' : el.hasAttribute('data-hit-node') || el.hasAttribute('data-node') ? 'node' : 'edge' };
+        };
+        const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
+        const report = item => {
+          if (!item || used || generation !== this.magicGeneration) return;
+          used = true; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
+        };
+        const over = event => {
+          const item = target(event);
+          if (!item || used || hovered === item.el) return;
+          cancel(); hovered = item.el;
+          timer = setTimeout(() => report(item), 700);
+        };
+        const out = event => {
+          if (hovered && hovered.contains(event.target) && !hovered.contains(event.relatedTarget)) cancel();
+        };
+        const select = event => report(target(event));
+        const listeners = [['pointerover', over], ['pointerout', out], ['pointerleave', cancel], ['click', select], ['focusin', select]];
+        for (const [name, handler] of listeners) svg.addEventListener(name, handler);
+        this.magicHighlightCleanup = () => { cancel(); for (const [name, handler] of listeners) svg.removeEventListener(name, handler); };
+        this.$emit('magic-highlight-ready', true);
+      } catch {
+        // A drawing without a complete source binding remains readable, with
+        // the optional relationship overlay unavailable.
+        this.clearMagicHighlights();
       }
     },
     async loadMagicFeedback(artifact, source) {

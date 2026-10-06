@@ -1,5 +1,6 @@
 <template>
-  <GenericViewer :wide="wide" :hide-header="hideHeader" @capture-mode-change="onCaptureModeChange">
+  <GenericViewer :wide="wide" :hide-header="hideHeader" :relationship-highlights="enabled"
+    @capture-mode-change="onCaptureModeChange" @magic-highlight-ready="onReady($event)" @magic-highlight-used="onUsed">
     <template #viewer-actions>
       <button v-if="ready || supported" class="highlight-toggle" aria-label="Relationship highlights" title="Highlight connected nodes and lines on hover or selection" :aria-pressed="enabled" @click="toggle"><span aria-hidden="true">◎</span><span class="highlight-label">Highlight</span><span class="toggle-dot" :class="{on:enabled}" /></button>
     </template>

@@ -19,11 +19,7 @@ export function readMermaidFlowchartModel(diagram) {
 /** Attach to Mermaid's existing SVG. No layout, path or source text is regenerated.
  * The model supplies endpoint identity; never split Mermaid IDs on '_' or '-'. */
 export function attachMermaidHighlights(svg, model, {status = null} = {}) {
-  if (!svg || svg.localName !== 'svg' || svg.namespaceURI !== 'http://www.w3.org/2000/svg' ||
-      !svg.isConnected) throw Error('MERMAID_HIGHLIGHTS_MOUNTED_SVG_REQUIRED');
-  if (!model || !/^flowchart(?:-|$)/.test(model.type || '') ||
-      !Array.isArray(model.nodes) || !Array.isArray(model.edges)) throw Error('MERMAID_HIGHLIGHTS_MODEL_REQUIRED');
-  const key = Symbol.for('mermaid-highlights.controller');
+  requireMountedFlowchart(svg, model);
   const drawnNodes = [...svg.querySelectorAll('g.node')].filter(n => n.id);
   const drawnGroups = [...svg.querySelectorAll('g.cluster')].filter(g => g.id);
   const drawnEdges = [...svg.querySelectorAll('path.flowchart-link')];
@@ -61,7 +57,75 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
   });
   if (new Set(nodeBindings.map(n=>n.element)).size!==nodeBindings.length ||
       new Set(edgeBindings.map(e=>e.element)).size!==edgeBindings.length) throw Error('MERMAID_HIGHLIGHTS_AMBIGUOUS_BINDING');
+  return installValidatedBindings(svg, nodeBindings, edgeBindings, status);
+}
+
+export function requireMountedFlowchart(svg, model) {
+  if (!svg || svg.localName !== 'svg' || svg.namespaceURI !== 'http://www.w3.org/2000/svg' ||
+      !svg.isConnected) throw Error('MERMAID_HIGHLIGHTS_MOUNTED_SVG_REQUIRED');
+  if (!model || !/^flowchart(?:-|$)/.test(model.type || '') ||
+      !Array.isArray(model.nodes) || !Array.isArray(model.edges) || !Array.isArray(model.groups)) {
+    throw Error('MERMAID_HIGHLIGHTS_MODEL_REQUIRED');
+  }
+}
+
+/** A prepared drawing has its own path IDs. Bind by independently parsed
+ * directed endpoint multiset, not by those producer-assigned IDs. Every drawn
+ * node, group and connector must match; partial semantic overlays are unsafe. */
+export function attachPreparedSvgHighlights(svg, model, {status = null} = {}) {
+  requireMountedFlowchart(svg, model);
+  const groupIds = new Set(), nodeIds = new Set(), edgeIds = new Set();
+  const groupBindings = model.groups.map(group => {
+    if (typeof group.id !== 'string' || !group.id || groupIds.has(group.id)) throw Error('MAGIC_HIGHLIGHTS_GROUP_ID_INVALID');
+    groupIds.add(group.id);
+    const matches = [...svg.querySelectorAll('g[data-group]')].filter(el => el.getAttribute('data-group') === group.id && el.getAttribute('data-node') === null);
+    if (matches.length !== 1) throw Error(`MAGIC_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:${group.id}`);
+    return {element:matches[0], id:group.id, kind:'group'};
+  });
+  const nodeBindings = model.nodes.filter(node => !groupIds.has(node.id)).map(node => {
+    if (typeof node.id !== 'string' || !node.id || nodeIds.has(node.id)) throw Error('MAGIC_HIGHLIGHTS_NODE_ID_INVALID');
+    nodeIds.add(node.id);
+    const matches = [...svg.querySelectorAll('g[data-node]')].filter(el => el.getAttribute('data-node') === node.id && !el.hasAttribute('data-group'));
+    if (matches.length !== 1) throw Error(`MAGIC_HIGHLIGHTS_NODE_BINDING_UNRESOLVED:${node.id}`);
+    return {element:matches[0], id:node.id, kind:'node'};
+  });
+  for (const group of groupBindings) {
+    if (nodeIds.has(group.id)) throw Error('MAGIC_HIGHLIGHTS_GROUP_ID_COLLISION');
+    nodeIds.add(group.id);
+  }
+  nodeBindings.push(...groupBindings);
+  const drawnNodes = [...svg.querySelectorAll('g[data-node]')];
+  const drawnGroups = [...svg.querySelectorAll('g[data-group]')];
+  if (drawnNodes.length !== nodeBindings.length - groupBindings.length || drawnGroups.length !== groupBindings.length) {
+    throw Error('MAGIC_HIGHLIGHTS_INCOMPLETE_DRAWING');
+  }
+  const drawnEdges = [...svg.querySelectorAll('path[data-edge],path[data-source],path[data-target]')];
+  if (drawnEdges.length !== model.edges.length) throw Error('MAGIC_HIGHLIGHTS_EDGE_COUNT_MISMATCH');
+  const expected = new Map();
+  for (const edge of model.edges) {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) throw Error('MAGIC_HIGHLIGHTS_SOURCE_ENDPOINT_INVALID');
+    const key = JSON.stringify([edge.source, edge.target]);
+    expected.set(key, (expected.get(key) || 0) + 1);
+  }
+  const edgeBindings = drawnEdges.map(element => {
+    const id = element.getAttribute('data-edge'), source = element.getAttribute('data-source'), target = element.getAttribute('data-target');
+    if (!id || !source || !target || edgeIds.has(id) || !nodeIds.has(source) || !nodeIds.has(target)) {
+      throw Error('MAGIC_HIGHLIGHTS_EDGE_BINDING_INVALID');
+    }
+    edgeIds.add(id);
+    const key = JSON.stringify([source, target]), remaining = expected.get(key) || 0;
+    if (!remaining) throw Error('MAGIC_HIGHLIGHTS_EDGE_ENDPOINT_MISMATCH');
+    expected.set(key, remaining - 1);
+    return {element, id, source, target};
+  });
+  if ([...expected.values()].some(count => count !== 0)) throw Error('MAGIC_HIGHLIGHTS_EDGE_ENDPOINT_MISMATCH');
+  if (new Set(nodeBindings.map(n => n.element)).size !== nodeBindings.length) throw Error('MAGIC_HIGHLIGHTS_AMBIGUOUS_BINDING');
+  return installValidatedBindings(svg, nodeBindings, edgeBindings, status);
+}
+
+export function installValidatedBindings(svg, nodeBindings, edgeBindings, status) {
   // Validate the complete binding before changing the displayed diagram.
+  const key = Symbol.for('mermaid-highlights.controller');
   svg[key]?.destroy();
   const changes = [];
   const set = (element, name, value) => {

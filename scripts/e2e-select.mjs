@@ -17,6 +17,13 @@ import { EXECUTION_IMPACT, IMPACT, NO_E2E_IMPACT, RUN_EVERYTHING } from '../test
 
 const EXECUTION_SELECTOR_TAGS = new Set(CATEGORIES.map(({ id }) => `@test:${id}`));
 
+const DIRECT_TEST_DEPENDENCIES = {
+  'tests/e2e-tests/helpers/agentLink.ts': [
+    'agent-link/agent-link-e2e.spec.ts',
+    'agent-link/agent-link-multi-page-crosstalk.spec.ts',
+  ],
+};
+
 export function globToRegExp(glob) {
   // Supports `**` (any depth, including none), `*` (within a segment) and
   // `{a,b}` alternation. Anchored to the whole path.
@@ -38,12 +45,26 @@ export function globToRegExp(glob) {
   return new RegExp('^' + re + '$');
 }
 
-/** @returns {{ mode: 'all'|'selected', tags: string[], grep: string, reasons: string[] }} */
+const directSpecPath = path => {
+  // PR staging runs named projects only. Root-level viewer-preview specs use
+  // the separate preview project, so they cannot be direct PR coverage.
+  const match = /^tests\/e2e-tests\/tests\/([^/]+\/.+\.(?:spec|test)\.[cm]?[jt]s)$/.exec(path);
+  return match?.[1] ?? null;
+};
+const directTestFilesFor = path => {
+  const spec = directSpecPath(path);
+  return spec ? [spec] : DIRECT_TEST_DEPENDENCIES[path] ?? [];
+};
+
+/** @returns {{ mode: 'all'|'selected', tags: string[], grep: string, reasons: string[], direct_test_files: string[] }} */
 export function select(files) {
   const reasons = [];
   const tags = new Set(['@smoke']);
+  const direct_test_files = new Set();
   let all = false;
   for (const file of files) {
+    const directFiles = directTestFilesFor(file);
+    if (directFiles.length) { directFiles.forEach(path => direct_test_files.add(path)); reasons.push(`${file}: direct test (${directFiles.join(', ')})`); continue; }
     const shared = RUN_EVERYTHING.find(g => globToRegExp(g).test(file));
     if (shared) { reasons.push(`${file}: runs everything (${shared})`); all = true; continue; }
     const none = NO_E2E_IMPACT.find(g => globToRegExp(g).test(file));
@@ -61,7 +82,9 @@ export function select(files) {
     const descriptiveHits = IMPACT.filter(({ glob }) => globToRegExp(glob).test(file));
     if (descriptiveHits.length > 0) {
       const t = [...new Set(descriptiveHits.flatMap(h => h.tags))];
-      reasons.push(`${file}: descriptive impact tags → runs everything (${t.join(' ')})`); all = true;
+      // Descriptive tags are context for Jev, not an execution filter. The
+      // model's category result can widen the smoke and direct-spec floor.
+      reasons.push(`${file}: Jev-classified behavior (${t.join(' ')})`);
       continue;
     }
     reasons.push(`${file}: unmapped → runs everything`); all = true;
@@ -69,8 +92,8 @@ export function select(files) {
   if (files.length === 0) { reasons.push('no changed files → runs everything'); all = true; }
   const sorted = [...tags].sort();
   return all
-    ? { mode: 'all', tags: [], grep: '', reasons }
-    : { mode: 'selected', tags: sorted, grep: sorted.join('|'), reasons };
+    ? { mode: 'all', tags: [], grep: '', reasons, direct_test_files: [] }
+    : { mode: 'selected', tags: sorted, grep: sorted.join('|'), reasons, direct_test_files: [...direct_test_files].sort() };
 }
 
 function changedFiles(base, head) {

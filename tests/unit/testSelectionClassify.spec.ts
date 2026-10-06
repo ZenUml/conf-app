@@ -18,6 +18,19 @@ describe('Jev conservative classification', () => {
   ])('fails closed for deterministic rules', async (d, key, full, reason) => { const r = await classify({ diff: d, apiKey: key, humanFull: full, fetchImpl: () => { throw new Error('must not call'); } }); expect(r.mode).toBe('all'); expect(r.fallback_reason).toBe(reason); });
   it.each([{}, { ...body(), answers: {} }, { ...body(), answers: Object.fromEntries(CATEGORIES.map(c => [c.id, { type: 'noul', noul: 2 }])) }])('rejects malformed or incomplete answers', async b => { expect((await classify({ diff, apiKey: 'fake', fetchImpl: response(b) })).fallback_reason).toBe('api-invalid-or-timeout'); });
   it('does not transmit likely customer or credential data', async () => { const r = await classify({ diff: { ...diff, diff: 'https://customer.atlassian.net/wiki' }, apiKey: 'fake', fetchImpl: () => { throw new Error('must not transmit'); } }); expect(r.fallback_reason).toBe('potential-sensitive-diff'); });
+  it('permits behavior-specific analytics and Agent Link helper diffs for classification', () => {
+    expect(pathRule('src/utils/analytics/catalog.ts')).toBeNull();
+    expect(pathRule('tests/e2e-tests/helpers/agentLink.ts')).toBeNull();
+  });
+  it('asks Jev to widen direct spec coverage from behavior evidence rather than filenames alone', async () => {
+    let payload: any;
+    await classify({ diff, apiKey: 'fake', mode: 'enabled', fetchImpl: async (_url: string, init: any) => {
+      payload = JSON.parse(init.body);
+      return new Response(JSON.stringify(body(0.9)), { status: 200 });
+    } });
+    expect(payload.state.instructions).toContain('Changed E2E specs are already selected directly');
+    expect(payload.state.instructions).toContain('Do not infer impact from a filename alone');
+  });
   it('handles API rejection and timeout', async () => { expect((await classify({ diff, apiKey: 'fake', fetchImpl: async () => new Response('', { status: 401 }) })).fallback_reason).toBe('api-http-error'); expect((await classify({ diff, apiKey: 'fake', fetchImpl: async () => { throw new Error('abort'); } })).mode).toBe('all'); });
   it('checks renamed old paths and deleted paths conservatively', async () => { const r = await classify({ diff: { ...diff, paths: ['src/model/old.ts', 'src/components/new.vue'], changes: [{ status: 'R100', path: 'src/components/new.vue', old_path: 'src/model/old.ts' }] }, apiKey: 'fake' }); expect(r.fallback_reason).toBe('shared-path'); expect(pathRule('src/model/deleted.ts')).toBe('shared-path'); });
 });

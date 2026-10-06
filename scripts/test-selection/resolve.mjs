@@ -2,7 +2,7 @@ import { readFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { select } from '../e2e-select.mjs';
 import { CATEGORIES, CATEGORY_VERSION } from '../../tests/e2e-tests/config/categories.mjs';
-import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
+import { CATEGORY_SELECTION_THRESHOLD, POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 
 export const categoryGrep = categories => categories.map(tag => `(?:^|\\s)${tag}(?=\\s|$)`).join('|');
@@ -13,13 +13,13 @@ export function decisionError({ selection, head, tree }) {
   const categories = selection.categories;
   if (!categories || typeof categories !== 'object' || Array.isArray(categories) || Object.keys(categories).length !== CATEGORIES.length || CATEGORIES.some(c => {
     const a = categories[c.id];
-    return !a || typeof a.probability !== 'number' || !Number.isFinite(a.probability) || a.probability < 0 || a.probability > 1 || a.selected !== (a.probability >= 0.1);
+    return !a || typeof a.probability !== 'number' || !Number.isFinite(a.probability) || a.probability < 0 || a.probability > 1 || a.selected !== (a.probability >= CATEGORY_SELECTION_THRESHOLD);
   })) return 'invalid-jev-categories';
   return null;
 }
 
 // Jev can add coverage, but cannot remove the established deterministic floor.
-// This policy does not claim that the 0.1 probability threshold is calibrated.
+// The high-confidence threshold is a precision policy, not a calibration claim.
 export function resolveSelection({ selection, files, head, tree, humanFull = false }) {
   const source_paths = Array.isArray(files) ? [...files] : [];
   const full = reason => ({ mode: 'all', tags: [], grep: '', reasons: [reason], source_paths, direct_test_files: [], policy_version: POLICY_VERSION });

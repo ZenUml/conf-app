@@ -6,7 +6,7 @@ import { CATEGORIES, CATEGORY_VERSION } from '../e2e-tests/config/categories.mjs
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../e2e-tests/config/impact-map.mjs';
 const head = 'a'.repeat(40), tree = 'b'.repeat(40);
 const selected = CATEGORIES[0].id;
-const selection = { schema_version: 1, head_sha: head, tested_tree: tree, policy_version: POLICY_VERSION, category_version: CATEGORY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, mode: 'selected', execution_mode: 'enabled', diff_complete: true, required: ['smoke'], request: { outcome: 'success' }, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: c.id === selected ? 0.4 : 0.02, selected: c.id === selected }])) };
+const selection = { schema_version: 1, head_sha: head, tested_tree: tree, policy_version: POLICY_VERSION, category_version: CATEGORY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, mode: 'selected', execution_mode: 'enabled', diff_complete: true, required: ['smoke'], request: { outcome: 'success' }, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: c.id === selected ? 0.9 : 0.02, selected: c.id === selected }])) };
 const input = { selection, files: ['src/components/Mermaid.vue'], head, tree };
 describe('guarded Jev execution resolver', () => {
   it('runs smoke, Jev decisions and only deterministic behavior selectors', () => {

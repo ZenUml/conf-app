@@ -2382,6 +2382,20 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
+    it('renders neither Copy for AI nor Connect MCP until the flag has resolved, so the slot never swaps', async () => {
+      let resolveFlag: (on: boolean) => void = () => {}
+      vi.mocked(isAgentLinkEnabled).mockImplementationOnce(() => new Promise((r) => { resolveFlag = r }))
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+
+      resolveFlag(true)
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+    })
+
     it('replaces Copy for AI with Connect MCP when the flag resolves true', async () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()

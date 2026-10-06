@@ -149,7 +149,7 @@
                 </svg>
                 <span class="viewer-btn-label">Connect MCP</span>
               </button>
-              <div v-else-if="showViewSource" class="copy-for-ai-split viewer-act-copy">
+              <div v-else-if="showViewSource && copyForAiSlotSettled" class="copy-for-ai-split viewer-act-copy">
                 <button
                   type="button"
                   class="viewer-btn-ghost copy-for-ai-split-primary"
@@ -786,6 +786,13 @@ export default {
     // audience includes readers without edit permission.
     showViewSource() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
+    },
+    // Whether the Copy for AI slot knows what it holds. On an inline
+    // agent-editable macro, Connect MCP may take the slot once the agent-link
+    // flag resolves (async, in mounted()); rendering Copy for AI before then
+    // flashed it and swapped it out. Fullscreen and other types never swap.
+    copyForAiSlotSettled() {
+      return this.agentLinkFlagResolved || this.isFullscreenMode || !this.agentLinkMvpSupported;
     },
     copyForAiImpressionEligible() {
       return this.copyForAiPermissionResolved

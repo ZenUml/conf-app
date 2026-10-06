@@ -38,6 +38,25 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(connect.storage).toEqual({ inScopeEUD: true })
   })
 
+  it('allows anonymous access on every macro that allows unlicensed access', () => {
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    const macros = manifest.modules.macro as any[]
+    const expectedKeys = [
+      '${SEQUENCE_MACRO_KEY}',
+      'zenuml-openapi-macro${LITE_KEY_SUFFIX}',
+      'zenuml-graph-macro${LITE_KEY_SUFFIX}',
+      'zenuml-embed-macro${LITE_KEY_SUFFIX}',
+    ]
+
+    const unlicensedMacros = macros.filter((macro) =>
+      macro.unlicensedAccess?.includes('unlicensed'),
+    )
+    expect(unlicensedMacros.map((macro) => macro.key)).toEqual(expectedKeys)
+    for (const macro of unlicensedMacros) {
+      expect(macro.unlicensedAccess, macro.key).toContain('anonymous')
+    }
+  })
+
   it('all manifest-generation paths retain the shared remote EUD declaration', () => {
     for (const variant of ['lite', 'full', 'diagramly', 'asyncapi'] as const) {
       const yq = getManifestEditYqArgs(variant).map((edit) => edit.expr).join('\n')

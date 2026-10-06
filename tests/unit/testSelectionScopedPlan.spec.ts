@@ -2,28 +2,45 @@ import { describe, expect, it } from 'vitest';
 import { createPlan } from '../../scripts/test-selection/plan.mjs';
 import { scopedPlan } from '../../scripts/test-selection/scoped-plan.mjs';
 import { resolveSelection } from '../../scripts/test-selection/resolve.mjs';
-import { POLICY_VERSION } from '../../scripts/test-selection/classify.mjs';
+import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from '../../scripts/test-selection/classify.mjs';
 import { CATEGORIES, CATEGORY_VERSION } from '../e2e-tests/config/categories.mjs';
-const selection = { schema_version: 1, head_sha: 'head', tested_tree: 'tree', category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION, mode: 'selected', execution_mode: 'enabled', required: ['smoke'], diff_complete: true, request: { outcome: 'success', duration_ms: 42, usage: { input_tokens: 12, output_tokens: 8 } }, model: 'jev-test', categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: c.id === 'sequence' ? 0.8 : 0, selected: c.id === 'sequence' }])) };
-const resolved = resolveSelection({ selection, files: ['src/export.js'], head: 'head', tree: 'tree' });
-const specs = [['smoke', '@smoke', '@test:mermaid'], ['floor', '@export', '@test:cross-cutting'], ['jev', '@test:sequence'], ['unrelated', '@test:plantuml']].map(([id, ...tags]) => ({ id, file: id + '.spec.ts', title: id, tags: ['@variant:lite', ...tags], tests: [{ projectName: 'insert' }] }));
+import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../e2e-tests/config/impact-map.mjs';
+const selection = { schema_version: 1, head_sha: 'head', tested_tree: 'tree', category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, mode: 'selected', execution_mode: 'enabled', required: ['smoke'], diff_complete: true, request: { outcome: 'success', duration_ms: 42, usage: { input_tokens: 12, output_tokens: 8 } }, model: 'jev-test', categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: c.id === 'sequence' ? 0.8 : 0, selected: c.id === 'sequence' }])) };
+const resolved = resolveSelection({ selection, files: ['src/components/Mermaid.vue'], head: 'head', tree: 'tree' });
+const specs = [['smoke', '@smoke', '@test:mermaid'], ['floor', '@test:mermaid-render'], ['jev', '@test:sequence'], ['unrelated', '@test:plantuml']].map(([id, ...tags]) => ({ id, file: id + '.spec.ts', title: id, tags: ['@variant:lite', ...tags], tests: [{ projectName: 'insert' }] }));
 const discover = grep => ({ config: { projects: [{ name: 'insert', dependencies: ['auth'] }] }, suites: [{ title: 'tests', specs: specs.filter(s => !grep || new RegExp(grep).test([s.title, ...s.tags].join(' '))) }] });
 const options = { discover, selection, resolved, head: 'head', tree: 'tree', policy: POLICY_VERSION, variant: 'lite', scope: 'insert', shards: 2, grep: resolved.grep };
 describe('independent legacy ID floor', () => {
   it('unions concrete IDs, keeps smoke, and fingerprints the measured counts', () => {
     const plan = scopedPlan(options);
-    expect(plan.tests.map(t => t.id).sort()).toEqual(['floor', 'jev', 'smoke']);
-    expect(plan.selection_metrics).toMatchObject({ full_count: 4, legacy_count: 2, jev_count: 2, final_count: 3, smoke_count: 1, missing_floor_ids: [], retained_from_legacy_ids: ['floor'], added_to_legacy_ids: ['jev'] });
+    expect(plan.tests.map(t => t.id).sort()).toEqual(['jev', 'smoke']);
+    expect(plan.selection_metrics).toMatchObject({ source_paths: ['src/components/Mermaid.vue'], deterministic_behavior_selectors: ['@smoke'], jev_behavior_selectors: ['@test:sequence'], full_count: 4, legacy_count: 1, jev_count: 2, final_count: 2, final_test_ids: ['smoke', 'jev'], smoke_count: 1, missing_floor_ids: [], retained_from_legacy_ids: [], added_to_legacy_ids: ['jev'] });
     expect(plan.dependencies).toEqual(['auth']);
-    expect(plan.shards.flatMap(s => s.test_ids).sort()).toEqual(['floor', 'jev', 'smoke']);
+    expect(plan.shards.flatMap(s => s.test_ids).sort()).toEqual(['jev', 'smoke']);
   });
-  it.each([null, { ...resolved, head_sha: 'stale' }, { ...resolved, tested_tree: 'stale' }, { ...resolved, policy_version: 'v2-guarded-uncalibrated' }, { ...resolved, deterministic_tags: [] }, { ...resolved, jev_categories: ['@test:missing'] }, { ...resolved, grep: '@smoke' }])('fails full for missing, stale or inconsistent resolved artifacts', artifact => {
+  it.each([null, { ...resolved, head_sha: 'stale' }, { ...resolved, tested_tree: 'stale' }, { ...resolved, policy_version: 'v2-guarded-uncalibrated' }, { ...resolved, source_paths: [] }, { ...resolved, deterministic_tags: [] }, { ...resolved, jev_categories: ['@test:missing'] }, { ...resolved, grep: '@smoke' }])('fails full for missing, stale or inconsistent resolved artifacts', artifact => {
     const plan = scopedPlan({ ...options, resolved: artifact });
     expect(plan.tests).toHaveLength(4);
     expect(plan.selection_metrics).toMatchObject({ mode: 'all', final_count: 4, jev_count: null, missing_floor_ids: [] });
   });
   it('does not narrow an explicit full request even when selected artifacts are present', () => {
     expect(scopedPlan({ ...options, grep: '' }).tests).toHaveLength(4);
+  });
+  it('retains source paths in metrics when a full fallback is required', () => {
+    const plan = scopedPlan({ ...options, grep: '', sourcePaths: ['src/model/Diagram/Diagram.ts'] });
+    expect(plan.selection_metrics).toMatchObject({ mode: 'all', source_paths: ['src/model/Diagram/Diagram.ts'] });
+  });
+  it('unions changed spec identities with deterministic and Jev coverage', () => {
+    const direct = { ...resolved, direct_test_files: ['unrelated.spec.ts'] };
+    const plan = scopedPlan({ ...options, resolved: direct });
+    expect(plan.tests.map(test => test.id).sort()).toEqual(['jev', 'smoke', 'unrelated']);
+    expect(plan.selection_metrics).toMatchObject({ direct_test_files: ['unrelated.spec.ts'], direct_test_count: 1 });
+  });
+  it('fails full when a direct spec expected in this suite is absent from discovery', () => {
+    const missing = { ...resolved, direct_test_files: ['insert/renamed.spec.ts'] };
+    const plan = scopedPlan({ ...options, resolved: missing });
+    expect(plan.selection_metrics.mode).toBe('all');
+    expect(plan.tests).toHaveLength(4);
   });
   it.each([{ ...selection, schema_version: 2 }, { ...selection, diff_complete: false }, { ...selection, required: [] }, { ...selection, categories: { ...selection.categories, sequence: { probability: 0, selected: true } } }])('fails full for malformed raw decision', raw => {
     expect(scopedPlan({ ...options, selection: raw }).tests).toHaveLength(4);

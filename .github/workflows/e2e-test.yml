@@ -26,6 +26,11 @@ on:
       artifact-suffix:
         type: string
         required: true
+      timing-job-prefix:
+        type: string
+        default: ''
+        required: false
+        description: 'Displayed caller job prefix used to read queue timing from the GitHub Jobs API'
       node-version:
         type: string
         default: '24.x'
@@ -247,6 +252,7 @@ jobs:
           export MAX_SHARDS
           [ ! -f selection/test-selection.json ] || export SELECTION_PATH="$PWD/selection/test-selection.json"
           [ ! -f resolved-selection/selection.json ] || export RESOLVED_SELECTION_PATH="$PWD/resolved-selection/selection.json"
+          [ ! -f resolved-selection/changed-files.txt ] || export CHANGED_FILES_PATH="$PWD/resolved-selection/changed-files.txt"
           cd tests/e2e-tests
           node ../../scripts/test-selection/prepare-plan.mjs
       - uses: actions/upload-artifact@v6
@@ -316,6 +322,11 @@ jobs:
         # the input's description and the note above `jobs:`.
         shard: ${{ fromJSON(inputs.planned && needs.plan.outputs.matrix || inputs.shard-matrix) }}
     steps:
+      # Each shard has an independent runner. Record this runner's start before
+      # checkout and dependency setup; a plan-job environment cannot cross the
+      # job boundary.
+      - name: Start shard timing
+        run: echo "RUNNER_STARTED_AT_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -371,6 +382,9 @@ jobs:
           PLAN_SHARD: ${{ matrix.shard }}
           RETRIES: ${{ inputs.retries }}
         run: |
+          RUNNER_SETUP_DURATION_MS=$(( $(date +%s%3N) - RUNNER_STARTED_AT_MS ))
+          export RUNNER_SETUP_DURATION_MS
+          echo "RUNNER_SETUP_DURATION_MS=$RUNNER_SETUP_DURATION_MS" >> "$GITHUB_ENV"
           cd tests/e2e-tests
           ARGS=()
           [ -z "$RETRIES" ] || ARGS+=(--retries "$RETRIES")
@@ -528,6 +542,23 @@ jobs:
           REPORTS=$(find evidence/shards -name test-evidence.json -print | sort | paste -sd, -)
           node scripts/test-selection/evidence.mjs --plan evidence/test-plan.json --reports "$REPORTS" --output test-evidence.json
           node --input-type=module -e "import {readFileSync} from 'node:fs'; const e=JSON.parse(readFileSync('test-evidence.json')); if(!e.execution_succeeded) process.exit(1);"
+      - name: Add scheduler timing to evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_PREFIX: ${{ inputs.timing-job-prefix }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" > jobs.json
+          node scripts/test-selection/timing.mjs --evidence test-evidence.json --jobs jobs.json --prefix "$JOB_PREFIX"
+      - name: Summarize concrete timing
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const { metrics } = JSON.parse(readFileSync('test-evidence.json'));
+          console.log(JSON.stringify(metrics, null, 2));
+          if (process.env.GITHUB_STEP_SUMMARY) {
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Concrete E2E timing\n\n${JSON.stringify(metrics, null, 2)}\n`);
+          }
+          NODE
       - uses: actions/upload-artifact@v6
         if: always()
         with:

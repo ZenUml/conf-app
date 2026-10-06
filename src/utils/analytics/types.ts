@@ -47,6 +47,11 @@ import type {
   FeedbackHandoffOutcome,
   CreateGuideVariant,
   CreateGuideCloseMethod,
+  HighlightTargetType,
+  HighlightFeedback,
+  HighlightFeedbackReason,
+  HighlightFeedbackVariant,
+  HighlightDismissStage,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -277,6 +282,17 @@ export type AnalyticsProperties = {
   lines_removed?: number;
   cancel_reason?: "panel_closed" | "component_unmounted";
   close_reason?: "user_closed";
+  // Planned Mermaid highlight viewer feedback. All are bounded interaction
+  // fields only: never add source, node/edge IDs or text, diagram IDs, free
+  // text, or customer data. `highlight_target_type` is used by the once-per-
+  // viewer-session `mermaid_highlight_used` event; feedback fields are used
+  // only by their corresponding planned prompt events.
+  highlight_target_type?: HighlightTargetType;
+  highlight_feedback?: HighlightFeedback;
+  highlight_feedback_reason?: HighlightFeedbackReason;
+  highlight_feedback_variant?: HighlightFeedbackVariant;
+  highlight_dismiss_stage?: HighlightDismissStage;
+  highlight_enabled?: boolean;
   // Feedback
   feedback_score?: number;
   feedback_text?: string;
@@ -510,6 +526,15 @@ export type AnalyticsProperties = {
   // page's one banner slot was already spoken for, which is the only way to
   // tell "nobody sees this" apart from "nobody has unplaced diagrams".
   suppressed_by?: 'paywall' | 'paywall-admin' | 'csat';
+  // whats_new_* events. `whats_new_release_id` is the release's stable id from
+  // src/utils/whatsNew/releases.ts (e.g. '2026-10'), never its copy.
+  whats_new_release_id?: string;
+  // whats_new_banner_shown: which impression of this release this browser is on.
+  whats_new_show_count?: number;
+  // whats_new_banner_dismissed: whether the list was opened before dismissing.
+  whats_new_expanded?: boolean;
+  // whats_new_link_clicked: the item's stable id within its release.
+  whats_new_item_id?: string;
   // diagram_added_to_page. How many macros the page already carried when the
   // one-click place ran. Read with `result`: a page at the Lite limit is the
   // case where placing a diagram and hitting the paywall collide, and this is

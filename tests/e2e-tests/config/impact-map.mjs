@@ -1,12 +1,13 @@
-// Path → E2E tag impact map (ADR-0007 §5). Read by scripts/e2e-select.mjs to
-// decide which specs a PR run executes; policed by tests/unit/e2eSelect.spec.ts
-// (every tag must exist in tags.ts, every glob must match a tracked file).
+// Path → E2E impact map (ADR-0007 §5). Read by scripts/e2e-select.mjs to
+// decide which specs a PR run executes; policed by tests/unit/e2eSelect.spec.ts.
 //
 // Evaluation order for one changed file, first match wins:
 //   1. RUN_EVERYTHING — the run becomes unselective (`mode: all`).
-//   2. NO_E2E_IMPACT  — contributes nothing (unit tests, stories, docs).
-//   3. IMPACT         — the union of the tags of every glob the file matches.
-//   4. no match       — unmapped, the run becomes unselective.
+//   2. changed E2E spec — selects its concrete tests directly.
+//   3. NO_E2E_IMPACT  — contributes nothing (unit tests, stories, docs).
+//   4. IMPACT         — descriptive-only context for Jev; it contributes no
+//                         deterministic selector of its own.
+//   5. no match       — unmapped, the run becomes unselective.
 // `@smoke` is always selected. The map is deliberately conservative: when in
 // doubt a path is left unmapped, which costs a full run, never a missed spec.
 //
@@ -32,8 +33,8 @@ export const RUN_EVERYTHING = [
   '.github/**', 'scripts/e2e-select.mjs',
   // everything the E2E suite stands on — and the specs themselves: a changed
   // spec runs the whole suite (v1; selecting the changed spec is a later step)
-  'tests/e2e-tests/config/**', 'tests/e2e-tests/utils/**', 'tests/e2e-tests/helpers/**',
-  'tests/e2e-tests/fixtures/**', 'tests/e2e-tests/pages/**', 'tests/e2e-tests/tests/**',
+  'tests/e2e-tests/config/**', 'tests/e2e-tests/utils/**',
+  'tests/e2e-tests/fixtures/**', 'tests/e2e-tests/pages/**',
   'tests/e2e-tests/playwright*.config.ts', 'tests/e2e-tests/package.json',
   // the backend request pipeline in front of every function
   'functions/_middleware.ts', 'functions/utils/**', 'functions/feature-flags.ts',
@@ -41,13 +42,25 @@ export const RUN_EVERYTHING = [
   'functions/migrations/**', 'public/_routes.json', 'wrangler*.toml',
 ];
 
-/** glob → tags. A file matching several globs gets the union. */
+/**
+ * The execution catalog is retained in artifact identities so policy changes
+ * fail closed. Jev chooses behavior categories; deterministic selection only
+ * supplies smoke and direct changed-spec coverage.
+ */
+export const EXECUTION_SELECTOR_CATALOG_VERSION = 'v2-jev-decides-behavior';
+export const EXECUTION_IMPACT = [];
+
+/**
+ * Descriptive-only glob → tags. These tags give Jev architectural context but
+ * never become deterministic execution filters on their own.
+ */
 export const IMPACT = [
+  { glob: 'tests/e2e-tests/helpers/agentLink.ts', tags: ['@ai'] },
   // ── diagram types ──────────────────────────────────────────────────────
-  { glob: 'src/components/Sequence.vue', tags: ['@sequence', '@viewer', '@editor', '@viewport'] },
-  { glob: 'src/utils/sequence/**', tags: ['@sequence', '@viewer', '@editor'] },
   { glob: 'src/components/Mermaid.vue', tags: ['@mermaid', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/mermaid/**', tags: ['@mermaid', '@viewer', '@editor'] },
+  { glob: 'src/components/Sequence.vue', tags: ['@sequence', '@viewer', '@editor', '@viewport'] },
+  { glob: 'src/utils/sequence/**', tags: ['@sequence', '@viewer', '@editor'] },
   { glob: 'src/components/PlantUml.vue', tags: ['@plantuml', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/plantuml/**', tags: ['@plantuml', '@viewer', '@editor'] },
   { glob: 'src/components/Markdown.vue', tags: ['@viewer'] },

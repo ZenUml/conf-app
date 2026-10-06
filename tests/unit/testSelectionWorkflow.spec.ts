@@ -13,6 +13,17 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });
   it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  evidence:')[1].split('  merge-reports:')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'test-selection-labels']) expect(workflow(name)).toContain('package-manager-cache: false'); });
+  it('measures setup time on each test shard runner', () => {
+    const testJob = workflow('e2e-test').split('  test:')[1].split('  evidence:')[0];
+    expect(testJob).toContain('name: Start shard timing');
+    expect(testJob).toContain('RUNNER_STARTED_AT_MS=$(date +%s%3N)');
+    expect(testJob).toContain('RUNNER_SETUP_DURATION_MS=$(( $(date +%s%3N) - RUNNER_STARTED_AT_MS ))');
+  });
+  it('uses the displayed selected job name when querying scheduler timings', () => {
+    const yaml = workflow('build-test-deploy');
+    expect(yaml).toContain("'E2E: Lite (selected)' || 'E2E: Lite'");
+    expect(yaml).toContain("'E2E: Lite render (selected)' || 'E2E: Lite render'");
+  });
   it('keeps classification and privileged publication on trusted code', () => {
     expect(workflow('build-test-deploy')).toContain('ref: ${{ github.event.pull_request.base.sha || github.sha }}');
     expect(workflow('build-test-deploy')).toContain('--mode enabled');

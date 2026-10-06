@@ -20,7 +20,7 @@
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
-        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved}">
+        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved, 'viewer-body--with-sidebar': !!$slots['viewer-sidebar']}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
@@ -77,6 +77,7 @@
               />
             </div>
             <div v-if="!isLoadFailed" class="viewer-top-actions" :class="{ 'viewer-top-actions--with-create': showCreateGuide }">
+              <slot name="viewer-actions"></slot>
               <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -418,6 +419,7 @@
 
           </div>
         </div>
+        <slot name="viewer-sidebar"></slot>
         <!-- Fullscreen Connect rail (design §5.1, §9) — only mounted when the
              flag is on, the diagram type is MVP-supported, and we're actually
              in the Fullscreen modal. See connectToAgent()'s comment: this
@@ -932,6 +934,10 @@ export default {
     },
   },
   watch: {
+    showExportModal: {
+      flush: 'sync',
+      handler(active) { this.$emit('capture-mode-change', active); },
+    },
     showCreateGuide: {
       immediate: true,
       handler(shown) {
@@ -2684,6 +2690,9 @@ export default {
 ::v-slotted(.viewer-pill-btn:disabled) { opacity: 0.4; cursor: not-allowed; }
 ::v-slotted(.viewer-pill-btn:disabled:hover) { background: transparent; color: #6B7280; }
 ::v-slotted(.viewer-icon) { width: 16px; height: 16px; }
+.viewer-body--with-sidebar { display: flex; }
+.viewer-frame--fullscreen .viewer-body--with-sidebar { flex-direction: row; }
+.viewer-body--with-sidebar > .viewer-surface { flex: 1 1 auto; min-width: 0; }
 </style>
 
 <!--

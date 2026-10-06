@@ -1,0 +1,76 @@
+import { mount } from '@vue/test-utils'
+import { vi, describe, it, expect, beforeEach } from 'vitest'
+import Viewer from './MermaidHighlightViewer.vue'
+import forgeGlobal from '@/model/globals/forgeGlobal'
+import store from '@/model/store2'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
+vi.mock('@/components/Mermaid.vue', () => ({ default: { name: 'Mermaid', methods: { setCaptureMode: vi.fn() }, props: ['relationshipHighlights'], template: '<div />' } }))
+vi.mock('./GenericViewer.vue', () => ({ default: { name: 'GenericViewer', props: ['wide', 'hideHeader'], template: '<div><slot name="viewer-actions"/><slot/><slot name="viewer-sidebar"/></div>' } }))
+const mountViewer = () => mount(Viewer)
+describe('real highlight viewer lifecycle', () => {
+  beforeEach(() => { vi.clearAllMocks(); forgeGlobal.forgeContext = {}; store.state.diagram.id = 'first'; store.state.diagram.mermaidCode = 'flowchart LR\nA-->B' })
+  it('does not offer interaction or feedback for unsupported renderers', async () => {
+    const wrapper = mountViewer()
+    wrapper.findComponent({ name: 'Mermaid' }).vm.$emit('highlight-ready', false)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.find('aside').exists()).toBe(false)
+  })
+  it('forwards capture mode synchronously and records fullscreen context', async () => {
+    forgeGlobal.forgeContext = { extension: { modal: { macroMode: 'fullscreen' } } }
+    const wrapper = mountViewer()
+    const renderer = wrapper.findComponent({ name: 'Mermaid' })
+    const capture = vi.spyOn(renderer.vm, 'setCaptureMode')
+    wrapper.findComponent({ name: 'GenericViewer' }).vm.$emit('capture-mode-change', true)
+    expect(capture).toHaveBeenCalledWith(true)
+    renderer.vm.$emit('highlight-ready', true)
+    renderer.vm.$emit('highlight-used', { kind: 'node' })
+    await wrapper.vm.$nextTick()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_used', expect.objectContaining({ surface: 'fullscreen' }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_shown', expect.objectContaining({ surface: 'fullscreen' }))
+  })
+  it('starts a new diagram enabled after the previous diagram was disabled', async () => {
+    const wrapper = mountViewer()
+    const renderer = wrapper.findComponent({ name: 'Mermaid' })
+    renderer.vm.$emit('highlight-ready', true)
+    await wrapper.vm.$nextTick()
+    await wrapper.get('.highlight-toggle').trigger('click')
+    expect(renderer.props('relationshipHighlights')).toBe(false)
+    store.state.diagram.mermaidCode = 'flowchart LR\nC-->D'
+    await wrapper.vm.$nextTick()
+    expect(renderer.props('relationshipHighlights')).toBe(true)
+    expect(wrapper.emitted('enabled-change')?.at(-1)).toEqual([true])
+    renderer.vm.$emit('highlight-ready', true)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.highlight-toggle').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('.highlight-toggle').trigger('click')
+    await wrapper.get('.highlight-toggle').trigger('click')
+    expect(renderer.props('relationshipHighlights')).toBe(true)
+    expect(wrapper.find('aside').exists()).toBe(false)
+  })
+  it('deduplicates usage per diagram, closes feedback across toggles, and resets for a new diagram', async () => {
+    const wrapper = mountViewer()
+    const renderer = wrapper.findComponent({ name: 'Mermaid' })
+    renderer.vm.$emit('highlight-ready', true)
+    await wrapper.vm.$nextTick()
+    renderer.vm.$emit('highlight-used', { kind: 'node' })
+    renderer.vm.$emit('highlight-used', { kind: 'edge' })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('aside').exists()).toBe(true)
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(c => c[0] === 'mermaid_highlight_used')).toHaveLength(1)
+    await wrapper.get('[aria-label="Close relationship highlight feedback"]').trigger('click')
+    expect(wrapper.find('aside').exists()).toBe(false)
+    await wrapper.get('.highlight-toggle').trigger('click')
+    expect(renderer.props('relationshipHighlights')).toBe(false)
+    await wrapper.get('.highlight-toggle').trigger('click')
+    expect(wrapper.find('aside').exists()).toBe(false)
+    store.state.diagram.id = 'second'
+    await wrapper.vm.$nextTick()
+    renderer.vm.$emit('highlight-ready', true)
+    renderer.vm.$emit('highlight-used', { kind: 'edge' })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('aside').exists()).toBe(true)
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(c => c[0] === 'mermaid_highlight_used')).toHaveLength(2)
+  })
+})

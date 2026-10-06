@@ -16,9 +16,10 @@ matches complete tag tokens: `@test:sequence` does not match
 failure, missing artifacts, malformed decisions, or stale tree/policy metadata
 run the full normal suite. Main and daily regression also retain full coverage.
 
-The policy is `v3-guarded-uncalibrated`. Category recall and time savings have not
-been established; the 0.1 probability threshold is provisional. The floor makes
-activation conservative and may limit savings. Removing that floor requires a
+The policy is `v6-high-confidence-jev-selectors-v1`. Category recall and time savings have not
+been established; a category must meet the 0.8 high-confidence threshold before it
+widens the plan. This prevents a generic or weakly related tag from adding broad
+coverage; smoke and direct changed E2E specs remain the safety floor. Removing that floor requires a
 reviewed catalog evaluation across representative narrow, multi-area, shared,
 renamed and deleted changes, including missed categories, concrete test IDs and
 observed durations. Three successful examples are not calibration.

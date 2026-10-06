@@ -22,7 +22,11 @@ export type FeatureArea =
   | "diagram_impact"
   // Architecture Tokens: "also appears in other diagrams" context for Mermaid
   // sequence participants. Read-only in Phase 1; index built offline.
-  | "architecture_tokens";
+  | "architecture_tokens"
+  // The "What's new" release-notes strip in the shared page-banner host. Its
+  // own area because, like "byline", it renders on any page — including pages
+  // with no diagram — and measures announcement reach, not a macro lifecycle.
+  | "whats_new";
 
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
@@ -46,6 +50,25 @@ export type MacroTypeValue =
   | "embed"
   | "plantuml"
   | "none";
+
+/** Target kind traced by the planned Mermaid highlight viewer interaction. */
+export type HighlightTargetType = "node" | "edge";
+
+/** Explicit answer to the planned Mermaid highlight feedback prompt. */
+export type HighlightFeedback = "like" | "dislike";
+
+/** Bounded follow-up reason shown after a Mermaid highlight dislike. */
+export type HighlightFeedbackReason =
+  | "unclear"
+  | "distracting"
+  | "not_useful"
+  | "other";
+
+/** Surface variant that displayed the Mermaid highlight feedback prompt. */
+export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar";
+
+/** Prompt step at which planned Mermaid highlight feedback was dismissed. */
+export type HighlightDismissStage = "question" | "reason";
 
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
@@ -670,6 +693,23 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Planned ahead of the Mermaid highlighting implementation. Every event
+  // uses feature_area=macro, surface=viewer or fullscreen,
+  // and macro_type=mermaid. Do not send
+  // source, node/edge IDs or text, diagram IDs, free text, or customer data.
+  // `used` fires once per diagram render session after meaningful node/edge tracing,
+  // never for pointermove. `feedback_shown` fires only when the prompt is
+  // actually visible. `feedback_answered` is an explicit like/dislike click;
+  // `feedback_reason_selected` is an optional bounded reason after dislike.
+  // `feedback_dismissed` records a prompt close/skip and its optional stage;
+  // `preference_changed` records the explicit highlighter on/off choice and
+  // is separate from liking the interaction.
+  | "mermaid_highlight_used"
+  | "mermaid_highlight_feedback_shown"
+  | "mermaid_highlight_feedback_answered"
+  | "mermaid_highlight_feedback_reason_selected"
+  | "mermaid_highlight_feedback_dismissed"
+  | "mermaid_highlight_preference_changed"
   // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
   // instance; menu_opened fires on every closed -> open transition.
   | "copy_for_ai_impression"
@@ -878,6 +918,38 @@ export type AnalyticsEventName =
   // which is exactly what `unplaced_source` on the banner events reports from
   // the other end.
   | "unplaced_property_write"
+  // "What's new" page banner (src/components/WhatsNew/WhatsNewBanner.vue).
+  // Audience: browsers that have rendered one of our macros on this site
+  // (src/utils/whatsNew/state.ts), for at most WHATS_NEW_MAX_SHOWS loads per
+  // release and only inside the release's display window. Every event carries
+  // `whats_new_release_id`.
+  //
+  // `whats_new_banner_evaluated` fires once per mount — i.e. only on loads the
+  // host's synchronous gate already admitted, never on the ~all page loads it
+  // turned away. `result` covers every path out:
+  //   'shown'            — the strip is on screen.
+  //   'yielded_unplaced' — the page carries the unplaced-diagram content
+  //                        property (or the read could not rule it out), so
+  //                        the separately gated unplaced banner owns the page
+  //                        and this one stands down rather than stack.
+  //   'failed'           — mount threw; the iframe closed showing nothing.
+  // A high 'yielded_unplaced' share means the announcement is losing its slot,
+  // not that nobody is eligible.
+  | "whats_new_banner_evaluated"
+  // The strip is committed to displaying — the impression. Denominator for
+  // expand and dismiss rates. `whats_new_show_count` is which impression of
+  // this release this was for this browser (1..WHATS_NEW_MAX_SHOWS).
+  | "whats_new_banner_shown"
+  // The user opened the inline list ("See what's new"). The engagement signal:
+  // shown → expanded is the headline conversion for the feature.
+  | "whats_new_banner_expanded"
+  // The user dismissed the strip. Retires THIS release for this browser; the
+  // next release re-arms it. `whats_new_expanded` separates "read, then closed"
+  // from "closed without reading".
+  | "whats_new_banner_dismissed"
+  // A per-item "Learn more" link was opened. `whats_new_item_id` names the item,
+  // which is how we learn which announced feature actually draws interest.
+  | "whats_new_link_clicked"
   // One-click place: the app writes the macro into the page ADF itself, instead
   // of handing over a link for the user to paste. THE conversion event for this
   // whole feature — every other event here measures noticing, and this one

@@ -7,7 +7,8 @@
  * This guard makes that impossible to land: every top-level `test.describe`
  * / `test` block in tests/e2e-tests/tests must declare a `{ tag: [...] }`
  * details object whose tags all come from `tests/e2e-tests/config/tags.ts`,
- * with at least one SURFACE tag and at least one TYPE or CONCERN tag — the
+ * with at least one SURFACE tag, at least one TYPE or CONCERN tag, and a
+ * BEHAVIOR tag — the
  * same closed-set discipline `storyTitles.spec.ts` applies to the Storybook
  * tree.
  *
@@ -17,7 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ALL_TAGS, CONCERN_TAGS, SURFACE_TAGS, TYPE_TAGS } from '../e2e-tests/config/tags';
+import { ALL_TAGS, BEHAVIOR_TAGS, CONCERN_TAGS, SURFACE_TAGS, TYPE_TAGS } from '../e2e-tests/config/tags';
 
 const ROOT = path.resolve(__dirname, '../e2e-tests/tests');
 
@@ -52,8 +53,8 @@ describe('E2E tag taxonomy', () => {
     expect(files.length).toBeGreaterThan(40);
   });
 
-  it('keeps the three axes disjoint', () => {
-    const all = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS];
+  it('keeps the four execution-relevant axes disjoint', () => {
+    const all = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS, ...BEHAVIOR_TAGS];
     expect(new Set(all).size).toBe(all.length);
   });
 

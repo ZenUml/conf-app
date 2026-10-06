@@ -44,10 +44,14 @@ let resolved = null;
 if (process.env.RESOLVED_SELECTION_PATH) {
   try { resolved = JSON.parse(readFileSync(process.env.RESOLVED_SELECTION_PATH)); } catch { /* fail full */ }
 }
+let sourcePaths = [];
+if (process.env.CHANGED_FILES_PATH) {
+  try { sourcePaths = readFileSync(process.env.CHANGED_FILES_PATH, 'utf8').split('\n').filter(Boolean); } catch { /* Metrics may omit paths but planning stays fail-safe. */ }
+}
 const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const plan = scopedPlan({ discover, selection, resolved, head, tree, policy: POLICY_VERSION, variant,
   shards: Number(process.env.MAX_SHARDS || 1), scope: suite === 'regression' ? 'all' : suite === 'regression-render' ? 'render' : suite,
-  grep: process.env.LEGACY_GREP || '' });
+  grep: process.env.LEGACY_GREP || '', sourcePaths });
 writeFileSync(process.env.PLAN_PATH || 'test-plan.json', JSON.stringify(plan, null, 2));
 writeFileSync(process.env.METRICS_PATH || 'selection-metrics.json', JSON.stringify(plan.selection_metrics, null, 2));
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, metricsSummary(plan.selection_metrics));

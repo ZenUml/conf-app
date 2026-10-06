@@ -47,6 +47,25 @@ export type MacroTypeValue =
   | "plantuml"
   | "none";
 
+/** Target kind traced by the planned Mermaid highlight viewer interaction. */
+export type HighlightTargetType = "node" | "edge";
+
+/** Explicit answer to the planned Mermaid highlight feedback prompt. */
+export type HighlightFeedback = "like" | "dislike";
+
+/** Bounded follow-up reason shown after a Mermaid highlight dislike. */
+export type HighlightFeedbackReason =
+  | "unclear"
+  | "distracting"
+  | "not_useful"
+  | "other";
+
+/** Surface variant that displayed the Mermaid highlight feedback prompt. */
+export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar";
+
+/** Prompt step at which planned Mermaid highlight feedback was dismissed. */
+export type HighlightDismissStage = "question" | "reason";
+
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
   // ApWrapper2.isDisplayMode(). Builds before 2026-07-19 stamped the native
@@ -102,6 +121,13 @@ export type EntryPoint =
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
+
+// How an authoring session ended. Emitted by journeyTracking.endEditJourney on
+// macro_authoring_ended — the terminal event that makes the create funnel add
+// up. `saved` is the explicit save path, `cancelled` an explicit close/discard,
+// `window_close` the unload fallback for editors with no explicit cancel hook
+// (graph, embed) and for browser-level teardown anywhere.
+export type AuthoringOutcome = "saved" | "cancelled" | "window_close";
 
 // Text-editor mutation telemetry. Replacement scope describes how much of the
 // editable OLD document a user transaction covered; content delta describes
@@ -321,6 +347,30 @@ export type AnalyticsEventName =
   // `probe_http_status`) so the cause is read off the event instead of
   // inferred. One probe per failure; never fired on success.
   | "save_failed_diagnosed"
+  // Terminal event for ONE authoring session, emitted exactly once per
+  // startEditJourney. This is the event the create funnel was missing: before
+  // it, an attempt that did not save produced no event at all, so
+  // macro_create_started had no denominator-completing counterpart and ~89% of
+  // non-completions were unattributable (measured 2026-08-18..31: 640 failed
+  // non-byline attempts, median 5s to last activity, only ~11% carrying any
+  // error signal).
+  //
+  // Reconciliation invariant this exists to enable:
+  //   macro_create_started ~= macro_authoring_ended{authoring_outcome=*}
+  // A persistent gap between the two means an editor lost its terminal hook —
+  // which is exactly how the pre-existing gap went unnoticed.
+  //
+  // `authoring_outcome` says how it ended, `authoring_duration_ms` how long it
+  // lived, and `journey_id` ties it to the start event for that same session
+  // (it also survives the viewer -> dialog iframe handoff via
+  // continueEditJourney, so a dialog edit is one journey, not two).
+  //
+  // `had_input` / `time_to_first_input_ms` / `input_event_count` separate "the
+  // editor opened and nothing was typed" from "the user authored and gave up".
+  // They are present only where the editor-mutation session runs (the
+  // sequence/mermaid/plantuml CodeMirror editor); graph/openapi/embed have no
+  // input hook yet, so ABSENT means "not instrumented", never "no input".
+  | "macro_authoring_ended"
   // Fires when the shared DSL editor's selected type tab changes. `from` and
   // `to` capture the observed UI action; `macro_type` repeats the destination
   // for existing type breakdowns. This is an action signal, not proof of a
@@ -638,6 +688,23 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Planned ahead of the Mermaid highlighting implementation. Every event
+  // uses feature_area=macro, surface=viewer or fullscreen,
+  // and macro_type=mermaid. Do not send
+  // source, node/edge IDs or text, diagram IDs, free text, or customer data.
+  // `used` fires once per diagram render session after meaningful node/edge tracing,
+  // never for pointermove. `feedback_shown` fires only when the prompt is
+  // actually visible. `feedback_answered` is an explicit like/dislike click;
+  // `feedback_reason_selected` is an optional bounded reason after dislike.
+  // `feedback_dismissed` records a prompt close/skip and its optional stage;
+  // `preference_changed` records the explicit highlighter on/off choice and
+  // is separate from liking the interaction.
+  | "mermaid_highlight_used"
+  | "mermaid_highlight_feedback_shown"
+  | "mermaid_highlight_feedback_answered"
+  | "mermaid_highlight_feedback_reason_selected"
+  | "mermaid_highlight_feedback_dismissed"
+  | "mermaid_highlight_preference_changed"
   // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
   // instance; menu_opened fires on every closed -> open transition.
   | "copy_for_ai_impression"

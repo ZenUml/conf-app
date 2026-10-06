@@ -123,6 +123,10 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # Unit integration tests discover the real E2E inventory through its config.
+      # Install its locked module dependencies only; --list needs no browsers.
+      - name: Install E2E discovery dependencies
+        run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
       - run: pnpm test:unit
       # Verify the asyncapi variant builds even on feature-branch PRs. The
       # staging-asyncapi job below only runs on the default branch (like
@@ -628,9 +632,9 @@ jobs:
       auth-artifact: auth-state-pre-lite-stg
       # Empty on main and on an unselective PR run (whole suite).
       grep: ${{ needs.select.outputs.grep }}
-      # 10 shards, not the default 5. `--shard` splits the test list
-      # contiguously, and the byline tests are the expensive ones (a page
-      # creation each): under 8 the split put byline-create #2, byline-paywall
+      # Main's insert suite uses 10 shards, not the default 5. `--shard`
+      # splits the test list contiguously. Byline tests create a page each;
+      # under 8 the split put byline-create #2, byline-paywall
       # and edit-graph on one shard — 4m06s on PR run 34658978233, the tail.
       # Measured with `CI=true APP=zenuml-lite@stg pnpm exec playwright test
       # --list --project=auth --project=insert --project=feedback --shard=N/10`
@@ -641,27 +645,24 @@ jobs:
       #   4: embed-deeplink-autoconvert,     9: typed-deeplink-autoconvert,
       #      graph                              typed-deeplink-render
       #   5: m1-first-seen-ping (x2)        10: feedback-report (x2)
-      # No shard carries more than two page-creating tests (~3m). Peak fan-out
-      # on main is 16 Lite + 4 Diagramly + 3 AsyncAPI = 23 with Full sequenced
-      # behind Lite; the three jobs over the 20 cap are Lite's last-created
-      # (light) shards, which wait ~40s for Diagramly's all-skip shard 1 to free
-      # a runner. Re-measure with `--list` after adding or renaming a spec; do
-      # not reason about placement by hand.
+      # In that insert suite, no shard carries more than two page-creating tests
+      # (~3m). Peak fan-out on main is 16 Lite + 4 Diagramly + 3 AsyncAPI = 23
+      # with Full sequenced behind Lite. The three jobs over the 20 cap are
+      # Lite's last-created (light) shards; they wait ~40s for Diagramly's
+      # all-skip shard 1 to free a runner. Re-measure with `--list` after
+      # adding or renaming a spec; do not reason about placement by hand.
       shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
-      # Above the 8-minute default because shard 1 carries every `byline-*` spec
-      # (`--shard` splits contiguously by file name — see the note in
-      # e2e-test.yml). Measured on this job: 3m36s at 6 tests, 5m35s at 8 after
-      # byline-asyncapi landed there. At `retries: 2` a single retry of the
-      # byline create test costs ~2min on its own (it waits up to 90s for the
-      # post-create panel on top of page setup), which 8 minutes cannot absorb.
-      # 11 leaves room for one retry; a second growth spurt should move a spec
-      # off shard 1 instead of raising this again.
-      #
-      # Kept at 11 after the move to 10 shards (above) even though no shard now
-      # carries more than two tests: the ceiling only ever matters for a
-      # wedged test, and a reaped shard costs a whole re-run.
-      timeout-minutes: 11
+      # Main still runs the smaller insert suite with its measured 11-minute
+      # limit. Ready PRs run the planned regression suite: the 8d4ab7bd plan
+      # contains 108 tests, 10–11 per shard (not the two-test insert layout
+      # above). On PR run 37244818100, shard 4 passed in 10m16s; attempts 1
+      # and 3 each reaped a different active shard at 11m16s. Shard 10 had
+      # passed 10 of its 11 planned tests, including one retry, and was running
+      # the last test. Give this larger suite time to finish and upload its
+      # evidence while retaining the existing main/release insert budget.
+      timeout-minutes: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
       artifact-suffix: lite-stg
+      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite (selected)' || 'E2E: Lite' }}"
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
@@ -703,6 +704,7 @@ jobs:
       # the auth.setup dependency test and reads one higher per shard.
       timeout-minutes: 12
       artifact-suffix: lite-stg-graph-publish
+      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite DrawIO Publish (selected)' || 'E2E: Lite DrawIO Publish' }}"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -729,6 +731,7 @@ jobs:
       # Empty on main and on an unselective PR run (whole suite).
       grep: ${{ needs.select.outputs.grep }}
       artifact-suffix: lite-stg-render
+      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite render (selected)' || 'E2E: Lite render' }}"
       # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
       # creates any fixture missing from config/render-fixtures.json, and
       # running it on multiple shards at once would race them into creating
@@ -787,6 +790,7 @@ jobs:
       shard-matrix: '[1, 2, 3, 4]'
       timeout-minutes: 11
       artifact-suffix: full-stg
+      timing-job-prefix: "E2E: Full"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -805,6 +809,7 @@ jobs:
       shard-matrix: '[1, 2, 3, 4]'
       timeout-minutes: 11
       artifact-suffix: full-stg
+      timing-job-prefix: "E2E: Full (now)"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -868,6 +873,7 @@ jobs:
       # every shard busy, same critical path.
       shard-matrix: '[1, 2, 3]'
       artifact-suffix: asyncapi-stg
+      timing-job-prefix: "E2E: AsyncAPI"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -900,6 +906,7 @@ jobs:
       shard-matrix: '[1, 2, 3, 4]'
       timeout-minutes: 11
       artifact-suffix: diagramly-stg
+      timing-job-prefix: "E2E: Diagramly"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}

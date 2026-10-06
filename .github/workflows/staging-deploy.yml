@@ -228,6 +228,14 @@ jobs:
         with:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
 
+      # Plan and Usage is the Lite limit page. Keep Full's other globalPage
+      # entries intact. Mirrors the Full manifestEdits in forge-wizard.mjs.
+      - name: Remove Lite Plan and Usage page from Full manifest
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalPage"][] | select(.key == "zenuml-plan-usage-page"))' -i manifest.yml
+
       # Full: the source manifest carries Lite's canonical matcher. CI edits
       # manifests independently of scripts/forge-wizard.mjs, so keep this
       # variant override here as well.

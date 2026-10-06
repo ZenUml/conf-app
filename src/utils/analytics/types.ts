@@ -42,12 +42,18 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  AuthoringOutcome,
   MagicFailureReason,
   FeedbackCaptureMethod,
   FeedbackDismissReason,
   FeedbackHandoffOutcome,
   CreateGuideVariant,
   CreateGuideCloseMethod,
+  HighlightTargetType,
+  HighlightFeedback,
+  HighlightFeedbackReason,
+  HighlightFeedbackVariant,
+  HighlightDismissStage,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -278,6 +284,17 @@ export type AnalyticsProperties = {
   lines_removed?: number;
   cancel_reason?: "panel_closed" | "component_unmounted";
   close_reason?: "user_closed";
+  // Planned Mermaid highlight viewer feedback. All are bounded interaction
+  // fields only: never add source, node/edge IDs or text, diagram IDs, free
+  // text, or customer data. `highlight_target_type` is used by the once-per-
+  // viewer-session `mermaid_highlight_used` event; feedback fields are used
+  // only by their corresponding planned prompt events.
+  highlight_target_type?: HighlightTargetType;
+  highlight_feedback?: HighlightFeedback;
+  highlight_feedback_reason?: HighlightFeedbackReason;
+  highlight_feedback_variant?: HighlightFeedbackVariant;
+  highlight_dismiss_stage?: HighlightDismissStage;
+  highlight_enabled?: boolean;
   // Feedback
   feedback_score?: number;
   feedback_text?: string;
@@ -566,6 +583,26 @@ export type AnalyticsProperties = {
   // replacements rather than collapsing them into a session boolean.
   journey_id?: string | null;
   session_id?: string;
+  // --- macro_authoring_ended (utils/journeyTracking.ts) ---------------------
+  // How the authoring session ended. Named `authoring_outcome` rather than
+  // reusing the existing `outcome`, which is the copy-for-AI result union and
+  // would collide on type.
+  authoring_outcome?: AuthoringOutcome;
+  // Wall-clock ms from startEditJourney to the terminal event — the editor's
+  // real dwell time, measured directly instead of inferred from the span
+  // between surrounding events.
+  authoring_duration_ms?: number;
+  // Did the user actually author anything in this session? Separates "editor
+  // opened, nothing typed" from "typed and gave up" — the distinction the
+  // create funnel could not make. Only populated where the editor-mutation
+  // session runs (sequence/mermaid/plantuml); ABSENT means not instrumented,
+  // never false. See editorMutationTelemetry.getEditorInputSummary.
+  // The Lite paywall gate blocked the authoring session this event describes.
+  // See EditJourneyMeta.paywallBlocked for why it lives on the terminal event.
+  paywall_blocked?: boolean;
+  had_input?: boolean;
+  time_to_first_input_ms?: number;
+  input_event_count?: number;
   replace_index?: number;
   ms_since_editor_open?: number;
   replace_scope?: EditorReplaceScope;

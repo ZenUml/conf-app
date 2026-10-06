@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ConnectMcpDialog from './ConnectMcpDialog.vue'
+import forgeGlobal from '@/model/globals/forgeGlobal'
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 
 function mountDialog(props: { state: AgentLinkClientState; token?: string | null; visible?: boolean; diagramTitle?: string; lockExpiresAt?: number | null }) {
@@ -21,11 +22,14 @@ describe('ConnectMcpDialog', () => {
   })
 
   it('shows the setup command and the session prompt while waiting', () => {
+    forgeGlobal.zenumlRemoteBaseUrl = 'https://conf-lite.zenuml.com'
     const wrapper = mountDialog({ state: 'waiting', token: 'CL-7F3K-Q9M2' })
+    forgeGlobal.zenumlRemoteBaseUrl = undefined
     expect(wrapper.find('[role="dialog"]').attributes('aria-modal')).toBe('true')
     expect(wrapper.find('[data-testid="connect-mcp-setup-command"]').text()).toBe(
-      'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
+      'claude mcp add --transport http conf-agent https://conf-lite.zenuml.com/agent-link/mcp'
     )
+    expect(wrapper.text()).toContain('URL https://conf-lite.zenuml.com/agent-link/mcp')
     const prompt = wrapper.find('[data-testid="connect-mcp-prompt"]').text()
     expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
     expect(prompt).toContain('session: CL-7F3K-Q9M2')

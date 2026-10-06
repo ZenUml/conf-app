@@ -2,14 +2,30 @@
 //
 // The user-facing connect copy shared by the Fullscreen ConnectPanel rail and
 // the inline Connect MCP dialog, so the setup command and the session prompt
-// exist once. Relay host per design §14.3: zenapi.zenuml.com, to avoid a new
-// egress host / re-consent.
+// exist once.
+//
+// The MCP server URL follows the backend that mints the session
+// (forgeGlobal.zenumlRemoteBaseUrl — the same origin mintAgentLinkSession()
+// and the relay channel use), because a session token only resolves on the
+// backend that issued it: Lite prod mints on conf-lite, Full on conf-full,
+// staging and dev environments on conf-stg-lite. A fixed host would hand
+// every other environment a server that cannot find its session.
+import forgeGlobal from '@/model/globals/forgeGlobal'
 
 export const MCP_SERVER_NAME = 'conf-agent'
 
-export const MCP_SERVER_URL = 'https://zenapi.zenuml.com/agent-link/mcp'
+// Standalone/dev has no Forge context and so no resolved backend; fall back
+// to the production Lite host rather than render a relative URL.
+const FALLBACK_BACKEND_BASE_URL = 'https://conf-lite.zenuml.com'
 
-export const MCP_ADD_COMMAND = `claude mcp add --transport http ${MCP_SERVER_NAME} ${MCP_SERVER_URL}`
+export function mcpServerUrl(backendBaseUrl: string | undefined = forgeGlobal.zenumlRemoteBaseUrl): string {
+  const base = (backendBaseUrl || FALLBACK_BACKEND_BASE_URL).replace(/\/+$/, '')
+  return `${base}/agent-link/mcp`
+}
+
+export function mcpAddCommand(backendBaseUrl?: string): string {
+  return `claude mcp add --transport http ${MCP_SERVER_NAME} ${mcpServerUrl(backendBaseUrl)}`
+}
 
 export function buildConnectPrompt(token: string | null): string {
   return [

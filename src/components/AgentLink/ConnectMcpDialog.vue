@@ -134,10 +134,10 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 import type { AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
 import {
-  MCP_ADD_COMMAND,
   MCP_SERVER_NAME,
-  MCP_SERVER_URL,
   buildConnectPrompt,
+  mcpAddCommand,
+  mcpServerUrl,
   isUsableSessionToken,
 } from '@/composables/agentLink/connectInstructions'
 
@@ -166,9 +166,11 @@ const emit = defineEmits<{
   (e: 'copy', target: AgentLinkMcpCopyTarget, ok: boolean): void
 }>()
 
-const setupCommand = MCP_ADD_COMMAND
+// Read at setup: forgeGlobal's backend URL is resolved during app boot,
+// before any component mounts.
+const setupCommand = mcpAddCommand()
 const serverName = MCP_SERVER_NAME
-const serverUrl = MCP_SERVER_URL
+const serverUrl = mcpServerUrl()
 
 const tokenReady = computed(() => isUsableSessionToken(props.token))
 const promptText = computed(() => buildConnectPrompt(props.token))

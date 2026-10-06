@@ -203,7 +203,7 @@ import AgentStatusHeader from './AgentStatusHeader.vue'
 import SessionTtl from './SessionTtl.vue'
 import RailActions from './RailActions.vue'
 import SessionNotice from './SessionNotice.vue'
-import { MCP_ADD_COMMAND, buildConnectPrompt } from '@/composables/agentLink/connectInstructions'
+import { buildConnectPrompt, mcpAddCommand } from '@/composables/agentLink/connectInstructions'
 
 
 const props = withDefaults(
@@ -261,7 +261,7 @@ const SetupInstructions = defineComponent({
         h(
           'pre',
           { class: 'agent-link-panel__command', 'data-testid': 'agent-link-setup-command' },
-          MCP_ADD_COMMAND
+          mcpAddCommand()
         ),
       ])
   },

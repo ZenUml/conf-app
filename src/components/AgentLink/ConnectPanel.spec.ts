@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConnectPanel from './ConnectPanel.vue'
+import forgeGlobal from '@/model/globals/forgeGlobal'
 import AgentStatusHeader from './AgentStatusHeader.vue'
 import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
@@ -153,12 +154,14 @@ describe('ConnectPanel', () => {
     expect(connectPanelSource).toContain('border-color: var(--agent-link-green)')
   })
 
-  it('timeout: shows the setup command', () => {
+  it('timeout: shows the setup command for the backend that minted the session', () => {
+    forgeGlobal.zenumlRemoteBaseUrl = 'https://conf-stg-lite.zenuml.com'
     const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
+    forgeGlobal.zenumlRemoteBaseUrl = undefined
 
     expect(wrapper.find('[data-testid="agent-link-timeout"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain(
-      'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
+      'claude mcp add --transport http conf-agent https://conf-stg-lite.zenuml.com/agent-link/mcp'
     )
     // The dead "Add to Cursor" button (no click handler) and the dead
     // "Use the no-install bridge instead" link (href="#") were removed —

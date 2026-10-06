@@ -252,6 +252,7 @@ jobs:
           export MAX_SHARDS
           [ ! -f selection/test-selection.json ] || export SELECTION_PATH="$PWD/selection/test-selection.json"
           [ ! -f resolved-selection/selection.json ] || export RESOLVED_SELECTION_PATH="$PWD/resolved-selection/selection.json"
+          [ ! -f resolved-selection/changed-files.txt ] || export CHANGED_FILES_PATH="$PWD/resolved-selection/changed-files.txt"
           cd tests/e2e-tests
           node ../../scripts/test-selection/prepare-plan.mjs
       - uses: actions/upload-artifact@v6

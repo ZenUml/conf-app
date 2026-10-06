@@ -26,6 +26,10 @@ describe('independent legacy ID floor', () => {
   it('does not narrow an explicit full request even when selected artifacts are present', () => {
     expect(scopedPlan({ ...options, grep: '' }).tests).toHaveLength(4);
   });
+  it('retains source paths in metrics when a full fallback is required', () => {
+    const plan = scopedPlan({ ...options, grep: '', sourcePaths: ['src/model/Diagram/Diagram.ts'] });
+    expect(plan.selection_metrics).toMatchObject({ mode: 'all', source_paths: ['src/model/Diagram/Diagram.ts'] });
+  });
   it.each([{ ...selection, schema_version: 2 }, { ...selection, diff_complete: false }, { ...selection, required: [] }, { ...selection, categories: { ...selection.categories, sequence: { probability: 0, selected: true } } }])('fails full for malformed raw decision', raw => {
     expect(scopedPlan({ ...options, selection: raw }).tests).toHaveLength(4);
   });

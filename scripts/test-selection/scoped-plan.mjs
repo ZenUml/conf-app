@@ -6,7 +6,7 @@ import { EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 
 // Discovery is performed independently for each filter. In particular, an
 // empty auxiliary legacy scope widens before its IDs become the safety floor.
-export function scopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep = '' }) {
+export function scopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep = '', sourcePaths = [] }) {
   const options = { selection, variant, tree, policy, scope, shards };
   const fullDiscovery = discover('');
   const full = createPlan({ ...options, discovery: fullDiscovery });
@@ -48,7 +48,8 @@ export function scopedPlan({ discover, selection, resolved, head, tree, policy, 
   const finalIds = new Set(ids(final));
   const missing = ids(legacy).filter(id => !finalIds.has(id));
   if (missing.length) throw new Error('Legacy scope coverage was lost');
-  const metrics = { schema_version: 1, policy_version: policy, tested_tree: tree, variant, scope, mode: valid ? 'selected' : 'all', source_paths: valid ? resolved.source_paths : [], deterministic_behavior_selectors: valid ? resolved.deterministic_tags : [], jev_behavior_selectors: valid ? resolved.jev_categories : [], full_count: full.tests.length, legacy_count: legacy.tests.length, jev_count: jev?.tests.length ?? null, final_count: final.tests.length, final_test_ids: ids(final), smoke_count: final.tests.filter(t => t.tags.includes('@smoke')).length, missing_floor_ids: missing, added_to_legacy_ids: ids(final).filter(id => !new Set(ids(legacy)).has(id)), retained_from_legacy_ids: jev ? ids(legacy).filter(id => !new Set(ids(jev)).has(id)) : [], reasons: Array.isArray(resolved?.reasons) && resolved.reasons.every(reason => typeof reason === 'string') ? resolved.reasons : ['missing-or-malformed-resolved-selection'], fallback_reason: valid ? null : full.fallback_reason || selection?.fallback_reason || 'selection-not-authorized', model: selection?.model ?? null, request: selection?.request ?? { outcome: 'not-requested' }, measurement: 'planned-test-counts; timing is reported separately in test-evidence.json' };
+  const fallbackSourcePaths = Array.isArray(sourcePaths) ? sourcePaths.filter(path => typeof path === 'string' && path.length > 0) : [];
+  const metrics = { schema_version: 1, policy_version: policy, tested_tree: tree, variant, scope, mode: valid ? 'selected' : 'all', source_paths: valid ? resolved.source_paths : fallbackSourcePaths, deterministic_behavior_selectors: valid ? resolved.deterministic_tags : [], jev_behavior_selectors: valid ? resolved.jev_categories : [], full_count: full.tests.length, legacy_count: legacy.tests.length, jev_count: jev?.tests.length ?? null, final_count: final.tests.length, final_test_ids: ids(final), smoke_count: final.tests.filter(t => t.tags.includes('@smoke')).length, missing_floor_ids: missing, added_to_legacy_ids: ids(final).filter(id => !new Set(ids(legacy)).has(id)), retained_from_legacy_ids: jev ? ids(legacy).filter(id => !new Set(ids(jev)).has(id)) : [], reasons: Array.isArray(resolved?.reasons) && resolved.reasons.every(reason => typeof reason === 'string') ? resolved.reasons : ['missing-or-malformed-resolved-selection'], fallback_reason: valid ? null : full.fallback_reason || selection?.fallback_reason || 'selection-not-authorized', model: selection?.model ?? null, request: selection?.request ?? { outcome: 'not-requested' }, measurement: 'planned-test-counts; timing is reported separately in test-evidence.json' };
   const { plan_fingerprint: ignored, ...body } = final;
   const plan = { ...body, selection_metrics: metrics };
   return { ...plan, plan_fingerprint: fingerprint(plan) };

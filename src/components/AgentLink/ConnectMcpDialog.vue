@@ -72,7 +72,7 @@
               class="connect-mcp-btn connect-mcp-btn--primary"
               data-testid="connect-mcp-retry"
               @click="emit('retry')"
-            >Start a new session</button>
+            >{{ state === 'already_linked' ? 'Try again' : 'Start a new session' }}</button>
           </div>
         </template>
 
@@ -151,8 +151,11 @@ const props = withDefaults(
     state: AgentLinkClientState
     token: string | null
     diagramTitle?: string
+    // already_linked only: when the other session's lock on this diagram
+    // releases (mint 409's lock_expires_at), for an honest wait time.
+    lockExpiresAt?: number | null
   }>(),
-  { diagramTitle: '' }
+  { diagramTitle: '', lockExpiresAt: null }
 )
 
 const emit = defineEmits<{
@@ -176,7 +179,7 @@ const isTerminal = computed(() =>
 
 const terminalTitle = computed(() => {
   switch (props.state) {
-    case 'already_linked': return 'Another agent is linked to this diagram'
+    case 'already_linked': return 'This diagram is already linked to an agent'
     case 'expired': return 'Session expired'
     case 'failed': return 'Could not start a session'
     default: return 'Session ended'
@@ -185,7 +188,16 @@ const terminalTitle = computed(() => {
 
 const terminalBody = computed(() => {
   switch (props.state) {
-    case 'already_linked': return 'Starting a new session disconnects the other agent.'
+    case 'already_linked': {
+      // Retrying cannot break another session's lock; it only succeeds once
+      // that lock has lapsed, so say when that is when we know it.
+      const until = props.lockExpiresAt
+      if (typeof until === 'number' && until > Date.now()) {
+        const minutes = Math.ceil((until - Date.now()) / 60000)
+        return `Another agent session holds it for ~${minutes} more min. Only one agent can hold the link at a time.`
+      }
+      return 'Another agent session holds it. Only one agent can hold the link at a time.'
+    }
     case 'failed': return 'Something went wrong on our side. Try again in a moment.'
     default: return 'Your diagram is saved. Start a new session to keep editing with your agent.'
   }
@@ -272,7 +284,7 @@ onBeforeUnmount(clearTimers)
 }
 
 .connect-mcp-dialog {
-  width: min(440px, 100%);
+  width: min(520px, 100%);
   max-height: 100%;
   display: flex;
   flex-direction: column;

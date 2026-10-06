@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import ConnectMcpDialog from './ConnectMcpDialog.vue'
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 
-function mountDialog(props: { state: AgentLinkClientState; token?: string | null; visible?: boolean; diagramTitle?: string }) {
+function mountDialog(props: { state: AgentLinkClientState; token?: string | null; visible?: boolean; diagramTitle?: string; lockExpiresAt?: number | null }) {
   return mount(ConnectMcpDialog, { props: { visible: true, token: null, ...props } })
 }
 
@@ -74,6 +74,15 @@ describe('ConnectMcpDialog', () => {
     expect(wrapper.find('[data-testid="connect-mcp-prompt"]').exists()).toBe(false)
     await wrapper.find('[data-testid="agent-link-disconnect-btn"]').trigger('click')
     expect(wrapper.emitted('disconnect')).toHaveLength(1)
+  })
+
+  it('tells the truth about a lock held by another session instead of promising to break it', () => {
+    const wrapper = mountDialog({ state: 'already_linked', lockExpiresAt: Date.now() + 4 * 60000 })
+    const text = wrapper.find('[data-testid="connect-mcp-ended"]').text()
+    expect(text).toContain('already linked to an agent')
+    expect(text).toContain('~4 more min')
+    expect(text).not.toMatch(/disconnects/)
+    expect(wrapper.find('[data-testid="connect-mcp-retry"]').text()).toBe('Try again')
   })
 
   it.each(['closed', 'expired', 'failed', 'already_linked'] as const)('offers a new session from %s', async (state) => {

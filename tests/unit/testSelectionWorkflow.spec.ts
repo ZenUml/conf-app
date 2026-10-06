@@ -19,6 +19,11 @@ describe('staging workflow safety contracts', () => {
     expect(testJob).toContain('RUNNER_STARTED_AT_MS=$(date +%s%3N)');
     expect(testJob).toContain('RUNNER_SETUP_DURATION_MS=$(( $(date +%s%3N) - RUNNER_STARTED_AT_MS ))');
   });
+  it('uses the displayed selected job name when querying scheduler timings', () => {
+    const yaml = workflow('build-test-deploy');
+    expect(yaml).toContain("'E2E: Lite (selected)' || 'E2E: Lite'");
+    expect(yaml).toContain("'E2E: Lite render (selected)' || 'E2E: Lite render'");
+  });
   it('keeps classification and privileged publication on trusted code', () => {
     expect(workflow('build-test-deploy')).toContain('ref: ${{ github.event.pull_request.base.sha || github.sha }}');
     expect(workflow('build-test-deploy')).toContain('--mode enabled');

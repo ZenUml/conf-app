@@ -662,7 +662,7 @@ jobs:
       # evidence while retaining the existing main/release insert budget.
       timeout-minutes: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
       artifact-suffix: lite-stg
-      timing-job-prefix: "E2E: Lite"
+      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite (selected)' || 'E2E: Lite' }}"
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
@@ -704,7 +704,7 @@ jobs:
       # the auth.setup dependency test and reads one higher per shard.
       timeout-minutes: 12
       artifact-suffix: lite-stg-graph-publish
-      timing-job-prefix: "E2E: Lite DrawIO Publish"
+      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite DrawIO Publish (selected)' || 'E2E: Lite DrawIO Publish' }}"
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -731,7 +731,7 @@ jobs:
       # Empty on main and on an unselective PR run (whole suite).
       grep: ${{ needs.select.outputs.grep }}
       artifact-suffix: lite-stg-render
-      timing-job-prefix: "E2E: Lite render"
+      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite render (selected)' || 'E2E: Lite render' }}"
       # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
       # creates any fixture missing from config/render-fixtures.json, and
       # running it on multiple shards at once would race them into creating

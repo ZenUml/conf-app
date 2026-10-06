@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 import { PROJECT_DEPENDENCIES } from '../../tests/e2e-tests/config/project-dependencies.mjs';
 import { CATEGORY_VERSION, CATEGORIES, VARIANTS } from '../../tests/e2e-tests/config/categories.mjs';
+import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
+import { EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 export const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function createPlan({selection, discovery, variant, tree, policy, shards = 1, changedFiles = [], scope = 'all', legacyGrep = '', testIds = null}) {
   if (!VARIANTS.includes(variant) || !tree || !policy) throw new Error('variant, tree and policy are required');
@@ -28,7 +30,7 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   const known = new Set(CATEGORIES.map(c => c.id));
   if (tests.some(t => !t.tags.some(x => x.startsWith('@variant:')) || t.tags.filter(x => x.startsWith('@variant:')).some(x => !VARIANTS.includes(x.slice(9))))) throw new Error('Invalid or missing variant applicability');
   const reasons = [];
-  if (!selection || selection.schema_version !== 1 || selection.tested_tree !== tree || selection.category_version !== CATEGORY_VERSION || selection.policy_version !== policy) reasons.push('invalid-or-stale-selection');
+  if (!selection || selection.schema_version !== 1 || selection.tested_tree !== tree || selection.category_version !== CATEGORY_VERSION || selection.policy_version !== policy || selection.selector_catalog_version !== EXECUTION_SELECTOR_CATALOG_VERSION || selection.selector_catalog_fingerprint !== EXECUTION_SELECTOR_CATALOG_FINGERPRINT) reasons.push('invalid-or-stale-selection');
   if (Object.keys(selection?.categories ?? {}).some(c => !known.has(c))) reasons.push('unknown-category');
   if (tests.some(t => !t.tags.some(x => x.startsWith('@test:') && known.has(x.slice(6))) || !t.tags.some(x => VARIANTS.includes(x.replace('@variant:', ''))))) reasons.push('incomplete-inventory');
   const applicable = tests.filter(t => t.tags.includes(`@variant:${variant}`));
@@ -36,7 +38,7 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   // Guarded activation already resolved the union into discovery's grep.
   // Raw Jev categories must never re-filter away the deterministic floor
   // (or the deliberately widened auxiliary scope).
-  const full = ['v2-guarded-uncalibrated', 'v3-guarded-uncalibrated'].includes(policy) || reasons.length > 0 || selection.mode === 'all' || selection.execution_mode !== 'enabled';
+  const full = ['v2-guarded-uncalibrated', 'v3-guarded-uncalibrated', 'v4-behavior-selectors-v1'].includes(policy) || reasons.length > 0 || selection.mode === 'all' || selection.execution_mode !== 'enabled';
   if (testIds && testIds.some(id => !applicable.some(t => t.id === id))) throw new Error('Selected identity absent from full inventory');
   const authorizedIds = testIds && !reasons.length && selection.mode === 'selected' && selection.execution_mode === 'enabled' ? testIds : null;
   const selected = applicable.filter(t => authorizedIds ? authorizedIds.includes(t.id) : full || t.tags.includes('@smoke') || [...changedFiles, ...(selection?.changed_tests ?? [])].some(f => f.endsWith(t.file)) || t.tags.some(tag => tag.startsWith('@test:') && selection.categories?.[tag.slice(6)]?.selected));
@@ -50,7 +52,7 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   const requiredProjects = new Set();
   function dependency(p) { for (const d of dependencies[p] ?? []) { if (!requiredProjects.has(d)) {requiredProjects.add(d); dependency(d);} } }
   selected.forEach(t => dependency(t.project));
-  const plan = {schema_version:1, tested_tree:tree, category_version:CATEGORY_VERSION, policy_version:policy, variant, scope, coverage:authorizedIds ? (selected.length === applicable.length ? 'full' : 'selected') : full && !legacyGrep?'full':'selected', legacy_grep:legacyGrep, fallback_reason:reasons.join(',') || selection.fallback_reason || null, dependencies:[...requiredProjects].sort(), tests:selected, shards:buckets.map((tests,i)=>({index:i+1, test_ids:tests.map(t=>t.id), projects:[...new Set(tests.map(t=>t.project))], files:[...new Set(tests.map(t=>t.file))]}))};
+  const plan = {schema_version:1, tested_tree:tree, category_version:CATEGORY_VERSION, policy_version:policy, selector_catalog_version:EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint:EXECUTION_SELECTOR_CATALOG_FINGERPRINT, variant, scope, coverage:authorizedIds ? (selected.length === applicable.length ? 'full' : 'selected') : full && !legacyGrep?'full':'selected', legacy_grep:legacyGrep, fallback_reason:reasons.join(',') || selection.fallback_reason || null, dependencies:[...requiredProjects].sort(), tests:selected, shards:buckets.map((tests,i)=>({index:i+1, test_ids:tests.map(t=>t.id), projects:[...new Set(tests.map(t=>t.project))], files:[...new Set(tests.map(t=>t.file))]}))};
   return {...plan, plan_fingerprint:fingerprint(plan)};
 }
 function args(argv) {return Object.fromEntries(argv.reduce((a,x,i)=> x.startsWith('--') ? [...a,[x.slice(2),argv[i+1]]] : a, []));}

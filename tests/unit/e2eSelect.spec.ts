@@ -6,8 +6,8 @@
  */
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { ALL_TAGS } from '../e2e-tests/config/tags';
-import { IMPACT, NO_E2E_IMPACT, RUN_EVERYTHING } from '../e2e-tests/config/impact-map.mjs';
+import { ALL_TAGS, EXECUTION_SELECTOR_TAGS } from '../e2e-tests/config/tags';
+import { EXECUTION_IMPACT, IMPACT, NO_E2E_IMPACT, RUN_EVERYTHING } from '../e2e-tests/config/impact-map.mjs';
 import { globToRegExp, select } from '../../scripts/e2e-select.mjs';
 
 const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean);
@@ -19,7 +19,18 @@ describe('impact map', () => {
     expect(unknown).toEqual([]);
   });
 
+  it('maps execution impact only to behavior selectors or required smoke', () => {
+    const invalid = EXECUTION_IMPACT.flatMap(({ glob, tags }) => tags
+      .filter((tag) => tag !== '@smoke' && !EXECUTION_SELECTOR_TAGS.includes(tag))
+      .map((tag) => `${glob}: ${tag}`));
+    expect(invalid).toEqual([]);
+  });
+
   it.each(IMPACT.map(({ glob }) => glob))('IMPACT glob %s matches a tracked file', (glob) => {
+    expect(matchesTracked(glob)).toBe(true);
+  });
+
+  it.each(EXECUTION_IMPACT.map(({ glob }) => glob))('EXECUTION_IMPACT glob %s matches a tracked file', (glob) => {
     expect(matchesTracked(glob)).toBe(true);
   });
 
@@ -47,12 +58,23 @@ describe('glob matching', () => {
 });
 
 describe('select()', () => {
-  it('always includes @smoke and unions the tags of the changed files', () => {
-    const r = select(['src/components/Mermaid.vue', 'src/utils/paywall/gate.ts']);
+  it('selects Mermaid render and viewport behavior, plus required smoke', () => {
+    const r = select(['src/components/Mermaid.vue']);
     expect(r.mode).toBe('selected');
-    // Mermaid.vue carries @viewport too: it drives the shared pan/zoom viewport.
-    expect(r.tags).toEqual(['@editor', '@mermaid', '@paywall', '@smoke', '@viewer', '@viewport']);
-    expect(r.grep).toBe('@editor|@mermaid|@paywall|@smoke|@viewer|@viewport');
+    expect(r.tags).toEqual(['@smoke', '@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid']);
+    expect(r.grep).toBe('@smoke|@test:mermaid|@test:mermaid-render|@test:viewport-mermaid');
+  });
+
+  it('selects Mermaid syntax behavior without viewer or editor expansion', () => {
+    const r = select(['src/utils/mermaid/validate.ts']);
+    expect(r.mode).toBe('selected');
+    expect(r.tags).toEqual(['@smoke', '@test:mermaid-syntax']);
+  });
+
+  it('falls back to all tests for an area that only has descriptive impact tags', () => {
+    const r = select(['src/utils/paywall/gate.ts']);
+    expect(r.mode).toBe('all');
+    expect(r.reasons).toEqual(['src/utils/paywall/gate.ts: descriptive impact tags → runs everything (@paywall)']);
   });
 
   it('runs everything for a shared file, an unmapped file, or no files', () => {

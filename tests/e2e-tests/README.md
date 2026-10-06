@@ -92,7 +92,7 @@ file (`src/forgeIndex.ts`, `src/model/**`, `package.json`, anything under
 the run unselective. `main` always runs the whole suite. Try it locally:
 
 ```bash
-node scripts/e2e-select.mjs src/components/Mermaid.vue         # → @editor|@mermaid|@smoke|@viewer
+node scripts/e2e-select.mjs src/components/Mermaid.vue         # → @smoke|@test:mermaid|@test:mermaid-render|@test:viewport-mermaid
 node scripts/e2e-select.mjs --base origin/main --head HEAD     # your branch's selection
 ```
 

@@ -2,8 +2,9 @@ import { CATEGORIES, VARIANTS } from './categories.mjs';
 /**
  * The closed tag taxonomy every E2E spec carries (ADR-0007 §5).
  *
- * Three axes. A spec declares at least one SURFACE tag and at least one TYPE
- * or CONCERN tag on each of its top-level `test.describe(...)` / `test(...)`
+ * Four axes. A spec declares at least one SURFACE tag, at least one TYPE or
+ * CONCERN tag, and one or more BEHAVIOR tags on each of its top-level
+ * `test.describe(...)` / `test(...)`
  * calls, as Playwright `{ tag: [...] }` details. `tests/unit/e2eTags.spec.ts`
  * polices both the closedness (no tag outside these lists) and the coverage
  * (no top-level block without them), the way `storyTitles.spec.ts` polices the
@@ -14,6 +15,8 @@ import { CATEGORIES, VARIANTS } from './categories.mjs';
  * src/utils/analytics/catalog.ts (and CONTEXT.md), so one word names the same
  * thing in Mixpanel, in the Storybook sidebar and here. TYPE is `DiagramType`
  * plus `asyncapi`. CONCERN is the cross-cutting feature the spec pins.
+ * BEHAVIOR names the concrete user journey and is the only axis that can
+ * select tests for PR execution.
  *
  * Why the tags exist: the impact-based test selection on PRs maps changed
  * source paths to these tags and runs only the specs that carry them (always
@@ -64,7 +67,11 @@ export const CONCERN_TAGS = [
   '@viewport',
 ] as const;
 
+// The only tags that may drive PR execution selection. Surface, type and
+// concern tags describe a test for people and reports; they are intentionally
+// excluded here so a broad label cannot expand a narrow behavior plan.
 export const BEHAVIOR_TAGS: string[] = CATEGORIES.map((c) => `@test:${c.id}`);
+export const EXECUTION_SELECTOR_TAGS: readonly string[] = BEHAVIOR_TAGS;
 export const VARIANT_TAGS: string[] = VARIANTS.map((v) => `@variant:${v}`);
 
 export const ALL_TAGS: readonly string[] = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS, ...BEHAVIOR_TAGS, ...VARIANT_TAGS];

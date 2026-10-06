@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 import { canReuse } from './evidence.mjs';
 import { fingerprint } from './plan.mjs';
 import { CATEGORY_VERSION } from '../../tests/e2e-tests/config/categories.mjs';
+import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
+import { EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { POLICY_VERSION } from './classify.mjs';
 
 export function validateReuse({ plan, evidence, tree, scope }) {
@@ -11,6 +13,8 @@ export function validateReuse({ plan, evidence, tree, scope }) {
   return plan.schema_version === 1 && plan.coverage === 'full' && plan.variant === 'lite'
     && plan.scope === scope && plan.tested_tree === tree && plan.tests.length > 0
     && plan.category_version === CATEGORY_VERSION && plan.policy_version === POLICY_VERSION
+    && plan.selector_catalog_version === EXECUTION_SELECTOR_CATALOG_VERSION
+    && plan.selector_catalog_fingerprint === EXECUTION_SELECTOR_CATALOG_FINGERPRINT
     && fingerprint(body) === plan_fingerprint && canReuse(evidence, plan);
 }
 

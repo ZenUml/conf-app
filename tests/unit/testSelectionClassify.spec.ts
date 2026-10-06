@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classify, pathRule } from '../../scripts/test-selection/classify.mjs';
+import { CATEGORY_SELECTION_THRESHOLD, classify, isUnitTestPath, pathRule, SENSITIVE_DIFF_PATTERN } from '../../scripts/test-selection/classify.mjs';
 import { CATEGORIES } from '../e2e-tests/config/categories.mjs';
 import { publishLabels } from '../../scripts/test-selection/labels.mjs';
 import { evaluate } from '../../scripts/test-selection/replay.mjs';
@@ -7,7 +7,8 @@ const diff = { base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), tested_tree: 
 const body = (probability = 0.02) => ({ model: 'jev-1.13.0', usage: { input_tokens: 12, output_tokens: 5 }, answers: Object.fromEntries(CATEGORIES.map(c => [c.id, { type: 'noul', noul: probability }])) });
 const response = (b: any) => async () => new Response(JSON.stringify(b), { status: 200 });
 describe('Jev conservative classification', () => {
-  it('selects uncertain categories, but observation never narrows execution', async () => { const r = await classify({ diff, apiKey: 'fake', fetchImpl: response(body(0.4)) }); expect(r.mode).toBe('selected'); expect(r.execution_mode).toBe('observe'); expect(Object.values(r.categories).every((c: any) => c.selected && c.uncertain)).toBe(true); });
+  it('selects only high-confidence categories, but observation never narrows execution', async () => { const r = await classify({ diff, apiKey: 'fake', fetchImpl: response(body(0.9)) }); expect(r.mode).toBe('selected'); expect(r.execution_mode).toBe('observe'); expect(Object.values(r.categories).every((c: any) => c.selected && !c.uncertain)).toBe(true); });
+  it('leaves weaker associations unselected', async () => { const r = await classify({ diff, apiKey: 'fake', fetchImpl: response(body(CATEGORY_SELECTION_THRESHOLD - 0.01)) }); expect(r.fallback_reason).toBe('empty-selection'); expect(Object.values(r.categories).every((c: any) => !c.selected && c.uncertain)).toBe(true); });
   it('enables guarded selection without claiming calibration', async () => { const r = await classify({ diff, apiKey: 'fake', mode: 'enabled', fetchImpl: response(body(0.9)) }); expect(r.execution_mode).toBe('enabled'); expect(r.rules).toContain('deterministic-coverage-floor-required'); });
   it.each([
     [{ ...diff, complete: false }, 'key', false, 'incomplete-diff'],
@@ -18,6 +19,28 @@ describe('Jev conservative classification', () => {
   ])('fails closed for deterministic rules', async (d, key, full, reason) => { const r = await classify({ diff: d, apiKey: key, humanFull: full, fetchImpl: () => { throw new Error('must not call'); } }); expect(r.mode).toBe('all'); expect(r.fallback_reason).toBe(reason); });
   it.each([{}, { ...body(), answers: {} }, { ...body(), answers: Object.fromEntries(CATEGORIES.map(c => [c.id, { type: 'noul', noul: 2 }])) }])('rejects malformed or incomplete answers', async b => { expect((await classify({ diff, apiKey: 'fake', fetchImpl: response(b) })).fallback_reason).toBe('api-invalid-or-timeout'); });
   it('does not transmit likely customer or credential data', async () => { const r = await classify({ diff: { ...diff, diff: 'https://customer.atlassian.net/wiki' }, apiKey: 'fake', fetchImpl: () => { throw new Error('must not transmit'); } }); expect(r.fallback_reason).toBe('potential-sensitive-diff'); });
+  it('does not mistake a Vue token binding for a hard-coded secret', () => {
+    expect(SENSITIVE_DIFF_PATTERN.test(':token="agentLinkToken"')).toBe(false);
+    expect(SENSITIVE_DIFF_PATTERN.test("token: 'actual-secret'" )).toBe(true);
+  });
+  it('excludes only unit-test fixture content from the Jev diff', () => {
+    expect(isUnitTestPath('src/components/AgentLink/ConnectMcpDialog.spec.ts')).toBe(true);
+    expect(isUnitTestPath('tests/e2e-tests/tests/agent-link/agent-link-e2e.spec.ts')).toBe(false);
+    expect(isUnitTestPath('src/components/AgentLink/ConnectMcpDialog.vue')).toBe(false);
+  });
+  it('permits behavior-specific analytics and Agent Link helper diffs for classification', () => {
+    expect(pathRule('src/utils/analytics/catalog.ts')).toBeNull();
+    expect(pathRule('tests/e2e-tests/helpers/agentLink.ts')).toBeNull();
+  });
+  it('asks Jev to widen direct spec coverage from behavior evidence rather than filenames alone', async () => {
+    let payload: any;
+    await classify({ diff, apiKey: 'fake', mode: 'enabled', fetchImpl: async (_url: string, init: any) => {
+      payload = JSON.parse(init.body);
+      return new Response(JSON.stringify(body(0.9)), { status: 200 });
+    } });
+    expect(payload.state.instructions).toContain('Changed E2E specs are already selected directly');
+    expect(payload.state.instructions).toContain('Do not select generic, adjacent, or format-wide categories');
+  });
   it('handles API rejection and timeout', async () => { expect((await classify({ diff, apiKey: 'fake', fetchImpl: async () => new Response('', { status: 401 }) })).fallback_reason).toBe('api-http-error'); expect((await classify({ diff, apiKey: 'fake', fetchImpl: async () => { throw new Error('abort'); } })).mode).toBe('all'); });
   it('checks renamed old paths and deleted paths conservatively', async () => { const r = await classify({ diff: { ...diff, paths: ['src/model/old.ts', 'src/components/new.vue'], changes: [{ status: 'R100', path: 'src/components/new.vue', old_path: 'src/model/old.ts' }] }, apiKey: 'fake' }); expect(r.fallback_reason).toBe('shared-path'); expect(pathRule('src/model/deleted.ts')).toBe('shared-path'); });
 });

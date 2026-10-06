@@ -58,23 +58,24 @@ describe('glob matching', () => {
 });
 
 describe('select()', () => {
-  it('selects Mermaid render and viewport behavior, plus required smoke', () => {
+  it('leaves Mermaid behavior selection to Jev while retaining required smoke', () => {
     const r = select(['src/components/Mermaid.vue']);
     expect(r.mode).toBe('selected');
-    expect(r.tags).toEqual(['@smoke', '@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid']);
-    expect(r.grep).toBe('@smoke|@test:mermaid|@test:mermaid-render|@test:viewport-mermaid');
+    expect(r.tags).toEqual(['@smoke']);
+    expect(r.grep).toBe('@smoke');
   });
 
-  it('selects Mermaid syntax behavior without viewer or editor expansion', () => {
+  it('leaves Mermaid syntax behavior to Jev without viewer or editor expansion', () => {
     const r = select(['src/utils/mermaid/validate.ts']);
     expect(r.mode).toBe('selected');
-    expect(r.tags).toEqual(['@smoke', '@test:mermaid-syntax']);
+    expect(r.tags).toEqual(['@smoke']);
   });
 
-  it('falls back to all tests for an area that only has descriptive impact tags', () => {
+  it('leaves descriptive behavior selection to Jev instead of treating the tag as an execution filter', () => {
     const r = select(['src/utils/paywall/gate.ts']);
-    expect(r.mode).toBe('all');
-    expect(r.reasons).toEqual(['src/utils/paywall/gate.ts: descriptive impact tags → runs everything (@paywall)']);
+    expect(r.mode).toBe('selected');
+    expect(r.tags).toEqual(['@smoke']);
+    expect(r.reasons).toEqual(['src/utils/paywall/gate.ts: Jev-classified behavior (@paywall)']);
   });
 
   it('runs everything for a shared file, an unmapped file, or no files', () => {
@@ -85,8 +86,28 @@ describe('select()', () => {
     expect(select(['src/forgeIndex.ts']).grep).toBe('');
   });
 
-  it('runs everything when an E2E spec changes', () => {
-    expect(select(['tests/e2e-tests/tests/insert/mermaid.spec.ts']).mode).toBe('all');
+  it('keeps a changed E2E spec as direct coverage alongside the smoke floor', () => {
+    const r = select(['tests/e2e-tests/tests/insert/mermaid.spec.ts']);
+    expect(r.mode).toBe('selected');
+    expect(r.tags).toEqual(['@smoke']);
+    expect(r.direct_test_files).toEqual(['insert/mermaid.spec.ts']);
+  });
+
+  it('does not promise direct PR coverage for a preview-only spec', () => {
+    expect(select(['tests/e2e-tests/tests/viewer-preview-overflow-menu.spec.ts'])).toMatchObject({
+      mode: 'selected', tags: ['@smoke'], direct_test_files: [],
+    });
+  });
+
+  it('directly selects known dependent specs when a behavior-specific E2E helper changes', () => {
+    const r = select(['tests/e2e-tests/helpers/agentLink.ts']);
+    expect(r.mode).toBe('selected');
+    expect(r.tags).toEqual(['@smoke']);
+    expect(r.direct_test_files).toEqual(['agent-link/agent-link-e2e.spec.ts', 'agent-link/agent-link-multi-page-crosstalk.spec.ts']);
+  });
+
+  it('leaves analytics registration for Jev classification', () => {
+    expect(select(['src/utils/analytics/catalog.ts'])).toMatchObject({ mode: 'selected', tags: ['@smoke'] });
   });
 
   it('selects only @smoke for files with no E2E impact', () => {

@@ -1122,14 +1122,20 @@ export type AnalyticsEventName =
   // not. `_view_requested` is the only proof the host actually fetched the view
   // — without it we cannot tell "host does not support apps" from "host support
   // negotiated but the iframe never rendered", which is a real open bug
-  // upstream (modelcontextprotocol/ext-apps#671).
+  // upstream (modelcontextprotocol/ext-apps#671). Both carry `oauth_client_id`
+  // and `oauth_client_name` (the DCR registration's client_name), because a
+  // view fetch has no clientInfo of its own; `_failed` also carries `detail`
+  // (≤120 chars: the URI asked for, or the guard's message). Without those the
+  // 2026-09-29 burst of eight failures could only be attributed by hand.
   | "agent_link_app_view_requested"
   | "agent_link_app_view_failed"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the
   // only way to tell "the host never offered MCP Apps" apart from "it offered
   // them and did not render" — the view-fetch events cover the second case
   // only, and on 2026-10-03 a Desktop session rendered nothing while never
-  // fetching the view, which neither existing event could explain.
+  // fetching the view, which neither existing event could explain. Carries
+  // `oauth_client_id`, the key the view events share, so a handshake can be
+  // joined to the view fetch it did or did not lead to.
   | "agent_link_mcp_initialized"
   // X — headless writes (design §7/§10). Backend-emitted, for the same reason
   // as the pair above. `_created` carries the AddToPageResult-shaped outcome

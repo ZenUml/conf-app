@@ -25,6 +25,8 @@ import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from '
 import { readUiResource, uiCapability, uiResourceList, withUiMeta, UI_EXTENSION_ID } from './mcpApps';
 import type { GateEnv } from './headlessGate';
 import { mixpanelTrack } from '../../service/mixpanelService';
+import { loadClient, type McpTokenRecord } from './asStore';
+import type { GrantStore } from './tokenStore';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -187,6 +189,7 @@ export function clientDeclaresUi(params: unknown): boolean {
 async function trackInitialize(
   env: HeadlessEnv,
   userId: string,
+  clientId: string,
   params: unknown,
   negotiated: string,
 ): Promise<void> {
@@ -202,6 +205,9 @@ async function trackInitialize(
         client_declares_ui: clientDeclaresUi(params),
         protocol_version: negotiated,
         mcp_client_name: typeof info?.name === 'string' ? info.name : 'unknown',
+        // The key the view events carry too, so a handshake and the view fetch
+        // it led to (or did not) can be joined per host.
+        oauth_client_id: clientId,
       },
       env.MIXPANEL_TOKEN,
     ));
@@ -210,20 +216,54 @@ async function trackInitialize(
   }
 }
 
+/** Long enough to name the cause, short enough that an event never carries a page of text. */
+const VIEW_DETAIL_MAX = 120;
+
+/**
+ * Which registered OAuth client — which host — this token was issued to.
+ *
+ * `resources/read` carries no `clientInfo`: the endpoint is stateless, and
+ * only `initialize` names the client. The token does know, though: every host
+ * registers its own client through DCR, and the registration keeps the
+ * `client_name` it sent. One KV read, made only on a view fetch, which is rare.
+ * A failed lookup costs the name, never the event.
+ */
+async function clientNameFor(store: GrantStore, clientId: string): Promise<string> {
+  try {
+    const client = await loadClient(store, clientId);
+    return typeof client?.clientName === 'string' && client.clientName ? client.clientName.slice(0, 80) : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 async function trackViewRead(
   env: HeadlessEnv,
-  userId: string,
-  outcome: { ok: true } | { ok: false; reason: string },
+  store: GrantStore,
+  token: McpTokenRecord,
+  outcome: { ok: true } | { ok: false; reason: string; detail?: string },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   try {
     await withTimeout(mixpanelTrack(
       {
         event: outcome.ok ? 'agent_link_app_view_requested' : 'agent_link_app_view_failed',
-        user_account_id: userId,
+        user_account_id: token.userId,
         feature_area: 'agent_link',
         surface: 'backend',
-        ...(outcome.ok ? {} : { reason: outcome.reason }),
+        // Which host asked. Without it the 2026-09-29 failures could only be
+        // attributed by lining their hour up against git history.
+        oauth_client_id: token.clientId,
+        oauth_client_name: await clientNameFor(store, token.clientId),
+        // `detail` names the cause: the URI asked for on unknown_uri, the
+        // guard's message or upstream status on fetch_failed. `reason` alone
+        // said only which of two buckets, which left the 09-29 burst a guess.
+        ...(outcome.ok
+          ? {}
+          : {
+              reason: outcome.reason,
+              ...(outcome.detail ? { detail: outcome.detail.slice(0, VIEW_DETAIL_MAX) } : {}),
+            }),
       },
       env.MIXPANEL_TOKEN,
     ));
@@ -337,7 +377,7 @@ export async function handleHeadlessRpc(
       const negotiated = negotiateProtocolVersion(
         (body.params as { protocolVersion?: unknown } | undefined)?.protocolVersion,
       );
-      await trackInitialize(env, auth.token.userId, body.params, negotiated);
+      await trackInitialize(env, auth.token.userId, auth.token.clientId, body.params, negotiated);
       return result(id, {
         protocolVersion: negotiated,
         // `resources` exists solely to serve the MCP Apps view, so the two are
@@ -362,7 +402,12 @@ export async function handleHeadlessRpc(
       // The injected fetch, like every other outbound call here — otherwise
       // this branch is the one thing in the module a test cannot stub.
       const read = await readUiResource(rparams.uri, new URL(request.url).origin, (u) => fetchImpl(u));
-      await trackViewRead(env, auth.token.userId, read.ok ? { ok: true } : { ok: false, reason: read.reason });
+      await trackViewRead(
+        env,
+        store,
+        auth.token,
+        read.ok ? { ok: true } : { ok: false, reason: read.reason, detail: read.detail },
+      );
       if (!read.ok) {
         // 'unknown_uri' is the client's mistake; 'fetch_failed' is ours, and
         // saying which saves an hour of looking in the wrong place.

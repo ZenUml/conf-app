@@ -237,6 +237,7 @@ modules:
           - pattern: https://confluence.zenuml.com/d/plantuml/*/*
       unlicensedAccess:
         - unlicensed
+        - anonymous
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
       title: OpenAPI / Swagger${LITE_TITLE_SUFFIX}
       description: Create an OpenAPI / Swagger Spec. ${APP_LABEL}
@@ -255,6 +256,7 @@ modules:
           - pattern: https://confluence.zenuml.com/d/openapi/*/*
       unlicensedAccess:
         - unlicensed
+        - anonymous
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
       title: Graph (DrawIO)${LITE_TITLE_SUFFIX}
       description: Create a Graph powered by DrawIO. ${APP_LABEL}
@@ -273,6 +275,7 @@ modules:
           - pattern: https://confluence.zenuml.com/d/graph/*/*
       unlicensedAccess:
         - unlicensed
+        - anonymous
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
       # Paste-to-place. A diagram created from the byline modal has no macro on
       # any page yet; the modal hands back
@@ -302,6 +305,7 @@ modules:
       icon: resource:main;image/diagram_macro_icon.png
       unlicensedAccess:
         - unlicensed
+        - anonymous
     # AsyncAPI macro: ships with the asyncapi variant AND lite (ADR-0005
     # Option A — on lite the content is stored under the shared
     # zenuml-content-sequence type, discriminated by diagramType, like

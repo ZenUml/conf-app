@@ -215,8 +215,6 @@ jobs:
       matrix: ${{ steps.plan.outputs.shard-matrix }}
       count: ${{ steps.plan.outputs.shard-count }}
     steps:
-      - name: Start shard timing
-        run: echo "RUNNER_STARTED_AT_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -323,6 +321,11 @@ jobs:
         # the input's description and the note above `jobs:`.
         shard: ${{ fromJSON(inputs.planned && needs.plan.outputs.matrix || inputs.shard-matrix) }}
     steps:
+      # Each shard has an independent runner. Record this runner's start before
+      # checkout and dependency setup; a plan-job environment cannot cross the
+      # job boundary.
+      - name: Start shard timing
+        run: echo "RUNNER_STARTED_AT_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}

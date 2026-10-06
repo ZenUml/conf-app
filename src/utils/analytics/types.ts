@@ -712,6 +712,10 @@ export type AnalyticsProperties = {
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
+  // Sequence macro only: whether the self-hosted IBM Plex Sans face reached `loaded`
+  // before the first render. 'fallback' = core measured text with Helvetica (Forge CSP
+  // refuses core's own data: font). Absent on other macro types.
+  diagram_font?: 'plex' | 'fallback';
   // Publish/save round-trip latency, in ms. Rides on macro_create_succeeded /
   // macro_save_succeeded. Measures how long the persistence to Confluence took
   // — from the start of saveToPlatform's real work (custom-content save +

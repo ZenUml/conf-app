@@ -45,6 +45,20 @@ export const WHATS_NEW_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 /** Newest first. */
 export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
   {
+    id: '2026-10-anonymous-viewing',
+    publishedAt: '2026-10-06',
+    variants: ['lite', 'diagramly'],
+    headline: 'Diagrams now support anonymous viewing',
+    items: [
+      {
+        id: 'anonymous-viewing',
+        title: 'View diagrams without signing in',
+        body: 'Visitors can view diagrams on Confluence pages that allow anonymous access. This update does not change site, space, or page permissions.',
+        url: 'https://zenuml.com/docs/anonymous-viewing/',
+      },
+    ],
+  },
+  {
     // #660, #664, #687 — live in Lite (v2026.10.021754-lite) and in the latest
     // Full / Diagramly tags; not in AsyncAPI's latest release, so not announced there.
     id: '2026-10',

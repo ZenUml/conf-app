@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import WhatsNewBanner from '@/components/WhatsNew/WhatsNewBanner.vue';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { readBannerRecord } from '@/utils/whatsNew/state';
-import type { WhatsNewRelease } from '@/utils/whatsNew/releases';
+import { currentRelease, type WhatsNewRelease } from '@/utils/whatsNew/releases';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
 
@@ -37,8 +37,8 @@ const RELEASE: WhatsNewRelease = {
 const events = (name: string) =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([n]) => n === name);
 
-async function mountBanner() {
-  const wrapper = mount(WhatsNewBanner, { props: { release: RELEASE } });
+async function mountBanner(release: WhatsNewRelease = RELEASE) {
+  const wrapper = mount(WhatsNewBanner, { props: { release } });
   await flushPromises();
   return wrapper;
 }
@@ -89,6 +89,24 @@ describe('WhatsNewBanner', () => {
     await flushPromises();
     expect(openUrl).toHaveBeenCalledWith('https://zenuml.com/a');
     expect(events('whats_new_link_clicked')[0][1]).toMatchObject({ whats_new_item_id: 'a' });
+  });
+
+  it('expands the live anonymous-viewing release and tracks its release and item keys', async () => {
+    const release = currentRelease('lite', Date.parse('2026-10-06T12:00:00Z'));
+    expect(release).not.toBeNull();
+    if (!release) throw new Error('Expected the anonymous-viewing release to be live');
+
+    const wrapper = await mountBanner(release);
+    await wrapper.find('[data-testid="whats-new-toggle"]').trigger('click');
+    expect(wrapper.text()).toContain('View diagrams without signing in');
+
+    await wrapper.find('[data-testid="whats-new-link"]').trigger('click');
+    await flushPromises();
+    expect(openUrl).toHaveBeenCalledWith('https://zenuml.com/docs/anonymous-viewing/');
+    expect(events('whats_new_link_clicked')[0][1]).toMatchObject({
+      whats_new_release_id: '2026-10-anonymous-viewing',
+      whats_new_item_id: 'anonymous-viewing',
+    });
   });
 
   it('retires the release on dismiss and closes the frame', async () => {

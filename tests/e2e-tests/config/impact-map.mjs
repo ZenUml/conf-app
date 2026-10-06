@@ -3,10 +3,10 @@
 //
 // Evaluation order for one changed file, first match wins:
 //   1. RUN_EVERYTHING — the run becomes unselective (`mode: all`).
-//   2. NO_E2E_IMPACT  — contributes nothing (unit tests, stories, docs).
-//   3. EXECUTION_IMPACT — the union of behavior selectors for an explicitly
-//                         contracted source area.
-//   4. IMPACT         — descriptive-only impact; it deliberately runs all.
+//   2. changed E2E spec — selects its concrete tests directly.
+//   3. NO_E2E_IMPACT  — contributes nothing (unit tests, stories, docs).
+//   4. IMPACT         — descriptive-only context for Jev; it contributes no
+//                         deterministic selector of its own.
 //   5. no match       — unmapped, the run becomes unselective.
 // `@smoke` is always selected. The map is deliberately conservative: when in
 // doubt a path is left unmapped, which costs a full run, never a missed spec.
@@ -33,8 +33,8 @@ export const RUN_EVERYTHING = [
   '.github/**', 'scripts/e2e-select.mjs',
   // everything the E2E suite stands on — and the specs themselves: a changed
   // spec runs the whole suite (v1; selecting the changed spec is a later step)
-  'tests/e2e-tests/config/**', 'tests/e2e-tests/utils/**', 'tests/e2e-tests/helpers/**',
-  'tests/e2e-tests/fixtures/**', 'tests/e2e-tests/pages/**', 'tests/e2e-tests/tests/**',
+  'tests/e2e-tests/config/**', 'tests/e2e-tests/utils/**',
+  'tests/e2e-tests/fixtures/**', 'tests/e2e-tests/pages/**',
   'tests/e2e-tests/playwright*.config.ts', 'tests/e2e-tests/package.json',
   // the backend request pipeline in front of every function
   'functions/_middleware.ts', 'functions/utils/**', 'functions/feature-flags.ts',
@@ -43,33 +43,22 @@ export const RUN_EVERYTHING = [
 ];
 
 /**
- * glob → behavior selectors. This is the sole map that can narrow PR E2E.
- * Each selector resolves to concrete test identities through the closed
- * `@test:<category>` taxonomy. Keep mappings narrow: source areas without an
- * explicit behavior contract fall through to full coverage below.
+ * The execution catalog is retained in artifact identities so policy changes
+ * fail closed. Jev chooses behavior categories; deterministic selection only
+ * supplies smoke and direct changed-spec coverage.
  */
-export const EXECUTION_SELECTOR_CATALOG_VERSION = 'v1';
-
-export const EXECUTION_IMPACT = [
-  // Mermaid rendering owns SVG creation and its per-engine viewport geometry.
-  // Initial Mermaid creation is retained explicitly even though it is also
-  // required smoke, so the manifest states why that identity ran.
-  { glob: 'src/components/Mermaid.vue', tags: ['@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid'] },
-  // The loader is shared by viewer rendering and editor validation.
-  { glob: 'src/utils/mermaid/loadMermaid.ts', tags: ['@test:mermaid-render', '@test:mermaid-syntax'] },
-  { glob: 'src/utils/mermaid/{renderMermaid,normalizeSvgSizing}.ts', tags: ['@test:mermaid-render'] },
-  { glob: 'src/utils/mermaid/viewportLayout.ts', tags: ['@test:viewport-mermaid'] },
-  // Validation is an editor behavior. It must not pull viewer journeys merely
-  // because the Mermaid macro also renders in a viewer.
-  { glob: 'src/utils/mermaid/{validate,linter,initDirective}.ts', tags: ['@test:mermaid-syntax'] },
-];
+export const EXECUTION_SELECTOR_CATALOG_VERSION = 'v2-jev-decides-behavior';
+export const EXECUTION_IMPACT = [];
 
 /**
- * Descriptive-only glob → tags. These tags remain useful documentation, but
- * they must never become an execution filter: a match here runs all E2E.
+ * Descriptive-only glob → tags. These tags give Jev architectural context but
+ * never become deterministic execution filters on their own.
  */
 export const IMPACT = [
+  { glob: 'tests/e2e-tests/helpers/agentLink.ts', tags: ['@ai'] },
   // ── diagram types ──────────────────────────────────────────────────────
+  { glob: 'src/components/Mermaid.vue', tags: ['@mermaid', '@viewer', '@editor', '@viewport'] },
+  { glob: 'src/utils/mermaid/**', tags: ['@mermaid', '@viewer', '@editor'] },
   { glob: 'src/components/Sequence.vue', tags: ['@sequence', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/sequence/**', tags: ['@sequence', '@viewer', '@editor'] },
   { glob: 'src/components/PlantUml.vue', tags: ['@plantuml', '@viewer', '@editor', '@viewport'] },

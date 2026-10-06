@@ -12,8 +12,8 @@ describe('guarded Jev execution resolver', () => {
   it('runs smoke, Jev decisions and only deterministic behavior selectors', () => {
     const r = resolveSelection(input);
     expect(r.mode).toBe('selected');
-    expect(r.tags).toEqual(expect.arrayContaining(['@smoke', '@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid', `@test:${selected}`]));
-    expect(r.tags).not.toEqual(expect.arrayContaining(['@mermaid', '@viewer', '@editor', '@viewport']));
+    expect(r.tags).toEqual(expect.arrayContaining(['@smoke', `@test:${selected}`]));
+    expect(r.tags).not.toEqual(expect.arrayContaining(['@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid']));
     expect(r.grep).toContain(`@test:${selected}`);
     expect(r.source_paths).toEqual(['src/components/Mermaid.vue']);
   });
@@ -32,6 +32,16 @@ describe('guarded Jev execution resolver', () => {
   it('never overrides shared, unmapped or human full coverage', () => {
     for (const files of [['src/model/Diagram/Diagram.ts'], ['unknown/path']]) expect(resolveSelection({...input, files}).mode).toBe('all');
     expect(resolveSelection({...input, humanFull:true}).mode).toBe('all');
+  });
+  it('retains changed E2E specs as direct selections while unioning helper and source behavior tags', () => {
+    const r = resolveSelection({ ...input, files: [
+      'src/components/AgentLink/ConnectButton.vue',
+      'tests/e2e-tests/helpers/agentLink.ts',
+      'tests/e2e-tests/tests/agent-link/agent-link-e2e.spec.ts',
+    ] });
+    expect(r.mode).toBe('selected');
+    expect(r.deterministic_tags).toEqual(['@smoke']);
+    expect(r.direct_test_files).toEqual(['agent-link/agent-link-e2e.spec.ts', 'agent-link/agent-link-multi-page-crosstalk.spec.ts']);
   });
   it('rejects inconsistent probability and selected fields', () => expect(resolveSelection({...input,selection:{...selection,categories:{...selection.categories,[selected]:{probability:0.02,selected:true}}}}).mode).toBe('all'));
 });

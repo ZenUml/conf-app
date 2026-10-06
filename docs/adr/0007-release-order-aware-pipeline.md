@@ -37,12 +37,13 @@ the critical path. What remained was decided in a design review on 2026-09-11
    release-app skill now reads that verdict and runs the delta spot check in
    parallel with it. Manual `/pvt` remains for AsyncAPI (its prod smoke is
    skipped) and to disambiguate a red smoke shard.
-5. **Test selection on PRs is deterministic; AI only widens.** Every E2E spec
-   carries closed-taxonomy tags (surface × diagram type × concern, aligned with
-   CONTEXT.md's `Surface`); a checked-in path→tag map selects what a PR runs;
-   `@smoke` always runs; shared or unmapped files run everything; the nightly
-   full suite stays. An AI pass over the diff logs what it would add for two
-   weeks before it is allowed to add tags — it can never remove one.
+5. **Test selection on PRs has a deterministic safety boundary and AI chooses
+   business categories.** Every E2E spec carries closed-taxonomy tags (surface
+   × diagram type × concern, aligned with `CONTEXT.md`'s `Surface`); `@smoke`
+   and changed staged-project E2E specs always run, while Jev analyzes the public diff to add
+   business categories. Shared or unmapped files run everything, and the
+   nightly full suite stays. The model can only widen the smoke/direct-spec
+   floor; it cannot exclude those tests.
 6. **Flakes are re-run once and ranked.** A failed E2E shard is re-run once
    automatically (never build or unit); a weekly job ranks specs by retry and
    failure count from the merged reports so root causes get fixed. A second

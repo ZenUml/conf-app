@@ -22,7 +22,7 @@ export function decisionError({ selection, head, tree }) {
 // This policy does not claim that the 0.1 probability threshold is calibrated.
 export function resolveSelection({ selection, files, head, tree, humanFull = false }) {
   const source_paths = Array.isArray(files) ? [...files] : [];
-  const full = reason => ({ mode: 'all', tags: [], grep: '', reasons: [reason], source_paths, policy_version: POLICY_VERSION });
+  const full = reason => ({ mode: 'all', tags: [], grep: '', reasons: [reason], source_paths, direct_test_files: [], policy_version: POLICY_VERSION });
   if (humanFull) return full('human-test-all');
   const floor = select(files);
   if (floor.mode === 'all') return full('deterministic-full-fallback');
@@ -32,7 +32,7 @@ export function resolveSelection({ selection, files, head, tree, humanFull = fal
   if (!chosen.length) return full('empty-jev-selection');
   const tags = [...new Set(['@smoke', ...floor.tags, ...chosen])].sort();
   const jevGrep = categoryGrep(chosen);
-  return { mode: 'selected', tags, grep: [...floor.tags, jevGrep].join('|'), jev_grep: jevGrep, deterministic_grep: floor.tags.join('|'), reasons: ['smoke-required', 'deterministic-coverage-floor', ...floor.reasons, 'jev-selected-categories'], source_paths, policy_version: POLICY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, head_sha: head, tested_tree: tree, jev_categories: chosen, deterministic_tags: floor.tags };
+  return { mode: 'selected', tags, grep: [...floor.tags, jevGrep].join('|'), jev_grep: jevGrep, deterministic_grep: floor.tags.join('|'), reasons: ['smoke-required', 'deterministic-coverage-floor', ...floor.reasons, 'jev-selected-categories'], source_paths, direct_test_files: floor.direct_test_files, policy_version: POLICY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, head_sha: head, tested_tree: tree, jev_categories: chosen, deterministic_tags: floor.tags };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let selection = null;

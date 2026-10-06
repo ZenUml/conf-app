@@ -1,6 +1,8 @@
 import { createPlan, fingerprint } from './plan.mjs';
 import { categoryGrep, decisionError } from './resolve.mjs';
 import { CATEGORIES } from '../../tests/e2e-tests/config/categories.mjs';
+import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
+import { EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 
 // Discovery is performed independently for each filter. In particular, an
 // empty auxiliary legacy scope widens before its IDs become the safety floor.
@@ -13,7 +15,10 @@ export function scopedPlan({ discover, selection, resolved, head, tree, policy, 
   const validSelection = !decisionError({ selection, head, tree }) && selection.policy_version === policy;
   const validResolvedIdentity = resolved?.mode === 'selected'
     && resolved.head_sha === head && resolved.tested_tree === tree
-    && resolved.policy_version === policy && grep === resolved.grep;
+    && resolved.policy_version === policy
+    && resolved.selector_catalog_version === EXECUTION_SELECTOR_CATALOG_VERSION
+    && resolved.selector_catalog_fingerprint === EXECUTION_SELECTOR_CATALOG_FINGERPRINT
+    && grep === resolved.grep;
   const validReasons = Array.isArray(resolved?.reasons)
     && resolved.reasons.every(reason => typeof reason === 'string');
   const validFloor = Array.isArray(resolved?.deterministic_tags)

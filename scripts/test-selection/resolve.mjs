@@ -2,12 +2,13 @@ import { readFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { select } from '../e2e-select.mjs';
 import { CATEGORIES, CATEGORY_VERSION } from '../../tests/e2e-tests/config/categories.mjs';
-import { POLICY_VERSION } from './classify.mjs';
+import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
+import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 
 export const categoryGrep = categories => categories.map(tag => `(?:^|\\s)${tag}(?=\\s|$)`).join('|');
 
 export function decisionError({ selection, head, tree }) {
-  if (!selection || selection.schema_version !== 1 || selection.head_sha !== head || selection.tested_tree !== tree || selection.policy_version !== POLICY_VERSION || selection.category_version !== CATEGORY_VERSION) return 'invalid-or-stale-jev-selection';
+  if (!selection || selection.schema_version !== 1 || selection.head_sha !== head || selection.tested_tree !== tree || selection.policy_version !== POLICY_VERSION || selection.category_version !== CATEGORY_VERSION || selection.selector_catalog_version !== EXECUTION_SELECTOR_CATALOG_VERSION || selection.selector_catalog_fingerprint !== EXECUTION_SELECTOR_CATALOG_FINGERPRINT) return 'invalid-or-stale-jev-selection';
   if (selection.execution_mode !== 'enabled' || selection.mode !== 'selected' || selection.fallback_reason || selection.diff_complete !== true || selection.request?.outcome !== 'success' || (!Array.isArray(selection.required) || !selection.required.includes('smoke'))) return 'jev-full-fallback';
   const categories = selection.categories;
   if (!categories || typeof categories !== 'object' || Array.isArray(categories) || Object.keys(categories).length !== CATEGORIES.length || CATEGORIES.some(c => {
@@ -30,7 +31,7 @@ export function resolveSelection({ selection, files, head, tree, humanFull = fal
   if (!chosen.length) return full('empty-jev-selection');
   const tags = [...new Set(['@smoke', ...floor.tags, ...chosen])].sort();
   const jevGrep = categoryGrep(chosen);
-  return { mode: 'selected', tags, grep: [...floor.tags, jevGrep].join('|'), jev_grep: jevGrep, deterministic_grep: floor.tags.join('|'), reasons: ['smoke-required', 'deterministic-coverage-floor', ...floor.reasons, 'jev-selected-categories'], policy_version: POLICY_VERSION, head_sha: head, tested_tree: tree, jev_categories: chosen, deterministic_tags: floor.tags };
+  return { mode: 'selected', tags, grep: [...floor.tags, jevGrep].join('|'), jev_grep: jevGrep, deterministic_grep: floor.tags.join('|'), reasons: ['smoke-required', 'deterministic-coverage-floor', ...floor.reasons, 'jev-selected-categories'], policy_version: POLICY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, head_sha: head, tested_tree: tree, jev_categories: chosen, deterministic_tags: floor.tags };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let selection = null;

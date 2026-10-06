@@ -12,7 +12,10 @@
 // `@smoke` is always part of a selection.
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
-import { IMPACT, NO_E2E_IMPACT, RUN_EVERYTHING } from '../tests/e2e-tests/config/impact-map.mjs';
+import { CATEGORIES } from '../tests/e2e-tests/config/categories.mjs';
+import { EXECUTION_IMPACT, IMPACT, NO_E2E_IMPACT, RUN_EVERYTHING } from '../tests/e2e-tests/config/impact-map.mjs';
+
+const EXECUTION_SELECTOR_TAGS = new Set(CATEGORIES.map(({ id }) => `@test:${id}`));
 
 export function globToRegExp(glob) {
   // Supports `**` (any depth, including none), `*` (within a segment) and
@@ -45,11 +48,20 @@ export function select(files) {
     if (shared) { reasons.push(`${file}: runs everything (${shared})`); all = true; continue; }
     const none = NO_E2E_IMPACT.find(g => globToRegExp(g).test(file));
     if (none) { reasons.push(`${file}: no E2E impact (${none})`); continue; }
-    const hits = IMPACT.filter(({ glob }) => globToRegExp(glob).test(file));
-    if (hits.length > 0) {
-      const t = [...new Set(hits.flatMap(h => h.tags))];
+    const executionHits = EXECUTION_IMPACT.filter(({ glob }) => globToRegExp(glob).test(file));
+    if (executionHits.length > 0) {
+      const t = [...new Set(executionHits.flatMap(h => h.tags))];
+      if (t.some(tag => !EXECUTION_SELECTOR_TAGS.has(tag))) {
+        reasons.push(`${file}: invalid execution selector → runs everything`); all = true; continue;
+      }
       t.forEach(x => tags.add(x));
       reasons.push(`${file}: ${t.join(' ')}`);
+      continue;
+    }
+    const descriptiveHits = IMPACT.filter(({ glob }) => globToRegExp(glob).test(file));
+    if (descriptiveHits.length > 0) {
+      const t = [...new Set(descriptiveHits.flatMap(h => h.tags))];
+      reasons.push(`${file}: descriptive impact tags → runs everything (${t.join(' ')})`); all = true;
       continue;
     }
     reasons.push(`${file}: unmapped → runs everything`); all = true;

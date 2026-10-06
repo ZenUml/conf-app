@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { createPlan } from '../../scripts/test-selection/plan.mjs';
 import { scopedPlan } from '../../scripts/test-selection/scoped-plan.mjs';
 import { resolveSelection } from '../../scripts/test-selection/resolve.mjs';
-import { POLICY_VERSION } from '../../scripts/test-selection/classify.mjs';
+import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from '../../scripts/test-selection/classify.mjs';
 import { CATEGORIES, CATEGORY_VERSION } from '../e2e-tests/config/categories.mjs';
-const selection = { schema_version: 1, head_sha: 'head', tested_tree: 'tree', category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION, mode: 'selected', execution_mode: 'enabled', required: ['smoke'], diff_complete: true, request: { outcome: 'success', duration_ms: 42, usage: { input_tokens: 12, output_tokens: 8 } }, model: 'jev-test', categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: c.id === 'sequence' ? 0.8 : 0, selected: c.id === 'sequence' }])) };
-const resolved = resolveSelection({ selection, files: ['src/export.js'], head: 'head', tree: 'tree' });
-const specs = [['smoke', '@smoke', '@test:mermaid'], ['floor', '@export', '@test:cross-cutting'], ['jev', '@test:sequence'], ['unrelated', '@test:plantuml']].map(([id, ...tags]) => ({ id, file: id + '.spec.ts', title: id, tags: ['@variant:lite', ...tags], tests: [{ projectName: 'insert' }] }));
+import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../e2e-tests/config/impact-map.mjs';
+const selection = { schema_version: 1, head_sha: 'head', tested_tree: 'tree', category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, mode: 'selected', execution_mode: 'enabled', required: ['smoke'], diff_complete: true, request: { outcome: 'success', duration_ms: 42, usage: { input_tokens: 12, output_tokens: 8 } }, model: 'jev-test', categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: c.id === 'sequence' ? 0.8 : 0, selected: c.id === 'sequence' }])) };
+const resolved = resolveSelection({ selection, files: ['src/components/Mermaid.vue'], head: 'head', tree: 'tree' });
+const specs = [['smoke', '@smoke', '@test:mermaid'], ['floor', '@test:mermaid-render'], ['jev', '@test:sequence'], ['unrelated', '@test:plantuml']].map(([id, ...tags]) => ({ id, file: id + '.spec.ts', title: id, tags: ['@variant:lite', ...tags], tests: [{ projectName: 'insert' }] }));
 const discover = grep => ({ config: { projects: [{ name: 'insert', dependencies: ['auth'] }] }, suites: [{ title: 'tests', specs: specs.filter(s => !grep || new RegExp(grep).test([s.title, ...s.tags].join(' '))) }] });
 const options = { discover, selection, resolved, head: 'head', tree: 'tree', policy: POLICY_VERSION, variant: 'lite', scope: 'insert', shards: 2, grep: resolved.grep };
 describe('independent legacy ID floor', () => {

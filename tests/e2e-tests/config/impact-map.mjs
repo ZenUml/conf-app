@@ -1,12 +1,13 @@
-// Path → E2E tag impact map (ADR-0007 §5). Read by scripts/e2e-select.mjs to
-// decide which specs a PR run executes; policed by tests/unit/e2eSelect.spec.ts
-// (every tag must exist in tags.ts, every glob must match a tracked file).
+// Path → E2E impact map (ADR-0007 §5). Read by scripts/e2e-select.mjs to
+// decide which specs a PR run executes; policed by tests/unit/e2eSelect.spec.ts.
 //
 // Evaluation order for one changed file, first match wins:
 //   1. RUN_EVERYTHING — the run becomes unselective (`mode: all`).
 //   2. NO_E2E_IMPACT  — contributes nothing (unit tests, stories, docs).
-//   3. IMPACT         — the union of the tags of every glob the file matches.
-//   4. no match       — unmapped, the run becomes unselective.
+//   3. EXECUTION_IMPACT — the union of behavior selectors for an explicitly
+//                         contracted source area.
+//   4. IMPACT         — descriptive-only impact; it deliberately runs all.
+//   5. no match       — unmapped, the run becomes unselective.
 // `@smoke` is always selected. The map is deliberately conservative: when in
 // doubt a path is left unmapped, which costs a full run, never a missed spec.
 //
@@ -41,13 +42,36 @@ export const RUN_EVERYTHING = [
   'functions/migrations/**', 'public/_routes.json', 'wrangler*.toml',
 ];
 
-/** glob → tags. A file matching several globs gets the union. */
+/**
+ * glob → behavior selectors. This is the sole map that can narrow PR E2E.
+ * Each selector resolves to concrete test identities through the closed
+ * `@test:<category>` taxonomy. Keep mappings narrow: source areas without an
+ * explicit behavior contract fall through to full coverage below.
+ */
+export const EXECUTION_SELECTOR_CATALOG_VERSION = 'v1';
+
+export const EXECUTION_IMPACT = [
+  // Mermaid rendering owns SVG creation and its per-engine viewport geometry.
+  // Initial Mermaid creation is retained explicitly even though it is also
+  // required smoke, so the manifest states why that identity ran.
+  { glob: 'src/components/Mermaid.vue', tags: ['@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid'] },
+  // The loader is shared by viewer rendering and editor validation.
+  { glob: 'src/utils/mermaid/loadMermaid.ts', tags: ['@test:mermaid-render', '@test:mermaid-syntax'] },
+  { glob: 'src/utils/mermaid/{renderMermaid,normalizeSvgSizing}.ts', tags: ['@test:mermaid-render'] },
+  { glob: 'src/utils/mermaid/viewportLayout.ts', tags: ['@test:viewport-mermaid'] },
+  // Validation is an editor behavior. It must not pull viewer journeys merely
+  // because the Mermaid macro also renders in a viewer.
+  { glob: 'src/utils/mermaid/{validate,linter,initDirective}.ts', tags: ['@test:mermaid-syntax'] },
+];
+
+/**
+ * Descriptive-only glob → tags. These tags remain useful documentation, but
+ * they must never become an execution filter: a match here runs all E2E.
+ */
 export const IMPACT = [
   // ── diagram types ──────────────────────────────────────────────────────
   { glob: 'src/components/Sequence.vue', tags: ['@sequence', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/sequence/**', tags: ['@sequence', '@viewer', '@editor'] },
-  { glob: 'src/components/Mermaid.vue', tags: ['@mermaid', '@viewer', '@editor', '@viewport'] },
-  { glob: 'src/utils/mermaid/**', tags: ['@mermaid', '@viewer', '@editor'] },
   { glob: 'src/components/PlantUml.vue', tags: ['@plantuml', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/plantuml/**', tags: ['@plantuml', '@viewer', '@editor'] },
   { glob: 'src/components/Markdown.vue', tags: ['@viewer'] },

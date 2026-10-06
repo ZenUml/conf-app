@@ -64,7 +64,11 @@ export const CONCERN_TAGS = [
   '@viewport',
 ] as const;
 
+// The only tags that may drive PR execution selection. Surface, type and
+// concern tags describe a test for people and reports; they are intentionally
+// excluded here so a broad label cannot expand a narrow behavior plan.
 export const BEHAVIOR_TAGS: string[] = CATEGORIES.map((c) => `@test:${c.id}`);
+export const EXECUTION_SELECTOR_TAGS: readonly string[] = BEHAVIOR_TAGS;
 export const VARIANT_TAGS: string[] = VARIANTS.map((v) => `@variant:${v}`);
 
 export const ALL_TAGS: readonly string[] = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS, ...BEHAVIOR_TAGS, ...VARIANT_TAGS];

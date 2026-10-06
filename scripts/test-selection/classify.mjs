@@ -2,13 +2,24 @@
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { CATEGORY_VERSION, CATEGORIES } from '../../tests/e2e-tests/config/categories.mjs';
+import { EXECUTION_IMPACT, EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 
-export const POLICY_VERSION = 'v3-guarded-uncalibrated';
+// v4 makes the behavior-selector catalog part of the trusted selection policy.
+// Old Jev or resolver artifacts therefore fail closed after a catalog change.
+export const POLICY_VERSION = 'v4-behavior-selectors-v1';
 export const MAX_DIFF_BYTES = 180000;
+export const EXECUTION_SELECTOR_CATALOG_FINGERPRINT = createHash('sha256')
+  .update(JSON.stringify({ version: EXECUTION_SELECTOR_CATALOG_VERSION, selectors: EXECUTION_IMPACT }))
+  .digest('hex');
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
 export function pathRule(path) {
   if (/^(private\/|\.env|.*\.(pem|key)$)/.test(path)) return 'excluded-sensitive-path';
+  // Mermaid's contracted behavior paths are narrow enough for Jev to widen
+  // their deterministic floor. Other utilities remain shared until they have
+  // their own behavior contract.
+  if (/^src\/utils\/mermaid\/(loadMermaid|renderMermaid|normalizeSvgSizing|viewportLayout|validate|linter|initDirective)\.ts$/.test(path)) return null;
   if (/^(manifest|package|pnpm-lock|vite|tsconfig|wrangler)|^(functions\/|src\/(model|utils|persist)|scripts\/|\.github\/|tests\/e2e-tests\/(config|fixtures|utils|global))/.test(path)) return 'shared-path';
   if (/^src\//.test(path) || /^tests\/e2e-tests\/.*\.(spec|test)\.[cm]?[jt]s$/.test(path)) return null;
   return 'unknown-path';
@@ -32,7 +43,7 @@ export function readDiff(base, head) {
 }
 export async function classify({ diff, apiKey, mode = 'observe', humanFull = false, fetchImpl = fetch, timeoutMs = 20000 }) {
   if (!['observe', 'enabled'].includes(mode)) throw new Error('Invalid mode');
-  const result = { schema_version: 1, base_sha: diff.base_sha, head_sha: diff.head_sha, tested_tree: diff.tested_tree, category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION, model: null, mode: 'all', execution_mode: mode === 'observe' ? 'observe' : 'all', categories: {}, required: ['smoke'], fallback_reason: null, diff_complete: diff.complete, changes: diff.changes, changed_tests: diff.paths.filter(p => /^tests\/e2e-tests\/.*\.spec\.[jt]s$/.test(p)), rules: [], request: { outcome: 'not-requested', duration_ms: 0, usage: null, cost: null } };
+  const result = { schema_version: 1, base_sha: diff.base_sha, head_sha: diff.head_sha, tested_tree: diff.tested_tree, category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, model: null, mode: 'all', execution_mode: mode === 'observe' ? 'observe' : 'all', categories: {}, required: ['smoke'], fallback_reason: null, diff_complete: diff.complete, changes: diff.changes, changed_tests: diff.paths.filter(p => /^tests\/e2e-tests\/.*\.spec\.[jt]s$/.test(p)), rules: [], request: { outcome: 'not-requested', duration_ms: 0, usage: null, cost: null } };
   const fallback = reason => { result.fallback_reason = reason; result.rules.push(reason); return result; };
   if (humanFull) return fallback('human-test-all');
   if (!diff.complete) return fallback('incomplete-diff');
@@ -69,7 +80,7 @@ async function main() {
   const a = args(process.argv.slice(2)); if (!a.base || !a.head || !a.output) throw new Error('--base --head --output required');
   let result;
   try { result = await classify({ diff: readDiff(a.base, a.head), apiKey: process.env.TYPESAFE_API_KEY, mode: a.mode ?? 'observe', humanFull: a['human-full'] === 'true' }); }
-  catch { result = { schema_version: 1, base_sha: a.base, head_sha: a.head, tested_tree: null, category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION, model: null, mode: 'all', execution_mode: 'all', categories: {}, required: ['smoke'], fallback_reason: 'git-diff-failure', diff_complete: false }; }
+  catch { result = { schema_version: 1, base_sha: a.base, head_sha: a.head, tested_tree: null, category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION, selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT, model: null, mode: 'all', execution_mode: 'all', categories: {}, required: ['smoke'], fallback_reason: 'git-diff-failure', diff_complete: false }; }
   if (a['pr-head']) result.pr_head_sha = a['pr-head'];
   if (a.pr) result.pr = Number(a.pr);
   writeFileSync(a.output, JSON.stringify(result, null, 2) + '\n');

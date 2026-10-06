@@ -57,8 +57,8 @@ export default {
     mermaidCode() {
       const { diagramType, mermaidCode } = this.$store.state.diagram;
       if (diagramType !== DiagramType.Mermaid || !mermaidCode) return false;
-      // A body of only blank lines or U+00A0 is "no diagram", not a diagram
-      // mermaid can be asked to parse: it throws "No diagram type detected".
+      // A body of only blank lines or U+00A0 is treated as no diagram; asking
+      // Mermaid to parse it throws "No diagram type detected".
       return normalizeMermaidWhitespace(mermaidCode).trim() ? mermaidCode : false;
     },
     isDisplayMode() {

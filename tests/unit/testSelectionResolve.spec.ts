@@ -15,6 +15,7 @@ describe('guarded Jev execution resolver', () => {
     expect(r.tags).toEqual(expect.arrayContaining(['@smoke', '@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid', `@test:${selected}`]));
     expect(r.tags).not.toEqual(expect.arrayContaining(['@mermaid', '@viewer', '@editor', '@viewport']));
     expect(r.grep).toContain(`@test:${selected}`);
+    expect(r.source_paths).toEqual(['src/components/Mermaid.vue']);
   });
   it('retains deterministic-only and widened auxiliary tests in the exact plan', () => {
     const discovery = { suites: [{title:'tests', specs:[

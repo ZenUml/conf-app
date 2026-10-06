@@ -14,11 +14,11 @@ describe('independent legacy ID floor', () => {
   it('unions concrete IDs, keeps smoke, and fingerprints the measured counts', () => {
     const plan = scopedPlan(options);
     expect(plan.tests.map(t => t.id).sort()).toEqual(['floor', 'jev', 'smoke']);
-    expect(plan.selection_metrics).toMatchObject({ deterministic_behavior_selectors: ['@smoke', '@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid'], jev_behavior_selectors: ['@test:sequence'], full_count: 4, legacy_count: 2, jev_count: 2, final_count: 3, final_test_ids: ['smoke', 'floor', 'jev'], smoke_count: 1, missing_floor_ids: [], retained_from_legacy_ids: ['floor'], added_to_legacy_ids: ['jev'] });
+    expect(plan.selection_metrics).toMatchObject({ source_paths: ['src/components/Mermaid.vue'], deterministic_behavior_selectors: ['@smoke', '@test:mermaid', '@test:mermaid-render', '@test:viewport-mermaid'], jev_behavior_selectors: ['@test:sequence'], full_count: 4, legacy_count: 2, jev_count: 2, final_count: 3, final_test_ids: ['smoke', 'floor', 'jev'], smoke_count: 1, missing_floor_ids: [], retained_from_legacy_ids: ['floor'], added_to_legacy_ids: ['jev'] });
     expect(plan.dependencies).toEqual(['auth']);
     expect(plan.shards.flatMap(s => s.test_ids).sort()).toEqual(['floor', 'jev', 'smoke']);
   });
-  it.each([null, { ...resolved, head_sha: 'stale' }, { ...resolved, tested_tree: 'stale' }, { ...resolved, policy_version: 'v2-guarded-uncalibrated' }, { ...resolved, deterministic_tags: [] }, { ...resolved, jev_categories: ['@test:missing'] }, { ...resolved, grep: '@smoke' }])('fails full for missing, stale or inconsistent resolved artifacts', artifact => {
+  it.each([null, { ...resolved, head_sha: 'stale' }, { ...resolved, tested_tree: 'stale' }, { ...resolved, policy_version: 'v2-guarded-uncalibrated' }, { ...resolved, source_paths: [] }, { ...resolved, deterministic_tags: [] }, { ...resolved, jev_categories: ['@test:missing'] }, { ...resolved, grep: '@smoke' }])('fails full for missing, stale or inconsistent resolved artifacts', artifact => {
     const plan = scopedPlan({ ...options, resolved: artifact });
     expect(plan.tests).toHaveLength(4);
     expect(plan.selection_metrics).toMatchObject({ mode: 'all', final_count: 4, jev_count: null, missing_floor_ids: [] });

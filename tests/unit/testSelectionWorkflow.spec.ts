@@ -50,6 +50,8 @@ describe('staging workflow safety contracts', () => {
       const verifier = child.jobs.parent.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --verify-parent');
       expect(verifier.env.PARENT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
       expect(verifier.env.PARENT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
+      const dispatcherNames = ['build-test-deploy', 'pr-validation'].flatMap(parent => Object.values(structure(parent).jobs).map((job: any) => job.name));
+      for (const expected of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) expect(dispatcherNames).toContain(expected);
       expect(child.jobs.parent.if).toBeUndefined();
       expect(child.on.workflow_dispatch.inputs['source-sha'].required).toBe(true);
     }
@@ -116,6 +118,31 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('test-all-override')).toContain('"force-all":"true"');
     expect(workflow('test-all-override')).toContain('actions/workflows/pr-validation.yml/dispatches');
     expect(workflow('test-all-override')).not.toContain('actions/workflows/build-test-deploy.yml/dispatches');
+  });
+  it('routes label publication and bounded recovery only from staging-owning parents', () => {
+    for (const name of ['test-selection-labels', 'e2e-rerun']) {
+      expect(structure(name).on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation']);
+    }
+    const recovery = structure('e2e-rerun').jobs.rerun;
+    expect(recovery.if).toContain("github.event.workflow_run.run_attempt == 1");
+    expect(recovery.if).toContain("github.event.workflow_run.conclusion == 'failure'");
+    const script = recovery.steps[0].run;
+    // Parse the jq string literal used by production recovery, so examples test
+    // the actual whitelist rather than a second copy of its regular expression.
+    const literal = script.match(/select\(test\(("(?:[^"\\]|\\.)*")\)/)?.[1];
+    expect(literal).toBeDefined();
+    const matcher = new RegExp(JSON.parse(literal!));
+    const canRecover = (failed: string[]) => failed.length > 0 && failed.every(name => matcher.test(name));
+    expect(canRecover(['E2E: Lite / shard 1/10', 'E2E auth: Lite / auth bootstrap'])).toBe(true);
+    expect(canRecover(['Validate: Lite', 'Validate: Full (now)', 'Validate: Diagramly', 'Validate: AsyncAPI'])).toBe(true);
+    expect(canRecover(['E2E validation', 'Pipeline outcome'])).toBe(true);
+    for (const failure of ['Build and Unit Test', 'Deploy: Lite', 'Jev category selection', 'Select E2E for this PR', 'Draft: Lite']) {
+      expect(canRecover(['E2E validation', 'Pipeline outcome', failure])).toBe(false);
+    }
+    expect(canRecover([])).toBe(false);
+    expect(script).toContain('[ "$COUNT" -gt 0 ]');
+    expect(script).toContain('if [ "$NON_E2E" != "0" ]');
+    expect(script).toContain('gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY" --failed');
   });
   it('preserves manual full coverage and succeeds with legitimate skips while rejecting reuse', () => {
     const yaml = workflow('pr-validation'); expect(yaml).toContain("contains(github.event.pull_request.labels.*.name, 'test:all')"); expect(yaml).toContain('Human test:all override: full E2E coverage');

@@ -1354,3 +1354,43 @@ export const ZenUmlFullscreen: Story = {
     await expect(canvas.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
   },
 }
+
+
+/** Starts without body.magic: the authenticated delivery seam returns persisted work. */
+export const MermaidFullscreenMagicWriteback: Story = {
+  name: 'Fullscreen — reviewed Magic delivered automatically',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true, id: '123456',
+      accountId: 'storybook-writeback-user' })
+    stubResponses.remote.push({ match: '/magic-writeback', body: { outcome: 'written', artifact: PI_MAGIC_SYNTHETIC_ARTIFACT } })
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const canvas = within(canvasElement)
+    const magic = await canvas.findByTestId('magic-toggle')
+    await waitFor(() => expect(magic).toHaveAttribute('aria-pressed', 'true'))
+    await expect(canvas.getByTestId('magic-disclosure')).toBeVisible()
+  },
+}
+
+export const MermaidFullscreenMagicWritebackMiss: Story = {
+  name: 'Fullscreen — empty Magic queue keeps Original',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true, id: '123456' })
+    stubResponses.remote.push({ match: '/magic-writeback', body: { outcome: 'miss' } })
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvasElement.querySelector('.mermaid-diagram svg')).not.toBeNull())
+    await expect(canvas.queryByTestId('magic-toggle')).toBeNull()
+  },
+}

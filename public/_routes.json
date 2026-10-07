@@ -38,6 +38,7 @@
     "/i/*",
     "/deeplink-ticket",
     "/activation-prepared",
+    "/magic-writeback",
     "/conversion/*"
   ],
   "exclude": []

@@ -22,6 +22,10 @@ on:
 
 run-name: "PR E2E · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
 
+permissions:
+  contents: read
+  actions: read
+
 # This workflow deliberately owns the expanded shard graph. The parent PR run
 # has one E2E validation node that waits for this result.
 jobs:

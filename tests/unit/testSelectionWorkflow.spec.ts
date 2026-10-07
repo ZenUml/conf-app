@@ -40,6 +40,7 @@ describe('staging workflow safety contracts', () => {
       const child = structure(name);
       expect(child.on).toHaveProperty('workflow_dispatch');
       expect(child).not.toHaveProperty('concurrency');
+      expect(child.permissions.actions).toBe('read');
       const testJobs = Object.entries(child.jobs).filter(([id]) => id !== 'parent');
       expect(testJobs.length).toBeGreaterThan(0);
       for (const [, job] of testJobs as [string, any][]) {

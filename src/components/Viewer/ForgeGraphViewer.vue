@@ -20,33 +20,10 @@
         />
         <ViewportZoomHint v-if="showZoomControls" ref="zoomHint" macro-type="graph" />
       </div>
-      <template v-if="pageCount > 1" #pill-prefix>
-        <button
-          @click="goToPage(currentPage - 1)"
-          :disabled="currentPage <= 0"
-          title="Previous page"
-          aria-label="Previous page"
-          class="viewer-pill-btn"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-          </svg>
-        </button>
-        <span class="viewer-pill-page-indicator" aria-live="polite">
-          {{ currentPage + 1 }} / {{ pageCount }}
-        </span>
-        <button
-          @click="goToPage(currentPage + 1)"
-          :disabled="currentPage >= pageCount - 1"
-          title="Next page"
-          aria-label="Next page"
-          class="viewer-pill-btn"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-          </svg>
-        </button>
-        <span class="viewer-pill-divider" aria-hidden="true"></span>
+      <!-- Multi-page navigation, rendered in GenericViewer's header (beside
+           the title in Fullscreen) and visible without hover. -->
+      <template v-if="pageCount > 1" #header-nav>
+        <GraphPageNav :current-page="currentPage" :page-count="pageCount" @go="goToPage" />
       </template>
     </generic-viewer>
   </div>
@@ -54,6 +31,7 @@
 
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
+import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import EventBus from "@/EventBus";
@@ -74,6 +52,7 @@ export default {
   name: "ForgeGraphViewer",
   components: {
     GenericViewer,
+    GraphPageNav,
     DiagramViewportToolbar,
     ViewportZoomHint
   },
@@ -178,7 +157,7 @@ export default {
         // (legacy single-page) via its Editor.extractGraphModel pipeline.
         // We omit the 'toolbar' config so GraphViewer doesn't render its own
         // page-nav strip — page nav is rendered into the GenericViewer
-        // bottom pill via the #pill-prefix slot above.
+        // header via the #header-nav slot above.
         // @ts-ignore
         const parsedXml = mxUtils.parseXml(this.effectiveGraphXml);
         const xmlNode = parsedXml?.documentElement;
@@ -355,23 +334,5 @@ export default {
 .graph-viewer-canvas {
   width: 100%;
   min-height: 0;
-}
-.viewer-pill-page-indicator {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: #44546f;
-  user-select: none;
-  white-space: nowrap;
-}
-.viewer-pill-divider {
-  display: inline-block;
-  width: 1px;
-  height: 16px;
-  margin: 0 4px;
-  background: rgba(9, 30, 66, 0.14);
-  align-self: center;
 }
 </style>

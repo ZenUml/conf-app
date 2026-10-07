@@ -45,7 +45,7 @@ describe('ConnectPanel', () => {
 
     expect(wrapper.find('[data-testid="agent-link-waiting"]').exists()).toBe(true)
     const prompt = wrapper.find('[data-testid="agent-link-prompt"]').text()
-    expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
+    expect(prompt).toContain('Connect to my ZenUML diagram via the zenuml MCP.')
     expect(prompt).toContain('session: tok-123')
     expect(prompt).toContain('reads this page · edits this diagram · 10 min idle / 60 min max')
     expect(wrapper.find('[data-testid="agent-link-waiting-status"]').text()).toContain(
@@ -161,7 +161,7 @@ describe('ConnectPanel', () => {
 
     expect(wrapper.find('[data-testid="agent-link-timeout"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain(
-      'claude mcp add --transport http conf-agent https://conf-stg-lite.zenuml.com/agent-link/mcp'
+      'claude mcp add --transport http zenuml https://conf-stg-lite.zenuml.com/agent-link/mcp'
     )
     // The dead "Add to Cursor" button (no click handler) and the dead
     // "Use the no-install bridge instead" link (href="#") were removed —

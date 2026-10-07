@@ -12,7 +12,7 @@
 // every other environment a server that cannot find its session.
 import forgeGlobal from '@/model/globals/forgeGlobal'
 
-export const MCP_SERVER_NAME = 'conf-agent'
+export const MCP_SERVER_NAME = 'zenuml'
 
 // Standalone/dev has no Forge context and so no resolved backend; fall back
 // to the production Lite host rather than render a relative URL.

@@ -27,11 +27,11 @@ describe('ConnectMcpDialog', () => {
     forgeGlobal.zenumlRemoteBaseUrl = undefined
     expect(wrapper.find('[role="dialog"]').attributes('aria-modal')).toBe('true')
     expect(wrapper.find('[data-testid="connect-mcp-setup-command"]').text()).toBe(
-      'claude mcp add --transport http conf-agent https://conf-lite.zenuml.com/agent-link/mcp'
+      'claude mcp add --transport http zenuml https://conf-lite.zenuml.com/agent-link/mcp'
     )
     expect(wrapper.text()).toContain('URL https://conf-lite.zenuml.com/agent-link/mcp')
     const prompt = wrapper.find('[data-testid="connect-mcp-prompt"]').text()
-    expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
+    expect(prompt).toContain('Connect to my ZenUML diagram via the zenuml MCP.')
     expect(prompt).toContain('session: CL-7F3K-Q9M2')
     expect(wrapper.find('[data-testid="connect-mcp-waiting"]').text()).toContain('Waiting for your agent')
   })

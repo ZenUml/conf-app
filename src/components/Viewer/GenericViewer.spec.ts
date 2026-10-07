@@ -2444,7 +2444,7 @@ describe('GenericViewer (chrome-less)', () => {
       const dialog = wrapper.find('[data-testid="connect-mcp-dialog"]')
       expect(dialog.exists()).toBe(true)
       expect(dialog.attributes('data-agent-link-state')).toBe('waiting')
-      expect(dialog.find('[data-testid="connect-mcp-setup-command"]').text()).toContain('claude mcp add --transport http conf-agent')
+      expect(dialog.find('[data-testid="connect-mcp-setup-command"]').text()).toContain('claude mcp add --transport http zenuml')
       expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--connect-mcp')
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_connect_clicked',

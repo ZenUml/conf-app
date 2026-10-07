@@ -14,7 +14,7 @@ describe('connectInstructions', () => {
   ])('points the MCP server at the backend that mints the session (%s)', (base, expected) => {
     forgeGlobal.zenumlRemoteBaseUrl = base
     expect(mcpServerUrl()).toBe(expected)
-    expect(mcpAddCommand()).toBe(`claude mcp add --transport http conf-agent ${expected}`)
+    expect(mcpAddCommand()).toBe(`claude mcp add --transport http zenuml ${expected}`)
   })
 
   it('accepts an explicit backend base URL', () => {

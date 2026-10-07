@@ -1,0 +1,63 @@
+name: PR E2E validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id:
+        required: true
+        type: string
+      grep:
+        required: false
+        type: string
+        default: ''
+      mode:
+        required: true
+        type: string
+
+run-name: "PR E2E · parent ${{ inputs.parent-run-id }}"
+
+# This workflow deliberately owns the expanded shard graph. The parent PR run
+# has one E2E validation node that waits for this result.
+jobs:
+  auth:
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: zenuml-lite@stg
+      artifact-name: auth-state-pr-e2e
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  lite:
+    needs: auth
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      app: zenuml-lite@stg
+      suite: regression
+      auth-artifact: auth-state-pr-e2e
+      grep: ${{ inputs.grep }}
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
+      timeout-minutes: 14
+      artifact-suffix: lite-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  render:
+    needs: auth
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      app: zenuml-lite@stg
+      suite: render
+      auth-artifact: auth-state-pr-e2e
+      grep: ${{ inputs.grep }}
+      shard-matrix: '[1]'
+      artifact-suffix: lite-stg-render
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

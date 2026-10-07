@@ -544,6 +544,12 @@ export type AnalyticsEventName =
   // errors. magic_default_resolved records the initial view decision. Both
   // exclude obsolete async attempts. magic_activation distinguishes automatic
   // from manual show requests. No source, SVG, hashes, or comment text.
+  // Automatic reviewed-artifact writeback from Fullscreen. Requested after a
+  // missing/stale Confluence artifact; completed records a finite outcome.
+  // Properties: feature_area=ai, surface=fullscreen, macro_type=mermaid,
+  // magic_writeback_outcome and duration_ms. Never source, SVG, hashes or errors.
+  | "magic_writeback_requested"
+  | "magic_writeback_completed"
   | "magic_availability_checked"
   | "magic_default_resolved"
   | "magic_view_requested"

@@ -3,6 +3,13 @@ name: E2E Test
 on:
   workflow_call:
     inputs:
+      source-run-id:
+        type: string
+        default: ''
+        description: Parent run containing selection and prebuilt auth artifacts
+      source-attempt:
+        type: string
+        default: '1'
       planned:
         type: boolean
         default: false
@@ -227,13 +234,17 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          name: test-selection-${{ inputs.source-run-id || github.run_id }}-${{ inputs.source-run-id && inputs.source-attempt || github.run_attempt }}
+          run-id: ${{ inputs.source-run-id || github.run_id }}
+          github-token: ${{ github.token }}
           path: selection
       - name: Download trusted resolved selection when present
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          name: e2e-selection-${{ github.run_id }}
+          name: e2e-selection-${{ inputs.source-run-id || github.run_id }}
+          run-id: ${{ inputs.source-run-id || github.run_id }}
+          github-token: ${{ github.token }}
           path: resolved-selection
       - id: plan
         name: Discover and plan concrete test identities
@@ -363,6 +374,8 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.auth-artifact || format('auth-state-{0}', inputs.artifact-suffix) }}
+          run-id: ${{ inputs.auth-artifact && inputs.source-run-id || github.run_id }}
+          github-token: ${{ github.token }}
           path: ./tests/e2e-tests/
       - name: Download concrete plan
         if: inputs.planned

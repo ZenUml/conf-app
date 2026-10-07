@@ -1,0 +1,49 @@
+name: Staging E2E — staging-full-e2e
+run-name: "staging-full-e2e · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id: {type: string, required: true}
+      parent-attempt: {type: string, required: true}
+      source-sha: {type: string, required: true}
+      suite: {type: string, default: insert}
+      timeout: {type: string, default: '11'}
+      grep: {type: string, default: ''}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parent:
+    name: Verify staging ownership
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the active parent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+        run: node scripts/ci/wait-for-e2e.mjs --verify-parent
+  tests:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      app: zenuml-full@stg
+      suite: insert
+      auth-artifact: auth-state-pre-full-stg
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      ref: ${{ inputs.source-sha }}
+      # 4 shards (see the Diagramly job for the measured layout — Full runs the
+      # same list with the same runtime skips).
+      shard-matrix: '[1, 2, 3, 4]'
+      timeout-minutes: 11
+      artifact-suffix: full-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

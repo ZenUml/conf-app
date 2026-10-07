@@ -547,13 +547,17 @@ export type AnalyticsEventName =
   // Since the staged viewer header (2026-10) the same events also fire from
   // the INLINE macro's single "Refined" toggle and its layout survey strip:
   // `surface` is then `viewer` instead of `fullscreen`, so the two funnels
-  // stay comparable on one set of names. Writeback stays Fullscreen-only, and
-  // inline never reports the absent-artifact assessment (an inline view of a
-  // plain Mermaid diagram is not a Magic assessment; it would add an event to
-  // every Mermaid page view).
-  // Automatic reviewed-artifact writeback from Fullscreen. Requested after a
-  // missing/stale Confluence artifact; completed records a finite outcome.
-  // Properties: feature_area=ai, surface=fullscreen, macro_type=mermaid,
+  // stay comparable on one set of names. Inline never reports the
+  // absent-artifact assessment (an inline view of a plain Mermaid diagram is
+  // not a Magic assessment; it would add an event to every Mermaid page view).
+  // Automatic reviewed-artifact writeback, requested after a missing/stale
+  // Confluence artifact; completed records a finite outcome.
+  // Fullscreen: `requested` on every attempt and `completed` for every outcome
+  // (surface=fullscreen). Inline (since 2026-10, so staged layouts reach
+  // inline-only viewers): the request runs at most once per diagram+source
+  // per browser per 24h, `requested` never fires (~10k inline Mermaid views a
+  // day), and `completed` fires only for a non-`miss` outcome (surface=viewer).
+  // Properties: feature_area=ai, surface=fullscreen|viewer, macro_type=mermaid,
   // magic_writeback_outcome and duration_ms. Never source, SVG, hashes or errors.
   | "magic_writeback_requested"
   | "magic_writeback_completed"

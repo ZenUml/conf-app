@@ -8,6 +8,7 @@ import { CATEGORY_VERSION, CATEGORIES } from '../e2e-tests/config/categories.mjs
 import { POLICY_VERSION } from '../../scripts/test-selection/classify.mjs';
 const workflow = (name: string) => readFileSync(`.github/workflows/${name}.yml`, 'utf8');
 const structure = (name: string) => load(workflow(name)) as any;
+const phases = ['main-build-preparation', 'main-staging-validation', 'main-draft-preparation'];
 const children = ['pr-e2e-validation', 'staging-lite-e2e', 'staging-full-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
 describe('staging workflow safety contracts', () => {
   it('holds queued staging ownership through parent deploy/test runs without nested same-group locks', () => {
@@ -50,25 +51,81 @@ describe('staging workflow safety contracts', () => {
       const verifier = child.jobs.parent.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --verify-parent');
       expect(verifier.env.PARENT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
       expect(verifier.env.PARENT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
-      const dispatcherNames = ['build-test-deploy', 'pr-validation'].flatMap(parent => Object.values(structure(parent).jobs).map((job: any) => job.name));
+      const dispatcherNames = ['main-staging-validation', 'pr-validation'].flatMap(parent => Object.values(structure(parent).jobs).map((job: any) => job.name));
       for (const expected of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) expect(dispatcherNames).toContain(expected);
       expect(child.jobs.parent.if).toBeUndefined();
       expect(child.on.workflow_dispatch.inputs['source-sha'].required).toBe(true);
     }
-    for (const name of ['build-test-deploy', 'pr-validation']) {
+    for (const name of ['main-staging-validation', 'pr-validation']) {
       const dispatches = (Object.values(structure(name).jobs) as any[]).flatMap(job => job.steps || [])
         .filter(step => step.run === 'node scripts/ci/wait-for-e2e.mjs');
       expect(dispatches.length).toBeGreaterThan(0);
       for (const step of dispatches) {
         expect(children).toContain(step.env.CHILD_WORKFLOW.replace(/\.yml$/, ''));
-        expect(step.env.SOURCE_SHA).toBe('${{ github.sha }}');
+        expect(step.env.SOURCE_SHA).toBe(name === 'pr-validation' ? '${{ github.sha }}' : '${{ inputs.source-sha }}');
       }
     }
-    expect(main.jobs['staging-full-e2e'].needs).toContain('staging-lite-e2e');
-    expect(main.jobs['staging-full-e2e-now'].needs).not.toContain('staging-lite-e2e');
+    expect(structure('main-staging-validation').jobs['staging-full-e2e'].needs).toContain('staging-lite-e2e');
+    expect(structure('main-staging-validation').jobs['staging-full-e2e-now'].needs).not.toContain('staging-lite-e2e');
+  });
+  it('keeps the main root graph small and dispatches independent build and staging phases', () => {
+    const root = structure('build-test-deploy');
+    expect(Object.keys(root.jobs).length).toBeLessThanOrEqual(5);
+    expect(Object.values(root.jobs).some((job: any) => job.uses)).toBe(false);
+    const phaseJobs = ['build-preparation', 'staging-validation', 'draft-preparation'];
+    for (const [index, id] of phaseJobs.entries()) {
+      const job = root.jobs[id];
+      const dispatch = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
+      expect(dispatch.env.CHILD_KIND).toBe('phase');
+      expect(dispatch.env.CHILD_WORKFLOW).toBe(`${phases[index]}.yml`);
+      expect(dispatch.env.VERSION).toBe('${{ needs.version.outputs.version }}');
+      expect(dispatch.env.SOURCE_SHA).toBe('${{ needs.version.outputs.source-sha }}');
+      expect(job.outputs['run-id']).toBe('${{ steps.dispatch.outputs.run-id }}');
+    }
+    expect(root.jobs['build-preparation'].needs).toBe('version');
+    expect(root.jobs['staging-validation'].needs).toBe('version');
+    expect(root.jobs['draft-preparation'].needs).toEqual(['version', 'build-preparation', 'staging-validation']);
+    expect(root.jobs['draft-preparation'].if).toContain("needs.build-preparation.outputs.run-id != ''");
+    expect(root.jobs['draft-preparation'].if).toContain("needs.build-preparation.result == 'failure'");
+    expect(root.jobs['draft-preparation'].if).toContain("needs.staging-validation.result == 'failure'");
+    const draftDispatch = root.jobs['draft-preparation'].steps.find((step: any) => step.id === 'dispatch');
+    expect(draftDispatch.env.ARTIFACT_RUN_ID).toBe('${{ needs.build-preparation.outputs.run-id }}');
+    expect(draftDispatch.env.STAGING_RUN_ID).toBe('${{ needs.staging-validation.outputs.run-id }}');
+    expect(root.jobs.outcome.needs).toContain('staging-validation');
+    expect(root.jobs.outcome.steps[0].run).toContain("value.result !== 'success'");
+  });
+  it('verifies root ownership and pins phase source checkouts and nested ancestry', () => {
+    const root = structure('build-test-deploy');
+    for (const name of phases) {
+      const phase = structure(name);
+      expect(phase).not.toHaveProperty('concurrency');
+      for (const input of ['parent-run-id', 'parent-attempt', 'source-sha', 'version']) {
+        expect(phase.on.workflow_dispatch.inputs[input].required).toBe(true);
+      }
+      const verifier = phase.jobs.parent.steps.find((step: any) => step.id === 'owner');
+      expect(verifier.run).toContain('node scripts/ci/wait-for-e2e.mjs --verify-parent');
+      expect(verifier.env.SOURCE_SHA).toBe('${{ inputs.source-sha }}');
+      expect(verifier.env.PARENT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
+      expect(verifier.env.PARENT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
+      for (const jobName of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) {
+        expect(Object.values(root.jobs).map((job: any) => job.name)).toContain(jobName);
+      }
+      for (const job of Object.values(phase.jobs) as any[]) {
+        for (const step of job.steps || []) {
+          if (step.uses?.startsWith('actions/checkout@')) expect(step.with.ref).toBe('${{ inputs.source-sha }}');
+        }
+        if (job.uses === './.github/workflows/staging-deploy.yml') expect(job.with.ref).toBe('${{ inputs.source-sha }}');
+      }
+    }
+    for (const job of Object.values(structure('main-staging-validation').jobs) as any[]) {
+      const dispatch = job.steps?.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
+      if (!dispatch) continue;
+      expect(dispatch.env.ROOT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
+      expect(dispatch.env.ROOT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
+    }
   });
   it('keeps parent staging ownership through cancellation cleanup', () => {
-    for (const name of ['build-test-deploy', 'pr-validation']) {
+    for (const name of ['build-test-deploy', 'main-staging-validation', 'pr-validation']) {
       const dispatchJobs = (Object.values(structure(name).jobs) as any[])
         .filter(job => job.steps?.some((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs'));
       expect(dispatchJobs.length).toBeGreaterThan(0);
@@ -127,7 +184,7 @@ describe('staging workflow safety contracts', () => {
     const recovery = structure('e2e-rerun').jobs.rerun;
     expect(recovery.if).toContain("github.event.workflow_run.run_attempt == 1");
     expect(recovery.if).toContain("github.event.workflow_run.conclusion == 'failure'");
-    const script = recovery.steps[0].run;
+    const script = recovery.steps.find((step: any) => step.run?.includes('NON_E2E')).run;
     // Parse the jq string literal used by production recovery, so examples test
     // the actual whitelist rather than a second copy of its regular expression.
     const literal = script.match(/select\(test\(("(?:[^"\\]|\\.)*")\)/)?.[1];
@@ -143,7 +200,9 @@ describe('staging workflow safety contracts', () => {
     expect(canRecover([])).toBe(false);
     expect(script).toContain('[ "$COUNT" -gt 0 ]');
     expect(script).toContain('if [ "$NON_E2E" != "0" ]');
-    expect(script).toContain('gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY" --failed');
+    expect(script).toContain('gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY"');
+    expect(script).not.toContain('--failed');
+    expect(script).toContain('node scripts/ci/phase-recovery.mjs');
   });
   it('preserves manual full coverage and succeeds with legitimate skips while rejecting reuse', () => {
     const yaml = workflow('pr-validation'); expect(yaml).toContain("contains(github.event.pull_request.labels.*.name, 'test:all')"); expect(yaml).toContain('Human test:all override: full E2E coverage');

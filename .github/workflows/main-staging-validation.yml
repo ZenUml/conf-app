@@ -1,0 +1,480 @@
+name: Staging validation
+run-name: "Staging validation · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id: {type: string, required: true}
+      parent-attempt: {type: string, required: true}
+      source-sha: {type: string, required: true}
+      version: {type: string, required: true}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parent:
+    name: Verify root ownership
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.owner.outputs.run }}
+      full-now: ${{ steps.lane.outputs.full-now }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Check the active root
+        id: owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          EXPECTED_PARENT_JOBS: '["Staging validation"]'
+        run: |
+          node scripts/ci/wait-for-e2e.mjs --verify-parent
+          echo "run=true" >> "$GITHUB_OUTPUT"
+      - name: Resolve Full validation lane from the pinned commit
+        id: lane
+        env:
+          FULL_DRAFT_LANE: ${{ vars.FULL_DRAFT_LANE }}
+        run: |
+          FULL_NOW=false
+          if [ "$FULL_DRAFT_LANE" = now ] || git log -1 --format=%B | rg -q -F '[full-first]'; then FULL_NOW=true; fi
+          echo "full-now=$FULL_NOW" >> "$GITHUB_OUTPUT"
+
+  e2e-auth-lite:
+    needs: parent
+    if: ${{ needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)) }}
+    name: "E2E auth: Lite"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: zenuml-lite@stg
+      artifact-name: auth-state-pre-lite-stg
+    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  e2e-auth-full:
+    needs: parent
+    if: ${{ needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    name: "E2E auth: Full"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: zenuml-full@stg
+      artifact-name: auth-state-pre-full-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  e2e-auth-diagramly:
+    needs: parent
+    if: ${{ needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    name: "E2E auth: Diagramly"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: diagramly@stg
+      artifact-name: auth-state-pre-diagramly-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  e2e-auth-asyncapi:
+    needs: parent
+    if: ${{ needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    name: "E2E auth: AsyncAPI"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: asyncapi@stg
+      artifact-name: auth-state-pre-asyncapi-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  # ---------------------------------------------------------------------------
+  # One version string for this run's drafts, and the production bundles that
+  # will ship under it (ADR-0007 §3). Every draft used to stamp its own
+  # `date` at creation, which is why tags of one build differed by a minute
+  # across variants; now they share this value. The bundles are built here,
+  # at t=0 under the deploys, with VITE_APP_VERSION already set to the tag —
+  # the only build-time input that differs from the staging build — and
+  # attached to the drafts, so release.yml deploys instead of rebuilding.
+  #
+  # The timestamp is AEST (UTC+10), the team's local time. Australia/Brisbane
+  # is fixed +10:00 with no daylight saving, so a tag never silently becomes
+  # AEDT in summer. Before 2026-09-15 the runner default (UTC) was used, so
+  # older tags such as v2026.09.142327 read 10 hours earlier than local time.
+  reuse-check:
+    needs: parent
+    name: "Reuse PR E2E?"
+    if: ${{ needs.parent.outputs.run == 'true' && (inputs.source-sha != '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      reuse: ${{ steps.check.outputs.reuse }}
+      run-url: ${{ steps.check.outputs.run_url }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+          # HEAD and its parents: HEAD^2 is the PR head of a merge commit, and
+          # its tree is what gets compared.
+          fetch-depth: 2
+      - name: Compare the merge tree with the PR run's tree
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          no() { echo "reuse=false" >> "$GITHUB_OUTPUT"; echo "reason=$1" >> "$GITHUB_OUTPUT"; echo "no reuse: $1"; exit 0; }
+          MERGE_TREE=$(git rev-parse 'HEAD^{tree}')
+          # Second parent = the PR head. A squash or fast-forward has none; the
+          # tree comparison below would still be sound for a squash, but the PR
+          # head SHA needed to find its run would not be, so no reuse.
+          H=$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null) || no "not a merge commit"
+          H_TREE=$(git rev-parse "$H^{tree}")
+          [ "$H_TREE" = "$MERGE_TREE" ] || no "main moved since the PR run (merge tree $MERGE_TREE != PR head tree $H_TREE)"
+          # The newest successful pull_request run of THIS workflow on that head.
+          RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-test-deploy.yml/runs?event=pull_request&head_sha=$H&status=success&per_page=5" \
+                  --jq '.workflow_runs[0].id // empty')
+          [ -n "$RUN" ] || no "no successful pull_request run for $H"
+          # Every Lite E2E shard of the three suites must have RUN and passed.
+          # A selected PR run (ADR-0007 §5) names its jobs "E2E: Lite (selected)"
+          # and so never matches: only a full-suite PR run can be reused.
+          # `skipped` is what a draft PR's run shows — and a suite that never
+          # ran covers nothing. Counted per suite so a suite missing entirely is
+          # also caught.
+          SUMMARY=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/jobs?per_page=100" --jq '
+            [.jobs[] | select(.name | test("^E2E: Lite( DrawIO Publish| render)? / shard"))]
+            | { suites: (map(.name | sub(" / shard.*$"; "")) | unique | length),
+                shards: length,
+                passed: (map(select(.conclusion == "success")) | length) }')
+          echo "run $RUN jobs: $SUMMARY"
+          SUITES=$(jq -r .suites <<<"$SUMMARY"); SHARDS=$(jq -r .shards <<<"$SUMMARY"); PASSED=$(jq -r .passed <<<"$SUMMARY")
+          [ "$SUITES" = "3" ] || no "PR run $RUN ran $SUITES of the 3 Lite E2E suites"
+          { [ "$SHARDS" -gt 0 ] && [ "$PASSED" = "$SHARDS" ]; } || no "PR run $RUN: $PASSED of $SHARDS Lite shards passed"
+          mkdir -p reuse-evidence
+          gh run download "$RUN" --pattern 'test-plan-*' --dir reuse-evidence || no "missing concrete PR test plans"
+          gh run download "$RUN" --pattern 'test-evidence-*' --dir reuse-evidence || no "missing concrete PR test evidence"
+          node scripts/test-selection/reuse.mjs reuse-evidence "$MERGE_TREE" || no "PR evidence does not prove exact-tree full Lite coverage"
+          URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN"
+          {
+            echo "reuse=true"
+            echo "run_url=$URL"
+            echo "reason=tree $MERGE_TREE already tested by $URL ($SHARDS shards, 3 suites)"
+          } >> "$GITHUB_OUTPUT"
+          echo "reuse: tree $MERGE_TREE already tested by $URL"
+          echo "### Lite E2E reused from [PR run $RUN]($URL) — identical tree \`$MERGE_TREE\`" >> "$GITHUB_STEP_SUMMARY"
+
+  staging-lite:
+    if: needs.parent.outputs.run == 'true'
+    needs: parent
+    name: "Deploy: Lite"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      ref: ${{ inputs.source-sha }}
+      variant: lite
+      license: lite
+      project: conf-stg-lite
+      environment: staging-lite
+    secrets: inherit
+
+  staging-lite-e2e:
+    # Dispatch E2E to the public repo runner only when it actually matters:
+    #   - on the default branch (post-merge / scheduled coverage), or
+    #   - on a PR that is Ready for Review (signals "I want this merged").
+    # Pushing to a Draft PR (or to a branch with no PR open) deploys but
+    # skips E2E so iterative work isn't gated on a slow test run.
+    # Not `build`: the unit tests gate the DRAFT (see draft-release-lite), not the
+    # E2E. Waiting for them here bought nothing on a green run and, once the
+    # Studio cache brought Deploy: Lite under the 3m30s the build job takes,
+    # would have put the unit tests on the critical path — see ADR-0006.
+    # reuse-check is skipped on PR runs (its outputs read as empty, so the
+    # `!= 'true'` test passes) and says true/false on main; the explicit
+    # result checks replace the all-succeeded semantics a plain `needs` would
+    # apply to a skipped job. ADR-0007 §2.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.parent.outputs.run == 'true' && ((github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true') }}
+    needs: [staging-lite, e2e-auth-lite, reuse-check, parent]
+    name: "Validate: Lite"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-lite-e2e.yml
+          CHILD_TITLE: staging-lite-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-lite-e2e.yml
+          CHILD_TITLE: staging-lite-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
+
+  staging-full:
+    needs: parent
+    # Lite is representative for feature-branch validation. Full + Diagramly
+    # only run on the default branch to catch variant-specific regressions before release;
+    # this halves the per-push minutes on feature branches.
+    if: ${{ needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    name: "Deploy: Full"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      ref: ${{ inputs.source-sha }}
+      variant: full
+      license: full
+      project: conf-stg-full
+      environment: staging-full
+    secrets: inherit
+
+  # Full's E2E runs in one of two LANES (ADR-0007). Full is never the first
+  # variant released — diagramly or lite always goes first and Full follows a
+  # week later — so its draft is never what a person is waiting for. The
+  # default `after-lite` lane therefore starts Full's shards only once Lite's
+  # E2E has finished, which keeps the run's fan-out under the account's
+  # 20-concurrent-job cap (main run 34655187796 peaked at exactly 20 and five
+  # shards queued ~95s for a runner; Lite 14 + Diagramly 4 + AsyncAPI 3 = 21
+  # without Full). The deploy itself is NOT sequenced: it is one runner that
+  # finishes before any shard starts. The `now` lane runs Full alongside the
+  # others for the times Full has to ship first (a Full-only hotfix); it is
+  # selected per merge by `[full-first]` anywhere in the merge commit message
+  # (the PR title carries into a merge commit — so never QUOTE the token in a
+  # PR title; main run 34659544917 took this lane because #669's title did) or
+  # standing, by the repo variable FULL_DRAFT_LANE=now (`gh variable set FULL_DRAFT_LANE --body now`;
+  # unset it or set anything else to return to the default). Exactly one lane
+  # runs; `Draft: Full` accepts either. The two jobs are call sites only —
+  # every input is identical, so a change to one must be made to both.
+  staging-full-e2e:
+    if: ${{ !cancelled() && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(needs.parent.outputs.full-now == 'true') && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
+    needs: [staging-full, e2e-auth-full, staging-lite-e2e, parent]
+    name: "Validate: Full"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-full-e2e.yml
+          CHILD_TITLE: staging-full-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-full-e2e.yml
+          CHILD_TITLE: staging-full-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
+
+  staging-full-e2e-now:
+    if: ${{ !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (needs.parent.outputs.full-now == 'true')) }}
+    needs: [staging-full, e2e-auth-full, parent]
+    name: "Validate: Full (now)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-full-e2e.yml
+          CHILD_TITLE: staging-full-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-full-e2e.yml
+          CHILD_TITLE: staging-full-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
+
+  staging-diagramly:
+    needs: [staging-lite, staging-lite-e2e, reuse-check, parent]
+    # See note on staging-full — default-branch-only.
+    if: ${{ !cancelled() && needs.parent.outputs.run == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.staging-lite.result == 'success' && (needs.reuse-check.outputs.reuse == 'true' || needs.staging-lite-e2e.result == 'success') }}
+    name: "Deploy: Diagramly"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      ref: ${{ inputs.source-sha }}
+      variant: diagramly
+      license: diagramly
+      project: conf-stg-lite
+      environment: staging-diagramly
+    secrets: inherit
+
+  staging-asyncapi:
+    # Downstream jobs override implicit success(): main intentionally skips the
+    # PR selector ancestor. Require successful direct prerequisites explicitly
+    # so a skipped selector can continue, but failed deployment/tests cannot.
+    needs: [staging-diagramly, staging-diagramly-e2e, parent]
+    # Default-branch-only, matching staging-full / staging-diagramly. To validate
+    # an in-flight asyncapi PR against asyncapi-stg.atlassian.net before merge,
+    # add a temporary `github.head_ref == '<branch>' || github.ref_name ==
+    # '<branch>'` clause here and on staging-asyncapi-e2e (a `pull_request` ref is
+    # `refs/pull/<N>/merge`, so match head_ref/ref_name, not github.ref) — and
+    # drop it before merge so it never lands on main.
+    #
+    # AsyncAPI shares the lite Cloudflare Pages project for now (per
+    # scripts/forge-wizard.mjs); swap to a dedicated `conf-stg-asyncapi`
+    # project when one is stood up.
+    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.staging-diagramly-e2e.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    name: "Deploy: AsyncAPI"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      ref: ${{ inputs.source-sha }}
+      variant: asyncapi
+      license: asyncapi
+      project: conf-stg-lite
+      environment: staging-asyncapi
+    secrets: inherit
+
+  staging-asyncapi-e2e:
+    # Mirror the staging-asyncapi gate so the e2e runs whenever a fresh build
+    # is deployed. Skips on draft PRs (matches staging-lite-e2e behaviour).
+    if: ${{ !cancelled() && needs.staging-asyncapi.result == 'success' && needs.e2e-auth-asyncapi.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
+    needs: [staging-asyncapi, e2e-auth-asyncapi, parent]
+    name: "Validate: AsyncAPI"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-asyncapi-e2e.yml
+          CHILD_TITLE: staging-asyncapi-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-asyncapi-e2e.yml
+          CHILD_TITLE: staging-asyncapi-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
+
+  staging-diagramly-e2e:
+    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.e2e-auth-diagramly.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [staging-diagramly, e2e-auth-diagramly, parent]
+    name: "Validate: Diagramly"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-diagramly-e2e.yml
+          CHILD_TITLE: staging-diagramly-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-diagramly-e2e.yml
+          CHILD_TITLE: staging-diagramly-e2e
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
+
+
+  provenance:
+    name: Record variant validation results
+    needs: [parent, reuse-check, staging-lite, staging-lite-e2e, staging-full-e2e, staging-full-e2e-now, staging-diagramly-e2e, staging-asyncapi-e2e]
+    if: ${{ always() && needs.parent.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record immutable source and direct validation results
+        env:
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -n --arg source "$SOURCE_SHA" --argjson results "$RESULTS" '{source_sha: $source, results: $results}' > staging-provenance.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: staging-provenance
+          path: staging-provenance.json
+          if-no-files-found: error
+          retention-days: 30

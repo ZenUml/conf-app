@@ -6,6 +6,8 @@ on:
       parent-run-id: {type: string, required: true}
       parent-attempt: {type: string, required: true}
       source-sha: {type: string, required: true}
+      root-run-id: {type: string, required: false, default: ''}
+      root-attempt: {type: string, required: false, default: ''}
       suite: {type: string, default: insert}
       timeout: {type: string, default: '11'}
       grep: {type: string, default: ''}
@@ -21,11 +23,16 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
       - name: Check the active parent
         env:
           GH_TOKEN: ${{ github.token }}
           PARENT_RUN_ID: ${{ inputs.parent-run-id }}
           PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.root-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.root-attempt }}
           EXPECTED_PARENT_JOBS: '["Validate: Full", "Validate: Full (now)"]'
         run: node scripts/ci/wait-for-e2e.mjs --verify-parent
   tests:

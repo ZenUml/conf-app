@@ -1,18 +1,19 @@
 # Pipeline graphs
 
-PR validation and main draft preparation have separate entry workflows. PR validation contains build, preview, selection, Lite deploy, validation, and outcome jobs. Main keeps the four variant deployment and draft gates.
+PR validation and main preparation have separate entry workflows.
 
-The validation jobs dispatch independent E2E runs and wait for their result. Each validation job summary links to its child run. Shards, concrete test plans, evidence, and merged reports appear in that child graph. A failed child fails its parent validation job.
+The main graph has five jobs: Source and version, Build preparation, Staging validation, Draft preparation, and Pipeline outcome. Build preparation and Staging validation run in parallel. Each phase job links to its independent child graph and waits for the result.
 
-Children check the matching parent attempt and its running validation job. Test checkout uses the source SHA supplied by the parent. Selection and authentication artifacts come from the parent run. The parent holds the shared staging concurrency group while the child executes; children do not acquire the same lock. Dispatcher jobs use `!cancelled()` so a parent cancellation stops the wait step. Each dispatcher has an always-running cleanup step that cancels its own remaining child and checks that it has stopped.
+The build phase contains unit tests, preview tests, production bundles, and the cron deployment. The staging phase contains deployment, login preparation, and validation for each variant. Each variant validation links to its own E2E graph, which contains plans, shards, evidence, and reports. The draft phase verifies the exact build and staging producers and creates drafts only for variants whose original validation gates passed. A failed variant still fails the root run; other eligible drafts remain available.
 
-The `test:all` label dispatches the PR entry with full coverage. Normal PR selection retains smoke and Jev-selected categories, with full coverage fallback. Main retains its existing normal suites and Full-after-Lite gate.
+Every checkout uses the root source SHA. Producing run IDs and attempts are explicit. E2E children verify both their phase dispatcher and the active root owner. Only the root acquires the shared staging concurrency group. Dispatcher jobs respond to cancellation; their `always()` cleanup steps stop their own remaining children before ending.
 
-## Enable the new graph
+PR selection retains smoke and Jev-selected categories, with full coverage fallback. The human `test:all` override uses the PR entry. Main retains its normal suites, shared-backend deployment order, and Full-after-Lite lane.
 
-1. Merge the child workflow files, shared E2E artifact inputs, and dispatch helper first. GitHub requires dispatched workflows to exist on the default branch.
-2. Merge the separate PR entry and main dispatcher changes.
-3. Start a new run from that revision. An old run retains its original workflow graph when rerun.
-4. Check the parent graph. Open the validation job summary to find the shard graph.
+Automatic recovery listens only to root workflows. It checks the failures inside the exact phase before deciding whether they are E2E failures. Build, deploy, and draft failures prevent automatic retry. An eligible E2E failure triggers one complete root rerun, creating fresh attempt-specific producers.
 
-The parent graph remains a real job graph. Deployment, build, and draft jobs remain visible. E2E shards belong to separate runs.
+## View the new graph
+
+Start a new run from the revision containing these workflows. An old run retains its original workflow definition when rerun. Open a phase job summary for the child graph; open a variant validation summary for its test shards.
+
+The phase workflows and root can land together: the root starts only on main, where all dispatched workflow files exist after the merge.

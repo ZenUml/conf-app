@@ -43,7 +43,7 @@ jobs:
           SINCE=$(date -u -d "$DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)
           echo "parent and child E2E runs since $SINCE"
           mkdir -p blobs
-          for WF in build-test-deploy.yml pr-e2e-validation.yml staging-lite-e2e.yml staging-full-e2e.yml staging-diagramly-e2e.yml staging-asyncapi-e2e.yml release.yml smoke-test.yml; do
+          for WF in main-build-preparation.yml build-test-deploy.yml pr-e2e-validation.yml staging-lite-e2e.yml staging-full-e2e.yml staging-diagramly-e2e.yml staging-asyncapi-e2e.yml release.yml smoke-test.yml; do
             gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/$WF/runs?created=>=$SINCE&per_page=100" \
               --jq '.workflow_runs[] | select(.status == "completed") | .id'
           done | sort -u > run-ids.txt

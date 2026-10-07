@@ -235,16 +235,16 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: test-selection-${{ inputs.source-run-id || github.run_id }}-${{ inputs.source-run-id && inputs.source-attempt || github.run_attempt }}
-          run-id: ${{ inputs.source-run-id || github.run_id }}
-          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source-run-id || '' }}
+          github-token: ${{ inputs.source-run-id && github.token || '' }}
           path: selection
       - name: Download trusted resolved selection when present
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
           name: e2e-selection-${{ inputs.source-run-id || github.run_id }}
-          run-id: ${{ inputs.source-run-id || github.run_id }}
-          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source-run-id || '' }}
+          github-token: ${{ inputs.source-run-id && github.token || '' }}
           path: resolved-selection
       - id: plan
         name: Discover and plan concrete test identities
@@ -374,8 +374,8 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.auth-artifact || format('auth-state-{0}', inputs.artifact-suffix) }}
-          run-id: ${{ inputs.auth-artifact && inputs.source-run-id || github.run_id }}
-          github-token: ${{ github.token }}
+          run-id: ${{ inputs.auth-artifact && inputs.source-run-id || '' }}
+          github-token: ${{ inputs.auth-artifact && inputs.source-run-id && github.token || '' }}
           path: ./tests/e2e-tests/
       - name: Download concrete plan
         if: inputs.planned

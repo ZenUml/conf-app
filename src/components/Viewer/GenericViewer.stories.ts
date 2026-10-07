@@ -703,7 +703,7 @@ export const MermaidFullscreenPanZoom: Story = {
 
 /** Synthetic prepared artifact using the same stored Mermaid source as Original. */
 export const MermaidFullscreenMagic: Story = {
-  name: 'Fullscreen — Magic prepared diagram',
+  name: 'Fullscreen — Refined layout',
   parameters: { layout: 'fullscreen' },
   loaders: MermaidFullscreenPanZoom.loaders,
   decorators: [
@@ -739,13 +739,13 @@ export const MermaidFullscreenMagic: Story = {
     await expect(canvas.getByRole('img', { name: 'Input leads to result' })).toBeVisible()
     await userEvent.click(canvas.getByTestId('original-toggle'))
     await expect(magic).toHaveAttribute('aria-pressed', 'false')
-    await expect(magic).toHaveAttribute('title', 'Show prepared Magic view')
+    await expect(magic).toHaveAttribute('title', 'Layout refined with AI.')
   },
 }
 
 /** The literal validated SVG from the local Pi producer, paired with its exact source bytes. */
 export const MermaidFullscreenPiProducedMagic: Story = {
-  name: 'Fullscreen — Pi-produced Magic artifact',
+  name: 'Fullscreen — Pi-produced refined layout',
   parameters: { layout: 'fullscreen' },
   loaders: MermaidFullscreenPanZoom.loaders,
   decorators: [
@@ -776,7 +776,7 @@ export const MermaidFullscreenPiProducedMagic: Story = {
     await waitFor(() => expect(magic).toHaveAttribute('aria-busy', 'false'))
     await userEvent.click(canvas.getByTestId('original-toggle'))
     await expect(magic).toHaveAttribute('aria-pressed', 'false')
-    await expect(magic).toHaveAttribute('title', 'Show prepared Magic view')
+    await expect(magic).toHaveAttribute('title', 'Layout refined with AI.')
     await expect(document.querySelector('.screen-capture-content .diagram-viewport marker#arrow')).toBeNull()
     await expect((store.state as any).diagram.mermaidCode).toBe(PI_MAGIC_SYNTHETIC_SOURCE)
 
@@ -790,7 +790,7 @@ export const MermaidFullscreenPiProducedMagic: Story = {
 
 /** Browser-visible producer artifact without an automated transition, for manual visual review. */
 export const MermaidFullscreenPiProducedMagicDisplay: Story = {
-  name: 'Fullscreen — Pi-produced Magic display',
+  name: 'Fullscreen — Pi-produced refined layout display',
   parameters: { layout: 'fullscreen' },
   loaders: MermaidFullscreenPanZoom.loaders,
   decorators: [
@@ -811,7 +811,7 @@ export const MermaidFullscreenPiProducedMagicDisplay: Story = {
 
 /** Same saved diagram under another Forge account; only the local choice differs. */
 export const MermaidFullscreenPiProducedMagicOtherUser: Story = {
-  name: 'Fullscreen — Magic for another user',
+  name: 'Fullscreen — Refined layout for another user',
   parameters: { layout: 'fullscreen' },
   loaders: MermaidFullscreenPanZoom.loaders,
   decorators: [() => {
@@ -825,7 +825,7 @@ export const MermaidFullscreenPiProducedMagicOtherUser: Story = {
 
 /** A newer producer generation for the same exact Mermaid source. */
 export const MermaidFullscreenPiProducedMagicNewGeneration: Story = {
-  name: 'Fullscreen — regenerated Magic',
+  name: 'Fullscreen — regenerated refined layout',
   parameters: { layout: 'fullscreen' },
   loaders: MermaidFullscreenPanZoom.loaders,
   decorators: [() => {
@@ -842,7 +842,7 @@ export const MermaidFullscreenPiProducedMagicNewGeneration: Story = {
 
 /** An edited source leaves the prepared artifact stale and opens Original. */
 export const MermaidFullscreenPiProducedMagicStale: Story = {
-  name: 'Fullscreen — stale Magic opens Original',
+  name: 'Fullscreen — stale refined layout opens Original',
   parameters: { layout: 'fullscreen' },
   loaders: MermaidFullscreenPanZoom.loaders,
   decorators: [() => {

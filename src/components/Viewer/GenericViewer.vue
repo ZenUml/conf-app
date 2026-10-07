@@ -88,19 +88,19 @@
                 <button type="button" class="viewer-version-option viewer-version-magic"
                   :class="{ 'viewer-version-option--selected': magicActive, 'viewer-version-magic--available': magicAvailable && !magicActive }"
                   data-testid="magic-toggle" :disabled="!magicActive && (!diagram?.magic || magicPending)"
-                  :title="!diagram?.magic ? 'Magic view is unavailable for this diagram' : magicActive ? 'Magic diagram selected' : magicAvailable ? 'Show prepared Magic view' : 'Magic view is unavailable for the current diagram'"
+                  :title="magicActive || magicAvailable ? 'Layout refined with AI.' : 'Refined layout is unavailable for the current diagram'"
                   :aria-pressed="magicActive ? 'true' : 'false'" :aria-busy="magicPending ? 'true' : 'false'"
                   @click="!magicActive && toggleMagic('manual')">
                   <svg xmlns="http://www.w3.org/2000/svg" class="viewer-magic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="m4.5 19.5 11-11 2 2-11 11a1.4 1.4 0 0 1-2-2Z" />
                     <path d="m18 2 .55 1.75L20.3 4.3l-1.75.55L18 6.6l-.55-1.75-1.75-.55 1.75-.55L18 2ZM21 10l.35 1.15L22.5 11.5l-1.15.35L21 13l-.35-1.15-1.15-.35 1.15-.35L21 10Z" />
                   </svg>
-                  <span>Magic</span>
+                  <span>Refined layout</span>
                 </button>
                 <button type="button" class="viewer-version-option"
                   :class="{ 'viewer-version-option--selected': !magicActive }" data-testid="original-toggle"
-                  :aria-pressed="!magicActive ? 'true' : 'false'" title="Show original Mermaid diagram"
-                  @click="magicActive && toggleMagic('manual')">Original</button>
+                  :aria-pressed="!magicActive ? 'true' : 'false'" title="Show original layout"
+                  @click="magicActive && toggleMagic('manual')">Original layout</button>
               </div>
               <!-- View Source (#333): visible to ALL viewers, including users without
                    edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
@@ -233,10 +233,10 @@
 
           <div v-if="magicFeedback" class="magic-feedback" role="status" aria-live="polite" data-testid="magic-feedback">{{ magicFeedback }}</div>
           <div v-if="isFullscreenMode && magicFeedbackGeneration && (magicActive || magicAvailable)" class="magic-disclosure" data-testid="magic-disclosure">
-            <span v-if="magicActive">Same diagram, cleaner layout.</span>
+            <span v-if="magicActive">Same content, refined layout.</span>
             <div class="magic-layout-feedback" role="group" aria-label="Which layout do you prefer?" data-testid="magic-layout-feedback">
               <span>Which layout do you prefer?</span>
-              <button v-for="option in [{ value: 'magic', label: 'Magic' }, { value: 'original', label: 'Original' }, { value: 'no_preference', label: 'No preference' }]" :key="option.value" type="button"
+              <button v-for="option in [{ value: 'magic', label: 'Refined' }, { value: 'original', label: 'Original' }, { value: 'no_preference', label: 'No preference' }]" :key="option.value" type="button"
                 :aria-pressed="magicLayoutFeedback === option.value ? 'true' : 'false'"
                 @click="selectMagicLayoutFeedback(option.value)">{{ option.label }}</button>
               <span v-if="magicFeedbackThanked" role="status" aria-live="polite">Thanks for sharing. You can change this anytime.</span>
@@ -319,7 +319,7 @@
             </div>
             <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
               <DiagramViewport v-if="magicActive" ref="magicViewport" macro-type="mermaid"
-                label="Magic" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
+                label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
             </div>
             <div
@@ -1405,8 +1405,8 @@ export default {
         if ('reason' in result) {
           this.magicAvailable = false;
           this.magicFeedback = result.reason === 'stale_source'
-            ? 'This prepared view is for an earlier version of the diagram.'
-            : 'Magic view could not be shown. The original diagram is still available.';
+            ? 'This refined layout is for an earlier version of the diagram.'
+            : 'Refined layout could not be shown. The original diagram is still available.';
           this.magicEvent('magic_view_failed', { magic_failure_reason: result.reason, duration_ms: Math.round(performance.now() - started) });
           return;
         }
@@ -1429,7 +1429,7 @@ export default {
         this.magicActive = false;
         this.magicAvailable = false;
         this.magicSvg = null;
-        this.magicFeedback = 'Magic view could not be shown. The original diagram is still available.';
+        this.magicFeedback = 'Refined layout could not be shown. The original diagram is still available.';
         this.magicEvent('magic_view_failed', { magic_failure_reason: 'render_failed', duration_ms: Math.round(performance.now() - started) });
       } finally {
         if (generation === this.magicGeneration) {

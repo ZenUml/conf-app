@@ -331,7 +331,10 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.original-diagram').exists()).toBe(true);
       expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('false');
       expect(wrapper.find('[data-testid="original-toggle"]').attributes('aria-pressed')).toBe('true');
-      expect(wrapper.find('[data-testid="magic-toggle"]').attributes('title')).toBe('Show prepared Magic view');
+      expect(wrapper.find('[data-testid="magic-toggle"]').text()).toBe('Refined layout');
+      expect(wrapper.find('[data-testid="magic-toggle"]').attributes('title')).toBe('Layout refined with AI.');
+      expect(wrapper.find('[data-testid="original-toggle"]').text()).toBe('Original layout');
+      expect(wrapper.find('[data-testid="original-toggle"]').attributes('title')).toBe('Show original layout');
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('magic_view_restored', expect.anything());
     });
 
@@ -342,6 +345,8 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = await mountMagic();
       await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
       const choices = () => wrapper.findAll('[data-testid="magic-layout-feedback"] button');
+      expect(wrapper.find('[data-testid="magic-layout-feedback"]').text()).toContain('Which layout do you prefer?');
+      expect(choices().map(button => button.text())).toEqual(['Refined', 'Original', 'No preference']);
       expect(choices().map(button => button.attributes('aria-pressed'))).toEqual(['false', 'false', 'false']);
       await wrapper.find('[data-testid="original-toggle"]').trigger('click');
       expect(wrapper.find('[data-testid="magic-layout-feedback"]').exists()).toBe(true);

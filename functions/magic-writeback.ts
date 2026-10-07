@@ -45,7 +45,12 @@ export async function onRequest({ request, data, env }: {
   // All identities used below are verified FIT claims. Client hints are ignored.
   const scope = [c.cloudId, c.forgeAppId, c.environmentId, c.installationId];
   const moduleKey = c.forgeAppId === '01ede8b1-4e88-451a-b9ef-89eeef93afaf' ? 'gpt-custom-content-key' : 'zenuml-content-sequence';
-  const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${c.environmentId}:${moduleKey}`];
+  // FIT carries a full environment ARI; native Confluence types carry its UUID.
+  // Check the app prefix before extracting it, while retaining the full ARI in scope.
+  const environmentPrefix = `ari:cloud:ecosystem::environment/${c.forgeAppId}/`;
+  const environmentUuid = c.environmentId.startsWith(environmentPrefix) ? c.environmentId.slice(environmentPrefix.length) : '';
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(environmentUuid)) return response(401, 'Invalid authenticated environment');
+  const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`];
   const result = (outcome: string, artifact?: Artifact) => OkResponse({ outcome, ...(artifact ? { artifact } : {}) });
   let claim: Claimed | null = null;
   const fence = crypto.randomUUID();

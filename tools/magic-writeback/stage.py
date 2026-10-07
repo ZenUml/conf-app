@@ -9,6 +9,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import urllib.request
@@ -23,6 +24,27 @@ def bounded_file(path, limit):
     if len(data) > limit:
         raise ValueError('Input exceeds size limit')
     return data.decode('utf-8')
+
+
+def remote_scope(args):
+    # Installed-event/CLI UUIDs differ from the full ARIs in verified Remote FIT.
+    # Preserve canonical ARIs; never infer a different app or environment.
+    pattern = r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
+    if not re.fullmatch(pattern, args.app_id):
+        raise ValueError('Expected Forge app UUID')
+    prefix = f'ari:cloud:ecosystem::environment/{args.app_id}/'
+    environment = args.environment_id
+    if re.fullmatch(pattern, environment):
+        environment = prefix + environment
+    if not environment.startswith(prefix) or not re.fullmatch(pattern, environment[len(prefix):]):
+        raise ValueError('Environment must belong to the selected app')
+    prefix = 'ari:cloud:ecosystem::installation/'
+    installation = args.installation_id
+    if re.fullmatch(pattern, installation):
+        installation = prefix + installation
+    if not installation.startswith(prefix) or not re.fullmatch(pattern, installation[len(prefix):]):
+        raise ValueError('Expected Forge installation UUID or ARI')
+    return [args.cloud_id, args.app_id, environment, installation]
 
 
 def prepare(args):
@@ -47,7 +69,7 @@ def prepare(args):
                 'svg': svg, 'rulesVersion': 'magic-v1', 'outcome': 'validated',
                 'generatedAt': timestamp.isoformat(timespec='milliseconds').replace('+00:00', 'Z')}
     created = int(timestamp.timestamp() * 1000)
-    return {'id': str(uuid.uuid4()), 'scope': [args.cloud_id, args.app_id, args.environment_id, args.installation_id],
+    return {'id': str(uuid.uuid4()), 'scope': remote_scope(args),
             'contentId': args.content_id, 'artifact': artifact, 'createdAt': created,
             'expiresAt': created + args.ttl_hours * 3600000}
 

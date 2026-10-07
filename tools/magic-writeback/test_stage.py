@@ -19,7 +19,7 @@ class StageTests(unittest.TestCase):
         self.svg = root / 'diagram.svg'
         self.body.write_text(json.dumps({'diagramType': 'mermaid', 'mermaidCode': 'flowchart LR\nA-->B'}))
         self.svg.write_text('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>')
-        self.args = argparse.Namespace(cloud_id='tenant-a', app_id='app-a', environment_id='dev-a', installation_id='install-a', content_id='123', body=str(self.body), svg=str(self.svg), ttl_hours=24, reviewed=True)
+        self.args = argparse.Namespace(cloud_id='tenant-a', app_id='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', environment_id='11111111-2222-4333-8444-555555555555', installation_id='66666666-7777-4888-8999-000000000000', content_id='123', body=str(self.body), svg=str(self.svg), ttl_hours=24, reviewed=True)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -39,5 +39,24 @@ class StageTests(unittest.TestCase):
 
     @patch.object(stage.urllib.request, 'urlopen', side_effect=AssertionError('network not allowed'))
     def test_dry_run_has_no_network_or_credential_requirement(self, _):
-        result = stage.main(['--database-id', 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'stage', '--cloud-id', 'tenant-a', '--app-id', 'app-a', '--environment-id', 'dev-a', '--installation-id', 'install-a', '--content-id', '123', '--body', str(self.body), '--svg', str(self.svg), '--reviewed'])
+        result = stage.main(['--database-id', 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'stage', '--cloud-id', 'tenant-a', '--app-id', self.args.app_id, '--environment-id', self.args.environment_id, '--installation-id', self.args.installation_id, '--content-id', '123', '--body', str(self.body), '--svg', str(self.svg), '--reviewed'])
         self.assertEqual(result, 0)
+
+    def test_normalizes_operator_uuids_to_exact_remote_fit_aris(self):
+        plan = stage.prepare(self.args)
+        expected = [self.args.cloud_id, self.args.app_id,
+                    f'ari:cloud:ecosystem::environment/{self.args.app_id}/{self.args.environment_id}',
+                    f'ari:cloud:ecosystem::installation/{self.args.installation_id}']
+        self.assertEqual(plan['scope'], expected)
+        self.args.environment_id, self.args.installation_id = expected[2:]
+        self.assertEqual(stage.prepare(self.args)['scope'], expected)
+
+    def test_rejects_malformed_and_cross_app_scope_inputs(self):
+        original = self.args.environment_id
+        for value in ['dev-a', f'ari:cloud:ecosystem::environment/99999999-2222-4333-8444-555555555555/{original}',
+                      f'ari:cloud:ecosystem::environment/{self.args.app_id}/{original}/extra']:
+            self.args.environment_id = value
+            with self.assertRaises(ValueError): stage.prepare(self.args)
+        self.args.environment_id = original
+        self.args.installation_id = 'ari:cloud:ecosystem::installation/invalid'
+        with self.assertRaises(ValueError): stage.prepare(self.args)

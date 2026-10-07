@@ -7,7 +7,7 @@ const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 const source = 'flowchart LR\nA --> B';
 const hash = createHash('sha256').update(source).digest('hex');
 const artifact = { sourceHash: hash, rulesVersion: 'magic-v1', outcome: 'validated', svg: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>' };
-const ctx = { cloudId: 'tenant-a', forgeAppId: '8ad26115-211f-4216-971b-0540f606303d', environmentId: 'dev-a', installationId: 'install-a', accountId: 'viewer-a', apiBaseUrl: 'https://api.atlassian.com/ex/confluence/tenant-a' };
+const ctx = { cloudId: 'tenant-a', forgeAppId: '8ad26115-211f-4216-971b-0540f606303d', environmentId: 'ari:cloud:ecosystem::environment/8ad26115-211f-4216-971b-0540f606303d/11111111-2222-4333-8444-555555555555', installationId: 'ari:cloud:ecosystem::installation/66666666-7777-4888-8999-000000000000', accountId: 'viewer-a', apiBaseUrl: 'https://api.atlassian.com/ex/confluence/tenant-a' };
 const doc = (body: any = { diagramType: 'mermaid', mermaidCode: source, unknown: { keep: true } }, version = 7) => ({ id: '123', type: 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence', title: 'Synthetic', status: 'current', pageId: '456', body: { raw: { value: JSON.stringify(body) } }, version: { number: version } });
 const saved = (version = 8) => doc({ diagramType: 'mermaid', mermaidCode: source, magic: artifact }, version);
 const reply = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
@@ -66,6 +66,20 @@ describe('reviewed Magic writeback', () => {
     expect(JSON.parse(put.body.value)).toEqual({ diagramType: 'mermaid', mermaidCode: source, unknown: { keep: true }, magic: artifact });
     expect(row()).toBeUndefined();
   });
+  it('matches native Forge type using the UUID within the verified app-bound environment ARI', async () => {
+    enqueue();
+    const type = `forge:${ctx.forgeAppId}:11111111-2222-4333-8444-555555555555:zenuml-content-sequence`;
+    fetchMock.mockResolvedValueOnce(reply({ ...doc(), type })).mockResolvedValueOnce(reply({ ...saved(), type }));
+    expect(await (await invoke()).json()).toEqual({ outcome: 'written', artifact });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).type).toBe(type);
+    expect(row()).toBeUndefined();
+  });
+  it('rejects malformed or cross-app verified environment ARIs before accessing pending work', async () => {
+    for (const environmentId of ['dev-a', 'ari:cloud:ecosystem::environment/other-app/11111111-2222-4333-8444-555555555555']) {
+      expect((await invoke(request(), { ...ctx, environmentId })).status).toBe(401);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it('re-reads and re-merges after conflict to preserve concurrent unrelated edits', async () => {
     enqueue(); fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({}, 409))
       .mockResolvedValueOnce(reply(doc({ diagramType: 'mermaid', mermaidCode: source, unknown: 'new value', title: 'body title' }, 8)))
@@ -90,11 +104,11 @@ describe('reviewed Magic writeback', () => {
   });
   it('refuses a different app type, non-current record or non-Mermaid body', async () => {
     enqueue();
-    for (const value of [{ ...doc(), type: 'ac:other:zenuml-content-sequence' }, { ...doc(), status: 'trashed' }, doc({ diagramType: 'sequence', mermaidCode: source })]) {
+    for (const value of [{ ...doc(), type: 'ac:other:zenuml-content-sequence' }, { ...doc(), type: `forge:${ctx.forgeAppId}:99999999-2222-4333-8444-555555555555:zenuml-content-sequence` }, { ...doc(), status: 'trashed' }, doc({ diagramType: 'sequence', mermaidCode: source })]) {
       fetchMock.mockResolvedValueOnce(reply(value));
       expect(await (await invoke()).json()).toEqual({ outcome: 'invalid_target' });
     }
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
   it('preserves malformed same-source or unknown-hash artifacts, including a retry race', async () => {
     enqueue();

@@ -743,6 +743,50 @@ jobs:
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
+  pr-pipeline-outcome:
+    # GitHub expands reusable-workflow jobs in its graph. Give reviewers one
+    # stable, human-readable endpoint instead of requiring them to trace every
+    # shard and skipped variant.
+    name: "Pipeline outcome"
+    if: ${{ always() && github.event_name == 'pull_request' && needs.gate.outputs.run == 'true' }}
+    needs: [gate, select, staging-lite-e2e, staging-lite-render-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Summarise the Lite E2E result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.select.outputs.mode }}
+          LITE_RESULT: ${{ needs.staging-lite-e2e.result }}
+          RENDER_RESULT: ${{ needs.staging-lite-render-e2e.result }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" > jobs.json
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import { readFileSync } from 'node:fs';
+          const jobs = JSON.parse(readFileSync('jobs.json')).jobs;
+          const mode = ['selected', 'full'].includes(process.env.MODE) ? process.env.MODE : 'not resolved';
+          const suitePrefix = mode === 'selected'
+            ? 'E2E: Lite (selected) /'
+            : mode === 'full' ? 'E2E: Lite /' : null;
+          // Include plan, all shards, and report aggregation: the caller cannot
+          // finish until every one of these jobs has completed.
+          const suiteJobs = suitePrefix ? jobs.filter(job => job.name.startsWith(suitePrefix)) : [];
+          const times = suiteJobs.flatMap(job => [Date.parse(job.started_at), Date.parse(job.completed_at)]);
+          const duration = times.length && times.every(Number.isFinite)
+            ? Math.max(...times.filter((_, i) => i % 2)) - Math.min(...times.filter((_, i) => i % 2 === 0))
+            : null;
+          const human = duration === null ? 'unavailable' : `${Math.floor(duration / 60000)}m ${Math.round(duration / 1000) % 60}s`;
+          console.log(`## Pipeline outcome\n\n| E2E mode | Lite result | Render result | Lite E2E critical path |\n|---|---|---|---|\n| ${mode} | ${process.env.LITE_RESULT} | ${process.env.RENDER_RESULT} | ${human} |\n\nOpen the reusable E2E jobs only when shard-level diagnostics are needed.`);
+          const unexpected = [process.env.LITE_RESULT, process.env.RENDER_RESULT]
+            .filter(result => !['success', 'skipped'].includes(result));
+          if (unexpected.length) {
+            console.error(`Pipeline outcome reflects a failed or cancelled E2E job: ${unexpected.join(', ')}`);
+            process.exitCode = 1;
+          }
+          NODE
+
   staging-full:
     needs: gate
     # Lite is representative for feature-branch validation. Full + Diagramly

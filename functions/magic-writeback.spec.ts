@@ -96,6 +96,24 @@ describe('reviewed Magic writeback', () => {
     }
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+  it('preserves malformed same-source or unknown-hash artifacts, including a retry race', async () => {
+    enqueue();
+    const malformed = { sourceHash: hash, rulesVersion: 'unsupported', svg: '' };
+    for (const magic of [malformed, { svg: 'missing hash' }, 'malformed']) {
+      fetchMock.mockResolvedValueOnce(reply(doc({ diagramType: 'mermaid', mermaidCode: source, magic })));
+      expect(await (await invoke()).json()).toEqual({ outcome: 'invalid_target' });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    fetchMock.mockReset().mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({}, 409))
+      .mockResolvedValueOnce(reply(doc({ diagramType: 'mermaid', mermaidCode: source, magic: malformed }, 8)));
+    expect(await (await invoke()).json()).toEqual({ outcome: 'invalid_target' });
+    expect(fetchMock).toHaveBeenCalledTimes(3); expect(row().claimToken).toBeNull();
+  });
+  it('permits delivery over an artifact with a demonstrably stale source hash', async () => {
+    enqueue(); fetchMock.mockResolvedValueOnce(reply(doc({ diagramType: 'mermaid', mermaidCode: source, magic: { ...artifact, sourceHash: 'a'.repeat(64) } })))
+      .mockResolvedValueOnce(reply(saved()));
+    expect(await (await invoke()).json()).toEqual({ outcome: 'written', artifact });
+  });
   it('bounds conflicting writes and releases the lease', async () => {
     enqueue(); fetchMock.mockImplementation((_url, init) => Promise.resolve(init.method === 'PUT' ? reply({}, 409) : reply(doc())));
     expect(await (await invoke()).json()).toEqual({ outcome: 'conflict' });

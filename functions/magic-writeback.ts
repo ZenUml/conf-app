@@ -76,6 +76,10 @@ export async function onRequest({ request, data, env }: {
       // Never overwrite a newer valid same-source artifact, including a writer race.
       // The browser independently sanitizes before displaying the stored SVG.
       if (artifactValid(body.magic, hash)) return result('existing', body.magic);
+      // Automatic repair is limited to missing or demonstrably source-stale
+      // artifacts. A malformed matching/unknown hash requires manual repair.
+      if (body.magic != null && (!/^[a-f0-9]{64}$/.test(body.magic?.sourceHash ?? '')
+        || body.magic.sourceHash === hash)) return result('invalid_target');
       if (!claim) {
         claim = await env.DB.prepare(
           'UPDATE MagicWriteback SET claimToken=?1, claimUntil=?2 WHERE id=?3 AND cloudId=?4 AND appId=?5 AND environmentId=?6 AND installationId=?7 AND contentId=?8 AND expiresAt>?9 AND (claimUntil IS NULL OR claimUntil<=?9) RETURNING id, sourceHash, artifact',

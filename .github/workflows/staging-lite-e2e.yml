@@ -1,0 +1,139 @@
+name: Staging E2E — staging-lite-e2e
+run-name: "staging-lite-e2e · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id: {type: string, required: true}
+      parent-attempt: {type: string, required: true}
+      source-sha: {type: string, required: true}
+      suite: {type: string, default: insert}
+      timeout: {type: string, default: '11'}
+      grep: {type: string, default: ''}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parent:
+    name: Verify staging ownership
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the active parent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+        run: node scripts/ci/wait-for-e2e.mjs --verify-parent
+  insert:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      app: zenuml-lite@stg
+      # PR discovery spans all normal live projects; render stays separate.
+      # Main keeps its established insert + graph-publish layout.
+      suite: ${{ inputs.suite }}
+      auth-artifact: auth-state-pre-lite-stg
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      ref: ${{ inputs.source-sha }}
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ inputs.grep }}
+      # Main's insert suite uses 10 shards, not the default 5. `--shard`
+      # splits the test list contiguously. Byline tests create a page each;
+      # under 8 the split put byline-create #2, byline-paywall
+      # and edit-graph on one shard — 4m06s on PR run 34658978233, the tail.
+      # Measured with `CI=true APP=zenuml-lite@stg pnpm exec playwright test
+      # --list --project=auth --project=insert --project=feedback --shard=N/10`
+      # (2026-09-12):
+      #   1: byline-asyncapi (x2)            6: mermaid, openapi
+      #   2: byline-create (x2)              7: paywall-page-banner (x2)
+      #   3: byline-paywall, edit-graph      8: plantuml, sequence
+      #   4: embed-deeplink-autoconvert,     9: typed-deeplink-autoconvert,
+      #      graph                              typed-deeplink-render
+      #   5: m1-first-seen-ping (x2)        10: feedback-report (x2)
+      # In that insert suite, no shard carries more than two page-creating tests
+      # (~3m). Peak fan-out on main is 16 Lite + 4 Diagramly + 3 AsyncAPI = 23
+      # with Full sequenced behind Lite. The three jobs over the 20 cap are
+      # Lite's last-created (light) shards; they wait ~40s for Diagramly's
+      # all-skip shard 1 to free a runner. Re-measure with `--list` after
+      # adding or renaming a spec; do not reason about placement by hand.
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
+      # Main still runs the smaller insert suite with its measured 11-minute
+      # limit. Ready PRs run the planned regression suite: the 8d4ab7bd plan
+      # contains 108 tests, 10–11 per shard (not the two-test insert layout
+      # above). On PR run 37244818100, shard 4 passed in 10m16s; attempts 1
+      # and 3 each reaped a different active shard at 11m16s. Shard 10 had
+      # passed 10 of its 11 planned tests, including one retry, and was running
+      # the last test. Give this larger suite time to finish and upload its
+      # evidence while retaining the existing main/release insert budget.
+      timeout-minutes: ${{ fromJSON(inputs.timeout) }}
+      artifact-suffix: lite-stg
+    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+
+  publish:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      app: zenuml-lite@stg
+      suite: graph-publish
+      auth-artifact: auth-state-pre-lite-stg
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      ref: ${{ inputs.source-sha }}
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ inputs.grep }}
+      # graph-edit.spec.ts declares `test.describe.configure({ mode: 'parallel' })`,
+      # so `--shard=N/M` splits its 8 tests across shards instead of stacking all
+      # of them on shard 1 (which made this job an 8-minute critical path).
+      # Headroom for 2 tests x 3 attempts (retries: 2) plus job setup.
+      # e2e-test.yml's SHARD_COUNT went 4 -> 5 (2026-09-10, to give the new
+      # `feedback` project its own shard on the `insert` suite — unrelated to
+      # graph-publish, but SHARD_COUNT is shared config). That does NOT change
+      # this budget: measured at M=5 (`CI=true pnpm exec playwright test --list
+      # --project=auth --project=fullscreen tests/fullscreen/graph-edit.spec.ts
+      # --shard=N/5`, counting only graph-edit lines) the split is 2/2/2/1/1, so
+      # the heaviest shard still carries 2 tests, exactly as it did at M=4.
+      # Count graph-edit lines, not Playwright's `Total:` summary — that includes
+      # the auth.setup dependency test and reads one higher per shard.
+      timeout-minutes: 12
+      artifact-suffix: lite-stg-graph-publish
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+
+  render:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      app: zenuml-lite@stg
+      suite: render
+      auth-artifact: auth-state-pre-lite-stg
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      ref: ${{ inputs.source-sha }}
+      # Empty on main and on an unselective PR run (whole suite).
+      grep: ${{ inputs.grep }}
+      artifact-suffix: lite-stg-render
+      # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
+      # creates any fixture missing from config/render-fixtures.json, and
+      # running it on multiple shards at once would race them into creating
+      # the same missing fixture independently — see the shard-matrix input's
+      # description in e2e-test.yml.
+      shard-matrix: '[1]'
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

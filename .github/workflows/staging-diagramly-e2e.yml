@@ -1,0 +1,61 @@
+name: Staging E2E — staging-diagramly-e2e
+run-name: "staging-diagramly-e2e · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id: {type: string, required: true}
+      parent-attempt: {type: string, required: true}
+      source-sha: {type: string, required: true}
+      suite: {type: string, default: insert}
+      timeout: {type: string, default: '11'}
+      grep: {type: string, default: ''}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parent:
+    name: Verify staging ownership
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the active parent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+        run: node scripts/ci/wait-for-e2e.mjs --verify-parent
+  tests:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      app: diagramly@stg
+      suite: insert
+      auth-artifact: auth-state-pre-diagramly-stg
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      ref: ${{ inputs.source-sha }}
+      # 4 shards, not the default 5. Full and Diagramly run the same insert list
+      # as Lite but skip the byline, paywall-banner and typed-deeplink specs at
+      # runtime, so a count-based split leaves whole shards near-empty. Measured
+      # 2026-09-11 (`CI=true APP=diagramly@stg pnpm exec playwright test --list
+      # --project=auth --project=insert --project=feedback --shard=N/4`, live
+      # tests only):
+      #   1: (byline-* — all skip here)         3: mermaid, openapi, plantuml
+      #   2: edit-graph, embed-deeplink-         4: feedback-report (x2), sequence
+      #      autoconvert, graph, m1 (x2)
+      # 3 shards would put six live tests on one shard (~3m30s+, longer than
+      # Lite's heaviest); 4 keeps the heaviest at five (~3m) and the run's peak at
+      # Lite 14 + 4 + AsyncAPI 3 = 21, one over the cap for the ~40s shard 1
+      # takes to skip everything and free its runner. Re-measure after adding or
+      # renaming a spec.
+      shard-matrix: '[1, 2, 3, 4]'
+      timeout-minutes: 11
+      artifact-suffix: diagramly-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

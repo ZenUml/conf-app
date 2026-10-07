@@ -15,7 +15,7 @@ Acceptance contract:
 
 The default TTL is 24 hours (maximum 7 days). Expired rows are inaccessible immediately. Backend requests purge expired rows; the CLI also supports explicit purge for an idle queue. There is no automatic cleanup scheduler. Operators must run purge after the staging window when no customer view occurs.
 
-Deploy the migration with the normal candidate-branch pipeline before staging artifacts. No new Forge scopes, remotes, model provider, generation service, or scheduler are required. Local tests can exercise the full backend transaction using synthetic Confluence responses; no production tenant or queue is needed.
+Apply migration `0028_add_magic_writeback.sql` separately to the selected backend D1 database before staging artifacts. The candidate-branch pipeline publishes code but does not apply D1 migrations. Use the existing authenticated Wrangler D1 migration command with the correct database and environment; review its target before execution. This implementation has not applied a remote migration. No new Forge scopes, remotes, model provider, generation service, or scheduler are required. Local tests can exercise the full backend transaction using synthetic Confluence responses; no production tenant or queue is needed.
 
 Operator usage (keep real body/SVG snapshots in git-ignored `private/local-data/` or a private temporary directory):
 

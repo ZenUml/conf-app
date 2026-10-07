@@ -4,7 +4,7 @@ PR validation and main draft preparation have separate entry workflows. PR valid
 
 The validation jobs dispatch independent E2E runs and wait for their result. Each validation job summary links to its child run. Shards, concrete test plans, evidence, and merged reports appear in that child graph. A failed child fails its parent validation job.
 
-Children check that their parent run is active and in the matching attempt. Test checkout uses the source SHA supplied by the parent. Selection and authentication artifacts come from the parent run. The parent holds the shared staging concurrency group while the child executes; children do not acquire the same lock. Each dispatcher has an always-running cleanup step that cancels its own remaining child and checks that it has stopped.
+Children check the matching parent attempt and its running validation job. Test checkout uses the source SHA supplied by the parent. Selection and authentication artifacts come from the parent run. The parent holds the shared staging concurrency group while the child executes; children do not acquire the same lock. Each dispatcher has an always-running cleanup step that cancels its own remaining child and checks that it has stopped.
 
 The `test:all` label dispatches the PR entry with full coverage. Normal PR selection retains smoke and Jev-selected categories, with full coverage fallback. Main retains its existing normal suites and Full-after-Lite gate.
 

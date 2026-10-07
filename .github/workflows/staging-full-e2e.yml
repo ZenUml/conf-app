@@ -26,6 +26,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PARENT_RUN_ID: ${{ inputs.parent-run-id }}
           PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+          EXPECTED_PARENT_JOBS: '["Validate: Full", "Validate: Full (now)"]'
         run: node scripts/ci/wait-for-e2e.mjs --verify-parent
   tests:
     needs: parent

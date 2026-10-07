@@ -23,8 +23,9 @@ export function findChild(runs, title) {
   return runs.find(run => run.display_title === title);
 }
 
-export function verifyParent(parent, attempt) {
-  if (parent.status !== 'in_progress' || String(parent.run_attempt) !== attempt ||
+export function verifyParent(parent, attempt, jobs, expectedJobs) {
+  const dispatcherRunning = jobs.some(job => expectedJobs.includes(job.name) && job.status === 'in_progress');
+  if (!['in_progress', 'pending'].includes(parent.status) || !dispatcherRunning || String(parent.run_attempt) !== attempt ||
       !['.github/workflows/build-test-deploy.yml', '.github/workflows/pr-validation.yml'].includes(parent.path)) {
     throw new Error('Child E2E requires an active staging parent for this attempt');
   }
@@ -75,7 +76,9 @@ async function main() {
   const pause = () => new Promise(resolve => setTimeout(resolve, 5000));
   const dispatchMarker = `${env.RUNNER_TEMP || '/tmp'}/e2e-dispatched-${workflow}-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
   if (process.argv.includes('--verify-parent')) {
-    verifyParent(api(`actions/runs/${env.PARENT_RUN_ID}`), env.PARENT_ATTEMPT);
+    const parent = api(`actions/runs/${env.PARENT_RUN_ID}`);
+    const jobs = api(`actions/runs/${env.PARENT_RUN_ID}/attempts/${env.PARENT_ATTEMPT}/jobs?per_page=100`).jobs;
+    verifyParent(parent, env.PARENT_ATTEMPT, jobs, JSON.parse(env.EXPECTED_PARENT_JOBS));
     return;
   }
   if (process.argv.includes('--cleanup')) {

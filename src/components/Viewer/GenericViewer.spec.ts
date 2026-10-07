@@ -18,11 +18,17 @@ import { toast } from '@/utils/toast'
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readCopyAttribution } from '@/utils/analytics/copyAttribution'
+import { callRemote } from '@/utils/requestUtil'
 import { magicSourceHash } from '@/utils/magic/artifact'
 import { writeMagicPreference } from '@/utils/magic/localPreference'
 import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 import { webcrypto } from 'node:crypto'
 import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFailedRetry'
+
+vi.mock('@/utils/requestUtil', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/utils/requestUtil')>(),
+  callRemote: vi.fn(() => Promise.resolve({ outcome: 'miss' })),
+}))
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -132,6 +138,10 @@ const mountViewer = () => mount(GenericViewer, { global: { plugins: [store] } })
 describe('GenericViewer (chrome-less)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(callRemote).mockImplementation(async (path) => {
+      if (path === '/magic-writeback') return { outcome: 'miss' };
+      throw new Error('No remote configured in unit test');
+    })
     // Before the store assignments below: wrappers mounted by earlier tests in
     // this file stay mounted and still watch viewerLoadState, so a retry marker
     // left in sessionStorage would make one of them report a retry outcome
@@ -161,6 +171,52 @@ describe('GenericViewer (chrome-less)', () => {
   })
 
   describe('Fullscreen Magic', () => {
+    it('automatically pulls a persisted artifact and still sanitizes before display', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid);
+      store.state.diagram.mermaidCode = PI_MAGIC_SYNTHETIC_SOURCE;
+      vi.mocked(callRemote).mockResolvedValue({ outcome: 'written', artifact: PI_MAGIC_SYNTHETIC_ARTIFACT });
+      const wrapper = mountViewer();
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
+      expect(callRemote).toHaveBeenCalledWith('/magic-writeback', 'POST', { contentId: '987654321' });
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('magic_writeback_completed', expect.objectContaining({ magic_writeback_outcome: 'written' }));
+      wrapper.unmount();
+    });
+    it('keeps Original on a miss and does not repeat the optional request', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid);
+      const wrapper = mountViewer();
+      await flushPromises();
+      const count = vi.mocked(callRemote).mock.calls.filter(([path]) => path === '/magic-writeback').length;
+      await (wrapper.vm as any).initializeMagic();
+      expect(vi.mocked(callRemote).mock.calls.filter(([path]) => path === '/magic-writeback')).toHaveLength(count);
+      expect(wrapper.find('[data-testid="magic-toggle"]').exists()).toBe(false);
+      expect((wrapper.vm as any).magicActive).toBe(false);
+      wrapper.unmount();
+    });
+    it('discards a delivered artifact when the viewer source changed during the request', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid);
+      store.state.diagram.mermaidCode = PI_MAGIC_SYNTHETIC_SOURCE;
+      let finish: (value: unknown) => void = () => {};
+      vi.mocked(callRemote).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+      const wrapper = mountViewer();
+      await flushPromises();
+      store.state.diagram.mermaidCode = PI_MAGIC_SYNTHETIC_SOURCE + ' ';
+      // Resolve the prior request before Vue starts the request for the new source.
+      finish({ outcome: 'written', artifact: PI_MAGIC_SYNTHETIC_ARTIFACT });
+      await flushPromises();
+      expect(store.state.diagram.magic).toBeUndefined();
+      expect((wrapper.vm as any).magicActive).toBe(false);
+      wrapper.unmount();
+    });
+    it('rejects a delivered unsafe SVG and keeps Original', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid);
+      store.state.diagram.mermaidCode = PI_MAGIC_SYNTHETIC_SOURCE;
+      vi.mocked(callRemote).mockResolvedValue({ outcome: 'written', artifact: { ...PI_MAGIC_SYNTHETIC_ARTIFACT, svg: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>' } });
+      const wrapper = mountViewer();
+      await flushPromises();
+      expect(store.state.diagram.magic).toBeUndefined();
+      expect((wrapper.vm as any).magicActive).toBe(false);
+      wrapper.unmount();
+    });
     const source = 'graph LR\n  A-->B';
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><path d="M0 0L20 20"/></svg>';
     const mounted: ReturnType<typeof mount>[] = [];

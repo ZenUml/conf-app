@@ -28,6 +28,7 @@ export const AUTHENTICATED_PATHS = [
   '/forge-upload-attachment',
   '/deeplink-ticket',
   '/activation-prepared',
+  '/magic-writeback',
   '/api/diagram-impact',
   '/api/architecture-tokens',
   '/api/feedback-report',
@@ -65,7 +66,7 @@ function withDeeplinkTicketCors(response: Response): Response {
 // Customer deeplink paths (/d/<cloudId>/<contentId>, /i/<token>) identify a
 // tenant + diagram and must never be logged verbatim
 // (docs/policies/client-privacy.md). Redact to just the path prefix.
-const UNLOGGED_PATH_PREFIXES = ['/d', '/i'];
+const UNLOGGED_PATH_PREFIXES = ['/d', '/i', '/magic-writeback'];
 
 // Query parameters that are credentials in their own right, wherever they
 // appear. `code` is Atlassian's authorization code and ours; `auth` is the

@@ -516,6 +516,7 @@ import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
 import { validateMagicArtifact } from '@/utils/magic/artifact'
+import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
 
 const DEFAULT_TITLE = 'Untitled diagram'
@@ -591,6 +592,7 @@ export default {
     magicInitializing: false,
     magicInitializeAttempt: 0,
     magicAvailabilityReported: [],
+    magicWritebackAttempts: [],
     magicDefaultReported: [],
     magicSessionChoice: null,
     magicSessionChoiceKey: null,
@@ -1253,6 +1255,7 @@ export default {
       const source = this.diagram.mermaidCode ?? '';
       const artifact = this.diagram.magic;
       if (!artifact) {
+        this.requestMagicWriteback();
         this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'missing_artifact', source, artifact);
         this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
         return;
@@ -1263,6 +1266,7 @@ export default {
         if (generation !== this.magicGeneration || this.diagramType !== DiagramType.Mermaid
           || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact) return;
         if ('reason' in result) {
+          if (result.reason === 'stale_source') this.requestMagicWriteback();
           this.reportMagicAssessment('magic_availability_checked', 'magic_availability', result.reason, source, artifact);
           this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
           return;
@@ -1289,6 +1293,40 @@ export default {
         }
       } finally {
         if (attempt === this.magicInitializeAttempt) this.magicInitializing = false;
+      }
+    },
+    async requestMagicWriteback() {
+      const diagram = this.diagram;
+      const contentId = diagram?.id;
+      const source = diagram?.mermaidCode;
+      const artifact = diagram?.magic;
+      if (!this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid
+        || diagram?.source !== DataSource.CustomContent || diagram?.isCopy || diagram?.recoveredFromOrphan
+        || typeof contentId !== 'string' || !/^\d{1,30}$/.test(contentId) || typeof source !== 'string') return;
+      // One attempt per diagram/source per iframe. Duplicate readiness signals
+      // and unavailable backend responses must not create a polling loop.
+      if (this.magicWritebackAttempts.some(item => item.contentId === contentId && item.source === source)) return;
+      this.magicWritebackAttempts.push({ contentId, source });
+      const started = performance.now();
+      const generation = this.magicGeneration;
+      this.magicEvent('magic_writeback_requested');
+      let outcome = 'unavailable';
+      try {
+        const result = await callRemote('/magic-writeback', 'POST', { contentId });
+        const known = ['written', 'existing', 'miss', 'source_changed', 'unavailable', 'conflict', 'invalid_target'];
+        if (known.includes(result?.outcome)) outcome = result.outcome;
+        if ((outcome === 'written' || outcome === 'existing') && result.artifact
+          && this.magicGeneration === generation && this.diagram === diagram
+          && this.diagram.id === contentId && this.diagram.mermaidCode === source && this.diagram.magic === artifact) {
+          const validated = await validateMagicArtifact(result.artifact, source);
+          if ('svg' in validated && this.magicGeneration === generation && this.diagram === diagram
+            && this.diagram.id === contentId && this.diagram.mermaidCode === source && this.diagram.magic === artifact) {
+            this.diagram.magic = result.artifact;
+          }
+        }
+      } catch { /* Original remains usable when optional delivery is unavailable. */ }
+      finally {
+        this.magicEvent('magic_writeback_completed', { magic_writeback_outcome: outcome, duration_ms: Math.round(performance.now() - started) });
       }
     },
     magicEvent(name, properties = {}) {

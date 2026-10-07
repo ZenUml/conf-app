@@ -40,7 +40,7 @@ export function verifyChildRun(actor, attempt) {
 
 export function verifyParent(parent, attempt, jobs, expectedJobs, provenance = {}) {
   const dispatcherRunning = jobs.some(job => expectedJobs.includes(job.name) && job.status === 'in_progress');
-  if (!['in_progress', 'pending'].includes(parent.status) || !dispatcherRunning || String(parent.run_attempt) !== attempt ||
+  if (!['in_progress', 'pending', 'queued'].includes(parent.status) || !dispatcherRunning || String(parent.run_attempt) !== attempt ||
       !['.github/workflows/build-test-deploy.yml', '.github/workflows/pr-validation.yml', '.github/workflows/main-staging-validation.yml'].includes(parent.path)) {
     throw new Error('Child E2E requires an active staging parent for this attempt');
   }

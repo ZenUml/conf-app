@@ -93,6 +93,7 @@ test('child accepts only an active staging parent in the matching attempt', () =
   const jobs = [{ name: 'E2E validation', status: 'in_progress' }];
   verifyParent(parent, '2', jobs, ['E2E validation']);
   verifyParent({ ...parent, status: 'pending' }, '2', jobs, ['E2E validation']);
+  verifyParent({ ...parent, status: 'queued' }, '2', jobs, ['E2E validation']);
   assert.throws(() => verifyParent(parent, '2', [], ['E2E validation']), /active staging parent/);
   assert.throws(() => verifyParent(parent, '2', jobs, ['Validate: Full']), /active staging parent/);
   for (const invalid of [{ ...parent, status: 'completed' }, { ...parent, run_attempt: 1 }, { ...parent, path: '.github/workflows/release.yml' }]) {

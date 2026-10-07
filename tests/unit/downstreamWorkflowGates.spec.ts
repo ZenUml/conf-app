@@ -15,7 +15,7 @@ function eligible(id: string, overrides: Record<string, string> = {}, cancelled 
   // The ancestor success status is false even when all direct needs succeeded.
   if (!explicitStatus) return false;
   const github = { ref, event_name: 'push', event: { repository: { default_branch: 'main' } } };
-  return Function('needs', 'github', 'cancelled', 'format', `return (${expression})`)(needs, github, () => cancelled, (_: string, branch: string) => `refs/heads/${branch}`);
+  return Function('needs', 'github', 'cancelled', 'always', 'format', `return (${expression})`)(needs, github, () => cancelled, () => true, (_: string, branch: string) => `refs/heads/${branch}`);
 }
 
 describe('main downstream staging gates', () => {
@@ -30,8 +30,23 @@ describe('main downstream staging gates', () => {
         }
       }
     });
-    it(`${id} never runs on a cancelled workflow or feature branch`, () => {
-      expect(eligible(id, {}, true)).toBe(false);
+    it(`${id} never dispatches work after cancellation and rejects feature branches`, () => {
+      const dispatch = jobs[id].steps?.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
+      if (dispatch) {
+        // Cancellation must stop the active wrapper; always() at job level
+        // would keep its wait process alive. Cleanup is a step-level exception.
+        expect(eligible(id, {}, true)).toBe(false);
+        const stepRuns = (step: any, cancelled: boolean) => Function('cancelled', 'always',
+          `return (${step.if.slice(3, -2)})`)(() => cancelled, () => true);
+        expect(stepRuns(dispatch, false)).toBe(true);
+        expect(stepRuns(dispatch, true)).toBe(false);
+        const cleanup = jobs[id].steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
+        expect(cleanup).toBeDefined();
+        expect(stepRuns(cleanup, true)).toBe(true);
+        expect(jobs[id].steps.indexOf(cleanup)).toBeGreaterThan(jobs[id].steps.indexOf(dispatch));
+      } else {
+        expect(eligible(id, {}, true)).toBe(false);
+      }
       expect(eligible(id, {}, false, 'refs/heads/feature')).toBe(false);
     });
   }

@@ -4,19 +4,7 @@ on:
   push:
     tags-ignore:
       - '**' # do not run on tags
-    branches:
-      - '**'
-      - '!**ruixiang-e2e**'
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.claude/**'
-      - '.cursor/**'
-  # pull_request events let us gate E2E on PR draft state. The pull_request
-  # synchronize event also fires on every push to a PR branch — concurrency
-  # below dedupes it against the matching push event.
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -25,15 +13,6 @@ on:
   # Allows the release workflow to create fresh, tested drafts without a
   # no-op commit to main.
   workflow_dispatch:
-    inputs:
-      force-all:
-        type: boolean
-        default: false
-        description: 'Human test:all override'
-      pr-number:
-        type: string
-        default: ''
-        description: 'PR number when dispatched by test:all label'
 
 # Shared environment ownership spans every staging deployment and test in this run.
 # This initial conservative implementation also queues build jobs; splitting those
@@ -128,6 +107,7 @@ jobs:
       - name: Install E2E discovery dependencies
         run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
       - run: pnpm test:unit
+      - run: node --test scripts/ci/wait-for-e2e.node-test.mjs
       # Verify the asyncapi variant builds even on feature-branch PRs. The
       # staging-asyncapi job below only runs on the default branch (like
       # full/diagramly), so this is the smoke test for PRs.
@@ -247,7 +227,7 @@ jobs:
   # no E2E) logs in to nothing.
   e2e-auth-lite:
     needs: gate
-    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) }}
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)) }}
     name: "E2E auth: Lite"
     uses: ./.github/workflows/e2e-auth.yml
     with:
@@ -396,137 +376,6 @@ jobs:
   # It also requires the PR run's E2E jobs to have RUN and passed — a draft
   # PR's run is green with its E2E skipped, which proves nothing. Anything it
   # cannot establish (no merge parent, no run, jobs missing) means no reuse.
-  jev-classify:
-    needs: gate
-    name: Jev category selection
-    if: ${{ needs.gate.outputs.run == 'true' && (github.event_name == 'pull_request' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          # Run only classifier code already on the trusted PR base.
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          fetch-depth: 0
-      - name: Classify candidate tree
-        env:
-          TYPESAFE_API_KEY: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.TYPESAFE_API_KEY || (github.event_name != 'pull_request' && secrets.TYPESAFE_API_KEY) || '' }}
-          CANDIDATE: ${{ github.sha }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HUMAN_FULL: ${{ inputs.force-all || contains(github.event.pull_request.labels.*.name, 'test:all') }}
-        run: |
-          git fetch origin "$CANDIDATE"
-          if [ -f scripts/test-selection/classify.mjs ]; then
-            BASE_SHA="$BASE"
-            # Main may have collapsed pending runs: absent proven baseline, full fallback.
-            [ -n "$BASE_SHA" ] || BASE_SHA="$CANDIDATE"
-            node scripts/test-selection/classify.mjs --base "$BASE_SHA" --head "$CANDIDATE" \
-              --pr-head "$PR_HEAD" --pr "$PR_NUMBER" --human-full "$HUMAN_FULL" \
-              --mode enabled --output test-selection.json
-          else
-            # Bootstrap PR: trusted base predates the classifier; never execute candidate code with the key.
-            node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('test-selection.json',JSON.stringify({schema_version:1,head_sha:process.env.CANDIDATE,pr_head_sha:process.env.PR_HEAD,mode:'all',execution_mode:'observe',categories:{},required:['smoke'],fallback_reason:'trusted-base-predates-classifier'}));"
-          fi
-          cat test-selection.json >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v6
-        with:
-          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
-          path: test-selection.json
-          retention-days: 30
-
-  select:
-    needs: [gate, jev-classify]
-    # The trusted resolver unions smoke, Jev categories and the established
-    # deterministic coverage floor. Missing/failed Jev means full coverage.
-    # Main skips this job and always runs full normal suites.
-    name: "Select E2E for this PR"
-    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      mode: ${{ steps.select.outputs.mode }}
-      grep: ${{ steps.select.outputs.grep }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          # Selection code, like classifier code, comes from the trusted base.
-          ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 0
-      - uses: actions/download-artifact@v6
-        continue-on-error: true
-        with:
-          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
-          path: jev-selection
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-          # No install here — the selector has no dependencies — and the
-          # default `package-manager-cache: true` fails without pnpm on PATH.
-          package-manager-cache: false
-      - name: Select specs from the PR's changed files
-        id: select
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-          CANDIDATE: ${{ github.sha }}
-          SELECTION_PATH: jev-selection/test-selection.json
-          HUMAN_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'test:all') }}
-        run: |
-          set -euo pipefail
-          if [ "$HUMAN_FULL" = true ]; then
-            echo 'mode=all' >> "$GITHUB_OUTPUT"
-            echo 'grep=' >> "$GITHUB_OUTPUT"
-            echo '{"mode":"all","grep":"","reasons":["human-test-all"]}' > selection.json
-            touch changed-files.txt
-            echo 'Human test:all override: full E2E coverage' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          # The PR's file list from the API (base...head), not a checkout diff:
-          # the merge ref's depth games are not worth it. Paginated: up to 3000.
-          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > changed-files.txt; then
-            echo 'mode=all' >> "$GITHUB_OUTPUT"
-            echo 'grep=' >> "$GITHUB_OUTPUT"
-            echo '{"mode":"all","grep":"","reasons":["changed-files-api-failure"]}' > selection.json
-            echo 'Changed file discovery failed: running full coverage' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          git fetch origin "$CANDIDATE"
-          export CANDIDATE_TREE=$(git rev-parse "$CANDIDATE^{tree}")
-          if [ -f scripts/test-selection/resolve.mjs ]; then
-            node scripts/test-selection/resolve.mjs > selection.json
-          else
-            # Activation bootstrap: old trusted base cannot authorize selection.
-            echo 'mode=all' >> "$GITHUB_OUTPUT"
-            echo 'grep=' >> "$GITHUB_OUTPUT"
-            echo '{"mode":"all","grep":"","reasons":["trusted-base-predates-activation"]}' > selection.json
-          fi
-          MODE=$(jq -r .mode selection.json); GREP=$(jq -r .grep selection.json)
-          {
-            if [ "$MODE" = "selected" ]; then
-              echo "### E2E selection: \`--grep=$GREP\`"
-            else
-              echo "### E2E selection: full suite"
-            fi
-            echo; echo "<details><summary>$(wc -l < changed-files.txt) changed files</summary>"; echo; echo '```'
-            jq -r '.reasons[]' selection.json; echo '```'; echo "</details>"
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "mode=$MODE grep=$GREP"
-      - name: Keep the file list for the AI pass
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-selection-${{ github.run_id }}
-          path: |
-            changed-files.txt
-            selection.json
-          retention-days: 3
-
   reuse-check:
     needs: gate
     name: "Reuse PR E2E?"
@@ -618,213 +467,35 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: ${{ github.event_name != 'pull_request' && needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
-    needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
-    # "(selected)" when the PR's selection narrowed the suite (see `select`).
-    name: "E2E: Lite${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      planned: true
-      app: zenuml-lite@stg
-      # PR discovery spans all normal live projects; render stays separate.
-      # Main keeps its established insert + graph-publish layout.
-      suite: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
-      auth-artifact: auth-state-pre-lite-stg
-      # Empty on main and on an unselective PR run (whole suite).
-      grep: ${{ needs.select.outputs.grep }}
-      # Main's insert suite uses 10 shards, not the default 5. `--shard`
-      # splits the test list contiguously. Byline tests create a page each;
-      # under 8 the split put byline-create #2, byline-paywall
-      # and edit-graph on one shard — 4m06s on PR run 34658978233, the tail.
-      # Measured with `CI=true APP=zenuml-lite@stg pnpm exec playwright test
-      # --list --project=auth --project=insert --project=feedback --shard=N/10`
-      # (2026-09-12):
-      #   1: byline-asyncapi (x2)            6: mermaid, openapi
-      #   2: byline-create (x2)              7: paywall-page-banner (x2)
-      #   3: byline-paywall, edit-graph      8: plantuml, sequence
-      #   4: embed-deeplink-autoconvert,     9: typed-deeplink-autoconvert,
-      #      graph                              typed-deeplink-render
-      #   5: m1-first-seen-ping (x2)        10: feedback-report (x2)
-      # In that insert suite, no shard carries more than two page-creating tests
-      # (~3m). Peak fan-out on main is 16 Lite + 4 Diagramly + 3 AsyncAPI = 23
-      # with Full sequenced behind Lite. The three jobs over the 20 cap are
-      # Lite's last-created (light) shards; they wait ~40s for Diagramly's
-      # all-skip shard 1 to free a runner. Re-measure with `--list` after
-      # adding or renaming a spec; do not reason about placement by hand.
-      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
-      # Main still runs the smaller insert suite with its measured 11-minute
-      # limit. Ready PRs run the planned regression suite: the 8d4ab7bd plan
-      # contains 108 tests, 10–11 per shard (not the two-test insert layout
-      # above). On PR run 37244818100, shard 4 passed in 10m16s; attempts 1
-      # and 3 each reaped a different active shard at 11m16s. Shard 10 had
-      # passed 10 of its 11 planned tests, including one retry, and was running
-      # the last test. Give this larger suite time to finish and upload its
-      # evidence while retaining the existing main/release insert budget.
-      timeout-minutes: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
-      artifact-suffix: lite-stg
-      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite (selected)' || 'E2E: Lite' }}"
-    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
-
-  staging-lite-fullscreen-e2e:
-    # Keep the DrawIO Publish checks focused on graph-edit.spec.ts. Like the
-    # main Lite E2E, run them for the default branch and ready-for-review PRs,
-    # but not for draft/branch iteration pushes.
-    # reuse-check is skipped on PR runs (its outputs read as empty, so the
-    # `!= 'true'` test passes) and says true/false on main; the explicit
-    # result checks replace the all-succeeded semantics a plain `needs` would
-    # apply to a skipped job. ADR-0007 §2.
-    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
-    needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
-    # "(selected)" when the PR's selection narrowed the suite (see `select`).
-    name: "E2E: Lite DrawIO Publish${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      planned: true
-      app: zenuml-lite@stg
-      suite: graph-publish
-      auth-artifact: auth-state-pre-lite-stg
-      # Empty on main and on an unselective PR run (whole suite).
-      grep: ${{ needs.select.outputs.grep }}
-      # graph-edit.spec.ts declares `test.describe.configure({ mode: 'parallel' })`,
-      # so `--shard=N/M` splits its 8 tests across shards instead of stacking all
-      # of them on shard 1 (which made this job an 8-minute critical path).
-      # Headroom for 2 tests x 3 attempts (retries: 2) plus job setup.
-      # e2e-test.yml's SHARD_COUNT went 4 -> 5 (2026-09-10, to give the new
-      # `feedback` project its own shard on the `insert` suite — unrelated to
-      # graph-publish, but SHARD_COUNT is shared config). That does NOT change
-      # this budget: measured at M=5 (`CI=true pnpm exec playwright test --list
-      # --project=auth --project=fullscreen tests/fullscreen/graph-edit.spec.ts
-      # --shard=N/5`, counting only graph-edit lines) the split is 2/2/2/1/1, so
-      # the heaviest shard still carries 2 tests, exactly as it did at M=4.
-      # Count graph-edit lines, not Playwright's `Total:` summary — that includes
-      # the auth.setup dependency test and reads one higher per shard.
-      timeout-minutes: 12
-      artifact-suffix: lite-stg-graph-publish
-      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite DrawIO Publish (selected)' || 'E2E: Lite DrawIO Publish' }}"
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
-
-  staging-lite-render-e2e:
-    # render was collected but never gated in CI. Same cadence as the other
-    # Lite E2E jobs: default branch, or a PR that's Ready for Review — not
-    # draft/branch iteration pushes.
-    # reuse-check is skipped on PR runs (its outputs read as empty, so the
-    # `!= 'true'` test passes) and says true/false on main; the explicit
-    # result checks replace the all-succeeded semantics a plain `needs` would
-    # apply to a skipped job. ADR-0007 §2.
-    if: ${{ github.event_name != 'pull_request' && needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
-    needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
-    # "(selected)" when the PR's selection narrowed the suite (see `select`).
-    name: "E2E: Lite render${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      planned: true
-      app: zenuml-lite@stg
-      suite: render
-      auth-artifact: auth-state-pre-lite-stg
-      # Empty on main and on an unselective PR run (whole suite).
-      grep: ${{ needs.select.outputs.grep }}
-      artifact-suffix: lite-stg-render
-      timing-job-prefix: "${{ needs.select.outputs.mode == 'selected' && 'E2E: Lite render (selected)' || 'E2E: Lite render' }}"
-      # MUST stay unsharded: tests/render/pages.setup.ts (the `pages` project)
-      # creates any fixture missing from config/render-fixtures.json, and
-      # running it on multiple shards at once would race them into creating
-      # the same missing fixture independently — see the shard-matrix input's
-      # description in e2e-test.yml.
-      shard-matrix: '[1]'
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
-
-  pr-e2e-validation:
-    name: "E2E validation"
-    if: ${{ always() && github.event_name == 'pull_request' && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' }}
-    needs: [gate, staging-lite, select]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.gate.outputs.run == 'true' && ((github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true') }}
+    needs: [staging-lite, e2e-auth-lite, reuse-check, gate]
+    name: "Validate: Lite"
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       actions: write
       contents: read
     steps:
-      - name: Dispatch and wait for the shard workflow
+      - uses: actions/checkout@v5
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
-          REF: ${{ github.head_ref }}
-          MODE: ${{ needs.select.outputs.mode }}
-          GREP: ${{ needs.select.outputs.grep }}
-        run: |
-          set -euo pipefail
-          # Build the body with jq: GREP is a regex (e.g. "(?:^|\s)@test:x") and
-          # interpolating it raw yields invalid JSON escapes -> HTTP 400.
-          jq -n --arg ref "$REF" --arg run "$GITHUB_RUN_ID" --arg mode "$MODE" --arg grep "$GREP" \
-            '{ref: $ref, inputs: {"parent-run-id": $run, mode: $mode, grep: $grep}}' \
-          | gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/pr-e2e-validation.yml/dispatches" --input -
-          for _ in $(seq 1 30); do
-            CHILD=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/pr-e2e-validation.yml/runs?event=workflow_dispatch&branch=$REF&per_page=20" --jq ".workflow_runs[] | select(.display_title == \"PR E2E · parent $GITHUB_RUN_ID\") | .id" | head -1)
-            [ -n "$CHILD" ] && break
-            sleep 2
-          done
-          [ -n "${CHILD:-}" ] || { echo "Child E2E run was not created"; exit 1; }
-          URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$CHILD"
-          echo "### [PR E2E child run]($URL)" >> "$GITHUB_STEP_SUMMARY"
-          while :; do
-            STATE=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHILD" --jq .status)
-            [ "$STATE" = completed ] && break
-            sleep 15
-          done
-          RESULT=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHILD" --jq .conclusion)
-          echo "Child E2E result: $RESULT" >> "$GITHUB_STEP_SUMMARY"
-          [ "$RESULT" = success ]
-
-  pr-pipeline-outcome:
-    # GitHub expands reusable-workflow jobs in its graph. Give reviewers one
-    # stable, human-readable endpoint instead of requiring them to trace every
-    # shard and skipped variant.
-    name: "Pipeline outcome"
-    if: ${{ always() && github.event_name == 'pull_request' && needs.gate.outputs.run == 'true' }}
-    needs: [gate, select, pr-e2e-validation]
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-    steps:
-      - name: Summarise the Lite E2E result
+          CHILD_WORKFLOW: staging-lite-e2e.yml
+          CHILD_TITLE: staging-lite-e2e
+          SOURCE_SHA: ${{ github.sha }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
-          MODE: ${{ needs.select.outputs.mode }}
-          LITE_RESULT: ${{ needs.pr-e2e-validation.result }}
-          RENDER_RESULT: ${{ needs.pr-e2e-validation.result }}
-        run: |
-          set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" > jobs.json
-          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
-          import { readFileSync } from 'node:fs';
-          const jobs = JSON.parse(readFileSync('jobs.json')).jobs;
-          const mode = ['selected', 'full'].includes(process.env.MODE) ? process.env.MODE : 'not resolved';
-          const suitePrefix = mode === 'selected'
-            ? 'E2E: Lite (selected) /'
-            : mode === 'full' ? 'E2E: Lite /' : null;
-          // Include plan, all shards, and report aggregation: the caller cannot
-          // finish until every one of these jobs has completed.
-          const suiteJobs = suitePrefix ? jobs.filter(job => job.name.startsWith(suitePrefix)) : [];
-          const times = suiteJobs.flatMap(job => [Date.parse(job.started_at), Date.parse(job.completed_at)]);
-          const duration = times.length && times.every(Number.isFinite)
-            ? Math.max(...times.filter((_, i) => i % 2)) - Math.min(...times.filter((_, i) => i % 2 === 0))
-            : null;
-          const human = duration === null ? 'unavailable' : `${Math.floor(duration / 60000)}m ${Math.round(duration / 1000) % 60}s`;
-          console.log(`## Pipeline outcome\n\n| E2E mode | Lite result | Render result | Lite E2E critical path |\n|---|---|---|---|\n| ${mode} | ${process.env.LITE_RESULT} | ${process.env.RENDER_RESULT} | ${human} |\n\nOpen the reusable E2E jobs only when shard-level diagnostics are needed.`);
-          const unexpected = [process.env.LITE_RESULT, process.env.RENDER_RESULT]
-            .filter(result => !['success', 'skipped'].includes(result));
-          if (unexpected.length) {
-            console.error(`Pipeline outcome reflects a failed or cancelled E2E job: ${unexpected.join(', ')}`);
-            process.exitCode = 1;
-          }
-          NODE
+          CHILD_WORKFLOW: staging-lite-e2e.yml
+          CHILD_TITLE: staging-lite-e2e
+          SOURCE_SHA: ${{ github.sha }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-full:
     needs: gate
@@ -859,49 +530,71 @@ jobs:
   # runs; `Draft: Full` accepts either. The two jobs are call sites only —
   # every input is identical, so a change to one must be made to both.
   staging-full-e2e:
-    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now') && !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now') && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
     needs: [staging-full, e2e-auth-full, staging-lite-e2e, gate]
-    name: "E2E: Full"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      planned: true
-      app: zenuml-full@stg
-      suite: insert
-      auth-artifact: auth-state-pre-full-stg
-      # 4 shards (see the Diagramly job for the measured layout — Full runs the
-      # same list with the same runtime skips).
-      shard-matrix: '[1, 2, 3, 4]'
-      timeout-minutes: 11
-      artifact-suffix: full-stg
-      timing-job-prefix: "E2E: Full"
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
+    name: "Validate: Full"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-full-e2e.yml
+          CHILD_TITLE: staging-full-e2e
+          SOURCE_SHA: ${{ github.sha }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-full-e2e.yml
+          CHILD_TITLE: staging-full-e2e
+          SOURCE_SHA: ${{ github.sha }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-full-e2e-now:
-    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')) }}
+    if: ${{ !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')) }}
     needs: [staging-full, e2e-auth-full, gate]
-    name: "E2E: Full (now)"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      planned: true
-      app: zenuml-full@stg
-      suite: insert
-      auth-artifact: auth-state-pre-full-stg
-      shard-matrix: '[1, 2, 3, 4]'
-      timeout-minutes: 11
-      artifact-suffix: full-stg
-      timing-job-prefix: "E2E: Full (now)"
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
+    name: "Validate: Full (now)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-full-e2e.yml
+          CHILD_TITLE: staging-full-e2e
+          SOURCE_SHA: ${{ github.sha }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-full-e2e.yml
+          CHILD_TITLE: staging-full-e2e
+          SOURCE_SHA: ${{ github.sha }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-diagramly:
-    needs: [staging-lite, staging-lite-e2e, staging-lite-fullscreen-e2e, staging-lite-render-e2e, reuse-check, gate]
+    needs: [staging-lite, staging-lite-e2e, reuse-check, gate]
     # See note on staging-full — default-branch-only.
-    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.staging-lite.result == 'success' && (needs.reuse-check.outputs.reuse == 'true' || (needs.staging-lite-e2e.result == 'success' && needs.staging-lite-fullscreen-e2e.result == 'success' && needs.staging-lite-render-e2e.result == 'success')) }}
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.staging-lite.result == 'success' && (needs.reuse-check.outputs.reuse == 'true' || needs.staging-lite-e2e.result == 'success') }}
     name: "Deploy: Diagramly"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -941,59 +634,64 @@ jobs:
     # is deployed. Skips on draft PRs (matches staging-lite-e2e behaviour).
     if: ${{ !cancelled() && needs.staging-asyncapi.result == 'success' && needs.e2e-auth-asyncapi.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
     needs: [staging-asyncapi, e2e-auth-asyncapi, gate]
-    name: "E2E: AsyncAPI"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      planned: true
-      app: asyncapi@stg
-      suite: asyncapi
-      auth-artifact: auth-state-pre-asyncapi-stg
-      # Three shards for three spec files: the suite's two multi-test files are
-      # `describe.configure({ mode: 'serial' })`, so `--list --shard=N/5`
-      # (2026-09-11) put them on shards 1, 3 and 4 and left 2 and 5 EMPTY —
-      # two runners spent on checkout + install to run nothing. Under N=3 the
-      # split is create-edit (x3) / dashboard-loads / macro-create-edit (x2),
-      # every shard busy, same critical path.
-      shard-matrix: '[1, 2, 3]'
-      artifact-suffix: asyncapi-stg
-      timing-job-prefix: "E2E: AsyncAPI"
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
+    name: "Validate: AsyncAPI"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-asyncapi-e2e.yml
+          CHILD_TITLE: staging-asyncapi-e2e
+          SOURCE_SHA: ${{ github.sha }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-asyncapi-e2e.yml
+          CHILD_TITLE: staging-asyncapi-e2e
+          SOURCE_SHA: ${{ github.sha }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-diagramly-e2e:
     if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.e2e-auth-diagramly.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     needs: [staging-diagramly, e2e-auth-diagramly, gate]
-    name: "E2E: Diagramly"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      planned: true
-      app: diagramly@stg
-      suite: insert
-      auth-artifact: auth-state-pre-diagramly-stg
-      # 4 shards, not the default 5. Full and Diagramly run the same insert list
-      # as Lite but skip the byline, paywall-banner and typed-deeplink specs at
-      # runtime, so a count-based split leaves whole shards near-empty. Measured
-      # 2026-09-11 (`CI=true APP=diagramly@stg pnpm exec playwright test --list
-      # --project=auth --project=insert --project=feedback --shard=N/4`, live
-      # tests only):
-      #   1: (byline-* — all skip here)         3: mermaid, openapi, plantuml
-      #   2: edit-graph, embed-deeplink-         4: feedback-report (x2), sequence
-      #      autoconvert, graph, m1 (x2)
-      # 3 shards would put six live tests on one shard (~3m30s+, longer than
-      # Lite's heaviest); 4 keeps the heaviest at five (~3m) and the run's peak at
-      # Lite 14 + 4 + AsyncAPI 3 = 21, one over the cap for the ~40s shard 1
-      # takes to skip everything and free its runner. Re-measure after adding or
-      # renaming a spec.
-      shard-matrix: '[1, 2, 3, 4]'
-      timeout-minutes: 11
-      artifact-suffix: diagramly-stg
-      timing-job-prefix: "E2E: Diagramly"
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
+    name: "Validate: Diagramly"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run E2E in a separate graph
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-diagramly-e2e.yml
+          CHILD_TITLE: staging-diagramly-e2e
+          SOURCE_SHA: ${{ github.sha }}
+          GREP: ''
+          SUITE: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'insert' || 'regression' }}
+          TEST_TIMEOUT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 11 || 14 }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: staging-diagramly-e2e.yml
+          CHILD_TITLE: staging-diagramly-e2e
+          SOURCE_SHA: ${{ github.sha }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   draft-release-lite:
     name: "Draft: Lite"
@@ -1005,8 +703,8 @@ jobs:
     # E2E is either this run's (both suites green) or a PR run's on the
     # identical tree (reuse-check said so and the suites skipped themselves) —
     # ADR-0007 §2. The staging deploy must have happened in THIS run either way.
-    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.build.result == 'success' && needs.build-prod.result == 'success' && needs.staging-lite.result == 'success' && ( (needs.staging-lite-e2e.result == 'success' && needs.staging-lite-fullscreen-e2e.result == 'success') || needs.reuse-check.outputs.reuse == 'true' )) }}
-    needs: [staging-lite-e2e, staging-lite-fullscreen-e2e, build, staging-lite, reuse-check, version, build-prod, gate]
+    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.build.result == 'success' && needs.build-prod.result == 'success' && needs.staging-lite.result == 'success' && ( needs.staging-lite-e2e.result == 'success' || needs.reuse-check.outputs.reuse == 'true' )) }}
+    needs: [staging-lite-e2e, build, staging-lite, reuse-check, version, build-prod, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

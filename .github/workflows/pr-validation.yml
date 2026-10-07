@@ -1,0 +1,431 @@
+name: PR validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**']
+
+  workflow_dispatch:
+    inputs:
+      force-all:
+        type: boolean
+        default: false
+      pr-number:
+        type: string
+        required: true
+
+concurrency:
+  group: conf-app-staging
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  gate:
+    name: Select authoritative event
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          SHOULD_RUN=true
+          if [ "$EVENT" = push ] && [ "$BRANCH" != "$DEFAULT_BRANCH" ]; then
+            COUNT=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq "[.[] | select(.head.ref == env.BRANCH)] | length")
+            [ "$COUNT" = 0 ] || SHOULD_RUN=false
+          fi
+          echo "run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+
+  build:
+    if: needs.gate.outputs.run == 'true'
+    needs: gate
+    name: Build and Unit Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        # Skip submodules at checkout — `submodules: recursive` tries to clone
+        # the `private` submodule (ZenUml/conf-app-private) which the default
+        # GITHUB_TOKEN cannot access ("Repository not found"), aborting checkout
+        # before the build runs. The asyncapi build needs vendor/asyncapi-studio
+        # only — initialise it explicitly below.
+      - name: Init asyncapi-studio submodule
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
+      # Capture the submodule SHA so the cache key changes only when the
+      # studio pin moves — every PR that doesn't bump vendor/asyncapi-studio
+      # reuses the previous build artifacts.
+      - name: Resolve asyncapi-studio submodule SHA
+        id: studio-sha
+        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Cache Studio build output + its node_modules. On a cache hit:
+      #   - static/asyncapi-studio/.studio-commit already matches the pin,
+      #     so scripts/build-studio.sh fast-paths out (no pnpm install,
+      #     no Next.js build) — saves ~60–90s per CI run.
+      #   - vendor/asyncapi-studio/node_modules being restored means a
+      #     forced rebuild (FORCE_REBUILD=1) is also cheap because pnpm
+      #     install in the submodule short-circuits.
+      # Cache key includes scripts/build-studio.sh hash so changes to the
+      # build logic invalidate the cache. The fallback restore-keys lets
+      # us still pull node_modules even if the submodule SHA moved (saves
+      # most of the pnpm install on pin bumps).
+      - name: Cache asyncapi Studio build
+        uses: actions/cache@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      # Unit integration tests discover the real E2E inventory through its config.
+      # Install its locked module dependencies only; --list needs no browsers.
+      - name: Install E2E discovery dependencies
+        run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
+      - run: pnpm test:unit
+      - run: node --test scripts/ci/wait-for-e2e.node-test.mjs
+      # Verify the asyncapi variant builds even on feature-branch PRs. The
+      # staging-asyncapi job below only runs on the default branch (like
+      # full/diagramly), so this is the smoke test for PRs.
+      # The Cache step above usually makes this near-instant (vite build only).
+      - name: Verify asyncapi build
+        run: pnpm build:asyncapi
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          # Skip Puppeteer's chromium download inside the Studio submodule's
+          # pnpm install (some transitive deps pull it in but the Studio
+          # build doesn't need it).
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+
+  preview-e2e:
+    if: needs.gate.outputs.run == 'true'
+    needs: gate
+    # The one E2E project that needs no Confluence site, no Forge app and no
+    # OTP: the viewer/editor preview specs drive a local Vite dev server, so
+    # they cost a runner and nothing else. That makes this the cheapest real
+    # gate in the pipeline, which is why — unlike the staging suites below — it
+    # runs on EVERY push, drafts included. Before this job the `preview` project
+    # was collected but never gated: it only ran when someone remembered to
+    # start Vite and run it by hand.
+    name: "E2E: Viewer preview"
+    runs-on: ubuntu-latest
+    # Generous next to a ~2 min expectation: the whole point of this job is to
+    # be cheap and quiet, so give a cold pnpm store room rather than reap it.
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      # Deliberately NO asyncapi-studio submodule init. vite.config only copies
+      # the Studio when `command === 'build'`, and mermaid is served in dev by
+      # an in-config middleware straight out of node_modules, so `vite dev`
+      # needs neither. Skipping it is most of what keeps this job cheap.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Run preview specs against a local Vite dev server
+        # Server and tests share ONE step so the server cannot outlive or
+        # predecease them: a background process started in an earlier step is
+        # not guaranteed to survive into the next one, and a dead server turns
+        # into six confusing connection failures rather than one clear error.
+        #
+        # `pnpm start:local` is not used here because it wraps vite in portless,
+        # which allocates a dynamic hostname CI has no route for. Calling vite
+        # directly with PORT set also flips vite's `strictPort`, so a busy port
+        # fails loudly instead of quietly serving the specs a different app.
+        #
+        # LOCAL_DEV_URL short-circuits helpers/localDevUrl.ts, which otherwise
+        # shells out to `pnpm dev:url` (portless again) to discover the base URL.
+        run: |
+          PORT=8080 HOST=127.0.0.1 VERSION=latest PRODUCT_TYPE=lite \
+            pnpm exec vite dev > /tmp/vite-dev.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill $VITE_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:8080/viewer-preview.html && break
+            if [ "$i" -eq 60 ]; then
+              echo "Vite dev server never became reachable. Its log:"
+              cat /tmp/vite-dev.log
+              exit 1
+            fi
+            sleep 2
+          done
+          cd tests/e2e-tests && pnpm exec playwright test --project=preview
+        env:
+          CI: true
+          LOCAL_DEV_URL: http://127.0.0.1:8080
+      - name: Upload the dev server log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: preview-vite-dev-log
+          path: /tmp/vite-dev.log
+          if-no-files-found: ignore
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: blob-report-preview
+          path: ./tests/e2e-tests/blob-report/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Atlassian logins at t=0, one per staging site, so the E2E suites below start
+  # the moment their deploy is live instead of queueing for a bootstrap behind it.
+  # Measured on main run 34602804979 (2026-09-11): Deploy: Lite finished at
+  # 5m20s, but E2E: Lite's first shard only started at 7m18s — the bootstrap
+  # waited 78s on the repo-wide `e2e-auth` group (behind render's and DrawIO
+  # Publish's) and then ran for 36s. The session does not depend on which build
+  # is on the site, so the login can run under the deploy instead of after it.
+  # Each suite passes its site's artifact as `auth-artifact`, which makes
+  # e2e-test.yml skip its own bootstrap.
+  #
+  # One job per site rather than one matrix job: a `needs` on a matrix job
+  # aggregates its legs, so an asyncapi-stg login flake would have skipped every
+  # Lite shard. Per-site jobs keep the blast radius to the site that failed.
+  # Gated exactly like the suites that consume them, so a draft PR (which runs
+  # no E2E) logs in to nothing.
+  e2e-auth-lite:
+    needs: gate
+    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) }}
+    name: "E2E auth: Lite"
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: zenuml-lite@stg
+      artifact-name: auth-state-pre-lite-stg
+    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  jev-classify:
+    needs: gate
+    name: Jev category selection
+    if: ${{ needs.gate.outputs.run == 'true' && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Run only classifier code already on the trusted PR base.
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+      - name: Classify candidate tree
+        env:
+          TYPESAFE_API_KEY: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.TYPESAFE_API_KEY || (github.event_name != 'pull_request' && secrets.TYPESAFE_API_KEY) || '' }}
+          CANDIDATE: ${{ github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HUMAN_FULL: ${{ inputs.force-all || contains(github.event.pull_request.labels.*.name, 'test:all') }}
+        run: |
+          git fetch origin "$CANDIDATE"
+          if [ -f scripts/test-selection/classify.mjs ]; then
+            BASE_SHA="$BASE"
+            # Main may have collapsed pending runs: absent proven baseline, full fallback.
+            [ -n "$BASE_SHA" ] || BASE_SHA="$CANDIDATE"
+            node scripts/test-selection/classify.mjs --base "$BASE_SHA" --head "$CANDIDATE" \
+              --pr-head "$PR_HEAD" --pr "$PR_NUMBER" --human-full "$HUMAN_FULL" \
+              --mode enabled --output test-selection.json
+          else
+            # Bootstrap PR: trusted base predates the classifier; never execute candidate code with the key.
+            node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('test-selection.json',JSON.stringify({schema_version:1,head_sha:process.env.CANDIDATE,pr_head_sha:process.env.PR_HEAD,mode:'all',execution_mode:'observe',categories:{},required:['smoke'],fallback_reason:'trusted-base-predates-classifier'}));"
+          fi
+          cat test-selection.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-selection.json
+          retention-days: 30
+
+  select:
+    needs: [gate, jev-classify]
+    # The trusted resolver unions smoke, Jev categories and the established
+    # deterministic coverage floor. Missing/failed Jev means full coverage.
+    # Main skips this job and always runs full normal suites.
+    name: "Select E2E for this PR"
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && (github.event_name == 'pull_request' || inputs.pr-number != '') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      grep: ${{ steps.select.outputs.grep }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Selection code, like classifier code, comes from the trusted base.
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v6
+        continue-on-error: true
+        with:
+          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: jev-selection
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          # No install here — the selector has no dependencies — and the
+          # default `package-manager-cache: true` fails without pnpm on PATH.
+          package-manager-cache: false
+      - name: Select specs from the PR's changed files
+        id: select
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          CANDIDATE: ${{ github.sha }}
+          SELECTION_PATH: jev-selection/test-selection.json
+          HUMAN_FULL: ${{ inputs.force-all || contains(github.event.pull_request.labels.*.name, 'test:all') }}
+        run: |
+          set -euo pipefail
+          if [ "$HUMAN_FULL" = true ]; then
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'grep=' >> "$GITHUB_OUTPUT"
+            echo '{"mode":"all","grep":"","reasons":["human-test-all"]}' > selection.json
+            touch changed-files.txt
+            echo 'Human test:all override: full E2E coverage' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # The PR's file list from the API (base...head), not a checkout diff:
+          # the merge ref's depth games are not worth it. Paginated: up to 3000.
+          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > changed-files.txt; then
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'grep=' >> "$GITHUB_OUTPUT"
+            echo '{"mode":"all","grep":"","reasons":["changed-files-api-failure"]}' > selection.json
+            echo 'Changed file discovery failed: running full coverage' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git fetch origin "$CANDIDATE"
+          export CANDIDATE_TREE=$(git rev-parse "$CANDIDATE^{tree}")
+          if [ -f scripts/test-selection/resolve.mjs ]; then
+            node scripts/test-selection/resolve.mjs > selection.json
+          else
+            # Activation bootstrap: old trusted base cannot authorize selection.
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'grep=' >> "$GITHUB_OUTPUT"
+            echo '{"mode":"all","grep":"","reasons":["trusted-base-predates-activation"]}' > selection.json
+          fi
+          MODE=$(jq -r .mode selection.json); GREP=$(jq -r .grep selection.json)
+          {
+            if [ "$MODE" = "selected" ]; then
+              echo "### E2E selection: \`--grep=$GREP\`"
+            else
+              echo "### E2E selection: full suite"
+            fi
+            echo; echo "<details><summary>$(wc -l < changed-files.txt) changed files</summary>"; echo; echo '```'
+            jq -r '.reasons[]' selection.json; echo '```'; echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "mode=$MODE grep=$GREP"
+      - name: Keep the file list for the AI pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-selection-${{ github.run_id }}
+          path: |
+            changed-files.txt
+            selection.json
+          retention-days: 3
+
+  staging-lite:
+    if: needs.gate.outputs.run == 'true'
+    needs: gate
+    name: "Deploy: Lite"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: lite
+      license: lite
+      project: conf-stg-lite
+      environment: staging-lite
+    secrets: inherit
+
+  pr-e2e-validation:
+    name: "E2E validation"
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.pr-number != '') && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' && needs.e2e-auth-lite.result == 'success' && (github.event.pull_request.draft == false || inputs.pr-number != '') }}
+    needs: [gate, staging-lite, select, e2e-auth-lite]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Dispatch and wait for E2E
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: pr-e2e-validation.yml
+          CHILD_TITLE: PR E2E
+          CHILD_KIND: pr
+          DISPATCH_REF: ${{ github.head_ref || github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          MODE: ${{ needs.select.outputs.mode }}
+          GREP: ${{ needs.select.outputs.grep }}
+        run: node scripts/ci/wait-for-e2e.mjs
+      - name: Close any active child run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_WORKFLOW: pr-e2e-validation.yml
+          CHILD_TITLE: PR E2E
+          SOURCE_SHA: ${{ github.sha }}
+        run: node scripts/ci/wait-for-e2e.mjs --cleanup
+
+  pr-pipeline-outcome:
+    name: Pipeline outcome
+    if: ${{ always() && needs.gate.outputs.run == 'true' }}
+    needs: [gate, build, preview-e2e, jev-classify, select, staging-lite, e2e-auth-lite, pr-e2e-validation]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report the pipeline result
+        env:
+          MODE: ${{ needs.select.outputs.mode }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const results = JSON.parse(process.env.RESULTS);
+          const rows = Object.entries(results).map(([job, value]) => `| ${job} | ${value.result} |`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Pipeline outcome\n\nE2E selection: **${process.env.MODE || 'not resolved'}**. Open **E2E validation** for the child run link and shard details.\n\n| Stage | Result |\n|---|---|\n${rows.join('\n')}\n`);
+          if (Object.values(results).some(value => ['failure', 'cancelled'].includes(value.result))) process.exitCode = 1;
+          NODE

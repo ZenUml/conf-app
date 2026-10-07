@@ -2,7 +2,7 @@ name: Publish Test Selection Labels
 
 on:
   workflow_run:
-    workflows: ['Build, Test and Draft Release']
+    workflows: ['Build, Test and Draft Release', 'PR validation']
     types: [completed]
 
 permissions:

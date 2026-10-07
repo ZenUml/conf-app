@@ -1,6 +1,6 @@
 name: Run recovery
 
-# Two automatic recoveries for the Build, Test and Draft Release run, both
+# Automatic recovery listens only to staging-owning parent workflows, both
 # driven by `workflow_run`, which fires after the whole run has finished.
 #
 # 1. One re-run of failed E2E shards (ADR-0007 §6).
@@ -45,7 +45,7 @@ name: Run recovery
 
 on:
   workflow_run:
-    workflows: ["Build, Test and Draft Release"]
+    workflows: ["Build, Test and Draft Release", "PR validation"]
     types: [completed]
 
 permissions:
@@ -73,8 +73,10 @@ jobs:
           [ "$COUNT" -gt 0 ] || { echo "nothing failed at job level (a cancelled or errored run) — not re-running"; exit 0; }
           # Every failed job must be an E2E job: a shard, an auth bootstrap
           # (the t=0 "E2E auth: <site>" ones or a suite's own), a report merge,
-          # or the Vite-backed viewer preview. Anything else is a real failure.
-          NON_E2E=$(jq -r '[.[] | select(test("^(E2E: .* / (shard [0-9]+/[0-9]+|auth / auth bootstrap|merge shard reports)|E2E auth: .* / auth bootstrap|E2E: Viewer preview)$") | not)] | length' <<<"$FAILED")
+          # the Vite-backed viewer preview, or a parent E2E validation wrapper.
+          # Pipeline outcome reports downstream failure; any failed build, deploy,
+          # classifier or selector is still excluded by the all-failures check.
+          NON_E2E=$(jq -r '[.[] | select(test("^(E2E: .* / (shard [0-9]+/[0-9]+|auth / auth bootstrap|merge shard reports)|E2E auth: .* / auth bootstrap|E2E: Viewer preview|Validate: (Lite|Full( \\(now\\))?|Diagramly|AsyncAPI)|E2E validation|Pipeline outcome)$") | not)] | length' <<<"$FAILED")
           if [ "$NON_E2E" != "0" ]; then
             echo "::notice::$RUN_URL has $NON_E2E non-E2E failure(s) — not re-running (a build, deploy or draft failure is real)"
             exit 0

@@ -618,7 +618,7 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
+    if: ${{ github.event_name != 'pull_request' && needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
     needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
     # "(selected)" when the PR's selection narrowed the suite (see `select`).
     name: "E2E: Lite${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
@@ -718,7 +718,7 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: ${{ needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
+    if: ${{ github.event_name != 'pull_request' && needs.gate.outputs.run == 'true' && (!cancelled() && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true' && (needs.select.result == 'success' || needs.select.result == 'skipped')) }}
     needs: [staging-lite, e2e-auth-lite, reuse-check, select, jev-classify, gate]
     # "(selected)" when the PR's selection narrowed the suite (see `select`).
     name: "E2E: Lite render${{ needs.select.outputs.mode == 'selected' && ' (selected)' || '' }}"
@@ -743,13 +743,50 @@ jobs:
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
+  pr-e2e-validation:
+    name: "E2E validation"
+    if: ${{ always() && github.event_name == 'pull_request' && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' }}
+    needs: [gate, staging-lite, select]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch and wait for the shard workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.head_ref }}
+          MODE: ${{ needs.select.outputs.mode }}
+          GREP: ${{ needs.select.outputs.grep }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/pr-e2e-validation.yml/dispatches" --input - <<JSON
+          {"ref":"$REF","inputs":{"parent-run-id":"$GITHUB_RUN_ID","mode":"$MODE","grep":"$GREP"}}
+          JSON
+          for _ in $(seq 1 30); do
+            CHILD=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/pr-e2e-validation.yml/runs?event=workflow_dispatch&branch=$REF&per_page=20" --jq ".workflow_runs[] | select(.display_title == \"PR E2E · parent $GITHUB_RUN_ID\") | .id" | head -1)
+            [ -n "$CHILD" ] && break
+            sleep 2
+          done
+          [ -n "${CHILD:-}" ] || { echo "Child E2E run was not created"; exit 1; }
+          URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$CHILD"
+          echo "### [PR E2E child run]($URL)" >> "$GITHUB_STEP_SUMMARY"
+          while :; do
+            STATE=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHILD" --jq .status)
+            [ "$STATE" = completed ] && break
+            sleep 15
+          done
+          RESULT=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHILD" --jq .conclusion)
+          echo "Child E2E result: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          [ "$RESULT" = success ]
+
   pr-pipeline-outcome:
     # GitHub expands reusable-workflow jobs in its graph. Give reviewers one
     # stable, human-readable endpoint instead of requiring them to trace every
     # shard and skipped variant.
     name: "Pipeline outcome"
     if: ${{ always() && github.event_name == 'pull_request' && needs.gate.outputs.run == 'true' }}
-    needs: [gate, select, staging-lite-e2e, staging-lite-render-e2e]
+    needs: [gate, select, pr-e2e-validation]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -758,8 +795,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MODE: ${{ needs.select.outputs.mode }}
-          LITE_RESULT: ${{ needs.staging-lite-e2e.result }}
-          RENDER_RESULT: ${{ needs.staging-lite-render-e2e.result }}
+          LITE_RESULT: ${{ needs.pr-e2e-validation.result }}
+          RENDER_RESULT: ${{ needs.pr-e2e-validation.result }}
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" > jobs.json

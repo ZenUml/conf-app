@@ -760,9 +760,11 @@ jobs:
           GREP: ${{ needs.select.outputs.grep }}
         run: |
           set -euo pipefail
-          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/pr-e2e-validation.yml/dispatches" --input - <<JSON
-          {"ref":"$REF","inputs":{"parent-run-id":"$GITHUB_RUN_ID","mode":"$MODE","grep":"$GREP"}}
-          JSON
+          # Build the body with jq: GREP is a regex (e.g. "(?:^|\s)@test:x") and
+          # interpolating it raw yields invalid JSON escapes -> HTTP 400.
+          jq -n --arg ref "$REF" --arg run "$GITHUB_RUN_ID" --arg mode "$MODE" --arg grep "$GREP" \
+            '{ref: $ref, inputs: {"parent-run-id": $run, mode: $mode, grep: $grep}}' \
+          | gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/pr-e2e-validation.yml/dispatches" --input -
           for _ in $(seq 1 30); do
             CHILD=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/pr-e2e-validation.yml/runs?event=workflow_dispatch&branch=$REF&per_page=20" --jq ".workflow_runs[] | select(.display_title == \"PR E2E · parent $GITHUB_RUN_ID\") | .id" | head -1)
             [ -n "$CHILD" ] && break

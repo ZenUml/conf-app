@@ -125,7 +125,11 @@ export function sanitizeMagicSvg(markup: string): string | null {
         // Older Pi output uses empty data-group on ungrouped nodes. That is a
         // harmless absence, not a group binding; do not retain it.
         if (name === 'data-group' && !value) continue;
-        if (!value || value.length > 256 || /[\x00-\x1f\x7f]/.test(value)) {
+        const hasControlCharacter = [...value].some(char => {
+          const code = char.charCodeAt(0);
+          return code <= 0x1f || code === 0x7f;
+        });
+        if (!value || value.length > 256 || hasControlCharacter) {
           unsafe = true;
           continue;
         }

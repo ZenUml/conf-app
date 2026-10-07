@@ -4,12 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {createRequire} from 'node:module';
-import {readMermaidFlowchartModel, attachMermaidHighlights} from '../src/mermaid-highlights.mjs';
+import {readMermaidFlowchartModel, attachMermaidHighlights, attachPreparedSvgHighlights, requireMountedFlowchart, installValidatedBindings} from '../src/mermaid-highlights.mjs';
 import {installInteractiveSvg, INTERACTIVE_SVG_STYLE} from '../src/interactive-runtime.mjs';
 import {exportMermaidInteractive} from '../src/mermaid-interactive-export.mjs';
 
 const enabled=!!process.env.MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE&&!!process.env.MERMAID_HIGHLIGHTS_MERMAID_BUNDLE;
 const SOURCE='flowchart LR\n A-B[Input<br/>Details] -->|one| C[Result]\n A-B -->|two| C\n C --> A-B\n subgraph G[Group]\n D[Inside]\n end\n C --> D';
+const GROUP_SOURCE='flowchart LR\n A[Start] --> G\n subgraph G[Group]\n B[Inside]\n end\n G --> C[End]';
 const customSource='flowchart LR\n A_B[First] ab@--> C_D[Second]\n A[Third] ac@--> B_C_D[Fourth]';
 const browserOptions={headless:true,...(process.env.MERMAID_HIGHLIGHTS_CHROMIUM_EXECUTABLE?{executablePath:process.env.MERMAID_HIGHLIGHTS_CHROMIUM_EXECUTABLE}:{})};
 async function withBrowser(fn){const pw=createRequire(import.meta.url)(process.env.MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE),browser=await pw.chromium.launch(browserOptions);try{await fn(browser)}finally{await browser.close()}}
@@ -17,7 +18,7 @@ async function setup(browser,source=SOURCE,options={}){
   const page=await browser.newPage({viewport:{width:1100,height:800},...options}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.setContent('<!doctype html><div id="diagram"></div><p id="status">Initial status</p>');
   await page.addScriptTag({content:fs.readFileSync(process.env.MERMAID_HIGHLIGHTS_MERMAID_BUNDLE,'utf8')});
-  await page.addScriptTag({content:`const INTERACTIVE_SVG_STYLE=${JSON.stringify(INTERACTIVE_SVG_STYLE)};const installInteractiveSvg=(${installInteractiveSvg.toString()});const readMermaidFlowchartModel=(${readMermaidFlowchartModel.toString()});const attachMermaidHighlights=(${attachMermaidHighlights.toString()});`});
+  await page.addScriptTag({content:`const INTERACTIVE_SVG_STYLE=${JSON.stringify(INTERACTIVE_SVG_STYLE)};const installInteractiveSvg=(${installInteractiveSvg.toString()});const readMermaidFlowchartModel=(${readMermaidFlowchartModel.toString()});const requireMountedFlowchart=(${requireMountedFlowchart.toString()});const installValidatedBindings=(${installValidatedBindings.toString()});const attachMermaidHighlights=(${attachMermaidHighlights.toString()});const attachPreparedSvgHighlights=(${attachPreparedSvgHighlights.toString()});`});
   await page.evaluate(async source=>{
     mermaid.initialize({startOnLoad:false,theme:'neutral',securityLevel:'strict'});
     const parsed=await mermaid.mermaidAPI.getDiagramFromText(source);window.model=readMermaidFlowchartModel(parsed);
@@ -41,7 +42,7 @@ test('flowchart model snapshot is detached, preserves relation IDs and rejects u
 
 test('actual Mermaid curved edges, parallel paths and nested HTML labels get direct hover/selection', {skip:!enabled},async()=>withBrowser(async browser=>{
   const {page,errors}=await setup(browser);
-  assert.equal(await page.locator('g[data-node]').count(),3);assert.equal(await page.locator('.edge-hit').count(),4);
+  assert.equal(await page.locator('g[data-node]').count(),4);assert.equal(await page.locator('.edge-hit').count(),4);
   assert.ok(await page.locator('foreignObject').count()>0);
   await page.locator('.edge-hit').first().hover();assert.equal((await state(page)).edges.length,1);assert.deepEqual((await state(page)).nodes,['A-B','C']);
   await page.locator('.node-hit[data-hit-node="A-B"]').click();assert.equal((await state(page)).kind,'node');assert.equal((await state(page)).edges.length,3);
@@ -58,6 +59,56 @@ test('actual Mermaid curved edges, parallel paths and nested HTML labels get dir
   assert.deepEqual(errors,[]);
 }));
 
+test('a source group endpoint binds to its actual Mermaid cluster and traces both connectors', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,GROUP_SOURCE);
+  assert.equal(await page.locator('g.cluster[data-node="G"][data-group="G"]').count(),1);
+  assert.equal(await page.locator('path.flowchart-link[data-edge]').count(),2);
+  const border=await page.locator('.node-hit[data-hit-group="G"]').evaluate(e=>{const p=e.getPointAtLength(4),m=e.getScreenCTM(),v=new DOMPoint(p.x,p.y).matrixTransform(m);return {x:v.x,y:v.y}});
+  await page.mouse.move(border.x,border.y);
+  const hovered=await state(page);
+  assert.equal(hovered.kind,'none');
+  assert.equal(hovered.edges.length,2);
+  assert.deepEqual(hovered.nodes,['A','C','G']);
+  await page.mouse.click(border.x,border.y);
+  assert.equal((await state(page)).kind,'group');
+  assert.match(await page.locator('g.cluster[data-group="G"]').getAttribute('aria-label'),/^Trace group /);
+  assert.deepEqual(errors,[]);
+}));
+
+test('prepared SVG binds every source node, group and directed connector before enabling hover', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,GROUP_SOURCE);
+  await page.evaluate(()=>{
+    window.control.destroy();
+    document.getElementById('diagram').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220">
+      <g data-group="G"><rect x="180" y="30" width="120" height="150" fill="none" stroke="black"/></g>
+      <g data-node="A"><rect x="20" y="80" width="80" height="40"/><text x="30" y="105">Start</text></g>
+      <g data-node="B"><rect x="200" y="80" width="80" height="40"/><text x="210" y="105">Inside</text></g>
+      <g data-node="C"><rect x="380" y="80" width="80" height="40"/><text x="390" y="105">End</text></g>
+      <path data-edge="prepared-1" data-source="A" data-target="G" d="M100 100L180 100" stroke="black"/>
+      <path data-edge="prepared-2" data-source="G" data-target="C" d="M300 100L380 100" stroke="black"/>
+    </svg>`;
+    window.prepared=document.querySelector('svg');
+    window.control=attachPreparedSvgHighlights(window.prepared,window.model);
+  });
+  assert.equal(await page.evaluate(()=>window.control.nodeCount),4);
+  assert.equal(await page.evaluate(()=>window.prepared.querySelectorAll('.edge-hit').length),2);
+  await page.locator('#diagram .node-hit[data-hit-group="G"]').dispatchEvent('click');
+  assert.deepEqual(await page.evaluate(()=>[...window.prepared.querySelectorAll('path[data-edge].is-active')].map(e=>e.dataset.edge).sort()),['prepared-1','prepared-2']);
+  await page.evaluate(()=>window.control.destroy());
+  const result=await page.evaluate(()=>{
+    const svg=window.prepared, failures=[];
+    const expectFailure=(change,restore)=>{change();const before=svg.outerHTML;try{attachPreparedSvgHighlights(svg,window.model);failures.push('false pass')}catch(e){failures.push(e.message)}if(svg.outerHTML!==before)failures.push('mutation');restore()};
+    const a=svg.querySelector('g[data-node="A"]'),edge=svg.querySelector('path[data-edge="prepared-1"]'),group=svg.querySelector('g[data-group="G"]');
+    expectFailure(()=>a.dataset.node='B',()=>a.dataset.node='A');
+    expectFailure(()=>edge.dataset.target='C',()=>edge.dataset.target='G');
+    expectFailure(()=>edge.removeAttribute('data-source'),()=>edge.dataset.source='A');
+    expectFailure(()=>group.removeAttribute('data-group'),()=>group.dataset.group='G');
+    return failures;
+  });
+  assert.equal(result.length,4);for(const failure of result)assert.match(failure,/MAGIC_HIGHLIGHTS_/);
+  assert.deepEqual(errors,[]);
+}));
+
 test('explicit edge IDs bind underscore-containing source IDs without delimiter guessing', {skip:!enabled},async()=>withBrowser(async browser=>{
   const {page,errors}=await setup(browser,customSource);
   await clickEdge(page,'ab');assert.deepEqual((await state(page)).nodes,['A_B','C_D']);
@@ -68,7 +119,7 @@ test('explicit edge IDs bind underscore-containing source IDs without delimiter 
 test('repeated attach and destroy restore exact Mermaid SVG and preserve existing click callback', {skip:!enabled},async()=>withBrowser(async browser=>{
   const {page,errors}=await setup(browser);
   await page.evaluate(()=>{window.callbackCount=0;document.querySelector('g[data-node="A-B"]').addEventListener('click',()=>window.callbackCount++);window.control=attachMermaidHighlights(document.querySelector('svg'),window.model,{status:document.getElementById('status')})});
-  assert.equal(await page.locator('.node-hit').count(),3);
+  assert.equal(await page.locator('.node-hit').count(),4);
   await page.locator('.node-hit[data-hit-node="A-B"]').click();assert.equal(await page.evaluate(()=>window.callbackCount),1);assert.equal((await state(page)).kind,'node');
   await page.evaluate(()=>{
     const svg=document.querySelector('svg'),edge=svg.querySelector('path[data-edge]');

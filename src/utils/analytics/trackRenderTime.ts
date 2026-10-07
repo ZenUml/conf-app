@@ -1,3 +1,4 @@
+import { getDiagramFontState } from '@/utils/fonts/diagramFontState';
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
 import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
 import { getTimings } from './renderPerf';
@@ -63,6 +64,7 @@ export function trackRenderTime(
   if (typeof t0 !== 'number') return;
   const duration_ms = Math.round(performance.now() - t0);
   const timings = getTimings();
+  const diagramFont = macroType === 'sequence' ? getDiagramFontState() : undefined;
   const { cacheState, transferBytes } = measureCacheState();
   // Dev-only: surface the phase breakdown locally (mirrors the POC harness).
   // Stripped from prod by the bundler's `import.meta.env.DEV` constant fold.
@@ -80,6 +82,7 @@ export function trackRenderTime(
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
     ...timings,
     ...getRenderIdentity(),
+    ...(diagramFont !== undefined ? { diagram_font: diagramFont } : {}),
     // #382 viewport gate: {} on ungated renders, so nothing is added.
     ...getGateTelemetry(),
   });

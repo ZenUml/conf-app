@@ -3,8 +3,15 @@ import { readMermaidFlowchartModel } from '../../../tools/mermaid-highlights/src
 
 export interface MermaidRenderResult {
   svg: string;
-  flowchartModel?: { type: string; nodes: { id: string; domId: string }[]; edges: { id: string; source: string; target: string }[] };
+  flowchartModel?: MermaidFlowchartModel;
   bindFunctions?: (element: Element) => void;
+}
+
+export interface MermaidFlowchartModel {
+  type: string;
+  nodes: { id: string; domId: string }[];
+  edges: { id: string; source: string; target: string }[];
+  groups: { id: string }[];
 }
 
 // Mermaid owns shared parser/renderer state and inserts a temporary `d${id}`
@@ -22,6 +29,14 @@ function enqueueRender<T>(operation: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return result;
+}
+
+/** Parse within Mermaid's shared-state queue without producing a second SVG. */
+export function parseMermaidFlowchart(source: string): Promise<MermaidFlowchartModel> {
+  return enqueueRender(async () => {
+    const mermaid = await loadMermaid();
+    return readMermaidFlowchartModel(await mermaid.mermaidAPI.getDiagramFromText(source));
+  });
 }
 
 export function renderMermaid(id: string, source: string, options: { captureFlowchartModel?: boolean } = {}): Promise<MermaidRenderResult> {

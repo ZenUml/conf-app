@@ -79,6 +79,8 @@ export type AnalyticsProperties = {
   macro_type?: MacroTypeValue;
   /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
   magic_failure_reason?: MagicFailureReason;
+  /** Automatic writeback terminal outcome. Backend is temporary transport only. */
+  magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
   /** Automatic Fullscreen assessment; includes a normal absent-artifact state. */
   magic_availability?: 'available' | 'missing_artifact' | 'stale_source' | 'invalid_artifact' | 'unsafe_svg' | 'check_failed';
   /** Initial display outcome after availability and browser-local preference resolve. */
@@ -287,7 +289,8 @@ export type AnalyticsProperties = {
   // Planned Mermaid highlight viewer feedback. All are bounded interaction
   // fields only: never add source, node/edge IDs or text, diagram IDs, free
   // text, or customer data. `highlight_target_type` is used by the once-per-
-  // viewer-session `mermaid_highlight_used` event; feedback fields are used
+  // viewer-session `mermaid_highlight_used` event (including a first group
+  // hover or selection); feedback fields are used
   // only by their corresponding planned prompt events.
   highlight_target_type?: HighlightTargetType;
   highlight_feedback?: HighlightFeedback;
@@ -714,6 +717,10 @@ export type AnalyticsProperties = {
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
+  // Sequence macro only: whether the self-hosted IBM Plex Sans face reached `loaded`
+  // before the first render. 'fallback' = core measured text with Helvetica (Forge CSP
+  // refuses core's own data: font). Absent on other macro types.
+  diagram_font?: 'plex' | 'fallback';
   // Publish/save round-trip latency, in ms. Rides on macro_create_succeeded /
   // macro_save_succeeded. Measures how long the persistence to Confluence took
   // — from the start of saveToPlatform's real work (custom-content save +

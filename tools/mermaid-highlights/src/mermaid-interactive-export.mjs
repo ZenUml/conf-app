@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
-import {readMermaidFlowchartModel, attachMermaidHighlights} from './mermaid-highlights.mjs';
+import {readMermaidFlowchartModel, attachMermaidHighlights, requireMountedFlowchart, installValidatedBindings} from './mermaid-highlights.mjs';
 import {installInteractiveSvg, INTERACTIVE_SVG_STYLE} from './interactive-runtime.mjs';
 
 const require=createRequire(import.meta.url);
@@ -42,12 +42,14 @@ export async function exportMermaidInteractive(source, {
     },code);
     if(requests.length)throw Error('MERMAID_EXTERNAL_REQUEST_BLOCKED');
     // Resolve all bindings and prove that installation works before saving.
-    await page.addScriptTag({content:`const INTERACTIVE_SVG_STYLE=${jsData(INTERACTIVE_SVG_STYLE)};const installInteractiveSvg=(${installInteractiveSvg.toString()});const attachMermaidHighlights=(${attachMermaidHighlights.toString()});attachMermaidHighlights(document.querySelector('svg'),${jsData(rendered.model)});`});
+    await page.addScriptTag({content:`const INTERACTIVE_SVG_STYLE=${jsData(INTERACTIVE_SVG_STYLE)};const installInteractiveSvg=(${installInteractiveSvg.toString()});const requireMountedFlowchart=(${requireMountedFlowchart.toString()});const installValidatedBindings=(${installValidatedBindings.toString()});const attachMermaidHighlights=(${attachMermaidHighlights.toString()});attachMermaidHighlights(document.querySelector('svg'),${jsData(rendered.model)});`});
   } finally {await browser.close()}
   const script=`
 const data=${jsData(rendered)};
 const INTERACTIVE_SVG_STYLE=${jsData(INTERACTIVE_SVG_STYLE)};
 const installInteractiveSvg=(${installInteractiveSvg.toString()});
+const requireMountedFlowchart=(${requireMountedFlowchart.toString()});
+const installValidatedBindings=(${installValidatedBindings.toString()});
 const attachMermaidHighlights=(${attachMermaidHighlights.toString()});
 const doc=new DOMParser().parseFromString(data.svg,'image/svg+xml');
 if(doc.querySelector('parsererror'))throw Error('MERMAID_SVG_XML_INVALID');

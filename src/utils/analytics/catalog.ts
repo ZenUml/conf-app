@@ -52,7 +52,7 @@ export type MacroTypeValue =
   | "none";
 
 /** Target kind traced by the planned Mermaid highlight viewer interaction. */
-export type HighlightTargetType = "node" | "edge";
+export type HighlightTargetType = "node" | "edge" | "group";
 
 /** Explicit answer to the planned Mermaid highlight feedback prompt. */
 export type HighlightFeedback = "like" | "dislike";
@@ -311,6 +311,7 @@ export type AnalyticsEventName =
   // Existing macro_type_changed tracks every tab selection; normal macro
   // create/edit/publish lifecycle events track persistence outcomes.
   | "markdown_seeded_from_mermaid"
+  // macro_viewed: sequence renders also carry diagram_font=plex|fallback (hosted IBM Plex Sans loaded before first render).
   | "macro_viewed"
   // Both authoring-start events force Session Replay at 100% before the event
   // is sent. Editor entries must emit the event from the iframe that owns the
@@ -543,6 +544,12 @@ export type AnalyticsEventName =
   // errors. magic_default_resolved records the initial view decision. Both
   // exclude obsolete async attempts. magic_activation distinguishes automatic
   // from manual show requests. No source, SVG, hashes, or comment text.
+  // Automatic reviewed-artifact writeback from Fullscreen. Requested after a
+  // missing/stale Confluence artifact; completed records a finite outcome.
+  // Properties: feature_area=ai, surface=fullscreen, macro_type=mermaid,
+  // magic_writeback_outcome and duration_ms. Never source, SVG, hashes or errors.
+  | "magic_writeback_requested"
+  | "magic_writeback_completed"
   | "magic_availability_checked"
   | "magic_default_resolved"
   | "magic_view_requested"

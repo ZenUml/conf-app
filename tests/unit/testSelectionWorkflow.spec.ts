@@ -73,7 +73,8 @@ describe('staging workflow safety contracts', () => {
         .filter(job => job.steps?.some((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs'));
       expect(dispatchJobs.length).toBeGreaterThan(0);
       for (const job of dispatchJobs) {
-        expect(job.if).toContain('always()');
+        expect(job.if).toContain('!cancelled()');
+        expect(job.if).not.toContain('always()');
         const dispatch = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
         expect(dispatch.if).toBe('${{ !cancelled() }}');
         const cleanup = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');

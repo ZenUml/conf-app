@@ -381,7 +381,7 @@ jobs:
 
   pr-e2e-validation:
     name: "E2E validation"
-    if: ${{ always() && (github.event_name == 'pull_request' || inputs.pr-number != '') && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' && needs.e2e-auth-lite.result == 'success' && (github.event.pull_request.draft == false || inputs.pr-number != '') }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.pr-number != '') && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' && needs.e2e-auth-lite.result == 'success' && (github.event.pull_request.draft == false || inputs.pr-number != '') }}
     needs: [gate, staging-lite, select, e2e-auth-lite]
     runs-on: ubuntu-latest
     permissions:

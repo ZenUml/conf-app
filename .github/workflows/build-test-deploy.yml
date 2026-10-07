@@ -467,7 +467,7 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: ${{ always() && github.event_name != 'pull_request' && needs.gate.outputs.run == 'true' && ((github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true') }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.gate.outputs.run == 'true' && ((github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true') }}
     needs: [staging-lite, e2e-auth-lite, reuse-check, gate]
     name: "Validate: Lite"
     runs-on: ubuntu-latest
@@ -530,7 +530,7 @@ jobs:
   # runs; `Draft: Full` accepts either. The two jobs are call sites only —
   # every input is identical, so a change to one must be made to both.
   staging-full-e2e:
-    if: ${{ always() && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now') && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now') && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
     needs: [staging-full, e2e-auth-full, staging-lite-e2e, gate]
     name: "Validate: Full"
     runs-on: ubuntu-latest
@@ -561,7 +561,7 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-full-e2e-now:
-    if: ${{ always() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')) }}
+    if: ${{ !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (contains(github.event.head_commit.message, '[full-first]') || vars.FULL_DRAFT_LANE == 'now')) }}
     needs: [staging-full, e2e-auth-full, gate]
     name: "Validate: Full (now)"
     runs-on: ubuntu-latest
@@ -632,7 +632,7 @@ jobs:
   staging-asyncapi-e2e:
     # Mirror the staging-asyncapi gate so the e2e runs whenever a fresh build
     # is deployed. Skips on draft PRs (matches staging-lite-e2e behaviour).
-    if: ${{ always() && needs.staging-asyncapi.result == 'success' && needs.e2e-auth-asyncapi.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
+    if: ${{ !cancelled() && needs.staging-asyncapi.result == 'success' && needs.e2e-auth-asyncapi.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
     needs: [staging-asyncapi, e2e-auth-asyncapi, gate]
     name: "Validate: AsyncAPI"
     runs-on: ubuntu-latest
@@ -663,7 +663,7 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-diagramly-e2e:
-    if: ${{ always() && needs.staging-diagramly.result == 'success' && needs.e2e-auth-diagramly.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.e2e-auth-diagramly.result == 'success' && needs.gate.result == 'success' && needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     needs: [staging-diagramly, e2e-auth-diagramly, gate]
     name: "Validate: Diagramly"
     runs-on: ubuntu-latest

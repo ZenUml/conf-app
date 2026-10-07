@@ -33,9 +33,9 @@ describe('main downstream staging gates', () => {
     it(`${id} never dispatches work after cancellation and rejects feature branches`, () => {
       const dispatch = jobs[id].steps?.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
       if (dispatch) {
-        // The parent must keep its staging lock while cancelling its child.
-        // Its cleanup job remains eligible; the dispatch step must not run.
-        expect(eligible(id, {}, true)).toBe(true);
+        // Cancellation must stop the active wrapper; always() at job level
+        // would keep its wait process alive. Cleanup is a step-level exception.
+        expect(eligible(id, {}, true)).toBe(false);
         const stepRuns = (step: any, cancelled: boolean) => Function('cancelled', 'always',
           `return (${step.if.slice(3, -2)})`)(() => cancelled, () => true);
         expect(stepRuns(dispatch, false)).toBe(true);

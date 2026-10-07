@@ -78,7 +78,7 @@ export async function onRequest({ request, data, env }: {
       if (artifactValid(body.magic, hash)) return result('existing', body.magic);
       // Automatic repair is limited to missing or demonstrably source-stale
       // artifacts. A malformed matching/unknown hash requires manual repair.
-      if (body.magic != null && (!/^[a-f0-9]{64}$/.test(body.magic?.sourceHash ?? '')
+      if (body.magic != null && (typeof body.magic?.sourceHash !== 'string' || !/^[a-f0-9]{64}$/.test(body.magic.sourceHash)
         || body.magic.sourceHash === hash)) return result('invalid_target');
       if (!claim) {
         claim = await env.DB.prepare(

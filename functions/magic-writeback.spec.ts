@@ -99,11 +99,11 @@ describe('reviewed Magic writeback', () => {
   it('preserves malformed same-source or unknown-hash artifacts, including a retry race', async () => {
     enqueue();
     const malformed = { sourceHash: hash, rulesVersion: 'unsupported', svg: '' };
-    for (const magic of [malformed, { svg: 'missing hash' }, 'malformed']) {
+    for (const magic of [malformed, { svg: 'missing hash' }, 'malformed', { sourceHash: [hash] }]) {
       fetchMock.mockResolvedValueOnce(reply(doc({ diagramType: 'mermaid', mermaidCode: source, magic })));
       expect(await (await invoke()).json()).toEqual({ outcome: 'invalid_target' });
     }
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     fetchMock.mockReset().mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({}, 409))
       .mockResolvedValueOnce(reply(doc({ diagramType: 'mermaid', mermaidCode: source, magic: malformed }, 8)));
     expect(await (await invoke()).json()).toEqual({ outcome: 'invalid_target' });

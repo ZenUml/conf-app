@@ -94,12 +94,13 @@ describe('staging workflow safety contracts', () => {
     const downloads = jobs.plan.steps.filter((step: any) => step.uses?.startsWith('actions/download-artifact@'));
     expect(downloads).toHaveLength(2);
     for (const step of downloads) {
-      expect(step.with['run-id']).toBe('${{ inputs.source-run-id || github.run_id }}');
-      expect(step.with['github-token']).toBe('${{ github.token }}');
+      expect(step.with['run-id']).toBe("${{ inputs.source-run-id || '' }}");
+      expect(step.with['github-token']).toBe("${{ inputs.source-run-id && github.token || '' }}");
     }
     expect(downloads[0].with.name).toContain('inputs.source-attempt');
     const auth = jobs.test.steps.find((step: any) => step.name === 'Download shared auth state');
-    expect(auth.with['run-id']).toBe('${{ inputs.auth-artifact && inputs.source-run-id || github.run_id }}');
+    expect(auth.with['run-id']).toBe("${{ inputs.auth-artifact && inputs.source-run-id || '' }}");
+    expect(auth.with['github-token']).toBe("${{ inputs.auth-artifact && inputs.source-run-id && github.token || '' }}");
     for (const id of ['plan', 'test', 'evidence', 'merge-reports']) {
       const checkout = jobs[id].steps.find((step: any) => step.uses?.startsWith('actions/checkout@'));
       expect(checkout.with.ref).toBe('${{ inputs.ref || github.sha }}');

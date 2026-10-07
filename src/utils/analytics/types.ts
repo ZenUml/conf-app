@@ -285,7 +285,8 @@ export type AnalyticsProperties = {
   // Planned Mermaid highlight viewer feedback. All are bounded interaction
   // fields only: never add source, node/edge IDs or text, diagram IDs, free
   // text, or customer data. `highlight_target_type` is used by the once-per-
-  // viewer-session `mermaid_highlight_used` event; feedback fields are used
+  // viewer-session `mermaid_highlight_used` event (including a first group
+  // hover or selection); feedback fields are used
   // only by their corresponding planned prompt events.
   highlight_target_type?: HighlightTargetType;
   highlight_feedback?: HighlightFeedback;

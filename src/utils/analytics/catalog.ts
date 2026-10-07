@@ -52,7 +52,7 @@ export type MacroTypeValue =
   | "none";
 
 /** Target kind traced by the planned Mermaid highlight viewer interaction. */
-export type HighlightTargetType = "node" | "edge";
+export type HighlightTargetType = "node" | "edge" | "group";
 
 /** Explicit answer to the planned Mermaid highlight feedback prompt. */
 export type HighlightFeedback = "like" | "dislike";

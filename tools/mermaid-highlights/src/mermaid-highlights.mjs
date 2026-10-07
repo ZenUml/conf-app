@@ -11,7 +11,9 @@ export function readMermaidFlowchartModel(diagram) {
     .map(n => ({id:n.id, domId:n.domId}));
   const edges = diagram.db.getEdges().filter(e => e.stroke !== 'invisible')
     .map(e => ({id:e.id, source:e.start, target:e.end}));
-  return {type:diagram.type, nodes, edges};
+  const groups = typeof diagram.db.getSubGraphs === 'function'
+    ? diagram.db.getSubGraphs().map(g => ({id:g.id})) : [];
+  return {type:diagram.type, nodes, edges, groups};
 }
 
 /** Attach to Mermaid's existing SVG. No layout, path or source text is regenerated.
@@ -23,15 +25,32 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
       !Array.isArray(model.nodes) || !Array.isArray(model.edges)) throw Error('MERMAID_HIGHLIGHTS_MODEL_REQUIRED');
   const key = Symbol.for('mermaid-highlights.controller');
   const drawnNodes = [...svg.querySelectorAll('g.node')].filter(n => n.id);
+  const drawnGroups = [...svg.querySelectorAll('g.cluster')].filter(g => g.id);
   const drawnEdges = [...svg.querySelectorAll('path.flowchart-link')];
   const nodeIds = new Set(), edgeIds = new Set();
-  const nodeBindings = model.nodes.map(n => {
+  const groupIds = new Set();
+  const groupBindings = (model.groups || []).map(g => {
+    if (typeof g.id !== 'string' || !g.id || groupIds.has(g.id)) throw Error('MERMAID_HIGHLIGHTS_GROUP_ID_INVALID');
+    groupIds.add(g.id);
+    const matches = drawnGroups.filter(el => el.id === g.id || el.id === `${svg.id}-${g.id}`);
+    if (matches.length !== 1) throw Error(`MERMAID_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:${g.id}`);
+    return {element:matches[0], id:g.id, kind:'group'};
+  });
+  const nodeBindings = model.nodes.filter(n => !groupIds.has(n.id)).map(n => {
     if (typeof n.id !== 'string' || !n.id || typeof n.domId !== 'string' || !n.domId || nodeIds.has(n.id)) throw Error('MERMAID_HIGHLIGHTS_NODE_ID_INVALID');
     nodeIds.add(n.id);
     const matches = drawnNodes.filter(el => el.id === n.domId || el.id === `${svg.id}-${n.domId}`);
     if (matches.length !== 1) throw Error(`MERMAID_HIGHLIGHTS_NODE_BINDING_UNRESOLVED:${n.id}`);
-    return {element:matches[0], id:n.id};
+    return {element:matches[0], id:n.id, kind:'node'};
   });
+  for (const group of groupBindings) {
+    if (nodeIds.has(group.id)) throw Error('MERMAID_HIGHLIGHTS_GROUP_ID_COLLISION');
+    nodeIds.add(group.id);
+  }
+  nodeBindings.push(...groupBindings);
+  if (drawnNodes.length !== model.nodes.filter(n => !groupIds.has(n.id)).length || drawnGroups.length !== groupBindings.length) {
+    throw Error('MERMAID_HIGHLIGHTS_INCOMPLETE_DRAWING');
+  }
   const edgeBindings = model.edges.map(e => {
     if (typeof e.id !== 'string' || !e.id || edgeIds.has(e.id)) throw Error('MERMAID_HIGHLIGHTS_EDGE_ID_INVALID');
     edgeIds.add(e.id);
@@ -62,7 +81,10 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
   };
   const controller = {reset:() => runtime?.reset(), destroy, nodeCount:nodeBindings.length, edgeCount:edgeBindings.length};
   try {
-    for (const n of nodeBindings) set(n.element, 'data-node', n.id);
+    for (const n of nodeBindings) {
+      set(n.element, 'data-node', n.id);
+      if (n.kind === 'group') set(n.element, 'data-group', n.id);
+    }
     for (const e of edgeBindings) {
       set(e.element, 'data-edge', e.id);
       set(e.element, 'data-source', e.source);

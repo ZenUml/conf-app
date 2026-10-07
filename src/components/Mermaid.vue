@@ -143,7 +143,8 @@ export default {
         const target = event => {
           const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
           if (!el || !svg.contains(el)) return null;
-          return { el, kind: el.hasAttribute('data-hit-node') || el.hasAttribute('data-node') ? 'node' : 'edge' };
+          return { el, kind: el.hasAttribute('data-hit-group') || el.hasAttribute('data-group')
+            ? 'group' : el.hasAttribute('data-hit-node') || el.hasAttribute('data-node') ? 'node' : 'edge' };
         };
         const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
         const report = item => {

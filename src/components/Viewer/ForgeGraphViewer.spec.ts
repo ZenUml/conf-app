@@ -20,7 +20,7 @@ vi.mock('@/model/globals', () => ({
 vi.mock('@/components/Viewer/GenericViewer.vue', () => ({
   default: {
     name: 'GenericViewer',
-    template: '<div class="generic-viewer"><slot /></div>',
+    template: '<div class="generic-viewer"><div class="header-nav-slot"><slot name="header-nav" /></div><slot /></div>',
   },
 }));
 
@@ -293,4 +293,38 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
     });
   });
 
+});
+
+// Staged header (2026-10): multi-page navigation moved from the bottom pill's
+// prefix slot into GenericViewer's header (#header-nav), always visible.
+describe('ForgeGraphViewer page navigation', () => {
+  beforeEach(() => {
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: VALID_XML };
+    // @ts-ignore
+    window.mxUtils = { parseXml: vi.fn(() => ({ documentElement: {} })) };
+    // @ts-ignore — never resolves a viewer; the test drives pageCount directly.
+    window.GraphViewer = vi.fn(() => { throw new Error('not under test'); });
+  });
+
+  it('renders prev / "N of M" / next into the header nav slot only for multi-page diagrams', async () => {
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    const nav = () => wrapper.find('.header-nav-slot');
+    expect(nav().find('button').exists()).toBe(false);
+
+    const selectPage = vi.fn();
+    (wrapper.vm as any).graphViewer = { selectPage, graph: null };
+    (wrapper.vm as any).pageCount = 3;
+    await wrapper.vm.$nextTick();
+
+    const prev = nav().find('button[aria-label="Previous page"]');
+    const next = nav().find('button[aria-label="Next page"]');
+    expect(prev.classes()).toContain('viewer-page-nav-btn');
+    expect(prev.attributes('disabled')).toBeDefined();
+    expect(nav().find('.viewer-page-nav-label').text()).toBe('1 of 3');
+
+    await next.trigger('click');
+    expect(selectPage).toHaveBeenCalledWith(1);
+    expect(nav().find('.viewer-page-nav-label').text()).toBe('2 of 3');
+    expect(wrapper.find('.viewer-pill-btn').exists()).toBe(false);
+  });
 });

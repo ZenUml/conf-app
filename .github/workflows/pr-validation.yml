@@ -414,7 +414,7 @@ jobs:
   pr-pipeline-outcome:
     name: Pipeline outcome
     if: ${{ always() && needs.gate.outputs.run == 'true' }}
-    needs: [gate, build, preview-e2e, select, pr-e2e-validation]
+    needs: [gate, build, preview-e2e, jev-classify, select, staging-lite, e2e-auth-lite, pr-e2e-validation]
     runs-on: ubuntu-latest
     steps:
       - name: Report the pipeline result

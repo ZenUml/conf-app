@@ -634,10 +634,25 @@ export type AnalyticsProperties = {
   last_copy_source?: CopySource;
   last_copy_job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
-  // affordance minted the deeplink; only the viewer pill exists today. Not
+  // affordance minted the deeplink: the old bottom pill or the header More menu. Not
   // the same surface as the `/deeplink-ticket` share-preview endpoint, which
   // is owned by other PRs. See `outcome` above for this event's values.
-  link_source?: 'viewer_pill';
+  link_source?: 'viewer_pill' | 'header_more_menu' | 'fullscreen_header';
+  // Where in the viewer chrome an action was invoked (staged header, 2026-10).
+  // The bottom pill is gone: its actions (Copy diagram link, Copy page link,
+  // Export PNG, Versions, Download debug info) moved into the inline header's
+  // More (⋯) menu (`header_more_menu`) and onto Fullscreen's header
+  // (`fullscreen_header`); at collapse stage 3 Source and Copy for AI also
+  // run from the More menu. Carried by deeplink_copied, fullscreen_opened
+  // (entry_point=export), viewer_source_opened, copy_for_ai_clicked, and in
+  // the free-form details of the legacy trackEvent copy_link /
+  // show_content_versions / debug_bundle_downloaded events. Absent = the
+  // action's own header button (or an event from before 2026-10).
+  action_location?: 'header_more_menu' | 'fullscreen_header';
+  // viewer_more_menu_opened: the inline header's collapse stage when the More
+  // menu opened. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
+  // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.
+  header_stage?: 0 | 1 | 2 | 3;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many
   // macros on the page reference the clicked macro's customContentId (absent

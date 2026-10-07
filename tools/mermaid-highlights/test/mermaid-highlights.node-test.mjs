@@ -10,6 +10,7 @@ import {exportMermaidInteractive} from '../src/mermaid-interactive-export.mjs';
 
 const enabled=!!process.env.MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE&&!!process.env.MERMAID_HIGHLIGHTS_MERMAID_BUNDLE;
 const SOURCE='flowchart LR\n A-B[Input<br/>Details] -->|one| C[Result]\n A-B -->|two| C\n C --> A-B\n subgraph G[Group]\n D[Inside]\n end\n C --> D';
+const GROUP_SOURCE='flowchart LR\n A[Start] --> G\n subgraph G[Group]\n B[Inside]\n end\n G --> C[End]';
 const customSource='flowchart LR\n A_B[First] ab@--> C_D[Second]\n A[Third] ac@--> B_C_D[Fourth]';
 const browserOptions={headless:true,...(process.env.MERMAID_HIGHLIGHTS_CHROMIUM_EXECUTABLE?{executablePath:process.env.MERMAID_HIGHLIGHTS_CHROMIUM_EXECUTABLE}:{})};
 async function withBrowser(fn){const pw=createRequire(import.meta.url)(process.env.MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE),browser=await pw.chromium.launch(browserOptions);try{await fn(browser)}finally{await browser.close()}}
@@ -41,7 +42,7 @@ test('flowchart model snapshot is detached, preserves relation IDs and rejects u
 
 test('actual Mermaid curved edges, parallel paths and nested HTML labels get direct hover/selection', {skip:!enabled},async()=>withBrowser(async browser=>{
   const {page,errors}=await setup(browser);
-  assert.equal(await page.locator('g[data-node]').count(),3);assert.equal(await page.locator('.edge-hit').count(),4);
+  assert.equal(await page.locator('g[data-node]').count(),4);assert.equal(await page.locator('.edge-hit').count(),4);
   assert.ok(await page.locator('foreignObject').count()>0);
   await page.locator('.edge-hit').first().hover();assert.equal((await state(page)).edges.length,1);assert.deepEqual((await state(page)).nodes,['A-B','C']);
   await page.locator('.node-hit[data-hit-node="A-B"]').click();assert.equal((await state(page)).kind,'node');assert.equal((await state(page)).edges.length,3);
@@ -58,6 +59,22 @@ test('actual Mermaid curved edges, parallel paths and nested HTML labels get dir
   assert.deepEqual(errors,[]);
 }));
 
+test('a source group endpoint binds to its actual Mermaid cluster and traces both connectors', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,GROUP_SOURCE);
+  assert.equal(await page.locator('g.cluster[data-node="G"][data-group="G"]').count(),1);
+  assert.equal(await page.locator('path.flowchart-link[data-edge]').count(),2);
+  const border=await page.locator('.node-hit[data-hit-group="G"]').evaluate(e=>{const p=e.getPointAtLength(4),m=e.getScreenCTM(),v=new DOMPoint(p.x,p.y).matrixTransform(m);return {x:v.x,y:v.y}});
+  await page.mouse.move(border.x,border.y);
+  const hovered=await state(page);
+  assert.equal(hovered.kind,'none');
+  assert.equal(hovered.edges.length,2);
+  assert.deepEqual(hovered.nodes,['A','C','G']);
+  await page.mouse.click(border.x,border.y);
+  assert.equal((await state(page)).kind,'group');
+  assert.match(await page.locator('g.cluster[data-group="G"]').getAttribute('aria-label'),/^Trace group /);
+  assert.deepEqual(errors,[]);
+}));
+
 test('explicit edge IDs bind underscore-containing source IDs without delimiter guessing', {skip:!enabled},async()=>withBrowser(async browser=>{
   const {page,errors}=await setup(browser,customSource);
   await clickEdge(page,'ab');assert.deepEqual((await state(page)).nodes,['A_B','C_D']);
@@ -68,7 +85,7 @@ test('explicit edge IDs bind underscore-containing source IDs without delimiter 
 test('repeated attach and destroy restore exact Mermaid SVG and preserve existing click callback', {skip:!enabled},async()=>withBrowser(async browser=>{
   const {page,errors}=await setup(browser);
   await page.evaluate(()=>{window.callbackCount=0;document.querySelector('g[data-node="A-B"]').addEventListener('click',()=>window.callbackCount++);window.control=attachMermaidHighlights(document.querySelector('svg'),window.model,{status:document.getElementById('status')})});
-  assert.equal(await page.locator('.node-hit').count(),3);
+  assert.equal(await page.locator('.node-hit').count(),4);
   await page.locator('.node-hit[data-hit-node="A-B"]').click();assert.equal(await page.evaluate(()=>window.callbackCount),1);assert.equal((await state(page)).kind,'node');
   await page.evaluate(()=>{
     const svg=document.querySelector('svg'),edge=svg.querySelector('path[data-edge]');

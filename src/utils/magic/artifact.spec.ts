@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { magicSourceHash, sanitizeMagicSvg, validateMagicArtifact } from './artifact';
+import piSynthetic from '@/components/Viewer/fixtures/piMagicSynthetic.json';
 
 beforeAll(() => {
   Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
@@ -10,6 +11,9 @@ const source = 'graph LR\n  A-->B\n';
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><path d="M0 0L10 10"/><text x="2" y="20">A &amp; B</text></svg>';
 
 describe('Magic artifact contract', () => {
+  it('keeps the existing synthetic Pi artifact displayable while discarding noninteractive metadata', () => {
+    expect(sanitizeMagicSvg(piSynthetic.svg)).not.toBeNull();
+  });
   it('hashes exact UTF-8 bytes, including whitespace and Unicode', async () => {
     expect(await magicSourceHash('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
     expect(await magicSourceHash(source)).not.toBe(await magicSourceHash(source.trim()));
@@ -59,6 +63,19 @@ describe('Magic artifact contract', () => {
     const sanitized = sanitizeMagicSvg(prepared);
     expect(sanitized).toContain('aria-label="x &lt; 10; see https://example.invalid"');
     expect(sanitized).toContain('x &lt; 10');
+  });
+
+  it('keeps only bounded semantic bindings for source-verified hover and rejects malformed bindings', () => {
+    const prepared = '<svg xmlns="http://www.w3.org/2000/svg" data-secret="discard"><g data-group="Team"><rect x="0" y="0" width="30" height="20"/></g><g data-node="A"><text x="1" y="2">A</text></g><path data-edge="e1" data-source="A" data-target="Team" d="M2 2L20 2"/></svg>';
+    const safe = sanitizeMagicSvg(prepared);
+    expect(safe).toContain('data-group="Team"');
+    expect(safe).toContain('data-node="A"');
+    expect(safe).toContain('data-edge="e1"');
+    expect(safe).toContain('data-source="A"');
+    expect(safe).toContain('data-target="Team"');
+    expect(safe).not.toContain('data-secret');
+    expect(sanitizeMagicSvg(prepared.replace('data-node="A"', 'data-node="A&#10;B"'))).toBeNull();
+    expect(sanitizeMagicSvg(prepared.replace('data-node="A"', 'data-node="A" data-node-id="B"'))).toBeNull();
   });
 
   it('resolves supported CSS with presentation attributes, specificity, source order, inline style, and root matching', () => {

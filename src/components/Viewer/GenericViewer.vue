@@ -88,19 +88,19 @@
                 <button type="button" class="viewer-version-option viewer-version-magic"
                   :class="{ 'viewer-version-option--selected': magicActive, 'viewer-version-magic--available': magicAvailable && !magicActive }"
                   data-testid="magic-toggle" :disabled="!magicActive && (!diagram?.magic || magicPending)"
-                  :title="!diagram?.magic ? 'Magic view is unavailable for this diagram' : magicActive ? 'Magic diagram selected' : magicAvailable ? 'Show prepared Magic view' : 'Magic view is unavailable for the current diagram'"
+                  :title="magicActive || magicAvailable ? 'Layout refined with AI.' : 'Refined layout is unavailable for the current diagram'"
                   :aria-pressed="magicActive ? 'true' : 'false'" :aria-busy="magicPending ? 'true' : 'false'"
                   @click="!magicActive && toggleMagic('manual')">
                   <svg xmlns="http://www.w3.org/2000/svg" class="viewer-magic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="m4.5 19.5 11-11 2 2-11 11a1.4 1.4 0 0 1-2-2Z" />
                     <path d="m18 2 .55 1.75L20.3 4.3l-1.75.55L18 6.6l-.55-1.75-1.75-.55 1.75-.55L18 2ZM21 10l.35 1.15L22.5 11.5l-1.15.35L21 13l-.35-1.15-1.15-.35 1.15-.35L21 10Z" />
                   </svg>
-                  <span>Magic</span>
+                  <span>Refined layout</span>
                 </button>
                 <button type="button" class="viewer-version-option"
                   :class="{ 'viewer-version-option--selected': !magicActive }" data-testid="original-toggle"
-                  :aria-pressed="!magicActive ? 'true' : 'false'" title="Show original Mermaid diagram"
-                  @click="magicActive && toggleMagic('manual')">Original</button>
+                  :aria-pressed="!magicActive ? 'true' : 'false'" title="Show original layout"
+                  @click="magicActive && toggleMagic('manual')">Original layout</button>
               </div>
               <!-- View Source (#333): visible to ALL viewers, including users without
                    edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
@@ -233,10 +233,10 @@
 
           <div v-if="magicFeedback" class="magic-feedback" role="status" aria-live="polite" data-testid="magic-feedback">{{ magicFeedback }}</div>
           <div v-if="isFullscreenMode && magicFeedbackGeneration && (magicActive || magicAvailable)" class="magic-disclosure" data-testid="magic-disclosure">
-            <span v-if="magicActive">Same diagram, cleaner layout.</span>
+            <span v-if="magicActive">Same content, refined layout.</span>
             <div class="magic-layout-feedback" role="group" aria-label="Which layout do you prefer?" data-testid="magic-layout-feedback">
               <span>Which layout do you prefer?</span>
-              <button v-for="option in [{ value: 'magic', label: 'Magic' }, { value: 'original', label: 'Original' }, { value: 'no_preference', label: 'No preference' }]" :key="option.value" type="button"
+              <button v-for="option in [{ value: 'magic', label: 'Refined' }, { value: 'original', label: 'Original' }, { value: 'no_preference', label: 'No preference' }]" :key="option.value" type="button"
                 :aria-pressed="magicLayoutFeedback === option.value ? 'true' : 'false'"
                 @click="selectMagicLayoutFeedback(option.value)">{{ option.label }}</button>
               <span v-if="magicFeedbackThanked" role="status" aria-live="polite">Thanks for sharing. You can change this anytime.</span>
@@ -319,7 +319,7 @@
             </div>
             <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
               <DiagramViewport v-if="magicActive" ref="magicViewport" macro-type="mermaid"
-                label="Magic" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
+                label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
             </div>
             <div
@@ -518,6 +518,9 @@ import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
 import { validateMagicArtifact } from '@/utils/magic/artifact'
 import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
+import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
+import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
+import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -542,7 +545,13 @@ export default {
   // in place (e.g. the AsyncAPI embed macro) suppress the Edit pencil entirely.
   // Editing the source happens at the origin; re-targeting which doc is
   // embedded is a page-editor (macro-config) operation.
-  props: ['wide', 'hideHeader', 'hideEdit'],
+  props: {
+    wide: Boolean,
+    hideHeader: Boolean,
+    hideEdit: Boolean,
+    relationshipHighlights: { type: Boolean, default: false },
+  },
+  emits: ['capture-mode-change', 'magic-highlight-ready', 'magic-highlight-used'],
   data: () => ({
     canUserEdit: true,
     isHovering: false,
@@ -582,6 +591,8 @@ export default {
     retryOutcomeEmitted: false,
     magicActive: false,
     magicSvg: null,
+    magicHighlightController: null,
+    magicHighlightCleanup: null,
     magicPending: false,
     magicGeneration: 0,
     magicStartedAt: null,
@@ -938,7 +949,15 @@ export default {
   watch: {
     showExportModal: {
       flush: 'sync',
-      handler(active) { this.$emit('capture-mode-change', active); },
+      handler(active) {
+        this.$emit('capture-mode-change', active);
+        if (active) this.clearMagicHighlights();
+        else if (this.magicActive) this.$nextTick(this.installMagicHighlights);
+      },
+    },
+    relationshipHighlights() {
+      this.clearMagicHighlights();
+      if (this.magicActive) this.$nextTick(this.installMagicHighlights);
     },
     showCreateGuide: {
       immediate: true,
@@ -1202,6 +1221,7 @@ export default {
     }
   },
   beforeUnmount() {
+    this.clearMagicHighlights();
     this.magicGeneration++;
     document.removeEventListener('keydown', this.onEscapeKeydown, true);
     EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
@@ -1335,6 +1355,7 @@ export default {
       });
     },
     resetMagic(preserveAvailable = false) {
+      this.clearMagicHighlights();
       const wasAvailable = this.magicAvailable;
       if (this.magicPending && this.magicStartedAt != null) {
         this.magicEvent('magic_view_failed', {
@@ -1384,8 +1405,8 @@ export default {
         if ('reason' in result) {
           this.magicAvailable = false;
           this.magicFeedback = result.reason === 'stale_source'
-            ? 'This prepared view is for an earlier version of the diagram.'
-            : 'Magic view could not be shown. The original diagram is still available.';
+            ? 'This refined layout is for an earlier version of the diagram.'
+            : 'Refined layout could not be shown. The original diagram is still available.';
           this.magicEvent('magic_view_failed', { magic_failure_reason: result.reason, duration_ms: Math.round(performance.now() - started) });
           return;
         }
@@ -1397,6 +1418,8 @@ export default {
         if (!this.$refs.magicViewport?.$el?.querySelector('svg')) throw new Error('Magic SVG did not render');
         await this.$refs.magicViewport.attach();
         if (generation === this.magicGeneration) {
+          await this.installMagicHighlights();
+          if (generation !== this.magicGeneration) return;
           if (activation === 'manual') this.persistMagicChoice('magic', artifact.sourceHash);
           this.magicEvent('magic_view_succeeded', { magic_activation: activation, duration_ms: Math.round(performance.now() - started) });
           await this.loadMagicFeedback(artifact, source);
@@ -1406,13 +1429,66 @@ export default {
         this.magicActive = false;
         this.magicAvailable = false;
         this.magicSvg = null;
-        this.magicFeedback = 'Magic view could not be shown. The original diagram is still available.';
+        this.magicFeedback = 'Refined layout could not be shown. The original diagram is still available.';
         this.magicEvent('magic_view_failed', { magic_failure_reason: 'render_failed', duration_ms: Math.round(performance.now() - started) });
       } finally {
         if (generation === this.magicGeneration) {
           this.magicPending = false;
           this.magicStartedAt = null;
         }
+      }
+    },
+    clearMagicHighlights() {
+      this.magicHighlightCleanup?.();
+      this.magicHighlightCleanup = null;
+      this.magicHighlightController?.destroy();
+      this.magicHighlightController = null;
+      this.$emit('magic-highlight-ready', false);
+    },
+    async installMagicHighlights() {
+      if (!this.magicActive || !this.relationshipHighlights || this.showExportModal
+        || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+      const generation = this.magicGeneration;
+      const source = this.diagram?.mermaidCode ?? '';
+      const artifact = this.diagram?.magic;
+      try {
+        const model = await parseMermaidFlowchart(normalizeMermaidWhitespace(source));
+        if (generation !== this.magicGeneration || !this.magicActive || !this.relationshipHighlights
+          || this.showExportModal || this.diagram?.mermaidCode !== source || this.diagram?.magic !== artifact) return;
+        const svg = this.$refs.magicViewport?.$el?.querySelector('svg');
+        if (!svg) return;
+        this.clearMagicHighlights();
+        this.magicHighlightController = attachPreparedSvgHighlights(svg, model);
+        let used = false, timer = null, hovered = null;
+        const target = event => {
+          const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
+          if (!el || !svg.contains(el)) return null;
+          return { el, kind: el.hasAttribute('data-hit-group') || el.hasAttribute('data-group')
+            ? 'group' : el.hasAttribute('data-hit-node') || el.hasAttribute('data-node') ? 'node' : 'edge' };
+        };
+        const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
+        const report = item => {
+          if (!item || used || generation !== this.magicGeneration) return;
+          used = true; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
+        };
+        const over = event => {
+          const item = target(event);
+          if (!item || used || hovered === item.el) return;
+          cancel(); hovered = item.el;
+          timer = setTimeout(() => report(item), 700);
+        };
+        const out = event => {
+          if (hovered && hovered.contains(event.target) && !hovered.contains(event.relatedTarget)) cancel();
+        };
+        const select = event => report(target(event));
+        const listeners = [['pointerover', over], ['pointerout', out], ['pointerleave', cancel], ['click', select], ['focusin', select]];
+        for (const [name, handler] of listeners) svg.addEventListener(name, handler);
+        this.magicHighlightCleanup = () => { cancel(); for (const [name, handler] of listeners) svg.removeEventListener(name, handler); };
+        this.$emit('magic-highlight-ready', true);
+      } catch {
+        // A drawing without a complete source binding remains readable, with
+        // the optional relationship overlay unavailable.
+        this.clearMagicHighlights();
       }
     },
     async loadMagicFeedback(artifact, source) {

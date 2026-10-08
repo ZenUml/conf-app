@@ -107,7 +107,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           node scripts/test-selection/regression-results.mjs --run "$RUN_ID" --output regression-results.json
-          echo '## Full staging regression (advisory)' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Full staging regression (daily release draft gate)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat regression-results.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

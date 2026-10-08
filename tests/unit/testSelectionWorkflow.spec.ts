@@ -92,7 +92,9 @@ describe('staging workflow safety contracts', () => {
     expect(draftDispatch.env.ARTIFACT_RUN_ID).toBe('${{ needs.build-preparation.outputs.run-id }}');
     expect(draftDispatch.env.STAGING_RUN_ID).toBe('${{ needs.staging-validation.outputs.run-id }}');
     expect(root.jobs.outcome.needs).toContain('staging-validation');
-    expect(root.jobs.outcome.steps[0].run).toContain("value.result !== 'success'");
+    const verdict = root.jobs.outcome.steps.find((step: any) => step.name === 'Require successful phases');
+    expect(verdict.if).toBe('always()');
+    expect(verdict.run).toContain("value.result !== 'success'");
   });
   it('verifies root ownership and pins phase source checkouts and nested ancestry', () => {
     const root = structure('build-test-deploy');

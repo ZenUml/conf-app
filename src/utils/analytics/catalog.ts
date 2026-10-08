@@ -562,9 +562,21 @@ export type AnalyticsEventName =
   // magic_writeback_reason (only when outcome=unavailable): backend codes
   // read_<status>, artifact_invalid, lease_lost, put_<status>, put_mismatch,
   // confirm_<status>, confirm_mismatch, exception; client codes unknown,
-  // remote_<status> (callRemote threw HTTP <status>), client_exception.
+  // remote_<status> (callRemote threw HTTP <status>), client_exception, and
+  // no_user_credential (the backend answered 403: Forge sent no user token).
+  // magic_writeback_skipped: the viewer did NOT call the backend because the
+  // viewer is a guest or an anonymous visitor. Forge omits the user token on
+  // invokeRemote for them, so the call could only fail. Trigger: the first
+  // writeback attempt for a diagram+source in an iframe (inline or Fullscreen),
+  // after the usual eligibility checks and before any request. It shares the
+  // inline 24h per-browser claim with the request path, so inline it fires at
+  // most once per diagram+source per browser per 24h (Fullscreen: once per
+  // iframe), and it fires neither `requested` nor `completed`. Properties: feature_area=ai,
+  // surface=fullscreen|viewer, macro_type=mermaid, magic_writeback_reason =
+  // guest_viewer | anonymous_viewer. Never source, SVG, hashes, ids or errors.
   | "magic_writeback_requested"
   | "magic_writeback_completed"
+  | "magic_writeback_skipped"
   | "magic_availability_checked"
   | "magic_default_resolved"
   | "magic_view_requested"

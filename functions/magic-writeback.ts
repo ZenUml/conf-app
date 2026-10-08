@@ -41,7 +41,7 @@ export async function onRequest({ request, data, env }: {
   const user = request.headers.get('x-forge-oauth-user');
   const app = request.headers.get('x-forge-oauth-system');
   if (!c?.cloudId || !c.forgeAppId || !c.environmentId || !c.installationId
-    || !c.accountId || !c.apiBaseUrl || !user || !app || !TYPES[c.forgeAppId]) return response(401, 'Missing authenticated context');
+    || !c.apiBaseUrl || !app || !TYPES[c.forgeAppId]) return response(401, 'Missing authenticated context');
   // All identities used below are verified FIT claims. Client hints are ignored.
   const scope = [c.cloudId, c.forgeAppId, c.environmentId, c.installationId];
   const moduleKey = c.forgeAppId === '01ede8b1-4e88-451a-b9ef-89eeef93afaf' ? 'gpt-custom-content-key' : 'zenuml-content-sequence';
@@ -50,6 +50,11 @@ export async function onRequest({ request, data, env }: {
   const environmentPrefix = `ari:cloud:ecosystem::environment/${c.forgeAppId}/`;
   const environmentUuid = c.environmentId.startsWith(environmentPrefix) ? c.environmentId.slice(environmentPrefix.length) : '';
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(environmentUuid)) return response(401, 'Invalid authenticated environment');
+  // Forge sends no user token (and the FIT carries no principal) on invokeRemote
+  // for guest and anonymous viewers. The app context above is valid, so this is
+  // not a 401. The viewer's own credential is the only one that may read the
+  // target, so there is no fallback to the app token for that viewer.
+  if (!c.accountId || !user) return response(403, 'no_user_credential');
   const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`];
   const result = (outcome: string, artifact?: Artifact) => OkResponse({ outcome, ...(artifact ? { artifact } : {}) });
   // Reason codes are fixed strings or HTTP statuses only: no bodies, hashes, tokens or error text.

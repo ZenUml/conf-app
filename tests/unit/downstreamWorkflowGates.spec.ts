@@ -71,10 +71,11 @@ describe('draft phase provenance and independent variant gates', () => {
       'staging-asyncapi-e2e': { result: 'failure' },
     })).toMatchObject({ lite: 'false', full: 'true', diagramly: 'true', asyncapi: 'false' });
   });
-  it('requires successful deployment for reused Lite coverage and accepts either Full lane', () => {
+  it('requires fresh Lite coverage and accepts either Full lane', () => {
     const reuse = { result: 'success', outputs: { reuse: 'true', 'run-url': 'https://example.com/evidence' } };
     expect(variantEligibility({ 'staging-lite': { result: 'success' }, 'reuse-check': reuse, 'staging-full-e2e-now': { result: 'success' } }))
-      .toMatchObject({ lite: 'true', full: 'true', reuse: 'true', 'run-url': 'https://example.com/evidence' });
+      .toMatchObject({ lite: 'false', full: 'true' });
+    expect(variantEligibility({ 'staging-lite': { result: 'success' }, 'staging-lite-e2e': { result: 'success' } }).lite).toBe('true');
     for (const result of ['failure', 'skipped', 'cancelled']) {
       expect(variantEligibility({ 'staging-lite': { result }, 'reuse-check': reuse }).lite).toBe('false');
     }

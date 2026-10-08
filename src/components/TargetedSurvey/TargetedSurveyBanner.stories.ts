@@ -18,7 +18,7 @@ const survey = {
 };
 
 const meta: Meta<typeof TargetedSurveyBanner> = {
-  title: 'Page banner/Targeted survey',
+  title: 'Page banner/TargetedSurveyBanner',
   component: TargetedSurveyBanner,
   parameters: { layout: 'fullscreen' },
   args: { survey, terminalKey: 'storybook:synthetic-user:survey', previewInitialPhase: 'invite' },

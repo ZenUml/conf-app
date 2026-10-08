@@ -559,6 +559,10 @@ export type AnalyticsEventName =
   // day), and `completed` fires only for a non-`miss` outcome (surface=viewer).
   // Properties: feature_area=ai, surface=fullscreen|viewer, macro_type=mermaid,
   // magic_writeback_outcome and duration_ms. Never source, SVG, hashes or errors.
+  // magic_writeback_reason (only when outcome=unavailable): backend codes
+  // read_<status>, artifact_invalid, lease_lost, put_<status>, put_mismatch,
+  // confirm_<status>, confirm_mismatch, exception; client codes unknown,
+  // remote_<status> (callRemote threw HTTP <status>), client_exception.
   | "magic_writeback_requested"
   | "magic_writeback_completed"
   | "magic_availability_checked"

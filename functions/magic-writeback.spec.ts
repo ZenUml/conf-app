@@ -50,7 +50,7 @@ describe('reviewed Magic writeback', () => {
   });
   it('denies an unreadable target without disclosing or app-writing the artifact', async () => {
     enqueue(); fetchMock.mockResolvedValue(reply({}, 403));
-    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable' });
+    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable', reason: 'read_403' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer user-token');
     expect(row().claimToken).toBeNull();
@@ -148,6 +148,15 @@ describe('reviewed Magic writeback', () => {
     });
     expect(await (await invoke()).json()).toEqual({ outcome: 'written', artifact });
     expect(row().claimToken).toBe('new-owner');
+  });
+  it('reports a status-only reason when the PUT fails', async () => {
+    enqueue(); fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({ message: 'secret tenant text' }, 500));
+    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable', reason: 'put_500' });
+  });
+  it('reports a fixed reason on exception without the error message', async () => {
+    enqueue(); fetchMock.mockRejectedValue(new Error('token abc leaked'));
+    const body = await (await invoke()).json();
+    expect(body).toEqual({ outcome: 'unavailable', reason: 'exception' });
   });
   it('purges expired payloads without reading Confluence', async () => {
     enqueue(ctx, Date.now() - 1);

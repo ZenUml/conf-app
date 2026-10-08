@@ -19,6 +19,7 @@ import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readCopyAttribution } from '@/utils/analytics/copyAttribution'
 import { callRemote } from '@/utils/requestUtil'
+import { viewerAccountKind } from '@/utils/magic/viewerAccount'
 import { magicSourceHash } from '@/utils/magic/artifact'
 import { writeMagicPreference } from '@/utils/magic/localPreference'
 import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
@@ -28,6 +29,12 @@ import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFai
 vi.mock('@/utils/requestUtil', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/utils/requestUtil')>(),
   callRemote: vi.fn(() => Promise.resolve({ outcome: 'miss' })),
+}))
+
+// Default: every viewer is licensed, so the existing writeback tests keep
+// reaching callRemote. The guest/anonymous tests override it per test.
+vi.mock('@/utils/magic/viewerAccount', () => ({
+  viewerAccountKind: vi.fn(() => Promise.resolve('licensed')),
 }))
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -159,6 +166,7 @@ describe('GenericViewer (chrome-less)', () => {
       if (path === '/magic-writeback') return { outcome: 'miss' };
       throw new Error('No remote configured in unit test');
     })
+    vi.mocked(viewerAccountKind).mockReset().mockResolvedValue('licensed')
     // Before the store assignments below: wrappers mounted by earlier tests in
     // this file stay mounted and still watch viewerLoadState, so a retry marker
     // left in sessionStorage would make one of them report a retry outcome
@@ -221,6 +229,10 @@ describe('GenericViewer (chrome-less)', () => {
         const props = await run(async () => { throw new Error('HTTP 401: private body'); });
         expect(props.magic_writeback_reason).toBe('remote_401');
         expect(JSON.stringify(props)).not.toContain('private');
+      });
+      it('maps a backend 403 no_user_credential to its own reason, not remote_403', async () => {
+        const props = await run(async () => { throw new Error('HTTP 403: {"error":"no_user_credential"}'); });
+        expect(props).toEqual(expect.objectContaining({ magic_writeback_outcome: 'unavailable', magic_writeback_reason: 'no_user_credential' }));
       });
       it('maps any other throw to client_exception', async () => {
         const props = await run(async () => { throw new Error('boom'); });
@@ -488,6 +500,104 @@ describe('GenericViewer (chrome-less)', () => {
         } finally {
           vi.useRealTimers();
         }
+      });
+    });
+
+    // Forge sends no user token on invokeRemote for guest and anonymous viewers,
+    // so the writeback call can only fail for them. The viewer asks who it is
+    // first (before the inline per-browser claim) and skips the backend.
+    describe('guest and anonymous viewers', () => {
+      const skipped = () => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'magic_writeback_skipped').map(([, props]) => props as any);
+      const writebackCalls = () => vi.mocked(callRemote).mock.calls.filter(([path]) => path === '/magic-writeback');
+      const writebackEventNames = () => vi.mocked(trackAnalyticsEvent).mock.calls.map(([name]) => String(name)).filter(name => name.startsWith('magic_writeback_'));
+      const claimKeys = () => Object.keys(localStorage).filter(key => key.startsWith('zenuml.magicWriteback.v1:'));
+
+      describe('inline', () => {
+        beforeEach(() => { (window as any).forgeGlobal.forgeContext.extension.modal = undefined; });
+
+        it.each([['guest', 'guest_viewer'], ['anonymous', 'anonymous_viewer']] as const)(
+          'skips the backend for a %s viewer, reports it once and keeps the per-browser claim',
+          async (kind, reason) => {
+            vi.mocked(viewerAccountKind).mockResolvedValue(kind);
+            const wrapper = await mountMagic();
+            await vi.waitFor(() => expect(skipped()).toHaveLength(1));
+            expect(skipped()[0]).toEqual({ feature_area: 'ai', surface: 'viewer', macro_type: 'mermaid', magic_writeback_reason: reason });
+            expect(writebackCalls()).toHaveLength(0);
+            expect(claimKeys()).toEqual([]);
+            expect(writebackEventNames()).toEqual(['magic_writeback_skipped']);
+            // Recorded as an attempt: a repeated readiness signal for the same
+            // diagram+source in this iframe neither asks again nor re-reports.
+            await (wrapper.vm as any).initializeMagic();
+            await flushPromises();
+            expect(skipped()).toHaveLength(1);
+            expect(viewerAccountKind).toHaveBeenCalledTimes(1);
+          },
+        );
+
+        it('does not consume the claim, so a later licensed session in the same browser still requests', async () => {
+          vi.mocked(viewerAccountKind).mockResolvedValue('guest');
+          (await mountMagic()).unmount();
+          await vi.waitFor(() => expect(skipped()).toHaveLength(1));
+          vi.mocked(viewerAccountKind).mockResolvedValue('licensed');
+          await mountMagic();
+          await vi.waitFor(() => expect(writebackCalls()).toHaveLength(1));
+          expect(claimKeys()).toHaveLength(1);
+        });
+
+        it('asks about the viewer account and tenant domain from the Forge context', async () => {
+          const previousContext = forgeRuntime.forgeContext;
+          forgeRuntime.forgeContext = { ...previousContext, ...window.forgeGlobal!.forgeContext, accountId: 'viewer-a' };
+          try {
+            await mountMagic();
+            await vi.waitFor(() => expect(viewerAccountKind).toHaveBeenCalledWith({ accountId: 'viewer-a', clientDomain: 'example.atlassian.net' }));
+          } finally {
+            forgeRuntime.forgeContext = previousContext;
+          }
+        });
+
+        it.each(['licensed', 'unknown'] as const)('still requests writeback for a %s viewer', async (kind) => {
+          vi.mocked(viewerAccountKind).mockResolvedValue(kind);
+          await mountMagic();
+          await vi.waitFor(() => expect(writebackCalls()).toEqual([['/magic-writeback', 'POST', { contentId: '987654321' }]]));
+          expect(skipped()).toHaveLength(0);
+          expect(claimKeys()).toHaveLength(1);
+        });
+
+        it('does not look the viewer up from the chrome-less editor preview', async () => {
+          vi.mocked(viewerAccountKind).mockResolvedValue('guest');
+          const wrapper = mount(GenericViewer, { props: { hideHeader: true }, global: { plugins: [store] }, slots: { default: '<div class="original-diagram">Original canvas</div>' } });
+          mounted.push(wrapper);
+          await flushPromises();
+          expect(viewerAccountKind).not.toHaveBeenCalled();
+          expect(skipped()).toHaveLength(0);
+        });
+      });
+
+      describe('fullscreen', () => {
+        it('skips a guest viewer without a requested or completed event', async () => {
+          vi.mocked(viewerAccountKind).mockResolvedValue('guest');
+          await mountMagic();
+          await vi.waitFor(() => expect(skipped()).toHaveLength(1));
+          expect(skipped()[0]).toEqual({ feature_area: 'ai', surface: 'fullscreen', macro_type: 'mermaid', magic_writeback_reason: 'guest_viewer' });
+          expect(writebackCalls()).toHaveLength(0);
+          expect(writebackEventNames()).toEqual(['magic_writeback_skipped']);
+        });
+
+        it('skips an anonymous viewer the same way', async () => {
+          vi.mocked(viewerAccountKind).mockResolvedValue('anonymous');
+          await mountMagic();
+          await vi.waitFor(() => expect(skipped()).toHaveLength(1));
+          expect(skipped()[0]).toEqual(expect.objectContaining({ surface: 'fullscreen', magic_writeback_reason: 'anonymous_viewer' }));
+          expect(writebackCalls()).toHaveLength(0);
+          expect(writebackEventNames()).toEqual(['magic_writeback_skipped']);
+        });
+
+        it('still requests for a licensed viewer, with a requested event', async () => {
+          await mountMagic();
+          await vi.waitFor(() => expect(writebackCalls()).toHaveLength(1));
+          expect(writebackEventNames()).toContain('magic_writeback_requested');
+          expect(skipped()).toHaveLength(0);
+        });
       });
     });
 

@@ -553,6 +553,7 @@ import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
 import { validateMagicArtifact } from '@/utils/magic/artifact'
 import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
+import { claimInlineMagicWriteback } from '@/utils/magic/inlineWriteback'
 import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
@@ -1410,10 +1411,11 @@ export default {
       const artifact = this.diagram.magic;
       if (!artifact) {
         // Inline, a Mermaid diagram without an artifact is the common case, not
-        // a Magic assessment: reporting it would add an event per page view,
-        // and writeback is a Fullscreen-only backend request.
-        if (!this.isFullscreenMode) return;
+        // a Magic assessment: reporting it would add an event per page view.
+        // Writeback still runs inline (rate-limited per browser) so a staged
+        // layout reaches viewers who never open Fullscreen.
         this.requestMagicWriteback();
+        if (!this.isFullscreenMode) return;
         this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'missing_artifact', source, artifact);
         this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
         return;
@@ -1458,16 +1460,24 @@ export default {
       const contentId = diagram?.id;
       const source = diagram?.mermaidCode;
       const artifact = diagram?.magic;
-      if (!this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid
+      if (this.diagramType !== DiagramType.Mermaid
         || diagram?.source !== DataSource.CustomContent || diagram?.isCopy || diagram?.recoveredFromOrphan
         || typeof contentId !== 'string' || !/^\d{1,30}$/.test(contentId) || typeof source !== 'string') return;
       // One attempt per diagram/source per iframe. Duplicate readiness signals
       // and unavailable backend responses must not create a polling loop.
       if (this.magicWritebackAttempts.some(item => item.contentId === contentId && item.source === source)) return;
+      // Inline adds a per-browser 24h limit (~10k inline Mermaid views a day);
+      // Fullscreen keeps retrying once per iframe.
+      const inline = !this.isFullscreenMode;
+      // Inline means the page-view macro only: the editor preview (Workspace ->
+      // DiagramPortal, hide-header / non-display mode) would send one request
+      // per edited source and cannot show the refined layout anyway.
+      if (inline && (!this.isDisplayMode || this.hideHeader)) return;
+      if (inline && !claimInlineMagicWriteback(contentId, source)) return;
       this.magicWritebackAttempts.push({ contentId, source });
       const started = performance.now();
       const generation = this.magicGeneration;
-      this.magicEvent('magic_writeback_requested');
+      if (!inline) this.magicEvent('magic_writeback_requested');
       let outcome = 'unavailable';
       try {
         const result = await callRemote('/magic-writeback', 'POST', { contentId });
@@ -1484,7 +1494,9 @@ export default {
         }
       } catch { /* Original remains usable when optional delivery is unavailable. */ }
       finally {
-        this.magicEvent('magic_writeback_completed', { magic_writeback_outcome: outcome, duration_ms: Math.round(performance.now() - started) });
+        // Inline, a miss is the common no-op answer; only real deliveries and
+        // failures are worth an event.
+        if (!inline || outcome !== 'miss') this.magicEvent('magic_writeback_completed', { magic_writeback_outcome: outcome, duration_ms: Math.round(performance.now() - started) });
       }
     },
     magicEvent(name, properties = {}) {

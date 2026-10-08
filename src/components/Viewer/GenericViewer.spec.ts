@@ -340,7 +340,76 @@ describe('GenericViewer (chrome-less)', () => {
         // An inline view of a plain Mermaid diagram is not a Magic assessment —
         // that would be one event per Mermaid page view.
         expect(vi.mocked(trackAnalyticsEvent)).not.toHaveBeenCalledWith('magic_availability_checked', expect.anything());
-        expect(callRemote).not.toHaveBeenCalledWith('/magic-writeback', expect.anything(), expect.anything());
+      });
+
+      // Inline writeback (2026-10): staged refined layouts must reach viewers
+      // who never open Fullscreen, without one request per inline page view.
+      const writebackCalls = () => vi.mocked(callRemote).mock.calls.filter(([path]) => path === '/magic-writeback');
+      const writebackEvents = () => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => String(name).startsWith('magic_writeback_'));
+
+      it('requests a staged layout inline when the diagram has no artifact', async () => {
+        await mountMagic();
+        expect(writebackCalls()).toEqual([['/magic-writeback', 'POST', { contentId: '987654321' }]]);
+        expect(Object.keys(localStorage).some(key => key.startsWith('zenuml.magicWriteback.v1:987654321:'))).toBe(true);
+      });
+
+      it('does not repeat the inline request on a remount within 24h', async () => {
+        (await mountMagic()).unmount();
+        await mountMagic();
+        expect(writebackCalls()).toHaveLength(1);
+      });
+
+      it('requests again inline for a different source of the same diagram', async () => {
+        (await mountMagic()).unmount();
+        store.commit('updateMermaidCode', source + '\n  B-->C');
+        await mountMagic();
+        expect(writebackCalls()).toHaveLength(2);
+      });
+
+      it('falls back to per-mount dedup when storage throws', async () => {
+        const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+        const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
+        try {
+          const first = await mountMagic();
+          await (first.vm as any).initializeMagic();
+          expect(writebackCalls()).toHaveLength(1);
+          first.unmount();
+          await mountMagic();
+          expect(writebackCalls()).toHaveLength(2);
+        } finally {
+          getItem.mockRestore();
+          setItem.mockRestore();
+        }
+      });
+
+      it('reports nothing for an inline miss', async () => {
+        await mountMagic();
+        expect(writebackCalls()).toHaveLength(1);
+        expect(writebackEvents()).toEqual([]);
+      });
+
+      it('shows the delivered refined layout inline and reports only completion', async () => {
+        vi.mocked(callRemote).mockResolvedValue({ outcome: 'written', artifact: { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' } });
+        const wrapper = await mountMagic();
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-toggle"]').attributes('aria-pressed')).toBe('true'));
+        expect((wrapper.vm as any).magicActive).toBe(true);
+        expect((wrapper.vm as any).magicAvailable).toBe(true);
+        expect(writebackEvents()).toEqual([['magic_writeback_completed', expect.objectContaining({ surface: 'viewer', magic_writeback_outcome: 'written' })]]);
+      });
+
+      it('does not request from the chrome-less editor preview (hideHeader)', async () => {
+        // Workspace.vue renders DiagramPortal -> GenericViewer with hide-header
+        // while editing: every edited source would otherwise send a request.
+        const wrapper = mount(GenericViewer, { props: { hideHeader: true }, global: { plugins: [store] }, slots: { default: '<div class="original-diagram">Original canvas</div>' } });
+        mounted.push(wrapper);
+        await flushPromises();
+        expect(writebackCalls()).toHaveLength(0);
+      });
+
+      it('requests inline for a stale artifact', async () => {
+        store.state.diagram.magic = { sourceHash: await magicSourceHash(source + ' old'), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+        await mountMagic();
+        await vi.waitFor(() => expect(writebackCalls()).toHaveLength(1));
       });
 
       it('shows a single pressed toggle inline for a valid artifact and toggles to Original', async () => {

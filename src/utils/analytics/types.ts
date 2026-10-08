@@ -74,6 +74,8 @@ export type AnalyticsProperties = {
   /** Targeted survey campaign identifier; no target identity or answer text. */
   survey_uuid?: string;
   survey_revision?: number;
+  /** Cross-product display claim did not produce a banner. */
+  survey_claim_result?: 'already_claimed' | 'unavailable' | 'invalid_response';
   /** Visible step when a targeted survey is dismissed, including an in-flight send. */
   survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;

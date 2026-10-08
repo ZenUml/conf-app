@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dispatchBody, findChild, closeChild, verifyParent } from './wait-for-e2e.mjs';
+import { dispatchBody, findChild, closeChild, verifyParent, verifyChildRun } from './wait-for-e2e.mjs';
 
 test('dispatch serializes regex without changing its escapes', () => {
   const env = { GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc', GREP: '(?:^|\\s)@smoke' };
@@ -23,6 +23,32 @@ test('PR dispatch uses branch ref and only the PR child inputs', () => {
   assert.equal(body.inputs.mode, 'selected');
   assert.equal(body.inputs['source-sha'], 'merge-sha');
   assert.equal('suite' in body.inputs, false);
+});
+
+test('phase dispatch carries version and exact producing run IDs without E2E inputs', () => {
+  const body = dispatchBody({ CHILD_KIND: 'phase', VERSION: 'v1', ARTIFACT_RUN_ID: '42', STAGING_RUN_ID: '43' });
+  assert.equal(body.inputs.version, 'v1');
+  assert.equal(body.inputs['artifact-run-id'], '42');
+  assert.equal(body.inputs['staging-run-id'], '43');
+  assert.equal('grep' in body.inputs, false);
+  assert.equal('suite' in body.inputs, false);
+});
+
+test('phase E2E requires an active root and matching source provenance', () => {
+  const parent = { status: 'in_progress', run_attempt: 1, path: '.github/workflows/main-staging-validation.yml', display_title: 'Staging validation · parent 12 · attempt 2 · source abc' };
+  const jobs = [{ name: 'Validate: Lite', status: 'in_progress' }];
+  const provenance = { sourceSha: 'abc', rootId: '12', rootAttempt: '2', root: { status: 'in_progress', run_attempt: 2, path: '.github/workflows/build-test-deploy.yml', head_sha: 'abc' }, rootJobs: [{ name: 'Staging validation', status: 'in_progress' }] };
+  verifyParent(parent, '1', jobs, ['Validate: Lite'], provenance);
+  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite']), /root/);
+  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, sourceSha: 'other' }), /source/);
+  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, rootJobs: [] }), /active staging parent/);
+  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, rootAttempt: '1' }), /active staging parent/);
+});
+
+test('children reject manual dispatch and reruns before verifying their parent', () => {
+  verifyChildRun('github-actions[bot]', '1');
+  assert.throws(() => verifyChildRun('maintainer', '1'), /dispatched once by their parent/);
+  assert.throws(() => verifyChildRun('github-actions[bot]', '2'), /rerun the root/);
 });
 
 test('cleanup waits for child termination after requesting cancellation', async () => {
@@ -67,6 +93,7 @@ test('child accepts only an active staging parent in the matching attempt', () =
   const jobs = [{ name: 'E2E validation', status: 'in_progress' }];
   verifyParent(parent, '2', jobs, ['E2E validation']);
   verifyParent({ ...parent, status: 'pending' }, '2', jobs, ['E2E validation']);
+  verifyParent({ ...parent, status: 'queued' }, '2', jobs, ['E2E validation']);
   assert.throws(() => verifyParent(parent, '2', [], ['E2E validation']), /active staging parent/);
   assert.throws(() => verifyParent(parent, '2', jobs, ['Validate: Full']), /active staging parent/);
   for (const invalid of [{ ...parent, status: 'completed' }, { ...parent, run_attempt: 1 }, { ...parent, path: '.github/workflows/release.yml' }]) {

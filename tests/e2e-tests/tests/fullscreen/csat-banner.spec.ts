@@ -28,6 +28,9 @@ import { clickEditorPublish, expectModalClosed, fillEditorTitle, modalContentFra
 import { pageBannerFrame as csatBannerFrame, expectBannerAbsent } from '../../helpers/pageBanner.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 
+// Matches CsatBanner.vue's productName; Diagramly has its own survey branding.
+const CSAT_QUESTION = new RegExp(`how.s ${testConfig.productType === 'diagramly' ? 'Diagramly' : 'ZenUML'} working`, 'i');
+
 // ---------------------------------------------------------------------------
 // Banner helpers
 // ---------------------------------------------------------------------------
@@ -87,14 +90,10 @@ test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '
   // -------------------------------------------------------------------------
 
   test('banner appears after macro creation', async ({ page }) => {
-    // Quarantine only this Diagramly case until its missing CSAT UI is diagnosed
-    // and the unchanged assertions pass on Diagramly staging.
-    test.skip(testConfig.productType === 'diagramly',
-      'Quarantined: Diagramly CSAT text missing; root cause unknown. Re-enable after diagnosis and a passing staging run. Evidence: https://github.com/ZenUml/conf-app/actions/runs/37763014693/job/113264014068');
     await prepareCsatBannerFlow(page);
 
     const frame = await csatBannerFrame(page);
-    await expect(frame.getByText(/how.s zenuml working/i)).toBeVisible({ timeout: 20_000 });
+    await expect(frame.getByText(CSAT_QUESTION)).toBeVisible({ timeout: 20_000 });
     await expect(frame.locator('.pb-face-btn')).toHaveCount(5, { timeout: 10_000 });
     await page.waitForTimeout(3_000); // hold on banner so video captures it
   });
@@ -115,7 +114,7 @@ test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '
     await expectModalClosed(page, 'edit');
 
     const frame = await csatBannerFrame(page);
-    await expect(frame.getByText(/how.s zenuml working/i)).toBeVisible({ timeout: 20_000 });
+    await expect(frame.getByText(CSAT_QUESTION)).toBeVisible({ timeout: 20_000 });
     await expect(frame.locator('.pb-face-btn')).toHaveCount(5, { timeout: 10_000 });
   });
 

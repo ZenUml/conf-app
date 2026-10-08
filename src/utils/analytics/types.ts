@@ -51,6 +51,9 @@ export type AnalyticsProperties = {
   client_domain?: string;
   user_account_id?: string;
   product_type?: ProductType;
+  /** Targeted survey campaign identifier; no target identity or answer text. */
+  survey_uuid?: string;
+  survey_revision?: number;
   environment_type?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent

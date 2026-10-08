@@ -45,19 +45,26 @@ jobs:
           SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
           node --input-type=module <<'NODE'
-          import { readFileSync, appendFileSync } from 'node:fs';
+          import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
           import { execFileSync } from 'node:child_process';
           import { randomUUID } from 'node:crypto';
           const options = JSON.parse(readFileSync('verified-root-options.json', 'utf8'));
-          execFileSync(process.execPath, ['scripts/test-selection/main-policy.mjs', '--gate'], {
-            stdio: 'inherit', env: { ...process.env, ROOT_EVENT: options.root_event,
+          const gate = JSON.parse(execFileSync(process.execPath, ['scripts/test-selection/main-policy.mjs', '--gate'], {
+            encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ROOT_EVENT: options.root_event,
               BYPASS_REGRESSION_GATE: String(options.bypass_regression_gate), BYPASS_REASON: options.bypass_reason },
-          });
+          }));
+          writeFileSync('daily-gate.json', JSON.stringify({ ...gate, source_sha: options.source_sha, root_run_id: options.root_run_id, root_attempt: options.root_attempt, producer_run_id: process.env.GITHUB_RUN_ID, bypass_reason: options.bypass_regression_gate ? options.bypass_reason : '' }));
           const delimiter = randomUUID();
           appendFileSync(process.env.GITHUB_OUTPUT, `bypass-reason<<${delimiter}\n${options.bypass_regression_gate ? options.bypass_reason : 'none'}\n${delimiter}\n`);
           if (options.bypass_regression_gate) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
             `Daily gate bypass reason for this root: ${options.bypass_reason}\n`);
           NODE
+      - uses: actions/upload-artifact@v6
+        with:
+          name: daily-gate
+          path: daily-gate.json
+          if-no-files-found: error
+          retention-days: 30
 
   provenance:
     name: Resolve variant draft eligibility

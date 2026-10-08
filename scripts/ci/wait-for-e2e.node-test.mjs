@@ -119,3 +119,16 @@ test('root option artifact binds manual controls to source, run and attempt', as
   assert.equal(push.bypass_reason, '');
   assert.throws(() => verifyRootOptions(options, { ...root, event: 'push' }, '12', '2', 'abc'), /verified root/);
 });
+
+test('root accepts a blocked daily gate only from its immutable draft producer', async () => {
+  const { verifyDailyGate } = await import('./wait-for-e2e.mjs');
+  const producer = { id: 43, path: '.github/workflows/main-draft-preparation.yml', display_title: 'Draft preparation · parent 12 · attempt 2 · source abc', status: 'completed', conclusion: 'failure', run_attempt: 1, event: 'workflow_dispatch', actor: { login: 'github-actions[bot]' } };
+  const gate = { producer_run_id: '43', root_run_id: '12', root_attempt: '2', source_sha: 'abc', allowed: 'false', 'gate-reason': 'Latest daily regression failed' };
+  assert.equal(verifyDailyGate(gate, producer, '12', '2', 'abc', '43')['gate-reason'], 'Latest daily regression failed');
+  for (const patch of [{ producer_run_id: '44' }, { root_run_id: '13' }, { root_attempt: '1' }, { source_sha: 'other' }, { allowed: true }]) {
+    assert.throws(() => verifyDailyGate({ ...gate, ...patch }, producer, '12', '2', 'abc', '43'), /does not match/);
+  }
+  for (const patch of [{ run_attempt: 2 }, { status: 'in_progress' }, { actor: { login: 'maintainer' } }, { display_title: producer.display_title.replace('attempt 2', 'attempt 1') }]) {
+    assert.throws(() => verifyDailyGate(gate, { ...producer, ...patch }, '12', '2', 'abc', '43'), /does not match/);
+  }
+});

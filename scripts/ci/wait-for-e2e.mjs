@@ -84,6 +84,19 @@ export function verifyRootOptions(options, root, id, attempt, sha) {
   return options;
 }
 
+export function verifyDailyGate(gate, producer, rootId, attempt, source, producerId) {
+  const title = `Draft preparation · parent ${rootId} · attempt ${attempt} · source ${source}`;
+  if (String(producer.id) !== String(producerId) || producer.path !== '.github/workflows/main-draft-preparation.yml' ||
+      producer.display_title !== title || producer.status !== 'completed' || producer.run_attempt !== 1 ||
+      producer.event !== 'workflow_dispatch' || producer.actor?.login !== 'github-actions[bot]' ||
+      String(gate.producer_run_id) !== String(producerId) || String(gate.root_run_id) !== String(rootId) ||
+      String(gate.root_attempt) !== String(attempt) || gate.source_sha !== source ||
+      !['true', 'false'].includes(gate.allowed) || typeof gate['gate-reason'] !== 'string') {
+    throw new Error('Daily gate artifact does not match this root source and draft producer');
+  }
+  return gate;
+}
+
 export async function closeChild(api, title, workflow, pause, deadline = Date.now() + 8 * 60000, expected = false) {
   // Look up again even if the dispatch step was interrupted before it saw the ID.
   let child;

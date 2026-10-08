@@ -181,8 +181,36 @@ jobs:
     needs: [version, build-preparation, staging-validation, draft-preparation]
     if: ${{ always() && needs.version.result != 'skipped' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version.outputs.source-sha }}
+      - name: Report verified daily draft gate
+        if: ${{ always() && needs.draft-preparation.outputs.run-id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRAFT_RUN_ID: ${{ needs.draft-preparation.outputs.run-id }}
+          SOURCE_SHA: ${{ needs.version.outputs.source-sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, appendFileSync, mkdtempSync } from 'node:fs';
+          import { tmpdir } from 'node:os';
+          import { join } from 'node:path';
+          import { verifyDailyGate } from './scripts/ci/wait-for-e2e.mjs';
+          const env = process.env;
+          const producer = JSON.parse(execFileSync('gh', ['api', `repos/${env.GITHUB_REPOSITORY}/actions/runs/${env.DRAFT_RUN_ID}`], { encoding: 'utf8' }));
+          const directory = mkdtempSync(join(tmpdir(), 'daily-gate-'));
+          execFileSync('gh', ['run', 'download', env.DRAFT_RUN_ID, '--repo', env.GITHUB_REPOSITORY, '--name', 'daily-gate', '--dir', directory]);
+          const gate = verifyDailyGate(JSON.parse(readFileSync(join(directory, 'daily-gate.json'), 'utf8')), producer, env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, env.SOURCE_SHA, env.DRAFT_RUN_ID);
+          appendFileSync(env.GITHUB_STEP_SUMMARY, `### Daily release draft gate: ${gate.allowed === 'true' ? 'allowed' : 'blocked'}\n\n${gate['gate-reason']}\n\nDaily regression: ${gate['regression-run-url'] || 'no verified run'}\n\nBypass reason: ${gate.bypass_reason || 'none'}\n\nTo refresh: Actions → Daily Full Staging Regression → Run workflow → main, leave SHA empty or enter this source SHA. Wait for success, then rerun the root.\n\nTo bypass once: Actions → Build, Test and Draft Release → Run workflow → main → enable bypass-regression-gate → enter bypass-reason → Run workflow. Staging tests remain mandatory.\n`);
+          NODE
+
       - name: Require successful phases
+        if: always()
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |

@@ -58,3 +58,18 @@ test('daily gate blocks every draft while deployment ordering and full validatio
   assert.ok(stage.jobs['staging-full-e2e'].needs.includes('staging-lite-e2e'));
   assert.equal(stage.jobs.parent.steps.find(step => step.env?.SELECTION_SCOPE).env.SELECTION_SCOPE, 'main');
 });
+
+test('root outcome reports the verified failed draft gate without adding a root job', () => {
+  const root = workflow('build-test-deploy');
+  assert.equal(Object.keys(root.jobs).length, 5);
+  const report = root.jobs.outcome.steps.find(step => step.name === 'Report verified daily draft gate');
+  assert.match(report.if, /always\(\)/);
+  assert.equal(report.env.DRAFT_RUN_ID, '${{ needs.draft-preparation.outputs.run-id }}');
+  assert.match(report.run, /verifyDailyGate/);
+  assert.match(report.run, /bypass-regression-gate → enter bypass-reason/);
+  assert.equal(root.jobs.outcome.steps.at(-1).if, 'always()');
+  const draft = workflow('main-draft-preparation');
+  const upload = draft.jobs.parent.steps.find(step => step.with?.name === 'daily-gate');
+  assert.equal(upload.with.path, 'daily-gate.json');
+  assert.equal(upload.with['if-no-files-found'], 'error');
+});

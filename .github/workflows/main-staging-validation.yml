@@ -207,7 +207,7 @@ jobs:
           TARGET_SHA: ${{ inputs.source-sha }}
         run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant lite --url https://conf-stg-lite.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-lite-e2e.yml
@@ -263,7 +263,7 @@ jobs:
           TARGET_SHA: ${{ inputs.source-sha }}
         run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant full --url https://conf-stg-full.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-full-e2e.yml
@@ -305,7 +305,7 @@ jobs:
           TARGET_SHA: ${{ inputs.source-sha }}
         run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant full --url https://conf-stg-full.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-full-e2e.yml
@@ -376,7 +376,7 @@ jobs:
           TARGET_SHA: ${{ inputs.source-sha }}
         run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant asyncapi --url https://conf-stg-lite.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-asyncapi-e2e.yml
@@ -418,7 +418,7 @@ jobs:
           TARGET_SHA: ${{ inputs.source-sha }}
         run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant diagramly --url https://conf-stg-lite.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-diagramly-e2e.yml

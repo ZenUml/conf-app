@@ -7,7 +7,7 @@ Each variant maps to a specific Cloudflare Pages project. Use these exact names 
 | Lite | `conf-stg-lite` | `conf-lite` | `conf-lite.zenuml.com` |
 | Full | `conf-stg-full` | `conf-full` | `conf-full.zenuml.com` |
 | Diagramly | `conf-stg-lite` (shared) | `conf-lite` (shared) | (served from lite) |
-| AsyncAPI | `conf-stg-lite` (shared) | `conf-lite` (shared) | `zenapi.zenuml.com` — the live AsyncAPI Connect worker, which proxies the Forge backend paths (`/forge-*`, `/api/*`, …) to `conf-lite` |
+| AsyncAPI | `conf-stg-lite` (shared) | `conf-lite` (shared) | `zenapi.zenuml.com` — the live AsyncAPI backend, which proxies the Forge backend paths (`/forge-*`, `/api/*`, …) to `conf-lite` |
 
 A Pages project is a hostname plus a copy of `functions/`, not a data boundary. Both staging projects bind the same D1 (`conf-zenuml-stg`), KV and R2 (`wrangler-stg.toml`; the publish action only `sed`s the project name), and `functions/` has no `PRODUCT_TYPE` switch, so one commit gives identical backend bytes whichever variant builds it. The variant changes `dist/`, which Forge serves from its own CDN. Main staging applies shared D1 migrations once, then each product uses the regular combined Pages and Forge deployment with `skip-migrations: true`. Lite, Diagramly and AsyncAPI can republish `conf-stg-lite` at the same pinned SHA while their E2E checks run independently. The staging `dist/__ci-version.json` retains `{sha, variant}`; these parallel staging checks explicitly use SHA-only backend verification with a valid variant marker. Other callers keep strict SHA and variant verification by default.
 

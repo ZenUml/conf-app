@@ -196,12 +196,9 @@ jobs:
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro")) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"]) | .permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
 
-      # All non-asyncapi variants: strip the Connect lifecycle module
-      # (connectModules). It lives in manifest.yml only so the asyncapi variant
-      # — which still serves legacy Connect (my-api / AsyncAPI-Conf-V2) installs
-      # — keeps it. lite/full/diagramly are Forge-only; the Forge
-      # remote-installed-trigger covers install/upgrade lifecycle. Mirrors
-      # scripts/forge-wizard.mjs.
+      # All non-asyncapi variants: strip the retained Connect lifecycle module.
+      # AsyncAPI keeps this manifest metadata for the legacy upgrade path;
+      # all four variants run on Forge.
       - name: Remove Connect lifecycle module (connectModules) from manifest
         if: needs.resolve.outputs.variant != 'asyncapi'
         uses: mikefarah/yq@master
@@ -418,9 +415,7 @@ jobs:
               ;;
             asyncapi)
               APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
-              # Asyncapi shares the lite Cloudflare Pages project for now
-              # (per scripts/forge-wizard.mjs); revisit when a dedicated
-              # conf-stg-asyncapi project is stood up.
+              # AsyncAPI uses the shared Lite Cloudflare Pages backend.
               APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
             *)

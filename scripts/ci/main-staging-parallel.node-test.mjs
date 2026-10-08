@@ -69,6 +69,22 @@ test('each independent E2E lane waits only for its own deploy and auth; Full ret
   assert.equal('reuse-check' in stage.jobs, false);
 });
 
+test('a failed backend probe blocks every child dispatch while cleanup still runs', () => {
+  for (const id of ['staging-lite-e2e', 'staging-full-e2e', 'staging-full-e2e-now', 'staging-diagramly-e2e', 'staging-asyncapi-e2e']) {
+    const steps = stage.jobs[id].steps;
+    const dispatch = steps.find(step => step.run === 'node scripts/ci/wait-for-e2e.mjs');
+    const cleanup = steps.find(step => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
+    const evaluate = (step, priorSucceeded, cancelled) => Function('success', 'cancelled', 'always', `return (${step.if.slice(3, -2)})`)(
+      () => priorSucceeded, () => cancelled, () => true);
+    assert.equal(evaluate(dispatch, true, false), true);
+    assert.equal(evaluate(dispatch, false, false), false, `${id}: failed backend probe must block child dispatch`);
+    assert.equal(evaluate(dispatch, true, true), false);
+    assert.equal(evaluate(cleanup, false, false), true);
+    assert.equal(evaluate(cleanup, false, true), true);
+    assert.ok(steps.indexOf(cleanup) > steps.indexOf(dispatch));
+  }
+});
+
 test('draft eligibility requires successful migrations and combined deploy with fresh coverage', () => {
   const draft = workflow('main-draft-preparation');
   const step = draft.jobs.provenance.steps.find(step => step.id === 'eligibility');

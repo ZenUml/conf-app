@@ -36,8 +36,8 @@ describe('main downstream staging gates', () => {
         // Cancellation must stop the active wrapper; always() at job level
         // would keep its wait process alive. Cleanup is a step-level exception.
         expect(eligible(id, {}, true)).toBe(false);
-        const stepRuns = (step: any, cancelled: boolean) => Function('cancelled', 'always',
-          `return (${step.if.slice(3, -2)})`)(() => cancelled, () => true);
+        const stepRuns = (step: any, cancelled: boolean) => Function('cancelled', 'always', 'success',
+          `return (${step.if.slice(3, -2)})`)(() => cancelled, () => true, () => true);
         expect(stepRuns(dispatch, false)).toBe(true);
         expect(stepRuns(dispatch, true)).toBe(false);
         const cleanup = jobs[id].steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');

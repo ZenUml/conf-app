@@ -21,7 +21,7 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
-import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
+import { decidePageBanner, handlePageBannerRoute, handleTargetedSurveyRoute } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
@@ -228,6 +228,17 @@ async function initializeCriticalPath() {
 
     const choice = decidePageBanner();
     if (choice === 'none') {
+      // The targeted survey is a Full-only, authenticated fallback. The
+      // lookup has a strict deadline and fails closed. It runs only after the
+      // existing banners decline their slot, so it never delays their display.
+      if (import.meta.env.PRODUCT_TYPE === 'full') {
+        const { loadTargetedSurvey } = await import('@/features/targetedSurvey/survey');
+        const candidate = await loadTargetedSurvey();
+        if (candidate) {
+          await handleTargetedSurveyRoute(candidate);
+          return { macroData: null };
+        }
+      }
       // Idle renderer prefetch (EAG-64): the banner mounts on every page —
       // including pages with no macros — making it the only surface that can
       // warm the renderer-bundle cache for macro-free browsing. Gated by a

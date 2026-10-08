@@ -16,6 +16,7 @@
     "/api/architecture-tokens/*",
     "/api/space-status",
     "/api/feedback-report",
+    "/api/targeted-survey",
     "/api/plan-usage",
     "/api/space-license",
     "/api/support/extension-actions",

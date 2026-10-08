@@ -54,9 +54,13 @@ jobs:
           set -euo pipefail
           HUMAN_FULL=false
           if [ "$FORCE_FULL" = true ] || [ "$FULL_TESTS" = true ]; then HUMAN_FULL=true; fi
+          if [ -n "$BASE_SHA" ]; then
+            if ! git diff --name-only "$BASE_SHA" "$CANDIDATE" > changed-files.txt; then HUMAN_FULL=true; : > changed-files.txt; fi
+          else
+            touch changed-files.txt
+          fi
           export HUMAN_FULL
           node scripts/test-selection/classify.mjs --base "${BASE_SHA:-$CANDIDATE}" --head "$CANDIDATE" --scope main --human-full "$HUMAN_FULL" --mode enabled --output test-selection.json
-          if [ -n "$BASE_SHA" ]; then git diff --name-only "$BASE_SHA" "$CANDIDATE" > changed-files.txt; else touch changed-files.txt; fi
           export CANDIDATE_TREE=$(git rev-parse "$CANDIDATE^{tree}")
           export SELECTION_PATH=test-selection.json
           node scripts/test-selection/resolve.mjs > selection.json

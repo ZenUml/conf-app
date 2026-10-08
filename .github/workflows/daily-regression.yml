@@ -2,7 +2,9 @@ name: Daily Full Staging Regression
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    # Runs at 03:00 Melbourne time year-round, including daylight saving.
+    - cron: '0 3 * * *'
+      timezone: 'Australia/Melbourne'
   workflow_dispatch:
     inputs:
       sha:

@@ -1469,6 +1469,10 @@ export default {
       // Inline adds a per-browser 24h limit (~10k inline Mermaid views a day);
       // Fullscreen keeps retrying once per iframe.
       const inline = !this.isFullscreenMode;
+      // Inline means the page-view macro only: the editor preview (Workspace ->
+      // DiagramPortal, hide-header / non-display mode) would send one request
+      // per edited source and cannot show the refined layout anyway.
+      if (inline && (!this.isDisplayMode || this.hideHeader)) return;
       if (inline && !claimInlineMagicWriteback(contentId, source)) return;
       this.magicWritebackAttempts.push({ contentId, source });
       const started = performance.now();

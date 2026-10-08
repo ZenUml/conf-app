@@ -8,15 +8,17 @@ import { pathToFileURL } from 'node:url';
 
 const SHA = /^[a-f0-9]{40}$/;
 const WINDOW_MS = 36 * 60 * 60 * 1000;
+// A rerun retains its creation ID, so completion order must take precedence.
+const latestCompletedFirst = (a, b) => (Date.parse(b.updated_at) || Infinity) - (Date.parse(a.updated_at) || Infinity) || Number(b.id) - Number(a.id);
 export async function findBaseline(runs, { sourceSha, rootRunId, isAncestor }) {
-  for (const run of [...runs].sort((a, b) => Number(b.id) - Number(a.id))) {
+  for (const run of [...runs].sort(latestCompletedFirst)) {
     if ((rootRunId && Number(run.id) >= Number(rootRunId)) || run.head_branch !== 'main' || run.status !== 'completed' || run.conclusion !== 'success' || !SHA.test(run.head_sha || '') || run.head_sha === sourceSha) continue;
     if (await isAncestor(run.head_sha, sourceSha)) return { 'base-sha': run.head_sha, 'force-full': 'false' };
   }
   return { 'base-sha': '', 'force-full': 'true' };
 }
 export async function evaluateGate(runs, { sourceSha, now = Date.now(), isAncestor, targetSha, rootEvent, bypass, bypassReason, lookupError, executionEvidence }) {
-  const run = [...runs].filter(r => r.head_branch === 'main' && r.status === 'completed').sort((a, b) => (Date.parse(b.updated_at) || Infinity) - (Date.parse(a.updated_at) || Infinity) || Number(b.id) - Number(a.id))[0];
+  const run = [...runs].filter(r => r.head_branch === 'main' && r.status === 'completed').sort(latestCompletedFirst)[0];
   const result = (allowed, reason) => ({ allowed: String(allowed), 'gate-reason': reason, 'regression-run-url': run?.html_url || '' });
   // Provenance for these inputs is checked by the trusted caller against the root run.
   if (bypass === true || bypass === 'true') {

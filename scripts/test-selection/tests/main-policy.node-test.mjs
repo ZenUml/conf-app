@@ -56,3 +56,9 @@ test('fresh workflow metadata cannot replace fresh test coverage', async () => {
   assert.equal(freshRegressionCoverage({ ...current, run_attempt: 2 }, required, older, now), false);
   assert.equal(freshRegressionCoverage(current, required.filter(j => !j.name.startsWith('AsyncAPI /')), older, now), false);
 });
+
+test('baseline follows successful completion order when an older main run is rerun', async () => {
+  const olderCompletedLater = run(5, { head_sha: unrelated, run_attempt: 2, updated_at: new Date(now - 100).toISOString() });
+  const baseline = await findBaseline([run(6), olderCompletedLater], { sourceSha: sha, rootRunId: 7, isAncestor: () => true });
+  assert.equal(baseline['base-sha'], unrelated);
+});

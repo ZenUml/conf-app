@@ -59,8 +59,8 @@ export async function onRequest({ request, data, env }: {
     if (text.length > 256) return response(400, 'Invalid request');
     const { contentId } = JSON.parse(text);
     if (typeof contentId !== 'string' || !/^\d{1,30}$/.test(contentId)) return response(400, 'Invalid content id');
-    // An idle queue makes no Confluence requests. Expired payloads are never delivered.
-    await env.DB.prepare('DELETE FROM MagicWriteback WHERE expiresAt <= ?1').bind(Date.now()).run();
+    // An idle queue makes no Confluence requests. Expired rows are purged daily by
+    // workers/cron-aggregate; the queries below exclude them (expiresAt>now), so they are never delivered.
     const pending = await env.DB.prepare(
       'SELECT id, sourceHash FROM MagicWriteback WHERE cloudId=?1 AND appId=?2 AND environmentId=?3 AND installationId=?4 AND contentId=?5 AND expiresAt>?6 ORDER BY createdAt DESC, id DESC LIMIT 1',
     ).bind(...scope, contentId, Date.now()).first<Delivery>();

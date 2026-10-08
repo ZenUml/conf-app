@@ -8,12 +8,12 @@ The first screen says “Help us improve ZenUML” and offers Share feedback and
 | --- | --- | --- |
 | `targeted_survey_shown` | First screen becomes visible | `feature_area=feedback`, `surface=page_banner`, `survey_uuid`, `survey_revision` |
 | `targeted_survey_opened` | Share feedback is selected | Same |
-| `targeted_survey_dismissed` | Dismiss is selected on either screen | Same |
+| `targeted_survey_dismissed` | Dismiss/Close is selected on either screen, including while sending | Same, plus `survey_phase=invite/form/submitting` |
 | `targeted_survey_submit_requested` | Send feedback is selected with a nonempty answer | Same |
 | `targeted_survey_submitted` | Server confirms the response | Same |
 | `targeted_survey_submit_failed` | A send attempt fails | Same |
 
-`product_type=full` is supplied by the normal analytics tracker. Events intentionally omit the target and all response content. A failed send retains the form and idempotency key for retry.
+`product_type=full` is supplied by the normal analytics tracker. Events intentionally omit the target and all response content. A failed send retains the form and idempotency key for retry while the form remains open. Closing during a send permanently dismisses the banner in that browser. A later confirmed server response still counts as submitted; it does not reopen the banner or replace the dismissal state. D1 is the response source of truth; browser outcome telemetry after closure is best effort.
 
 ## Activation and rollback
 

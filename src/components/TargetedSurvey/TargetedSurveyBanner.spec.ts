@@ -82,5 +82,7 @@ describe('targeted survey page banner', () => {
     await flushPromises();
     expect(localStorage.getItem(terminalKey)).toBe('dismissed');
     expect(wrapper.text()).toBe('');
+    expect(track).toHaveBeenCalledWith('targeted_survey_dismissed', expect.objectContaining({ survey_phase: 'submitting' }));
+    expect(track).toHaveBeenCalledWith('targeted_survey_submitted', expect.objectContaining({ survey_uuid: survey.uuid }));
   });
 });

@@ -397,6 +397,15 @@ describe('GenericViewer (chrome-less)', () => {
         expect(writebackEvents()).toEqual([['magic_writeback_completed', expect.objectContaining({ surface: 'viewer', magic_writeback_outcome: 'written' })]]);
       });
 
+      it('does not request from the chrome-less editor preview (hideHeader)', async () => {
+        // Workspace.vue renders DiagramPortal -> GenericViewer with hide-header
+        // while editing: every edited source would otherwise send a request.
+        const wrapper = mount(GenericViewer, { props: { hideHeader: true }, global: { plugins: [store] }, slots: { default: '<div class="original-diagram">Original canvas</div>' } });
+        mounted.push(wrapper);
+        await flushPromises();
+        expect(writebackCalls()).toHaveLength(0);
+      });
+
       it('requests inline for a stale artifact', async () => {
         store.state.diagram.magic = { sourceHash: await magicSourceHash(source + ' old'), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
         await mountMagic();

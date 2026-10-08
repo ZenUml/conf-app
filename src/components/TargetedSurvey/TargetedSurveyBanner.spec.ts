@@ -4,14 +4,17 @@ import TargetedSurveyBanner from './TargetedSurveyBanner.vue';
 
 const remote = vi.hoisted(() => vi.fn());
 const close = vi.hoisted(() => vi.fn());
+const track = vi.hoisted(() => vi.fn());
 vi.mock('@/utils/requestUtil', () => ({ callRemote: remote }));
 vi.mock('@forge/bridge', () => ({ view: { close } }));
-vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: track }));
 
 const survey = {
   uuid: '71861d63-dc0b-4a75-8a04-724711577d70', revision: 1,
   expiresAt: '2099-01-01T00:00:00.000Z', title: 'Help us improve ZenUML',
-  question: 'What could we improve?', options: ['editing', 'other'],
+  question: 'What could we improve?', options: [
+    { id: 'editing', label: 'Editing diagrams' }, { id: 'other', label: 'Something else' },
+  ],
 };
 const terminalKey = 'targetedSurvey:example-cloud:example-account:71861d63-dc0b-4a75-8a04-724711577d70';
 const wrappers: ReturnType<typeof mount>[] = [];
@@ -28,6 +31,7 @@ describe('targeted survey page banner', () => {
     localStorage.clear();
     remote.mockReset();
     close.mockReset();
+    track.mockReset();
     Object.defineProperty(navigator, 'locks', {
       configurable: true,
       value: { request: async (_key: string, _options: unknown, callback: (lock: object) => Promise<void>) => callback({}) },
@@ -70,6 +74,9 @@ describe('targeted survey page banner', () => {
     await wrapper.get('button.primary').trigger('click');
     await wrapper.get('input[value="editing"]').setValue(true);
     await wrapper.get('button.primary').trigger('click');
+    expect(track).toHaveBeenCalledWith('targeted_survey_submit_requested', expect.objectContaining({ survey_uuid: survey.uuid }));
+    expect(wrapper.text()).toContain('You can close this banner');
+    expect(wrapper.get('button.quiet').text()).toBe('Close');
     await wrapper.get('button.quiet').trigger('click');
     resolveSend({ ok: true });
     await flushPromises();

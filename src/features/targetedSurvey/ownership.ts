@@ -11,7 +11,9 @@ export function isSurveyTerminal(key: string): boolean {
     const probe = `${key}:storage-probe`;
     localStorage.setItem(probe, '1');
     localStorage.removeItem(probe);
-    return value === 'dismissed' || value === 'submitted';
+    // This namespace stores terminal states only. An unfamiliar value is
+    // ambiguous, so suppress rather than prompt again.
+    return value !== null;
   } catch {
     return true;
   }

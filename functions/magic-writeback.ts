@@ -32,6 +32,20 @@ async function confluence(url: string, token: string, init: RequestInit = {}): P
   return fetch(url, { ...init, headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
 }
 
+/**
+ * Bring the D1 mirror of the diagram up to the record the viewer just read. Forward-only
+ * (`<` guard), update-only (a missing row is skipped), and scoped to the verified tenant
+ * (rows predating cloudId carry NULL). Best effort: a mirror failure never changes the
+ * outcome, and nothing is logged because the statement carries tenant bodies and titles.
+ */
+async function refreshMirror(env: { DB: D1Database }, c: { cloudId?: string; forgeAppId?: string }, contentId: string, doc: any): Promise<void> {
+  try {
+    await env.DB.prepare(
+      'UPDATE CustomContent SET latestVersionNumber=?1, body=?2, title=?3, status=?4 WHERE contentId=?5 AND appId=?6 AND (cloudId=?7 OR cloudId IS NULL) AND latestVersionNumber<?8',
+    ).bind(doc.version.number, JSON.stringify(doc.body), doc.title ?? '', doc.status ?? '', contentId, c.forgeAppId, c.cloudId, doc.version.number).run();
+  } catch { /* The mirror is a read-through copy; Confluence stays the system of record. */ }
+}
+
 /** FIT-bound, reviewed enrichment only. Confluence stays the system of record. */
 export async function onRequest({ request, data, env }: {
   request: Request; data: ForgeRequestData; env: { DB: D1Database };
@@ -84,7 +98,11 @@ export async function onRequest({ request, data, env }: {
       const body = JSON.parse(doc.body.raw.value);
       if (body?.diagramType !== 'mermaid' || typeof body.mermaidCode !== 'string') return result('invalid_target');
       const hash = await sourceHash(body.mermaidCode);
-      if (hash !== pending.sourceHash) return result('source_changed');
+      if (hash !== pending.sourceHash) {
+        // Backend-only data sync, so no analytics event: the `source_changed` outcome count already measures the trigger.
+        await refreshMirror(env, c, contentId, doc);
+        return result('source_changed');
+      }
       // Never overwrite a newer valid same-source artifact, including a writer race.
       // The browser independently sanitizes before displaying the stored SVG.
       if (artifactValid(body.magic, hash)) return result('existing', body.magic);

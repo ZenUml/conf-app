@@ -102,8 +102,9 @@ function openForm() {
 function dismiss() {
   if (phase.value === 'hidden' || phase.value === 'thanks') return;
   if (!preview) {
+    const survey_phase = sending.value ? 'submitting' : phase.value;
     markSurveyTerminal(props.terminalKey, 'dismissed');
-    trackAnalyticsEvent('targeted_survey_dismissed', eventProperties);
+    trackAnalyticsEvent('targeted_survey_dismissed', { ...eventProperties, survey_phase });
   }
   close();
 }
@@ -117,10 +118,12 @@ async function send() {
   trackAnalyticsEvent('targeted_survey_submit_requested', eventProperties);
   try {
     await submission.send(selected.value, detail.value);
+    // A confirmed server response is an outcome even if the user closed the
+    // banner while the request was in flight. Closing still wins for the UI.
+    trackAnalyticsEvent('targeted_survey_submitted', eventProperties);
     // Dismissal may happen while a request is in flight. Never resurrect it.
     if (phase.value !== 'form' || isSurveyTerminal(props.terminalKey)) return;
     if (!markSurveyTerminal(props.terminalKey, 'submitted')) { close(); return; }
-    trackAnalyticsEvent('targeted_survey_submitted', eventProperties);
     phase.value = 'thanks';
     release?.();
     timer = setTimeout(close, 2500);

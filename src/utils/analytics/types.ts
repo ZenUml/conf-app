@@ -54,6 +54,8 @@ export type AnalyticsProperties = {
   /** Targeted survey campaign identifier; no target identity or answer text. */
   survey_uuid?: string;
   survey_revision?: number;
+  /** Visible step when a targeted survey is dismissed, including an in-flight send. */
+  survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent

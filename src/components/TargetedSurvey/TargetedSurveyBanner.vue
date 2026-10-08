@@ -10,19 +10,20 @@
       <div class="form">
         <strong>{{ survey.question }}</strong>
         <div class="choices" role="group" :aria-label="survey.question">
-          <label v-for="option in survey.options" :key="option">
-            <input v-model="selected" type="checkbox" :value="option" :disabled="sending" />
-            {{ labels[option] }}
+          <label v-for="option in survey.options" :key="option.id">
+            <input v-model="selected" type="checkbox" :value="option.id" :disabled="sending" />
+            {{ option.label }}
           </label>
         </div>
         <label class="detail-label" for="targeted-survey-detail">What were you trying to do, and what got in your way? <span>(optional)</span></label>
         <textarea id="targeted-survey-detail" v-model="detail" :disabled="sending" maxlength="2000" rows="2" />
         <p class="note">Please do not include confidential content.</p>
+        <p v-if="sending" class="note" role="status">Sending… You can close this banner while it finishes.</p>
         <p v-if="error" class="error" role="alert">Could not send your feedback. Please try again.</p>
       </div>
       <div class="actions">
         <button type="button" class="primary" :disabled="sending || !canSend" @click="send">{{ sending ? 'Sending…' : 'Send feedback' }}</button>
-        <button type="button" class="quiet" @click="dismiss">Dismiss</button>
+        <button type="button" class="quiet" @click="dismiss">{{ sending ? 'Close' : 'Dismiss' }}</button>
       </div>
     </template>
     <template v-else>
@@ -53,14 +54,6 @@ const detail = ref('');
 const error = ref(false);
 const sending = ref(false);
 const canSend = computed(() => selected.value.length > 0 || detail.value.trim().length > 0);
-const labels: Record<string, string> = {
-  performance: 'Loading or responsiveness',
-  editing: 'Editing diagrams',
-  display: 'Display or layout',
-  export: 'Exporting or sharing',
-  missing_feature: 'A feature I need is missing',
-  other: 'Something else',
-};
 let release: (() => void) | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
 const submission = createSurveySubmission(props.survey);
@@ -121,6 +114,7 @@ async function send() {
   if (Date.now() >= Date.parse(props.survey.expiresAt) || isSurveyTerminal(props.terminalKey)) { close(); return; }
   sending.value = true;
   error.value = false;
+  trackAnalyticsEvent('targeted_survey_submit_requested', eventProperties);
   try {
     await submission.send(selected.value, detail.value);
     // Dismissal may happen while a request is in flight. Never resurrect it.

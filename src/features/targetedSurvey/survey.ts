@@ -10,7 +10,7 @@ export interface PublicSurvey {
   expiresAt: string;
   title: string;
   question: string;
-  options: string[];
+  options: Array<{ id: string; label: string }>;
 }
 
 export interface TargetedSurveyCandidate {
@@ -37,7 +37,8 @@ function validSurvey(value: unknown): value is PublicSurvey {
     && typeof s.expiresAt === 'string' && Date.parse(s.expiresAt) > Date.now()
     && typeof s.title === 'string' && typeof s.question === 'string'
     && Array.isArray(s.options) && s.options.length > 0
-    && s.options.every((o) => typeof o === 'string' && OPTION_IDS.has(o));
+    && s.options.every((o) => !!o && typeof o.id === 'string' && OPTION_IDS.has(o.id)
+      && typeof o.label === 'string' && o.label.length > 0 && o.label.length <= 80);
 }
 
 /** Called only after the existing synchronous page-banner priorities say none. */
@@ -62,10 +63,9 @@ export async function loadTargetedSurvey(): Promise<TargetedSurveyCandidate | nu
     // decidePageBanner(). It can mount independently, so an uncertain property
     // read suppresses this lower-priority survey.
     const unplacedIdentity = deriveUnplacedIdentity();
-    if (unplacedIdentity) {
-      const property = await withinDeadline(readUnplacedProperty(unplacedIdentity.pageId), LOOKUP_TIMEOUT_MS);
-      if (property?.status !== 'absent') return null;
-    }
+    if (!unplacedIdentity) return null;
+    const property = await withinDeadline(readUnplacedProperty(unplacedIdentity.pageId), LOOKUP_TIMEOUT_MS);
+    if (property?.status !== 'absent') return null;
     return { survey, terminalKey };
   } catch {
     return null;

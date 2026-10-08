@@ -19,7 +19,14 @@ const campaign = {
   expiresAt: '2099-01-01T00:00:00.000Z',
   title: 'Help us improve ZenUML',
   question: 'What could we improve?',
-  options: ['performance', 'editing', 'display', 'export', 'missing_feature', 'other'],
+  options: [
+    { id: 'performance', label: 'Loading or responsiveness' },
+    { id: 'editing', label: 'Editing diagrams' },
+    { id: 'display', label: 'Display or layout' },
+    { id: 'export', label: 'Exporting or sharing' },
+    { id: 'missing_feature', label: 'A feature I need is missing' },
+    { id: 'other', label: 'Something else' },
+  ],
 };
 
 function harness(overrides: { fit?: object; config?: object | null; storageError?: boolean; dbReadError?: boolean } = {}) {
@@ -56,6 +63,12 @@ describe('targeted survey authenticated API', () => {
     for (const fit of [{ ...identity, accountId: 'other' }, { ...identity, forgeAppId: 'lite-app' }]) {
       expect(await (await harness({ fit }).get()).json()).toEqual({ survey: null });
     }
+  });
+
+  it('strips unexpected KV fields from each public choice', async () => {
+    const config = { ...campaign, options: [{ id: 'editing', label: 'Editing diagrams', internalNote: 'private target detail' }] };
+    const body = await (await harness({ config }).get()).json() as any;
+    expect(body.survey.options).toEqual([{ id: 'editing', label: 'Editing diagrams' }]);
   });
 
   it('accepts a text-only response and idempotently stores one response per verified recipient', async () => {

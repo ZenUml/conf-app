@@ -512,6 +512,7 @@ export type AnalyticsEventName =
   | "targeted_survey_shown"
   | "targeted_survey_opened"
   | "targeted_survey_dismissed"
+  | "targeted_survey_submit_requested"
   | "targeted_survey_submitted"
   | "targeted_survey_submit_failed"
   | "feedback_link_clicked"

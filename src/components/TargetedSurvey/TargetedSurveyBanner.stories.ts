@@ -7,7 +7,14 @@ const survey = {
   expiresAt: '2099-01-01T00:00:00.000Z',
   title: 'Help us improve ZenUML',
   question: 'What could we improve?',
-  options: ['performance', 'editing', 'display', 'export', 'missing_feature', 'other'],
+  options: [
+    { id: 'performance', label: 'Loading or responsiveness' },
+    { id: 'editing', label: 'Editing diagrams' },
+    { id: 'display', label: 'Display or layout' },
+    { id: 'export', label: 'Exporting or sharing' },
+    { id: 'missing_feature', label: 'A feature I need is missing' },
+    { id: 'other', label: 'Something else' },
+  ],
 };
 
 const meta: Meta<typeof TargetedSurveyBanner> = {

@@ -22,7 +22,7 @@ interface SurveyConfig {
   expiresAt: string;
   title: string;
   question: string;
-  options: string[];
+  options: Array<{ id: string; label: string }>;
 }
 
 function json(status: number, body: unknown): Response {
@@ -53,8 +53,10 @@ function parseConfig(value: unknown): SurveyConfig | null {
     || typeof c.title !== 'string' || !c.title.trim() || c.title.length > 120
     || typeof c.question !== 'string' || !c.question.trim() || c.question.length > 240
     || !Array.isArray(c.options) || c.options.length === 0 || c.options.length > OPTION_IDS.length
-    || c.options.some((o) => typeof o !== 'string' || !OPTION_SET.has(o))
-    || new Set(c.options).size !== c.options.length) return null;
+    || c.options.some((o) => !o || typeof o !== 'object'
+      || typeof o.id !== 'string' || !OPTION_SET.has(o.id)
+      || typeof o.label !== 'string' || !o.label.trim() || o.label.length > 80)
+    || new Set(c.options.map((o) => o.id)).size !== c.options.length) return null;
   return c as unknown as SurveyConfig;
 }
 
@@ -81,7 +83,7 @@ export const onRequestGet: PagesFunction<Env, string, ForgeRequestData> = async 
       expiresAt: survey.expiresAt,
       title: survey.title,
       question: survey.question,
-      options: survey.options,
+      options: survey.options.map(({ id, label }) => ({ id, label })),
     } : null });
   } catch {
     return json(503, { survey: null });
@@ -116,7 +118,7 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
   if (response.surveyUuid !== survey.uuid || response.revision !== survey.revision
     || typeof response.submissionId !== 'string' || !UUID.test(response.submissionId)
     || !Array.isArray(options) || options.length > survey.options.length
-    || options.some((o) => typeof o !== 'string' || !survey.options.includes(o))
+    || options.some((o) => typeof o !== 'string' || !survey.options.some((option) => option.id === o))
     || new Set(options).size !== options.length
     || (response.text !== undefined && typeof response.text !== 'string')
     || text.length > 2000 || (!text && options.length === 0)) {

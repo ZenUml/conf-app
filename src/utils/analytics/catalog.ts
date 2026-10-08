@@ -568,9 +568,10 @@ export type AnalyticsEventName =
   // viewer is a guest or an anonymous visitor. Forge omits the user token on
   // invokeRemote for them, so the call could only fail. Trigger: the first
   // writeback attempt for a diagram+source in an iframe (inline or Fullscreen),
-  // after the usual eligibility checks and before any request; at most once per
-  // diagram+source per iframe. It neither consumes the inline per-browser claim
-  // nor fires `requested`/`completed`. Properties: feature_area=ai,
+  // after the usual eligibility checks and before any request. It shares the
+  // inline 24h per-browser claim with the request path, so inline it fires at
+  // most once per diagram+source per browser per 24h (Fullscreen: once per
+  // iframe), and it fires neither `requested` nor `completed`. Properties: feature_area=ai,
   // surface=fullscreen|viewer, macro_type=mermaid, magic_writeback_reason =
   // guest_viewer | anonymous_viewer. Never source, SVG, hashes, ids or errors.
   | "magic_writeback_requested"

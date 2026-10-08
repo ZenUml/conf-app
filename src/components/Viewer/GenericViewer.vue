@@ -1478,11 +1478,14 @@ export default {
       // not open a window for a duplicate readiness signal to slip past the
       // check above and send a second request.
       this.magicWritebackAttempts.push({ contentId, source });
+      // The inline per-browser claim comes first and covers the skipped path
+      // too: a guest reloading a 20-diagram page reports each diagram once a
+      // day, not once per page view, and a repeat view costs no lookup.
+      if (inline && !claimInlineMagicWriteback(contentId, source)) return;
       // Forge sends no user token on invokeRemote for guest and anonymous
-      // viewers, so the call could only fail. Ask first, and BEFORE the inline
-      // per-browser claim: a skipped viewer must not use up the claim that a
-      // licensed viewer in the same browser would need. Anything unclear
-      // ('unknown') proceeds; the backend's 403 no_user_credential is the backstop.
+      // viewers, so the call could only fail. Ask before sending anything.
+      // Anything unclear ('unknown') proceeds; the backend's 403
+      // no_user_credential is the backstop.
       let kind = 'unknown';
       try {
         kind = await viewerAccountKind({ accountId: this.currentAccountId ?? undefined, clientDomain: getClientDomain() });
@@ -1491,7 +1494,6 @@ export default {
         this.magicEvent('magic_writeback_skipped', { magic_writeback_reason: `${kind}_viewer` });
         return;
       }
-      if (inline && !claimInlineMagicWriteback(contentId, source)) return;
       const started = performance.now();
       const generation = this.magicGeneration;
       if (!inline) this.magicEvent('magic_writeback_requested');

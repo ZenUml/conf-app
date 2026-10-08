@@ -64,7 +64,7 @@ test('daily transaction keeps each deploy and gates both suites on backend and f
   assert.equal(auth.concurrency.queue, 'max');
 });
 
-test('migration skip is opt-in and no existing main, PR or production caller enables it', () => {
+test('migration skip is opt-in and independent callers retain their migration defaults', () => {
   const deploy = workflow('staging-deploy');
   assert.equal(deploy.on.workflow_call.inputs['skip-migrations'].default, false);
   assert.equal(deploy.on.workflow_call.inputs['workflow-ref'].default, '');
@@ -83,12 +83,15 @@ test('migration skip is opt-in and no existing main, PR or production caller ena
   assert.equal(action.runs.steps.find(step => step.name === 'Run D1 Migrations').if, "inputs.skip-migrations != 'true'");
   for (const file of readdirSync(new URL('.github/workflows/', root)).filter(file => file.endsWith('.yml'))) {
     if (['daily-regression.yml', 'staging-transaction.yml', 'staging-deploy.yml'].includes(file)) continue;
+    // Main staging owns its own shared migration gate, so its deploys can
+    // opt out independently of the daily regression owner.
+    const ownsMigrationGate = file === 'main-staging-validation.yml';
     const existing = load(`.github/workflows/${file}`);
     for (const job of Object.values(existing.jobs)) {
-      assert.equal(job.with?.['skip-migrations'], undefined, `${file} job migration default`);
+      if (!ownsMigrationGate) assert.equal(job.with?.['skip-migrations'], undefined, `${file} job migration default`);
       assert.equal(job.with?.['backend-sha-only'], undefined, `${file} job verification default`);
       for (const step of job.steps || []) {
-        assert.equal(step.with?.['skip-migrations'], undefined, `${file} action migration default`);
+        if (!ownsMigrationGate) assert.equal(step.with?.['skip-migrations'], undefined, `${file} action migration default`);
       }
     }
   }

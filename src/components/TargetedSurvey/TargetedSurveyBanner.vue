@@ -37,6 +37,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { view } from '@forge/bridge';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { PublicSurvey } from '@/features/targetedSurvey/survey';
+import { requestSurveyClaim } from '@/features/targetedSurvey/survey';
 import { claimSurveyBanner, isSurveyTerminal, markSurveyTerminal } from '@/features/targetedSurvey/ownership';
 import { createSurveySubmission } from '@/features/targetedSurvey/submission';
 
@@ -56,7 +57,8 @@ const sending = ref(false);
 const canSend = computed(() => selected.value.length > 0 || detail.value.trim().length > 0);
 let release: (() => void) | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
-const submission = createSurveySubmission(props.survey);
+let submission: ReturnType<typeof createSurveySubmission> | undefined;
+let closed = false;
 const preview = !!props.previewInitialPhase;
 const eventProperties = {
   feature_area: 'feedback' as const,
@@ -66,6 +68,7 @@ const eventProperties = {
 };
 
 function close() {
+  closed = true;
   phase.value = 'hidden';
   release?.();
   if (!preview) void view.close();
@@ -80,14 +83,29 @@ onMounted(() => {
     close();
     return;
   }
-  release = claimSurveyBanner(props.terminalKey, () => {
+  release = claimSurveyBanner(props.terminalKey, () => { void (async () => {
     if (Date.now() >= Date.parse(props.survey.expiresAt)) { close(); return; }
+    trackAnalyticsEvent('targeted_survey_claim_requested', eventProperties);
+    const claim = await requestSurveyClaim(props.survey);
+    if ('reason' in claim) {
+      trackAnalyticsEvent('targeted_survey_claim_failed', {
+        ...eventProperties, survey_claim_result: claim.reason,
+      });
+      close();
+      return;
+    }
+    if (closed || Date.now() >= Date.parse(props.survey.expiresAt) || isSurveyTerminal(props.terminalKey)) {
+      close();
+      return;
+    }
+    submission = createSurveySubmission(props.survey, claim.claimToken);
     phase.value = 'invite';
     trackAnalyticsEvent('targeted_survey_shown', eventProperties);
-  }, close);
+  })(); }, close);
 });
 
 onBeforeUnmount(() => {
+  closed = true;
   if (timer) clearTimeout(timer);
   release?.();
 });
@@ -112,6 +130,7 @@ function dismiss() {
 async function send() {
   if (phase.value !== 'form' || sending.value || !canSend.value) return;
   if (preview) { phase.value = 'thanks'; return; }
+  if (!submission) return;
   if (Date.now() >= Date.parse(props.survey.expiresAt) || isSurveyTerminal(props.terminalKey)) { close(); return; }
   sending.value = true;
   error.value = false;

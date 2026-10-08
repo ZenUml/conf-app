@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { decidePageBanner, handlePageBannerRoute } from './pageBanner'
+import { decidePageBanner, handlePageBannerRoute, maybeHandleTargetedSurvey } from './pageBanner'
 import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
@@ -23,6 +23,8 @@ vi.mock('@/model/globals', () => ({
 vi.mock('@/components/UpgradePrompt/PaywallWarningBanner.vue', () => ({ default: { name: 'PaywallBanner' } }))
 vi.mock('@/components/CSAT/CsatBanner.vue', () => ({ default: { name: 'CsatBanner' } }))
 vi.mock('@/components/Byline/UnplacedDiagramsBanner.vue', () => ({ default: { name: 'UnplacedBanner' } }))
+vi.mock('@/components/TargetedSurvey/TargetedSurveyBanner.vue', () => ({ default: { name: 'TargetedSurveyBanner' } }))
+vi.mock('@/features/targetedSurvey/survey', () => ({ loadTargetedSurvey: vi.fn() }))
 
 // Capture the root props handed to createApp — that is how the audience reaches
 // the component, and a silent drop would be invisible in a render assertion.
@@ -46,6 +48,7 @@ const unplacedMarker = await import('@/utils/byline/unplacedMarker')
 const unplaced = vi.mocked(unplacedMarker.isUnplacedBannerCandidate)
 const unplacedIdentity = vi.mocked(unplacedMarker.deriveUnplacedIdentity)
 const UNPLACED_IDENTITY = { clientDomain: 'example-tenant', pageId: 'page-1' }
+const loadSurvey = vi.mocked((await import('@/features/targetedSurvey/survey')).loadTargetedSurvey)
 
 describe('decidePageBanner — central priority for page-banner slots', () => {
   beforeEach(() => {
@@ -160,6 +163,37 @@ describe('decidePageBanner — central priority for page-banner slots', () => {
     paywall.mockReturnValue(true)
     expect(decidePageBanner()).toBe('paywall')
     expect(unplaced).not.toHaveBeenCalled()
+  })
+})
+
+describe('page-banner targeted survey fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    document.body.innerHTML = '<div id="app"></div>'
+    identity.mockReturnValue(IDENTITY)
+    isAdmin.mockReturnValue(false)
+    paywall.mockReturnValue(false)
+    csat.mockReturnValue(false)
+    unplaced.mockReturnValue(false)
+    unplacedIdentity.mockReturnValue(UNPLACED_IDENTITY)
+    loadSurvey.mockResolvedValue({ survey: {
+      uuid: '71861d63-dc0b-4a75-8a04-724711577d70', revision: 1,
+      expiresAt: '2099-01-01T00:00:00.000Z', title: 'Help us improve ZenUML',
+      question: 'What could we improve?', options: [{ id: 'editing', label: 'Editing diagrams' }],
+    }, terminalKey: 'synthetic-key' })
+  })
+
+  it.each(['lite', 'full'])('mounts the fallback in %s after existing banners decline', async (product) => {
+    expect(decidePageBanner()).toBe('none')
+    expect(await maybeHandleTargetedSurvey(product)).toBe(true)
+    expect(loadSurvey).toHaveBeenCalledOnce()
+    expect(mountSpy).toHaveBeenCalledOnce()
+    expect(createdWith).toMatchObject({ terminalKey: 'synthetic-key' })
+  })
+
+  it('never loads it in Diagramly', async () => {
+    expect(await maybeHandleTargetedSurvey('diagramly')).toBe(false)
+    expect(loadSurvey).not.toHaveBeenCalled()
   })
 })
 

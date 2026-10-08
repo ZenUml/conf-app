@@ -7,16 +7,17 @@ import type { TargetedSurveyCandidate } from '@/features/targetedSurvey/survey';
 
 /**
  * Single `confluence:pageBanner` host. Confluence creates exactly one banner
- * iframe per page; this host decides — centrally and synchronously, from
- * localStorage only — which banner (if any) it shows. Because the priority is
+ * iframe per page; this host decides existing priority synchronously from
+ * localStorage, then tries an authenticated targeted survey as a fallback.
+ * Because the priority is
  * resolved in one place, the banners never need to coordinate across iframes
  * (this replaces the old two-module + CSAT-defer arrangement, which is why no
  * defer exists here).
  *
  * Priority: the paywall warning (unpaid Lite space over the hard limit, seen by
  * a recent macro author or by a space admin of that space) outranks the CSAT
- * survey, which outranks the unplaced-diagram notice. `none` means close the
- * iframe with no work.
+ * survey, which outranks the unplaced-diagram notice, which outranks the
+ * targeted survey. `none` means the synchronous banners declined.
  *
  * Why `unplaced` sits LAST despite being the most page-specific of the three:
  * it is the only one that keeps. The paywall warning is about work the user is
@@ -28,7 +29,7 @@ import type { TargetedSurveyCandidate } from '@/features/targetedSurvey/survey';
  *
  * decidePageBanner() depends only on cheap localStorage predicates, so
  * forgeIndex can run it on the hot path (every page load) to decide whether to
- * close immediately. The heavy banner components load lazily — only when a
+ * try the survey fallback. The heavy banner components load lazily — only when a
  * banner will actually show — inside handlePageBannerRoute().
  */
 export type PageBannerChoice =
@@ -133,7 +134,7 @@ export async function handlePageBannerRoute(
   return effective;
 }
 
-/** Async, Full-only fallback after every existing synchronous banner gate. */
+/** Async Lite/Full fallback after every existing synchronous banner gate. */
 export async function handleTargetedSurveyRoute(candidate: TargetedSurveyCandidate): Promise<void> {
   try {
     const container = document.getElementById('app');
@@ -145,4 +146,14 @@ export async function handleTargetedSurveyRoute(candidate: TargetedSurveyCandida
     const { view } = await import('@forge/bridge');
     await view.close();
   }
+}
+
+/** Called from the host only when all synchronous banners declined their slot. */
+export async function maybeHandleTargetedSurvey(productType: string | undefined): Promise<boolean> {
+  if (productType !== 'lite' && productType !== 'full') return false;
+  const { loadTargetedSurvey } = await import('@/features/targetedSurvey/survey');
+  const candidate = await loadTargetedSurvey();
+  if (!candidate) return false;
+  await handleTargetedSurveyRoute(candidate);
+  return true;
 }

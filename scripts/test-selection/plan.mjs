@@ -8,7 +8,7 @@ import { CATEGORY_VERSION, CATEGORIES, VARIANTS } from '../../tests/e2e-tests/co
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 import { EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 export const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export function createPlan({selection, discovery, variant, tree, policy, shards = 1, changedFiles = [], scope = 'all', legacyGrep = '', testIds = null}) {
+export function createPlan({selection, discovery, variant, tree, policy, shards = 1, changedFiles = [], scope = 'all', legacyGrep = '', testIds = null, allowEmpty = false}) {
   if (!VARIANTS.includes(variant) || !tree || !policy) throw new Error('variant, tree and policy are required');
   if (discovery.errors?.length) throw new Error('Playwright discovery failed');
   const projects = discovery.config?.projects ?? [];
@@ -38,12 +38,12 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   // Guarded activation already resolved the union into discovery's grep.
   // Raw Jev categories must never re-filter away the deterministic floor
   // (or the deliberately widened auxiliary scope).
-  const full = ['v2-guarded-uncalibrated', 'v3-guarded-uncalibrated', 'v4-behavior-selectors-v1', 'v5-direct-spec-selectors-v1', 'v6-high-confidence-jev-selectors-v1'].includes(policy) || reasons.length > 0 || selection.mode === 'all' || selection.execution_mode !== 'enabled';
+  const full = ['v2-guarded-uncalibrated', 'v3-guarded-uncalibrated', 'v4-behavior-selectors-v1', 'v5-direct-spec-selectors-v1', 'v6-high-confidence-jev-selectors-v1', 'v7-main-jev-selectors-v1'].includes(policy) || reasons.length > 0 || selection.mode === 'all' || selection.execution_mode !== 'enabled';
   if (testIds && testIds.some(id => !applicable.some(t => t.id === id))) throw new Error('Selected identity absent from full inventory');
   const authorizedIds = testIds && !reasons.length && selection.mode === 'selected' && selection.execution_mode === 'enabled' ? testIds : null;
   const selected = applicable.filter(t => authorizedIds ? authorizedIds.includes(t.id) : full || t.tags.includes('@smoke') || [...changedFiles, ...(selection?.changed_tests ?? [])].some(f => f.endsWith(t.file)) || t.tags.some(tag => tag.startsWith('@test:') && selection.categories?.[tag.slice(6)]?.selected));
   // File groups conservatively retain serial suites and file-scoped shared state.
-  if (!selected.length) throw new Error('Empty test plan');
+  if (!selected.length && !(allowEmpty && authorizedIds && selection.selection_scope === 'main' && ['render', 'regression-render'].includes(scope))) throw new Error('Empty test plan');
   selected.forEach(t => { t.execution_tier = t.tags.includes('@smoke') ? 'smoke' : 'regression'; });
   const groups = new Map();
   for (const t of selected) {const sourcePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../tests/e2e-tests/tests', t.file); const parallel = fs.existsSync(sourcePath) && /test\.describe\.configure\(\{\s*mode:\s*['"]parallel['"]/.test(fs.readFileSync(sourcePath,'utf8')); const key = parallel ? t.id : `${t.project}:${t.serial_group}`; groups.set(key, [...(groups.get(key) ?? []), t]);}

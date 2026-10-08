@@ -50,17 +50,25 @@ export function scopedPlan({ discover, selection, resolved, head, tree, policy, 
     && directTestFiles.every(file => typeof file === 'string' && /^(?:[^/]+\/)*[^/]+\.(?:spec|test)\.[cm]?[jt]s$/.test(file))
     && directInScope.every(file => full.tests.some(test => test.file === file));
   const validCategories = Array.isArray(resolved?.jev_categories)
-    && resolved.jev_categories.length > 0
+    && (resolved.jev_categories.length > 0 || (selection?.selection_scope === 'main' && selection.no_additional_impact === true))
     && JSON.stringify(resolved.jev_categories) === JSON.stringify(chosen)
     && resolved.jev_grep === categoryGrep(resolved.jev_categories);
   const validCombinedFilter = validFloor && validCategories
-    && resolved.grep === [...resolved.deterministic_tags, resolved.jev_grep].join('|');
+    && resolved.grep === [...resolved.deterministic_tags, ...(resolved.jev_grep ? [resolved.jev_grep] : [])].join('|');
   const valid = !full.fallback_reason && validSelection && validResolvedIdentity
     && validReasons && validSourcePaths && validFloor && validDirectTests && validCategories && validCombinedFilter;
   // A nonempty filter without a verified resolved artifact must not narrow.
   // Main/nightly and fail-full runs therefore retain the entire scope.
   let legacy = full, jev = null, final = full;
-  if (valid) {
+  if (valid && selection.selection_scope === 'main' && resolved.selection_scope === 'main') {
+    // Select concrete IDs from the complete variant inventory, including edit
+    // and syntax projects. An empty render plan is legitimate when Jev and
+    // direct-spec coverage require no render tests; it must not widen to full.
+    legacy = { tests: full.tests.filter(test => test.tags.includes('@smoke')) };
+    jev = { tests: full.tests.filter(test => test.tags.includes('@smoke') || test.tags.some(tag => chosen.includes(tag))) };
+    const direct = full.tests.filter(test => directInScope.includes(test.file));
+    final = createPlan({ ...options, discovery: fullDiscovery, testIds: [...new Set([...ids(legacy), ...ids(jev), ...ids({ tests: direct })])], legacyGrep: grep, allowEmpty: true });
+  } else if (valid) {
     const make = filter => createPlan({ ...options, discovery: discover(filter), legacyGrep: filter });
     // The render suite has no @smoke tests. Do not let an empty floor filter
     // fall back to its whole inventory; Jev or direct specs supply its plan.

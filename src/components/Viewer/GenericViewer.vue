@@ -554,6 +554,7 @@ import { validateMagicArtifact } from '@/utils/magic/artifact'
 import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
 import { claimInlineMagicWriteback } from '@/utils/magic/inlineWriteback'
+import { viewerAccountKind } from '@/utils/magic/viewerAccount'
 import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
@@ -1473,8 +1474,24 @@ export default {
       // DiagramPortal, hide-header / non-display mode) would send one request
       // per edited source and cannot show the refined layout anyway.
       if (inline && (!this.isDisplayMode || this.hideHeader)) return;
-      if (inline && !claimInlineMagicWriteback(contentId, source)) return;
+      // Record the attempt before the first await: the account lookup below must
+      // not open a window for a duplicate readiness signal to slip past the
+      // check above and send a second request.
       this.magicWritebackAttempts.push({ contentId, source });
+      // Forge sends no user token on invokeRemote for guest and anonymous
+      // viewers, so the call could only fail. Ask first, and BEFORE the inline
+      // per-browser claim: a skipped viewer must not use up the claim that a
+      // licensed viewer in the same browser would need. Anything unclear
+      // ('unknown') proceeds; the backend's 403 no_user_credential is the backstop.
+      let kind = 'unknown';
+      try {
+        kind = await viewerAccountKind({ accountId: this.currentAccountId ?? undefined, clientDomain: getClientDomain() });
+      } catch { /* Fail open, like an unknown answer. */ }
+      if (kind === 'guest' || kind === 'anonymous') {
+        this.magicEvent('magic_writeback_skipped', { magic_writeback_reason: `${kind}_viewer` });
+        return;
+      }
+      if (inline && !claimInlineMagicWriteback(contentId, source)) return;
       const started = performance.now();
       const generation = this.magicGeneration;
       if (!inline) this.magicEvent('magic_writeback_requested');
@@ -1497,8 +1514,12 @@ export default {
       } catch (error) {
         // Original remains usable when optional delivery is unavailable. Only a
         // status code is kept; never the error text.
-        const status = error instanceof Error ? /^HTTP (\d{3})/.exec(error.message)?.[1] : undefined;
-        reason = status ? `remote_${status}` : 'client_exception';
+        const message = error instanceof Error ? error.message : '';
+        const status = /^HTTP (\d{3})/.exec(message)?.[1];
+        // The backend answers 403 { error: 'no_user_credential' } when Forge sent
+        // no user token. Check it before the generic status mapping.
+        if (message.includes('no_user_credential')) reason = 'no_user_credential';
+        else reason = status ? `remote_${status}` : 'client_exception';
       }
       finally {
         // Inline, a miss is the common no-op answer; only real deliveries and

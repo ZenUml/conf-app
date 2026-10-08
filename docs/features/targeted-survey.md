@@ -34,7 +34,7 @@ The active configuration is a single JSON value at `targeted-survey:active` in t
 }
 ```
 
-Deploy the code and migration `0028_add_targeted_survey_response.sql` through the normal pipeline first. That pipeline applies D1 migrations before publishing Pages. Check the deployed `/api/targeted-survey` route with a verified Full Forge invocation before enabling a campaign. A missing migration makes the endpoint return no survey. The endpoint rejects Lite/Diagramly/AsyncAPI tokens even if they are otherwise valid for this backend. The browser also gates the lookup on `PRODUCT_TYPE=full`.
+Deploy the code and migration `0029_add_targeted_survey_response.sql` through the normal pipeline first. That pipeline applies D1 migrations before publishing Pages. Check the deployed `/api/targeted-survey` route with a verified Full Forge invocation before enabling a campaign. A missing migration makes the endpoint return no survey. The endpoint rejects Lite/Diagramly/AsyncAPI tokens even if they are otherwise valid for this backend. The browser also gates the lookup on `PRODUCT_TYPE=full`.
 
 For staging, write the local JSON file with the `wrangler-stg.toml` `SPACE_LICENSE_KV` binding (use `wrangler-prod.toml` for production):
 

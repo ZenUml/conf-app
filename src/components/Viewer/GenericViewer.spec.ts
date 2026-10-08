@@ -516,14 +516,14 @@ describe('GenericViewer (chrome-less)', () => {
         beforeEach(() => { (window as any).forgeGlobal.forgeContext.extension.modal = undefined; });
 
         it.each([['guest', 'guest_viewer'], ['anonymous', 'anonymous_viewer']] as const)(
-          'skips the backend for a %s viewer, reports it once and keeps the per-browser claim',
+          'skips the backend for a %s viewer, reports it once and consumes the per-browser claim',
           async (kind, reason) => {
             vi.mocked(viewerAccountKind).mockResolvedValue(kind);
             const wrapper = await mountMagic();
             await vi.waitFor(() => expect(skipped()).toHaveLength(1));
             expect(skipped()[0]).toEqual({ feature_area: 'ai', surface: 'viewer', macro_type: 'mermaid', magic_writeback_reason: reason });
             expect(writebackCalls()).toHaveLength(0);
-            expect(claimKeys()).toEqual([]);
+            expect(claimKeys()).toHaveLength(1);
             expect(writebackEventNames()).toEqual(['magic_writeback_skipped']);
             // Recorded as an attempt: a repeated readiness signal for the same
             // diagram+source in this iframe neither asks again nor re-reports.
@@ -534,13 +534,19 @@ describe('GenericViewer (chrome-less)', () => {
           },
         );
 
-        it('does not consume the claim, so a later licensed session in the same browser still requests', async () => {
+        // The skipped path shares the inline 24h per-browser claim with the
+        // request path, so a guest reloading a 20-diagram page reports each
+        // diagram once a day, not once per page view. The claim is taken before
+        // the account lookup, so a repeat view costs no lookup either.
+        it('consumes the claim, so the same browser neither re-reports nor re-asks within 24h', async () => {
           vi.mocked(viewerAccountKind).mockResolvedValue('guest');
           (await mountMagic()).unmount();
           await vi.waitFor(() => expect(skipped()).toHaveLength(1));
-          vi.mocked(viewerAccountKind).mockResolvedValue('licensed');
           await mountMagic();
-          await vi.waitFor(() => expect(writebackCalls()).toHaveLength(1));
+          await flushPromises();
+          expect(skipped()).toHaveLength(1);
+          expect(writebackCalls()).toHaveLength(0);
+          expect(viewerAccountKind).toHaveBeenCalledTimes(1);
           expect(claimKeys()).toHaveLength(1);
         });
 

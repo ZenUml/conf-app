@@ -173,13 +173,62 @@ jobs:
           echo "reuse: tree $MERGE_TREE already tested by $URL"
           echo "### Lite E2E reused from [PR run $RUN]($URL) — identical tree \`$MERGE_TREE\`" >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------------------------------------------------------------------------
+  # Staging graph (ADR-0007 §1, addendum 2026-10-08):
+  #
+  #   parent ─┬─ backend-lite (Pages conf-stg-lite) ─┬─ Validate: Lite ── Validate: Full (lane)
+  #           ├─ backend-full (Pages conf-stg-full) ─┤   Validate: Diagramly
+  #           ├─ Deploy: Lite       (Forge only) ────┤   Validate: AsyncAPI
+  #           ├─ Deploy: Full       (Forge only) ────┤   Validate: Full (now)
+  #           ├─ Deploy: Diagramly  (Forge only) ────┤
+  #           └─ Deploy: AsyncAPI   (Forge only) ────┘
+  #
+  # The Cloudflare Pages backend is ONE component per Pages project, by code
+  # and by data: functions/ has no PRODUCT_TYPE switch and imports nothing
+  # from src/, so one commit gives identical backend bytes whichever variant
+  # builds it, and conf-stg-lite / conf-stg-full bind the same D1/KV/R2
+  # (wrangler-stg.toml). It is therefore deployed once per project per run.
+  # PRODUCT_TYPE only changes dist/, which Forge serves from its own CDN, so
+  # the four Forge deploys are independent and run in parallel. Each E2E
+  # waits for its own Forge deploy and its project's backend — nothing else,
+  # except Full's default lane (below).
+  backend-lite:
+    needs: [parent]
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' }}
+    name: "Backend: conf-stg-lite"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      ref: ${{ inputs.source-sha }}
+      mode: backend
+      variant: lite
+      license: lite
+      project: conf-stg-lite
+      environment: staging-lite
+    secrets: inherit
+
+  backend-full:
+    needs: [parent]
+    # Default-branch-only, like every Full job.
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    name: "Backend: conf-stg-full"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      ref: ${{ inputs.source-sha }}
+      mode: backend
+      variant: full
+      license: full
+      project: conf-stg-full
+      environment: staging-full
+    secrets: inherit
+
   staging-lite:
-    if: needs.parent.outputs.run == 'true'
-    needs: parent
+    needs: [parent]
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' }}
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ inputs.source-sha }}
+      mode: forge
       variant: lite
       license: lite
       project: conf-stg-lite
@@ -200,8 +249,8 @@ jobs:
     # `!= 'true'` test passes) and says true/false on main; the explicit
     # result checks replace the all-succeeded semantics a plain `needs` would
     # apply to a skipped job. ADR-0007 §2.
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.parent.outputs.run == 'true' && ((github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true') }}
-    needs: [staging-lite, e2e-auth-lite, reuse-check, parent]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && ((github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && needs.backend-lite.result == 'success' && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success' && needs.reuse-check.outputs.reuse != 'true') }}
+    needs: [backend-lite, staging-lite, e2e-auth-lite, reuse-check, parent]
     name: "Validate: Lite"
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -237,15 +286,16 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-full:
-    needs: parent
+    needs: [parent]
     # Lite is representative for feature-branch validation. Full + Diagramly
     # only run on the default branch to catch variant-specific regressions before release;
     # this halves the per-push minutes on feature branches.
-    if: ${{ needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "Deploy: Full"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ inputs.source-sha }}
+      mode: forge
       variant: full
       license: full
       project: conf-stg-full
@@ -256,11 +306,13 @@ jobs:
   # variant released — diagramly or lite always goes first and Full follows a
   # week later — so its draft is never what a person is waiting for. The
   # default `after-lite` lane therefore starts Full's shards only once Lite's
-  # E2E has finished, which keeps the run's fan-out under the account's
-  # 20-concurrent-job cap (main run 34655187796 peaked at exactly 20 and five
-  # shards queued ~95s for a runner; Lite 14 + Diagramly 4 + AsyncAPI 3 = 21
-  # without Full). The deploy itself is NOT sequenced: it is one runner that
-  # finishes before any shard starts. The `now` lane runs Full alongside the
+  # E2E has finished, which keeps the run's fan-out near the org's
+  # 20-concurrent-job cap (GitHub plan `free`). Lite, Diagramly and AsyncAPI
+  # E2E now overlap (the Diagramly/AsyncAPI chain behind Lite E2E was removed
+  # 2026-10-08, ADR-0007 §1 addendum): up to Lite 16 + Diagramly 4 + AsyncAPI
+  # 3 shard jobs at once, so a few shards may queue for a runner; Full's 4 on
+  # top would make that worse for no benefit. The deploys themselves are NOT
+  # sequenced: each is one runner that finishes before any shard starts. The `now` lane runs Full alongside the
   # others for the times Full has to ship first (a Full-only hotfix); it is
   # selected per merge by `[full-first]` anywhere in the merge commit message
   # (the PR title carries into a merge commit — so never QUOTE the token in a
@@ -270,8 +322,8 @@ jobs:
   # runs; `Draft: Full` accepts either. The two jobs are call sites only —
   # every input is identical, so a change to one must be made to both.
   staging-full-e2e:
-    if: ${{ !cancelled() && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(needs.parent.outputs.full-now == 'true') && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
-    needs: [staging-full, e2e-auth-full, staging-lite-e2e, parent]
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(needs.parent.outputs.full-now == 'true') && needs.backend-full.result == 'success' && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
+    needs: [backend-full, staging-full, e2e-auth-full, staging-lite-e2e, parent]
     name: "Validate: Full"
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -307,8 +359,8 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-full-e2e-now:
-    if: ${{ !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (needs.parent.outputs.full-now == 'true')) }}
-    needs: [staging-full, e2e-auth-full, parent]
+    if: ${{ !cancelled() && needs.backend-full.result == 'success' && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (needs.parent.outputs.full-now == 'true')) }}
+    needs: [backend-full, staging-full, e2e-auth-full, parent]
     name: "Validate: Full (now)"
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -344,13 +396,15 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-diagramly:
-    needs: [staging-lite, staging-lite-e2e, reuse-check, parent]
-    # See note on staging-full — default-branch-only.
-    if: ${{ !cancelled() && needs.parent.outputs.run == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.staging-lite.result == 'success' && (needs.reuse-check.outputs.reuse == 'true' || needs.staging-lite-e2e.result == 'success') }}
+    needs: [parent]
+    # See note on staging-full — default-branch-only. Diagramly and Lite are
+    # peers (ADR-0007 §1): this Forge deploy does not wait for Lite.
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "Deploy: Diagramly"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ inputs.source-sha }}
+      mode: forge
       variant: diagramly
       license: diagramly
       project: conf-stg-lite
@@ -361,7 +415,7 @@ jobs:
     # Downstream jobs override implicit success(): main intentionally skips the
     # PR selector ancestor. Require successful direct prerequisites explicitly
     # so a skipped selector can continue, but failed deployment/tests cannot.
-    needs: [staging-diagramly, staging-diagramly-e2e, parent]
+    needs: [parent]
     # Default-branch-only, matching staging-full / staging-diagramly. To validate
     # an in-flight asyncapi PR against asyncapi-stg.atlassian.net before merge,
     # add a temporary `github.head_ref == '<branch>' || github.ref_name ==
@@ -369,14 +423,15 @@ jobs:
     # `refs/pull/<N>/merge`, so match head_ref/ref_name, not github.ref) — and
     # drop it before merge so it never lands on main.
     #
-    # AsyncAPI shares the lite Cloudflare Pages project for now (per
-    # scripts/forge-wizard.mjs); swap to a dedicated `conf-stg-asyncapi`
-    # project when one is stood up.
-    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.staging-diagramly-e2e.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    # AsyncAPI calls conf-stg-lite's backend. That is not a shortcut awaiting
+    # a dedicated project: the backend is one component by code and by data
+    # (see the graph note above), deployed once per run by backend-lite.
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
     name: "Deploy: AsyncAPI"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ inputs.source-sha }}
+      mode: forge
       variant: asyncapi
       license: asyncapi
       project: conf-stg-lite
@@ -386,8 +441,8 @@ jobs:
   staging-asyncapi-e2e:
     # Mirror the staging-asyncapi gate so the e2e runs whenever a fresh build
     # is deployed. Skips on draft PRs (matches staging-lite-e2e behaviour).
-    if: ${{ !cancelled() && needs.staging-asyncapi.result == 'success' && needs.e2e-auth-asyncapi.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
-    needs: [staging-asyncapi, e2e-auth-asyncapi, parent]
+    if: ${{ !cancelled() && needs.backend-lite.result == 'success' && needs.staging-asyncapi.result == 'success' && needs.e2e-auth-asyncapi.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)) }}
+    needs: [backend-lite, staging-asyncapi, e2e-auth-asyncapi, parent]
     name: "Validate: AsyncAPI"
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -423,8 +478,8 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-diagramly-e2e:
-    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.e2e-auth-diagramly.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
-    needs: [staging-diagramly, e2e-auth-diagramly, parent]
+    if: ${{ !cancelled() && needs.backend-lite.result == 'success' && needs.staging-diagramly.result == 'success' && needs.e2e-auth-diagramly.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [backend-lite, staging-diagramly, e2e-auth-diagramly, parent]
     name: "Validate: Diagramly"
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -462,7 +517,9 @@ jobs:
 
   provenance:
     name: Record variant validation results
-    needs: [parent, reuse-check, staging-lite, staging-lite-e2e, staging-full-e2e, staging-full-e2e-now, staging-diagramly-e2e, staging-asyncapi-e2e]
+    # backend-lite is read by the Lite draft gate: with reused PR coverage the
+    # Lite E2E never runs, so the backend deploy must be checked directly.
+    needs: [parent, reuse-check, backend-lite, backend-full, staging-lite, staging-lite-e2e, staging-full-e2e, staging-full-e2e-now, staging-diagramly-e2e, staging-asyncapi-e2e]
     if: ${{ always() && needs.parent.result == 'success' }}
     runs-on: ubuntu-latest
     steps:

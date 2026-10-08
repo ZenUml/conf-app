@@ -18,6 +18,29 @@ the critical path. What remained was decided in a design review on 2026-09-11
    the merge message or the repo variable `FULL_DRAFT_LANE=now` — implemented as
    two mutually exclusive call sites, not a polling gate. Drafts are not
    auto-published; a person still publishes each one.
+
+   *Addendum, 2026-10-08.* PR #715 (daily staging regression transaction +
+   Jev selection observation; commit `51921c32`, 2026-10-02) chained the main
+   run as Lite E2E → Deploy: Diagramly → Diagramly E2E → Deploy: AsyncAPI →
+   AsyncAPI E2E, so that the shared `conf-stg-lite` backend the daily-regression
+   verifier reads was never republished under a running E2E. That made
+   Diagramly wait on Lite, contrary to this decision. The chain is removed:
+   the Cloudflare Pages backend is one component by code and by data —
+   `functions/` has no `PRODUCT_TYPE` switch and imports nothing from `src/`,
+   so one commit gives identical backend bytes whichever variant builds it,
+   and `conf-stg-lite` / `conf-stg-full` bind the same D1/KV/R2
+   (`wrangler-stg.toml`). `main-staging-validation.yml` now deploys each
+   Pages project once (`staging-deploy.yml` mode `backend`), the four Forge
+   apps in parallel (mode `forge`), and each E2E waits only for its own Forge
+   deploy and its project's backend. `__ci-version.json` carries
+   `{sha, project}` instead of `{sha, variant}`, because it describes the
+   backend. The daily regression stays serial with mode `full`. The Full lane
+   stays: the org plan is `free` (20 concurrent jobs), the peak under the
+   chained graph was 17 on main run 37708318151 (figure from the 2026-10-08
+   investigation, before this change), and Lite (up to 10 + 5 + 1 = 16 shard
+   jobs), Diagramly (4) and AsyncAPI (3) now overlap, so the run can exceed
+   the cap for a few minutes and queue some shards; adding Full's 4 would
+   only lengthen that queue.
 2. **`main` does not re-run tests a PR already ran on the identical tree.** A
    `pull_request` run tests `refs/pull/N/merge`; when `main` has not moved, the
    merge commit's tree is byte-identical, and re-running Lite's E2E is pure
@@ -61,3 +84,4 @@ data on lite hotfixes within 7 days of a release); no in-shard `workers: 2`
 | 6 (`e2e-rerun.yml`: one automatic re-run when every failed job is an E2E job, attempt 1 only; `e2e-flake-ranking.yml`: Mondays, from the week's blob reports) | #673; its `resurrect` job (a `main` run cancelled while pending, commit still the tip → re-run) in the PR after #673 |
 | 5, first half (closed tag taxonomy in `tests/e2e-tests/config/tags.ts`, every spec's top-level blocks tagged, `tests/unit/e2eTags.spec.ts` polices it) | the PR after #673 |
 | 5, second half (`tests/e2e-tests/config/impact-map.mjs` + `scripts/e2e-select.mjs`; the `select` job feeds `grep` to the Lite E2E on PR runs, whose job names gain "(selected)"; `select-ai` logs what a model would add, only when `ANTHROPIC_API_KEY` is set) | the PR after #674 |
+| 1, addendum (backend deployed once per Pages project, four Forge deploys in parallel, Diagramly/AsyncAPI no longer behind Lite E2E; `__ci-version.json` → `{sha, project}`) | the PR after #750 |

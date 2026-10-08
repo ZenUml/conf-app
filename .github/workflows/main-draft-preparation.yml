@@ -95,7 +95,9 @@ jobs:
           const success = name => results[name]?.result === 'success';
           const reuse = results['reuse-check']?.outputs?.reuse === 'true';
           const eligible = {
-            lite: success('staging-lite') && (reuse || success('staging-lite-e2e')),
+            // Lite's deploy is two jobs (Forge + Pages backend); reused PR
+            // coverage skips Lite E2E, so check both directly.
+            lite: success('staging-lite') && success('backend-lite') && (reuse || success('staging-lite-e2e')),
             full: success('staging-full-e2e') || success('staging-full-e2e-now'),
             diagramly: success('staging-diagramly-e2e'),
             asyncapi: success('staging-asyncapi-e2e'),

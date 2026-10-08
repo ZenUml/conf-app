@@ -18,28 +18,41 @@ jobs:
     outputs:
       app: ${{ steps.profile.outputs.app }}
       backend: ${{ steps.profile.outputs.backend }}
+      project: ${{ steps.profile.outputs.project }}
     steps:
       - id: profile
         env:
           VARIANT: ${{ inputs.variant }}
         run: |
           case "$VARIANT" in
-            lite) APP=zenuml-lite@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
-            full) APP=zenuml-full@stg; BACKEND=https://conf-stg-full.zenuml.com ;;
-            diagramly) APP=diagramly@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
-            asyncapi) APP=asyncapi@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
+            lite) APP=zenuml-lite@stg; PROJECT=conf-stg-lite ;;
+            full) APP=zenuml-full@stg; PROJECT=conf-stg-full ;;
+            diagramly) APP=diagramly@stg; PROJECT=conf-stg-lite ;;
+            asyncapi) APP=asyncapi@stg; PROJECT=conf-stg-lite ;;
             *) exit 1 ;;
           esac
           echo "app=$APP" >> "$GITHUB_OUTPUT"
-          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+          echo "backend=https://$PROJECT.zenuml.com" >> "$GITHUB_OUTPUT"
 
+  # mode=full on purpose: the daily regression is serial (lite → full →
+  # diagramly → asyncapi, one transaction at a time under the parent's
+  # conf-app-staging lock), so each transaction re-publishing its project's
+  # backend costs ~30s hidden under its Forge deploy and buys a simple
+  # invariant — the backend the version check reads was published by THIS
+  # transaction from THIS commit. The main-branch graph (main-staging-
+  # validation.yml) splits backend and forge because it runs variants in
+  # parallel; this one does not need to.
   deploy:
     name: deploy
     uses: ./.github/workflows/staging-deploy.yml
     with:
+      mode: full
       variant: ${{ inputs.variant }}
       ref: ${{ inputs.ref }}
       license: ${{ inputs.variant }}
+      # Same mapping as the profile job; inline so the deploy does not wait
+      # for that job's runner.
       project: ${{ inputs.variant == 'full' && 'conf-stg-full' || 'conf-stg-lite' }}
       environment: staging-${{ inputs.variant }}
     secrets: inherit
@@ -71,9 +84,9 @@ jobs:
       - name: Verify backend source identity
         env:
           TARGET_SHA: ${{ inputs.ref }}
-          VARIANT: ${{ inputs.variant }}
+          PROJECT: ${{ needs.profile.outputs.project }}
           BACKEND: ${{ needs.profile.outputs.backend }}
-        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant "$VARIANT" --url "$BACKEND"
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --project "$PROJECT" --url "$BACKEND"
       - run: cd tests/e2e-tests && pnpm install --ignore-workspace --frozen-lockfile && pnpm exec playwright install --with-deps chromium
       - uses: actions/download-artifact@v7
         with:

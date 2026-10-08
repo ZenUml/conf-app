@@ -56,6 +56,15 @@ inputs:
       owns the cleanup of wrangler.toml.
     required: false
     default: 'false'
+  skip-cloudflare:
+    description: >-
+      'true' to build dist/ and touch nothing on Cloudflare: no Pages secret
+      sync, no wrangler.toml, no D1 migrations, no publish. staging-deploy.yml
+      uses it for a Forge-only variant deploy, whose Pages backend is deployed
+      once per project by a separate backend-mode call. Default 'false' keeps
+      every existing caller (release.yml included) unchanged.
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -86,6 +95,7 @@ runs:
         echo "dist/ restored from ${{ inputs.prebuilt-dist }} ($(du -sh dist | cut -f1), $(find dist -type f | wc -l) files)"
       shell: bash
     - name: Sync runtime env vars to Cloudflare Pages
+      if: inputs.skip-cloudflare != 'true'
       run: |
         printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
         printf '%s' "$SENTRY_DSN" | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
@@ -105,6 +115,7 @@ runs:
         PAGE_CAPTURE_SECRET: ${{ inputs.page-capture-secret }}
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Prepare wrangler config
+      if: inputs.skip-cloudflare != 'true'
       run: |
         # Select the appropriate config file based on environment
         CONFIG_FILE="wrangler-${{ inputs.environment }}.toml"
@@ -130,13 +141,14 @@ runs:
       env:
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Run D1 Migrations
+      if: inputs.skip-cloudflare != 'true'
       run: pnpm exec wrangler d1 migrations apply DB --remote --env production
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
     - name: Publish
-      if: inputs.skip-publish != 'true'
+      if: inputs.skip-publish != 'true' && inputs.skip-cloudflare != 'true'
       run: pnpm exec wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}
       shell: bash
       env:
@@ -145,6 +157,6 @@ runs:
     - name: Cleanup
       # With skip-publish the caller still needs wrangler.toml for its own
       # `pages deploy`, so it cleans up afterwards.
-      if: always() && inputs.skip-publish != 'true'
+      if: always() && inputs.skip-publish != 'true' && inputs.skip-cloudflare != 'true'
       run: rm -f wrangler.toml
       shell: bash

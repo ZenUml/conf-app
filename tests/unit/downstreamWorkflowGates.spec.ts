@@ -3,14 +3,17 @@ import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
 const { jobs } = load(readFileSync('.github/workflows/main-staging-validation.yml', 'utf8')) as any;
-const downstream = ['staging-diagramly-e2e', 'staging-asyncapi', 'staging-asyncapi-e2e'];
+// Jobs whose every direct prerequisite is a hard gate. Lite E2E and the Full
+// lanes are covered separately below: a failed reuse-check must not block Lite
+// E2E, and Lite E2E is ordering-only for Full (the 20-job lane).
+const downstream = ['backend-full', 'staging-full', 'staging-diagramly', 'staging-asyncapi', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
 
 // Evaluate the actual workflow expressions, including GitHub's implicit success
 // check. A skipped ancestor models main's intentionally skipped PR selector.
 function eligible(id: string, overrides: Record<string, string> = {}, cancelled = false, ref = 'refs/heads/main') {
   const job = jobs[id];
-  const needs = Object.fromEntries(job.needs.map((name: string) => [name, { result: overrides[name] ?? 'success', outputs: { run: 'true' } }]));
-  const expression = job.if.slice(3, -2).replace(/needs\.([\w-]+)/g, 'needs["$1"]');
+  const needs = Object.fromEntries([job.needs].flat().map((name: string) => [name, { result: overrides[name] ?? 'success', outputs: { run: 'true' } }]));
+  const expression = job.if.slice(3, -2).replace(/needs\.([\w-]+)/g, 'needs["$1"]').replace(/\.outputs\.([\w-]+)/g, '.outputs["$1"]');
   const explicitStatus = /\b(?:cancelled|always|success|failure)\(/.test(expression);
   // The ancestor success status is false even when all direct needs succeeded.
   if (!explicitStatus) return false;
@@ -52,6 +55,63 @@ describe('main downstream staging gates', () => {
   }
 });
 
+describe('main staging graph: one backend per Pages project, variants in parallel', () => {
+  const needsOf = (id: string) => [jobs[id].needs].flat();
+  it('deploys each staging Pages project once, in backend mode', () => {
+    const backends = Object.entries(jobs).filter(([, job]: [string, any]) => job.uses === './.github/workflows/staging-deploy.yml' && job.with.mode === 'backend');
+    expect(backends.map(([id, job]: [string, any]) => [id, job.with.project, job.with.variant])).toEqual([
+      ['backend-lite', 'conf-stg-lite', 'lite'], ['backend-full', 'conf-stg-full', 'full'],
+    ]);
+    for (const [id] of backends) expect(needsOf(id)).toEqual(['parent']);
+  });
+  it('deploys every variant to Forge in parallel, after nothing but the root check', () => {
+    for (const [id, variant] of [['staging-lite', 'lite'], ['staging-full', 'full'], ['staging-diagramly', 'diagramly'], ['staging-asyncapi', 'asyncapi']]) {
+      expect(jobs[id].uses).toBe('./.github/workflows/staging-deploy.yml');
+      expect(jobs[id].with).toMatchObject({ mode: 'forge', variant });
+      expect(needsOf(id)).toEqual(['parent']);
+    }
+  });
+  it('validates each variant against its own Forge deploy and its Pages backend only', () => {
+    expect(needsOf('staging-lite-e2e').sort()).toEqual(['backend-lite', 'e2e-auth-lite', 'parent', 'reuse-check', 'staging-lite']);
+    expect(needsOf('staging-diagramly-e2e').sort()).toEqual(['backend-lite', 'e2e-auth-diagramly', 'parent', 'staging-diagramly']);
+    expect(needsOf('staging-asyncapi-e2e').sort()).toEqual(['backend-lite', 'e2e-auth-asyncapi', 'parent', 'staging-asyncapi']);
+    expect(needsOf('staging-full-e2e').sort()).toEqual(['backend-full', 'e2e-auth-full', 'parent', 'staging-full', 'staging-lite-e2e']);
+    expect(needsOf('staging-full-e2e-now').sort()).toEqual(['backend-full', 'e2e-auth-full', 'parent', 'staging-full']);
+    for (const id of ['staging-diagramly', 'staging-diagramly-e2e', 'staging-asyncapi', 'staging-asyncapi-e2e']) {
+      for (const upstream of ['staging-lite-e2e', 'staging-diagramly-e2e', 'reuse-check']) expect(needsOf(id)).not.toContain(upstream);
+    }
+    expect(needsOf('staging-asyncapi-e2e')).not.toContain('staging-diagramly');
+  });
+  it('gates Lite E2E on its backend but not on a failed reuse check', () => {
+    expect(eligible('staging-lite-e2e')).toBe(true);
+    expect(eligible('staging-lite-e2e', { 'reuse-check': 'failure' })).toBe(true);
+    for (const prerequisite of ['backend-lite', 'staging-lite', 'e2e-auth-lite', 'parent']) {
+      for (const result of ['failure', 'skipped', 'cancelled']) {
+        expect(eligible('staging-lite-e2e', { [prerequisite]: result }), `${prerequisite}: ${result}`).toBe(false);
+      }
+    }
+  });
+  it('orders the default Full lane after Lite E2E without requiring it to pass', () => {
+    expect(eligible('staging-full-e2e')).toBe(true);
+    for (const result of ['failure', 'skipped']) expect(eligible('staging-full-e2e', { 'staging-lite-e2e': result })).toBe(true);
+    for (const prerequisite of ['backend-full', 'staging-full', 'e2e-auth-full', 'parent']) {
+      for (const result of ['failure', 'skipped', 'cancelled']) {
+        expect(eligible('staging-full-e2e', { [prerequisite]: result }), `${prerequisite}: ${result}`).toBe(false);
+      }
+    }
+    expect(jobs['staging-full-e2e-now'].if).toContain("needs.backend-full.result == 'success'");
+  });
+  it('records the backend deploys in the staging provenance', () => {
+    expect(jobs.provenance.needs).toEqual(expect.arrayContaining(['backend-lite', 'backend-full', 'staging-lite', 'staging-lite-e2e',
+      'staging-full-e2e', 'staging-full-e2e-now', 'staging-diagramly-e2e', 'staging-asyncapi-e2e']));
+  });
+  it('keeps a backend and a Forge deploy of the same variant in separate concurrency groups', () => {
+    const deploy = load(readFileSync('.github/workflows/staging-deploy.yml', 'utf8')) as any;
+    expect(deploy.concurrency.group).toContain('inputs.mode');
+    expect(deploy.on.workflow_call.inputs.mode).toMatchObject({ type: 'string', default: 'full' });
+  });
+});
+
 const draft = (load(readFileSync('.github/workflows/main-draft-preparation.yml', 'utf8')) as any).jobs;
 const nodeScript = (step: any) => step.run.split("<<'NODE'\n")[1].split('\nNODE')[0].replace(/^import .*;\n/gm, '');
 const provenanceStep = draft.provenance.steps.find((step: any) => step.id === 'eligibility');
@@ -73,16 +133,20 @@ describe('draft phase provenance and independent variant gates', () => {
   });
   it('requires successful deployment for reused Lite coverage and accepts either Full lane', () => {
     const reuse = { result: 'success', outputs: { reuse: 'true', 'run-url': 'https://example.com/evidence' } };
-    expect(variantEligibility({ 'staging-lite': { result: 'success' }, 'reuse-check': reuse, 'staging-full-e2e-now': { result: 'success' } }))
+    const deployed = { 'staging-lite': { result: 'success' }, 'backend-lite': { result: 'success' } };
+    expect(variantEligibility({ ...deployed, 'reuse-check': reuse, 'staging-full-e2e-now': { result: 'success' } }))
       .toMatchObject({ lite: 'true', full: 'true', reuse: 'true', 'run-url': 'https://example.com/evidence' });
     for (const result of ['failure', 'skipped', 'cancelled']) {
-      expect(variantEligibility({ 'staging-lite': { result }, 'reuse-check': reuse }).lite).toBe('false');
+      // Reused coverage skips Lite E2E, so both halves of the Lite deploy —
+      // Forge and the Pages backend — must be checked directly.
+      expect(variantEligibility({ ...deployed, 'staging-lite': { result }, 'reuse-check': reuse }).lite).toBe('false');
+      expect(variantEligibility({ ...deployed, 'backend-lite': { result }, 'reuse-check': reuse }).lite).toBe('false');
     }
     expect(variantEligibility({})).toMatchObject({ lite: 'false', full: 'false', diagramly: 'false', asyncapi: 'false' });
     expect(() => variantEligibility({}, 'different-source')).toThrow('Staging source differs from draft source');
   });
   it('preserves original build gates when preview or cron fails independently', () => {
-    const staged = { 'staging-lite': { result: 'success' }, 'staging-lite-e2e': { result: 'success' },
+    const staged = { 'staging-lite': { result: 'success' }, 'backend-lite': { result: 'success' }, 'staging-lite-e2e': { result: 'success' },
       'staging-full-e2e': { result: 'success' }, 'staging-diagramly-e2e': { result: 'success' }, 'staging-asyncapi-e2e': { result: 'success' } };
     const ready = { build: { result: 'success' }, 'build-prod': { result: 'success' },
       'preview-e2e': { result: 'failure' }, 'deploy-cron-worker': { result: 'failure' } };

@@ -22,13 +22,16 @@ const inScope = (file, scope) => {
 
 // Discovery is performed independently for each filter. In particular, an
 // empty auxiliary legacy scope widens before its IDs become the safety floor.
-export function scopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep = '', sourcePaths = [] }) {
+export function scopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep = '', sourcePaths = [], selectionScope = 'pr' }) {
   const options = { selection, variant, tree, policy, scope, shards };
   const fullDiscovery = discover('');
   const full = createPlan({ ...options, discovery: fullDiscovery });
   const ids = plan => plan.tests.map(t => t.id);
   const chosen = CATEGORIES.filter(c => selection?.categories?.[c.id]?.selected).map(c => `@test:${c.id}`);
-  const validSelection = !decisionError({ selection, head, tree }) && selection.policy_version === policy;
+  const validScope = selectionScope === 'main'
+    ? selection?.selection_scope === 'main' && resolved?.selection_scope === 'main'
+    : selectionScope === 'pr' && selection?.selection_scope !== 'main' && resolved?.selection_scope !== 'main';
+  const validSelection = validScope && !decisionError({ selection, head, tree }) && selection.policy_version === policy;
   const validResolvedIdentity = resolved?.mode === 'selected'
     && resolved.head_sha === head && resolved.tested_tree === tree
     && resolved.policy_version === policy

@@ -16,7 +16,7 @@ const discovery = (variant: string, render = false) => ({ suites: [{ title: 'tes
 const resolved = (selection: any, files = diff.paths) => resolveSelection({ selection, files, head, tree, scope: 'main' });
 const plan = (selection: any, variant = 'lite', render = false, files = diff.paths) => {
   const r = resolved(selection, files);
-  return scopedPlan({ discover: () => discovery(variant, render), selection, resolved: r, head, tree, policy: POLICY_VERSION, variant, scope: render ? 'render' : 'all', shards: 4, grep: r.grep });
+  return scopedPlan({ discover: () => discovery(variant, render), selection, resolved: r, head, tree, policy: POLICY_VERSION, variant, selectionScope: 'main', scope: render ? 'render' : 'all', shards: 4, grep: r.grep });
 };
 describe('main Jev behavior selection', () => {
   it('classifies shared and unmapped application paths while PR policy stays conservative', async () => {

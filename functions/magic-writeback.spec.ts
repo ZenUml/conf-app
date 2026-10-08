@@ -149,10 +149,18 @@ describe('reviewed Magic writeback', () => {
     expect(await (await invoke()).json()).toEqual({ outcome: 'written', artifact });
     expect(row().claimToken).toBe('new-owner');
   });
-  it('purges expired payloads without reading Confluence', async () => {
+  it('never delivers an expired payload and does not write on the request path (daily cron purges)', async () => {
     enqueue(ctx, Date.now() - 1);
     expect(await (await invoke()).json()).toEqual({ outcome: 'miss' });
-    expect(row()).toBeUndefined(); expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(row()).toBeDefined(); // request path issued no DELETE
+  });
+  it('issues no DELETE for an empty queue', async () => {
+    const sqls: string[] = [];
+    const base = db();
+    const spy = { prepare: (sql: string) => { sqls.push(sql); return base.prepare(sql); } };
+    expect(await (await onRequest({ request: request(), data: { forgeContext: ctx }, env: { DB: spy as any } })).json()).toEqual({ outcome: 'miss' });
+    expect(sqls.filter(q => /^\s*DELETE/i.test(q))).toEqual([]);
   });
   it('fails open to Original for a failed write and never returns queued SVG', async () => {
     enqueue(); fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({}, 403));

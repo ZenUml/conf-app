@@ -6,6 +6,8 @@ The first screen says “Help us improve ZenUML” and offers Share feedback and
 
 | Event | Trigger | Properties at call site |
 | --- | --- | --- |
+| `targeted_survey_claim_requested` | Eligible banner attempts its one-time server display claim | `feature_area=feedback`, `surface=page_banner`, `survey_uuid`, `survey_revision` |
+| `targeted_survey_claim_failed` | Claim loses to another app or cannot be confirmed | Same, plus `survey_claim_result=already_claimed/unavailable/invalid_response` |
 | `targeted_survey_shown` | First screen becomes visible | `feature_area=feedback`, `surface=page_banner`, `survey_uuid`, `survey_revision` |
 | `targeted_survey_opened` | Share feedback is selected | Same |
 | `targeted_survey_dismissed` | Dismiss/Close is selected on either screen, including while sending | Same, plus `survey_phase=invite/form/submitting` |

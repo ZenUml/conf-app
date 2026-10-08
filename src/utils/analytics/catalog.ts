@@ -510,6 +510,8 @@ export type AnalyticsEventName =
   // verified Forge identity; events contain campaign metadata only, never the
   // target, selected answer, or free text.
   | "targeted_survey_shown"
+  | "targeted_survey_claim_requested"
+  | "targeted_survey_claim_failed"
   | "targeted_survey_opened"
   | "targeted_survey_dismissed"
   | "targeted_survey_submit_requested"

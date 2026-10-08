@@ -198,6 +198,39 @@ describe('GenericViewer (chrome-less)', () => {
       expect(trackAnalyticsEvent).toHaveBeenCalledWith('magic_writeback_completed', expect.objectContaining({ magic_writeback_outcome: 'written' }));
       wrapper.unmount();
     });
+    describe('writeback unavailable reason', () => {
+      const completed = () => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'magic_writeback_completed').map(([, props]) => props as any);
+      const run = async (impl: () => Promise<unknown>) => {
+        store.commit('updateDiagramType', DiagramType.Mermaid);
+        store.state.diagram.mermaidCode = PI_MAGIC_SYNTHETIC_SOURCE;
+        vi.mocked(callRemote).mockImplementation(impl as any);
+        const wrapper = mountViewer();
+        await vi.waitFor(() => expect(completed()).toHaveLength(1));
+        wrapper.unmount();
+        return completed()[0];
+      };
+      it('passes through the backend reason code', async () => {
+        const props = await run(async () => ({ outcome: 'unavailable', reason: 'read_403' }));
+        expect(props).toEqual(expect.objectContaining({ magic_writeback_outcome: 'unavailable', magic_writeback_reason: 'read_403' }));
+      });
+      it('reports unknown for a missing or malformed backend reason', async () => {
+        const props = await run(async () => ({ outcome: 'unavailable', reason: 'Bad Reason: secret' }));
+        expect(props.magic_writeback_reason).toBe('unknown');
+      });
+      it('maps a thrown HTTP error to remote_<status> without message text', async () => {
+        const props = await run(async () => { throw new Error('HTTP 401: private body'); });
+        expect(props.magic_writeback_reason).toBe('remote_401');
+        expect(JSON.stringify(props)).not.toContain('private');
+      });
+      it('maps any other throw to client_exception', async () => {
+        const props = await run(async () => { throw new Error('boom'); });
+        expect(props.magic_writeback_reason).toBe('client_exception');
+      });
+      it('omits the reason for non-unavailable outcomes', async () => {
+        const props = await run(async () => ({ outcome: 'source_changed' }));
+        expect(props).not.toHaveProperty('magic_writeback_reason');
+      });
+    });
     it('keeps Original on a miss and does not repeat the optional request', async () => {
       store.commit('updateDiagramType', DiagramType.Mermaid);
       const wrapper = mountViewer();

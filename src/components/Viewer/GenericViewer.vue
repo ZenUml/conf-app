@@ -1479,10 +1479,12 @@ export default {
       const generation = this.magicGeneration;
       if (!inline) this.magicEvent('magic_writeback_requested');
       let outcome = 'unavailable';
+      let reason = 'unknown';
       try {
         const result = await callRemote('/magic-writeback', 'POST', { contentId });
         const known = ['written', 'existing', 'miss', 'source_changed', 'unavailable', 'conflict', 'invalid_target'];
         if (known.includes(result?.outcome)) outcome = result.outcome;
+        if (outcome === 'unavailable') reason = typeof result?.reason === 'string' && /^[a-z_]{1,24}(_\d{3})?$/.test(result.reason) ? result.reason : 'unknown';
         if ((outcome === 'written' || outcome === 'existing') && result.artifact
           && this.magicGeneration === generation && this.diagram === diagram
           && this.diagram.id === contentId && this.diagram.mermaidCode === source && this.diagram.magic === artifact) {
@@ -1492,11 +1494,16 @@ export default {
             this.diagram.magic = result.artifact;
           }
         }
-      } catch { /* Original remains usable when optional delivery is unavailable. */ }
+      } catch (error) {
+        // Original remains usable when optional delivery is unavailable. Only a
+        // status code is kept; never the error text.
+        const status = error instanceof Error ? /^HTTP (\d{3})/.exec(error.message)?.[1] : undefined;
+        reason = status ? `remote_${status}` : 'client_exception';
+      }
       finally {
         // Inline, a miss is the common no-op answer; only real deliveries and
         // failures are worth an event.
-        if (!inline || outcome !== 'miss') this.magicEvent('magic_writeback_completed', { magic_writeback_outcome: outcome, duration_ms: Math.round(performance.now() - started) });
+        if (!inline || outcome !== 'miss') this.magicEvent('magic_writeback_completed', { magic_writeback_outcome: outcome, ...(outcome === 'unavailable' ? { magic_writeback_reason: reason } : {}), duration_ms: Math.round(performance.now() - started) });
       }
     },
     magicEvent(name, properties = {}) {

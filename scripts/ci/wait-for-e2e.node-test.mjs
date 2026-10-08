@@ -100,3 +100,22 @@ test('child accepts only an active staging parent in the matching attempt', () =
     assert.throws(() => verifyParent(invalid, '2', jobs, ['E2E validation']), /active staging parent/);
   }
 });
+
+test('root option artifact binds manual controls to source, run and attempt', async () => {
+  const { rootOptions, verifyRootOptions } = await import('./wait-for-e2e.mjs');
+  const env = { GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', GITHUB_SHA: 'abc', GITHUB_EVENT_NAME: 'workflow_dispatch', FULL_TESTS: 'true', BYPASS_REGRESSION_GATE: 'true', BYPASS_REASON: ' urgent fix\nwith context ' };
+  const options = rootOptions(env);
+  const root = { id: 12, run_attempt: 2, head_sha: 'abc', event: 'workflow_dispatch', path: '.github/workflows/build-test-deploy.yml' };
+  assert.equal(options.full_tests, true);
+  assert.equal(options.bypass_reason, 'urgent fix\nwith context');
+  verifyRootOptions(options, root, '12', '2', 'abc');
+  for (const mutation of [{ source_sha: 'other' }, { root_attempt: '1' }, { root_run_id: '13' }, { root_event: 'push' }, { bypass_reason: ' ' }, { full_tests: 'true' }]) {
+    assert.throws(() => verifyRootOptions({ ...options, ...mutation }, root, '12', '2', 'abc'), /verified root/);
+  }
+  assert.throws(() => rootOptions({ ...env, BYPASS_REASON: ' ' }), /requires a reason/);
+  const push = rootOptions({ ...env, GITHUB_EVENT_NAME: 'push' });
+  assert.equal(push.full_tests, false);
+  assert.equal(push.bypass_regression_gate, false);
+  assert.equal(push.bypass_reason, '');
+  assert.throws(() => verifyRootOptions(options, { ...root, event: 'push' }, '12', '2', 'abc'), /verified root/);
+});

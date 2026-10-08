@@ -13,6 +13,19 @@ on:
   # Allows the release workflow to create fresh, tested drafts without a
   # no-op commit to main.
   workflow_dispatch:
+    inputs:
+      full-tests:
+        type: boolean
+        default: false
+        description: Run complete regression and render suites for all four staging variants
+      bypass-regression-gate:
+        type: boolean
+        default: false
+        description: Allow drafts once despite the daily regression gate; staging tests remain mandatory
+      bypass-reason:
+        type: string
+        default: ''
+        description: Required explanation when bypassing the daily regression gate
 
 # Shared environment ownership spans every staging deployment and test in this run.
 # Dispatched phases inherit ownership while this root waits for their completion.
@@ -26,7 +39,7 @@ jobs:
     name: Source and version
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 3
     outputs:
       version: ${{ steps.v.outputs.version }}
       source-sha: ${{ steps.v.outputs.source-sha }}
@@ -37,6 +50,21 @@ jobs:
         run: |
           echo "version=$(TZ=Australia/Brisbane date +'%Y.%m.%d%H%M')" >> "$GITHUB_OUTPUT"
           echo "source-sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - name: Record root options for this source and attempt
+        env:
+          FULL_TESTS: ${{ inputs.full-tests || false }}
+          BYPASS_REGRESSION_GATE: ${{ inputs.bypass-regression-gate || false }}
+          BYPASS_REASON: ${{ inputs.bypass-reason || '' }}
+        run: node scripts/ci/wait-for-e2e.mjs --record-root-options
+      - uses: actions/upload-artifact@v6
+        with:
+          name: main-root-options-${{ github.run_attempt }}
+          path: main-root-options.json
+          if-no-files-found: error
+          retention-days: 30
 
   build-preparation:
     name: Build preparation
@@ -79,7 +107,7 @@ jobs:
     needs: version
     if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 195
     permissions:
       actions: write
       contents: read
@@ -99,7 +127,7 @@ jobs:
           CHILD_TITLE: Staging validation
           SOURCE_SHA: ${{ needs.version.outputs.source-sha }}
           VERSION: ${{ needs.version.outputs.version }}
-          WAIT_MINUTES: '60'
+          WAIT_MINUTES: '180'
         run: node scripts/ci/wait-for-e2e.mjs
       - name: Close any active phase
         if: ${{ always() }}

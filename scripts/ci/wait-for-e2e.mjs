@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { appendFileSync, existsSync, writeFileSync, readFileSync, mkdtempSync } from 'node:fs';
 
 export function dispatchBody(env) {
   const inputs = {
@@ -57,6 +59,31 @@ export function verifyParent(parent, attempt, jobs, expectedJobs, provenance = {
   }
 }
 
+export function rootOptions(env) {
+  const manual = env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+  const options = { root_run_id: env.GITHUB_RUN_ID, root_attempt: env.GITHUB_RUN_ATTEMPT,
+    source_sha: env.GITHUB_SHA, root_event: env.GITHUB_EVENT_NAME,
+    full_tests: manual && env.FULL_TESTS === 'true',
+    bypass_regression_gate: manual && env.BYPASS_REGRESSION_GATE === 'true',
+    bypass_reason: manual ? (env.BYPASS_REASON || '').trim() : '' };
+  if (options.bypass_regression_gate && !options.bypass_reason) throw new Error('Daily regression bypass requires a reason');
+  return options;
+}
+
+export function verifyRootOptions(options, root, id, attempt, sha) {
+  if (root.path !== '.github/workflows/build-test-deploy.yml' || String(root.id) !== String(id) ||
+      String(root.run_attempt) !== String(attempt) || root.head_sha !== sha ||
+      String(options.root_run_id) !== String(id) || String(options.root_attempt) !== String(attempt) ||
+      options.source_sha !== sha || options.root_event !== root.event ||
+      typeof options.full_tests !== 'boolean' || typeof options.bypass_regression_gate !== 'boolean' ||
+      typeof options.bypass_reason !== 'string' ||
+      (root.event !== 'workflow_dispatch' && (options.full_tests || options.bypass_regression_gate || options.bypass_reason)) ||
+      (options.bypass_regression_gate && !options.bypass_reason.trim())) {
+    throw new Error('Root options do not match the verified root source and attempt');
+  }
+  return options;
+}
+
 export async function closeChild(api, title, workflow, pause, deadline = Date.now() + 8 * 60000, expected = false) {
   // Look up again even if the dispatch step was interrupted before it saw the ID.
   let child;
@@ -90,6 +117,12 @@ export async function closeChild(api, title, workflow, pause, deadline = Date.no
 
 async function main() {
   const env = process.env;
+  if (process.argv.includes('--record-root-options')) {
+    const options = rootOptions(env);
+    writeFileSync('main-root-options.json', JSON.stringify(options, null, 2));
+    appendFileSync(env.GITHUB_STEP_SUMMARY, `Manual controls: Actions → Build, Test and Draft Release → Run workflow → main. Select full-tests for complete suites. To bypass the daily draft gate once, select bypass-regression-gate and enter bypass-reason. Staging tests always run.\n\nFull tests: ${options.full_tests}. Daily gate bypass: ${options.bypass_regression_gate}. Reason: ${options.bypass_reason || 'none'}.\n`);
+    return;
+  }
   const repo = `repos/${env.GITHUB_REPOSITORY}`;
   const workflow = env.CHILD_WORKFLOW;
   const title = `${env.CHILD_TITLE} · parent ${env.GITHUB_RUN_ID} · attempt ${env.GITHUB_RUN_ATTEMPT} · source ${env.SOURCE_SHA}`;
@@ -114,6 +147,16 @@ async function main() {
       });
     }
     verifyParent(parent, env.PARENT_ATTEMPT, jobs, JSON.parse(env.EXPECTED_PARENT_JOBS), provenance);
+    if (parent.path === '.github/workflows/build-test-deploy.yml') {
+      const directory = mkdtempSync(join(tmpdir(), 'main-root-options-'));
+      execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,
+        '--name', `main-root-options-${env.PARENT_ATTEMPT}`, '--dir', directory]);
+      const options = verifyRootOptions(JSON.parse(readFileSync(join(directory, 'main-root-options.json'), 'utf8')),
+        parent, env.PARENT_RUN_ID, env.PARENT_ATTEMPT, env.SOURCE_SHA);
+      writeFileSync('verified-root-options.json', JSON.stringify(options));
+      if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT,
+        `full-tests=${options.full_tests}\nbypass-regression-gate=${options.bypass_regression_gate}\nroot-event=${options.root_event}\n`);
+    }
     return;
   }
   if (process.argv.includes('--cleanup')) {
@@ -146,7 +189,7 @@ async function main() {
     console.log(`Child workflow run: ${url}`);
     appendFileSync(env.GITHUB_STEP_SUMMARY, `### [${env.CHILD_TITLE} details](${url})\n\n`);
     const waitMinutes = Number(env.WAIT_MINUTES || 30);
-    if (!Number.isFinite(waitMinutes) || waitMinutes < 1 || waitMinutes > 60) throw new Error('Invalid child wait limit');
+    if (!Number.isFinite(waitMinutes) || waitMinutes < 1 || waitMinutes > 180) throw new Error('Invalid child wait limit');
     const finishDeadline = Date.now() + waitMinutes * 60000;
     while (child.status !== 'completed' && !interrupted && Date.now() < finishDeadline) {
       await pause();

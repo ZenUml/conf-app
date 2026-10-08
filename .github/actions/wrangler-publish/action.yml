@@ -56,6 +56,10 @@ inputs:
       owns the cleanup of wrangler.toml.
     required: false
     default: 'false'
+  skip-migrations:
+    description: "'true' when the daily regression owner has already applied the shared D1 migrations."
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -130,6 +134,7 @@ runs:
       env:
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Run D1 Migrations
+      if: inputs.skip-migrations != 'true'
       run: pnpm exec wrangler d1 migrations apply DB --remote --env production
       shell: bash
       env:

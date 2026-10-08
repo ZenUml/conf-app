@@ -9,6 +9,15 @@ on:
       ref:
         type: string
         required: true
+      skip-migrations:
+        type: boolean
+        default: false
+      backend-sha-only:
+        type: boolean
+        default: false
+      workflow-ref:
+        type: string
+        default: ''
 
 # Ownership belongs to the parent daily workflow across all variants. Nested
 # transactions must not acquire its conf-app-staging group again.
@@ -42,6 +51,8 @@ jobs:
       license: ${{ inputs.variant }}
       project: ${{ inputs.variant == 'full' && 'conf-stg-full' || 'conf-stg-lite' }}
       environment: staging-${{ inputs.variant }}
+      skip-migrations: ${{ inputs.skip-migrations }}
+      workflow-ref: ${{ inputs.workflow-ref }}
     secrets: inherit
 
   auth:
@@ -64,6 +75,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
+      - name: Checkout daily verification tooling
+        if: inputs.workflow-ref != ''
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.workflow-ref }}
+          path: .ci-workflow
       - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
         with:
@@ -73,7 +90,14 @@ jobs:
           TARGET_SHA: ${{ inputs.ref }}
           VARIANT: ${{ inputs.variant }}
           BACKEND: ${{ needs.profile.outputs.backend }}
-        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant "$VARIANT" --url "$BACKEND"
+          BACKEND_SHA_ONLY: ${{ inputs.backend-sha-only }}
+          WORKFLOW_REF: ${{ inputs.workflow-ref }}
+        run: |
+          VERIFY_SCRIPT=scripts/test-selection/verify-backend.mjs
+          if [ -n "$WORKFLOW_REF" ]; then VERIFY_SCRIPT=".ci-workflow/$VERIFY_SCRIPT"; fi
+          ARGS=()
+          if [ "$BACKEND_SHA_ONLY" = true ]; then ARGS+=(--sha-only); fi
+          node "$VERIFY_SCRIPT" --sha "$TARGET_SHA" --variant "$VARIANT" --url "$BACKEND" "${ARGS[@]}"
       - run: cd tests/e2e-tests && pnpm install --ignore-workspace --frozen-lockfile && pnpm exec playwright install --with-deps chromium
       - uses: actions/download-artifact@v7
         with:

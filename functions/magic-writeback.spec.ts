@@ -165,6 +165,6 @@ describe('reviewed Magic writeback', () => {
   });
   it('fails open to Original for a failed write and never returns queued SVG', async () => {
     enqueue(); fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({}, 403));
-    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable' }); expect(row().claimToken).toBeNull();
+    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable', reason: 'put_403' }); expect(row().claimToken).toBeNull();
   });
 });

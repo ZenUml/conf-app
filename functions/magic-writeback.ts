@@ -52,6 +52,8 @@ export async function onRequest({ request, data, env }: {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(environmentUuid)) return response(401, 'Invalid authenticated environment');
   const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`];
   const result = (outcome: string, artifact?: Artifact) => OkResponse({ outcome, ...(artifact ? { artifact } : {}) });
+  // Reason codes are fixed strings or HTTP statuses only: no bodies, hashes, tokens or error text.
+  const unavailable = (reason: string) => OkResponse({ outcome: 'unavailable', reason });
   let claim: Claimed | null = null;
   const fence = crypto.randomUUID();
   try {
@@ -69,7 +71,7 @@ export async function onRequest({ request, data, env }: {
     for (let attempt = 0; attempt < 3; attempt++) {
       // Read as the viewer on EVERY retry: recheck permission and fresh version/body.
       const read = await confluence(`${url}?body-format=raw`, user);
-      if (!read.ok) return result('unavailable');
+      if (!read.ok) return unavailable(`read_${read.status}`);
       const doc = await jsonLimited(read);
       if (String(doc.id) !== contentId || doc.status !== 'current' || !allowedTypes.includes(doc.type)
         || !Number.isSafeInteger(doc.version?.number) || doc.version.number < 1
@@ -92,13 +94,13 @@ export async function onRequest({ request, data, env }: {
         if (!claim) return result('miss');
       }
       const artifact = JSON.parse(claim.artifact);
-      if (!artifactValid(artifact, hash)) return result('unavailable');
+      if (!artifactValid(artifact, hash)) return unavailable('artifact_invalid');
       // Ensure the lease still belongs to this attempt before a write. A competing
       // claim uses a different fence and can never be deleted by this completion.
       const owned = await env.DB.prepare(
         'SELECT id FROM MagicWriteback WHERE id=?1 AND claimToken=?2 AND claimUntil>?3 AND expiresAt>?3',
       ).bind(claim.id, fence, Date.now()).first();
-      if (!owned) return result('unavailable');
+      if (!owned) return unavailable('lease_lost');
       const merged = { ...body, magic: artifact };
       // Preserve the current container (the API permits exactly one container).
       const container = ['pageId', 'blogPostId', 'customContentId', 'spaceId'].find(k => doc[k] != null);
@@ -109,22 +111,22 @@ export async function onRequest({ request, data, env }: {
           version: { number: doc.version.number + 1, message: 'Prepared Magic view', minorEdit: true } }),
       });
       if (put.status === 409) continue;
-      if (!put.ok) return result('unavailable');
+      if (!put.ok) return unavailable(`put_${put.status}`);
       const saved = await jsonLimited(put);
-      if (saved.errors || String(saved.id) !== contentId || saved.version?.number !== doc.version.number + 1) return result('unavailable');
+      if (saved.errors || String(saved.id) !== contentId || saved.version?.number !== doc.version.number + 1) return unavailable('put_mismatch');
       // A raw body in the PUT response proves which artifact was persisted. If
       // Confluence omits it, confirm with a fresh user read before acknowledgement.
       let confirmed = saved;
       if (typeof saved.body?.raw?.value !== 'string') {
         const confirmation = await confluence(`${url}?body-format=raw`, user);
-        if (!confirmation.ok) return result('unavailable');
+        if (!confirmation.ok) return unavailable(`confirm_${confirmation.status}`);
         confirmed = await jsonLimited(confirmation);
       }
       const confirmedBody = JSON.parse(confirmed.body?.raw?.value ?? 'null');
       if (String(confirmed.id) !== contentId || !allowedTypes.includes(confirmed.type) || confirmed.status !== 'current'
         || !confirmedBody || confirmedBody.mermaidCode !== body.mermaidCode
         || !artifactValid(confirmedBody.magic, hash) || confirmedBody.magic.svg !== artifact.svg
-        || confirmedBody.magic.generatedAt !== artifact.generatedAt) return result('unavailable');
+        || confirmedBody.magic.generatedAt !== artifact.generatedAt) return unavailable('confirm_mismatch');
       // Successful Confluence PUT is the only delivery acknowledgement. Failure
       // to purge is harmless: a later attempt sees the existing stored artifact.
       try {
@@ -136,7 +138,7 @@ export async function onRequest({ request, data, env }: {
     return result('conflict');
   } catch {
     // Never log tenant bodies, SVGs, source hashes, credentials, or API envelopes.
-    return result('unavailable');
+    return unavailable('exception');
   } finally {
     if (claim) {
       try {

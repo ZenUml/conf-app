@@ -51,3 +51,23 @@ it('uses Jev behavior categories without adding a Mermaid-specific execution flo
     expect(plan.selection_metrics.missing_floor_ids).toEqual([]);
   } finally { rmSync(temp, { recursive: true, force: true }); }
 });
+
+it('main plans smoke from real complete regression inventories for all four variants', () => {
+  const temp = mkdtempSync(join(tmpdir(), 'main-selection-inventory-'));
+  try {
+    const mainSelection = { ...selection, selection_scope: 'main', no_additional_impact: true, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: 0.02, selected: false }])) };
+    const mainResolved = resolveSelection({ selection: mainSelection, files: ['functions/new-handler.ts'], head, tree, scope: 'main' });
+    writeFileSync(join(temp, 'selection.json'), JSON.stringify(mainSelection));
+    writeFileSync(join(temp, 'resolved.json'), JSON.stringify(mainResolved));
+    for (const [variant, app] of [['lite', 'zenuml-lite@stg'], ['full', 'zenuml-full@stg'], ['diagramly', 'diagramly@stg'], ['asyncapi', 'asyncapi@stg']]) {
+      for (const suite of ['regression', 'regression-render']) {
+        execFileSync('node', ['../../scripts/test-selection/prepare-plan.mjs'], { cwd, env: { ...discoveryEnv, APP: app, TEST_SUITE: suite, SELECTION_SCOPE: 'main', SELECTION_PATH: join(temp, 'selection.json'), RESOLVED_SELECTION_PATH: join(temp, 'resolved.json'), PLAN_PATH: join(temp, 'plan.json'), METRICS_PATH: join(temp, 'metrics.json') }, encoding: 'utf8' });
+        const plan = JSON.parse(readFileSync(join(temp, 'plan.json'), 'utf8'));
+        expect(plan.selection_metrics.mode, `${variant} ${suite}`).toBe('selected');
+        expect(plan.tests.every(test => test.tags.includes(`@variant:${variant}`) && test.tags.includes('@smoke'))).toBe(true);
+        if (suite === 'regression') expect(plan.tests.length).toBeGreaterThan(0);
+        else expect(plan.shards).toEqual([]);
+      }
+    }
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+}, 30000);

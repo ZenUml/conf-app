@@ -100,3 +100,35 @@ test('child accepts only an active staging parent in the matching attempt', () =
     assert.throws(() => verifyParent(invalid, '2', jobs, ['E2E validation']), /active staging parent/);
   }
 });
+
+test('root option artifact binds manual controls to source, run and attempt', async () => {
+  const { rootOptions, verifyRootOptions } = await import('./wait-for-e2e.mjs');
+  const env = { GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', GITHUB_SHA: 'abc', GITHUB_EVENT_NAME: 'workflow_dispatch', FULL_TESTS: 'true', BYPASS_REGRESSION_GATE: 'true', BYPASS_REASON: ' urgent fix\nwith context ' };
+  const options = rootOptions(env);
+  const root = { id: 12, run_attempt: 2, head_sha: 'abc', event: 'workflow_dispatch', path: '.github/workflows/build-test-deploy.yml' };
+  assert.equal(options.full_tests, true);
+  assert.equal(options.bypass_reason, 'urgent fix\nwith context');
+  verifyRootOptions(options, root, '12', '2', 'abc');
+  for (const mutation of [{ source_sha: 'other' }, { root_attempt: '1' }, { root_run_id: '13' }, { root_event: 'push' }, { bypass_reason: ' ' }, { full_tests: 'true' }]) {
+    assert.throws(() => verifyRootOptions({ ...options, ...mutation }, root, '12', '2', 'abc'), /verified root/);
+  }
+  assert.throws(() => rootOptions({ ...env, BYPASS_REASON: ' ' }), /requires a reason/);
+  const push = rootOptions({ ...env, GITHUB_EVENT_NAME: 'push' });
+  assert.equal(push.full_tests, false);
+  assert.equal(push.bypass_regression_gate, false);
+  assert.equal(push.bypass_reason, '');
+  assert.throws(() => verifyRootOptions(options, { ...root, event: 'push' }, '12', '2', 'abc'), /verified root/);
+});
+
+test('root accepts a blocked daily gate only from its immutable draft producer', async () => {
+  const { verifyDailyGate } = await import('./wait-for-e2e.mjs');
+  const producer = { id: 43, path: '.github/workflows/main-draft-preparation.yml', display_title: 'Draft preparation · parent 12 · attempt 2 · source abc', status: 'completed', conclusion: 'failure', run_attempt: 1, event: 'workflow_dispatch', actor: { login: 'github-actions[bot]' } };
+  const gate = { producer_run_id: '43', root_run_id: '12', root_attempt: '2', source_sha: 'abc', allowed: 'false', 'gate-reason': 'Latest daily regression failed' };
+  assert.equal(verifyDailyGate(gate, producer, '12', '2', 'abc', '43')['gate-reason'], 'Latest daily regression failed');
+  for (const patch of [{ producer_run_id: '44' }, { root_run_id: '13' }, { root_attempt: '1' }, { source_sha: 'other' }, { allowed: true }]) {
+    assert.throws(() => verifyDailyGate({ ...gate, ...patch }, producer, '12', '2', 'abc', '43'), /does not match/);
+  }
+  for (const patch of [{ run_attempt: 2 }, { status: 'in_progress' }, { actor: { login: 'maintainer' } }, { display_title: producer.display_title.replace('attempt 2', 'attempt 1') }]) {
+    assert.throws(() => verifyDailyGate(gate, { ...producer, ...patch }, '12', '2', 'abc', '43'), /does not match/);
+  }
+});

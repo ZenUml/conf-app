@@ -4,6 +4,7 @@ import { isCsatPendingFresh } from '@/utils/csat';
 import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/byline/unplacedMarker';
 import { higherPriorityBannerPending } from '@/utils/banners/priority';
 import { whatsNewCandidate } from '@/utils/whatsNew/state';
+import type { TargetedSurveyCandidate } from '@/features/targetedSurvey/survey';
 
 /**
  * Single `confluence:pageBanner` host. Confluence creates exactly one banner
@@ -152,4 +153,18 @@ export async function handlePageBannerRoute(
   }
   createApp(component as any, props).mount(container);
   return effective;
+}
+
+/** Async, Full-only fallback after every existing synchronous banner gate. */
+export async function handleTargetedSurveyRoute(candidate: TargetedSurveyCandidate): Promise<void> {
+  try {
+    const container = document.getElementById('app');
+    if (!container) throw new Error('missing banner container');
+    await globals.apWrapper.initializeContext();
+    const component = (await import('@/components/TargetedSurvey/TargetedSurveyBanner.vue')).default;
+    createApp(component, candidate).mount(container);
+  } catch {
+    const { view } = await import('@forge/bridge');
+    await view.close();
+  }
 }

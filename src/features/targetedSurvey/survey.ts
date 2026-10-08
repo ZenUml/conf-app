@@ -17,6 +17,9 @@ export interface TargetedSurveyCandidate {
   survey: PublicSurvey;
   terminalKey: string;
 }
+export type SurveyClaimResult = { claimToken: string } | {
+  reason: 'already_claimed' | 'unavailable' | 'invalid_response';
+};
 
 const OPTION_IDS = new Set(['performance', 'editing', 'display', 'export', 'missing_feature', 'other']);
 const LOOKUP_TIMEOUT_MS = 2500;
@@ -43,7 +46,7 @@ function validSurvey(value: unknown): value is PublicSurvey {
 
 /** Called only after the existing synchronous page-banner priorities say none. */
 export async function loadTargetedSurvey(): Promise<TargetedSurveyCandidate | null> {
-  if (import.meta.env.PRODUCT_TYPE !== 'full') return null;
+  if (import.meta.env.PRODUCT_TYPE !== 'full' && import.meta.env.PRODUCT_TYPE !== 'lite') return null;
   try {
     const context = await getContext();
     if (typeof context?.cloudId !== 'string' || !context.cloudId
@@ -69,5 +72,23 @@ export async function loadTargetedSurvey(): Promise<TargetedSurveyCandidate | nu
     return { survey, terminalKey };
   } catch {
     return null;
+  }
+}
+
+/** The server's unique D1 constraint arbitrates across Forge app origins. */
+export async function requestSurveyClaim(survey: PublicSurvey): Promise<SurveyClaimResult> {
+  try {
+    const raw = await withinDeadline(callRemote('/api/targeted-survey', 'PUT', {
+      surveyUuid: survey.uuid,
+      revision: survey.revision,
+    }), LOOKUP_TIMEOUT_MS);
+    if (!raw) return { reason: 'unavailable' };
+    const body = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (body?.claimed === false) return { reason: 'already_claimed' };
+    if (body?.claimed === true && typeof body.claimToken === 'string'
+      && /^[0-9a-f-]{36}$/i.test(body.claimToken)) return { claimToken: body.claimToken };
+    return { reason: 'invalid_response' };
+  } catch {
+    return { reason: 'unavailable' };
   }
 }

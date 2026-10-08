@@ -22,7 +22,7 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
-import { decidePageBanner, handlePageBannerRoute, handleTargetedSurveyRoute } from './routes/pageBanner';
+import { decidePageBanner, handlePageBannerRoute, maybeHandleTargetedSurvey } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
@@ -187,12 +187,12 @@ async function initializeCriticalPath() {
   // which banner (if any) to show: paywall warning outranks the CSAT survey.
   // The paywall branch is eligible only when the space is unpaid, over the
   // Lite hard limit, CSS targeting is on, recent macro authoring activity is
-  // present, and the user is not snoozed. On the ~99% of loads where neither
-  // banner is eligible we close immediately WITHOUT importing the banner
-  // route, initializing the macro context, or mounting Vue. One module +
+  // present, and the user is not snoozed. When existing banners decline,
+  // Lite and Full check one bounded targeted-survey lookup before closing.
+  // Diagramly and AsyncAPI still close without that lookup. One module +
   // central priority means the banners never coordinate across iframes (no
-  // defer). decidePageBanner() touches only the cheap predicates, so this
-  // stays a true fast-exit.
+  // defer). decidePageBanner() touches only cheap local predicates; the survey
+  // lookup runs after they decline.
   // (Routed by moduleKey, not extension.type, because the pageBanner extension
   // carries no macro config to discriminate on.)
   // The unplaced-diagram banner. A SEPARATE pageBanner module from the host
@@ -238,17 +238,10 @@ async function initializeCriticalPath() {
 
     const choice = decidePageBanner();
     if (choice === 'none') {
-      // The targeted survey is a Full-only, authenticated fallback. The
+      // The targeted survey is a Lite/Full authenticated fallback. The
       // lookup has a strict deadline and fails closed. It runs only after the
       // existing banners decline their slot, so it never delays their display.
-      if (import.meta.env.PRODUCT_TYPE === 'full') {
-        const { loadTargetedSurvey } = await import('@/features/targetedSurvey/survey');
-        const candidate = await loadTargetedSurvey();
-        if (candidate) {
-          await handleTargetedSurveyRoute(candidate);
-          return { macroData: null };
-        }
-      }
+      if (await maybeHandleTargetedSurvey(import.meta.env.PRODUCT_TYPE)) return { macroData: null };
       // Idle renderer prefetch (EAG-64): the banner mounts on every page —
       // including pages with no macros — making it the only surface that can
       // warm the renderer-bundle cache for macro-free browsing. Gated by a

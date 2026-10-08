@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadTargetedSurvey } from './survey';
+import { loadTargetedSurvey, requestSurveyClaim } from './survey';
 
 const boundary = vi.hoisted(() => ({
   remote: vi.fn(), context: vi.fn(), page: vi.fn(), property: vi.fn(),
@@ -26,10 +26,25 @@ describe('targeted survey page-banner eligibility', () => {
   });
   afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
 
-  it('does not query the backend in Lite', async () => {
+  it('offers a matching survey in Lite and Full, but not Diagramly', async () => {
     vi.stubEnv('PRODUCT_TYPE', 'lite');
+    expect((await loadTargetedSurvey())?.survey).toEqual(survey);
+    vi.stubEnv('PRODUCT_TYPE', 'full');
+    expect((await loadTargetedSurvey())?.survey).toEqual(survey);
+    boundary.remote.mockClear();
+    vi.stubEnv('PRODUCT_TYPE', 'diagramly');
     expect(await loadTargetedSurvey()).toBeNull();
     expect(boundary.remote).not.toHaveBeenCalled();
+  });
+
+  it('requires a confirmed one-time display claim before showing', async () => {
+    boundary.remote.mockResolvedValueOnce({ claimed: false });
+    expect(await requestSurveyClaim(survey)).toEqual({ reason: 'already_claimed' });
+    boundary.remote.mockResolvedValueOnce({ claimed: true, claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10' });
+    expect(await requestSurveyClaim(survey)).toEqual({ claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10' });
+    expect(boundary.remote).toHaveBeenCalledWith('/api/targeted-survey', 'PUT', {
+      surveyUuid: survey.uuid, revision: 1,
+    });
   });
 
   it('fails closed without a browser identity or a verifiable page', async () => {

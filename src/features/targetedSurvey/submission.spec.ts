@@ -6,11 +6,11 @@ describe('targeted survey send', () => {
     const remote = vi.fn()
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce({ ok: true });
-    const session = createSurveySubmission({ uuid: 'survey-example', revision: 3 }, remote);
+    const session = createSurveySubmission({ uuid: 'survey-example', revision: 3 }, 'claim-example', remote);
     await expect(session.send(['editing'], 'A label would help')).rejects.toThrow('offline');
     await expect(session.send(['editing'], 'A label would help')).resolves.toEqual({ ok: true });
     expect(remote).toHaveBeenCalledTimes(2);
     expect(remote.mock.calls[0][2]).toEqual(remote.mock.calls[1][2]);
-    expect(remote.mock.calls[1][2]).toMatchObject({ options: ['editing'], text: 'A label would help' });
+    expect(remote.mock.calls[1][2]).toMatchObject({ claimToken: 'claim-example', options: ['editing'], text: 'A label would help' });
   });
 });

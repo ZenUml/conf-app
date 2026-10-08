@@ -6,6 +6,7 @@ interface Env {
 }
 
 const FULL_APP_ID = 'd9e4002b-120b-426b-834b-402a4a5adce7';
+const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const ACTIVE_KEY = 'targeted-survey:active';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPTION_IDS = ['performance', 'editing', 'display', 'export', 'missing_feature', 'other'] as const;
@@ -15,7 +16,7 @@ interface SurveyConfig {
   uuid: string;
   revision: number;
   enabled: boolean;
-  product: 'full';
+  products: Array<'full' | 'lite'>;
   cloudId: string;
   accountId: string;
   startsAt: string;
@@ -35,7 +36,7 @@ function json(status: number, body: unknown): Response {
 function identity(fit: ForgeRequestContext | undefined): fit is ForgeRequestContext & {
   cloudId: string; accountId: string; forgeAppId: string;
 } {
-  return !!fit && fit.forgeAppId === FULL_APP_ID
+  return !!fit && (fit.forgeAppId === FULL_APP_ID || fit.forgeAppId === LITE_APP_ID)
     && typeof fit.cloudId === 'string' && fit.cloudId.length > 0
     && typeof fit.accountId === 'string' && fit.accountId.length > 0;
 }
@@ -45,7 +46,10 @@ function parseConfig(value: unknown): SurveyConfig | null {
   const c = value as Record<string, unknown>;
   if (typeof c.uuid !== 'string' || !UUID.test(c.uuid)
     || !Number.isSafeInteger(c.revision) || Number(c.revision) < 1
-    || c.enabled !== true || c.product !== 'full'
+    || c.enabled !== true
+    || !Array.isArray(c.products) || c.products.length < 1 || c.products.length > 2
+    || c.products.some((p) => p !== 'full' && p !== 'lite')
+    || new Set(c.products).size !== c.products.length
     || typeof c.cloudId !== 'string' || !c.cloudId
     || typeof c.accountId !== 'string' || !c.accountId
     || typeof c.startsAt !== 'string' || typeof c.expiresAt !== 'string'
@@ -60,23 +64,32 @@ function parseConfig(value: unknown): SurveyConfig | null {
   return c as unknown as SurveyConfig;
 }
 
-async function eligible(env: Env, fit: ForgeRequestContext): Promise<SurveyConfig | null> {
+async function eligible(env: Env, fit: ForgeRequestContext, excludeClaimed = false): Promise<SurveyConfig | null> {
   if (!identity(fit) || !env.SPACE_LICENSE_KV || !env.DB) return null;
   const raw = await env.SPACE_LICENSE_KV.get(ACTIVE_KEY);
   const survey = parseConfig(raw ? JSON.parse(raw) : null);
-  if (!survey || survey.cloudId !== fit.cloudId || survey.accountId !== fit.accountId) return null;
+  const product = fit.forgeAppId === FULL_APP_ID ? 'full' : 'lite';
+  if (!survey || !survey.products.includes(product)
+    || survey.cloudId !== fit.cloudId || survey.accountId !== fit.accountId) return null;
   const now = Date.now();
   if (now < Date.parse(survey.startsAt) || now >= Date.parse(survey.expiresAt)) return null;
   // Do not show a form that cannot be stored. A storage failure is treated as
   // no eligible survey by callers; the response never leaks target metadata.
   await env.DB.prepare('SELECT id FROM TargetedSurveyResponse LIMIT 1').first();
+  await env.DB.prepare('SELECT id FROM TargetedSurveyClaim LIMIT 1').first();
+  if (excludeClaimed) {
+    const existing = await env.DB.prepare(`
+      SELECT id FROM TargetedSurveyClaim WHERE surveyUuid = ?1 AND cloudId = ?2 AND accountId = ?3
+    `).bind(survey.uuid, fit.cloudId, fit.accountId).first();
+    if (existing) return null;
+  }
   return survey;
 }
 
 export const onRequestGet: PagesFunction<Env, string, ForgeRequestData> = async ({ env, data }) => {
   if (!identity(data.forgeContext)) return json(200, { survey: null });
   try {
-    const survey = await eligible(env, data.forgeContext);
+    const survey = await eligible(env, data.forgeContext, true);
     return json(200, { survey: survey ? {
       uuid: survey.uuid,
       revision: survey.revision,
@@ -87,6 +100,47 @@ export const onRequestGet: PagesFunction<Env, string, ForgeRequestData> = async 
     } : null });
   } catch {
     return json(503, { survey: null });
+  }
+};
+
+/** Irreversible, atomic display claim shared by the Lite and Full backends. */
+export const onRequestPut: PagesFunction<Env, string, ForgeRequestData> = async ({ request, env, data }) => {
+  const fit = data.forgeContext;
+  if (!identity(fit)) return json(404, { claimed: false });
+  let survey: SurveyConfig | null;
+  try {
+    survey = await eligible(env, fit);
+  } catch {
+    return json(503, { claimed: false });
+  }
+  if (!survey) return json(404, { claimed: false });
+  let body: unknown;
+  try {
+    const raw = await request.text();
+    if (raw.length > 1024) return json(413, { claimed: false });
+    body = JSON.parse(raw);
+  } catch {
+    return json(400, { claimed: false });
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+    || (body as any).surveyUuid !== survey.uuid || (body as any).revision !== survey.revision) {
+    return json(400, { claimed: false });
+  }
+  const claimToken = crypto.randomUUID();
+  try {
+    const result = await env.DB.prepare(`
+      INSERT OR IGNORE INTO TargetedSurveyClaim
+      (surveyUuid, cloudId, accountId, forgeAppId, claimToken)
+      VALUES (?1, ?2, ?3, ?4, ?5)
+    `).bind(survey.uuid, fit.cloudId, fit.accountId, fit.forgeAppId, claimToken).run();
+    if (!result.success || result.meta?.changes !== 1 && result.meta?.changes !== 0) {
+      return json(503, { claimed: false });
+    }
+    return result.meta.changes === 1
+      ? json(200, { claimed: true, claimToken })
+      : json(200, { claimed: false });
+  } catch {
+    return json(503, { claimed: false });
   }
 };
 
@@ -123,6 +177,18 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
     || (response.text !== undefined && typeof response.text !== 'string')
     || text.length > 2000 || (!text && options.length === 0)) {
     return json(400, { ok: false, error: 'invalid_response' });
+  }
+
+  try {
+    const claim = await env.DB.prepare(`
+      SELECT claimToken, forgeAppId FROM TargetedSurveyClaim WHERE surveyUuid = ?1 AND cloudId = ?2 AND accountId = ?3
+    `).bind(survey.uuid, fit.cloudId, fit.accountId).first<{ claimToken: string; forgeAppId: string }>();
+    if (!claim || typeof response.claimToken !== 'string' || response.claimToken !== claim.claimToken
+      || claim.forgeAppId !== fit.forgeAppId) {
+      return json(404, { ok: false, error: 'unavailable' });
+    }
+  } catch {
+    return json(503, { ok: false, error: 'storage_unavailable', retryable: true });
   }
 
   try {

@@ -663,7 +663,7 @@ export type AnalyticsEventName =
   | "csat_displayed"
   | "csat_submitted"
   | "csat_dismissed"
-  // Full-only targeted survey funnel. The server selects the recipient from a
+  // Lite/Full targeted survey funnel. The server selects the recipient from a
   // verified Forge identity; events contain campaign metadata only, never the
   // target, selected answer, or free text.
   | "targeted_survey_shown"

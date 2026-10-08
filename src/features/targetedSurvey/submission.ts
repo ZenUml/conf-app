@@ -2,6 +2,7 @@ import { callRemote } from '@/utils/requestUtil';
 
 export function createSurveySubmission(
   survey: { uuid: string; revision: number },
+  claimToken: string,
   remote: typeof callRemote = callRemote,
 ) {
   const submissionId = crypto.randomUUID();
@@ -12,6 +13,7 @@ export function createSurveySubmission(
       const payload = {
         surveyUuid: survey.uuid,
         revision: survey.revision,
+        claimToken,
         submissionId,
         options: [...options],
         text,

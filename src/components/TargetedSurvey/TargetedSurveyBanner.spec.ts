@@ -29,7 +29,7 @@ async function show() {
 describe('targeted survey page banner', () => {
   beforeEach(() => {
     localStorage.clear();
-    remote.mockReset();
+    remote.mockReset().mockResolvedValue({ claimed: true, claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10' });
     close.mockReset();
     track.mockReset();
     Object.defineProperty(navigator, 'locks', {
@@ -50,8 +50,17 @@ describe('targeted survey page banner', () => {
     expect(close).toHaveBeenCalled();
   });
 
+  it('does not display when another product already owns the server claim', async () => {
+    remote.mockResolvedValueOnce({ claimed: false });
+    const wrapper = await show();
+    expect(wrapper.text()).toBe('');
+    expect(close).toHaveBeenCalled();
+    expect(track).not.toHaveBeenCalledWith('targeted_survey_shown', expect.anything());
+  });
+
   it('retains selected choices and text after failure, then retries with the same key', async () => {
-    remote.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ok: true });
+    remote.mockResolvedValueOnce({ claimed: true, claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10' })
+      .mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ok: true });
     const wrapper = await show();
     await wrapper.get('button.primary').trigger('click');
     await wrapper.get('input[value="editing"]').setValue(true);
@@ -62,14 +71,15 @@ describe('targeted survey page banner', () => {
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('The editor lost my position.');
     await wrapper.get('button.primary').trigger('click');
     await flushPromises();
-    expect(remote.mock.calls[0][2]).toEqual(remote.mock.calls[1][2]);
+    expect(remote.mock.calls[1][2]).toEqual(remote.mock.calls[2][2]);
     expect(localStorage.getItem(terminalKey)).toBe('submitted');
     expect(wrapper.text()).toContain('Thank you');
   });
 
   it('does not resurrect a dismissed form when its in-flight send later succeeds', async () => {
     let resolveSend!: (result: object) => void;
-    remote.mockReturnValue(new Promise((resolve) => { resolveSend = resolve; }));
+    remote.mockResolvedValueOnce({ claimed: true, claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10' })
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSend = resolve; }));
     const wrapper = await show();
     await wrapper.get('button.primary').trigger('click');
     await wrapper.get('input[value="editing"]').setValue(true);

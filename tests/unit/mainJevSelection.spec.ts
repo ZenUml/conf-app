@@ -47,6 +47,13 @@ describe('main Jev behavior selection', () => {
     const s = await classifyMain({ fetchImpl: fakeResponse(0.02, selected) });
     expect(plan(s, variant).tests.map(t => t.id).sort()).toEqual(['impact', 'smoke']);
   });
+  it('requires full coverage for helpers whose dependent specs are not proven', async () => {
+    const s = await classifyMain();
+    const files = ['tests/e2e-tests/helpers/CopyForAiHelper.ts'];
+    expect(resolved(s, files).mode).toBe('all');
+    const classified = await classifyMain({ diff: { ...diff, paths: files } });
+    expect(classified.fallback_reason).toBe('selection-infrastructure-path');
+  });
   it('retains a directly modified test when Jev reports no extra impact', async () => {
     const s = await classifyMain();
     expect(plan(s, 'lite', false, ['tests/e2e-tests/tests/agent-link/unrelated.spec.ts']).tests.map(t => t.id).sort()).toEqual(['smoke', 'unrelated']);

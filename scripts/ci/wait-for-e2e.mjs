@@ -202,7 +202,7 @@ async function main() {
     console.log(`Child workflow run: ${url}`);
     appendFileSync(env.GITHUB_STEP_SUMMARY, `### [${env.CHILD_TITLE} details](${url})\n\n`);
     const waitMinutes = Number(env.WAIT_MINUTES || 30);
-    if (!Number.isFinite(waitMinutes) || waitMinutes < 1 || waitMinutes > 180) throw new Error('Invalid child wait limit');
+    if (!Number.isFinite(waitMinutes) || waitMinutes < 1 || waitMinutes > 300) throw new Error('Invalid child wait limit');
     const finishDeadline = Date.now() + waitMinutes * 60000;
     while (child.status !== 'completed' && !interrupted && Date.now() < finishDeadline) {
       await pause();

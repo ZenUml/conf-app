@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { aggregateRegression } from './regression-results.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,8 +15,8 @@ export async function findBaseline(runs, { sourceSha, rootRunId, isAncestor }) {
   }
   return { 'base-sha': '', 'force-full': 'true' };
 }
-export async function evaluateGate(runs, { sourceSha, now = Date.now(), isAncestor, targetSha, rootEvent, bypass, bypassReason, lookupError }) {
-  const run = [...runs].filter(r => r.head_branch === 'main' && r.status === 'completed').sort((a, b) => Number(b.id) - Number(a.id))[0];
+export async function evaluateGate(runs, { sourceSha, now = Date.now(), isAncestor, targetSha, rootEvent, bypass, bypassReason, lookupError, executionEvidence }) {
+  const run = [...runs].filter(r => r.head_branch === 'main' && r.status === 'completed').sort((a, b) => (Date.parse(b.updated_at) || Infinity) - (Date.parse(a.updated_at) || Infinity) || Number(b.id) - Number(a.id))[0];
   const result = (allowed, reason) => ({ allowed: String(allowed), 'gate-reason': reason, 'regression-run-url': run?.html_url || '' });
   // Provenance for these inputs is checked by the trusted caller against the root run.
   if (bypass === true || bypass === 'true') {
@@ -30,7 +31,18 @@ export async function evaluateGate(runs, { sourceSha, now = Date.now(), isAncest
   if (!Number.isFinite(completed) || completed > now || now - completed > WINDOW_MS) return result(false, 'Latest completed main regression is older than 36 hours or has invalid completion time');
   const sha = await targetSha(run);
   if (!SHA.test(sha || '') || !await isAncestor(sha, sourceSha)) return result(false, 'Regression target is not a verified ancestor of this main source');
+  if (!executionEvidence || !await executionEvidence(run, sha, now)) return result(false, 'Daily regression lacks complete fresh execution evidence for all four variants; start a new full regression run');
   return result(true, 'Latest completed main regression succeeded within 36 hours on a verified ancestor');
+}
+export function freshRegressionCoverage(run, jobs, sha, now) {
+  const evidence = aggregateRegression(run, jobs, { sha });
+  if (evidence.variants.length !== 4 || evidence.variants.some(v => v.deployment !== 'success' || v.version !== 'success' || v.tests !== 'success' || v.failures.length)) return false;
+  const executed = jobs.filter(job => /^(Lite|Full|Diagramly|AsyncAPI) \/.*\/ (?:plan concrete tests|shard \d+\/\d+|aggregate concrete evidence)$/.test(job.name));
+  return executed.length > 0 && executed.every(job => {
+    const completed = Date.parse(job.completed_at);
+    return Number.isFinite(completed) && completed <= now && now - completed <= WINDOW_MS
+      && (job.run_attempt === undefined || Number(job.run_attempt) === Number(run.run_attempt));
+  });
 }
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 60000, maxBuffer: 20 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
 export async function fetchRuns(api, workflow, repo) {
@@ -66,7 +78,11 @@ async function main() {
   let output;
   try {
     const runs = await fetchRuns(api, mode === '--baseline' ? 'build-test-deploy.yml' : 'daily-regression.yml', repo);
-    output = mode === '--baseline' ? await findBaseline(runs, { sourceSha, rootRunId: process.env.ROOT_RUN_ID, isAncestor: ancestry }) : await evaluateGate(runs, { sourceSha, isAncestor: ancestry, targetSha: run => regressionTarget(run, repo), rootEvent: process.env.ROOT_EVENT, bypass: process.env.BYPASS_REGRESSION_GATE, bypassReason: process.env.BYPASS_REASON });
+    output = mode === '--baseline' ? await findBaseline(runs, { sourceSha, rootRunId: process.env.ROOT_RUN_ID, isAncestor: ancestry }) : await evaluateGate(runs, { sourceSha, isAncestor: ancestry, targetSha: run => regressionTarget(run, repo), executionEvidence: (run, sha, now) => {
+      const pages = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`]));
+      if (!Array.isArray(pages) || pages.some(page => !Array.isArray(page.jobs))) throw new Error('Incomplete regression job evidence');
+      return freshRegressionCoverage(run, pages.flatMap(page => page.jobs), sha, now);
+    }, rootEvent: process.env.ROOT_EVENT, bypass: process.env.BYPASS_REGRESSION_GATE, bypassReason: process.env.BYPASS_REASON });
   } catch {
     output = mode === '--baseline' ? { 'base-sha': '', 'force-full': 'true' } : await evaluateGate([], { sourceSha, lookupError: true, rootEvent: process.env.ROOT_EVENT, bypass: process.env.BYPASS_REGRESSION_GATE, bypassReason: process.env.BYPASS_REASON });
   }

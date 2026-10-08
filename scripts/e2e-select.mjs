@@ -58,7 +58,7 @@ const directTestFilesFor = path => {
 
 // Main delegates application and shared-code impact to Jev. Changes to the
 // selector, category catalog, or CI harness invalidate that decision boundary.
-export const mainSafetyPath = path => /^(?:\.github\/|scripts\/(?:ci\/|test-selection\/|e2e-select\.mjs$)|tests\/e2e-tests\/(?:config\/|playwright[^/]*\.config\.ts$|global[^/]*))/.test(path);
+export const mainSafetyPath = path => (path.startsWith('tests/e2e-tests/helpers/') && !DIRECT_TEST_DEPENDENCIES[path]) || /^(?:\.github\/|scripts\/(?:ci\/|test-selection\/|e2e-select\.mjs$)|tests\/e2e-tests\/(?:config\/|playwright[^/]*\.config\.ts$|global[^/]*))/.test(path);
 
 /** @returns {{ mode: 'all'|'selected', tags: string[], grep: string, reasons: string[], direct_test_files: string[] }} */
 export function select(files, { scope = 'pr' } = {}) {

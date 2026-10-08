@@ -92,7 +92,9 @@ describe('staging workflow safety contracts', () => {
     expect(draftDispatch.env.ARTIFACT_RUN_ID).toBe('${{ needs.build-preparation.outputs.run-id }}');
     expect(draftDispatch.env.STAGING_RUN_ID).toBe('${{ needs.staging-validation.outputs.run-id }}');
     expect(root.jobs.outcome.needs).toContain('staging-validation');
-    expect(root.jobs.outcome.steps[0].run).toContain("value.result !== 'success'");
+    const verdict = root.jobs.outcome.steps.find((step: any) => step.name === 'Require successful phases');
+    expect(verdict.if).toBe('always()');
+    expect(verdict.run).toContain("value.result !== 'success'");
   });
   it('verifies root ownership and pins phase source checkouts and nested ancestry', () => {
     const root = structure('build-test-deploy');
@@ -207,7 +209,8 @@ describe('staging workflow safety contracts', () => {
   it('preserves manual full coverage and succeeds with legitimate skips while rejecting reuse', () => {
     const yaml = workflow('pr-validation'); expect(yaml).toContain("contains(github.event.pull_request.labels.*.name, 'test:all')"); expect(yaml).toContain('Human test:all override: full E2E coverage');
     expect(workflow('e2e-test')).toContain('if(!e.execution_succeeded) process.exit(1)');
-    expect(workflow('daily-regression')).toContain("cron: '0 2 * * *'");
+    expect(workflow('daily-regression')).toContain("cron: '0 3 * * *'");
+    expect(workflow('daily-regression')).toContain("timezone: 'Australia/Melbourne'");
     expect(workflow('staging-transaction')).toContain('ref: ${{ inputs.ref }}');
     expect(workflow('staging-transaction')).toContain('suite: regression'); expect(workflow('staging-transaction')).not.toContain("if: inputs.variant != 'asyncapi'"); expect(workflow('staging-transaction')).toContain('suite: regression-render');
     expect(workflow('daily-regression')).not.toContain('SLACK_BOT_TOKEN');

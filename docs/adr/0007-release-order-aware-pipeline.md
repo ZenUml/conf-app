@@ -1,4 +1,4 @@
-# 0007 — The pipeline is shaped by the release order, and tests never run twice on one tree
+# 0007 — The pipeline is shaped by the release order
 
 Date: 2026-09-11
 Status: accepted — implemented in stages (see the table at the end)
@@ -19,36 +19,27 @@ the critical path. What remained was decided in a design review on 2026-09-11
    two mutually exclusive call sites, not a polling gate. Drafts are not
    auto-published; a person still publishes each one.
 
-   *Addendum, 2026-10-08.* PR #715 (daily staging regression transaction +
-   Jev selection observation; commit `51921c32`, 2026-10-02) chained the main
-   run as Lite E2E → Deploy: Diagramly → Diagramly E2E → Deploy: AsyncAPI →
-   AsyncAPI E2E, so that the shared `conf-stg-lite` backend the daily-regression
-   verifier reads was never republished under a running E2E. That made
-   Diagramly wait on Lite, contrary to this decision. The chain is removed:
-   the Cloudflare Pages backend is one component by code and by data —
-   `functions/` has no `PRODUCT_TYPE` switch and imports nothing from `src/`,
-   so one commit gives identical backend bytes whichever variant builds it,
-   and `conf-stg-lite` / `conf-stg-full` bind the same D1/KV/R2
-   (`wrangler-stg.toml`). `main-staging-validation.yml` now deploys each
-   Pages project once (`staging-deploy.yml` mode `backend`), the four Forge
-   apps in parallel (mode `forge`), and each E2E waits only for its own Forge
-   deploy and its project's backend. `__ci-version.json` carries
-   `{sha, project}` instead of `{sha, variant}`, because it describes the
-   backend. The daily regression stays serial with mode `full`. The Full lane
-   stays: the org plan is `free` (20 concurrent jobs), the peak under the
-   chained graph was 17 on main run 37708318151 (figure from the 2026-10-08
-   investigation, before this change), and Lite (up to 10 + 5 + 1 = 16 shard
-   jobs), Diagramly (4) and AsyncAPI (3) now overlap, so the run can exceed
-   the cap for a few minutes and queue some shards; adding Full's 4 would
-   only lengthen that queue.
-2. **`main` does not re-run tests a PR already ran on the identical tree.** A
-   `pull_request` run tests `refs/pull/N/merge`; when `main` has not moved, the
-   merge commit's tree is byte-identical, and re-running Lite's E2E is pure
-   repetition. `main` compares trees, verifies the PR run's E2E jobs ran and
-   passed (a draft PR skips them), and cuts the draft with the reused run named
-   in its body. Any doubt — tree differs, no parent run, jobs skipped — runs
-   everything. "Require branches to be up to date" stays off until the hit rate
-   is measured.
+   *Addendum, 2026-10-09 (PR #751).* The main validation phase applies the
+   shared staging D1 migrations once. After that, all four variants use the
+   regular staging deployment, which publishes Pages beside Forge, with
+   `skip-migrations: true`. Lite, Diagramly and AsyncAPI deployment and E2E
+   lanes run independently; Full's E2E keeps its default after-Lite lane and
+   the existing `now` override. At one pinned SHA, `functions/` is identical
+   across variants and both staging Pages projects use the same D1/KV/R2
+   bindings (`wrangler-stg.toml`), so repeated backend publication does not
+   change the backend code under another lane's tests. The marker remains
+   `{sha, variant}`. Parallel staging backend checks accept the pinned SHA
+   with any valid variant marker; strict SHA and variant checking remains
+   the default for other callers, and frontend version checks still require
+   the selected variant. A migration failure blocks all four deployments
+   and drafts. This change covers main staging; the daily workflow change
+   is maintained separately in PR #760. Main-only runtime behavior needs
+   observation after merge; a draft PR cannot exercise this main graph.
+2. **Main validation uses the current main coverage policy.** The earlier
+   exact-tree PR reuse job was removed by the main Jev selection change.
+   PR #751 retains that behavior: each eligible main variant needs fresh
+   successful main E2E coverage, and every draft still needs the existing
+   daily regression gate or its verified root bypass.
 3. **The release run deploys; it does not build.** `main` builds the production
    bundles (with `VITE_APP_VERSION` = the draft tag) and attaches them to each
    draft; `release.yml` downloads and deploys. The Forge deploy and the
@@ -79,9 +70,9 @@ data on lite hotfixes within 7 days of a release); no in-shard `workers: 2`
 | Decision | Landed in |
 |---|---|
 | 1, 4, plus the shard/serial-group changes measured in `build-test-deploy.yml` | #669 |
-| 2 (`reuse-check` job; Lite at 10 shards after #669's split measured 4m06s on its tail shard) | the PR after #669 |
+| 2 (historical `reuse-check` job, removed by the main Jev selection change; Lite at 10 shards after #669's split measured 4m06s on its tail shard) | the PR after #669 |
 | 3 (`version` + `build-prod` jobs attach `dist-prod-<variant>.tgz` to each draft; `release.yml` downloads it; staging publishes Pages beside the Forge deploy) | the PR after #670 |
 | 6 (`e2e-rerun.yml`: one automatic re-run when every failed job is an E2E job, attempt 1 only; `e2e-flake-ranking.yml`: Mondays, from the week's blob reports) | #673; its `resurrect` job (a `main` run cancelled while pending, commit still the tip → re-run) in the PR after #673 |
 | 5, first half (closed tag taxonomy in `tests/e2e-tests/config/tags.ts`, every spec's top-level blocks tagged, `tests/unit/e2eTags.spec.ts` polices it) | the PR after #673 |
 | 5, second half (`tests/e2e-tests/config/impact-map.mjs` + `scripts/e2e-select.mjs`; the `select` job feeds `grep` to the Lite E2E on PR runs, whose job names gain "(selected)"; `select-ai` logs what a model would add, only when `ANTHROPIC_API_KEY` is set) | the PR after #674 |
-| 1, addendum (backend deployed once per Pages project, four Forge deploys in parallel, Diagramly/AsyncAPI no longer behind Lite E2E; `__ci-version.json` → `{sha, project}`) | #751 |
+| 1, addendum (one shared D1 migration gate, four regular staging deploys, independent Lite/Diagramly/AsyncAPI validation) | #751 |

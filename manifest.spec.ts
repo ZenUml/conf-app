@@ -30,9 +30,7 @@ describe("manifest.yml embed deeplink autoConvert matcher", () => {
     // supplies only `variant`, so `resolve` normalises both trigger shapes
     // into one set of values. What matters is that the step stays gated on
     // the full variant — assert the variant, not the expression's source.
-    // Manifest edits are Forge work, so they also skip a backend-only
-    // (mode=backend) deploy.
-    expect(override?.if).toBe("needs.resolve.outputs.forge == 'true' && (needs.resolve.outputs.variant == 'full')");
+    expect(override?.if).toBe("needs.resolve.outputs.variant == 'full'");
     expect(override?.with?.cmd).toContain("conf-full.zenuml.com/d/*/*");
     expect(override?.with?.cmd).toContain("autoConvert.matchers[0].pattern");
   });
@@ -135,7 +133,7 @@ describe("unplaced-diagram banner — the property key both sides depend on", ()
   });
 
   for (const [file, gate] of [
-    [".github/workflows/staging-deploy.yml", "needs.resolve.outputs.forge == 'true' && (needs.resolve.outputs.variant != 'lite')"],
+    [".github/workflows/staging-deploy.yml", "needs.resolve.outputs.variant != 'lite'"],
     [".github/workflows/release.yml", "${{ steps.properties.outputs.license != 'lite' }}"],
   ] as const) {
     it(`${file} strips it for non-Lite variants too`, () => {

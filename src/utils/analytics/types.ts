@@ -79,6 +79,14 @@ export type AnalyticsProperties = {
   magic_failure_reason?: MagicFailureReason;
   /** Automatic writeback terminal outcome. Backend is temporary transport only. */
   magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
+  /**
+   * Non-sensitive code explaining a writeback `unavailable` outcome, or (on
+   * `magic_writeback_skipped`) why the request was not sent; never error text.
+   * Client-side values: `unknown`, `remote_<status>`, `client_exception`,
+   * `no_user_credential` (backend 403: Forge sent no user token),
+   * `guest_viewer` and `anonymous_viewer` (skipped, no backend call).
+   */
+  magic_writeback_reason?: string;
   /** Automatic Fullscreen assessment; includes a normal absent-artifact state. */
   magic_availability?: 'available' | 'missing_artifact' | 'stale_source' | 'invalid_artifact' | 'unsafe_svg' | 'check_failed';
   /** Initial display outcome after availability and browser-local preference resolve. */

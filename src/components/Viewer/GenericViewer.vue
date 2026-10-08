@@ -554,6 +554,7 @@ import { validateMagicArtifact } from '@/utils/magic/artifact'
 import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
 import { claimInlineMagicWriteback } from '@/utils/magic/inlineWriteback'
+import { viewerAccountKind } from '@/utils/magic/viewerAccount'
 import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
@@ -1473,16 +1474,36 @@ export default {
       // DiagramPortal, hide-header / non-display mode) would send one request
       // per edited source and cannot show the refined layout anyway.
       if (inline && (!this.isDisplayMode || this.hideHeader)) return;
-      if (inline && !claimInlineMagicWriteback(contentId, source)) return;
+      // Record the attempt before the first await: the account lookup below must
+      // not open a window for a duplicate readiness signal to slip past the
+      // check above and send a second request.
       this.magicWritebackAttempts.push({ contentId, source });
+      // The inline per-browser claim comes first and covers the skipped path
+      // too: a guest reloading a 20-diagram page reports each diagram once a
+      // day, not once per page view, and a repeat view costs no lookup.
+      if (inline && !claimInlineMagicWriteback(contentId, source)) return;
+      // Forge sends no user token on invokeRemote for guest and anonymous
+      // viewers, so the call could only fail. Ask before sending anything.
+      // Anything unclear ('unknown') proceeds; the backend's 403
+      // no_user_credential is the backstop.
+      let kind = 'unknown';
+      try {
+        kind = await viewerAccountKind({ accountId: this.currentAccountId ?? undefined, clientDomain: getClientDomain() });
+      } catch { /* Fail open, like an unknown answer. */ }
+      if (kind === 'guest' || kind === 'anonymous') {
+        this.magicEvent('magic_writeback_skipped', { magic_writeback_reason: `${kind}_viewer` });
+        return;
+      }
       const started = performance.now();
       const generation = this.magicGeneration;
       if (!inline) this.magicEvent('magic_writeback_requested');
       let outcome = 'unavailable';
+      let reason = 'unknown';
       try {
         const result = await callRemote('/magic-writeback', 'POST', { contentId });
         const known = ['written', 'existing', 'miss', 'source_changed', 'unavailable', 'conflict', 'invalid_target'];
         if (known.includes(result?.outcome)) outcome = result.outcome;
+        if (outcome === 'unavailable') reason = typeof result?.reason === 'string' && /^[a-z_]{1,24}(_\d{3})?$/.test(result.reason) ? result.reason : 'unknown';
         if ((outcome === 'written' || outcome === 'existing') && result.artifact
           && this.magicGeneration === generation && this.diagram === diagram
           && this.diagram.id === contentId && this.diagram.mermaidCode === source && this.diagram.magic === artifact) {
@@ -1492,11 +1513,20 @@ export default {
             this.diagram.magic = result.artifact;
           }
         }
-      } catch { /* Original remains usable when optional delivery is unavailable. */ }
+      } catch (error) {
+        // Original remains usable when optional delivery is unavailable. Only a
+        // status code is kept; never the error text.
+        const message = error instanceof Error ? error.message : '';
+        const status = /^HTTP (\d{3})/.exec(message)?.[1];
+        // The backend answers 403 { error: 'no_user_credential' } when Forge sent
+        // no user token. Check it before the generic status mapping.
+        if (message.includes('no_user_credential')) reason = 'no_user_credential';
+        else reason = status ? `remote_${status}` : 'client_exception';
+      }
       finally {
         // Inline, a miss is the common no-op answer; only real deliveries and
         // failures are worth an event.
-        if (!inline || outcome !== 'miss') this.magicEvent('magic_writeback_completed', { magic_writeback_outcome: outcome, duration_ms: Math.round(performance.now() - started) });
+        if (!inline || outcome !== 'miss') this.magicEvent('magic_writeback_completed', { magic_writeback_outcome: outcome, ...(outcome === 'unavailable' ? { magic_writeback_reason: reason } : {}), duration_ms: Math.round(performance.now() - started) });
       }
     },
     magicEvent(name, properties = {}) {

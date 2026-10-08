@@ -35,25 +35,43 @@ jobs:
           ROOT_ATTEMPT: ${{ inputs.root-attempt }}
           EXPECTED_PARENT_JOBS: '["Validate: AsyncAPI"]'
         run: node scripts/ci/wait-for-e2e.mjs --verify-parent
-  tests:
+  regression:
     needs: parent
     uses: ./.github/workflows/e2e-test.yml
     with:
       planned: true
+      selection-scope: main
       app: asyncapi@stg
-      suite: asyncapi
+      suite: regression
+      grep: ${{ inputs.grep }}
       auth-artifact: auth-state-pre-asyncapi-stg
       source-run-id: ${{ inputs.parent-run-id }}
       source-attempt: ${{ inputs.parent-attempt }}
       ref: ${{ inputs.source-sha }}
-      # Three shards for three spec files: the suite's two multi-test files are
-      # `describe.configure({ mode: 'serial' })`, so `--list --shard=N/5`
-      # (2026-09-11) put them on shards 1, 3 and 4 and left 2 and 5 EMPTY —
-      # two runners spent on checkout + install to run nothing. Under N=3 the
-      # split is create-edit (x3) / dashboard-loads / macro-create-edit (x2),
-      # every shard busy, same critical path.
-      shard-matrix: '[1, 2, 3]'
-      artifact-suffix: asyncapi-stg
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
+      timeout-minutes: 35
+      artifact-suffix: asyncapi-stg-regression
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  render:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      selection-scope: main
+      app: asyncapi@stg
+      suite: regression-render
+      grep: ${{ inputs.grep }}
+      auth-artifact: auth-state-pre-asyncapi-stg
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      ref: ${{ inputs.source-sha }}
+      shard-matrix: '[1]'
+      timeout-minutes: 25
+      artifact-suffix: asyncapi-stg-render
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}

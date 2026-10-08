@@ -10,6 +10,10 @@ on:
       source-attempt:
         type: string
         default: '1'
+      selection-scope:
+        type: string
+        default: pr
+        description: Verified selection policy scope
       planned:
         type: boolean
         default: false
@@ -234,7 +238,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          name: test-selection-${{ inputs.source-run-id || github.run_id }}-${{ inputs.source-run-id && inputs.source-attempt || github.run_attempt }}
+          name: ${{ inputs.selection-scope == 'main' && 'main-test-selection' || format('test-selection-{0}-{1}', inputs.source-run-id || github.run_id, inputs.source-run-id && inputs.source-attempt || github.run_attempt) }}
           run-id: ${{ inputs.source-run-id || '' }}
           github-token: ${{ inputs.source-run-id && github.token || '' }}
           path: selection
@@ -242,7 +246,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          name: e2e-selection-${{ inputs.source-run-id || github.run_id }}
+          name: ${{ inputs.selection-scope == 'main' && 'main-test-selection' || format('e2e-selection-{0}', inputs.source-run-id || github.run_id) }}
           run-id: ${{ inputs.source-run-id || '' }}
           github-token: ${{ inputs.source-run-id && github.token || '' }}
           path: resolved-selection
@@ -251,6 +255,7 @@ jobs:
         env:
           APP: ${{ inputs.app }}
           TEST_SUITE: ${{ inputs.suite }}
+          SELECTION_SCOPE: ${{ inputs.selection-scope }}
           LEGACY_GREP: ${{ inputs.grep }}
           MAX_SHARDS: ${{ fromJSON(inputs.shard-matrix)[0] == 1 && inputs.suite == 'render' && 1 || 5 }}
           SHARD_MATRIX: ${{ inputs.shard-matrix }}

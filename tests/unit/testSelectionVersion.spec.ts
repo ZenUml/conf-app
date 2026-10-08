@@ -1,38 +1,42 @@
 import { describe, expect, it, vi } from 'vitest';
 import { verifyBackend } from '../../scripts/test-selection/verify-backend.mjs';
 const response = (body, type = 'application/json', ok = true) => ({ ok, headers: new Headers({ 'content-type': type }), json: async () => body });
-// __ci-version.json describes the Cloudflare Pages backend, which is one
-// component per project whichever variant published it — so it carries the
-// project, not a variant.
-const options = { sha: 'abc', project: 'conf-stg-lite', url: 'https://example.com', delayMs: 0 };
+const options = { sha: 'abc', variant: 'lite', url: 'https://example.com', delayMs: 0 };
 describe('pinned backend version', () => {
-  it('requires matching SHA and project from JSON response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(response({ sha: 'abc', project: 'conf-stg-lite' }));
-    expect(await verifyBackend({ ...options, fetchImpl })).toEqual({ sha: 'abc', project: 'conf-stg-lite', verified: true });
+  it('requires matching SHA and variant from JSON response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(response({ sha: 'abc', variant: 'lite' }));
+    expect(await verifyBackend({ ...options, fetchImpl })).toEqual({ sha: 'abc', variant: 'lite', verified: true });
     expect(fetchImpl.mock.calls[0][0]).toBe('https://example.com/__ci-version.json');
   });
-  it('rejects HTML fallback, wrong SHA, wrong project, a variant-only body and HTTP errors', async () => {
-    for (const value of [
-      response({ sha: 'abc', project: 'conf-stg-lite' }, 'text/html'),
-      response({ sha: 'other', project: 'conf-stg-lite' }),
-      response({ sha: 'abc', project: 'conf-stg-full' }),
-      response({ sha: 'abc', variant: 'lite' }),
-      response({ sha: 'abc', project: 'conf-stg-lite' }, 'application/json', false),
-    ]) {
+  it('rejects HTML fallback, wrong SHA, wrong variant and HTTP errors', async () => {
+    for (const value of [response({ sha: 'abc', variant: 'lite' }, 'text/html'), response({ sha: 'other', variant: 'lite' }), response({ sha: 'abc', variant: 'full' }), response({ sha: 'abc', variant: 'lite' }, 'application/json', false)]) {
       await expect(verifyBackend({ ...options, attempts: 1, fetchImpl: vi.fn().mockResolvedValue(value) })).rejects.toThrow('verification failed');
     }
   });
-  it('requires a known staging project', async () => {
-    await expect(verifyBackend({ ...options, project: 'conf-lite', fetchImpl: vi.fn() })).rejects.toThrow('valid project');
-    await expect(verifyBackend({ ...options, project: 'lite', fetchImpl: vi.fn() })).rejects.toThrow('valid project');
-  });
   it('retries propagation failures with bounded attempts and safe errors', async () => {
-    const fetchImpl = vi.fn().mockRejectedValueOnce(new Error('secret')).mockResolvedValueOnce(response({ sha: 'abc', project: 'conf-stg-lite' }));
+    const fetchImpl = vi.fn().mockRejectedValueOnce(new Error('secret')).mockResolvedValueOnce(response({ sha: 'abc', variant: 'lite' }));
     const sleep = vi.fn();
     await verifyBackend({ ...options, fetchImpl, sleep });
     expect(sleep).toHaveBeenCalledTimes(1);
     const failing = vi.fn().mockRejectedValue(new Error('secret'));
     await expect(verifyBackend({ ...options, attempts: 99, fetchImpl: failing, sleep })).rejects.not.toThrow('secret');
     expect(failing).toHaveBeenCalledTimes(6);
+  });
+  it('accepts the same SHA from another valid variant only with the daily opt-in', async () => {
+    for (const variant of ['full', 'diagramly', 'asyncapi']) {
+      const fetchImpl = vi.fn().mockResolvedValue(response({ sha: 'abc', variant }));
+      await expect(verifyBackend({ ...options, attempts: 1, fetchImpl })).rejects.toThrow('verification failed');
+      expect(await verifyBackend({ ...options, shaOnly: true, fetchImpl })).toEqual({ sha: 'abc', variant, verified: true });
+    }
+  });
+  it('still rejects wrong SHA, absent or invalid markers, HTML and HTTP errors in daily mode', async () => {
+    for (const value of [
+      response({ sha: 'other', variant: 'diagramly' }),
+      response({}), response(null), response({ sha: 'abc' }), response({ sha: 'abc', variant: 'unknown' }),
+      response({ sha: 'abc', variant: 'asyncapi' }, 'text/html'),
+      response({ sha: 'abc', variant: 'asyncapi' }, 'application/json', false),
+    ]) {
+      await expect(verifyBackend({ ...options, shaOnly: true, attempts: 1, fetchImpl: vi.fn().mockResolvedValue(value) })).rejects.toThrow('verification failed');
+    }
   });
 });

@@ -9,6 +9,15 @@ on:
       ref:
         type: string
         required: true
+      skip-migrations:
+        type: boolean
+        default: false
+      backend-sha-only:
+        type: boolean
+        default: false
+      workflow-ref:
+        type: string
+        default: ''
 
 # Ownership belongs to the parent daily workflow across all variants. Nested
 # transactions must not acquire its conf-app-staging group again.
@@ -18,43 +27,32 @@ jobs:
     outputs:
       app: ${{ steps.profile.outputs.app }}
       backend: ${{ steps.profile.outputs.backend }}
-      project: ${{ steps.profile.outputs.project }}
     steps:
       - id: profile
         env:
           VARIANT: ${{ inputs.variant }}
         run: |
           case "$VARIANT" in
-            lite) APP=zenuml-lite@stg; PROJECT=conf-stg-lite ;;
-            full) APP=zenuml-full@stg; PROJECT=conf-stg-full ;;
-            diagramly) APP=diagramly@stg; PROJECT=conf-stg-lite ;;
-            asyncapi) APP=asyncapi@stg; PROJECT=conf-stg-lite ;;
+            lite) APP=zenuml-lite@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
+            full) APP=zenuml-full@stg; BACKEND=https://conf-stg-full.zenuml.com ;;
+            diagramly) APP=diagramly@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
+            asyncapi) APP=asyncapi@stg; BACKEND=https://conf-stg-lite.zenuml.com ;;
             *) exit 1 ;;
           esac
           echo "app=$APP" >> "$GITHUB_OUTPUT"
-          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
-          echo "backend=https://$PROJECT.zenuml.com" >> "$GITHUB_OUTPUT"
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
 
-  # mode=full on purpose: the daily regression is serial (lite → full →
-  # diagramly → asyncapi, one transaction at a time under the parent's
-  # conf-app-staging lock), so each transaction re-publishing its project's
-  # backend costs ~30s hidden under its Forge deploy and buys a simple
-  # invariant — the backend the version check reads was published by THIS
-  # transaction from THIS commit. The main-branch graph (main-staging-
-  # validation.yml) splits backend and forge because it runs variants in
-  # parallel; this one does not need to.
   deploy:
     name: deploy
     uses: ./.github/workflows/staging-deploy.yml
     with:
-      mode: full
       variant: ${{ inputs.variant }}
       ref: ${{ inputs.ref }}
       license: ${{ inputs.variant }}
-      # Same mapping as the profile job; inline so the deploy does not wait
-      # for that job's runner.
       project: ${{ inputs.variant == 'full' && 'conf-stg-full' || 'conf-stg-lite' }}
       environment: staging-${{ inputs.variant }}
+      skip-migrations: ${{ inputs.skip-migrations }}
+      workflow-ref: ${{ inputs.workflow-ref }}
     secrets: inherit
 
   auth:
@@ -77,6 +75,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
+      - name: Checkout daily verification tooling
+        if: inputs.workflow-ref != ''
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.workflow-ref }}
+          path: .ci-workflow
       - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
         with:
@@ -84,9 +88,16 @@ jobs:
       - name: Verify backend source identity
         env:
           TARGET_SHA: ${{ inputs.ref }}
-          PROJECT: ${{ needs.profile.outputs.project }}
+          VARIANT: ${{ inputs.variant }}
           BACKEND: ${{ needs.profile.outputs.backend }}
-        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --project "$PROJECT" --url "$BACKEND"
+          BACKEND_SHA_ONLY: ${{ inputs.backend-sha-only }}
+          WORKFLOW_REF: ${{ inputs.workflow-ref }}
+        run: |
+          VERIFY_SCRIPT=scripts/test-selection/verify-backend.mjs
+          if [ -n "$WORKFLOW_REF" ]; then VERIFY_SCRIPT=".ci-workflow/$VERIFY_SCRIPT"; fi
+          ARGS=()
+          if [ "$BACKEND_SHA_ONLY" = true ]; then ARGS+=(--sha-only); fi
+          node "$VERIFY_SCRIPT" --sha "$TARGET_SHA" --variant "$VARIANT" --url "$BACKEND" "${ARGS[@]}"
       - run: cd tests/e2e-tests && pnpm install --ignore-workspace --frozen-lockfile && pnpm exec playwright install --with-deps chromium
       - uses: actions/download-artifact@v7
         with:

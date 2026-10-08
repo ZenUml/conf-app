@@ -2,7 +2,9 @@ name: Daily Full Staging Regression
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    # Runs at 03:00 Melbourne time year-round, including daylight saving.
+    - cron: '0 3 * * *'
+      timezone: 'Australia/Melbourne'
   workflow_dispatch:
     inputs:
       sha:
@@ -107,7 +109,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           node scripts/test-selection/regression-results.mjs --run "$RUN_ID" --output regression-results.json
-          echo '## Full staging regression (advisory)' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Full staging regression (daily release draft gate)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat regression-results.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

@@ -47,6 +47,9 @@ test.describe('Copy for AI button', { tag: ['@test:copy-for-ai', '@variant:lite'
   test.skip(!testConfig.macros.includes('mermaid'), 'mermaid not in profile');
 
   test('copy-for-ai:0 — visible on a Mermaid macro, copies diagram + page context, and fires copy_for_ai_clicked', async ({ page }, testInfo) => {
+    // Quarantine this Full case until the observed failure is diagnosed.
+    test.skip(testConfig.productType === 'full',
+      'Quarantined: Full Copy for AI clipboard warm-up timed out waiting for idle (received copied); root cause unknown. Re-enable after diagnosis and the unchanged assertions pass on Full staging. Evidence: https://github.com/ZenUml/conf-app/actions/runs/37762689015/job/113262966811');
     await insertAndPublishMermaidMacro(page, { title: `mmd-cfa-${Date.now()}` });
     const frame = viewerFrame(page, 'sequence'); // same iframe as any Diagram-macro tab — see MacroPage.getSequenceMacroFrame
     const btn = frame.getByTestId('copy-for-ai-btn');

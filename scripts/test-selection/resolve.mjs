@@ -16,7 +16,7 @@ export function decisionError({ selection, head, tree }) {
     return !a || typeof a.probability !== 'number' || !Number.isFinite(a.probability) || a.probability < 0 || a.probability > 1 || a.selected !== (a.probability >= CATEGORY_SELECTION_THRESHOLD);
   })) return 'invalid-jev-categories';
   const chosen = Object.values(categories).some(c => c.selected);
-  if (!chosen && !(selection.selection_scope === 'main' && selection.no_additional_impact === true && Object.values(categories).every(c => c.probability < 0.1))) return 'empty-or-uncertain-jev-selection';
+  if (!chosen && selection.selection_scope !== 'main') return 'empty-or-uncertain-jev-selection';
   return null;
 }
 

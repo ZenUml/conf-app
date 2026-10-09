@@ -57,7 +57,8 @@ jobs:
       auth-artifact: auth-state-pre-lite-stg
       grep: ${{ inputs.grep }}
       shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
-      timeout-minutes: 14
+      # PR #761's passing shard took about 15m with setup and uploads.
+      timeout-minutes: 20
       artifact-suffix: lite-stg
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

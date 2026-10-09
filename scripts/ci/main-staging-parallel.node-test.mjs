@@ -9,10 +9,10 @@ const variants = ['lite', 'full', 'diagramly', 'asyncapi'];
 
 // Run the actual job predicate with a skipped PR selector ancestor. GitHub adds
 // implicit success() unless the predicate has a status function.
-function eligible(id, results = {}, fullNow = false, cancelled = false) {
+function eligible(id, results = {}, cancelled = false) {
   const job = stage.jobs[id];
   const needs = Object.fromEntries(deps(job).map(name => [name, {
-    result: results[name] ?? 'success', outputs: { run: 'true', 'full-now': String(fullNow) },
+    result: results[name] ?? 'success', outputs: { run: 'true' },
   }]));
   const expression = job.if.slice(3, -2)
     .replace(/needs\.([\w-]+)/g, 'needs["$1"]')
@@ -42,16 +42,19 @@ test('one pinned shared migration gates every normal combined staging deployment
     assert.equal(job.with.mode, undefined);
     assert.equal(eligible(id), true);
     for (const result of ['failure', 'skipped', 'cancelled']) assert.equal(eligible(id, { migrations: result }), false);
-    assert.equal(eligible(id, {}, false, true), false);
+    assert.equal(eligible(id, {}, true), false);
   }
 });
 
-test('each independent E2E lane waits only for its own deploy and auth; Full retains both lanes', () => {
-  for (const variant of ['lite', 'diagramly', 'asyncapi']) {
+test('all four E2E lanes wait only for their own deploy and auth', () => {
+  for (const variant of variants) {
     const id = `staging-${variant}-e2e`;
     assert.deepEqual(deps(stage.jobs[id]).sort(), [`staging-${variant}`, `e2e-auth-${variant}`, 'parent'].sort());
     assert.equal(eligible(id), true);
-    for (const result of ['failure', 'skipped', 'cancelled']) assert.equal(eligible(id, { [`staging-${variant}`]: result }), false);
+    for (const prerequisite of deps(stage.jobs[id])) {
+      for (const result of ['failure', 'skipped', 'cancelled']) assert.equal(eligible(id, { [prerequisite]: result }), false);
+    }
+    assert.equal(eligible(id, {}, true), false);
     const steps = stage.jobs[id].steps;
     const check = steps.find(step => step.name === 'Verify pinned staging backend source');
     assert.match(check.run, /--sha-only$/);
@@ -59,18 +62,19 @@ test('each independent E2E lane waits only for its own deploy and auth; Full ret
     assert.equal(check.env.TARGET_SHA, '${{ inputs.source-sha }}');
     assert.ok(steps.indexOf(check) < steps.findIndex(step => step.run === 'node scripts/ci/wait-for-e2e.mjs'));
   }
-  assert.ok(deps(stage.jobs['staging-full-e2e']).includes('staging-lite-e2e'));
-  assert.equal(eligible('staging-full-e2e'), true);
-  for (const result of ['failure', 'skipped']) assert.equal(eligible('staging-full-e2e', { 'staging-lite-e2e': result }), true);
-  assert.equal(eligible('staging-full-e2e', {}, true), false);
-  assert.equal(eligible('staging-full-e2e-now', {}, true), true);
-  assert.equal(eligible('staging-full-e2e-now'), false);
-  assert.ok(!deps(stage.jobs['staging-full-e2e-now']).includes('staging-lite-e2e'));
+  for (const result of ['failure', 'skipped', 'cancelled']) {
+    assert.equal(eligible('staging-full-e2e', { 'staging-lite': result, 'staging-lite-e2e': result, 'e2e-auth-lite': result }), true);
+  }
+  assert.equal(Object.keys(stage.jobs).filter(id => id.startsWith('staging-full-e2e')).length, 1);
+  assert.equal(stage.jobs.parent.outputs['full-now'], undefined);
+  assert.equal(stage.jobs.parent.steps.some(step => step.id === 'lane'), false);
+  assert.equal(workflow('staging-full-e2e').jobs.parent.steps.find(step => step.env?.EXPECTED_PARENT_JOBS).env.EXPECTED_PARENT_JOBS, '["Validate: Full"]');
+  assert.deepEqual(deps(stage.jobs.provenance).filter(id => id.startsWith('staging-full-e2e')), ['staging-full-e2e']);
   assert.equal('reuse-check' in stage.jobs, false);
 });
 
 test('a failed backend probe blocks every child dispatch while cleanup still runs', () => {
-  for (const id of ['staging-lite-e2e', 'staging-full-e2e', 'staging-full-e2e-now', 'staging-diagramly-e2e', 'staging-asyncapi-e2e']) {
+  for (const id of ['staging-lite-e2e', 'staging-full-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e']) {
     const steps = stage.jobs[id].steps;
     const dispatch = steps.find(step => step.run === 'node scripts/ci/wait-for-e2e.mjs');
     const cleanup = steps.find(step => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
@@ -100,8 +104,14 @@ test('draft eligibility requires successful migrations and combined deploy with 
   assert.deepEqual(resolve(good), Object.fromEntries(variants.map(v => [v, 'true'])));
   for (const result of ['failure', 'skipped', 'cancelled']) {
     assert.deepEqual(resolve({ ...good, migrations: { result } }), Object.fromEntries(variants.map(v => [v, 'false'])));
-    for (const variant of variants) assert.equal(resolve({ ...good, [`staging-${variant}`]: { result } })[variant], 'false');
+    for (const variant of variants) {
+      for (const prerequisite of [`staging-${variant}`, `staging-${variant}-e2e`]) assert.equal(resolve({ ...good, [prerequisite]: { result } })[variant], 'false');
+    }
+    assert.equal(resolve({ ...good, 'staging-lite': { result }, 'staging-lite-e2e': { result } }).full, 'true');
   }
+  const missingFull = { ...good };
+  delete missingFull['staging-full-e2e'];
+  assert.equal(resolve({ ...missingFull, 'staging-full-e2e-now': { result: 'success' } }).full, 'false');
   assert.equal(resolve({ ...good, 'staging-lite-e2e': { result: 'skipped' }, 'reuse-check': { outputs: { reuse: 'true' } } }).lite, 'false');
 });
 

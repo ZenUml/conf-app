@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run: ${{ steps.owner.outputs.run }}
-      full-now: ${{ steps.lane.outputs.full-now }}
       grep: ${{ steps.selection.outputs.grep }}
     steps:
       - uses: actions/checkout@v5
@@ -87,14 +86,6 @@ jobs:
             selection.json
             changed-files.txt
           if-no-files-found: error
-      - name: Resolve Full validation lane from the pinned commit
-        id: lane
-        env:
-          FULL_DRAFT_LANE: ${{ vars.FULL_DRAFT_LANE }}
-        run: |
-          FULL_NOW=false
-          if [ "$FULL_DRAFT_LANE" = now ] || git log -1 --format=%B | rg -q -F '[full-first]'; then FULL_NOW=true; fi
-          echo "full-now=$FULL_NOW" >> "$GITHUB_OUTPUT"
 
   e2e-auth-lite:
     needs: parent
@@ -246,51 +237,9 @@ jobs:
     secrets: inherit
 
   staging-full-e2e:
-    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(needs.parent.outputs.full-now == 'true') && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
-    needs: [staging-full, e2e-auth-full, staging-lite-e2e, parent]
-    name: "Validate: Full"
-    runs-on: ubuntu-latest
-    timeout-minutes: 65
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source-sha }}
-      - name: Verify pinned staging backend source
-        env:
-          TARGET_SHA: ${{ inputs.source-sha }}
-        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant full --url https://conf-stg-full.zenuml.com --sha-only
-      - name: Run E2E in a separate graph
-        if: ${{ success() && !cancelled() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CHILD_WORKFLOW: staging-full-e2e.yml
-          CHILD_TITLE: staging-full-e2e
-          SOURCE_SHA: ${{ inputs.source-sha }}
-          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
-          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
-          GREP: ${{ needs.parent.outputs.grep }}
-          SUITE: regression
-          TEST_TIMEOUT: '35'
-          WAIT_MINUTES: '60'
-        run: node scripts/ci/wait-for-e2e.mjs
-      - name: Close any active child run
-        if: ${{ always() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CHILD_WORKFLOW: staging-full-e2e.yml
-          CHILD_TITLE: staging-full-e2e
-          SOURCE_SHA: ${{ inputs.source-sha }}
-          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
-          ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
-        run: node scripts/ci/wait-for-e2e.mjs --cleanup
-
-  staging-full-e2e-now:
-    if: ${{ !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (needs.parent.outputs.full-now == 'true')) }}
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
     needs: [staging-full, e2e-auth-full, parent]
-    name: "Validate: Full (now)"
+    name: "Validate: Full"
     runs-on: ubuntu-latest
     timeout-minutes: 65
     permissions:
@@ -445,7 +394,7 @@ jobs:
 
   provenance:
     name: Record variant validation results
-    needs: [parent, migrations, staging-lite, staging-full, staging-diagramly, staging-asyncapi, staging-lite-e2e, staging-full-e2e, staging-full-e2e-now, staging-diagramly-e2e, staging-asyncapi-e2e]
+    needs: [parent, migrations, staging-lite, staging-full, staging-diagramly, staging-asyncapi, staging-lite-e2e, staging-full-e2e, staging-diagramly-e2e, staging-asyncapi-e2e]
     if: ${{ always() && needs.parent.result == 'success' }}
     runs-on: ubuntu-latest
     steps:

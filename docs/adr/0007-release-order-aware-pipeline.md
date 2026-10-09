@@ -1,8 +1,31 @@
 # 0007 — The pipeline is shaped by the release order
 
 Date: 2026-09-11
-Status: accepted — implemented in stages (see the table at the end)
+Status: accepted — staging sequencing superseded on 2026-10-09 (see below)
 Related: [ADR-0006](0006-release-pipeline-optimised-for-wall-clock.md), [docs/ops/release-pipeline-time-budget.md](../ops/release-pipeline-time-budget.md), `.github/workflows/build-test-deploy.yml`, `.github/workflows/release.yml`, `.claude/skills/release-app/SKILL.md`
+
+## Superseding decision — all four staging variants are peers (2026-10-09)
+
+Main staging validation and daily full regression run Lite, Full, Diagramly,
+and AsyncAPI independently after one shared D1 migration gate. Each main E2E
+validator waits for its own successful deployment and authentication, plus
+verified root ownership. Full has one validator; the merge-message override
+and repository-variable lane switch are removed. A failed or skipped Lite lane
+does not delay or suppress Full. Each draft still requires its own successful
+deployment and fresh E2E coverage, successful migrations and builds, and the
+existing daily regression gate or verified root bypass.
+
+The shared staging concurrency lock and authentication lock remain. Existing
+coverage selection, backend source checks, cancellation cleanup, and shard
+counts remain. The earlier runner-queue measurements below explain the previous
+sequencing decision; the effect of this change on runtime and runner queues
+requires observation after merge.
+
+Production release order remains Diagramly → Lite at the same SHA → Full at
+least seven days after Lite. AsyncAPI releases independently. Parallel staging
+validation does not change those release gates.
+
+## Earlier decisions and measurements
 
 ADR-0006 cut the main build from 13m26s to 7m58s by removing repeated work from
 the critical path. What remained was decided in a design review on 2026-09-11
@@ -14,7 +37,7 @@ the critical path. What remained was decided in a design review on 2026-09-11
    is never what a person waits for. Its E2E therefore runs after Lite's E2E by
    default, which keeps the run's fan-out under the account's 20-concurrent-job
    cap. Diagramly and lite are not sequenced against each other: either may be
-   first. Full has an escape hatch for a Full-first hotfix — `[full-first]` in
+   first. Full had an escape hatch for a Full-first hotfix — `[full-first]` in
    the merge message or the repo variable `FULL_DRAFT_LANE=now` — implemented as
    two mutually exclusive call sites, not a polling gate. Drafts are not
    auto-published; a person still publishes each one.
@@ -76,3 +99,4 @@ data on lite hotfixes within 7 days of a release); no in-shard `workers: 2`
 | 5, first half (closed tag taxonomy in `tests/e2e-tests/config/tags.ts`, every spec's top-level blocks tagged, `tests/unit/e2eTags.spec.ts` polices it) | the PR after #673 |
 | 5, second half (`tests/e2e-tests/config/impact-map.mjs` + `scripts/e2e-select.mjs`; the `select` job feeds `grep` to the Lite E2E on PR runs, whose job names gain "(selected)"; `select-ai` logs what a model would add, only when `ANTHROPIC_API_KEY` is set) | the PR after #674 |
 | 1, addendum (one shared D1 migration gate, four regular staging deploys, independent Lite/Diagramly/AsyncAPI validation) | #751 |
+| Superseding decision (all four main validators and daily transactions are independent; one Full validator) | 2026-10-09 implementation |

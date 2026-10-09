@@ -33,7 +33,7 @@ jobs:
           SOURCE_SHA: ${{ inputs.source-sha }}
           ROOT_RUN_ID: ${{ inputs.root-run-id }}
           ROOT_ATTEMPT: ${{ inputs.root-attempt }}
-          EXPECTED_PARENT_JOBS: '["Validate: Full", "Validate: Full (now)"]'
+          EXPECTED_PARENT_JOBS: '["Validate: Full"]'
         run: node scripts/ci/wait-for-e2e.mjs --verify-parent
   regression:
     needs: parent

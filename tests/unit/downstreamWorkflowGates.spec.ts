@@ -3,7 +3,7 @@ import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
 const { jobs } = load(readFileSync('.github/workflows/main-staging-validation.yml', 'utf8')) as any;
-const downstream = ['staging-full', 'staging-diagramly', 'staging-asyncapi', 'staging-lite-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
+const downstream = ['staging-full', 'staging-diagramly', 'staging-asyncapi', 'staging-lite-e2e', 'staging-full-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
 
 // Evaluate the actual workflow expressions, including GitHub's implicit success
 // check. A skipped ancestor models main's intentionally skipped PR selector.
@@ -71,10 +71,16 @@ describe('draft phase provenance and independent variant gates', () => {
       'staging-asyncapi-e2e': { result: 'failure' },
     })).toMatchObject({ lite: 'false', full: 'true', diagramly: 'true', asyncapi: 'false' });
   });
-  it('requires fresh Lite coverage and accepts either Full lane', () => {
+  it('requires fresh coverage from the single Full validator', () => {
     const reuse = { result: 'success', outputs: { reuse: 'true', 'run-url': 'https://example.com/evidence' } };
-    expect(variantEligibility({ 'staging-lite': { result: 'success' }, 'reuse-check': reuse, 'staging-full-e2e-now': { result: 'success' } }))
+    expect(variantEligibility({ 'staging-lite': { result: 'success' }, 'reuse-check': reuse, 'staging-full-e2e': { result: 'success' } }))
       .toMatchObject({ lite: 'false', full: 'true' });
+    expect(variantEligibility({ 'staging-full-e2e-now': { result: 'success' } }).full).toBe('false');
+    for (const result of ['failure', 'skipped', 'cancelled']) {
+      expect(variantEligibility({ 'staging-full-e2e': { result }, 'staging-full-e2e-now': { result: 'success' } }).full).toBe('false');
+      expect(variantEligibility({ migrations: { result }, 'staging-full-e2e': { result: 'success' } }).full).toBe('false');
+      expect(variantEligibility({ 'staging-full': { result }, 'staging-full-e2e': { result: 'success' } }).full).toBe('false');
+    }
     expect(variantEligibility({ 'staging-lite': { result: 'success' }, 'staging-lite-e2e': { result: 'success' } }).lite).toBe('true');
     for (const result of ['failure', 'skipped', 'cancelled']) {
       expect(variantEligibility({ 'staging-lite': { result }, 'reuse-check': reuse }).lite).toBe('false');

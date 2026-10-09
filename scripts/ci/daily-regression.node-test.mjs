@@ -8,7 +8,7 @@ const load = path => yaml.load(readFileSync(new URL(path, root), 'utf8'));
 const workflow = name => load(`.github/workflows/${name}.yml`);
 const dependencies = job => Array.isArray(job.needs) ? job.needs : job.needs ? [job.needs] : [];
 
-test('daily fans out three product transactions behind one shared migration gate', () => {
+test('daily fans out all four product transactions behind one shared migration gate', () => {
   const daily = workflow('daily-regression');
   assert.deepEqual(dependencies(daily.jobs.migrations), ['target']);
   assert.equal(daily.jobs.migrations.environment, 'staging-lite');
@@ -16,13 +16,11 @@ test('daily fans out three product transactions behind one shared migration gate
   assert.equal(migrationSteps.length, 1);
   assert.match(migrationSteps[0].run, /cp wrangler-stg\.toml wrangler\.toml/);
   assert.match(migrationSteps[0].run, /d1 migrations apply DB --remote --env production/);
-  for (const variant of ['lite', 'diagramly', 'asyncapi']) {
+  for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
     assert.deepEqual(dependencies(daily.jobs[variant]), ['target', 'migrations']);
     assert.equal(daily.jobs[variant].if, undefined);
   }
-  assert.deepEqual(dependencies(daily.jobs.full), ['target', 'migrations', 'lite']);
-  assert.match(daily.jobs.full.if, /needs\.migrations\.result == 'success'/);
-  assert.match(daily.jobs.full.if, /!cancelled\(\)/);
+  assert.deepEqual(daily.on.schedule, [{ cron: '0 3 * * *', timezone: 'Australia/Melbourne' }]);
   for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
     const transaction = daily.jobs[variant];
     assert.equal(transaction.uses, './.github/workflows/staging-transaction.yml');

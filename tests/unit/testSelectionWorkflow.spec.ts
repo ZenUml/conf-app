@@ -65,8 +65,11 @@ describe('staging workflow safety contracts', () => {
         expect(step.env.SOURCE_SHA).toBe(name === 'pr-validation' ? '${{ github.sha }}' : '${{ inputs.source-sha }}');
       }
     }
-    expect(structure('main-staging-validation').jobs['staging-full-e2e'].needs).toContain('staging-lite-e2e');
-    expect(structure('main-staging-validation').jobs['staging-full-e2e-now'].needs).not.toContain('staging-lite-e2e');
+    const staging = structure('main-staging-validation');
+    for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
+      expect(staging.jobs[`staging-${variant}-e2e`].needs.slice().sort()).toEqual([`staging-${variant}`, `e2e-auth-${variant}`, 'parent'].sort());
+    }
+    expect(staging.jobs).not.toHaveProperty('staging-full-e2e-now');
   });
   it('keeps the main root graph small and dispatches independent build and staging phases', () => {
     const root = structure('build-test-deploy');
@@ -196,7 +199,7 @@ describe('staging workflow safety contracts', () => {
     const matcher = new RegExp(JSON.parse(literal!));
     const canRecover = (failed: string[]) => failed.length > 0 && failed.every(name => matcher.test(name));
     expect(canRecover(['E2E: Lite / shard 1/10', 'E2E auth: Lite / auth bootstrap'])).toBe(true);
-    expect(canRecover(['Validate: Lite', 'Validate: Full (now)', 'Validate: Diagramly', 'Validate: AsyncAPI'])).toBe(true);
+    expect(canRecover(['Validate: Lite', 'Validate: Full', 'Validate: Diagramly', 'Validate: AsyncAPI'])).toBe(true);
     expect(canRecover(['E2E validation', 'Pipeline outcome'])).toBe(true);
     for (const failure of ['Build and Unit Test', 'Deploy: Lite', 'Jev category selection', 'Select E2E for this PR', 'Draft: Lite']) {
       expect(canRecover(['E2E validation', 'Pipeline outcome', failure])).toBe(false);

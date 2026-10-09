@@ -126,7 +126,7 @@ jobs:
           const migrationsReady = success('migrations');
           const eligible = {
             lite: success('staging-lite') && success('staging-lite-e2e'),
-            full: success('staging-full') && (success('staging-full-e2e') || success('staging-full-e2e-now')),
+            full: success('staging-full') && success('staging-full-e2e'),
             diagramly: success('staging-diagramly') && success('staging-diagramly-e2e'),
             asyncapi: success('staging-asyncapi') && success('staging-asyncapi-e2e'),
           };

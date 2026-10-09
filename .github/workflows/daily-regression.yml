@@ -92,8 +92,7 @@ jobs:
 
   full:
     name: Full
-    needs: [target, migrations, lite]
-    if: ${{ !cancelled() && needs.target.result == 'success' && needs.migrations.result == 'success' }}
+    needs: [target, migrations]
     uses: ./.github/workflows/staging-transaction.yml
     with:
       variant: full

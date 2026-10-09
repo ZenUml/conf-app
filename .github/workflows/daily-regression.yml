@@ -2,7 +2,9 @@ name: Daily Full Staging Regression
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    # Runs at 03:00 Melbourne time year-round, including daylight saving.
+    - cron: '0 3 * * *'
+      timezone: 'Australia/Melbourne'
   workflow_dispatch:
     inputs:
       sha:
@@ -50,47 +52,82 @@ jobs:
           overwrite: true
           retention-days: 30
 
+  migrations:
+    name: Shared staging D1 migrations
+    needs: target
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging-lite
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Every staging Pages project uses the same DB binding in this config.
+      # Apply once before any transaction can deploy or begin its regression.
+      - name: Apply shared staging D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cp wrangler-stg.toml wrangler.toml
+          pnpm exec wrangler d1 migrations apply DB --remote --env production
+
   lite:
     name: Lite
-    needs: target
+    needs: [target, migrations]
     uses: ./.github/workflows/staging-transaction.yml
     with:
       variant: lite
       ref: ${{ needs.target.outputs.sha }}
+      skip-migrations: true
+      backend-sha-only: true
+      workflow-ref: ${{ github.workflow_sha }}
     secrets: inherit
 
   full:
     name: Full
-    needs: [target, lite]
-    if: ${{ !cancelled() && needs.target.result == 'success' }}
+    needs: [target, migrations]
     uses: ./.github/workflows/staging-transaction.yml
     with:
       variant: full
       ref: ${{ needs.target.outputs.sha }}
+      skip-migrations: true
+      backend-sha-only: true
+      workflow-ref: ${{ github.workflow_sha }}
     secrets: inherit
 
   diagramly:
     name: Diagramly
-    needs: [target, full]
-    if: ${{ !cancelled() && needs.target.result == 'success' }}
+    needs: [target, migrations]
     uses: ./.github/workflows/staging-transaction.yml
     with:
       variant: diagramly
       ref: ${{ needs.target.outputs.sha }}
+      skip-migrations: true
+      backend-sha-only: true
+      workflow-ref: ${{ github.workflow_sha }}
     secrets: inherit
 
   asyncapi:
     name: AsyncAPI
-    needs: [target, diagramly]
-    if: ${{ !cancelled() && needs.target.result == 'success' }}
+    needs: [target, migrations]
     uses: ./.github/workflows/staging-transaction.yml
     with:
       variant: asyncapi
       ref: ${{ needs.target.outputs.sha }}
+      skip-migrations: true
+      backend-sha-only: true
+      workflow-ref: ${{ github.workflow_sha }}
     secrets: inherit
 
   summary:
-    needs: [target, lite, full, diagramly, asyncapi]
+    needs: [target, migrations, lite, full, diagramly, asyncapi]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -107,7 +144,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           node scripts/test-selection/regression-results.mjs --run "$RUN_ID" --output regression-results.json
-          echo '## Full staging regression (advisory)' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Full staging regression (daily release draft gate)' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat regression-results.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

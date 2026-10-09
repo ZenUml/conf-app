@@ -1,0 +1,334 @@
+name: Build preparation
+run-name: "Build preparation · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id: {type: string, required: true}
+      parent-attempt: {type: string, required: true}
+      source-sha: {type: string, required: true}
+      version: {type: string, required: true}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parent:
+    name: Verify root ownership
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.owner.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Check the active root
+        id: owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          EXPECTED_PARENT_JOBS: '["Build preparation"]'
+        run: |
+          node scripts/ci/wait-for-e2e.mjs --verify-parent
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+  build:
+    if: needs.parent.outputs.run == 'true'
+    needs: parent
+    name: Build and Unit Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+        # Skip submodules at checkout — `submodules: recursive` tries to clone
+        # the `private` submodule (ZenUml/conf-app-private) which the default
+        # GITHUB_TOKEN cannot access ("Repository not found"), aborting checkout
+        # before the build runs. The asyncapi build needs vendor/asyncapi-studio
+        # only — initialise it explicitly below.
+      - name: Init asyncapi-studio submodule
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
+      # Capture the submodule SHA so the cache key changes only when the
+      # studio pin moves — every PR that doesn't bump vendor/asyncapi-studio
+      # reuses the previous build artifacts.
+      - name: Resolve asyncapi-studio submodule SHA
+        id: studio-sha
+        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Cache Studio build output + its node_modules. On a cache hit:
+      #   - static/asyncapi-studio/.studio-commit already matches the pin,
+      #     so scripts/build-studio.sh fast-paths out (no pnpm install,
+      #     no Next.js build) — saves ~60–90s per CI run.
+      #   - vendor/asyncapi-studio/node_modules being restored means a
+      #     forced rebuild (FORCE_REBUILD=1) is also cheap because pnpm
+      #     install in the submodule short-circuits.
+      # Cache key includes scripts/build-studio.sh hash so changes to the
+      # build logic invalidate the cache. The fallback restore-keys lets
+      # us still pull node_modules even if the submodule SHA moved (saves
+      # most of the pnpm install on pin bumps).
+      - name: Cache asyncapi Studio build
+        uses: actions/cache@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      # Unit integration tests discover the real E2E inventory through its config.
+      # Install its locked module dependencies only; --list needs no browsers.
+      - name: Install E2E discovery dependencies
+        run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
+      - run: pnpm test:unit
+      - run: node --test scripts/ci/*.node-test.mjs
+      # Verify the asyncapi variant builds even on feature-branch PRs. The
+      # staging-asyncapi job below only runs on the default branch (like
+      # full/diagramly), so this is the smoke test for PRs.
+      # The Cache step above usually makes this near-instant (vite build only).
+      - name: Verify asyncapi build
+        run: pnpm build:asyncapi
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          # Skip Puppeteer's chromium download inside the Studio submodule's
+          # pnpm install (some transitive deps pull it in but the Studio
+          # build doesn't need it).
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+  
+  preview-e2e:
+    if: needs.parent.outputs.run == 'true'
+    needs: parent
+    # The one E2E project that needs no Confluence site, no Forge app and no
+    # OTP: the viewer/editor preview specs drive a local Vite dev server, so
+    # they cost a runner and nothing else. That makes this the cheapest real
+    # gate in the pipeline, which is why — unlike the staging suites below — it
+    # runs on EVERY push, drafts included. Before this job the `preview` project
+    # was collected but never gated: it only ran when someone remembered to
+    # start Vite and run it by hand.
+    name: "E2E: Viewer preview"
+    runs-on: ubuntu-latest
+    # Generous next to a ~2 min expectation: the whole point of this job is to
+    # be cheap and quiet, so give a cold pnpm store room rather than reap it.
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      # Deliberately NO asyncapi-studio submodule init. vite.config only copies
+      # the Studio when `command === 'build'`, and mermaid is served in dev by
+      # an in-config middleware straight out of node_modules, so `vite dev`
+      # needs neither. Skipping it is most of what keeps this job cheap.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Run preview specs against a local Vite dev server
+        # Server and tests share ONE step so the server cannot outlive or
+        # predecease them: a background process started in an earlier step is
+        # not guaranteed to survive into the next one, and a dead server turns
+        # into six confusing connection failures rather than one clear error.
+        #
+        # `pnpm start:local` is not used here because it wraps vite in portless,
+        # which allocates a dynamic hostname CI has no route for. Calling vite
+        # directly with PORT set also flips vite's `strictPort`, so a busy port
+        # fails loudly instead of quietly serving the specs a different app.
+        #
+        # LOCAL_DEV_URL short-circuits helpers/localDevUrl.ts, which otherwise
+        # shells out to `pnpm dev:url` (portless again) to discover the base URL.
+        run: |
+          PORT=8080 HOST=127.0.0.1 VERSION=latest PRODUCT_TYPE=lite \
+            pnpm exec vite dev > /tmp/vite-dev.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill $VITE_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:8080/viewer-preview.html && break
+            if [ "$i" -eq 60 ]; then
+              echo "Vite dev server never became reachable. Its log:"
+              cat /tmp/vite-dev.log
+              exit 1
+            fi
+            sleep 2
+          done
+          cd tests/e2e-tests && pnpm exec playwright test --project=preview
+        env:
+          CI: true
+          LOCAL_DEV_URL: http://127.0.0.1:8080
+      - name: Upload the dev server log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: preview-vite-dev-log
+          path: /tmp/vite-dev.log
+          if-no-files-found: ignore
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: blob-report-preview
+          path: ./tests/e2e-tests/blob-report/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Atlassian logins at t=0, one per staging site, so the E2E suites below start
+  # the moment their deploy is live instead of queueing for a bootstrap behind it.
+  # Measured on main run 34602804979 (2026-09-11): Deploy: Lite finished at
+  # 5m20s, but E2E: Lite's first shard only started at 7m18s — the bootstrap
+  # waited 78s on the repo-wide `e2e-auth` group (behind render's and DrawIO
+  # Publish's) and then ran for 36s. The session does not depend on which build
+  # is on the site, so the login can run under the deploy instead of after it.
+  # Each suite passes its site's artifact as `auth-artifact`, which makes
+  # e2e-test.yml skip its own bootstrap.
+  #
+  # One job per site rather than one matrix job: a `needs` on a matrix job
+  # aggregates its legs, so an asyncapi-stg login flake would have skipped every
+  # Lite shard. Per-site jobs keep the blast radius to the site that failed.
+  # Gated exactly like the suites that consume them, so a draft PR (which runs
+  # no E2E) logs in to nothing.
+  build-prod:
+    name: "Build prod: ${{ matrix.variant }}"
+    if: ${{ needs.parent.outputs.run == 'true' && (inputs.source-sha != '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: parent
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [lite, full, diagramly, asyncapi]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Init asyncapi-studio submodule
+        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
+      - name: Resolve asyncapi-studio submodule SHA
+        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        id: studio-sha
+        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cache asyncapi Studio build
+        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        uses: actions/cache@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Build the production bundle
+        run: pnpm build:${{ matrix.variant }}
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+          VITE_MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+          # Same string the draft job tags the release with.
+          VITE_APP_VERSION: v${{ inputs.version }}-${{ matrix.variant }}
+      - name: Pack dist/
+        run: tar -czf dist-prod-${{ matrix.variant }}.tgz -C dist . && ls -la dist-prod-${{ matrix.variant }}.tgz
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dist-prod-${{ matrix.variant }}
+          path: dist-prod-${{ matrix.variant }}.tgz
+          retention-days: 3
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Did a PR run already test THIS tree? (ADR-0007 §2)
+  #
+  # A `pull_request` run does not test the PR head; it tests refs/pull/N/merge,
+  # the synthetic merge of head into main at that moment. When main has not
+  # moved since, the real merge commit has the same tree — a merge of the same
+  # two parents is deterministic — so its staging deploy and its Lite E2E would
+  # be a byte-for-byte repeat of what the PR run already did. This job decides
+  # whether that is the case, and the Lite E2E jobs below skip themselves when
+  # it is; `Draft: Lite` then records which run it is trusting.
+  #
+  # The check is "identical tree", never "same commit": if main moved between
+  # the PR run and the merge, the trees differ and everything runs as before.
+  # It also requires the PR run's E2E jobs to have RUN and passed — a draft
+  # PR's run is green with its E2E skipped, which proves nothing. Anything it
+  # cannot establish (no merge parent, no run, jobs missing) means no reuse.
+  deploy-cron-worker:
+    name: "Cron: Deploy"
+    if: ${{ needs.parent.outputs.run == 'true' && (github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [build, parent]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter cron-aggregate
+      - name: Deploy cron-aggregate to staging
+        working-directory: workers/cron-aggregate
+        run: npx wrangler deploy --env stg
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  provenance:
+    name: Record build prerequisite results
+    needs: [parent, build, build-prod, preview-e2e, deploy-cron-worker]
+    if: ${{ always() && needs.parent.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record immutable source and build results
+        env:
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -n --arg source "$SOURCE_SHA" --argjson results "$RESULTS" '{source_sha: $source, results: $results}' > build-provenance.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: build-provenance
+          path: build-provenance.json
+          if-no-files-found: error
+          retention-days: 30

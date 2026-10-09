@@ -57,7 +57,7 @@ const directTestFilesFor = path => {
 };
 
 /** @returns {{ mode: 'all'|'selected', tags: string[], grep: string, reasons: string[], direct_test_files: string[] }} */
-export function select(files) {
+export function select(files, { scope = 'pr' } = {}) {
   const reasons = [];
   const tags = new Set(['@smoke']);
   const direct_test_files = new Set();
@@ -65,6 +65,10 @@ export function select(files) {
   for (const file of files) {
     const directFiles = directTestFilesFor(file);
     if (directFiles.length) { directFiles.forEach(path => direct_test_files.add(path)); reasons.push(`${file}: direct test (${directFiles.join(', ')})`); continue; }
+    if (scope === 'main') {
+      reasons.push(`${file}: Jev-classified behavior`);
+      continue;
+    }
     const shared = RUN_EVERYTHING.find(g => globToRegExp(g).test(file));
     if (shared) { reasons.push(`${file}: runs everything (${shared})`); all = true; continue; }
     const none = NO_E2E_IMPACT.find(g => globToRegExp(g).test(file));

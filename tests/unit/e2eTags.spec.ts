@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ALL_TAGS, BEHAVIOR_TAGS, CONCERN_TAGS, SURFACE_TAGS, TYPE_TAGS } from '../e2e-tests/config/tags';
+import { CATEGORIES } from '../e2e-tests/config/categories.mjs';
 
 const ROOT = path.resolve(__dirname, '../e2e-tests/tests');
 
@@ -79,4 +80,37 @@ describe('E2E tag taxonomy', () => {
       }
     });
   }
+});
+
+// The Live Agent Link specs need the Agent Link feature flag (the macro renders
+// "Connect to Agent" only when it is on) and the /agent-link/mcp route, and both
+// exist only on lite-stg. On dia-stg and full-stg the affordance never renders,
+// so the specs fail deterministically — the first main runs that planned them
+// there (2026-10-08, e69826c2 and 22b1beab) went red on exactly that assertion.
+// Applicability lives in two places that must agree: the spec `@variant:` tags,
+// which scripts/test-selection/plan.mjs filters each variant's plan on, and the
+// catalog `variants`, which Jev reads as context.
+describe('Live Agent Link E2E applies to lite only', () => {
+  const agentLinkFiles = files.filter((f) => path.relative(ROOT, f).startsWith('agent-link/'));
+
+  it('finds both agent-link specs', () => {
+    expect(agentLinkFiles.map((f) => path.relative(ROOT, f)).sort()).toEqual([
+      'agent-link/agent-link-e2e.spec.ts',
+      'agent-link/agent-link-multi-page-crosstalk.spec.ts',
+    ]);
+  });
+
+  for (const file of agentLinkFiles) {
+    it(`${path.relative(ROOT, file)}: every top-level block is tagged @variant:lite and nothing else`, () => {
+      for (const b of topLevelBlocks(fs.readFileSync(file, 'utf8'))) {
+        expect(b.tags!.filter((t) => t.startsWith('@variant:')), b.head).toEqual(['@variant:lite']);
+      }
+    });
+  }
+
+  it('the catalog declares both agent-link categories for lite only', () => {
+    for (const id of ['agent-link-e2e', 'agent-link-multi-page-crosstalk']) {
+      expect(CATEGORIES.find((c) => c.id === id)?.variants, id).toEqual(['lite']);
+    }
+  });
 });

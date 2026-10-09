@@ -107,7 +107,9 @@ async function renderedText(page: Page): Promise<string> {
   return texts.join('\n');
 }
 
-test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@test:agent-link-multi-page-crosstalk', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@fullscreen', '@ai'] }, () => {
+// lite only: see agent-link-e2e.spec.ts — the affordance under test renders on
+// lite-stg alone.
+test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@test:agent-link-multi-page-crosstalk', '@variant:lite', '@viewer', '@fullscreen', '@ai'] }, () => {
   test('two concurrent sessions on two different pages never leak edits across each other', async ({
     browser,
   }: {

@@ -71,7 +71,7 @@ test.describe('Viewer toolbar actions', { tag: ['@test:viewer-actions', '@varian
     });
 
     // The V8 viewer redesign (6a68de0d, 2026-05-04) unified Export across all
-    // three macro types onto the shared ExportModal (Export PNG pill) — Graph
+    // three macro types onto the shared ExportModal (More → Export PNG) — Graph
     // no longer opens a separate DrawIO export sidebar. See openExport()'s
     // doc comment.
     test('viewer-actions:5 — Graph Export opens the shared Export PNG modal', async ({ page }) => {

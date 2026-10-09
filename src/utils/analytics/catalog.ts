@@ -538,18 +538,45 @@ export type AnalyticsEventName =
   // Fullscreen Mermaid Magic: requested on manual click or automatic default,
   // succeeded only after the prepared SVG is visible, failed on validation or
   // render rejection, restored on an explicit Original click. All use
-  // feature_area=ai, surface=fullscreen, macro_type=mermaid;
+  // feature_area=ai, surface=fullscreen|viewer, macro_type=mermaid;
   // magic_availability_checked counts one current source/artifact assessment,
   // including absent/stale artifacts, without treating those as user-facing
   // errors. magic_default_resolved records the initial view decision. Both
   // exclude obsolete async attempts. magic_activation distinguishes automatic
   // from manual show requests. No source, SVG, hashes, or comment text.
-  // Automatic reviewed-artifact writeback from Fullscreen. Requested after a
-  // missing/stale Confluence artifact; completed records a finite outcome.
-  // Properties: feature_area=ai, surface=fullscreen, macro_type=mermaid,
+  // Since the staged viewer header (2026-10) the same events also fire from
+  // the INLINE macro's single "Refined" toggle and its layout survey strip:
+  // `surface` is then `viewer` instead of `fullscreen`, so the two funnels
+  // stay comparable on one set of names. Inline never reports the
+  // absent-artifact assessment (an inline view of a plain Mermaid diagram is
+  // not a Magic assessment; it would add an event to every Mermaid page view).
+  // Automatic reviewed-artifact writeback, requested after a missing/stale
+  // Confluence artifact; completed records a finite outcome.
+  // Fullscreen: `requested` on every attempt and `completed` for every outcome
+  // (surface=fullscreen). Inline (since 2026-10, so staged layouts reach
+  // inline-only viewers): the request runs at most once per diagram+source
+  // per browser per 24h, `requested` never fires (~10k inline Mermaid views a
+  // day), and `completed` fires only for a non-`miss` outcome (surface=viewer).
+  // Properties: feature_area=ai, surface=fullscreen|viewer, macro_type=mermaid,
   // magic_writeback_outcome and duration_ms. Never source, SVG, hashes or errors.
+  // magic_writeback_reason (only when outcome=unavailable): backend codes
+  // read_<status>, artifact_invalid, lease_lost, put_<status>, put_mismatch,
+  // confirm_<status>, confirm_mismatch, exception; client codes unknown,
+  // remote_<status> (callRemote threw HTTP <status>), client_exception, and
+  // no_user_credential (the backend answered 403: Forge sent no user token).
+  // magic_writeback_skipped: the viewer did NOT call the backend because the
+  // viewer is a guest or an anonymous visitor. Forge omits the user token on
+  // invokeRemote for them, so the call could only fail. Trigger: the first
+  // writeback attempt for a diagram+source in an iframe (inline or Fullscreen),
+  // after the usual eligibility checks and before any request. It shares the
+  // inline 24h per-browser claim with the request path, so inline it fires at
+  // most once per diagram+source per browser per 24h (Fullscreen: once per
+  // iframe), and it fires neither `requested` nor `completed`. Properties: feature_area=ai,
+  // surface=fullscreen|viewer, macro_type=mermaid, magic_writeback_reason =
+  // guest_viewer | anonymous_viewer. Never source, SVG, hashes, ids or errors.
   | "magic_writeback_requested"
   | "magic_writeback_completed"
+  | "magic_writeback_skipped"
   | "magic_availability_checked"
   | "magic_default_resolved"
   | "magic_view_requested"
@@ -720,6 +747,11 @@ export type AnalyticsEventName =
   // instance; menu_opened fires on every closed -> open transition.
   | "copy_for_ai_impression"
   | "copy_for_ai_menu_opened"
+  // Viewer header "More" (⋯) menu, closed -> open. feature_area=macro,
+  // surface=viewer|fullscreen, macro_type, and on the inline macro
+  // `header_stage` (0-3) — the collapse stage the header was in, because at
+  // stage 3 Source and Copy for AI are reachable only through this menu.
+  | "viewer_more_menu_opened"
   // "Copy for AI" demand-test button in the viewer top-actions row (alongside
   // View Source): a split button — a one-click primary segment (job:
   // 'generic') plus a chevron menu of five job-framed entry points (explain /
@@ -749,8 +781,10 @@ export type AnalyticsEventName =
   // 2026-07-26-embed-deeplink-productization): mints and copies the bare
   // embed deeplink (https://<host>/d/<cloudId>/<contentId>) for the diagram
   // being viewed — the supply side of the autoConvert paste->embed flow.
-  // `link_source` records which affordance minted it (today only the viewer
-  // pill; a future share-preview surface would use a different value).
+  // `link_source` records which affordance minted it: `viewer_pill` (the
+  // bottom pill, before 2026-10), `header_more_menu` (the inline header ⋯
+  // menu that replaced it) or `fullscreen_header` (Fullscreen's header
+  // "Diagram link" button).
   // Fires once per click, in a finally block, after the terminal outcome is
   // known — same convention as `copy_for_ai_clicked`. `outcome` distinguishes
   // a successful clipboard write from a clipboard-write failure from the

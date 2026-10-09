@@ -66,7 +66,10 @@ function appendMarkerEdit(originalDsl: string, diagramType: string, marker: stri
   return `${trimmed}\nAgentX->Server: ${marker}()`;
 }
 
-test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@fullscreen', '@ai'] }, () => {
+// lite only: the "Connect to Agent" affordance needs the Agent Link feature
+// flag and the /agent-link/mcp route, which exist on lite-stg alone — on
+// dia-stg and full-stg the macro never renders it (main runs 2026-10-08).
+test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@fullscreen', '@ai'] }, () => {
   test('agent connects, reads the page + diagram, edits it live, and the macro shows connected', async ({
     page,
   }: {

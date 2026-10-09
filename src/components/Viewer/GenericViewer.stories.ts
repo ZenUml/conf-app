@@ -7,6 +7,7 @@ import { expect, userEvent, waitFor, within } from 'storybook/test'
 import mixpanel from 'mixpanel-browser'
 import { FeatureFlags } from '@forge/bridge'
 import GenericViewer from './GenericViewer.vue'
+import GraphPageNav from './GraphPageNav.vue'
 import DiagramPortal from '@/components/DiagramPortal.vue'
 import Sequence from '@/components/Sequence.vue'
 import Mermaid from '@/components/Mermaid.vue'
@@ -331,13 +332,12 @@ function configureStory(options: {
 }
 
 /**
- * The top-right action row (Edit/Source/Copy for AI/Fullscreen) is
- * hover-revealed: `.viewer-top-actions { opacity: 0 }` until the surface
- * gets `.viewer-surface--hover` on mouseenter (GenericViewer.vue's
- * `isHovering` — the same behavior GenericViewer.spec.ts exercises via
- * `surface.trigger('mouseenter')`). Every story below hovers first so the
- * row is actually visible for both the play-function assertions and anyone
- * browsing the story in Storybook.
+ * The top-right action row (Edit/Source/Copy for AI/More/Fullscreen) is
+ * revealed per control: each one sits at opacity 0 until the surface gets
+ * `.viewer-surface--revealed` (hover, keyboard focus inside, or an open
+ * menu — GenericViewer.vue's `headerRevealed`). Every story below hovers
+ * first so the row is actually visible for both the play-function
+ * assertions and anyone browsing the story in Storybook.
  */
 async function revealHeader() {
   const surface = document.querySelector<HTMLElement>('.viewer-surface')
@@ -349,7 +349,7 @@ async function revealHeader() {
   // later toBeVisible() assertions don't race it (verified live: without
   // this, `view-source-btn` intermittently read opacity 0 right after hover).
   await waitFor(() => {
-    const actions = document.querySelector<HTMLElement>('.viewer-top-actions')
+    const actions = document.querySelector<HTMLElement>('.viewer-top-actions .viewer-act-more')
     if (!actions || getComputedStyle(actions).opacity !== '1') {
       throw new Error('header actions not yet revealed')
     }
@@ -1394,3 +1394,170 @@ export const MermaidFullscreenMagicWritebackMiss: Story = {
     await expect(canvas.queryByTestId('magic-toggle')).toBeNull()
   },
 }
+
+// ---------------------------------------------------------------------------
+// Staged header (Claude Design prototype "viewer-header-prototype", 2026-10)
+// ---------------------------------------------------------------------------
+// The prototype's three macros at the four column widths it was designed
+// for. Pick `columnWidth` in Controls (or ?args=columnWidth:560) to watch the
+// header collapse: S0 all labels, S1 Edit + Refined icon-only, S2 Fullscreen
+// icon-only, S3 Source + Copy for AI into More. data-stage on .viewer-frame
+// shows the stage picked. The Graph fixture has no source, so stops at S2.
+
+const STAGED_COLUMN_ARG_TYPES = {
+  columnWidth: { control: 'select', options: [560, 680, 760, 1000] },
+}
+
+/** GenericViewer inside a fixed-width page column, the way Confluence lays out a macro. */
+function renderStagedColumn(args: Args, slot: string, components: Record<string, unknown> = {}, extraSetup: Record<string, unknown> = {}) {
+  const { columnWidth = 760, ...viewerArgs } = args
+  return {
+    components: { GenericViewer, Mermaid, GraphPageNav, ...components },
+    setup() {
+      const width = typeof columnWidth === 'number' ? `${columnWidth}px` : String(columnWidth)
+      return { viewerArgs, width, ...extraSetup }
+    },
+    data: () => ({ page: 0 }),
+    template: `
+      <div :style="{ width }">
+        <GenericViewer v-bind="viewerArgs">${slot}</GenericViewer>
+      </div>
+    `,
+  }
+}
+
+const STAGED_PLACEHOLDER = (label: string) =>
+  `<div style="padding: 64px 24px; text-align: center; color: #6B7280; font-size: 13px;">${label}</div>`
+
+/** Long Mermaid title, source, and a valid refined layout (shown by default). */
+export const StagedHeaderMermaidLongTitle: Story = {
+  name: 'Staged header — Mermaid, long title, Refined',
+  args: { columnWidth: 760 },
+  argTypes: STAGED_COLUMN_ARG_TYPES,
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Checkout service: order placement with payment retry and inventory compensation',
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+      })
+      ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn(args, '<Mermaid />'),
+  play: async () => {
+    const canvas = within(document.body)
+    const refined = await canvas.findByTestId('magic-toggle')
+    await waitFor(() => expect(refined).toHaveAttribute('aria-pressed', 'true'))
+    await expect(await canvas.findByTestId('magic-layout-feedback')).toBeVisible()
+  },
+}
+
+/** Short PlantUML title: every label fits at every column width. */
+export const StagedHeaderPlantUmlShortTitle: Story = {
+  name: 'Staged header — PlantUML, short title',
+  args: { columnWidth: 760 },
+  argTypes: STAGED_COLUMN_ARG_TYPES,
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.PlantUml, title: 'Auth token refresh', plantUmlCode: '@startuml\nA -> B\n@enduml' })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn(args, STAGED_PLACEHOLDER('PlantUML diagram preview')),
+  play: async () => {
+    await revealHeader()
+    await waitFor(() => expect(document.querySelector('.viewer-frame')).toHaveAttribute('data-stage', '0'))
+  },
+}
+
+/** 3-page Graph, long title, no source: page navigation in the header, max stage 2. */
+export const StagedHeaderGraphPages: Story = {
+  name: 'Staged header — Graph, 3 pages, long title',
+  args: { columnWidth: 760 },
+  argTypes: STAGED_COLUMN_ARG_TYPES,
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Graph, title: 'Payments platform regional deployment topology (EU-West, US-East, failover)' })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn(args, `
+    ${STAGED_PLACEHOLDER('Graph (DrawIO) preview — page {{ page + 1 }}')}
+    <template #header-nav><GraphPageNav :current-page="page" :page-count="3" @go="page = $event" /></template>
+  `),
+  play: async () => {
+    const canvas = within(document.body)
+    // Visible without hover.
+    await expect(await canvas.findByText('1 of 3')).toBeVisible()
+    await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+    await expect(await canvas.findByText('2 of 3')).toBeVisible()
+  },
+}
+
+/** The More (⋯) menu open: the former bottom-pill actions, then debug info. */
+export const StagedHeaderMoreMenuOpen: Story = {
+  name: 'Staged header — More menu open',
+  args: { columnWidth: 760 },
+  argTypes: STAGED_COLUMN_ARG_TYPES,
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.PlantUml, title: 'Auth token refresh', plantUmlCode: '@startuml\nA -> B\n@enduml' })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn(args, STAGED_PLACEHOLDER('PlantUML diagram preview').replace('64px 24px', '64px 24px 220px')),
+  play: async () => {
+    await revealHeader()
+    const canvas = within(document.body)
+    await userEvent.click(canvas.getByRole('button', { name: 'More' }))
+    const menu = await canvas.findByRole('menu', { name: 'More actions' })
+    await expect(within(menu).getAllByRole('menuitem').map((item: HTMLElement) => item.textContent?.trim())).toEqual([
+      'Copy diagram link', 'Copy page link', 'Export PNG', 'Versions', 'Download debug info',
+    ])
+  },
+}
+
+/** Fullscreen header: Refined/Original switch, labelled actions by viewport, More, Exit. */
+export const StagedHeaderFullscreen: Story = {
+  name: 'Staged header — Fullscreen',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Checkout service: order placement with payment retry and inventory compensation',
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+        fullscreenMode: true,
+      })
+      ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('fullscreen-exit')).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Export PNG' })).toBeVisible()
+  },
+}
+
+/** Fullscreen Graph: page navigation beside the title. */
+export const StagedHeaderFullscreenGraph: Story = {
+  name: 'Staged header — Fullscreen Graph, 3 pages',
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Graph, title: 'Payments platform regional deployment topology (EU-West, US-East, failover)', fullscreenMode: true })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn({ ...args, columnWidth: '100%' as any }, `
+    ${STAGED_PLACEHOLDER('Graph (DrawIO) preview — page {{ page + 1 }}')}
+    <template #header-nav><GraphPageNav :current-page="page" :page-count="3" @go="page = $event" /></template>
+  `),
+}
+

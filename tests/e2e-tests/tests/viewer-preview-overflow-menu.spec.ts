@@ -3,8 +3,9 @@
  * debug info flow.
  *
  * Failure mode being guarded: the trigger button can render at 0×0 because of
- * Vue scoped-CSS hashing (a parent component's `.viewer-pill-btn` rule cannot
- * pierce a child component's data-v scope hash via `::v-slotted`). A unit
+ * Vue scoped-CSS hashing (a parent component's button rule — once the bottom
+ * pill's `.viewer-pill-btn` — cannot pierce a child component's data-v scope
+ * hash via `::v-slotted`). A unit
  * test that only inspects DOM presence cannot catch this — the button is in
  * the DOM but has zero clickable area. This spec asserts measured geometry,
  * opens the menu, and verifies the bundle download triggers.
@@ -14,7 +15,7 @@
  * project preference. This spec runs against the local Vite dev server and
  * is NOT gated by default CI workflows (`build-test-deploy`, `e2e-test*`).
  * Run it manually before pushing any change that touches OverflowMenu,
- * GenericViewer toolbar markup, or `.viewer-pill-btn` / `.viewer-icon`
+ * GenericViewer header markup, or `.overflow-menu-trigger` / `.viewer-icon`
  * scoped styling.
  *
  * Run (commands must be issued from the directories shown — the project
@@ -58,10 +59,11 @@ test.describe('GenericViewer — OverflowMenu trigger + Download debug info', { 
     })
   })
 
-  test('More trigger is 30×30 and Download debug info produces a JSON bundle', async ({ page }) => {
+  test('More trigger is 28×28 and Download debug info produces a JSON bundle', async ({ page }) => {
     await page.goto(BASE)
 
-    // Reveal the bottom-edge toolbar (hover-gated).
+    // Reveal the header actions (hover-gated). The More menu moved from the
+    // removed bottom pill into the header in the staged header (2026-10).
     await page.locator('.viewer-surface').hover()
 
     // Scoped to OverflowMenu's own trigger rather than by accessible name.

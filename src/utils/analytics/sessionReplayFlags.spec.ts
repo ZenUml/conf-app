@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
+  getDevelopmentPageReplayConfig,
   getSessionReplayConfig,
   mapEnvironment,
   FULL_FLAG,
@@ -29,6 +30,36 @@ describe('mapEnvironment', () => {
     [undefined, 'production'],
   ])('maps %s → %s', (input, expected) => {
     expect(mapEnvironment(input)).toBe(expected)
+  })
+})
+
+describe('getDevelopmentPageReplayConfig (temporary tunnel escape hatch)', () => {
+  const options = {
+    dev: true,
+    targetCloudId: 'target-cloud-id',
+    targetPageId: '67567653',
+  }
+
+  it('records only the configured site and page', () => {
+    expect(getDevelopmentPageReplayConfig({
+      cloudId: 'target-cloud-id',
+      extension: { content: { id: '67567653' } },
+    }, options)).toEqual({ percent: 100, source: 'development_page' })
+  })
+
+  it.each([
+    ['different page', { cloudId: 'target-cloud-id', extension: { content: { id: 'other-page' } } }],
+    ['different site', { cloudId: 'other-cloud-id', extension: { content: { id: '67567653' } } }],
+    ['page banner', { cloudId: 'target-cloud-id', moduleKey: 'zenuml-page-banner', extension: { content: { id: '67567653' } } }],
+  ])('fails closed for %s', (_label, context) => {
+    expect(getDevelopmentPageReplayConfig(context, options)).toBeUndefined()
+  })
+
+  it('fails closed when the bundle is not a development build', () => {
+    expect(getDevelopmentPageReplayConfig({
+      cloudId: 'target-cloud-id',
+      extension: { content: { id: '67567653' } },
+    }, { ...options, dev: false })).toBeUndefined()
   })
 })
 

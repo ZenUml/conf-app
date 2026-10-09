@@ -190,9 +190,12 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
+// `development_page` is a temporary, ignored-env Forge-tunnel override for one
+// explicitly configured site/page; it is unavailable in production builds.
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
+  | "development_page"
   | "authoring"
   | "plan_usage_page"
   | "fullscreen"

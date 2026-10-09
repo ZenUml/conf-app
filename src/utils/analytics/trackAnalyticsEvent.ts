@@ -1,18 +1,39 @@
 // src/utils/analytics/trackAnalyticsEvent.ts
 
-import mixpanel from "mixpanel-browser";
+import mixpanel, { type Mixpanel } from "mixpanel-browser";
 import {
   getClientDomain,
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
-import forgeGlobal from "@/model/globals/forgeGlobal";
+import forgeGlobal, { openUrl } from "@/model/globals/forgeGlobal";
 import type { AnalyticsEventName } from "./catalog";
 import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
-import { getSessionReplayConfig } from "./sessionReplayFlags";
+import {
+  getDevelopmentPageReplayConfig,
+  getSessionReplayConfig,
+} from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
+
+type DevelopmentReplayError = {
+  message: string;
+  errorName: string | null;
+  errorMessage: string | null;
+};
+
+// This panel is intentionally available only under the existing development
+// page override. Error strings can contain URLs (and their query strings), so
+// retain the SDK's diagnostic text while removing URL values and bounding its
+// size before rendering it into the Forge iframe.
+function _sanitizeDevelopmentReplayDiagnostic(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  return value
+    .replace(/https?:\/\/[^\s)]+/g, "<url>")
+    .replace(/[\r\n\t]+/g, " ")
+    .slice(0, 300);
+}
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -20,6 +41,14 @@ import { normalizeProductType } from "./productType";
 // second init.
 let _initPromise: Promise<void> | null = null;
 let _identified = false;
+let _analyticsMixpanel: Mixpanel = mixpanel;
+
+// A named instance prevents the temporary diagnostic from inheriting the
+// legacy primary instance's prior init (which has record_sessions_percent=0).
+// Keep this name aligned with the DEV-only persistence name below: Mixpanel
+// creates the persistence wrapper from init config, so disable_persistence
+// can only remove this diagnostic key rather than the primary key.
+const DEVELOPMENT_REPLAY_INSTANCE_NAME = "zenuml_dev_replay_diagnostic";
 
 type AuthoringReplayProperties = Pick<
   AnalyticsProperties,
@@ -89,13 +118,13 @@ function _startAuthoringReplay(
     // Authoring replay is an explicit product policy, independent of the
     // baseline Forge-flag cohort resolved by _initMixpanel. The SDK call is
     // idempotent when baseline sampling already started a recording.
-    mixpanel.start_session_recording();
+    _analyticsMixpanel.start_session_recording();
     const replayProperties: AuthoringReplayProperties = {
       session_replay_source: "authoring",
       session_replay_percent: 100,
       session_replay_start_call_outcome: "returned",
     };
-    mixpanel.register({
+    _analyticsMixpanel.register({
       session_replay_percent: replayProperties.session_replay_percent,
       session_replay_source: replayProperties.session_replay_source,
     });
@@ -147,31 +176,185 @@ function _initMixpanel(): Promise<void> {
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
+      const developmentPageConfig = getDevelopmentPageReplayConfig(forgeContext);
+      const developmentReplayErrors: DevelopmentReplayError[] = [];
       const { percent, source } = isPageBanner
         ? { percent: 0, source: "off" as const }
         : isPlanUsagePage
         ? { percent: 100, source: "plan_usage_page" as const }
         : isFullscreen
         ? { percent: 100, source: "fullscreen" as const }
-        : await getSessionReplayConfig();
+        : developmentPageConfig ?? await getSessionReplayConfig();
 
-      mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
+      const mixpanelConfig = {
         debug: true,
         track_pageview: false,
         autocapture: false,
         persistence: "localStorage",
         ignore_dnt: true,
         record_sessions_percent: percent,
-      });
+        // The authorized development page's Chromium profile is currently
+        // returning IndexedDB `UnknownError: Internal error.` for Mixpanel's
+        // replay queue. The SDK's recorder gates its IndexedDB queue and
+        // recording registry on this option, while continuing to batch/send
+        // the active page in memory. `disable_persistence` clears the SDK's
+        // named persistence entry during init, so give this diagnostic a new
+        // unique name first. Scope both changes to the existing temporary page
+        // override; this does not clear existing Mixpanel browser data.
+        ...(developmentPageConfig
+          ? { persistence_name: DEVELOPMENT_REPLAY_INSTANCE_NAME }
+          : {}),
+        disable_persistence: Boolean(developmentPageConfig),
+        ...(developmentPageConfig
+          ? {
+              error_reporter: (message: string, error?: Error) => {
+                developmentReplayErrors.push({
+                  message:
+                    _sanitizeDevelopmentReplayDiagnostic(message) ?? "unknown",
+                  errorName: _sanitizeDevelopmentReplayDiagnostic(error?.name),
+                  errorMessage: _sanitizeDevelopmentReplayDiagnostic(error?.message),
+                });
+              },
+            }
+          : {}),
+      };
+      // The legacy `trackEvent` helper can initialize Mixpanel's unnamed
+      // primary instance first. A later unnamed init reuses that instance and
+      // silently retains its default replay rate of 0. The targeted diagnostic
+      // uses its own named instance, whose initial config is therefore the
+      // source of truth without changing legacy/production behavior.
+      _analyticsMixpanel = developmentPageConfig
+        ? mixpanel.init(
+            import.meta.env.VITE_MIXPANEL_TOKEN,
+            mixpanelConfig,
+            DEVELOPMENT_REPLAY_INSTANCE_NAME,
+          ) || mixpanel
+        : (mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, mixpanelConfig), mixpanel);
+      // Tunnel-only, target-only diagnostic. The ESM SDK is not guaranteed to
+      // expose its default instance as window.mixpanel, so provide a narrowly
+      // scoped callable for UI verification without exposing tokens or event
+      // payloads. Remove with the temporary override after validation.
+      if (developmentPageConfig) {
+        (window as any).__zenumlSessionReplayDiagnostics = () => ({
+          sessionReplayPercent: percent,
+          sessionReplaySource: source,
+          recorderLoaded: Boolean(_analyticsMixpanel.__get_recorder?.()),
+          recordingActive: Boolean(
+            (_analyticsMixpanel.__get_recorder?.() as any)?.activeRecording &&
+              !(_analyticsMixpanel.__get_recorder?.() as any).activeRecording.isRrwebStopped(),
+          ),
+          recorderBatchesSent:
+            (_analyticsMixpanel.__get_recorder?.() as any)?.activeRecording?.seqNo ?? null,
+          recorderLastEventTimestamp:
+            (_analyticsMixpanel.__get_recorder?.() as any)?.activeRecording
+              ?.lastEventTimestamp ?? null,
+          recorderConstructorType: typeof (window as any).__mp_recorder,
+          sdkRecordingPercent: _analyticsMixpanel.get_config("record_sessions_percent"),
+          sdkDisablePersistence: _analyticsMixpanel.get_config("disable_persistence"),
+          sdkOptedOut: _analyticsMixpanel.has_opted_out_tracking(),
+          mutationObserverAvailable: typeof window.MutationObserver === "function",
+          recorderErrors: [...developmentReplayErrors],
+          ..._analyticsMixpanel.get_session_recording_properties(),
+          replayUrl: _analyticsMixpanel.get_session_replay_url() || null,
+        });
+        _installDevelopmentReplayDiagnostics(percent, source);
+      }
       // Stamp every event with the resolved rate + why, so the throttle and
       // targeting can be confirmed live in Mixpanel.
-      mixpanel.register({
+      _analyticsMixpanel.register({
         session_replay_percent: percent,
         session_replay_source: source,
       });
     })();
   }
   return _initPromise;
+}
+
+function _installDevelopmentReplayDiagnostics(
+  percent: number,
+  source: string,
+): void {
+  const id = "zenuml-dev-replay-diagnostics";
+  const panel = document.createElement("details");
+  panel.id = id;
+  panel.open = true;
+  panel.style.cssText =
+    "position:fixed;right:12px;bottom:12px;z-index:2147483647;max-width:360px;padding:8px 10px;background:#172b4d;color:#fff;border:1px solid #8c9aaa;border-radius:6px;font:12px/1.4 monospace;box-shadow:0 2px 8px #0006";
+  const summary = document.createElement("summary");
+  summary.textContent = "DEV REPLAY";
+  summary.style.cursor = "pointer";
+  panel.append(summary);
+  const body = document.createElement("div");
+  body.style.marginTop = "6px";
+  panel.append(body);
+  document.body.append(panel);
+
+  const render = () => {
+    const diagnostics = (window as any).__zenumlSessionReplayDiagnostics?.() ?? {};
+    body.replaceChildren();
+    const policy = document.createElement("div");
+    policy.textContent = `policy: ${percent}% (${source})`;
+    body.append(policy);
+    const replayId = diagnostics.$mp_replay_id;
+    const replayUrl = diagnostics.replayUrl;
+    if (!replayId) {
+      const pending = document.createElement("div");
+      pending.textContent = diagnostics.recorderLoaded
+        ? `recorder: ${diagnostics.recordingActive ? "active" : "stopped"}; replay pending`
+        : "recorder: not loaded (100% policy is not upload proof)";
+      body.append(pending);
+      const sdkState = document.createElement("div");
+      sdkState.textContent = `SDK: recorder constructor=${diagnostics.recorderConstructorType}; percent=${diagnostics.sdkRecordingPercent}; opt-out=${diagnostics.sdkOptedOut}; persistence disabled=${diagnostics.sdkDisablePersistence}; MutationObserver=${diagnostics.mutationObserverAvailable}`;
+      body.append(sdkState);
+      if (diagnostics.recorderErrors?.length) {
+        const errors = document.createElement("div");
+        errors.textContent = `recorder errors: ${diagnostics.recorderErrors
+          .map(
+            (error: DevelopmentReplayError) =>
+              `${error.message}${error.errorName ? ` (${error.errorName}${error.errorMessage ? `: ${error.errorMessage}` : ""})` : ""}`,
+          )
+          .join("; ")}`;
+        body.append(errors);
+      }
+      return Boolean(replayUrl);
+    }
+    const idLine = document.createElement("div");
+    idLine.textContent = `replay id: ${replayId}`;
+    body.append(idLine);
+    const batchLine = document.createElement("div");
+    batchLine.textContent = `successful batches: ${diagnostics.recorderBatchesSent ?? 0}`;
+    body.append(batchLine);
+    if (replayUrl) {
+      const link = document.createElement("a");
+      link.href = replayUrl;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        void openUrl(replayUrl);
+      });
+      link.textContent = "Open Mixpanel replay";
+      link.style.color = "#b3d4ff";
+      body.append(link);
+    }
+    return true;
+  };
+
+  render();
+  panel.addEventListener("toggle", () => {
+    if (panel.open) render();
+  });
+  const startedAt = Date.now();
+  const timer = window.setInterval(() => {
+    // The temporary panel can outlive a jsdom test environment. Stop the
+    // polling callback cleanly once its window has been torn down.
+    if (typeof window === "undefined") {
+      clearInterval(timer);
+      return;
+    }
+    const ready = render();
+    if (ready || Date.now() - startedAt >= 30_000) {
+      clearInterval(timer);
+    }
+  }, 500);
 }
 
 // A single constant shared by EVERY user, returned whenever the Forge context
@@ -262,7 +445,7 @@ function _identify() {
   // is bad, a missing one is worse.
   if (id === UNKNOWN_USER_ACCOUNT_ID) return;
   try {
-    mixpanel.identify(id);
+    _analyticsMixpanel.identify(id);
     _identified = true;
   } catch (e) {
     console.error("mixpanel.identify error", e);
@@ -401,9 +584,9 @@ export async function _awaitableTrackAnalyticsEvent(
     };
 
     if (options) {
-      mixpanel.track(eventName, enriched, options);
+      _analyticsMixpanel.track(eventName, enriched, options);
     } else {
-      mixpanel.track(eventName, enriched);
+      _analyticsMixpanel.track(eventName, enriched);
     }
   } catch (e) {
     console.error("[analytics] trackAnalyticsEvent failed", e);
@@ -442,4 +625,5 @@ export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
   _authoringReplayDecision = null;
+  _analyticsMixpanel = mixpanel;
 }

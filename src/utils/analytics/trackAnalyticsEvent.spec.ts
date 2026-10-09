@@ -10,7 +10,10 @@ import {
   trackAnalyticsEvent,
   trackAnalyticsEventBeforeUnload,
 } from "./trackAnalyticsEvent";
-import { getSessionReplayConfig } from "./sessionReplayFlags";
+import {
+  getDevelopmentPageReplayConfig,
+  getSessionReplayConfig,
+} from "./sessionReplayFlags";
 import { normalizeProductType } from "./productType";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { EVENT_SAMPLE_RATES } from "./eventSampling";
@@ -22,10 +25,15 @@ vi.mock("mixpanel-browser", () => ({
     track: vi.fn(),
     register: vi.fn(),
     start_session_recording: vi.fn(),
+    get_session_recording_properties: vi.fn().mockReturnValue({}),
+    get_session_replay_url: vi.fn().mockReturnValue(""),
+    get_config: vi.fn(),
+    has_opted_out_tracking: vi.fn().mockReturnValue(false),
   },
 }));
 
 vi.mock("./sessionReplayFlags", () => ({
+  getDevelopmentPageReplayConfig: vi.fn().mockReturnValue(undefined),
   getSessionReplayConfig: vi.fn(),
 }));
 
@@ -77,6 +85,7 @@ describe("trackAnalyticsEvent — identity resolution", () => {
       percent: 0,
       source: "off",
     } as any);
+    vi.mocked(getDevelopmentPageReplayConfig).mockReturnValue(undefined);
   });
 
   it("does NOT identify with the shared placeholder when the account id is unresolved", async () => {
@@ -187,6 +196,7 @@ describe("trackAnalyticsEvent", () => {
       percent: 0,
       source: "off",
     });
+    vi.mocked(getDevelopmentPageReplayConfig).mockReturnValue(undefined);
     vi.mocked(isCurrentPageDemoPage).mockResolvedValue(false);
   });
 
@@ -589,6 +599,55 @@ describe("trackAnalyticsEvent", () => {
       session_replay_percent: 100,
       session_replay_source: "targeted",
     });
+  });
+
+  it("uses an isolated configured instance when the legacy primary initialized first", async () => {
+    // Simulate the Graph path, where the legacy helper has already initialized
+    // the unnamed primary instance with Mixpanel's default replay rate (0).
+    // The DEV target must not try to reconfigure that primary instance.
+    const developmentInstance = {
+      ...mixpanel,
+      identify: vi.fn(),
+      track: vi.fn(),
+      register: vi.fn(),
+      start_session_recording: vi.fn(),
+      get_session_recording_properties: vi.fn().mockReturnValue({}),
+      get_session_replay_url: vi.fn().mockReturnValue(""),
+      get_config: vi.fn(),
+      has_opted_out_tracking: vi.fn().mockReturnValue(false),
+    };
+    vi.mocked(mixpanel.init).mockReturnValueOnce(developmentInstance as any);
+    vi.mocked(getDevelopmentPageReplayConfig).mockReturnValue({
+      percent: 100,
+      source: "development_page",
+    });
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        record_sessions_percent: 100,
+        disable_persistence: true,
+        persistence_name: "zenuml_dev_replay_diagnostic",
+        error_reporter: expect.any(Function),
+      }),
+      "zenuml_dev_replay_diagnostic",
+    );
+    expect(mixpanel.register).not.toHaveBeenCalled();
+    expect(developmentInstance.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "development_page",
+    });
+    expect(developmentInstance.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ feature_area: "macro" }),
+    );
   });
 
   it("keeps viewer replay off when the flag config resolves off", async () => {

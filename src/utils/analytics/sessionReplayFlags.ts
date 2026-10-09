@@ -45,7 +45,7 @@ import { getContext } from '@/model/globals/forgeGlobal';
 export const FULL_FLAG = 'session-replay-full';
 export const SAMPLED_FLAG = 'session-replay';
 
-export type SessionReplaySource = 'targeted' | 'sampled' | 'off';
+export type SessionReplaySource = 'targeted' | 'sampled' | 'development_page' | 'off';
 
 export interface SessionReplayConfig {
   /** `record_sessions_percent` to pass to `mixpanel.init`. */
@@ -82,6 +82,53 @@ async function defaultCreateClient(): Promise<FlagClient> {
 }
 
 const OFF: SessionReplayConfig = { percent: 0, source: 'off' };
+
+export interface DevelopmentPageReplayContext {
+  cloudId?: string;
+  moduleKey?: string;
+  extension?: { content?: { id?: string | number } };
+}
+
+export interface DevelopmentPageReplayOptions {
+  dev: boolean;
+  targetCloudId?: string;
+  targetPageId?: string;
+}
+
+/**
+ * Temporary, fail-closed escape hatch for one page during a Forge tunnel.
+ * The target values must come from ignored Vite env files; nothing is baked
+ * into the public bundle. Returning undefined means normal replay policy
+ * resolution should continue.
+ */
+export function getDevelopmentPageReplayConfig(
+  context: DevelopmentPageReplayContext | undefined,
+  options: DevelopmentPageReplayOptions = {
+    dev: import.meta.env.DEV,
+    targetCloudId: import.meta.env.VITE_SESSION_REPLAY_DEV_CLOUD_ID,
+    targetPageId: import.meta.env.VITE_SESSION_REPLAY_DEV_PAGE_ID,
+  },
+): SessionReplayConfig | undefined {
+  if (
+    !options.dev ||
+    context?.moduleKey === 'zenuml-page-banner' ||
+    !options.targetCloudId ||
+    !options.targetPageId
+  ) {
+    return undefined;
+  }
+
+  const pageId = context?.extension?.content?.id;
+  if (
+    context?.cloudId !== options.targetCloudId ||
+    pageId === undefined ||
+    String(pageId) !== options.targetPageId
+  ) {
+    return undefined;
+  }
+
+  return { percent: 100, source: 'development_page' };
+}
 
 export async function getSessionReplayConfig(deps?: {
   createClient?: () => Promise<FlagClient>;

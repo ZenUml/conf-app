@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "storybook-annotations",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "storybook", "--", "-p", "6011"],
+      "port": 6011
+    }
+  ]
+}

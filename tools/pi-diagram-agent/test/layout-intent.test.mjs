@@ -45,3 +45,10 @@ test('extension schedules mandatory source facts and planning tool before drawin
  const code=fs.readFileSync(new URL('../pi-extension.ts',import.meta.url),'utf8');
  assert.match(code,/contractRequired: true/);assert.match(code,/name: 'diagram_layout_intent'/);assert.match(code,/await buildSourceFacts\(job, \{ details: true \}\)/);assert.doesNotMatch(code,/Source facts unavailable, continuing/);assert.match(code,/run.requireLayoutIntent\(\)/);
 });
+
+test('mandatory evidence preparation counts toward the existing wall budget',()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'layout-budget-')),input=path.join(root,'s.mmd');fs.writeFileSync(input,source);
+ const job=prepareAgentTask(input);const run=createV2Run(job,{contractRequired:true,gate:'strict',manifestDir:path.join(root,'manifests'),reviewerFactory:()=>{},now:()=>1000,startedAtMs:0,budgets:{maxWallMs:500}});
+ try{assert.equal(run.wallExceeded(),true);assert.equal(run.manifest().timings.preparationMs,1000);assert.equal(run.manifest().startedAt,new Date(0).toISOString())}
+ finally{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(job.runDir,{recursive:true,force:true})}
+});

@@ -63,6 +63,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
       try {
+        const preparationStartedAt = Date.now();
         const allModels = ctx.modelRegistry.getAvailable();
         const codexModels = allModels.filter(model => model.provider === 'openai-codex' && model.input?.includes('image'));
         const requestedId = process.env.PI_DIAGRAM_CODEX_MODEL;
@@ -85,6 +86,7 @@ export default function (pi: ExtensionAPI) {
         let v2Budgets: any = null;
         if (v2On) {
           v2Budgets = budgetsFromEnv();
+          if (Date.now() - preparationStartedAt >= v2Budgets.maxWallMs) throw Error('PLANNING_PREPARATION_WALL_CLOCK: source evidence exceeded the run budget');
           const reviewerCfg = reviewerConfigFromEnv();
           const reviewerModel = resolveReviewerModel({ available: allModels, authorModel: selected });
           const reviewerCfgWithModel = { ...reviewerCfg, model: reviewerModel };
@@ -99,7 +101,7 @@ export default function (pi: ExtensionAPI) {
             judgeOpts = { gate, judgeFactory: createPiJudgeFactory(piSdk, { provider: judgeModel.provider, modelId: judgeModel.id, thinkingLevel: judgeThinking }), judgeModel: { provider: judgeModel.provider, id: judgeModel.id, thinking: judgeThinking, requested: judgeModel.requested, fallback: judgeModel.fallback } };
           }
           run = createV2Run(job, {
-            ...judgeOpts, contractRequired: true,
+            ...judgeOpts, contractRequired: true, startedAtMs: preparationStartedAt,
             reviewerFactory: createPiReviewerFactory(piSdk, { provider: reviewerModel.provider, modelId: reviewerModel.id, thinkingLevel: reviewerCfg.thinking }),
             budgets: v2Budgets,
             reviewer: reviewerCfgWithModel,
@@ -113,7 +115,7 @@ export default function (pi: ExtensionAPI) {
           runsByDir.set(safeRunDir(job.runDir), run);
           // Watchdog: a hung or endless author turn emits no submit, so the budget cannot rely on diagram_submit alone.
           const watchedRun = run;
-          const timer = setTimeout(() => { void expireRun(watchedRun, ctx); }, v2Budgets.maxWallMs + 50);
+          const timer = setTimeout(() => { void expireRun(watchedRun, ctx); }, Math.max(0, v2Budgets.maxWallMs - (Date.now() - preparationStartedAt)) + 50);
           (timer as any).unref?.();
         } else inspector = createAgentVisualInspector(job);
         const renderSpec = createSpecRenderer(job);

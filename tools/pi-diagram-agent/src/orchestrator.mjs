@@ -71,7 +71,7 @@ const judgeMeanOf=c=>c.judgement&&c.judgement.verdict!=='JUDGE_ERROR'&&Number.is
 const betterOrEqual=(c,b)=>cmpPair(c.score,b.score)?cmpPair(c.score,b.score)<0:judgeMeanOf(c)!==judgeMeanOf(b)?judgeMeanOf(c)>judgeMeanOf(b):c.score.minor<=b.score.minor;
 
 /** @param job result of prepareAgentTask  @param opts {deps, reviewerFactory, budgets, now, onRoundEnd} */
-export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null,manifestDir=manifestDirFromEnv(),gate=gateModeFromEnv(),judgeFactory=null,judgeModel=null,acceptThresholds=acceptThresholdsFromEnv(),contractRequired=false}={}){
+export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null,manifestDir=manifestDirFromEnv(),gate=gateModeFromEnv(),judgeFactory=null,judgeModel=null,acceptThresholds=acceptThresholdsFromEnv(),contractRequired=false,startedAtMs=null}={}){
   const presentation=jobPresentation(job);
   const reviewerCfg=reviewer??reviewerConfigFromEnv();
   // Gate mode. relaxed (default): only wrong-or-unreadable defects block, everything else is advice, and the Judge decides acceptance inside the loop. strict: the previous behaviour, no Judge.
@@ -82,12 +82,14 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   const B={...defaultBudgetsFor(relaxed?'relaxed':'strict'),...(budgets??{})};
   let model=null;try{model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'))}catch{}
   let ledger=createLedger();
-  const startedAt=now();
-  const timings={authorMs:0,reviewerMs:0,orchestratorMs:0,checkMs:0,judgeMs:0};
+  const enteredAt=now();
+  const startedAt=Number.isFinite(startedAtMs)&&startedAtMs<=enteredAt?startedAtMs:enteredAt;
+  const preparationMs=enteredAt-startedAt;
+  const timings={preparationMs,authorMs:0,reviewerMs:0,orchestratorMs:preparationMs,checkMs:0,judgeMs:0};
   const tokens={author:{},reviewer:{},judge:{}};
   const judgeRounds=[];let judgeCalls=0;
   const rounds=[];
-  let lastReview=null,round=0,authorMark=startedAt,base=null,best=null,stagnant=0,finalResult=null,status='RUNNING',statusReason=null,finalDetail=null,oscillationsInReverted=0,lastManifest=null,extraResidual=[],reverts=0;
+  let lastReview=null,round=0,authorMark=enteredAt,base=null,best=null,stagnant=0,finalResult=null,status='RUNNING',statusReason=null,finalDetail=null,oscillationsInReverted=0,lastManifest=null,extraResidual=[],reverts=0;
   // Two-phase gate state. Phase 1 = diagram_build_check (binding script check, text only); phase 2 = the reviewer inside diagram_submit.
   const twoPhase=B.twoPhase!==false;
   let layoutIntent=null; const layoutIntentHistory=[],layoutIntentEvents=[];

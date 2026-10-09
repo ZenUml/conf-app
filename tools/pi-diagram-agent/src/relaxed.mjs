@@ -10,7 +10,7 @@ export const PARTIAL_AUDIT_RULES=['textFit','labelClearance','nodeHeadingClearan
 /** Findings that are blocking as constructed (not audit checks): structural failures, forbidden constructs, gate conditions, and label-ambiguous (decided where it is built: blocking only when the label sits on another route). */
 export const STRUCTURAL_RULES=['candidate-missing','render-or-audit-failed','forbidden-construct','label-ambiguous','relayout'];
 /** Reviewer rules that stay blocking. Every other reviewer rule is advice. */
-export const REVIEW_BLOCKING_RULES=['shape-change','label-ownership','text-overflow','boundary-coincidence','group-overlap'];
+export const REVIEW_BLOCKING_RULES=['layout-intent','shape-change','label-ownership','text-overflow','boundary-coincidence','group-overlap'];
 
 /** Advice ranking: how much fixing it improves the picture (0..1). Higher goes to the author first. Unlisted rules get DEFAULT_IMPACT. */
 export const ADVICE_IMPACT=Object.freeze({

@@ -1,3 +1,4 @@
+import {LAYOUT_INTENT_PROMPT} from './src/layout-intent.mjs';
 /** Pi's model, not the prior deterministic CLI, owns diagram creation and revision. */
 import { randomUUID } from 'node:crypto';
 import { Type } from '@earendil-works/pi-ai';
@@ -75,6 +76,9 @@ export default function (pi: ExtensionAPI) {
         const thinking = createThinkingSwitch({ firstDraftLevel: resolveFirstDraftThinking(), setLevel: level => pi.setThinkingLevel(level as any) });
         if (!thinking.start()) pi.setThinkingLevel('high');
         const job = prepareAgentTask(input, { cwd: ctx.cwd, resumeRunDir: options['--resume'] as string | undefined, referenceSvgPath: options['--reference'] as string | undefined, feedbackPath: options['--feedback'] as string | undefined, upgradeRules: options['--upgrade-rules'] === true, adjudicationPath: options['--adjudication'] as string | undefined });
+        // Establish source evidence before installing jobs, run state or watchdogs.
+        const sourceFacts = v2On ? await buildSourceFacts(job, { details: true }) : null;
+        if (sourceFacts && (!sourceFacts.model.nodes.length || sourceFacts.model.conflicts?.length || sourceFacts.model.membershipConflicts?.length)) throw Error('LAYOUT_SOURCE_FACTS_UNRESOLVED');
         const jobId = randomUUID();
         let inspector: any;
         let run: any = null;
@@ -95,12 +99,13 @@ export default function (pi: ExtensionAPI) {
             judgeOpts = { gate, judgeFactory: createPiJudgeFactory(piSdk, { provider: judgeModel.provider, modelId: judgeModel.id, thinkingLevel: judgeThinking }), judgeModel: { provider: judgeModel.provider, id: judgeModel.id, thinking: judgeThinking, requested: judgeModel.requested, fallback: judgeModel.fallback } };
           }
           run = createV2Run(job, {
-            ...judgeOpts,
+            ...judgeOpts, contractRequired: true,
             reviewerFactory: createPiReviewerFactory(piSdk, { provider: reviewerModel.provider, modelId: reviewerModel.id, thinkingLevel: reviewerCfg.thinking }),
             budgets: v2Budgets,
             reviewer: reviewerCfgWithModel,
             onRoundEnd: () => inspector.resetRound(),
           });
+          run.setPlanningFacts(sourceFacts.model);
           activeRun = run;
           activeStarted = false;
           activeJobId = jobId;
@@ -113,18 +118,10 @@ export default function (pi: ExtensionAPI) {
         } else inspector = createAgentVisualInspector(job);
         const renderSpec = createSpecRenderer(job);
         const buildStep = createBuildStep(job, { specMode: specRequired ? 'required' : specMode, renderSpec });
-        jobs.set(jobId, { runDir: job.runDir, inspect: thinking.wrap(run ? async () => run.annotateInspection(await inspector()) : inspector), renderSpec, ...(run ? { submit: (opts?: { svgHash?: string | null }) => run.submit(opts), ...(v2Budgets.twoPhase ? { buildCheck: (ctx: any) => run.buildCheck({ build: () => buildStep(ctx) }) } : {}) } : {}) });
-        let factsText: string | null = null;
-        if (process.env.PI_DIAGRAM_SOURCE_FACTS === '1') {
-          try {
-            factsText = await buildSourceFacts(job);
-            ctx.ui.notify('Source facts included in the prompt (original render positions, reference only)', 'info');
-          } catch (error) {
-            ctx.ui.notify(`Source facts unavailable, continuing without them: ${String((error as Error).message)}`, 'warning');
-          }
-        }
+        jobs.set(jobId, { runDir: job.runDir, ...(run ? { layoutIntent: (opts: any) => run.submitLayoutIntent(opts) } : {}), inspect: thinking.wrap(run ? async () => { run.requireLayoutIntent(); return run.annotateInspection(await inspector()); } : inspector), renderSpec: async () => { run?.requireLayoutIntent(); return renderSpec(); }, ...(run ? { submit: (opts?: { svgHash?: string | null }) => run.submit(opts), ...(v2Budgets.twoPhase ? { buildCheck: (ctx: any) => run.buildCheck({ build: () => buildStep(ctx) }) } : {}) } : {}) });
+        const factsText = sourceFacts?.text ?? null;
         if (specMode) ctx.ui.notify(specRequired ? 'Layout spec mode on (required): layout.json is the only authoring path; make.py is ignored' : 'Layout spec mode on: layout.json + diagram_render_spec offered', 'info');
-        pi.sendUserMessage(composePrompt(job, { jobId, specMode: specRequired ? 'required' : specMode, factsText, v2: v2Budgets ? { maxRounds: v2Budgets.maxRounds, maxInspectionsPerRound: v2Budgets.maxInspectionsPerRound, twoPhase: v2Budgets.twoPhase, maxChecksPerRound: v2Budgets.maxChecksPerRound, maxChecksPerRun: v2Budgets.maxChecksPerRun, maxGeneratorErrorsPerRound: v2Budgets.maxGeneratorErrorsPerRound, runDir: job.runDir, relaxed: gateModeFromEnv() === 'relaxed' } : null }), { deliverAs: 'followUp' });
+        pi.sendUserMessage((run ? LAYOUT_INTENT_PROMPT + "\n" : "") + composePrompt(job, { jobId, specMode: specRequired ? 'required' : specMode, factsText, v2: v2Budgets ? { maxRounds: v2Budgets.maxRounds, maxInspectionsPerRound: v2Budgets.maxInspectionsPerRound, twoPhase: v2Budgets.twoPhase, maxChecksPerRound: v2Budgets.maxChecksPerRound, maxChecksPerRun: v2Budgets.maxChecksPerRun, maxGeneratorErrorsPerRound: v2Budgets.maxGeneratorErrorsPerRound, runDir: job.runDir, relaxed: gateModeFromEnv() === 'relaxed' } : null }), { deliverAs: 'followUp' });
         ctx.ui.notify(`Pi diagram agent started; private work directory: ${job.runDir}`, 'info');
       } catch (error) {
         ctx.ui.notify(`Diagram agent could not start: ${String((error as Error).message)}`, 'warning');
@@ -252,6 +249,17 @@ export default function (pi: ExtensionAPI) {
       },
     }));
   }
+  pi.registerTool(defineTool({
+    name: 'diagram_layout_intent',
+    label: 'Freeze semantic layout intent before drawing',
+    description: LAYOUT_INTENT_PROMPT,
+    parameters: Type.Object({ jobId: Type.String(), intent: Type.Object({ purpose: Type.String(), readingOrder: Type.String(), layoutGrammar: Type.String(), nodes: Type.Array(Type.Object({ id: Type.String(), role: Type.String(), layer: Type.String(), peers: Type.Array(Type.String()), groupPath: Type.Array(Type.String()) })), relations: Type.Array(Type.Object({ id: Type.String(), source: Type.String(), target: Type.String() })), constraints: Type.Array(Type.Object({ priority: Type.String({ description: 'hard for source meaning; soft for visual choices and inferred layers' }), reason: Type.String(), description: Type.String(), nodeIds: Type.Array(Type.String()) })), uncertainties: Type.Array(Type.String()) }), predecessorHash: Type.Optional(Type.String()), reason: Type.Optional(Type.String()) }),
+    async execute(_id, params) {
+      const job = jobs.get(params.jobId);
+      if (!job?.layoutIntent) throw Error('UNKNOWN_DIAGRAM_JOB');
+      return await job.layoutIntent(params);
+    },
+  }));
   pi.registerTool(defineTool({
     name: 'diagram_inspect',
     label: 'Inspect original and improved diagram',

@@ -45,7 +45,7 @@ function setup(over={}){
     async prompt(text,{images}){calls.reviewer.push({text,images});clock.t+=700;if(over.onReview)over.onReview();const r=replies.shift();if(r instanceof Error)throw r;return {text:typeof r==='string'?r:JSON.stringify({imagesSeen:images.length,...r}),usage:{input:10,output:5}}},
     dispose(){},
   });
-  const run=createV2Run(job,{gate:'strict',deps,reviewerFactory,now:()=>clock.t,budgets:{...over.budgets,twoPhase:false},reviewer:over.reviewerCfg,onRoundEnd:n=>calls.roundEnds.push(n)});
+  const run=createV2Run(job,{contractRequired:over.contractRequired??false,gate:'strict',deps,reviewerFactory,now:()=>clock.t,budgets:{...over.budgets,twoPhase:false},reviewer:over.reviewerCfg,onRoundEnd:n=>calls.roundEnds.push(n)});
   const write=text=>fs.writeFileSync(job.outputPath,text);
   const out=async()=>JSON.parse((await run.submit()).content[0].text);
   const cleanup=()=>{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(job.runDir,{recursive:true,force:true})};
@@ -623,4 +623,18 @@ test('manifest round audit record includes adjudicatedChecks and notCheckableChe
     assert.deepEqual(roundAudit.adjudicatedChecks,['semanticPreservation']);
     assert.ok(roundAudit.notCheckableChecks.includes('routeNodeIntrusion'));
   }finally{t.cleanup()}
+});
+
+
+test('revising a reviewed semantic contract invalidates old review and acceptance bindings',async()=>{
+ const t=setup({contractRequired:true,replies:[rv([rf('other',['A'])]),rv([])]});
+ const intent={purpose:'Handoff',readingOrder:'Left to right',layoutGrammar:'Origin and result',nodes:[{id:'A',role:'origin',layer:'origin',peers:[],groupPath:[]},{id:'B',role:'result',layer:'result',peers:[],groupPath:[]}],relations:[{id:'e1',source:'A',target:'B'}],constraints:[{priority:'hard',reason:'Source',description:'Preserve relation direction',nodeIds:['A','B']}],uncertainties:[]};
+ try {
+ await t.run.submitLayoutIntent({intent});const old=t.run.manifest().layoutIntent.hash;
+ t.write(svg('contract'));assert.equal((await t.out()).status,'REVISE');assert.equal(t.calls.reviewer.length,1);assert.equal(t.run.manifest().finalLayoutIntentHash,old);
+ await t.run.submitLayoutIntent({intent:{...intent,readingOrder:'Vertical'},predecessorHash:old,reason:'Review layout feedback'});
+ assert.equal(t.run.isFinal(),false);assert.equal(t.run.manifest().finalLayoutIntentHash,null);assert.equal(t.run.manifest().status,'RUNNING');
+ assert.equal((await t.out()).status,'REVIEWED');assert.equal(t.calls.reviewer.length,2);
+ const current=t.run.manifest().layoutIntent.hash;assert.notEqual(current,old);assert.equal(t.run.manifest().finalLayoutIntentHash,current);assert.ok(t.calls.reviewer[1].text.includes(current));
+ }finally{t.cleanup()}
 });

@@ -135,10 +135,25 @@ export function ensureOriginal(job,{mermaidBundlePath=process.env.PI_DIAGRAM_MER
 }
 
 /** Structured source facts for the prompt (PI_DIAGRAM_SOURCE_FACTS=1): parser output plus positions in the original render. Needs the original render before the first model turn. */
-export async function buildSourceFacts(job,{mermaidBundlePath=process.env.PI_DIAGRAM_MERMAID_BUNDLE}={}){
+export async function buildSourceFacts(job,{mermaidBundlePath=process.env.PI_DIAGRAM_MERMAID_BUNDLE,details=false}={}){
   const model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'));
   const {svgBytes}=await ensureOriginal(job,{mermaidBundlePath});
-  return formatSourceFacts(model,await collectOriginalLayout(svgBytes,model));
+  const layout=await collectOriginalLayout(svgBytes,model);
+  const effectiveModel=JSON.parse(JSON.stringify(model));effectiveModel.membershipConflicts=[];
+  for(const node of effectiveModel.nodes){
+    const declared=node.groupPath??[],rendered=layout.renderedGroups[node.id]??[];
+    const conflict=declared.length!==rendered.length||declared.some(id=>!rendered.includes(id));
+    let chosen=rendered;
+    if(conflict){
+      const records=(job.manifest?.adjudication?.records??[]).filter(r=>r.nodeId===node.id);
+      const r=records[0];
+      if(records.length===1&&r.sourceHash===job.sourceHash&&r.declaredGroup===(declared[0]??null)&&r.renderedGroup===(rendered[0]??null)&&rendered.length<=1&&typeof r.authorisedBy==='string'&&r.authorisedBy.trim()&&Number.isFinite(Date.parse(r.timestamp))&&(r.chosenGroup===null||model.groups.some(g=>g.id===r.chosenGroup)))chosen=r.chosenGroup?[r.chosenGroup]:[];
+      else effectiveModel.membershipConflicts.push(node.id);
+    }
+    node.groupPath=chosen;
+  }
+  const text=formatSourceFacts(model,layout)+'\nEffective planner source IDs and group paths (explicit adjudications applied):\n'+JSON.stringify(effectiveModel);
+  return details?{text,model:effectiveModel}:text;
 }
 
 /** The user message sent to Pi. Default (no options) is the script-mode message; options only append. */

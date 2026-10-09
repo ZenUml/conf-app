@@ -2322,18 +2322,20 @@ describe('GenericViewer — auto-opening the export dialog in Fullscreen', () =>
     }
   })
 
-  it('waits for the diagram before opening, so the preview captures something', async () => {
-    // capturePreview() runs off the `visible` watcher. Opening at mount would
-    // capture while Sequence/Mermaid/PlantUml are still rendering and leave the
-    // user a blank preview plus a Refresh click.
+  it('covers the viewer immediately, then enables preview capture when the diagram is ready', async () => {
+    // The export-entry route intentionally skips the fullscreen paywall. Its
+    // opaque export surface must therefore cover viewer controls immediately;
+    // only the preview capture waits for the renderer readiness signal.
     inFullscreen(true)
     const wrapper = mountViewer()
     await wrapper.vm.$nextTick()
-    expect(wrapper.vm.showExportModal).toBe(false)
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(false)
 
     EventBus.$emit('diagramLoaded', 'A->B: hi', DiagramType.Sequence)
     await wrapper.vm.$nextTick()
     expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(true)
     wrapper.unmount()
   })
 
@@ -2350,15 +2352,31 @@ describe('GenericViewer — auto-opening the export dialog in Fullscreen', () =>
     wrapper.unmount()
   })
 
+  it('does not reopen when dismissed before renderer readiness', async () => {
+    inFullscreen(true)
+    const wrapper = mountViewer()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.exportPreviewReady).toBe(false)
+
+    await wrapper.vm.onExportModalClose()
+    EventBus.$emit('diagramLoaded', 'A->B: hi', DiagramType.Sequence)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.showExportModal).toBe(false)
+    wrapper.unmount()
+  })
+
   it('opens on viewerRenderSettled, the readiness signal Graph and OpenAPI emit', async () => {
     inFullscreen(true)
     const wrapper = mountViewer()
     await wrapper.vm.$nextTick()
-    expect(wrapper.vm.showExportModal).toBe(false)
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(false)
 
     EventBus.$emit('viewerRenderSettled', 'graph')
     await wrapper.vm.$nextTick()
     expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(true)
     wrapper.unmount()
   })
 
@@ -2369,11 +2387,13 @@ describe('GenericViewer — auto-opening the export dialog in Fullscreen', () =>
     inFullscreen(true)
     const wrapper = mountViewer()
     await wrapper.vm.$nextTick()
-    expect(wrapper.vm.showExportModal).toBe(false)
+    expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(false)
 
     vi.advanceTimersByTime(15000)
     await wrapper.vm.$nextTick()
     expect(wrapper.vm.showExportModal).toBe(true)
+    expect(wrapper.vm.exportPreviewReady).toBe(true)
     vi.useRealTimers()
     wrapper.unmount()
   })

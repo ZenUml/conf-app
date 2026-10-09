@@ -168,6 +168,7 @@ export const ExportFailed: Story = {
  * page's.
  */
 const MODAL_SIZES = {
+  narrow: { width: 880, height: 720 },
   laptop: { width: 1280, height: 563 },
   desktop: { width: 1920, height: 950 },
 } as const
@@ -175,6 +176,7 @@ const MODAL_SIZES = {
 const INNER_IDS = {
   plain: 'modal-exportmodal--fullscreen-inner',
   editing: 'modal-exportmodal--fullscreen-inner-editing',
+  overflow: 'modal-exportmodal--fullscreen-inner-overflow-editing',
 } as const
 
 function inFrame(size: { width: number; height: number }, innerId: string) {
@@ -217,6 +219,26 @@ export const FullscreenInnerEditing: Story = {
     state.callout.tipPosition = { x: 0.58, y: 0.55 }
     state.selectedAnnotation.value = 'callout'
   }),
+}
+
+/** A deliberately dense selected state for checking sidebar scrolling. */
+export const FullscreenInnerOverflowEditing: Story = {
+  name: 'Fullscreen (inner document, overflowing note controls)',
+  render: (args: Args) => withCaptureStage(args, (state) => {
+    state.note.text = 'A long note whose properties must remain reachable while the preview stays visible'
+    state.notePoint.value = { x: 0.5, y: 0.35 }
+    state.selectedAnnotation.value = 'note'
+  }),
+}
+
+export const FullscreenNarrow: Story = {
+  name: 'Fullscreen at 880x720 (stacking breakpoint)',
+  render: () => inFrame(MODAL_SIZES.narrow, INNER_IDS.editing),
+}
+
+export const FullscreenOverflowEditing: Story = {
+  name: 'Fullscreen at 1280x420 (overflowing sidebar)',
+  render: () => inFrame({ width: 1280, height: 420 }, INNER_IDS.overflow),
 }
 
 export const FullscreenLaptop: Story = {

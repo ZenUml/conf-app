@@ -55,3 +55,38 @@ describe('ExportSidebar — Copy image button', () => {
     expect(wrapper.find('.btn-copy').text()).toBe('Copying…');
   });
 });
+
+describe('ExportSidebar — closing the fullscreen surface', () => {
+  it('offers one visible close affordance', () => {
+    const { wrapper } = mountSidebar();
+    const closeButtons = wrapper.findAll('button').filter((button) =>
+      button.attributes('aria-label') === 'Close' || button.text() === 'Cancel',
+    );
+
+    expect(closeButtons).toHaveLength(1);
+  });
+
+  it('keeps keyboard focus order aligned with the visual action order', () => {
+    (globalThis as any).ClipboardItem = class {};
+    Object.defineProperty(navigator, 'clipboard', { value: { write: vi.fn() }, configurable: true });
+    const { wrapper } = mountSidebar();
+    const labels = wrapper.findAll('.sidebar-actions button').map((button) => button.text());
+
+    expect(labels).toEqual(['Download PNG', 'Copy image']);
+  });
+});
+
+describe('ExportSidebar — useful rest state', () => {
+  it('shows named background choices instead of an unexplained row of colour chips', () => {
+    const { wrapper } = mountSidebar();
+    expect(wrapper.findAll('.bg-swatch-label').map((label) => label.text())).toEqual([
+      'Transparent', 'White', 'Warm', 'Cool',
+    ]);
+    expect(wrapper.find('.custom-color-label-text').text()).toBe('Custom');
+  });
+
+  it('bounds callout text to the width supported by the single-line annotation', () => {
+    const { wrapper } = mountSidebar((state) => { state.selectedAnnotation.value = 'callout'; });
+    expect(wrapper.find('#export-callout-text').attributes('maxlength')).toBe('80');
+  });
+});

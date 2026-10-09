@@ -84,6 +84,11 @@ describe('computeCalloutPath — the box follows its content', () => {
     expect(boxWidth(wide)).toBeGreaterThanOrEqual(420);
   });
 
+  it('caps an extreme label at 90% of the canvas width', () => {
+    const extreme = computeCalloutPath(300, 100, 1, null, { textWidth: 900, fontSize: 14 });
+    expect(boxWidth(extreme)).toBeLessThanOrEqual(540);
+  });
+
   it('grows taller with the font size', () => {
     const small = computeCalloutPath(200, 100, 1, null, { textWidth: 100, fontSize: 12 });
     const large = computeCalloutPath(200, 100, 1, null, { textWidth: 100, fontSize: 28 });

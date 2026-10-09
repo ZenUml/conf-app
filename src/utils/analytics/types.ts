@@ -3,6 +3,7 @@
 import type { ProductType } from "./productType";
 import type {
   FeatureArea,
+  MagicLayoutContractOutcome,
   MacroTypeValue,
   Surface,
   EntryPoint,
@@ -46,6 +47,15 @@ import type {
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  // Semantic layout lifecycle: identifiers/digests/counts only. Never source,
+  // labels, intent prose, user feedback, or SVG bodies.
+  layout_intent_hash?: string;
+  previous_layout_intent_hash?: string;
+  layout_intent_revision?: number;
+  layout_contract_outcome?: MagicLayoutContractOutcome;
+  layout_contract_reason?: string;
+  layout_node_count?: number;
+  layout_layer_count?: number;
   /** Markdown render outcomes; counts only, never document contents. */
   markdown_mermaid_blocks?: number;
   markdown_failed_blocks?: number;

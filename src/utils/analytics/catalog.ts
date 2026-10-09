@@ -251,7 +251,17 @@ export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
 /** Observable outcome when the saved report hands off to public support. */
 export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
 
+/** Semantic planning diagnostics. The local Pi CLI records these in its private
+ * run manifest; it does not upload diagram content or add a network dependency.
+ * created: first validated intent; revised: replacement intent;
+ * failed: rejected intent or candidate contract. All payloads are metadata only.
+ */
+export type MagicLayoutContractOutcome = "accepted" | "rejected";
+
 export type AnalyticsEventName =
+  | "magic_layout_intent_created"
+  | "magic_layout_intent_revised"
+  | "magic_layout_contract_failed"
   // Markdown: debounced document render starts/completes in editor or viewer.
   // Properties: feature_area=content, macro_type=markdown, source_length,
   // markdown_mermaid_blocks, markdown_failed_blocks. Never include source.

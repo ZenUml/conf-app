@@ -55,3 +55,40 @@ describe('ExportSidebar — Copy image button', () => {
     expect(wrapper.find('.btn-copy').text()).toBe('Copying…');
   });
 });
+
+describe('ExportSidebar — PDF format fake-door', () => {
+  it('hides the format menu until the caret is clicked', () => {
+    const { wrapper } = mountSidebar();
+    expect(wrapper.find('.export-format-menu').exists()).toBe(false);
+  });
+
+  it('opens a menu with PNG and PDF (Soon) options on caret click', async () => {
+    const { wrapper } = mountSidebar();
+    await wrapper.find('.btn-export-caret').trigger('click');
+    const menu = wrapper.find('.export-format-menu');
+    expect(menu.exists()).toBe(true);
+    expect(menu.text()).toContain('PNG');
+    expect(menu.text()).toContain('PDF');
+    expect(menu.text()).toContain('Soon');
+  });
+
+  it('clicking PNG in the menu closes it without emitting export or close', async () => {
+    const { wrapper } = mountSidebar();
+    await wrapper.find('.btn-export-caret').trigger('click');
+    await wrapper.find('.export-format-option-png').trigger('click');
+    expect(wrapper.find('.export-format-menu').exists()).toBe(false);
+    expect(wrapper.emitted('export')).toBeUndefined();
+    expect(wrapper.emitted('close')).toBeUndefined();
+  });
+
+  it('clicking PDF emits pdf-format-clicked (not export/close) and shows an inline note', async () => {
+    const { wrapper } = mountSidebar();
+    await wrapper.find('.btn-export-caret').trigger('click');
+    await wrapper.find('.export-format-option-pdf').trigger('click');
+    expect(wrapper.emitted('pdf-format-clicked')).toHaveLength(1);
+    expect(wrapper.emitted('export')).toBeUndefined();
+    expect(wrapper.emitted('close')).toBeUndefined();
+    expect(wrapper.find('.export-format-menu').exists()).toBe(false);
+    expect(wrapper.find('.export-format-note').text()).toContain('PDF export isn\'t built yet');
+  });
+});

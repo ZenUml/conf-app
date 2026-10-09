@@ -321,6 +321,13 @@ export type AnalyticsEventName =
   | "export_png_succeeded"
   | "export_png_failed"
   | "export_png_dismissed"
+  // Fake-door demand test (ExportSidebar.vue): the export action bar's format
+  // caret opens a two-item menu, PNG (real, does the existing download) and
+  // PDF (no backend — selecting it fires this event and shows an inline "not
+  // built yet" note instead of exporting). Same gauge methodology as the
+  // Copy-for-AI demand test: measure clicks before building. `feature_area`/
+  // `surface`/`macro_type` are the only properties this carries — no new ones.
+  | "export_pdf_option_clicked"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"

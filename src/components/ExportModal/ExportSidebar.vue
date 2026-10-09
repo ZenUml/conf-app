@@ -194,16 +194,44 @@
           <AdsIcon v-else glyph="copy" :size="13" />
           {{ state.copySucceeded.value ? 'Copied' : (state.isCopying.value ? 'Copying…' : 'Copy image') }}
         </button>
-        <button class="btn-export" @click="$emit('export')" :disabled="state.isExporting.value">
-          <svg v-if="state.isExporting.value" class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
-            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          <AdsIcon v-else glyph="download" :size="13" />
-          {{ state.isExporting.value ? 'Exporting…' : 'Download PNG' }}
-        </button>
+        <div class="export-format-group">
+          <button class="btn-export" @click="$emit('export')" :disabled="state.isExporting.value">
+            <svg v-if="state.isExporting.value" class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+              <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <AdsIcon v-else glyph="download" :size="13" />
+            {{ state.isExporting.value ? 'Exporting…' : 'Download PNG' }}
+          </button>
+          <button
+            type="button"
+            class="btn-export-caret"
+            aria-haspopup="menu"
+            :aria-expanded="formatMenuOpen"
+            aria-label="Choose export format"
+            :disabled="state.isExporting.value"
+            @click="formatMenuOpen = !formatMenuOpen"
+          >▾</button>
+          <div v-if="formatMenuOpen" class="export-format-menu" role="menu">
+            <button
+              type="button"
+              class="export-format-option export-format-option-png"
+              role="menuitem"
+              @click="formatMenuOpen = false"
+            >PNG</button>
+            <button
+              type="button"
+              class="export-format-option export-format-option-pdf"
+              role="menuitem"
+              @click="selectPdf"
+            >PDF <span class="format-soon-badge">Soon</span></button>
+          </div>
+        </div>
       </div>
     </div>
+    <p v-if="pdfInterestNoted" class="export-format-note" role="status">
+      Noted — PDF export isn't built yet. Thanks for the interest!
+    </p>
   </div>
 </template>
 
@@ -226,7 +254,14 @@ export default defineComponent({
     },
   },
 
-  emits: ['close', 'export', 'copy'],
+  emits: ['close', 'export', 'copy', 'pdf-format-clicked'],
+
+  data() {
+    return {
+      formatMenuOpen: false,
+      pdfInterestNoted: false,
+    };
+  },
 
   computed: {
     clipboardExportSupported(): boolean {
@@ -238,6 +273,13 @@ export default defineComponent({
     rangeTrackStyle(value: number, min: number, max: number): Record<string, string> {
       const pct = ((value - min) / (max - min)) * 100;
       return { background: `linear-gradient(to right, #3b82f6 ${pct}%, #334155 ${pct}%)` };
+    },
+    // Fake-door: no PDF export exists yet. This only measures demand — see
+    // export_pdf_option_clicked in src/utils/analytics/catalog.ts.
+    selectPdf(): void {
+      this.formatMenuOpen = false;
+      this.pdfInterestNoted = true;
+      this.$emit('pdf-format-clicked');
     },
   },
 });

@@ -1,5 +1,5 @@
 import type { Args, Meta, StoryObj } from '@storybook/vue3-vite'
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import ExportModal from './ExportModal.vue'
 
 type Story = StoryObj<typeof ExportModal>
@@ -50,7 +50,11 @@ export default meta
 // — the same access pattern ExportModal.spec.ts already uses via
 // `wrapper.vm.state`. This runs the real html-to-image capture pipeline
 // instead of faking a preview data URL that the component would never see.
-function withCaptureStage(args: Args, configureState?: (state: ModalInstance['state']) => void) {
+function withCaptureStage(
+  args: Args,
+  configureState?: (state: ModalInstance['state']) => void,
+  afterMount?: (rootEl: HTMLElement) => void | Promise<void>,
+) {
   return {
     components: { ExportModal },
     setup() {
@@ -58,9 +62,13 @@ function withCaptureStage(args: Args, configureState?: (state: ModalInstance['st
       const modalRef = ref<ModalInstance | null>(null)
       const getCaptureNode = () => diagramRef.value
 
-      onMounted(() => {
+      onMounted(async () => {
         configureState?.(modalRef.value!.state)
         modalRef.value!.capturePreview()
+        if (afterMount) {
+          await nextTick()
+          await afterMount((modalRef.value as unknown as { $el: HTMLElement }).$el)
+        }
       })
 
       return { args, diagramRef, modalRef, getCaptureNode }
@@ -147,5 +155,31 @@ export const ExportFailed: Story = {
   name: 'Export failed',
   render: (args: Args) => withCaptureStage(args, (state) => {
     state.exportError.value = "Export failed — couldn't capture the diagram. Try Refresh, then export again."
+  }),
+}
+
+/**
+ * The format caret next to "Download PNG" opened, showing the two-item menu:
+ * PNG (real, unchanged export) and PDF, tagged "Soon". PDF is a fake-door
+ * demand test — see export_pdf_option_clicked in analytics/catalog.ts.
+ */
+export const PdfFormatMenuOpen: Story = {
+  name: 'Format menu open (PNG / PDF fake-door)',
+  render: (args: Args) => withCaptureStage(args, undefined, (rootEl) => {
+    rootEl.querySelector<HTMLButtonElement>('.btn-export-caret')?.click()
+  }),
+}
+
+/**
+ * A user picked "PDF" from the format menu. No PDF is generated — the modal
+ * just records the click and shows this inline note, so we can gauge demand
+ * before building real PDF export.
+ */
+export const PdfInterestNoted: Story = {
+  name: 'PDF clicked (fake-door note shown)',
+  render: (args: Args) => withCaptureStage(args, undefined, async (rootEl) => {
+    rootEl.querySelector<HTMLButtonElement>('.btn-export-caret')?.click()
+    await nextTick()
+    rootEl.querySelector<HTMLButtonElement>('.export-format-option-pdf')?.click()
   }),
 }

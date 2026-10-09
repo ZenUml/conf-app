@@ -12,7 +12,13 @@
       >
         <ExportPreview :state="state" @refresh="capturePreview" />
         <div class="export-divider"></div>
-        <ExportSidebar :state="state" @close="$emit('close')" @export="handleExport" @copy="handleCopy" />
+        <ExportSidebar
+          :state="state"
+          @close="$emit('close')"
+          @export="handleExport"
+          @copy="handleCopy"
+          @pdf-format-clicked="handlePdfFormatClicked"
+        />
       </div>
     </div>
   </Transition>
@@ -168,6 +174,15 @@ export default defineComponent({
       });
     }
 
+    // Fake-door demand test — see export_pdf_option_clicked in catalog.ts.
+    function handlePdfFormatClicked() {
+      trackAnalyticsEvent('export_pdf_option_clicked', {
+        feature_area: 'macro',
+        surface: 'modal',
+        macro_type: props.macroType,
+      });
+    }
+
     async function capturePreview() {
       const node = resolveCaptureNode();
       if (!node) return;
@@ -268,7 +283,7 @@ export default defineComponent({
       if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
     });
 
-    return { state, dialogEl, capturePreview, handleExport, handleCopy, onDialogKeydown };
+    return { state, dialogEl, capturePreview, handleExport, handleCopy, handlePdfFormatClicked, onDialogKeydown };
   },
 });
 </script>
@@ -642,6 +657,45 @@ export default defineComponent({
 .btn-export:hover { box-shadow: 0 4px 20px rgba(59, 130, 246, 0.55); transform: translateY(-1px); }
 .btn-export:active { transform: translateY(1px); box-shadow: 0 1px 6px rgba(59, 130, 246, 0.3); }
 .btn-export:disabled { opacity: 0.7; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.export-format-group { position: relative; display: flex; align-items: stretch; }
+.export-format-group .btn-export { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+
+.btn-export-caret {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none; border-left: 1px solid rgba(255,255,255,0.25);
+  border-top-right-radius: 8px; border-bottom-right-radius: 8px;
+  padding: 0 8px; color: #ffffff; font-size: 10px; line-height: 1;
+  cursor: pointer; transition: box-shadow 0.2s;
+}
+.btn-export-caret:hover:not(:disabled) { box-shadow: 0 4px 20px rgba(59, 130, 246, 0.55); }
+.btn-export-caret:disabled { opacity: 0.7; cursor: not-allowed; }
+
+.export-format-menu {
+  position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 1;
+  background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: flex; flex-direction: column; overflow: hidden; min-width: 120px;
+}
+.export-format-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: none; border: none; text-align: left;
+  padding: 8px 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px; font-weight: 500; color: var(--sidebar-text); cursor: pointer;
+  transition: background 0.15s;
+}
+.export-format-option:hover { background: var(--sidebar-hover); }
+.format-soon-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #94a3b8; background: rgba(148, 163, 184, 0.15); border-radius: 4px; padding: 2px 5px;
+}
+
+.export-format-note {
+  margin: 0; padding: 8px 20px; font-size: 11px; line-height: 1.4;
+  color: var(--sidebar-muted); background: rgba(59, 130, 246, 0.08);
+  border-top: 1px solid var(--sidebar-border);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }

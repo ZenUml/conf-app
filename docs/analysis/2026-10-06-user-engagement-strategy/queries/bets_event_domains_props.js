@@ -1,0 +1,31 @@
+// bets_event_domains_props.js — per event x product_type x window x client_domain x key property: raw + sample-extrapolated event counts (aggregated offline to tenant counts / property splits); external tenants; 2026-08-07..10-05
+var INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "lite-prod", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"]; // re-add private/operations/internal-analytics-domain-exclusions.md before rerun
+function isInternal(d) { if (!d) return true; for (var i = 0; i < INTERNAL.length; i++) if (d.indexOf(INTERNAL[i]) !== -1) return true; return false; }
+function okUser(e) { var id = e.distinct_id; return !!id && id !== "unknown_user_account_id" && String(id).indexOf("$device:") !== 0; }
+var CUR = new Date("2026-09-06T00:00:00Z").getTime();   // current 30d = 2026-09-06..2026-10-05
+var PRI = new Date("2026-08-07T00:00:00Z").getTime();   // prior 30d   = 2026-08-07..2026-09-05
+function win(t) { return t >= CUR ? "cur" : (t >= PRI ? "prior" : "pre"); }
+function w(e) { return 1 / (Number(e.properties.sample_rate) || 1); }
+function keyProp(e) {
+  var p = e.properties, n = e.name;
+  if (n === "paywall_gate_evaluated") return "gate_fired=" + p.gate_fired + "|action=" + p.action_type + "|policy=" + p.paywall_policy_source;
+  if (n === "editor_template_applied") return "template_id=" + p.template_id + "|new=" + p.is_new_macro + "|type=" + p.macro_type;
+  if (n === "editor_template_gallery_opened") return "trigger=" + p.template_gallery_trigger + "|new=" + p.is_new_macro;
+  if (n.indexOf("create_guide_") === 0) return "variant=" + p.create_guide_variant + "|close=" + p.create_guide_close_method;
+  if (n === "csat_submitted") return "score=" + p.feedback_score;
+  if (n === "magic_view_failed") return "reason=" + p.magic_failure_reason;
+  if (n === "fullscreen_opened" || n === "macro_create_started" || n === "macro_edit_started") return "entry=" + p.entry_point + "|surface=" + p.surface;
+  if (n === "macro_create_succeeded") return "surface=" + p.surface + "|type=" + p.macro_type;
+  if (n === "copy_for_ai_clicked") return "job=" + p.copy_job;
+  if (n === "byline_diagram_created") return "result=" + p.result + "|type=" + p.macro_type;
+  if (n === "byline_opened" || n === "byline_create_clicked") return "host_in_editor=" + p.host_in_editor;
+  if (n === "viewer_source_opened") return "type=" + p.macro_type + "|edit=" + p.has_edit_permission;
+  if (n === "paywall_triggered" || n === "paywall_banner_shown") return "action=" + p.action_type + "|surface=" + p.surface;
+  return "";
+}
+function main() {
+  return Events({from_date: "2026-08-07", to_date: "2026-10-05", event_selectors: [{event:"byline_opened"},{event:"byline_list_retried"},{event:"byline_diagram_opened"},{event:"byline_diagram_source_copied"},{event:"byline_create_clicked"},{event:"byline_editor_deeplinked"},{event:"byline_dismissed"},{event:"byline_thumbnails_loaded"},{event:"byline_unplaced_scanned"},{event:"byline_diagram_created"},{event:"byline_create_cancelled"},{event:"byline_view_close_requested"},{event:"homepage_feed_viewed"},{event:"homepage_feed_action_clicked"},{event:"homepage_feed_diagram_opened"},{event:"homepage_feed_example_expanded"},{event:"editor_template_gallery_opened"},{event:"editor_template_applied"},{event:"viewer_source_opened"},{event:"viewer_source_copied"},{event:"create_guide_impression"},{event:"create_guide_opened"},{event:"create_guide_closed"},{event:"create_guide_open_failed"},{event:"whats_new_banner_evaluated"},{event:"whats_new_banner_shown"},{event:"whats_new_banner_expanded"},{event:"whats_new_banner_dismissed"},{event:"whats_new_link_clicked"},{event:"copy_for_ai_impression"},{event:"copy_for_ai_menu_opened"},{event:"copy_for_ai_clicked"},{event:"fullscreen_opened"},{event:"magic_availability_checked"},{event:"magic_default_resolved"},{event:"magic_view_requested"},{event:"magic_view_succeeded"},{event:"magic_view_failed"},{event:"magic_view_restored"},{event:"magic_preference_changed"},{event:"magic_layout_feedback_prompt_shown"},{event:"magic_layout_feedback_submitted"},{event:"magic_layout_feedback_updated"},{event:"csat_displayed"},{event:"csat_submitted"},{event:"csat_dismissed"},{event:"feedback_link_clicked"},{event:"feedback_report_opened"},{event:"feedback_report_capture_requested"},{event:"feedback_report_capture_succeeded"},{event:"feedback_report_capture_failed"},{event:"feedback_report_capture_removed"},{event:"feedback_report_submit_requested"},{event:"feedback_report_submit_succeeded"},{event:"feedback_report_submit_failed"},{event:"feedback_report_handoff_requested"},{event:"feedback_report_handoff_opened"},{event:"feedback_report_handoff_blocked"},{event:"feedback_report_dismissed"},{event:"paywall_triggered"},{event:"paywall_blocked_create"},{event:"paywall_blocked_edit"},{event:"paywall_continue_used"},{event:"paywall_continued_editing"},{event:"paywall_attempts_exhausted"},{event:"paywall_gate_evaluated"},{event:"paywall_banner_shown"},{event:"paywall_banner_dismissed"},{event:"paywall_bundle_cta_clicked"},{event:"paywall_marketplace_cta_clicked"},{event:"paywall_learn_more_clicked"},{event:"upgrade_modal_shown"},{event:"macro_create_started"},{event:"macro_create_succeeded"},{event:"macro_create_cancelled"},{event:"macro_save_succeeded"},{event:"macro_edit_started"},{event:"template_offer_shown"},{event:"template_offer_clicked"},{event:"template_created"},{event:"template_create_failed"},{event:"template_offer_dismissed"}]})
+  .filter(function (e) { return !isInternal(e.properties.client_domain) && okUser(e); })
+  .groupBy([function (e) { return e.name; }, function (e) { return e.properties.product_type || "none"; }, function (e) { return win(e.time); }, function (e) { return e.properties.client_domain; }, keyProp],
+    [mixpanel.reducer.count(), mixpanel.reducer.sum(w)]);
+}

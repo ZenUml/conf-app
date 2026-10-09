@@ -7,8 +7,8 @@ The storage adapter maps these meanings to current header names, never fixed col
 One opportunity per customer site + product + commercial goal. Related spaces stay in one opportunity unless separate buying processes justify another. Full and Lite usage can be compared, but licenses and events retain variant identity.
 
 - Stable opportunity ID; company/domain and verified site key; product; goal/type.
-- Opportunity stage: pending needs, contacted, waiting for customer, confirming buying conditions, procurement, won, declined, paused. Winning/closing requires evidence of the commercial result; a payment alone need not close a technical follow-up.
-- License summary, payment status and their evidence date: separate fields. Payment values distinguish not checked, no payment record found, paid, partially paid and refunded. Do not turn unknown into unpaid.
+- Opportunity stage: pending needs, contacted, waiting for customer, confirming buying conditions, procurement, won, declined, paused. For a purchase/renewal goal, a matched valid non-zero order with effective commercial license establishes won, regardless of Open settlement status. Refund/cancelled/free-only records and a commercial license without order evidence do not. A commercial win does not close unresolved technical work.
+- License summary, payment status and their evidence date: separate fields. Payment values distinguish not checked, no matching transactions found, transactions recorded with settlement unconfirmed (retain Open/unknown), explicitly reported paid, partially paid and refunded. Do not turn unknown into unpaid or label a recorded Open order “no payment record”. Reported paid is not proof of vendor bank payout.
 - Current blocker, next action, owner and next review date in a documented timezone.
 - Main contact, decision-maker and role evidence (role unknown is valid).
 - Potential annual value + currency + estimate/list/quote/contract basis and date. This is not received revenue.
@@ -16,6 +16,8 @@ One opportunity per customer site + product + commercial goal. Related spaces st
 - Pause reason and observable resume condition, or result date and closure reason.
 
 Keep the summary short. Full messages stay in Gmail/tickets, license/transaction records in their source, and longer analyses in private Handbook files. An archive is not a refreshed fact.
+
+A later full refund/reversal is a new outcome, not evidence the historical purchase never happened. Preserve its history, record the refund and current license facts, and do not present it as a retained active win. If the selected tracker has no truthful refunded/reversed stage, flag that mapping gap; do not invent a rejection or automatically reopen sales follow-up.
 
 ## Activity log
 
@@ -27,7 +29,7 @@ Action states: draft, scheduled, sent, received, cancelled, failed, pending veri
 
 1. Inspect current values and latest activity. Preserve unrelated edits, formulas, formats, validation and source links.
 2. Match source message/ticket/event identifiers to existing records before appending. A retry must not duplicate a sent event. If two actions are genuinely different, retain both.
-3. Append the verified activity, then update only affected summary fields. If an edit was only prepared, leave status as draft/pending and say where it is stored.
+3. Append the verified activity, then update affected summary fields consistently: commercial stage, outdated approval/blocker/next-action wording, result date and evidence link as warranted. A status-only request excludes proposing or executing new outreach, not correction of stale stages. Use the evidenced commercial event date for the result date; label unknown dates rather than using a query timestamp as the event. Keep raw settlement status separate. If an edit was only prepared, leave status as draft/pending and say where it is stored.
 4. Re-read saved values, record ID and source link. For structural changes also verify table ranges, validation values, formulas and a screenshot. Flag partial writes for reconciliation; do not announce success for an unsaved tracker update.
 
 Pause and payment do not overwrite communication history. Formulas are presentation aids, not authority for sending, billing or resuming contact. A review date schedules human attention; it creates no automation.

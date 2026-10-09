@@ -38,6 +38,10 @@ The **Handbook** is our internal, team-only knowledge site — *not* customer-fa
 
 ## Hard rules
 
+### Confluence app UI design targets desktop
+
+For the Confluence app, design for the desktop surface. Do not create narrow/mobile layouts or separate narrow-screen artboards unless the user explicitly requests them.
+
 ### Never mark a UI spot check passed without UI evidence
 
 A spot check assertion that requires UI verification must be confirmed by actually observing the UI — a screenshot, a snapshot, or a network intercept. Passing a unit test does not satisfy a UI assertion. If the UI cannot be driven (e.g. iframe keyboard limitations), mark the assertion **SKIPPED** with the reason and the blocker, not **PASS**.

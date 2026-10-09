@@ -16,19 +16,20 @@ export function readMermaidFlowchartModel(diagram) {
 
 /** Attach to Mermaid's existing SVG. No layout, path or source text is regenerated.
  * The model supplies endpoint identity; never split Mermaid IDs on '_' or '-'. */
-export function attachMermaidHighlights(svg, model, {status = null} = {}) {
+export function attachMermaidHighlights(svg, model, {status = null, idMap = null, sourceRootId = svg?.id} = {}) {
   if (!svg || svg.localName !== 'svg' || svg.namespaceURI !== 'http://www.w3.org/2000/svg' ||
       !svg.isConnected) throw Error('MERMAID_HIGHLIGHTS_MOUNTED_SVG_REQUIRED');
   if (!model || !/^flowchart(?:-|$)/.test(model.type || '') ||
       !Array.isArray(model.nodes) || !Array.isArray(model.edges)) throw Error('MERMAID_HIGHLIGHTS_MODEL_REQUIRED');
   const key = Symbol.for('pi.mermaid-highlights');
+  const domIds = id => [id, `${sourceRootId}-${id}`].map(value => idMap?.get(value) || value);
   const drawnNodes = [...svg.querySelectorAll('g.node')].filter(n => n.id);
   const drawnEdges = [...svg.querySelectorAll('path.flowchart-link')];
   const nodeIds = new Set(), edgeIds = new Set();
   const nodeBindings = model.nodes.map(n => {
     if (typeof n.id !== 'string' || !n.id || typeof n.domId !== 'string' || !n.domId || nodeIds.has(n.id)) throw Error('MERMAID_HIGHLIGHTS_NODE_ID_INVALID');
     nodeIds.add(n.id);
-    const matches = drawnNodes.filter(el => el.id === n.domId || el.id === `${svg.id}-${n.domId}`);
+    const matches = drawnNodes.filter(el => domIds(n.domId).includes(el.id));
     if (matches.length !== 1) throw Error(`MERMAID_HIGHLIGHTS_NODE_BINDING_UNRESOLVED:${n.id}`);
     return {element:matches[0], id:n.id};
   });
@@ -36,7 +37,7 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
     if (typeof e.id !== 'string' || !e.id || edgeIds.has(e.id)) throw Error('MERMAID_HIGHLIGHTS_EDGE_ID_INVALID');
     edgeIds.add(e.id);
     if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) throw Error('MERMAID_HIGHLIGHTS_GROUP_ENDPOINT_UNSUPPORTED');
-    const matches = drawnEdges.filter(el => el.getAttribute('data-id') === e.id || el.id === e.id || el.id === `${svg.id}-${e.id}`);
+    const matches = drawnEdges.filter(el => el.getAttribute('data-id') === e.id || domIds(e.id).includes(el.id));
     if (matches.length !== 1) throw Error(`MERMAID_HIGHLIGHTS_EDGE_BINDING_UNRESOLVED:${e.id}`);
     return {element:matches[0], ...e};
   });

@@ -7,6 +7,7 @@ import {createRequire} from 'node:module';
 import {readMermaidFlowchartModel, attachMermaidHighlights} from '../src/mermaid-highlights.mjs';
 import {installInteractiveSvg, INTERACTIVE_SVG_STYLE} from '../src/interactive-runtime.mjs';
 import {exportMermaidInteractive} from '../src/mermaid-interactive-export.mjs';
+import {createSvgInstanceRuntime} from '../src/svg-instance.mjs';
 
 const enabled=!!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE&&!!process.env.PI_DIAGRAM_MERMAID_BUNDLE;
 const SOURCE='flowchart LR\n A-B[Input<br/>Details] -->|one| C[Result]\n A-B -->|two| C\n C --> A-B\n subgraph G[Group]\n D[Inside]\n end\n C --> D';
@@ -111,5 +112,29 @@ test('direct export preserves a nonbreaking space inside a quoted Mermaid label'
     assert.equal(await page.locator('g[data-node="A"] .nodeLabel').textContent(),'Hello\u00a0World');
     await page.locator('.node-hit[data-hit-node="A"]').click();
     assert.equal(await page.locator('.active-node-overlay .nodeLabel').filter({hasText:'Hello'}).textContent(),'Hello\u00a0World');
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
+}));
+
+test('actual Mermaid namespaced IDs support repeated attach/reset/destroy with the original model', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,customSource);
+  await page.addScriptTag({content:`window.svgInstances=(${createSvgInstanceRuntime.toString()})();`});
+  const result=await page.evaluate(()=>{
+    window.control.destroy();const svg=document.querySelector('svg'),modelBefore=JSON.stringify(window.model);
+    const instance=svgInstances.namespaceSvg(svg),before=svg.outerHTML;
+    let control=attachMermaidHighlights(svg,window.model,instance);
+    svg.querySelector('.edge-hit').dispatchEvent(new MouseEvent('click',{bubbles:true}));svgInstances.validateSvgReferences(svg);
+    control.reset();control=attachMermaidHighlights(svg,window.model,instance);const hits=svg.querySelectorAll('.edge-hit').length;
+    control.destroy();return {hits,restored:svg.outerHTML===before,modelUntouched:modelBefore===JSON.stringify(window.model),check:svgInstances.validateSvgReferences(svg)};
+  });assert.equal(result.hits,2);assert.equal(result.restored,true);assert.equal(result.modelUntouched,true);assert.ok(result.check.referenceCount>0);assert.deepEqual(errors,[]);
+}));
+
+test('native Mermaid animation keyframes export with isolated names and valid local references', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pi-mermaid-animation-'));
+  try{
+    const receipt=await exportMermaidInteractive('flowchart LR\n A e@--> B\n e@{ animate: true }',{outPath:path.join(dir,'animation.html')});
+    const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+    await page.setContent(fs.readFileSync(receipt.path,'utf8'));
+    const animation=await page.locator('path[data-edge]').evaluate(e=>getComputedStyle(e).animationName);
+    assert.match(animation,/^pi-svg-\d+-\d+-kf-dash$/);assert.deepEqual(errors,[]);
   }finally{fs.rmSync(dir,{recursive:true,force:true})}
 }));

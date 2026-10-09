@@ -3,6 +3,7 @@ import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {createInteractiveHtml} from './interactive-svg.mjs';
+import {createSvgInstanceRuntime} from './svg-instance.mjs';
 import {deriveSharedSections} from './interactive-sections.mjs';
 
 const require = createRequire(import.meta.url);
@@ -49,11 +50,7 @@ export async function exportInteractiveSvg(svgBytes, {
     try {
       const page = await browser.newPage({javaScriptEnabled:false});
       await page.route('**/*', route => route.abort('blockedbyclient'));
-      await page.evaluate(input => {
-        const doc = new DOMParser().parseFromString(input, 'image/svg+xml');
-        if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'svg') throw Error('INVALID_SVG_XML');
-        document.body.appendChild(document.importNode(doc.documentElement, true));
-      }, svgBytes.toString('utf8'));
+      await page.evaluate(`((${createSvgInstanceRuntime.toString()})()).mountSvg(document.body,${JSON.stringify(svgBytes.toString('utf8'))})`);
       facts = await page.evaluate(collectInteractiveFacts);
     } finally { await browser.close(); }
   }

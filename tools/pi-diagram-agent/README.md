@@ -14,18 +14,26 @@ The same browser runtime can attach directly to a mounted Mermaid **flowchart** 
 
 ```js
 import {readMermaidFlowchartModel, attachMermaidHighlights} from './src/mermaid-highlights.mjs';
+import {createSvgInstanceRuntime} from './src/svg-instance.mjs';
+
+const instances = createSvgInstanceRuntime(); // Reuse for every stage in this document.
 
 const diagram = await mermaid.mermaidAPI.getDiagramFromText(source);
 const model = readMermaidFlowchartModel(diagram);
 const result = await mermaid.render(renderId, source);
-host.innerHTML = result.svg;
-result.bindFunctions?.(host);
-const highlight = attachMermaidHighlights(host.querySelector('svg'), model);
+let highlight;
+const instance = instances.mountSvg(host, result.svg, {
+  afterMount(svg, {idMap, sourceRootId}) {
+    highlight = attachMermaidHighlights(svg, model, {idMap, sourceRootId});
+  },
+});
 // Before replacing or removing this render:
 highlight.destroy();
 ```
 
-Repeated attachment cleans up the previous handlers; `reset()` clears selection and `destroy()` restores the original SVG attributes. Existing node and edge click callbacks remain active. Other Mermaid diagram types and edges to subgraph containers are explicitly unsupported by this adapter. The agent SVG validator remains unchanged and still rejects `foreignObject`.
+`mountSvg` rewrites DOM IDs and local references on the inserted copy. Pass its `idMap` and `sourceRootId` on every Mermaid attachment, including repeated attachment. The parsed model stays unchanged. The supported flowchart adapter binds relation identity itself; this example does not invoke Mermaid's custom click/link bindings.
+
+`mountSvg` appends the validated instance; when replacing a stage, destroy its previous highlight controller and remove the previous SVG explicitly. When retrying attachment on the retained instance, reuse its mapping. Repeated attachment cleans up the previous handlers; `reset()` clears selection and `destroy()` restores the original SVG attributes. Existing node and edge click callbacks remain active. Other Mermaid diagram types and edges to subgraph containers are explicitly unsupported by this adapter. The agent SVG export still rejects `foreignObject`.
 
 For an offline preview made from the local Mermaid renderer's actual output:
 
@@ -34,6 +42,16 @@ node tools/pi-diagram-agent/kit/export-mermaid-interactive.mjs /absolute/source.
 ```
 
 This requires `PI_DIAGRAM_MERMAID_BUNDLE` as well as the rendering runtime. The saved HTML contains the rendered SVG and highlight code, and makes no further Mermaid render or network request when opened.
+
+## Preview acceptance
+
+SVG references are document-wide in an HTML host. A hidden original or candidate can therefore capture a visible copy's marker, gradient, clip or mask reference when their IDs collide. Treat each mounted copy, including hidden copies, as a separate instance. Keep the audited SVG bytes and source digest unchanged; instance IDs belong to the preview DOM only. Preserve semantic `data-node`, `data-edge` and group identities for relation highlighting.
+
+`src/svg-instance.mjs` is browser safe. Its `createSvgInstanceRuntime()` factory provides `mountSvg`, `namespaceSvg` and `validateSvgReferences`; both standalone exporters use this same implementation. Reuse one runtime across stages and remounts. It validates instance ownership after mounting, while malformed input preserves the previous view. This is reference isolation, not an SVG sanitizer: keep the agent export's static-content validation and Mermaid's strict renderer. The CSS subset supports flat selectors with unescaped ASCII ID tokens and renderer keyframes with instance-specific animation names; escaped CSS, other at-rules and unsupported selector/reference forms fail explicitly rather than being silently rewritten.
+
+Before accepting a comparison host, exercise single view → side by side → original → side by side, then switch diagrams and repeat. Keep hidden stages mounted during this check. Verify every local reference resolves inside its own SVG and the document contains no duplicate instance IDs. Repeat after hover/selection creates overlays and after destruction/remounting.
+
+Reference ownership and interaction tests cover structure. Actual arrowhead visibility and direction require screenshots or a paint assertion in the displayed single and pair views. A visible path, an existing marker or working highlight does not complete that assertion. The independent reviewer must inspect painted arrows in the supplied images; a static review covers only those images. If a browser check cannot run, record the UI assertion as **SKIPPED** with its reason, and keep interactive display unverified. Synthetic regression evidence does not certify a particular customer gallery.
 
 This local prototype has one product entry point: the Pi `/magic` command. It starts a **real model turn**. Pi receives the complete pinned Diagram Rules and exact original Mermaid bytes, creates a diagram-specific native SVG, inspects the original and candidate images, and revises the candidate. It does not call a fixed layout pipeline to choose the design. The earlier deterministic experiment remains in the separate prototype repository history for research, not as a supported conversion fallback.
 

@@ -4,6 +4,7 @@ import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {readMermaidFlowchartModel, attachMermaidHighlights} from './mermaid-highlights.mjs';
 import {installInteractiveSvg, INTERACTIVE_SVG_STYLE} from './interactive-runtime.mjs';
+import {createSvgInstanceRuntime} from './svg-instance.mjs';
 
 const require=createRequire(import.meta.url);
 const sha=value=>createHash('sha256').update(value).digest('hex');
@@ -31,29 +32,33 @@ export async function exportMermaidInteractive(source, {
     await page.route('**/*',route=>{requests.push(route.request().url());return route.abort('blockedbyclient')});
     await page.setContent('<!doctype html><meta charset="utf-8"><div id="diagram"></div>');
     await page.addScriptTag({content:bundle.toString('utf8')});
-    await page.addScriptTag({content:`const readMermaidFlowchartModel=(${readMermaidFlowchartModel.toString()});`});
+    await page.addScriptTag({content:`const readMermaidFlowchartModel=(${readMermaidFlowchartModel.toString()});const svgInstances=(${createSvgInstanceRuntime.toString()})();`});
     rendered=await page.evaluate(async code=>{
       mermaid.initialize({startOnLoad:false,theme:'neutral',securityLevel:'strict'});
       const diagram=await mermaid.mermaidAPI.getDiagramFromText(code);
       const model=readMermaidFlowchartModel(diagram);
       const result=await mermaid.render('mermaid-interactive',code);
-      const host=document.getElementById('diagram');host.innerHTML=result.svg;result.bindFunctions?.(host);
-      const svg=host.querySelector('svg');await document.fonts.ready;
-      return {svg:new XMLSerializer().serializeToString(svg),model};
+      const host=document.getElementById('diagram');
+      // Mermaid emits HTML label markup (e.g. <br>); normalize it off-document
+      // before the XML mount, preserving the renderer's raw instance separately.
+      const template=document.createElement('template');template.innerHTML=result.svg;
+      const renderedSvg=new XMLSerializer().serializeToString(template.content.querySelector('svg'));
+      window.instance=svgInstances.mountSvg(host,renderedSvg);
+      await document.fonts.ready;
+      return {svg:renderedSvg,model};
     },code);
     if(requests.length)throw Error('MERMAID_EXTERNAL_REQUEST_BLOCKED');
     // Resolve all bindings and prove that installation works before saving.
-    await page.addScriptTag({content:`const INTERACTIVE_SVG_STYLE=${jsData(INTERACTIVE_SVG_STYLE)};const installInteractiveSvg=(${installInteractiveSvg.toString()});const attachMermaidHighlights=(${attachMermaidHighlights.toString()});attachMermaidHighlights(document.querySelector('svg'),${jsData(rendered.model)});`});
+    await page.addScriptTag({content:`const INTERACTIVE_SVG_STYLE=${jsData(INTERACTIVE_SVG_STYLE)};const installInteractiveSvg=(${installInteractiveSvg.toString()});const attachMermaidHighlights=(${attachMermaidHighlights.toString()});attachMermaidHighlights(instance.svg,${jsData(rendered.model)},instance);svgInstances.validateSvgReferences(instance.svg);`});
   } finally {await browser.close()}
   const script=`
 const data=${jsData(rendered)};
 const INTERACTIVE_SVG_STYLE=${jsData(INTERACTIVE_SVG_STYLE)};
 const installInteractiveSvg=(${installInteractiveSvg.toString()});
 const attachMermaidHighlights=(${attachMermaidHighlights.toString()});
-const doc=new DOMParser().parseFromString(data.svg,'image/svg+xml');
-if(doc.querySelector('parsererror'))throw Error('MERMAID_SVG_XML_INVALID');
-const svg=document.importNode(doc.documentElement,true);document.getElementById('diagram').append(svg);
-attachMermaidHighlights(svg,data.model,{status:document.getElementById('hover-status')});
+const svgInstances=(${createSvgInstanceRuntime.toString()})();
+const instance=svgInstances.mountSvg(document.getElementById('diagram'),data.svg,{afterMount:(svg,binding)=>attachMermaidHighlights(svg,data.model,{...binding,status:document.getElementById('hover-status')})});
+const {svg}=instance;
 const box=svg.viewBox.baseVal;
 const native=()=>{svg.style.maxWidth='none';svg.style.width=box.width+'px';svg.style.height=box.height+'px'};
 document.getElementById('view-native').addEventListener('click',native);

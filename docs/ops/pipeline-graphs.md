@@ -8,7 +8,34 @@ The build phase contains unit tests, preview tests, production bundles, and the 
 
 Every checkout uses the root source SHA. Producing run IDs and attempts are explicit. E2E children verify both their phase dispatcher and the active root owner. Only the root acquires the shared staging concurrency group. Dispatcher jobs respond to cancellation; their `always()` cleanup steps stop their own remaining children before ending.
 
-PR selection retains smoke and Jev-selected categories, with full coverage fallback. The human `test:all` override uses the PR entry. Main retains its normal suites, shared-backend deployment order, and Full-after-Lite lane.
+PR selection retains smoke and Jev-selected categories, with full coverage fallback. The human `test:all` override uses the PR entry. Main applies shared staging D1 migrations once, then deploys all four variants independently. Each validator waits only for its own deploy and authentication plus the parent ownership check. Daily full regression also runs all four variant transactions independently after its shared migration gate. Full has one validator; Lite results do not gate it. Drafts retain successful build, migration, per-variant validation, and daily regression gates.
+
+```mermaid
+flowchart LR
+  Root[Main source and version] --> M[Shared staging migrations]
+  Root --> AL[Auth Lite]
+  Root --> AF[Auth Full]
+  Root --> AD[Auth Diagramly]
+  Root --> AA[Auth AsyncAPI]
+  M --> L[Deploy Lite]
+  M --> F[Deploy Full]
+  M --> D[Deploy Diagramly]
+  M --> A[Deploy AsyncAPI]
+  L --> VL[Validate Lite]
+  F --> VF[Validate Full]
+  D --> VD[Validate Diagramly]
+  A --> VA[Validate AsyncAPI]
+  AL --> VL
+  AF --> VF
+  AD --> VD
+  AA --> VA
+  VL --> P[Record per-variant provenance]
+  VF --> P
+  VD --> P
+  VA --> P
+```
+
+Production release order remains Diagramly → Lite → Full at least seven days after Lite; AsyncAPI is independent.
 
 Automatic recovery listens only to root workflows. It checks the failures inside the exact phase before deciding whether they are E2E failures. Build, deploy, and draft failures prevent automatic retry. An eligible E2E failure triggers one complete root rerun, creating fresh attempt-specific producers.
 

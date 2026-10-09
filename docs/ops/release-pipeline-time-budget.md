@@ -1,5 +1,13 @@
 # Release pipeline time budget
 
+**Current staging policy, 2026-10-09:** all four main validation lanes and daily
+regression transactions run independently after one shared migration gate.
+Full no longer waits for Lite, and the optional Full lane switch is removed.
+See [ADR-0007's superseding decision](../adr/0007-release-order-aware-pipeline.md#superseding-decision--all-four-staging-variants-are-peers-2026-10-09)
+and [pipeline graphs](pipeline-graphs.md). The measurements below describe the
+historical configurations; the new main runtime needs observation after merge.
+Production release order remains Diagramly → Lite → Full after the seven-day soak.
+
 What a release costs in wall-clock, where the minutes go, and which of them
 were cut on 2026-09-11 (ADR-0006). Re-measure before changing anything here;
 the numbers below are from named runs, not estimates, except where marked.

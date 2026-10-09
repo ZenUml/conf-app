@@ -15,7 +15,7 @@ Auth: FORGE_EMAIL / FORGE_API_TOKEN (Basic auth). Loaded from the environment, o
 
 All subcommands accept --json for machine-readable output.
 """
-import argparse, base64, datetime, gzip, json, os, re, sqlite3, subprocess, sys, urllib.request, urllib.error
+import argparse, base64, datetime, gzip, json, os, re, sqlite3, subprocess, sys, tempfile, urllib.request, urllib.error
 from collections import defaultdict
 
 VENDOR = "1215266"
@@ -203,8 +203,11 @@ def _default_db():
 def _local_export(kind, filters):
     table = "transactions" if kind.startswith("sales") else "licenses"
     con = sqlite3.connect(LOCAL["db"])
-    rows = [json.loads(r[0]) for r in con.execute(f"SELECT raw FROM {table}")]
-    con.close()
+    try:
+        _require_complete_snapshot(con)
+        rows = [json.loads(r[0]) for r in con.execute(f"SELECT raw FROM {table}")]
+    finally:
+        con.close()
     if filters.get("addon"):
         rows = [r for r in rows if r.get("addonKey") == filters["addon"]]
     if filters.get("text"):                              # mimic the API's broad text filter
@@ -214,34 +217,60 @@ def _local_export(kind, filters):
 
 
 def cmd_sync(args, auth):
-    path = args.db or _default_db()
-    con = sqlite3.connect(path)
-    con.executescript(
-        "DROP TABLE IF EXISTS licenses; DROP TABLE IF EXISTS transactions; DROP TABLE IF EXISTS sync_meta;"
-        "CREATE TABLE licenses(addonKey TEXT, cloudId TEXT, raw TEXT);"
-        "CREATE TABLE transactions(addonKey TEXT, cloudId TEXT, raw TEXT);"
-        "CREATE TABLE sync_meta(synced_at TEXT, apps TEXT, license_rows INT, tx_rows INT);")
-    nlic = ntx = 0
-    for app in APP_KEYS_ALL:                              # runs LIVE (LOCAL['db'] is None during sync)
-        for r in export("licenses", auth, addon=app):
-            con.execute("INSERT INTO licenses VALUES(?,?,?)",
-                        (r.get("addonKey"), r.get("cloudId"), json.dumps(r, default=str))); nlic += 1
-        for t in export("sales/transactions", auth, addon=app):
-            con.execute("INSERT INTO transactions VALUES(?,?,?)",
-                        (t.get("addonKey"), t.get("cloudId"), json.dumps(t, default=str))); ntx += 1
-    con.executescript("CREATE INDEX ix_l ON licenses(addonKey); CREATE INDEX ix_t ON transactions(addonKey);")
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
-    con.execute("INSERT INTO sync_meta VALUES(?,?,?,?)", (now, ",".join(APP_KEYS_ALL), nlic, ntx))
-    con.commit(); con.close()
+    path = os.path.abspath(args.db or _default_db())
+    # Publish only a complete refresh. Network failures must preserve the last
+    # successful evidence and its timestamp, including during an initial sync.
+    fd, pending = tempfile.mkstemp(prefix=".marketplace-refresh-", suffix=".db",
+                                   dir=os.path.dirname(path))
+    os.close(fd)
+    con = None
+    try:
+        con = sqlite3.connect(pending)
+        con.executescript(
+            "CREATE TABLE licenses(addonKey TEXT, cloudId TEXT, raw TEXT);"
+            "CREATE TABLE transactions(addonKey TEXT, cloudId TEXT, raw TEXT);"
+            "CREATE TABLE sync_meta(synced_at TEXT, apps TEXT, license_rows INT, tx_rows INT);")
+        nlic = ntx = 0
+        for app in APP_KEYS_ALL:
+            for r in export("licenses", auth, addon=app):
+                con.execute("INSERT INTO licenses VALUES(?,?,?)",
+                            (r.get("addonKey"), r.get("cloudId"), json.dumps(r, default=str)))
+                nlic += 1
+            for t in export("sales/transactions", auth, addon=app):
+                con.execute("INSERT INTO transactions VALUES(?,?,?)",
+                            (t.get("addonKey"), t.get("cloudId"), json.dumps(t, default=str)))
+                ntx += 1
+        con.executescript("CREATE INDEX ix_l ON licenses(addonKey); CREATE INDEX ix_t ON transactions(addonKey);")
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+        con.execute("INSERT INTO sync_meta VALUES(?,?,?,?)", (now, ",".join(APP_KEYS_ALL), nlic, ntx))
+        con.commit()
+        con.close()
+        con = None
+        os.replace(pending, path)
+    finally:
+        if con is not None:
+            con.close()
+        if os.path.exists(pending):
+            os.unlink(pending)
     print(f"synced {nlic} licenses + {ntx} transactions -> {path}  @ {now}")
+
+
+def _require_complete_snapshot(con):
+    try:
+        row = con.execute("SELECT synced_at FROM sync_meta ORDER BY synced_at DESC LIMIT 1").fetchone()
+    except sqlite3.DatabaseError as exc:
+        raise RuntimeError("Local snapshot is incomplete; run a successful sync before using it") from exc
+    if not row:
+        raise RuntimeError("Local snapshot is incomplete; run a successful sync before using it")
+    return row
 
 
 def _snapshot_age_note(db):
     con = sqlite3.connect(db)
-    row = con.execute("SELECT synced_at FROM sync_meta ORDER BY synced_at DESC LIMIT 1").fetchone()
-    con.close()
-    if not row:
-        return "[local snapshot: unknown age]"
+    try:
+        row = _require_complete_snapshot(con)
+    finally:
+        con.close()
     try:
         dt = datetime.datetime.fromisoformat(row[0])
         hrs = (datetime.datetime.now(datetime.timezone.utc) - dt).total_seconds() / 3600

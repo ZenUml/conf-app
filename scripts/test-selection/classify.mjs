@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { mainSafetyPath } from '../e2e-select.mjs';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -7,10 +6,9 @@ import { createHash } from 'node:crypto';
 import { CATEGORY_VERSION, CATEGORIES } from '../../tests/e2e-tests/config/categories.mjs';
 import { EXECUTION_IMPACT, EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 
-// v5 makes the behavior-selector catalog and direct-spec contract part of the
-// trusted selection policy.
-// Old Jev or resolver artifacts therefore fail closed after a catalog change.
-export const POLICY_VERSION = 'v7-main-jev-selectors-v1';
+// v8 delegates main infrastructure changes to Jev as well as application code.
+// Older selection artifacts cannot authorize the new coverage policy.
+export const POLICY_VERSION = 'v8-main-jev-infrastructure-v1';
 export const MAX_DIFF_BYTES = 180000;
 // A low threshold made weak, generic associations select most of the suite.
 // Direct E2E specs and smoke form the independent floor; Jev only adds a
@@ -27,7 +25,7 @@ const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer
 export const isUnitTestPath = path => /(^|\/)[^/]+\.(spec|test)\.[cm]?[jt]sx?$/.test(path) && !path.startsWith('tests/e2e-tests/');
 export function pathRule(path, scope = 'pr') {
   if (/^(private\/|\.env|.*\.(pem|key)$)/.test(path)) return 'excluded-sensitive-path';
-  if (scope === 'main') return mainSafetyPath(path) ? 'selection-infrastructure-path' : null;
+  if (scope === 'main') return null;
   // Analytics event registrations are behavior-local, public source that Jev
   // can classify alongside the feature diff.
   if (/^src\/utils\/analytics\//.test(path)) return null;

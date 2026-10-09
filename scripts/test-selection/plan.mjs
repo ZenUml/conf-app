@@ -38,7 +38,7 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   // Guarded activation already resolved the union into discovery's grep.
   // Raw Jev categories must never re-filter away the deterministic floor
   // (or the deliberately widened auxiliary scope).
-  const full = ['v2-guarded-uncalibrated', 'v3-guarded-uncalibrated', 'v4-behavior-selectors-v1', 'v5-direct-spec-selectors-v1', 'v6-high-confidence-jev-selectors-v1', 'v7-main-jev-selectors-v1'].includes(policy) || reasons.length > 0 || selection.mode === 'all' || selection.execution_mode !== 'enabled';
+  const full = ['v2-guarded-uncalibrated', 'v3-guarded-uncalibrated', 'v4-behavior-selectors-v1', 'v5-direct-spec-selectors-v1', 'v6-high-confidence-jev-selectors-v1', 'v7-main-jev-selectors-v1', 'v8-main-jev-infrastructure-v1'].includes(policy) || reasons.length > 0 || selection.mode === 'all' || selection.execution_mode !== 'enabled';
   if (testIds && testIds.some(id => !applicable.some(t => t.id === id))) throw new Error('Selected identity absent from full inventory');
   const authorizedIds = testIds && !reasons.length && selection.mode === 'selected' && selection.execution_mode === 'enabled' ? testIds : null;
   const selected = applicable.filter(t => authorizedIds ? authorizedIds.includes(t.id) : full || t.tags.includes('@smoke') || [...changedFiles, ...(selection?.changed_tests ?? [])].some(f => f.endsWith(t.file)) || t.tags.some(tag => tag.startsWith('@test:') && selection.categories?.[tag.slice(6)]?.selected));

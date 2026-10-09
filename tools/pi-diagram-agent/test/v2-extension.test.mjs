@@ -1,3 +1,4 @@
+import {parseMermaid} from '../src/parser.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,6 +26,11 @@ const hash=b=>createHash('sha256').update(b).digest('hex');
 // /magic-accept now needs a fresh IMPROVED judgement (or --override-judge).
 const judged=(dir,svg,over={})=>writeJudgement(dir,buildJudgement({candidateSha256:hash(svg),originalSha256:'o'.repeat(64),mode:'original',model:{provider:'openai-codex',id:'x',thinking:'medium'},passes:[],merged:{dims:{balance:{score:0.5,uncertain:false},grouping:null},mean:0.5},thresholds:{minDim:-0.2,minMean:0.2},verdict:'IMPROVED',verdictReason:'ok',...over}));
 const SRC='flowchart LR\n  A[Start] --> B[Finish]\n';
+const submitIntent=async(f,jobId)=>{
+ const model=parseMermaid(SRC);
+ return f.tools.get('diagram_layout_intent').execute('plan',{jobId,intent:{purpose:'Explain the source handoff',readingOrder:'Left to right',layoutGrammar:'Origin followed by result',nodes:model.nodes.map(n=>({id:n.id,role:n.id==='A'?'origin':'result',layer:n.id==='A'?'input':'output',peers:[],groupPath:n.groupPath})),relations:model.edges.map(({id,source,target})=>({id,source,target})),constraints:[{priority:'hard',reason:'Source relation',description:'Preserve every source endpoint and group',nodeIds:model.nodes.map(n=>n.id)}],uncertainties:[]}});
+};
+
 const browserEnv=!!process.env.PI_DIAGRAM_MERMAID_BUNDLE&&!!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE;
 function fakePi(){
   const tools=new Map(),commands=new Map(),handlers=new Map(),sent=[],notes=[];
@@ -142,6 +148,8 @@ test('through the extension with real rendering: inspect carries early checks, s
   await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined},async()=>{
     const f=fakePi();ext(f.pi);const s=await start(f);
     try{
+      await assert.rejects(f.tools.get('diagram_inspect').execute('before-plan',{jobId:s.jobId}),/LAYOUT_INTENT_REQUIRED/);
+      await submitIntent(f,s.jobId);
       fs.writeFileSync(path.join(s.runDir,'candidate.svg'),'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200"><defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="5"><path d="M0,0 L10,5 L0,10 Z" fill="context-stroke"/></marker></defs><rect x="10" y="50" width="100" height="60"/></svg>');
       const ins=await f.tools.get('diagram_inspect').execute('c',{jobId:s.jobId});
       const body=JSON.parse(ins.content[0].text);
@@ -163,18 +171,22 @@ test('through the extension with real rendering: inspect carries early checks, s
 });
 
 test('hung author: past the wall-clock budget the extension aborts the author turn and finalises the run as CANDIDATE WALL_CLOCK',async()=>{
-  await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined,PI_DIAGRAM_MAX_WALL_MIN:'0.0005'},async()=>{
+  await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined,PI_DIAGRAM_MAX_WALL_MIN:'0.1'},async()=>{
     // Watchdog timer: no further author event is needed (a stuck stream emits none).
     const f=fakePi();let aborted=0;f.ctx.abort=()=>{aborted++};ext(f.pi);const s=await start(f);
     try{
-      await new Promise(r=>setTimeout(r,200));
+      const initial=readRunManifest(s.runDir);
+      const remaining=Math.max(0,Date.parse(initial.startedAt)+initial.budgets.maxWallMs-Date.now());
+      await new Promise(r=>setTimeout(r,remaining+200));
       assert.ok(aborted>=1,'author turn aborted by the watchdog');
       const m=readRunManifest(s.runDir);assert.equal(m.status,'CANDIDATE');assert.match(m.statusReason,/WALL_CLOCK/);
     }finally{s.cleanup()}
     // message_end path: an author still streaming messages past the budget is aborted at the next message.
     const g=fakePi();ext(g.pi);const s2=await start(g);
     try{
-      await new Promise(r=>setTimeout(r,60));
+      const initial=readRunManifest(s2.runDir);
+      const remaining=Math.max(0,Date.parse(initial.startedAt)+initial.budgets.maxWallMs-Date.now());
+      await new Promise(r=>setTimeout(r,remaining+100));
       let aborted2=0;
       await g.handlers.get('message_end')({message:{role:'assistant',usage:{input:1,output:1}}},{abort:()=>{aborted2++}});
       assert.ok(aborted2===1||readRunManifest(s2.runDir).status==='CANDIDATE');
@@ -183,10 +195,25 @@ test('hung author: past the wall-clock budget the extension aborts the author tu
   });
 });
 
+test('source preparation that exhausts the wall budget refuses startup before scheduling an author turn', {skip:!browserEnv},async()=>{
+ await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_CODEX_MODEL:undefined,PI_DIAGRAM_MAX_WALL_MIN:'0.00001'},async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-preparation-budget-')),input=path.join(root,'s.mmd');fs.writeFileSync(input,SRC);
+  const f=fakePi();let aborted=0;f.ctx.abort=()=>{aborted++};ext(f.pi);
+  try {
+   await f.commands.get('magic').handler(input,f.ctx);
+   assert.equal(f.sent.length,0,'no author prompt or model turn is scheduled');
+   assert.ok(f.notes.some(([message])=>message.includes('PLANNING_PREPARATION_WALL_CLOCK')));
+   assert.ok(!f.notes.some(([message])=>message.includes('private work directory:')));
+   await new Promise(resolve=>setTimeout(resolve,100));assert.equal(aborted,0,'no active watchdog is left behind');
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+ });
+});
+
 test('diagram_build_check runs make.py through ctx.executeTool(bash) and reports a generator failure as text; the call is counted in run.json',async()=>{
   await withEnv({PI_DIAGRAM_V2:undefined,PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined,PI_DIAGRAM_TWO_PHASE:undefined},async()=>{
     const f=fakePi();ext(f.pi);const s=await start(f);
     try{
+      await submitIntent(f,s.jobId);
       fs.writeFileSync(path.join(s.runDir,'make.py'),'raise SystemExit(1)\n');
       const seen=[];
       const ctx={executeTool:async(name,args)=>{seen.push({name,args});return {isError:true,result:{content:[{type:'text',text:'Traceback (most recent call last):\nValueError: no route for A->B'}]}}}};

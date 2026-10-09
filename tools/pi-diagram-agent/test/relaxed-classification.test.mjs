@@ -121,9 +121,9 @@ test('geometry findings under relaxed: detached and border-clearance are advice;
 });
 
 test('reviewer findings under relaxed: semantic errors, border coincidence and group overlap stay blocking',()=>{
-  assert.deepEqual([...REVIEW_BLOCKING_RULES].sort(),['boundary-coincidence','group-overlap','label-ownership','shape-change','text-overflow']);
+  assert.deepEqual([...REVIEW_BLOCKING_RULES].sort(),['boundary-coincidence','group-overlap','label-ownership','layout-intent','shape-change','text-overflow']);
   const mk=(rule,source='review')=>makeFinding({source,severity:'blocking',rule,elements:['A'],evidence:{measured:'x',threshold:'y'},suggestion:'s'});
-  const rules=['label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','node-heading-clearance','label-clearance','boundary-coincidence','group-overlap','box-size-consistency','early-merge','other'];
+  const rules=['layout-intent','label-ownership','detour','legend','shape-change','text-overflow','balance','route-node-intrusion','route-crossing','heading-overlap','node-heading-clearance','label-clearance','boundary-coincidence','group-overlap','box-size-consistency','early-merge','other'];
   const out=Object.fromEntries(relaxFindings(rules.map(r=>mk(r))).map(f=>[f.rule,f.severity]));
   for(const r of rules)assert.equal(out[r],REVIEW_BLOCKING_RULES.includes(r)?'blocking':'minor',r);
   const adv=relaxFindings([mk('balance')])[0];

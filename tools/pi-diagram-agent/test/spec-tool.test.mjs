@@ -1,3 +1,4 @@
+import {parseMermaid} from '../src/parser.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,6 +20,11 @@ const ext=(await import('../pi-extension.ts')).default;
 const {specModeFromEnv}=await import('../src/spec-tool.mjs');
 
 const SRC='flowchart LR\n  A[Start] --> B[Finish]\n';
+const submitIntent=async(f,jobId)=>{
+ const model=parseMermaid(SRC);
+ return f.tools.get('diagram_layout_intent').execute('plan',{jobId,intent:{purpose:'Explain the source handoff',readingOrder:'Left to right',layoutGrammar:'Origin followed by result',nodes:model.nodes.map(n=>({id:n.id,role:n.id==='A'?'origin':'result',layer:n.id==='A'?'input':'output',peers:[],groupPath:n.groupPath})),relations:model.edges.map(({id,source,target})=>({id,source,target})),constraints:[{priority:'hard',reason:'Source relation',description:'Preserve every source endpoint and group',nodeIds:model.nodes.map(n=>n.id)}],uncertainties:[]}});
+};
+
 const layout={canvas:{w:420,h:200,title:'t'},palette:{p:{fill:'#e8f1fb',stroke:'#2563a8',text:'#12355b',meaning:'Step'}},
   nodes:[{id:'A',shape:'rect',rect:[20,60,120,64],text:'Start',role:'p'},{id:'B',shape:'rect',rect:[260,60,120,64],text:'Finish',role:'p'}],
   edges:[{source:'A',target:'B',points:[[140,92],[260,92]]}]};
@@ -52,6 +58,8 @@ test('/magic in spec mode sends the schema paragraph; the tool renders layout.js
       assert.match(f.sent[0],/layout\.json/);assert.match(f.sent[0],/diagram_render_spec/);
       assert.ok(f.notes.some(n=>/spec mode/i.test(n[0])));
       const tool=f.tools.get('diagram_render_spec');
+      await assert.rejects(tool.execute('before-plan',{jobId}),/LAYOUT_INTENT_REQUIRED/);
+      await submitIntent(f,jobId);
       let r=await tool.execute('c1',{jobId});
       assert.equal(r.content.length,1);assert.equal(r.content[0].type,'text');assert.match(r.content[0].text,/layout\.json.*(?:not found|missing)/i);
       fs.writeFileSync(path.join(runDir,'layout.json'),JSON.stringify(layout));
@@ -70,12 +78,12 @@ test('/magic in spec mode sends the schema paragraph; the tool renders layout.js
     }finally{fs.rmSync(runDir,{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true})}
   });
 });
-test('/magic without the env flags sends the unchanged prompt',async()=>{
+test('/magic without env flags supplies mandatory source facts and planning before script authoring',async()=>{
   await withEnv({PI_DIAGRAM_SPEC_MODE:undefined,PI_DIAGRAM_SOURCE_FACTS:undefined,PI_DIAGRAM_CODEX_MODEL:undefined},async()=>{
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'pi-spec-tool-')),input=path.join(root,'s.mmd');fs.writeFileSync(input,SRC);
     const f=fakePi();ext(f.pi);await f.commands.get('magic').handler(input,f.ctx);
     const runDir=/private work directory: (\S+)/.exec(f.notes.map(n=>n[0]).join('\n'))[1];
-    try{assert.doesNotMatch(f.sent[0],/layout\.json|diagram_render_spec|source-facts/)}finally{fs.rmSync(runDir,{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true})}
+    try{assert.doesNotMatch(f.sent[0],/layout\.json|diagram_render_spec/);assert.match(f.sent[0],/source-facts/);assert.match(f.sent[0],/Mandatory planning phase/);assert.ok(f.tools.has('diagram_layout_intent'))}finally{fs.rmSync(runDir,{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true})}
   });
 });
 

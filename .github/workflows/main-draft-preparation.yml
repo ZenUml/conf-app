@@ -123,13 +123,14 @@ jobs:
           const buildReady = buildEvidence.results.build?.result === 'success' && buildEvidence.results['build-prod']?.result === 'success';
           const results = evidence.results;
           const success = name => results[name]?.result === 'success';
+          const migrationsReady = success('migrations');
           const eligible = {
             lite: success('staging-lite') && success('staging-lite-e2e'),
-            full: success('staging-full-e2e') || success('staging-full-e2e-now'),
-            diagramly: success('staging-diagramly-e2e'),
-            asyncapi: success('staging-asyncapi-e2e'),
+            full: success('staging-full') && (success('staging-full-e2e') || success('staging-full-e2e-now')),
+            diagramly: success('staging-diagramly') && success('staging-diagramly-e2e'),
+            asyncapi: success('staging-asyncapi') && success('staging-asyncapi-e2e'),
           };
-          for (const [variant, ready] of Object.entries(eligible)) appendFileSync(process.env.GITHUB_OUTPUT, `${variant}=${buildReady && ready}\n`);
+          for (const [variant, ready] of Object.entries(eligible)) appendFileSync(process.env.GITHUB_OUTPUT, `${variant}=${buildReady && migrationsReady && ready}\n`);
           NODE
 
   draft-release-lite:

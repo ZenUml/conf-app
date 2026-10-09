@@ -148,13 +148,41 @@ jobs:
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
-  staging-lite:
-    if: needs.parent.outputs.run == 'true'
+  # All staging projects share the same D1 binding. Apply migrations once,
+  # then each variant publishes its backend and deploys Forge independently.
+  migrations:
+    name: Shared staging D1 migrations
     needs: parent
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging-lite
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Apply shared staging D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cp wrangler-stg.toml wrangler.toml
+          pnpm exec wrangler d1 migrations apply DB --remote --env production
+
+  staging-lite:
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && needs.migrations.result == 'success' }}
+    needs: [parent, migrations]
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ inputs.source-sha }}
+      skip-migrations: true
       variant: lite
       license: lite
       project: conf-stg-lite
@@ -162,7 +190,7 @@ jobs:
     secrets: inherit
 
   staging-lite-e2e:
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.parent.outputs.run == 'true' && ((github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success') }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && ((github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && needs.staging-lite.result == 'success' && needs.e2e-auth-lite.result == 'success') }}
     needs: [staging-lite, e2e-auth-lite, parent]
     name: "Validate: Lite"
     runs-on: ubuntu-latest
@@ -174,8 +202,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source-sha }}
+      - name: Verify pinned staging backend source
+        env:
+          TARGET_SHA: ${{ inputs.source-sha }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant lite --url https://conf-stg-lite.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-lite-e2e.yml
@@ -200,12 +232,13 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-full:
-    needs: parent
-    if: ${{ needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [parent, migrations]
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && needs.migrations.result == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     name: "Deploy: Full"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ inputs.source-sha }}
+      skip-migrations: true
       variant: full
       license: full
       project: conf-stg-full
@@ -213,7 +246,7 @@ jobs:
     secrets: inherit
 
   staging-full-e2e:
-    if: ${{ !cancelled() && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(needs.parent.outputs.full-now == 'true') && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !(needs.parent.outputs.full-now == 'true') && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success') }}
     needs: [staging-full, e2e-auth-full, staging-lite-e2e, parent]
     name: "Validate: Full"
     runs-on: ubuntu-latest
@@ -225,8 +258,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source-sha }}
+      - name: Verify pinned staging backend source
+        env:
+          TARGET_SHA: ${{ inputs.source-sha }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant full --url https://conf-stg-full.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-full-e2e.yml
@@ -251,7 +288,7 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   staging-full-e2e-now:
-    if: ${{ !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (needs.parent.outputs.full-now == 'true')) }}
+    if: ${{ !cancelled() && needs.staging-full.result == 'success' && needs.e2e-auth-full.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (needs.parent.outputs.full-now == 'true')) }}
     needs: [staging-full, e2e-auth-full, parent]
     name: "Validate: Full (now)"
     runs-on: ubuntu-latest
@@ -263,8 +300,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source-sha }}
+      - name: Verify pinned staging backend source
+        env:
+          TARGET_SHA: ${{ inputs.source-sha }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant full --url https://conf-stg-full.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-full-e2e.yml
@@ -288,14 +329,15 @@ jobs:
           ROOT_ATTEMPT: ${{ inputs.parent-attempt }}
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
-  # Shared Lite backend: validate Lite before deploying Diagramly, then AsyncAPI.
+  # Lite, Diagramly and AsyncAPI use the same backend source at this SHA.
   staging-diagramly:
-    needs: [staging-lite, staging-lite-e2e, parent]
-    if: ${{ !cancelled() && needs.parent.outputs.run == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.staging-lite.result == 'success' && needs.staging-lite-e2e.result == 'success' }}
+    needs: [parent, migrations]
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && needs.migrations.result == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     name: "Deploy: Diagramly"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ inputs.source-sha }}
+      skip-migrations: true
       variant: diagramly
       license: diagramly
       project: conf-stg-lite
@@ -303,12 +345,13 @@ jobs:
     secrets: inherit
 
   staging-asyncapi:
-    needs: [staging-diagramly, staging-diagramly-e2e, parent]
-    if: ${{ !cancelled() && needs.staging-diagramly.result == 'success' && needs.staging-diagramly-e2e.result == 'success' && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+    needs: [parent, migrations]
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.run == 'true' && needs.migrations.result == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     name: "Deploy: AsyncAPI"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ inputs.source-sha }}
+      skip-migrations: true
       variant: asyncapi
       license: asyncapi
       project: conf-stg-lite
@@ -328,8 +371,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source-sha }}
+      - name: Verify pinned staging backend source
+        env:
+          TARGET_SHA: ${{ inputs.source-sha }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant asyncapi --url https://conf-stg-lite.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-asyncapi-e2e.yml
@@ -366,8 +413,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source-sha }}
+      - name: Verify pinned staging backend source
+        env:
+          TARGET_SHA: ${{ inputs.source-sha }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant diagramly --url https://conf-stg-lite.zenuml.com --sha-only
       - name: Run E2E in a separate graph
-        if: ${{ !cancelled() }}
+        if: ${{ success() && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: staging-diagramly-e2e.yml
@@ -394,7 +445,7 @@ jobs:
 
   provenance:
     name: Record variant validation results
-    needs: [parent, staging-lite, staging-lite-e2e, staging-full-e2e, staging-full-e2e-now, staging-diagramly-e2e, staging-asyncapi-e2e]
+    needs: [parent, migrations, staging-lite, staging-full, staging-diagramly, staging-asyncapi, staging-lite-e2e, staging-full-e2e, staging-full-e2e-now, staging-diagramly-e2e, staging-asyncapi-e2e]
     if: ${{ always() && needs.parent.result == 'success' }}
     runs-on: ubuntu-latest
     steps:

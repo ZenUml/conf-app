@@ -135,7 +135,9 @@ describe('staging workflow safety contracts', () => {
         expect(job.if).toContain('!cancelled()');
         expect(job.if).not.toContain('always()');
         const dispatch = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
-        expect(dispatch.if).toBe('${{ !cancelled() }}');
+        expect(dispatch.if).toBe(name === 'main-staging-validation'
+          ? '${{ success() && !cancelled() }}'
+          : '${{ !cancelled() }}');
         const cleanup = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
         expect(cleanup.if).toBe('${{ always() }}');
         expect(job.steps.indexOf(cleanup)).toBeGreaterThan(job.steps.indexOf(dispatch));

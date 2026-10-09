@@ -1,4 +1,4 @@
-# 0007 — The pipeline is shaped by the release order, and tests never run twice on one tree
+# 0007 — The pipeline is shaped by the release order
 
 Date: 2026-09-11
 Status: accepted — implemented in stages (see the table at the end)
@@ -18,14 +18,28 @@ the critical path. What remained was decided in a design review on 2026-09-11
    the merge message or the repo variable `FULL_DRAFT_LANE=now` — implemented as
    two mutually exclusive call sites, not a polling gate. Drafts are not
    auto-published; a person still publishes each one.
-2. **`main` does not re-run tests a PR already ran on the identical tree.** A
-   `pull_request` run tests `refs/pull/N/merge`; when `main` has not moved, the
-   merge commit's tree is byte-identical, and re-running Lite's E2E is pure
-   repetition. `main` compares trees, verifies the PR run's E2E jobs ran and
-   passed (a draft PR skips them), and cuts the draft with the reused run named
-   in its body. Any doubt — tree differs, no parent run, jobs skipped — runs
-   everything. "Require branches to be up to date" stays off until the hit rate
-   is measured.
+
+   *Addendum, 2026-10-09 (PR #751).* The main validation phase applies the
+   shared staging D1 migrations once. After that, all four variants use the
+   regular staging deployment, which publishes Pages beside Forge, with
+   `skip-migrations: true`. Lite, Diagramly and AsyncAPI deployment and E2E
+   lanes run independently; Full's E2E keeps its default after-Lite lane and
+   the existing `now` override. At one pinned SHA, `functions/` is identical
+   across variants and both staging Pages projects use the same D1/KV/R2
+   bindings (`wrangler-stg.toml`), so repeated backend publication does not
+   change the backend code under another lane's tests. The marker remains
+   `{sha, variant}`. Parallel staging backend checks accept the pinned SHA
+   with any valid variant marker; strict SHA and variant checking remains
+   the default for other callers, and frontend version checks still require
+   the selected variant. A migration failure blocks all four deployments
+   and drafts. This change covers main staging; the daily workflow change
+   is maintained separately in PR #760. Main-only runtime behavior needs
+   observation after merge; a draft PR cannot exercise this main graph.
+2. **Main validation uses the current main coverage policy.** The earlier
+   exact-tree PR reuse job was removed by the main Jev selection change.
+   PR #751 retains that behavior: each eligible main variant needs fresh
+   successful main E2E coverage, and every draft still needs the existing
+   daily regression gate or its verified root bypass.
 3. **The release run deploys; it does not build.** `main` builds the production
    bundles (with `VITE_APP_VERSION` = the draft tag) and attaches them to each
    draft; `release.yml` downloads and deploys. The Forge deploy and the
@@ -56,8 +70,9 @@ data on lite hotfixes within 7 days of a release); no in-shard `workers: 2`
 | Decision | Landed in |
 |---|---|
 | 1, 4, plus the shard/serial-group changes measured in `build-test-deploy.yml` | #669 |
-| 2 (`reuse-check` job; Lite at 10 shards after #669's split measured 4m06s on its tail shard) | the PR after #669 |
+| 2 (historical `reuse-check` job, removed by the main Jev selection change; Lite at 10 shards after #669's split measured 4m06s on its tail shard) | the PR after #669 |
 | 3 (`version` + `build-prod` jobs attach `dist-prod-<variant>.tgz` to each draft; `release.yml` downloads it; staging publishes Pages beside the Forge deploy) | the PR after #670 |
 | 6 (`e2e-rerun.yml`: one automatic re-run when every failed job is an E2E job, attempt 1 only; `e2e-flake-ranking.yml`: Mondays, from the week's blob reports) | #673; its `resurrect` job (a `main` run cancelled while pending, commit still the tip → re-run) in the PR after #673 |
 | 5, first half (closed tag taxonomy in `tests/e2e-tests/config/tags.ts`, every spec's top-level blocks tagged, `tests/unit/e2eTags.spec.ts` polices it) | the PR after #673 |
 | 5, second half (`tests/e2e-tests/config/impact-map.mjs` + `scripts/e2e-select.mjs`; the `select` job feeds `grep` to the Lite E2E on PR runs, whose job names gain "(selected)"; `select-ai` logs what a model would add, only when `ANTHROPIC_API_KEY` is set) | the PR after #674 |
+| 1, addendum (one shared D1 migration gate, four regular staging deploys, independent Lite/Diagramly/AsyncAPI validation) | #751 |

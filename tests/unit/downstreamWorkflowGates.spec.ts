@@ -3,7 +3,7 @@ import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
 const { jobs } = load(readFileSync('.github/workflows/main-staging-validation.yml', 'utf8')) as any;
-const downstream = ['staging-diagramly-e2e', 'staging-asyncapi', 'staging-asyncapi-e2e'];
+const downstream = ['staging-full', 'staging-diagramly', 'staging-asyncapi', 'staging-lite-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
 
 // Evaluate the actual workflow expressions, including GitHub's implicit success
 // check. A skipped ancestor models main's intentionally skipped PR selector.
@@ -36,8 +36,8 @@ describe('main downstream staging gates', () => {
         // Cancellation must stop the active wrapper; always() at job level
         // would keep its wait process alive. Cleanup is a step-level exception.
         expect(eligible(id, {}, true)).toBe(false);
-        const stepRuns = (step: any, cancelled: boolean) => Function('cancelled', 'always',
-          `return (${step.if.slice(3, -2)})`)(() => cancelled, () => true);
+        const stepRuns = (step: any, cancelled: boolean) => Function('cancelled', 'always', 'success',
+          `return (${step.if.slice(3, -2)})`)(() => cancelled, () => true, () => true);
         expect(stepRuns(dispatch, false)).toBe(true);
         expect(stepRuns(dispatch, true)).toBe(false);
         const cleanup = jobs[id].steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
@@ -58,7 +58,7 @@ const provenanceStep = draft.provenance.steps.find((step: any) => step.id === 'e
 function variantEligibility(results: Record<string, any>, source = 'source', buildResults: Record<string, any> = { build: { result: 'success' }, 'build-prod': { result: 'success' } }, buildSource = 'source') {
   let output = '';
   Function('readFileSync', 'appendFileSync', 'process', nodeScript(provenanceStep))(
-    (file: string) => JSON.stringify(file === 'build-provenance.json' ? { source_sha: buildSource, results: buildResults } : { source_sha: source, results }), (_: string, value: string) => { output += value; },
+    (file: string) => JSON.stringify(file === 'build-provenance.json' ? { source_sha: buildSource, results: buildResults } : { source_sha: source, results: { migrations: { result: 'success' }, 'staging-full': { result: 'success' }, 'staging-diagramly': { result: 'success' }, 'staging-asyncapi': { result: 'success' }, ...results } }), (_: string, value: string) => { output += value; },
     { env: { SOURCE_SHA: 'source', GITHUB_OUTPUT: 'output' } });
   return Object.fromEntries(output.trim().split('\n').map(line => { const index = line.indexOf('='); return [line.slice(0, index), line.slice(index + 1)]; }));
 }

@@ -1275,13 +1275,14 @@ export type AnalyticsEventName =
   | "agent_link_page_created"
   | "agent_link_page_updated"
   // Z — "Connect MCP" dialog (inline macro viewer; replaces the Copy for AI
-  // button when the agent-link flag is on). opened = the button click that
-  // shows the dialog (the session itself is still counted by
-  // agent_link_connect_clicked / _session_created); copied = a Copy click on
-  // the setup command or the session prompt (`mcp_copy_target`, `outcome`
-  // copied | clipboard_failed); closed = the dialog dismissed, with the
-  // session state at that moment (`agent_link_state`) and `dwell_ms`, so
-  // "closed before the agent paired" is readable as setup friction.
+  // button when the agent-link flag is on). The first release offers the
+  // headless MCP only (`mcp_mode: 'headless'`): no relay session is minted, so
+  // the dialog carries setup instructions and a prompt naming this diagram.
+  // opened = the button (or More menu item) click that shows the dialog;
+  // copied = a Copy click on the setup command or the prompt
+  // (`mcp_copy_target`, `outcome` copied | clipboard_failed); closed = the
+  // dialog dismissed, with `dwell_ms`. Whether the agent then connected is
+  // counted server-side by the headless OAuth and tool events.
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
@@ -1475,22 +1476,13 @@ export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "u
 
 // Which block of the Connect MCP dialog a Copy click targeted
 // (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
-// command, or the per-session connect prompt carrying the session token.
+// command, or the prompt naming this diagram for the agent.
 export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
 
-// The macro-side Agent Link session state at the moment of a Connect MCP
-// dialog event — mirrors AgentLinkClientState (agentLinkState.ts) without
-// importing the composable into the analytics layer.
-export type AgentLinkStateValue =
-  | "idle"
-  | "waiting"
-  | "connected"
-  | "timeout"
-  | "suspended"
-  | "closed"
-  | "already_linked"
-  | "failed"
-  | "expired";
+// How a Connect MCP dialog connects the agent: 'headless' = the agent signs
+// in with OAuth and edits through Confluence directly (the only mode offered
+// in the first release); 'relay' = a macro-minted session over the live relay.
+export type AgentLinkMcpMode = "headless" | "relay";
 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit

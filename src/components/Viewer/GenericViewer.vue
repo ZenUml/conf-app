@@ -2541,7 +2541,7 @@ export default {
 /* Connect MCP dialog open (inline): the dialog overlays .viewer-frame, so give
    the frame room for it. Inline autoResize then grows the Forge iframe; the
    frame shrinks back when the dialog closes. */
-.viewer-frame--connect-mcp { min-height: 440px; min-width: min(540px, 100%); }
+.viewer-frame--connect-mcp { min-height: 540px; min-width: min(540px, 100%); }
 
 /* Fullscreen modal gets the whole browser viewport (Forge's autoResize is
    disabled there — see forgeIndex.ts), but .viewer-frame itself has no height

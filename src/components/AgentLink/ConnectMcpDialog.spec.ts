@@ -2,13 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ConnectMcpDialog from './ConnectMcpDialog.vue'
 import forgeGlobal from '@/model/globals/forgeGlobal'
-import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 
-function mountDialog(props: { state: AgentLinkClientState; token?: string | null; visible?: boolean; diagramTitle?: string; lockExpiresAt?: number | null }) {
-  return mount(ConnectMcpDialog, { props: { visible: true, token: null, ...props } })
+function mountDialog(props: { visible?: boolean; diagramTitle?: string; cloudId?: string; pageId?: string; contentId?: string } = {}) {
+  return mount(ConnectMcpDialog, { props: { visible: true, ...props } })
 }
 
-describe('ConnectMcpDialog', () => {
+describe('ConnectMcpDialog (headless)', () => {
   let writeText: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
@@ -17,91 +16,68 @@ describe('ConnectMcpDialog', () => {
   })
 
   it('renders nothing while hidden', () => {
-    const wrapper = mountDialog({ state: 'waiting', visible: false })
+    const wrapper = mountDialog({ visible: false })
     expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(false)
   })
 
-  it('shows the setup command and the session prompt while waiting', () => {
+  it('shows the setup command, the sign-in note and a prompt naming this diagram', () => {
     forgeGlobal.zenumlRemoteBaseUrl = 'https://conf-lite.zenuml.com'
-    const wrapper = mountDialog({ state: 'waiting', token: 'CL-7F3K-Q9M2' })
+    const wrapper = mountDialog({ diagramTitle: 'Login flow', cloudId: 'c-1', pageId: '42', contentId: '99' })
     forgeGlobal.zenumlRemoteBaseUrl = undefined
     expect(wrapper.find('[role="dialog"]').attributes('aria-modal')).toBe('true')
+    expect(wrapper.find('[data-testid="connect-mcp-dialog"]').attributes('data-mcp-mode')).toBe('headless')
     expect(wrapper.find('[data-testid="connect-mcp-setup-command"]').text()).toBe(
       'claude mcp add --transport http zenuml https://conf-lite.zenuml.com/agent-link/mcp'
     )
     expect(wrapper.text()).toContain('URL https://conf-lite.zenuml.com/agent-link/mcp')
+    expect(wrapper.text()).toContain('sign in with Atlassian')
     const prompt = wrapper.find('[data-testid="connect-mcp-prompt"]').text()
-    expect(prompt).toContain('Connect to my ZenUML diagram via the zenuml MCP.')
-    expect(prompt).toContain('session: CL-7F3K-Q9M2')
-    expect(wrapper.find('[data-testid="connect-mcp-waiting"]').text()).toContain('Waiting for your agent')
+    expect(prompt).toContain('"Login flow"')
+    expect(prompt).toContain('cloudId: c-1')
+    expect(prompt).toContain('contentId: 99')
+    expect(prompt).not.toContain('session:')
+    expect(wrapper.find('[data-testid="connect-mcp-reload-note"]').text()).toContain('Reload the page')
   })
 
-  it('does not offer the local pending placeholder as a session prompt', () => {
-    const wrapper = mountDialog({ state: 'waiting', token: 'pending-1700000000000' })
-    expect(wrapper.find('[data-testid="connect-mcp-prompt"]').text()).not.toContain('pending-')
-    expect(wrapper.find('[data-testid="connect-mcp-copy-prompt"]').attributes('disabled')).toBeDefined()
+  it('has no session states: no waiting indicator, disconnect or retry', () => {
+    const wrapper = mountDialog()
+    expect(wrapper.find('[data-testid="connect-mcp-waiting"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="connect-mcp-retry"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="connect-mcp-copy-prompt"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('nudges setup again after the setup timeout', () => {
-    const wrapper = mountDialog({ state: 'timeout', token: 'CL-7F3K-Q9M2' })
-    expect(wrapper.find('[data-testid="connect-mcp-waiting"]').text()).toContain('No agent yet')
-    expect(wrapper.find('[data-testid="connect-mcp-prompt"]').text()).toContain('session: CL-7F3K-Q9M2')
+  it('copies the setup command and the prompt and reports each', async () => {
+    const wrapper = mountDialog({ cloudId: 'c-1', contentId: '99' })
+    await wrapper.find('[data-testid="connect-mcp-copy-setup"]').trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenLastCalledWith(wrapper.find('[data-testid="connect-mcp-setup-command"]').text())
+    expect(wrapper.find('[data-testid="connect-mcp-copy-setup"]').text()).toBe('Copied')
+
+    await wrapper.find('[data-testid="connect-mcp-copy-prompt"]').trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenLastCalledWith(expect.stringContaining('contentId: 99'))
+    expect(wrapper.emitted('copy')).toEqual([['setup_command', true], ['prompt', true]])
+  })
+
+  it('reports a failed copy and offers manual selection', async () => {
+    writeText.mockRejectedValue(new Error('denied'))
+    const execCommand = vi.fn(() => false)
+    Object.assign(document, { execCommand })
+    const wrapper = mountDialog()
+    await wrapper.find('[data-testid="connect-mcp-copy-prompt"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="connect-mcp-copy-prompt"]').text()).toBe('Select & copy')
+    expect(wrapper.emitted('copy')).toEqual([['prompt', false]])
   })
 
   it.each([
-    ['setup_command', 'connect-mcp-copy-setup', 'claude mcp add'],
-    ['prompt', 'connect-mcp-copy-prompt', 'session: CL-7F3K-Q9M2'],
-  ] as const)('copies the %s and reports it', async (target, testId, expected) => {
-    const wrapper = mountDialog({ state: 'waiting', token: 'CL-7F3K-Q9M2' })
-    await wrapper.find(`[data-testid="${testId}"]`).trigger('click')
-    await flushPromises()
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining(expected))
-    expect(wrapper.emitted('copy')).toEqual([[target, true]])
-    expect(wrapper.find(`[data-testid="${testId}"]`).text()).toBe('Copied')
-  })
-
-  it('reports a failed copy when no clipboard path works', async () => {
-    writeText.mockRejectedValue(new Error('denied'))
-    ;(document as any).execCommand = vi.fn(() => false)
-    const wrapper = mountDialog({ state: 'waiting', token: 'CL-7F3K-Q9M2' })
-    await wrapper.find('[data-testid="connect-mcp-copy-prompt"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.emitted('copy')).toEqual([['prompt', false]])
-    expect(wrapper.find('[data-testid="connect-mcp-copy-prompt"]').text()).toBe('Select & copy')
-    delete (document as any).execCommand
-  })
-
-  it('confirms the connection and offers Disconnect once the agent pairs', async () => {
-    const wrapper = mountDialog({ state: 'connected', token: 'CL-7F3K-Q9M2', diagramTitle: 'Checkout flow' })
-    expect(wrapper.find('[data-testid="connect-mcp-connected"]').text()).toContain('Your agent is connected')
-    expect(wrapper.text()).toContain('Checkout flow')
-    expect(wrapper.find('[data-testid="connect-mcp-prompt"]').exists()).toBe(false)
-    await wrapper.find('[data-testid="agent-link-disconnect-btn"]').trigger('click')
-    expect(wrapper.emitted('disconnect')).toHaveLength(1)
-  })
-
-  it('tells the truth about a lock held by another session instead of promising to break it', () => {
-    const wrapper = mountDialog({ state: 'already_linked', lockExpiresAt: Date.now() + 4 * 60000 })
-    const text = wrapper.find('[data-testid="connect-mcp-ended"]').text()
-    expect(text).toContain('already linked to an agent')
-    expect(text).toContain('~4 more min')
-    expect(text).not.toMatch(/disconnects/)
-    expect(wrapper.find('[data-testid="connect-mcp-retry"]').text()).toBe('Try again')
-  })
-
-  it.each(['closed', 'expired', 'failed', 'already_linked'] as const)('offers a new session from %s', async (state) => {
-    const wrapper = mountDialog({ state })
-    expect(wrapper.find('[data-testid="connect-mcp-ended"]').exists()).toBe(true)
-    await wrapper.find('[data-testid="connect-mcp-retry"]').trigger('click')
-    expect(wrapper.emitted('retry')).toHaveLength(1)
-  })
-
-  it('closes from the close button and from the backdrop, not from a click inside', async () => {
-    const wrapper = mountDialog({ state: 'waiting', token: 'CL-7F3K-Q9M2' })
-    await wrapper.find('.connect-mcp-dialog').trigger('click')
-    expect(wrapper.emitted('close')).toBeUndefined()
-    await wrapper.find('[data-testid="connect-mcp-close"]').trigger('click')
-    await wrapper.find('[data-testid="connect-mcp-dialog"]').trigger('click')
-    expect(wrapper.emitted('close')).toHaveLength(2)
+    ['the close button', '[data-testid="connect-mcp-close"]'],
+    ['Done', '[data-testid="connect-mcp-done"]'],
+    ['the backdrop', '[data-testid="connect-mcp-dialog"]'],
+  ])('closes from %s', async (_name, selector) => {
+    const wrapper = mountDialog()
+    await wrapper.find(selector).trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 })

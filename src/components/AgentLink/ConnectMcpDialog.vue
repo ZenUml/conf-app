@@ -3,7 +3,7 @@
     v-if="visible"
     class="connect-mcp-overlay"
     data-testid="connect-mcp-dialog"
-    :data-agent-link-state="state"
+    data-mcp-mode="headless"
     @click.self="emit('close')"
   >
     <div
@@ -28,102 +28,54 @@
       </header>
 
       <div class="connect-mcp-body">
-        <!-- Paired: the agent can edit now; edits render live in the macro. -->
-        <template v-if="state === 'connected' || state === 'suspended'">
-          <div class="connect-mcp-status connect-mcp-status--ok" data-testid="connect-mcp-connected">
-            <span class="connect-mcp-dot connect-mcp-dot--ok" aria-hidden="true"></span>
-            <div>
-              <p class="connect-mcp-status-title">
-                {{ state === 'connected' ? 'Your agent is connected' : 'Connection paused — reconnecting…' }}
-              </p>
-              <p class="connect-mcp-status-sub">
-                Ask your agent to change <b>{{ diagramTitle || 'this diagram' }}</b>. Edits are saved and appear here live.
-              </p>
+        <ol class="connect-mcp-steps">
+          <li class="connect-mcp-step">
+            <p class="connect-mcp-step-title">
+              <span class="connect-mcp-step-num" aria-hidden="true">1</span>
+              Add the ZenUML MCP server <span class="connect-mcp-muted">(once)</span>
+            </p>
+            <div class="connect-mcp-code-row">
+              <pre class="connect-mcp-code" data-testid="connect-mcp-setup-command">{{ setupCommand }}</pre>
+              <button
+                type="button"
+                class="connect-mcp-copy"
+                data-testid="connect-mcp-copy-setup"
+                @click="copy('setup_command', setupCommand)"
+              >{{ copyLabel('setup_command') }}</button>
             </div>
-          </div>
-          <div class="connect-mcp-actions">
-            <button
-              type="button"
-              class="connect-mcp-btn connect-mcp-btn--secondary"
-              data-testid="agent-link-disconnect-btn"
-              @click="emit('disconnect')"
-            >Disconnect</button>
-            <button
-              type="button"
-              class="connect-mcp-btn connect-mcp-btn--primary"
-              data-testid="connect-mcp-done"
-              @click="emit('close')"
-            >Done</button>
-          </div>
-        </template>
-
-        <!-- Terminal / rejected: no usable session — offer a fresh one. -->
-        <template v-else-if="isTerminal">
-          <div class="connect-mcp-status connect-mcp-status--warn" data-testid="connect-mcp-ended">
-            <span class="connect-mcp-dot connect-mcp-dot--warn" aria-hidden="true"></span>
-            <div>
-              <p class="connect-mcp-status-title">{{ terminalTitle }}</p>
-              <p class="connect-mcp-status-sub">{{ terminalBody }}</p>
+            <p class="connect-mcp-hint">
+              Other MCP clients (Cursor, VS Code…): add a remote HTTP server named
+              <code>{{ serverName }}</code> with URL <code>{{ serverUrl }}</code>.
+              Your client asks you to sign in with Atlassian the first time; the agent then acts as you.
+            </p>
+          </li>
+          <li class="connect-mcp-step">
+            <p class="connect-mcp-step-title">
+              <span class="connect-mcp-step-num" aria-hidden="true">2</span>
+              Paste this prompt into your agent
+            </p>
+            <div class="connect-mcp-code-row">
+              <pre class="connect-mcp-code" data-testid="connect-mcp-prompt">{{ promptText }}</pre>
+              <button
+                type="button"
+                class="connect-mcp-copy"
+                data-testid="connect-mcp-copy-prompt"
+                @click="copy('prompt', promptText)"
+              >{{ copyLabel('prompt') }}</button>
             </div>
-          </div>
-          <div class="connect-mcp-actions">
-            <button
-              type="button"
-              class="connect-mcp-btn connect-mcp-btn--primary"
-              data-testid="connect-mcp-retry"
-              @click="emit('retry')"
-            >{{ state === 'already_linked' ? 'Try again' : 'Start a new session' }}</button>
-          </div>
-        </template>
-
-        <!-- Waiting for the agent: setup command + session prompt. -->
-        <template v-else>
-          <ol class="connect-mcp-steps">
-            <li class="connect-mcp-step">
-              <p class="connect-mcp-step-title">
-                <span class="connect-mcp-step-num" aria-hidden="true">1</span>
-                Add the ZenUML MCP server <span class="connect-mcp-muted">(once)</span>
-              </p>
-              <div class="connect-mcp-code-row">
-                <pre class="connect-mcp-code" data-testid="connect-mcp-setup-command">{{ setupCommand }}</pre>
-                <button
-                  type="button"
-                  class="connect-mcp-copy"
-                  data-testid="connect-mcp-copy-setup"
-                  @click="copy('setup_command', setupCommand)"
-                >{{ copyLabel('setup_command') }}</button>
-              </div>
-              <p class="connect-mcp-hint">
-                Other MCP clients (Cursor, VS Code…): add a remote HTTP server named
-                <code>{{ serverName }}</code> with URL <code>{{ serverUrl }}</code>.
-              </p>
-            </li>
-            <li class="connect-mcp-step">
-              <p class="connect-mcp-step-title">
-                <span class="connect-mcp-step-num" aria-hidden="true">2</span>
-                Paste this prompt into your agent
-              </p>
-              <div class="connect-mcp-code-row">
-                <pre
-                  class="connect-mcp-code"
-                  :class="{ 'connect-mcp-code--pending': !tokenReady }"
-                  data-testid="connect-mcp-prompt"
-                >{{ tokenReady ? promptText : 'Starting a session for this diagram…' }}</pre>
-                <button
-                  type="button"
-                  class="connect-mcp-copy"
-                  data-testid="connect-mcp-copy-prompt"
-                  :disabled="!tokenReady"
-                  @click="copy('prompt', promptText)"
-                >{{ copyLabel('prompt') }}</button>
-              </div>
-            </li>
-          </ol>
-          <p class="connect-mcp-waiting" role="status" data-testid="connect-mcp-waiting">
-            <span class="connect-mcp-dot connect-mcp-dot--pulse" aria-hidden="true"></span>
-            {{ state === 'timeout' ? 'No agent yet — finish step 1, then paste the prompt again.' : 'Waiting for your agent to connect…' }}
-          </p>
-        </template>
+          </li>
+        </ol>
+        <p class="connect-mcp-hint" data-testid="connect-mcp-reload-note">
+          Each edit publishes a new diagram version, so page history can revert it. Reload the page to see your agent's changes.
+        </p>
+        <div class="connect-mcp-actions">
+          <button
+            type="button"
+            class="connect-mcp-btn connect-mcp-btn--primary"
+            data-testid="connect-mcp-done"
+            @click="emit('close')"
+          >Done</button>
+        </div>
       </div>
     </div>
   </div>
@@ -131,38 +83,31 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 import type { AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
 import {
   MCP_SERVER_NAME,
-  buildConnectPrompt,
+  buildHeadlessPrompt,
   mcpAddCommand,
   mcpServerUrl,
-  isUsableSessionToken,
 } from '@/composables/agentLink/connectInstructions'
 
-// Inline counterpart to the Fullscreen ConnectPanel rail: the viewer's
-// "Connect MCP" button opens this over the macro. It renders the host's
-// useAgentLinkSession() state and never touches the session itself — the
-// host mints/closes the session and fires the analytics.
+// The viewer's "Connect MCP" button opens this over the inline macro. First
+// release: headless MCP only (connectInstructions.ts RELAY_SESSIONS_ENABLED),
+// so there is no session to mint or track — the dialog shows the setup
+// command and a prompt naming this diagram. The host fires the analytics.
 const props = withDefaults(
   defineProps<{
     visible: boolean
-    state: AgentLinkClientState
-    token: string | null
     diagramTitle?: string
-    // already_linked only: when the other session's lock on this diagram
-    // releases (mint 409's lock_expires_at), for an honest wait time.
-    lockExpiresAt?: number | null
+    cloudId?: string
+    pageId?: string
+    contentId?: string
   }>(),
-  { diagramTitle: '', lockExpiresAt: null }
+  { diagramTitle: '', cloudId: '', pageId: '', contentId: '' }
 )
 
 const emit = defineEmits<{
   (e: 'close'): void
-  // Mint a fresh session after a closed/expired/failed/rejected one.
-  (e: 'retry'): void
-  (e: 'disconnect'): void
   (e: 'copy', target: AgentLinkMcpCopyTarget, ok: boolean): void
 }>()
 
@@ -172,38 +117,12 @@ const setupCommand = mcpAddCommand()
 const serverName = MCP_SERVER_NAME
 const serverUrl = mcpServerUrl()
 
-const tokenReady = computed(() => isUsableSessionToken(props.token))
-const promptText = computed(() => buildConnectPrompt(props.token))
-
-const isTerminal = computed(() =>
-  ['closed', 'expired', 'failed', 'already_linked'].includes(props.state)
-)
-
-const terminalTitle = computed(() => {
-  switch (props.state) {
-    case 'already_linked': return 'This diagram is already linked to an agent'
-    case 'expired': return 'Session expired'
-    case 'failed': return 'Could not start a session'
-    default: return 'Session ended'
-  }
-})
-
-const terminalBody = computed(() => {
-  switch (props.state) {
-    case 'already_linked': {
-      // Retrying cannot break another session's lock; it only succeeds once
-      // that lock has lapsed, so say when that is when we know it.
-      const until = props.lockExpiresAt
-      if (typeof until === 'number' && until > Date.now()) {
-        const minutes = Math.ceil((until - Date.now()) / 60000)
-        return `Another agent session holds it for ~${minutes} more min. Only one agent can hold the link at a time.`
-      }
-      return 'Another agent session holds it. Only one agent can hold the link at a time.'
-    }
-    case 'failed': return 'Something went wrong on our side. Try again in a moment.'
-    default: return 'Your diagram is saved. Start a new session to keep editing with your agent.'
-  }
-})
+const promptText = computed(() => buildHeadlessPrompt({
+  title: props.diagramTitle,
+  cloudId: props.cloudId,
+  pageId: props.pageId,
+  contentId: props.contentId,
+}))
 
 type CopyState = 'idle' | 'copied' | 'failed'
 const copyStates = ref<Record<AgentLinkMcpCopyTarget, CopyState>>({ setup_command: 'idle', prompt: 'idle' })

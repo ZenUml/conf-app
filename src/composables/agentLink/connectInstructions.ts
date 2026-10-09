@@ -1,15 +1,15 @@
 // src/composables/agentLink/connectInstructions.ts
 //
 // The user-facing connect copy shared by the Fullscreen ConnectPanel rail and
-// the inline Connect MCP dialog, so the setup command and the session prompt
-// exist once.
+// the inline Connect MCP dialog, so the setup command and the prompts exist
+// once.
 //
-// The MCP server URL follows the backend that mints the session
+// The MCP server URL follows this macro's backend
 // (forgeGlobal.zenumlRemoteBaseUrl — the same origin mintAgentLinkSession()
-// and the relay channel use), because a session token only resolves on the
-// backend that issued it: Lite prod mints on conf-lite, Full on conf-full,
-// staging and dev environments on conf-stg-lite. A fixed host would hand
-// every other environment a server that cannot find its session.
+// and the relay channel use): Lite prod is conf-lite, Full conf-full,
+// staging and dev environments conf-stg-lite. Both credentials only resolve
+// there — a relay session token on the backend that minted it, and an OAuth
+// grant on the backend that issued it.
 import forgeGlobal from '@/model/globals/forgeGlobal'
 
 export const MCP_SERVER_NAME = 'zenuml'
@@ -27,16 +27,45 @@ export function mcpAddCommand(backendBaseUrl?: string): string {
   return `claude mcp add --transport http ${MCP_SERVER_NAME} ${mcpServerUrl(backendBaseUrl)}`
 }
 
+// The first release offers the headless MCP only: the agent signs in with
+// Atlassian OAuth the first time the server is used, then reads and edits
+// diagrams through Confluence directly. The relay session (a macro-minted
+// `CL-` token, live re-render, the Fullscreen rail and live badge) stays in
+// the code base but is not offered. A plain `claude mcp add` sends no session
+// token, so the server answers in headless mode anyway (mcp.ts, MODE
+// SELECTION) — offering the relay would need the token in the client config.
+export const RELAY_SESSIONS_ENABLED = false
+
+export interface HeadlessDiagramTarget {
+  title?: string
+  cloudId?: string
+  pageId?: string
+  contentId?: string
+}
+
+// The prompt names this diagram by the ids the headless tools take
+// (read_diagram / update_diagram { cloudId, contentId }), so the agent needs
+// no lookup. Without a contentId (a macro never saved) it points the agent
+// at the page instead.
+export function buildHeadlessPrompt(target: HeadlessDiagramTarget): string {
+  const name = target.title?.trim() ? `"${target.title.trim()}"` : 'on this page'
+  const lines = [`Use the ${MCP_SERVER_NAME} MCP to work on my ZenUML diagram ${name}.`]
+  if (target.cloudId) lines.push(`cloudId: ${target.cloudId}`)
+  else lines.push('Find the site with list_sites.')
+  if (target.pageId) lines.push(`pageId: ${target.pageId}`)
+  if (target.contentId) {
+    lines.push(`contentId: ${target.contentId}`)
+    lines.push('Read it with read_diagram first, then apply my changes with update_diagram.')
+  } else {
+    lines.push('Find it with list_diagrams for this page, then read it with read_diagram.')
+  }
+  return lines.join('\n')
+}
+
 export function buildConnectPrompt(token: string | null): string {
   return [
     `Connect to my ZenUML diagram via the ${MCP_SERVER_NAME} MCP.`,
     `session: ${token ?? ''}`,
     '# reads this page · edits this diagram · 10 min idle / 60 min max',
   ].join('\n')
-}
-
-// startConnect() shows a local `pending-<ts>` placeholder until the relay
-// mint resolves; it is not a token an agent can use.
-export function isUsableSessionToken(token: string | null): token is string {
-  return !!token && !token.startsWith('pending-')
 }

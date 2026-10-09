@@ -59,6 +59,15 @@ vi.mock('@/apis/aiTitleFeatureFlag', () => ({
   isCreateGuideEnabled: vi.fn(() => Promise.resolve(false)),
 }))
 
+// The first release offers the headless MCP only (RELAY_SESSIONS_ENABLED is
+// false), which hides the relay UI. The relay suites below switch it back on
+// so that code stays covered; the getter makes the switch per-test.
+const relaySwitch = vi.hoisted(() => ({ on: false }))
+vi.mock('@/composables/agentLink/connectInstructions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/composables/agentLink/connectInstructions')>()
+  return { ...actual, get RELAY_SESSIONS_ENABLED() { return relaySwitch.on } }
+})
+
 vi.mock('@/features/createGuide/openCreateGuide', () => ({ openCreateGuide: vi.fn(() => Promise.resolve()) }))
 
 vi.mock('@/model/globals', () => ({
@@ -2919,49 +2928,105 @@ describe('GenericViewer (chrome-less)', () => {
   // — the whole feature is gated behind agent-link-enabled, defaulting off.
   // Flag resolution is async (mounted()), so every assertion here awaits
   // flushPromises() after mount to let that promise settle before asserting.
+  describe('Connect MCP (headless only)', () => {
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('keeps Copy for AI and shows no Connect MCP when the flag resolves false (default)', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it('swaps Copy for AI for Connect MCP when the flag resolves true, with no relay badge', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it('shows neither button while the flag is still resolving', async () => {
+      let resolveFlag: (on: boolean) => void = () => {}
+      vi.mocked(isAgentLinkEnabled).mockReturnValueOnce(new Promise(r => { resolveFlag = r }))
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+      resolveFlag(true)
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+    })
+
+    it('does not show Connect MCP for a non-MVP diagram type (graph) even when the flag is on', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+    })
+
+    it('opens the dialog inline without minting a session or opening Fullscreen', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' } } } }
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const emitSpy = vi.spyOn(EventBus, '$emit')
+      const wrapper = mountViewer()
+      await flushPromises()
+      const startConnect = vi.spyOn((wrapper.vm as any).agentLinkSession, 'startConnect')
+
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+
+      const dialog = wrapper.find('[data-testid="connect-mcp-dialog"]')
+      expect(dialog.exists()).toBe(true)
+      expect(dialog.attributes('data-mcp-mode')).toBe('headless')
+      const prompt = wrapper.find('[data-testid="connect-mcp-prompt"]').text()
+      expect(prompt).toContain('cloudId: cloud-1')
+      expect(prompt).toContain('pageId: 42')
+      expect(startConnect).not.toHaveBeenCalled()
+      expect(emitSpy).not.toHaveBeenCalledWith('fullscreen')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ feature_area: 'agent_link', mcp_mode: 'headless', macro_type: DiagramType.Sequence })
+      )
+    })
+
+    it('closes on Escape and records the dwell', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(false)
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_closed',
+        expect.objectContaining({ mcp_mode: 'headless', dwell_ms: expect.any(Number) })
+      )
+    })
+
+    it('does not try to reattach a relay session on mount', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect((wrapper.vm as any).agentLinkSession.state.value).toBe('idle')
+    })
+  })
+
   describe('Live Agent Link (flag-gated)', () => {
     const setFullscreen = (on: boolean) => {
       ;(window as any).forgeGlobal = on
         ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
         : undefined
     }
-    afterEach(() => { delete (window as any).forgeGlobal })
-
-    it('does NOT render Connect to Agent when the flag resolves false (default)', async () => {
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
-    })
-
-    it('renders Connect to Agent in the action area when the flag resolves true', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(true)
-    })
-
-    it('does not render Connect to Agent for a non-MVP diagram type (graph) even when the flag is on', async () => {
-      store.commit('updateDiagramType', DiagramType.Graph)
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
-    })
-
-    it('clicking Connect to Agent starts the session and opens Fullscreen', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const spy = vi.spyOn(EventBus, '$emit')
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="agent-link-connect-btn"]').trigger('click')
-
-      expect(spy).toHaveBeenCalledWith('fullscreen')
-      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
-        'agent_link_connect_clicked',
-        expect.objectContaining({ feature_area: 'agent_link', macro_type: DiagramType.Sequence })
-      )
+    beforeEach(() => { relaySwitch.on = true })
+    afterEach(() => {
+      relaySwitch.on = false
+      delete (window as any).forgeGlobal
     })
 
     it('mounts the Fullscreen Connect rail (not the small-macro button/badge) when in fullscreen with the flag on', async () => {
@@ -2971,7 +3036,7 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
 
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
@@ -3129,6 +3194,8 @@ describe('GenericViewer (chrome-less)', () => {
   // apWrapper/the bridge block at all — these tests remove apWrapper entirely
   // and confirm the rail still hydrates.
   describe('Fullscreen hydration is independent of globals.apWrapper (finding #4)', () => {
+    beforeEach(() => { relaySwitch.on = true })
+    afterEach(() => { relaySwitch.on = false })
     const setFullscreenWithPageId = (pageId?: string) => {
       ;(window as any).forgeGlobal = {
         forgeContext: {

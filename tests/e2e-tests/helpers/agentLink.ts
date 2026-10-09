@@ -89,7 +89,7 @@ export async function isAgentLinkEndpointLive(base = AGENT_LINK_STG_BASE): Promi
   }
 }
 
-const forgeFrames = (page: Page) => page.frames().filter((f) => /atlassian-dev\.net/.test(f.url()));
+export const forgeFrames = (page: Page) => page.frames().filter((f) => /atlassian-dev\.net/.test(f.url()));
 
 /** Opt the macro into Agent Link + skip the Lite paywall via localStorage. */
 export async function enableAgentLinkOverrides(page: Page): Promise<void> {
@@ -147,7 +147,7 @@ export async function openMacroPage(page: Page, pageUrl: string, timeout = 60000
   await page.waitForTimeout(6000); // let the macro mount + resolve the flag
 }
 
-/** Click the inline macro's "Connect MCP" (mints a session, opens the inline dialog). */
+/** Click the inline macro's "Connect MCP" (opens the inline dialog). */
 export async function clickConnectToAgent(page: Page): Promise<boolean> {
   for (const f of forgeFrames(page)) {
     const button = f.getByTestId('connect-mcp-btn');
@@ -181,20 +181,13 @@ export async function readSessionToken(page: Page): Promise<string | null> {
   return null;
 }
 
-/**
- * The session state as a ConnectPanel-style class suffix, e.g.
- * 'agent-link-panel--waiting'. Reads the Fullscreen rail when one is mounted,
- * else the inline Connect MCP dialog's data-agent-link-state.
- */
+/** The ConnectPanel state class suffix, e.g. 'agent-link-panel--waiting'. */
 export async function readPanelClass(page: Page): Promise<string | null> {
   for (const f of forgeFrames(page)) {
     const c = await f
       .evaluate(() => {
         const p = document.querySelector('.agent-link-panel');
-        if (p) return p.className.replace('agent-link-panel ', '');
-        const d = document.querySelector('[data-testid="connect-mcp-dialog"]');
-        const state = d?.getAttribute('data-agent-link-state');
-        return state ? `agent-link-panel--${state}` : null;
+        return p ? p.className.replace('agent-link-panel ', '') : null;
       })
       .catch(() => null);
     if (c) return c;

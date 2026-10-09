@@ -81,7 +81,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'read_diagram',
     description:
-      'Read one diagram’s source (the DSL or spec text) by its contentId, as listed by list_diagrams. Read-only.',
+      'Read one diagram’s source (the DSL or spec text) and diagramType by its contentId, as listed by list_diagrams. Edit that source and send all of it back with update_diagram. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -617,6 +617,7 @@ export async function callHeadlessTool(
         version?: { number?: unknown };
         body?: { raw?: { value?: unknown } };
       };
+      const stored = parseStoredDiagram(body.body?.raw?.value);
       return {
         contentId,
         title: typeof body.title === 'string' ? body.title : '',
@@ -625,7 +626,12 @@ export async function callHeadlessTool(
         // (ADR 0003's context: a stale version is a 400, not a silent
         // overwrite). Surfaced now so a reader can see what it would send.
         version: typeof body.version?.number === 'number' ? body.version.number : undefined,
-        source: typeof body.body?.raw?.value === 'string' ? body.body.raw.value : '',
+        // The DSL itself, unwrapped from the stored `{title, code, diagramType}`
+        // envelope, so what an agent reads is what update_diagram takes back.
+        // Returning the raw envelope made the obvious "read, edit, write back"
+        // loop fail the parse guard: the agent edited JSON, not DSL.
+        diagramType: stored.diagramType,
+        source: stored.code ?? '',
       };
     }
 

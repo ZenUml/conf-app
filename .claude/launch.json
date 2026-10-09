@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "creation-guide-storybook",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/pengxiao/workspaces/zenuml/conf-app/.claude/worktrees/confluence-creation-guide-animation-868bcb && PRODUCT_TYPE=lite pnpm exec storybook dev -p 6006 --no-open --ci"
+      ],
+      "port": 6006
+    },
+    {
+      "name": "creation-guide-review",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/pengxiao/.codex/visualizations/2026/09/29/01a0eaf9-fa0c-7282-b2a2-cf4bf5eae91a/zenuml-creation-guide && npx vite --host 127.0.0.1 --port 5173 --strictPort"
+      ],
+      "port": 5173,
+      "url": "http://127.0.0.1:5173"
+    },
+    {
+      "name": "conf-app-tunnel-vite",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/pengxiao/workspaces/zenuml/conf-app/.claude/worktrees/confluence-creation-guide-animation-868bcb && FORGE_TUNNEL=1 PORT=8080 PRODUCT_TYPE=lite pnpm start:local:raw"
+      ],
+      "port": 8080
+    }
+  ]
+}

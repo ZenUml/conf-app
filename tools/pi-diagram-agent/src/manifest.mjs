@@ -40,6 +40,20 @@ function ensurePrivateDir(dir){
 }
 export const authoritativeManifestPath=(runDir,{manifestDir=manifestDirFromEnv()}={})=>path.join(manifestDir,`${path.basename(runDir)}.json`);
 
+/** Verify the contract and the reviewed candidate belong to the same planning revision.
+ * Old standalone records remain readable; every new /magic run requires this gate.
+ */
+export function assertFinalLayoutIntent(m){
+  if(!m.layoutIntentRequired)return null;
+  const r=m.layoutIntent;
+  if(!r||r.schema!=='pi-layout-intent/1'||!r.intent||typeof r.intent!=='object')throw Error('LAYOUT_INTENT_MISSING');
+  const {hash,...record}=r;
+  if(!/^[0-9a-f]{64}$/.test(String(hash))||sha(JSON.stringify(record))!==hash)throw Error('LAYOUT_INTENT_TAMPERED');
+  if(r.sourceHash!==m.sourceHash||r.rulesHash!==m.rulesHash)throw Error('LAYOUT_INTENT_SOURCE_RULES_MISMATCH');
+  if(m.finalLayoutIntentHash!==hash)throw Error('LAYOUT_INTENT_STALE: final review belongs to a different planning revision');
+  return hash;
+}
+
 /** Writes the authoritative manifest first, then mirrors the same sealed bytes to run.json in the run directory. */
 export function writeManifests(runDir,obj,{manifestDir=manifestDirFromEnv()}={}){
   const sealed=sealManifest(obj),dir=ensurePrivateDir(manifestDir),file=authoritativeManifestPath(runDir,{manifestDir}),temp=path.join(dir,`.${path.basename(file)}.${randomUUID()}.tmp`);
@@ -77,6 +91,7 @@ export function acceptRun(runDirArg,svgSha256,{user=os.userInfo().username,now=(
   let mirror;try{mirror=readRunManifest(runDir)}catch(error){throw Error(`MANIFEST_DISAGREES: run.json ${String(error.message)}`)}
   if(mirror.selfHash!==m.selfHash)throw Error('MANIFEST_DISAGREES: run.json in the run directory differs from the authoritative manifest');
   if(m.status!=='REVIEWED'&&m.status!=='REVIEWED_WITH_EXCEPTIONS')throw Error(`RUN_NOT_REVIEWED: status is ${m.status}; only a REVIEWED or REVIEWED_WITH_EXCEPTIONS run can be accepted`);
+  const layoutIntentHash=assertFinalLayoutIntent(m);
   // A REVIEWED_WITH_EXCEPTIONS run is never auto-published; a human promotes it only by naming every waived check (acceptance of each waiver).
   const named=[...new Set((waived??[]).map(String))].sort();
   const granted=[...new Set((m.exceptions??[]).map(e=>e.check))].sort();
@@ -92,7 +107,7 @@ export function acceptRun(runDirArg,svgSha256,{user=os.userInfo().username,now=(
   if(onDisk!==m.finalSvgSha256)throw Error('CANDIDATE_CHANGED_SINCE_REVIEW: candidate.svg no longer matches the reviewed hash');
   // Extra gate for callers (the judge check): runs after every other refusal, may throw to refuse, and returns fields to record in the acceptance.
   const extra=beforeCommit?(beforeCommit({manifest:m,runDir,svgSha256})??{}):{};
-  const acceptance={authorisedBy:String(user),timestamp:now().toISOString(),sourceHash:m.sourceHash,svgSha256,acceptedFrom:m.status,...extra,...(m.status==='REVIEWED_WITH_EXCEPTIONS'?{waivedChecks:granted,acceptedWaivers:m.exceptions.map(({check,findingId,elements,measured,reason})=>({check,findingId,elements,measured,reason}))}:{})};
+  const acceptance={authorisedBy:String(user),timestamp:now().toISOString(),sourceHash:m.sourceHash,svgSha256,acceptedFrom:m.status,...(layoutIntentHash?{layoutIntentHash}:{}),...extra,...(m.status==='REVIEWED_WITH_EXCEPTIONS'?{waivedChecks:granted,acceptedWaivers:m.exceptions.map(({check,findingId,elements,measured,reason})=>({check,findingId,elements,measured,reason}))}:{})};
   const sealed=writeManifests(runDir,{...body(m),status:'VALIDATED',acceptance},{manifestDir});
   return {status:'VALIDATED',runDir,svgSha256,selfHash:sealed.selfHash,acceptance,manifest:sealed,manifestPath:authoritativeManifestPath(runDir,{manifestDir})};
 }

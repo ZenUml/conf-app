@@ -6,7 +6,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {randomUUID} from 'node:crypto';
 import {renderAgentSvg} from './agent-render.mjs';
-import {readAuthoritativeManifest,readRunManifest,verifyManifest,acceptRun,safeRunDir,manifestDirFromEnv} from './manifest.mjs';
+import {readAuthoritativeManifest,readRunManifest,verifyManifest,sealManifest,assertFinalLayoutIntent,acceptRun,safeRunDir,manifestDirFromEnv} from './manifest.mjs';
 import {scoreJudgement,buildJudgement,judgeThresholdsFromEnv,judgeTimeoutFromEnv,runCoach,DIMENSIONS} from './judge.mjs';
 
 const sha=b=>createHash('sha256').update(b).digest('hex');
@@ -64,6 +64,7 @@ export async function judgeSvgs({candidate,baseline,hasGroups,factory,render,mod
 function loadFinal(runDir,{manifestDir}){
   let m;
   try{m=readAuthoritativeManifest(runDir,{manifestDir})}catch(e){try{m=readRunManifest(runDir)}catch{throw e}}
+  assertFinalLayoutIntent(m);
   const file=path.join(runDir,'candidate.svg'),st=fs.lstatSync(file,{throwIfNoEntry:false});
   if(!st?.isFile()||st.isSymbolicLink()||!st.size||st.size>MAX_SVG)throw Error('CANDIDATE_UNAVAILABLE: candidate.svg is missing or unsafe');
   const bytes=fs.readFileSync(file);
@@ -91,18 +92,20 @@ export async function judgeRunDir(runDirArg,{vsOld=null,factory,render,model,thr
   }
   const hasGroups=hasGroupsFromOriginalSvg(original.bytes);
   const j=await judgeSvgs({candidate,baseline,hasGroups,factory,render,model,mode,thresholds,timeoutMs,now});
-  const {wallMs,...record}=j;
+  const {wallMs,...rawRecord}=j;
+  const record=manifest.layoutIntentRequired?sealManifest({...rawRecord,layoutIntentHash:assertFinalLayoutIntent(manifest)}):rawRecord;
   writeJudgement(runDir,record);
-  return j;
+  return {...record,wallMs};
 }
 
 /** Throws unless the run's judgement.json is present, untampered, bound to `svgSha256` and says IMPROVED. Returns the judgement. */
-export function verifyJudgement(runDir,svgSha256){
+export function verifyJudgement(runDir,svgSha256,{layoutIntentHash=null}={}){
   const file=path.join(runDir,'judgement.json'),st=fs.lstatSync(file,{throwIfNoEntry:false});
   if(!st)throw Error('JUDGEMENT_MISSING: run /magic-judge on this run first (or accept with --override-judge "<reason>")');
   let j;try{if(!st.isFile()||st.isSymbolicLink())throw 0;j=JSON.parse(fs.readFileSync(file,'utf8'))}catch{throw Error('JUDGEMENT_TAMPERED: judgement.json is unreadable')}
   if(!verifyManifest(j)||j.schema!=='pi-diagram-judgement/1')throw Error('JUDGEMENT_TAMPERED: judgement.json fails its seal');
   if(j.candidateSha256!==svgSha256)throw Error(`JUDGEMENT_STALE: the judgement is for ${String(j.candidateSha256).slice(0,12)}, not ${String(svgSha256).slice(0,12)}; re-run /magic-judge`);
+  if(layoutIntentHash&&j.layoutIntentHash!==layoutIntentHash)throw Error('JUDGEMENT_LAYOUT_INTENT_STALE: re-run review and Judge for the current intent');
   if(j.verdict==='JUDGE_ERROR')throw Error(`JUDGEMENT_JUDGE_ERROR: the judge failed (${j.verdictReason}); re-run /magic-judge`);
   if(j.verdict!=='IMPROVED')throw Error(`JUDGEMENT_NOT_IMPROVED: ${j.verdictReason}`);
   return j;
@@ -112,12 +115,12 @@ export function verifyJudgement(runDir,svgSha256){
 export function acceptWithJudge(runDirArg,svgSha256,{overrideJudge=null,...opts}={}){
   if(overrideJudge!==null&&!String(overrideJudge).trim())throw Error('OVERRIDE_REASON_REQUIRED: --override-judge needs a non-empty reason');
   const reason=overrideJudge===null?null:String(overrideJudge).trim();
-  return acceptRun(runDirArg,svgSha256,{...opts,beforeCommit:({runDir})=>{
+  return acceptRun(runDirArg,svgSha256,{...opts,beforeCommit:({runDir,manifest})=>{
     try{
-      const j=verifyJudgement(runDir,svgSha256);
+      const j=verifyJudgement(runDir,svgSha256,{layoutIntentHash:assertFinalLayoutIntent(manifest)});
       return {judgement:{verdict:j.verdict,mean:j.mean,selfHash:j.selfHash,candidateSha256:j.candidateSha256,mode:j.mode}};
     }catch(error){
-      if(reason===null)throw error;
+      if(reason===null||String(error.message).startsWith('JUDGEMENT_LAYOUT_INTENT_STALE'))throw error;
       const state=String(error.message).split(':')[0];
       return {judgeOverride:{reason,judgementState:state,detail:String(error.message).slice(0,300)}};
     }

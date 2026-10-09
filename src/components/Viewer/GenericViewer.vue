@@ -237,7 +237,7 @@
                 type="button"
                 class="viewer-btn-ghost viewer-act-connect-mcp"
                 aria-label="Connect MCP"
-                title="Connect your AI agent to this diagram over MCP"
+                title="Connect MCP"
                 data-testid="connect-mcp-btn"
                 aria-haspopup="dialog"
                 :aria-expanded="showConnectMcpDialog ? 'true' : 'false'"
@@ -619,13 +619,15 @@ const ICON_PATHS = {
   download: 'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3',
   clock: 'M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   link: 'M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244',
-  plug: 'M9 3v4.5m6-4.5v4.5M6.75 7.5h10.5v3a5.25 5.25 0 0 1-10.5 0v-3ZM12 15.75V21',
+  // Official Model Context Protocol mark, as its three stroke centerlines
+  // scaled to this 24px grid so it takes the same stroke weight as the rest.
+  mcp: 'M2.05 11.25L11.49 1.81C12.79 0.51 14.91 0.51 16.21 1.81C17.51 3.11 17.51 5.23 16.21 6.53L9.08 13.66M9.18 13.56L16.21 6.53C17.51 5.23 19.63 5.23 20.93 6.53L20.98 6.58C22.28 7.88 22.28 10 20.98 11.3L12.44 19.84C12.01 20.27 12.01 20.98 12.44 21.41L14.19 23.17M13.85 4.17L6.87 11.15C5.56 12.46 5.56 14.57 6.87 15.87C8.17 17.18 10.28 17.18 11.59 15.87L18.57 8.89',
   bug: 'M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25',
 };
 const MORE_MENU_META = {
   'source': { label: 'Source', icon: ICON_PATHS.code },
   'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
-  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.plug },
+  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.mcp },
   'copy-diagram-link': { label: 'Copy diagram link', icon: ICON_PATHS.share },
   'copy-page-link': { label: 'Copy page link', icon: ICON_PATHS.link },
   'export-png': { label: 'Export PNG', icon: ICON_PATHS.download },
@@ -1014,7 +1016,7 @@ export default {
       return this.agentLinkFlagResolved || this.isFullscreenMode || !this.agentLinkMvpSupported;
     },
     connectMcpIcon() {
-      return ICON_PATHS.plug;
+      return ICON_PATHS.mcp;
     },
     // The ids the headless tools take (read_diagram / update_diagram), so the
     // prompt sends the agent straight to this diagram. All synchronous: the

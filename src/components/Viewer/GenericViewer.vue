@@ -246,7 +246,10 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
                 </svg>
-                <span class="viewer-btn-label">Connect MCP</span>
+                <!-- Visible "MCP" next to the icon, even inline where Source and
+                     Copy for AI are icon-only: the mark alone is not yet widely
+                     recognised. aria-label keeps the full "Connect MCP". -->
+                <span class="viewer-act-connect-mcp-label" aria-hidden="true">MCP</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
               <!-- Fullscreen: the actions the inline macro keeps in More are
@@ -3112,7 +3115,6 @@ export default {
    transient text state (Copying… / Copy failed / Nothing to copy) still
    shows its words briefly. */
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp,
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary {
   min-width: 28px;
   padding: 0;
@@ -3123,12 +3125,19 @@ export default {
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell > span:only-child { padding: 0 6px; }
 .copy-for-ai-split-primary[data-copy-state="copied"] .viewer-icon { color: #36B37E; }
+/* Connect MCP keeps a short "MCP" label beside its icon (it moves into More
+   at stage 3, like Copy for AI). */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp {
+  gap: 4px;
+  padding: 0 8px 0 6px;
+  color: #6B7280;
+}
+.viewer-act-connect-mcp-label { font-size: 12px; font-weight: 500; }
 
 /* Staged collapse (data-stage on .viewer-frame, set by updateHeaderStage).
    1: Edit + Refined → icon. 2: Fullscreen → icon. 3: Source + Copy for AI

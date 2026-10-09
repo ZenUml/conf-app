@@ -21,7 +21,12 @@ changed E2E specs, and known helper dependencies remain required. Human full
 coverage, sensitive or incomplete diffs, API failures, and missing or invalid
 artifacts still run full main regression. Daily regression always runs full coverage.
 
-The policy is `v8-main-jev-infrastructure-v1`. Older selection artifacts fail full.
+A successful valid main decision always uses the 0.8 category threshold. If no
+category reaches it, main runs the smoke/direct-spec floor, including known
+helper dependencies. Intermediate probabilities do not widen main to full
+regression and do not mean zero impact. PR empty selections still run full.
+
+The policy is `v9-main-jev-empty-selection-v1`. Older selection artifacts fail full.
 Category recall and time savings have not
 been established; a category must meet the 0.8 high-confidence threshold before it
 widens the plan. This prevents a generic or weakly related tag from adding broad

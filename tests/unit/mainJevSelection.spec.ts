@@ -89,28 +89,50 @@ describe('main Jev behavior selection', () => {
   });
   it('rejects decisions authorized by the previous main policy', async () => {
     const s = await classifyMain();
-    expect(POLICY_VERSION).not.toBe('v7-main-jev-selectors-v1');
-    const r = resolved({ ...s, policy_version: 'v7-main-jev-selectors-v1' }, ['scripts/ci/wait-for-e2e.mjs']);
+    expect(POLICY_VERSION).not.toBe('v8-main-jev-infrastructure-v1');
+    const r = resolved({ ...s, policy_version: 'v8-main-jev-infrastructure-v1' }, ['scripts/ci/wait-for-e2e.mjs']);
     expect(r).toMatchObject({ mode: 'all', reasons: ['invalid-or-stale-jev-selection'] });
   });
-  it('accepts explicit low-probability no-impact results and retains smoke', async () => {
-    const s = await classifyMain();
-    expect(s.no_additional_impact).toBe(true);
+  it.each([0.02, 0.1, 0.32, 0.799])('runs the floor when main probabilities stay below 0.8: %s', async probability => {
+    const s = await classifyMain({ fetchImpl: fakeResponse(probability) });
+    expect(s).toMatchObject({ mode: 'selected', execution_mode: 'enabled', fallback_reason: null, no_selected_categories: true });
+    expect(s).not.toHaveProperty('no_additional_impact');
+    expect(s.rules).toContain('jev-no-selected-categories');
     expect(resolved(s).grep).toBe('@smoke');
     expect(plan(s).tests.map(t => t.id)).toEqual(['smoke']);
+    expect(plan(s, 'lite', true).tests).toEqual([]);
+    expect(resolved({ ...s, no_selected_categories: undefined }).mode).toBe('selected');
   });
-  it('does not treat ambiguity or API errors as no impact', async () => {
-    expect((await classifyMain({ fetchImpl: fakeResponse(0.5) })).fallback_reason).toBe('uncertain-empty-selection');
+  it('selects at 0.8 and preserves direct specs with mixed lower probabilities', async () => {
+    const files = ['tests/e2e-tests/tests/agent-link/unrelated.spec.ts'];
+    const s = await classifyMain({ diff: { ...diff, paths: files }, fetchImpl: async () => new Response(JSON.stringify({
+      model: 'jev-1.13.0', usage: { input_tokens: 1, output_tokens: 1 },
+      answers: Object.fromEntries(CATEGORIES.map(c => [c.id, { type: 'noul', noul: c.id === selected ? 0.8 : 0.32 }])),
+    })) });
+    expect(s.categories[selected]).toMatchObject({ probability: 0.8, selected: true });
+    expect(s.categories[CATEGORIES[1].id]).toMatchObject({ probability: 0.32, selected: false });
+    expect(resolved(s, files).jev_categories).toEqual([`@test:${selected}`]);
+    expect(plan(s, 'lite', false, files).tests.map(t => t.id).sort()).toEqual(['impact', 'smoke', 'unrelated']);
+    const below = await classifyMain({ fetchImpl: fakeResponse(0.799) });
+    expect(plan(below, 'lite', false, files).tests.map(t => t.id).sort()).toEqual(['smoke', 'unrelated']);
+  });
+  it.each([0.1, 0.32, 0.799])('keeps PR empty-selection fallback at probability %s', async probability => {
+    const files = ['src/components/Mermaid.vue'];
+    const s = await classify({ diff: { ...diff, paths: files }, apiKey: 'fake', mode: 'enabled', fetchImpl: fakeResponse(probability) });
+    expect(s).toMatchObject({ mode: 'all', fallback_reason: 'empty-selection' });
+    expect(resolveSelection({ selection: { ...s, mode: 'selected', execution_mode: 'enabled', fallback_reason: null }, files, head, tree }).mode).toBe('all');
+  });
+  it('keeps API failures and inconsistent category decisions on full coverage', async () => {
     expect((await classifyMain({ fetchImpl: async () => new Response('', { status: 503 }) })).mode).toBe('all');
     const s = await classifyMain();
-    s.categories[selected].probability = 0.5;
+    s.categories[selected] = { probability: 0.5, selected: true, uncertain: true };
     expect(resolved(s).mode).toBe('all');
   });
   it.each(['lite', 'full', 'diagramly', 'asyncapi'])('selects syntax tests from full inventory for %s', async variant => {
     const s = await classifyMain({ fetchImpl: fakeResponse(0.02, selected) });
     expect(plan(s, variant).tests.map(t => t.id).sort()).toEqual(['impact', 'smoke']);
   });
-  it('retains a directly modified test when Jev reports no extra impact', async () => {
+  it('retains a directly modified test when Jev selects no categories', async () => {
     const s = await classifyMain();
     expect(plan(s, 'lite', false, ['tests/e2e-tests/tests/agent-link/unrelated.spec.ts']).tests.map(t => t.id).sort()).toEqual(['smoke', 'unrelated']);
   });

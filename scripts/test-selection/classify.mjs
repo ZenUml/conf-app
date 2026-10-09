@@ -6,9 +6,9 @@ import { createHash } from 'node:crypto';
 import { CATEGORY_VERSION, CATEGORIES } from '../../tests/e2e-tests/config/categories.mjs';
 import { EXECUTION_IMPACT, EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 
-// v8 delegates main infrastructure changes to Jev as well as application code.
+// v9 accepts successful main decisions even when no category reaches 0.8.
 // Older selection artifacts cannot authorize the new coverage policy.
-export const POLICY_VERSION = 'v8-main-jev-infrastructure-v1';
+export const POLICY_VERSION = 'v9-main-jev-empty-selection-v1';
 export const MAX_DIFF_BYTES = 180000;
 // A low threshold made weak, generic associations select most of the suite.
 // Direct E2E specs and smoke form the independent floor; Jev only adds a
@@ -89,10 +89,9 @@ export async function classify({ diff, apiKey, mode = 'observe', humanFull = fal
     result.mode = Object.values(result.categories).some(c => c.selected) ? 'selected' : 'all';
     if (result.mode === 'all') {
       if (scope !== 'main') return fallback('empty-selection');
-      if (Object.values(result.categories).some(c => c.uncertain)) return fallback('uncertain-empty-selection');
       result.mode = 'selected';
-      result.no_additional_impact = true;
-      result.rules.push('jev-confirmed-no-additional-impact');
+      result.no_selected_categories = true;
+      result.rules.push('jev-no-selected-categories');
     }
     if (mode === 'enabled') { result.execution_mode = 'enabled'; result.rules.push('deterministic-coverage-floor-required'); }
     return result;

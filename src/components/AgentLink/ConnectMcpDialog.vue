@@ -44,7 +44,7 @@
               >{{ copyLabel('setup_command') }}</button>
             </div>
             <p class="connect-mcp-hint">
-              Other MCP clients (Cursor, VS Code…): add a remote HTTP server named
+              Other MCP clients (Codex, Cursor, VS Code…): add a remote HTTP server named
               <code>{{ serverName }}</code> with URL <code>{{ serverUrl }}</code>.
               Your client asks you to sign in with Atlassian the first time; the agent then acts as you.
             </p>

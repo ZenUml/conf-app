@@ -59,7 +59,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
         id: 'connect-mcp',
         title: 'Connect MCP',
         body: 'Use the new MCP button on a sequence, Mermaid or PlantUML diagram to add the ZenUML MCP server to Claude Code, Codex, Cursor or another MCP client. You sign in with Atlassian once, and the agent acts as you.',
-        url: 'https://zenuml.com/docs/mcp-server/',
+        url: 'https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/',
       },
       {
         id: 'mcp-read-edit',
@@ -78,7 +78,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
         id: 'anonymous-viewing',
         title: 'View diagrams without signing in',
         body: 'Visitors can view diagrams on Confluence pages that allow anonymous access. This update does not change site, space, or page permissions.',
-        url: 'https://zenuml.com/docs/anonymous-viewing/',
+        url: 'https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/anonymous-viewing/',
       },
     ],
   },

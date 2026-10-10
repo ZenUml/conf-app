@@ -25,7 +25,7 @@ describe('live release data', () => {
         id: 'anonymous-viewing',
         title: 'View diagrams without signing in',
         body: 'Visitors can view diagrams on Confluence pages that allow anonymous access. This update does not change site, space, or page permissions.',
-        url: 'https://zenuml.com/docs/anonymous-viewing/',
+        url: 'https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/anonymous-viewing/',
       },
     ]);
 
@@ -52,7 +52,7 @@ describe('MCP server release', () => {
   it('keeps variant names out of the display copy', () => {
     const release = WHATS_NEW_RELEASES.find((entry) => entry.id === '2026-10-mcp-server');
     expect(release?.items.map((item) => item.id)).toEqual(['connect-mcp', 'mcp-read-edit']);
-    expect(release?.items[0].url).toBe('https://zenuml.com/docs/mcp-server/');
+    expect(release?.items[0].url).toBe('https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/');
     const displayCopy = [release?.headline, ...(release?.items ?? []).flatMap((item) => [item.title, item.body])].join(' ');
     expect(displayCopy).not.toMatch(/lite|diagramly|full|asyncapi/i);
   });

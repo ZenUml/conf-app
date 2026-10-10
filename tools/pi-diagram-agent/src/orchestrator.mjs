@@ -10,7 +10,7 @@ import {auditAgentSvg} from './agent-audit.mjs';
 import {ensureOriginal,jobPresentation,assertJobManifest} from './agent-led.mjs';
 import {makeFinding,createLedger,selectForAuthor,formatForAuthor,auditToFindings,selectAdvice,toAdviceItem} from './findings.mjs';
 import {gateModeFromEnv,relaxFindings} from './relaxed.mjs';
-import {judgeSvgs,writeJudgement,hasGroupsFromOriginalSvg} from './judge-run.mjs';
+import {judgeSvgs,coachSvgs,COACHING_SCHEMA,writeJudgement,writeCoaching,removeCoaching,hasGroupsFromOriginalSvg} from './judge-run.mjs';
 import {buildJudgement,acceptThresholdsFromEnv} from './judge.mjs';
 import {scanForbidden,earlyFindings,regionSignature,applyCoverage,applyStability,isLowerBendMinor,EARLY_AUDIT_RULES,EARLY_MEASURED_RULES} from './early-checks.mjs';
 import {collectGeometry,geometryFindings,geometryForReviewer,geometryNotCheckable} from './geometry.mjs';
@@ -71,7 +71,7 @@ const judgeMeanOf=c=>c.judgement&&c.judgement.verdict!=='JUDGE_ERROR'&&Number.is
 const betterOrEqual=(c,b)=>cmpPair(c.score,b.score)?cmpPair(c.score,b.score)<0:judgeMeanOf(c)!==judgeMeanOf(b)?judgeMeanOf(c)>judgeMeanOf(b):c.score.minor<=b.score.minor;
 
 /** @param job result of prepareAgentTask  @param opts {deps, reviewerFactory, budgets, now, onRoundEnd} */
-export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null,manifestDir=manifestDirFromEnv(),gate=gateModeFromEnv(),judgeFactory=null,judgeModel=null,acceptThresholds=acceptThresholdsFromEnv(),contractRequired=false,startedAtMs=null}={}){
+export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer=null,now=Date.now,onRoundEnd=null,manifestDir=manifestDirFromEnv(),gate=gateModeFromEnv(),judgeFactory=null,judgeModel=null,coachFactory=null,coachModel=null,acceptThresholds=acceptThresholdsFromEnv(),contractRequired=false,startedAtMs=null}={}){
   const presentation=jobPresentation(job);
   const reviewerCfg=reviewer??reviewerConfigFromEnv();
   // Gate mode. relaxed (default): only wrong-or-unreadable defects block, everything else is advice, and the Judge decides acceptance inside the loop. strict: the previous behaviour, no Judge.
@@ -79,15 +79,16 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   if(relaxed&&!judgeFactory&&!deps?.judge)throw Error('JUDGE_FACTORY_REQUIRED: the relaxed gate accepts a candidate only through the Judge; pass judgeFactory, or set PI_DIAGRAM_GATE=strict');
   const d={...defaultDeps(job),...(deps??{})};
   d.judge??=({candidate,baseline,hasGroups})=>judgeSvgs({candidate,baseline,hasGroups,factory:judgeFactory,render:d.judgeRender,model:judgeModel,mode:'original',thresholds:acceptThresholds,inLoop:true});
+  d.coach??=({judgement,imageSets,hasGroups})=>coachSvgs({judgement,imageSets,hasGroups,factory:coachFactory??judgeFactory,model:coachModel??judgeModel});
   const B={...defaultBudgetsFor(relaxed?'relaxed':'strict'),...(budgets??{})};
   let model=null;try{model=parseMermaid(Buffer.from(job.sourceBytes).toString('utf8'))}catch{}
   let ledger=createLedger();
   const enteredAt=now();
   const startedAt=Number.isFinite(startedAtMs)&&startedAtMs<=enteredAt?startedAtMs:enteredAt;
   const preparationMs=enteredAt-startedAt;
-  const timings={preparationMs,authorMs:0,reviewerMs:0,orchestratorMs:preparationMs,checkMs:0,judgeMs:0};
-  const tokens={author:{},reviewer:{},judge:{}};
-  const judgeRounds=[];let judgeCalls=0;
+  const timings={preparationMs,authorMs:0,reviewerMs:0,orchestratorMs:preparationMs,checkMs:0,judgeMs:0,coachMs:0};
+  const tokens={author:{},reviewer:{},judge:{},coach:{}};
+  const judgeRounds=[];let judgeCalls=0,coachCalls=0;
   const rounds=[];
   let lastReview=null,round=0,authorMark=enteredAt,base=null,best=null,stagnant=0,finalResult=null,status='RUNNING',statusReason=null,finalDetail=null,oscillationsInReverted=0,lastManifest=null,extraResidual=[],reverts=0;
   // Two-phase gate state. Phase 1 = diagram_build_check (binding script check, text only); phase 2 = the reviewer inside diagram_submit.
@@ -206,22 +207,44 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   /** Relaxed gate acceptance: the Judge (both passes) on the exact final bytes against the original. Runs only for a candidate with no blocking finding that passed review and the hash-identity gate. */
   async function judgePhase(c){
-    const t0=now();let record=null,original=null;
+    const t0=now();let record=null,original=null,hasGroups=false;
+    removeCoaching(job.runDir); // coach.json only ever explains the current judgement.json
     try{
       original=await d.original();
-      const j=await d.judge({candidate:c.bytes,baseline:original.svgBytes,hasGroups:hasGroupsFromOriginalSvg(original.svgBytes)});
-      const {wallMs,...rest}=j;record=rest;
+      hasGroups=hasGroupsFromOriginalSvg(original.svgBytes);
+      const j=await d.judge({candidate:c.bytes,baseline:original.svgBytes,hasGroups});
+      const {wallMs,imageSets,...rest}=j;record=rest;
+      if(imageSets)c.judgeInputs={imageSets,hasGroups};
     }catch(error){
       record=buildJudgement({candidateSha256:c.hash,originalSha256:original?.svgBytes?sha(Buffer.from(original.svgBytes)):null,mode:'original',model:judgeModel,passes:[],merged:{dims:{},mean:0},thresholds:acceptThresholds,verdict:'JUDGE_ERROR',verdictReason:String(error?.message??error).slice(0,400),extra:{inLoop:true}});
     }
     timings.judgeMs+=now()-t0;
     for(const p of record.passes??[]){tokens.judge=addUsage(tokens.judge,p.usage);judgeCalls+=p.attempts??1}
-    if(record.coach){tokens.judge=addUsage(tokens.judge,record.coach.usage);judgeCalls+=record.coach.attempts??1}
     record=sealManifest({...record,layoutIntentHash:layoutIntent?.hash??null});
     writeJudgement(job.runDir,record);
     c.judgement=record;
     judgeRounds.push({round,svgHash:c.hash,...judgementSummary(record)});
     if(record.verdict==='JUDGE_ERROR'){c.stage='judge-error';extraResidual.push({rule:'JUDGE_ERROR',severity:'blocking',source:'judge',detail:record.verdictReason})}
+    return c;
+  }
+
+  /** Coaching for a NOT_IMPROVED round that is about to be sent back as REVISE. Never runs on a round that ends the run: nobody would apply the improvements.
+   *  A coach failure leaves the verdict and the round untouched; the author gets the Judge's dimension scores with no improvements. */
+  async function coachPhase(c){
+    const t0=now();let record;
+    try{
+      if(!c.judgeInputs)throw Error('COACH_NO_IMAGES: the judge returned no rendered images');
+      record=await d.coach({judgement:c.judgement,...c.judgeInputs});
+    }catch(error){
+      record=sealManifest({schema:COACHING_SCHEMA,judgementSelfHash:c.judgement.selfHash,candidateSha256:c.judgement.candidateSha256,model:coachModel??judgeModel,ok:false,attempts:0,ms:now()-t0,usage:{},improvements:[],error:String(error?.message??error).slice(0,200),createdAt:new Date(now()).toISOString()});
+    }
+    timings.coachMs+=now()-t0;
+    tokens.coach=addUsage(tokens.coach,record.usage);coachCalls+=record.attempts??0;
+    writeCoaching(job.runDir,record);
+    c.coaching=record;
+    const summary=coachingSummary(record);
+    const jr=judgeRounds.findLast(r=>r.round===round&&r.svgHash===c.hash);if(jr)jr.coach=summary;
+    const rr=rounds.at(-1);if(rr?.svgHash===c.hash&&rr.judgement)rr.coach=summary;
     return c;
   }
 
@@ -271,7 +294,8 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   const checksWithStatus=(audit,status)=>audit?.checks?Object.entries(audit.checks??{}).filter(([,v])=>v?.status===status).map(([k])=>k):[];
 
-  const judgementSummary=j=>({verdict:j.verdict,verdictReason:j.verdictReason,mean:j.mean,passMeans:j.passMeans??null,dimensions:Object.fromEntries(Object.entries(j.merged?.dims??{}).map(([k,v])=>[k,v?v.score:null])),improvements:j.improvements??[],candidateSha256:j.candidateSha256,selfHash:j.selfHash});
+  const judgementSummary=j=>({verdict:j.verdict,verdictReason:j.verdictReason,mean:j.mean,passMeans:j.passMeans??null,dimensions:Object.fromEntries(Object.entries(j.merged?.dims??{}).map(([k,v])=>[k,v?v.score:null])),candidateSha256:j.candidateSha256,selfHash:j.selfHash});
+  const coachingSummary=k=>({ok:k.ok,attempts:k.attempts,ms:k.ms,improvements:k.improvements??[],judgementSelfHash:k.judgementSelfHash,selfHash:k.selfHash,...(k.ok?{}:{error:k.error})});
   function roundRecord(c,score,extra={}){
     const auditRecord=c.audit?{
       status:c.audit.status,
@@ -305,7 +329,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
       exceptions:status==='REVIEWED_WITH_EXCEPTIONS'||status==='VALIDATED'?exceptions:[],...(status==='REVIEWED_WITH_EXCEPTIONS'?{publishAsDefault:false}:{}),
       twoPhase:{enabled:twoPhase,caps:{perRound:B.maxChecksPerRound,perRun:B.maxChecksPerRun,generatorErrorsPerRound:B.maxGeneratorErrorsPerRound,findingsPerCheck:B.maxFindingsPerCheck},checksTotal:callsTotal,cacheHits,generatorErrors,perRound:[...doneRounds,...openRound],checks:checkLog,refusals,escalations},
       ...(modelCallTimeouts.length?{modelCallTimeouts:[...modelCallTimeouts]}:{}),
-      timings:{...timings,totalMs:now()-startedAt},modelCalls:{author:authorCalls,reviewer:reviewerCalls,...(relaxed?{judge:judgeCalls}:{})},tokens,budgets:{...B},reviewer:{...reviewerCfg},
+      timings:{...timings,totalMs:now()-startedAt},modelCalls:{author:authorCalls,reviewer:reviewerCalls,...(relaxed?{judge:judgeCalls,coach:coachCalls}:{})},tokens,budgets:{...B},reviewer:{...reviewerCfg},
       metrics:{rounds:rounds.length,gateStatus:status,authorSeconds:timings.authorMs/1000,reviewerSeconds:timings.reviewerMs/1000,
         authorTokens:{input:tokens.author.input??0,output:tokens.author.output??0},reviewerTokens:{input:tokens.reviewer.input??0,output:tokens.reviewer.output??0},
         modelCalls:{author:authorCalls,reviewer:reviewerCalls},buildChecks:callsTotal,generatorErrors,refusals:refusals.length,escalations:escalations.length,
@@ -556,6 +580,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     else if(round>=B.maxRounds)result=finalize('CANDIDATE',`${niNote}ROUNDS_EXHAUSTED: ${B.maxRounds} submit rounds used`);
     else if(stagnant>=B.stagnationRounds)result=finalize('CANDIDATE',`NO_PROGRESS: blocking findings did not decrease for ${B.stagnationRounds} rounds`);
     else{
+      if(relaxed&&!reverted&&c.judgement?.verdict==='NOT_IMPROVED')await coachPhase(c);
       persist();
       const sel=formatForAuthor(selectForAuthor(ledger,{max:B.maxBlockingPerRound}));
       const body={status:'REVISE',round,maxRounds:B.maxRounds,svgHash:reverted?base.hash:c.hash,...(reverted?{reverted:true,revertedTo:base.hash,discarded:{auditBlocking:score.auditBlocking,reviewBlocking:score.reviewBlocking,note:'your last edit increased blocking findings; candidate.svg was restored to the previous best bytes. Fix the findings below on top of that version.'}}:{}),
@@ -575,11 +600,11 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     onRoundEnd?.(round);
     return result;
   }
-  /** Relaxed revise message: the Judge's top 3 improvements (judged rounds only) and the 3 highest-impact advice items. The full advice list is never sent. */
+  /** Relaxed revise message: the Coach's top 3 improvements (judged rounds only) and the 3 highest-impact advice items. The full advice list is never sent. */
   function reviseExtras(c,reverted){
     const a=selectAdvice(ledger,{max:3}),j=c.judgement;
     return {advice:a.sent,adviceTotal:a.total,
-      ...(!reverted&&j&&j.verdict==='NOT_IMPROVED'?{judge:{verdict:j.verdict,reason:j.verdictReason,mean:j.mean,passMeans:j.passMeans??null,dimensions:Object.fromEntries(Object.entries(j.merged?.dims??{}).map(([k,v])=>[k,v?v.score:null])),improvements:(j.improvements??[]).slice(0,3)}}:{})};
+      ...(!reverted&&j&&j.verdict==='NOT_IMPROVED'?{judge:{verdict:j.verdict,reason:j.verdictReason,mean:j.mean,passMeans:j.passMeans??null,dimensions:Object.fromEntries(Object.entries(j.merged?.dims??{}).map(([k,v])=>[k,v?v.score:null])),improvements:(c.coaching?.improvements??[]).slice(0,3)}}:{})};
   }
   const publicEscalation=e=>({outcome:e.outcome,failed:e.failed,...(e.hard?{hard:e.hard}:{}),...(e.error?{error:e.error}:{}),...(e.waiverRejected?{waiverRejected:e.waiverRejected}:{}),...(e.relayout?{relayout:e.relayout}:{})});
 

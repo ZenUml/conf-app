@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 import {randomUUID} from 'node:crypto';
 import {renderAgentSvg} from './agent-render.mjs';
 import {readAuthoritativeManifest,readRunManifest,verifyManifest,sealManifest,assertFinalLayoutIntent,acceptRun,safeRunDir,manifestDirFromEnv} from './manifest.mjs';
-import {scoreJudgement,buildJudgement,judgeThresholdsFromEnv,judgeTimeoutFromEnv,runCoach,DIMENSIONS} from './judge.mjs';
+import {scoreJudgement,buildJudgement,judgeThresholdsFromEnv,judgeTimeoutFromEnv,runCoach,weakestDimensions} from './judge.mjs';
 
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const MAX_SVG=2_000_000;
@@ -39,26 +39,26 @@ async function renderPair({candidate,baseline,render=renderAgentSvg}){
   }finally{fs.rmSync(dir,{recursive:true,force:true})}
 }
 
-/** Judge two SVG byte strings. Pure of run state: no judgement.json is written. `baseline` is the original render, or an older version's final SVG for mode vs-old. */
+/** Judge two SVG byte strings. Pure of run state: no judgement.json is written. `baseline` is the original render, or an older version's final SVG for mode vs-old.
+ *  Returns the judgement record plus `wallMs` and the rendered `imageSets`, which are not part of the record (callers strip them before sealing or writing). */
 export async function judgeSvgs({candidate,baseline,hasGroups,factory,render,model,mode='original',thresholds=judgeThresholdsFromEnv(),timeoutMs=judgeTimeoutFromEnv(),now=()=>new Date(),inLoop=false}){
   for(const b of [candidate,baseline])if(!Buffer.isBuffer(b)||!b.length||b.length>MAX_SVG)throw Error('INVALID_SVG_BYTES');
   const imageSets=await renderPair({candidate,baseline,render});
   const started=Date.now();
   const r=await scoreJudgement({factory,imageSets,hasGroups,thresholds,timeoutMs,now});
-  // In the /magic loop a NOT_IMPROVED verdict also carries the top 3 changes. They come from one separate short call that is told which drawing is the candidate;
-  // the scoring passes stay blind, and the coach never changes the verdict.
-  let extra={};
-  if(inLoop){
-    extra={inLoop:true,passMeans:r.passMeans??null,improvements:[]};
-    if(r.verdict==='NOT_IMPROVED'){
-      const weak=DIMENSIONS.filter(d=>r.merged.dims?.[d]).sort((a,b)=>r.merged.dims[a].score-r.merged.dims[b].score).slice(0,3);
-      const coach=await runCoach({factory,images:imageSets.originalFirst,hasGroups,weak,timeoutMs});
-      extra.improvements=coach.improvements;
-      extra.coach={ok:coach.ok,attempts:coach.attempts,ms:coach.ms,usage:coach.usage,...(coach.ok?{}:{error:String(coach.error).slice(0,200)})};
-    }
-  }
+  const extra=inLoop?{inLoop:true,passMeans:r.passMeans??null}:{};
   const j=buildJudgement({candidateSha256:sha(candidate),originalSha256:sha(baseline),mode,model,passes:r.passes,merged:r.merged,thresholds:r.thresholds,verdict:r.verdict,verdictReason:r.verdictReason,extra,now});
-  return {...j,wallMs:Date.now()-started};
+  return {...j,wallMs:Date.now()-started,imageSets};
+}
+
+export const COACHING_SCHEMA='pi-diagram-coach/1';
+/** Coach a NOT_IMPROVED judgement: one short call that is told which drawing is the candidate (the scoring passes stay blind). Reuses the images the Judge rendered.
+ *  Returns a sealed record bound to the judgement it explains; it never changes that judgement. A failed call is recorded with ok:false and no improvements. */
+export async function coachSvgs({judgement,imageSets,hasGroups,factory,model,timeoutMs=judgeTimeoutFromEnv(),now=()=>new Date()}){
+  if(judgement?.verdict!=='NOT_IMPROVED')throw Error(`COACH_NEEDS_NOT_IMPROVED: got ${judgement?.verdict}`);
+  const coach=await runCoach({factory,images:imageSets.originalFirst,hasGroups,weak:weakestDimensions(judgement.merged),timeoutMs});
+  return sealManifest({schema:COACHING_SCHEMA,judgementSelfHash:judgement.selfHash,candidateSha256:judgement.candidateSha256,model,
+    ok:coach.ok,attempts:coach.attempts,ms:coach.ms,usage:coach.usage,improvements:coach.improvements,...(coach.ok?{}:{error:String(coach.error).slice(0,200)}),createdAt:now().toISOString()});
 }
 
 function loadFinal(runDir,{manifestDir}){
@@ -73,11 +73,14 @@ function loadFinal(runDir,{manifestDir}){
   return {manifest:m,bytes};
 }
 
-export function writeJudgement(runDir,judgement){
-  const file=path.join(runDir,'judgement.json'),temp=path.join(runDir,`.judgement.${randomUUID()}.tmp`);
-  try{fs.writeFileSync(temp,JSON.stringify(judgement,null,2),{flag:'wx',mode:0o600});fs.renameSync(temp,file)}finally{fs.rmSync(temp,{force:true})}
+function writeSealed(runDir,name,record){
+  const file=path.join(runDir,`${name}.json`),temp=path.join(runDir,`.${name}.${randomUUID()}.tmp`);
+  try{fs.writeFileSync(temp,JSON.stringify(record,null,2),{flag:'wx',mode:0o600});fs.renameSync(temp,file)}finally{fs.rmSync(temp,{force:true})}
   return file;
 }
+export const writeJudgement=(runDir,judgement)=>writeSealed(runDir,'judgement',judgement);
+export const writeCoaching=(runDir,coaching)=>writeSealed(runDir,'coach',coaching);
+export const removeCoaching=runDir=>fs.rmSync(path.join(runDir,'coach.json'),{force:true});
 
 /** /magic-judge: judge a finished run's final SVG against its original Mermaid render (or, with vsOld, against another run's final SVG) and write judgement.json. A JUDGE_ERROR is recorded, not thrown. */
 export async function judgeRunDir(runDirArg,{vsOld=null,factory,render,model,thresholds,timeoutMs,now,manifestDir=manifestDirFromEnv(),cwd=process.cwd(),sourceText=null}={}){
@@ -92,7 +95,7 @@ export async function judgeRunDir(runDirArg,{vsOld=null,factory,render,model,thr
   }
   const hasGroups=hasGroupsFromOriginalSvg(original.bytes);
   const j=await judgeSvgs({candidate,baseline,hasGroups,factory,render,model,mode,thresholds,timeoutMs,now});
-  const {wallMs,...rawRecord}=j;
+  const {wallMs,imageSets:_images,...rawRecord}=j;
   const record=manifest.layoutIntentRequired?sealManifest({...rawRecord,layoutIntentHash:assertFinalLayoutIntent(manifest)}):rawRecord;
   writeJudgement(runDir,record);
   return {...record,wallMs};

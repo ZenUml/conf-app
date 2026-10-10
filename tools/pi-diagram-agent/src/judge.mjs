@@ -180,6 +180,8 @@ export async function scoreJudgement({factory,imageSets,hasGroups,thresholds=jud
 // After a NOT_IMPROVED verdict the author needs to know what to change. The scoring passes stay blind (they never know which drawing is the candidate), so the
 // improvements come from one separate short call that is told which drawing is the new one. It never changes the verdict.
 export const MAX_IMPROVEMENTS=3;
+/** The lowest-scoring scored dimensions of a merged judgement, lowest first: the coach is pointed at these. */
+export const weakestDimensions=(merged,n=3)=>DIMENSIONS.filter(d=>merged?.dims?.[d]).sort((a,b)=>merged.dims[a].score-merged.dims[b].score).slice(0,n);
 export function buildCoachPrompt({hasGroups,weak=[]}){
   return `You are a visual design coach. You are given 4 PNG images of the same flowchart, drawn two ways:
 Image 1: the ORIGINAL drawing, full size.

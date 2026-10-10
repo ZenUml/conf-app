@@ -34,6 +34,7 @@ import { getAccessToken, type GrantEventSink, type GrantStore } from './tokenSto
 import {
   customContentTypesFor,
   extensionKeyFor,
+  NEWEST_FIRST,
   resolveMacroIdentity,
   VARIANTS,
   type ConfluenceGet,
@@ -553,14 +554,19 @@ export async function callHeadlessTool(
       const limit = Math.min(Math.max(Number(args.limit) || 25, 1), 100);
       const get = await readerFor(ctx, cloudId);
 
+      // Listing needs only the variant, which the content type alone tells us.
+      // A site whose sampled pages carry no Forge-shaped macro key still has
+      // diagrams to list; only create_diagram needs the full identity.
       const identity = await resolveMacroIdentity(get);
-      if (!identity.ok) {
+      const variant = identity.ok ? identity.identity.variant : identity.variant;
+      if (!variant) {
+        const reason = identity.ok ? undefined : identity.reason;
         throw new HeadlessToolError(
-          identity.reason === 'no_macro_on_site'
+          reason === 'no_macro_on_site'
             ? 'No ZenUML diagrams were found on that site.'
             : 'Could not work out which ZenUML app that site runs.',
-          identity.reason === 'no_macro_on_site' ? 'not_found' : 'upstream',
-          identity.reason,
+          reason === 'no_macro_on_site' ? 'not_found' : 'upstream',
+          reason,
         );
       }
 
@@ -568,7 +574,7 @@ export async function callHeadlessTool(
       // app on it — an unfiltered listing on whimet4 came back full of
       // draw.io rows (2026-09-25) — and a caller asking for ZenUML diagrams
       // has no way to tell which of those are ours.
-      const profile = VARIANTS.find((v) => v.variant === identity.identity.variant)!;
+      const profile = VARIANTS.find((v) => v.variant === variant)!;
       const types = customContentTypesFor(profile);
       const pageId = typeof args.pageId === 'string' ? args.pageId : '';
 
@@ -584,7 +590,7 @@ export async function callHeadlessTool(
         }
       } else {
         for (const type of types) {
-          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}`);
+          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&${NEWEST_FIRST}`);
           // A 404 is Confluence saying this variant never wrote that type —
           // information, not a failure (the same rule macroIdentity applies).
           if (res.status === 404) continue;
@@ -599,7 +605,7 @@ export async function callHeadlessTool(
         .map(diagramRow)
         .sort((a, b) => (b.modifiedAt ?? '').localeCompare(a.modifiedAt ?? ''))
         .slice(0, limit);
-      return { cloudId, variant: identity.identity.variant, diagrams };
+      return { cloudId, variant, diagrams };
     }
 
     case 'read_diagram': {

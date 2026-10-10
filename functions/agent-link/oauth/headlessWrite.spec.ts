@@ -187,6 +187,41 @@ function emptyPage(): FakeSite {
   };
 }
 
+// Not a write, but list_diagrams leans on the same identity probe, and this
+// harness is the one that models it.
+describe('list_diagrams', () => {
+  it('lists diagrams on a site whose pages carry only pre-Forge macro keys', async () => {
+    // zenuml.atlassian.net, 2026-10-10: the probe found ZenUML content but no
+    // Forge-shaped extensionKey, and listing refused outright. Listing needs
+    // the variant, not the key.
+    const site = emptyPage();
+    site.pageAdf.content = [buildMacroNode('zenuml-sequence-macro-lite', 'probe-1')];
+    const { ctx } = await contextFor(site);
+    const out = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx)) as {
+      variant: string;
+      diagrams: Array<{ contentId: string }>;
+    };
+    expect(out.variant).toBe('lite');
+    expect(out.diagrams.map((d) => d.contentId)).toEqual(['probe-1']);
+  });
+
+  it('asks Confluence for the newest diagrams, not the oldest', async () => {
+    // Sorting client-side only orders whatever came back; with more diagrams
+    // than `limit`, an unsorted request returns the oldest ones.
+    const calls: string[] = [];
+    const { ctx } = await contextFor(emptyPage());
+    const inner = ctx.fetchImpl!;
+    ctx.fetchImpl = async (url, init) => {
+      calls.push(url);
+      return inner(url, init);
+    };
+    await callHeadlessTool('list_diagrams', { cloudId: CLOUD, limit: 5 }, ctx);
+    const listing = calls.filter((u) => u.includes('/custom-content?type=') && u.includes('limit=5'));
+    expect(listing.length).toBeGreaterThan(0);
+    for (const url of listing) expect(url).toContain('sort=-modified-date');
+  });
+});
+
 describe('update_diagram', () => {
   it('writes a new version and preserves fields it did not set', async () => {
     const site = emptyPage();

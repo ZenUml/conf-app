@@ -92,11 +92,32 @@ TypeScript Program. Typed parsing, the existing syntactic/semantic diagnostic
 policy, and Forge's pre- and post-deployment checks remain enabled. Build,
 configuration commands, baseline, other variants, and production retain their
 existing parser mode. The setting is recorded as a boolean on each Forge attempt.
-Its deployment-time benefit has not been measured.
-The second three-pair experiment
+The second complete three-pair experiment
 ([run 38012524883](https://github.com/ZenUml/conf-app/actions/runs/38012524883),
-tooling commit `cf6c65a8`) measures this parser-mode addition against the same
-immutable application source. Its result is pending.
+tooling commit `cf6c65a8`) measured this parser-mode addition against the same
+immutable application source. All six deployment jobs succeeded with identical
+source/manifest/asset hashes and verified backend markers.
+
+| Pair | Baseline job, seconds | Candidate job, seconds |
+| --- | ---: | ---: |
+| 1 | 212 | 191 |
+| 2 | 213 | 236 |
+| 3 | 214 | 165 |
+| Median | 213 | 191 |
+
+The median reduction was 10.33%, below the target. Candidate 2 required two Forge
+attempts: the first exited unsuccessfully after 39.787 seconds, with upload as
+its last observed phase; the existing 20-second wait preceded a successful
+72.550-second retry. The report therefore has `retries_present: true` and
+`target_met: false`. That sample remains in the median and also prevents this
+run from providing three clean matched pairs.
+
+The third clean pair improved from 214 to 165 seconds (22.9%), but one pair
+does not establish a stable 20% reduction. Its candidate build took 39.235
+seconds, the Forge attempt took 66.193 seconds, and the broad pre-deployment
+interval labeled `lint` took 20.742 seconds, with all three caches hit.
+Differences in runner or network performance have not been isolated. This run
+does not establish a causal performance benefit from single-run parser mode.
 
 An additional opt-in hardware comparison is available through the
 `candidate-runner` dispatch choice. `ubuntu-latest` remains the default for both

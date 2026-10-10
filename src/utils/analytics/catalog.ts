@@ -1249,9 +1249,23 @@ export type AnalyticsEventName =
   // which is the signal that a user must re-consent and the only warning we
   // get before every headless call for them starts failing; `_revoked` fires
   // when a grant is dropped, whether the user asked or a refresh died.
+  // Emitted from oauth/headlessMcp.ts (refresh path, tokenStore.getAccessToken)
+  // and oauth/callback.ts ('reauthorized'). `_refresh_failed` carries the
+  // Atlassian GrantFailure code in `reason` (invalid_grant | invalid_client);
+  // transient failures (5xx, network) are not reported. There is no
+  // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
   | "agent_link_oauth_authorized"
   | "agent_link_oauth_refresh_failed"
   | "agent_link_oauth_revoked"
+  // OUR refresh-token chain (one per MCP sign-in) revoked by the token
+  // endpoint, distinct from `_revoked` above, which is about the upstream
+  // Atlassian grant. Fires when a used refresh token is presented again
+  // (`reason: 'refresh_reused'`, OAuth 2.1 §4.3.1 reuse detection) or a
+  // refresh token arrives under another client_id (`'client_mismatch'`).
+  // Either means the token may be in two hands, so every refresh and access
+  // token issued from that sign-in stops working. Volume here is a security
+  // signal, or a client that refreshes concurrently.
+  | "agent_link_oauth_chain_revoked"
   // X — headless writes (design §7/§10). Backend-emitted, for the same reason
   // as the pair above. `_created` carries the AddToPageResult-shaped outcome
   // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate
@@ -1274,6 +1288,18 @@ export type AnalyticsEventName =
   // breakdown.
   | "agent_link_page_created"
   | "agent_link_page_updated"
+  // Z — "Connect MCP" dialog (inline macro viewer; replaces the Copy for AI
+  // button when the agent-link flag is on). The first release offers the
+  // headless MCP only (`mcp_mode: 'headless'`): no relay session is minted, so
+  // the dialog carries setup instructions and a prompt naming this diagram.
+  // opened = the button (or More menu item) click that shows the dialog;
+  // copied = a Copy click on the setup command or the prompt
+  // (`mcp_copy_target`, `outcome` copied | clipboard_failed); closed = the
+  // dialog dismissed, with `dwell_ms`. Whether the agent then connected is
+  // counted server-side by the headless OAuth and tool events.
+  | "agent_link_mcp_dialog_opened"
+  | "agent_link_mcp_dialog_copied"
+  | "agent_link_mcp_dialog_closed"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1455,12 +1481,26 @@ export type AgentLinkMacroKeySource = "cached" | "discovered";
 // fresh consent for the same user.
 export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
 
+// Why the token endpoint revoked a refresh-token chain
+// (agent_link_oauth_chain_revoked), carried in the shared `reason` field.
+export type AgentLinkOAuthChainRevokeReason = "refresh_reused" | "client_mismatch";
+
 // The outcome of a headless write (agent_link_diagram_created / _updated).
 // Mirrors AddToPageResult so the headless and byline paths are comparable:
 // 'already_present' is a SUCCESS (an agent retried; nothing was duplicated)
 // and 'conflict' is a deliberate refusal (a human edited the page first and
 // we never force-publish).
 export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "updated";
+
+// Which block of the Connect MCP dialog a Copy click targeted
+// (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
+// command, or the prompt naming this diagram for the agent.
+export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
+
+// How a Connect MCP dialog connects the agent: 'headless' = the agent signs
+// in with OAuth and edits through Confluence directly (the only mode offered
+// in the first release); 'relay' = a macro-minted session over the live relay.
+export type AgentLinkMcpMode = "headless" | "relay";
 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit

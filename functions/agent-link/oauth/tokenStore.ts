@@ -178,6 +178,28 @@ export type AccessTokenResult =
   | { ok: false; reason: 'no_grant' | 'reauthorize_required' | 'refresh_failed'; detail?: string };
 
 /**
+ * What happened to a grant, for analytics (agent_link_oauth_refresh_failed /
+ * agent_link_oauth_revoked). Carries failure codes only, never a token or an
+ * Atlassian error body.
+ */
+export type GrantEvent =
+  | { type: 'refresh_failed'; failure: GrantFailure }
+  | { type: 'revoked'; reason: 'refresh_rejected' };
+
+/** Told about grant events. Bounded by the caller; a throw is swallowed. */
+export type GrantEventSink = (event: GrantEvent) => void | Promise<void>;
+
+const TERMINAL_FAILURES: GrantFailure[] = ['invalid_grant', 'invalid_client'];
+
+/**
+ * One refresh in flight per user per isolate. Two tool calls that land on the
+ * same Worker while the access token is expiring would otherwise both send the
+ * SAME refresh token; Atlassian rotates on the first, and the second is a reuse
+ * of a disabled token. Sharing the first call's promise means only one goes out.
+ */
+const inFlightRefresh = new Map<string, Promise<AccessTokenResult>>();
+
+/**
  * The access token for `userId`, refreshing and re-persisting if needed.
  *
  * Every headless Confluence call goes through here, so the ordering matters:
@@ -199,6 +221,7 @@ export async function getAccessToken(
   fetchImpl: FetchLike,
   userId: string,
   nowMs: number = Date.now(),
+  onEvent?: GrantEventSink,
 ): Promise<AccessTokenResult> {
   const grant = await loadGrant(store, secret, userId);
   if (!grant) return { ok: false, reason: 'no_grant' };
@@ -207,13 +230,57 @@ export async function getAccessToken(
     return { ok: true, accessToken: grant.accessToken, refreshed: false };
   }
 
-  const refreshed = await refreshGrant(fetchImpl, app, grant.refreshToken, nowMs);
+  const pending = inFlightRefresh.get(userId);
+  if (pending) return pending;
+  const work = refreshAndSave(store, secret, app, fetchImpl, userId, grant, nowMs, onEvent).finally(() => {
+    inFlightRefresh.delete(userId);
+  });
+  inFlightRefresh.set(userId, work);
+  return work;
+}
+
+async function refreshAndSave(
+  store: GrantStore,
+  secret: string,
+  app: AtlassianAppConfig,
+  fetchImpl: FetchLike,
+  userId: string,
+  grant: AtlassianGrant,
+  nowMs: number,
+  onEvent: GrantEventSink | undefined,
+): Promise<AccessTokenResult> {
+  let tried = grant;
+  let refreshed = await refreshGrant(fetchImpl, app, tried.refreshToken, nowMs);
+
+  // A rejection of OUR copy says nothing yet about the grant stored now: a
+  // request on another isolate may have rotated it after we read it, so the
+  // token we sent is the disabled predecessor. Re-read before treating the
+  // grant as dead. If it moved on, use the newer one, and refresh that once.
+  if (!refreshed.ok && TERMINAL_FAILURES.includes(refreshed.failure)) {
+    const current = await loadGrant(store, secret, userId);
+    if (current && current.refreshToken !== tried.refreshToken) {
+      if (isAccessTokenUsable(current, nowMs)) {
+        return { ok: true, accessToken: current.accessToken, refreshed: false };
+      }
+      tried = current;
+      refreshed = await refreshGrant(fetchImpl, app, tried.refreshToken, nowMs);
+    }
+  }
+
   if (!refreshed.ok) {
-    const terminal: GrantFailure[] = ['invalid_grant', 'invalid_client'];
-    if (terminal.includes(refreshed.failure)) {
+    if (TERMINAL_FAILURES.includes(refreshed.failure)) {
       // The grant is dead. Drop it so the next call reports 'no_grant' and the
       // user is told to authorize rather than being retried at forever.
+      //
+      // The honest limit: KV is eventually consistent, so the re-read above can
+      // still be stale when the rotation happened at another edge inside the
+      // propagation window, and this delete then drops a grant that was fine.
+      // Atlassian's 10-minute reuse interval (breach detection does not apply
+      // to repeat exchanges inside it) makes that rarer still; serialising
+      // refreshes per user in a Durable Object would close it.
       await deleteGrant(store, userId);
+      await emit(onEvent, { type: 'refresh_failed', failure: refreshed.failure });
+      await emit(onEvent, { type: 'revoked', reason: 'refresh_rejected' });
       return { ok: false, reason: 'reauthorize_required', detail: refreshed.detail };
     }
     return { ok: false, reason: 'refresh_failed', detail: refreshed.detail };
@@ -221,4 +288,12 @@ export async function getAccessToken(
 
   await saveGrant(store, secret, userId, refreshed.grant, nowMs);
   return { ok: true, accessToken: refreshed.grant.accessToken, refreshed: true };
+}
+
+async function emit(onEvent: GrantEventSink | undefined, event: GrantEvent): Promise<void> {
+  try {
+    await onEvent?.(event);
+  } catch {
+    // analytics must never change the credential outcome
+  }
 }

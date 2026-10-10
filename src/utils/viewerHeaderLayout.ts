@@ -130,6 +130,7 @@ export function pickHeaderStage(options: {
 export type MoreMenuItemId =
   | 'source'
   | 'copy-for-ai'
+  | 'connect-mcp'
   | 'separator'
   | 'copy-diagram-link'
   | 'copy-page-link'
@@ -146,13 +147,15 @@ export type MoreMenuItemId =
 export function moreMenuItems(options: {
   stage: HeaderStage
   hasSource: boolean
+  /** Connect MCP holds the Copy for AI slot (agent-link flag on, inline). */
+  connectMcp?: boolean
   isCustomContent: boolean
   hasDeeplinkHost: boolean
   fullscreen: boolean
 }): MoreMenuItemId[] {
   if (options.fullscreen) return ['debug']
   const items: MoreMenuItemId[] = []
-  if (options.stage >= 3 && options.hasSource) items.push('source', 'copy-for-ai', 'separator')
+  if (options.stage >= 3 && options.hasSource) items.push('source', options.connectMcp ? 'connect-mcp' : 'copy-for-ai', 'separator')
   if (options.isCustomContent && options.hasDeeplinkHost) items.push('copy-diagram-link')
   items.push('copy-page-link', 'export-png')
   if (options.isCustomContent) items.push('versions')

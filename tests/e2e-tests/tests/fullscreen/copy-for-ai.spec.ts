@@ -53,7 +53,12 @@ test.describe('Copy for AI button', { tag: ['@test:copy-for-ai', '@variant:lite'
     await insertAndPublishMermaidMacro(page, { title: `mmd-cfa-${Date.now()}` });
     const frame = viewerFrame(page, 'sequence'); // same iframe as any Diagram-macro tab — see MacroPage.getSequenceMacroFrame
     const btn = frame.getByTestId('copy-for-ai-btn');
-    await expect(btn).toBeVisible({ timeout: 30_000 });
+    // Where the agent-link-enabled Forge flag is on, Connect MCP takes this
+    // slot (GenericViewer.vue's showAgentLinkConnect) and Copy for AI is not
+    // rendered by design; agent-link-e2e covers that button instead.
+    const connectMcp = frame.getByTestId('connect-mcp-btn');
+    await expect(btn.or(connectMcp)).toBeVisible({ timeout: 30_000 });
+    test.skip(await connectMcp.isVisible(), 'agent-link flag on: Connect MCP replaces Copy for AI on this site');
 
     // The top toolbar (View Source / Copy for AI / Fullscreen) is opacity:0
     // until `.viewer-surface--hover` (mouseenter on .viewer-surface) sets it

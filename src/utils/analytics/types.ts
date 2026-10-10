@@ -665,7 +665,9 @@ export type AnalyticsProperties = {
   // the free-form details of the legacy trackEvent copy_link /
   // show_content_versions / debug_bundle_downloaded events. Absent = the
   // action's own header button (or an event from before 2026-10).
-  action_location?: 'header_more_menu' | 'fullscreen_header';
+  // `canvas_hint`: the "Turn off" button on the first-use highlight hint
+  // (mermaid_highlight_preference_changed only).
+  action_location?: 'header_more_menu' | 'fullscreen_header' | 'canvas_hint';
   // viewer_more_menu_opened: the inline header's collapse stage when the More
   // menu opened. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
   // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.

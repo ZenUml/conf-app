@@ -126,7 +126,8 @@ candidate deploy jobs, and the reusable resolver rejects that choice unless the
 mode, variant, license, project, and environment are exactly Lite staging.
 [GitHub's standard runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 list both Linux x64 and ARM64 runners as four CPUs and 16 GB RAM, free for public
-repositories. This is an architecture comparison, with no measured benefit yet.
+repositories. The complete ARM comparison below measures the combined candidate;
+it does not isolate architecture from preparation and cache changes.
 The lean Studio cache contains static browser assets and can be shared. On an
 ARM lean-cache miss, a separate legacy restore requests the original four paths
 and exact pin/script key, without broad restore keys. Immediately afterward, a
@@ -145,6 +146,31 @@ The x64 legacy fallback and baseline are unchanged. Installed app dependencies
 already have architecture in their cache key. Evidence records the selected
 runner label and actual Node platform, architecture, and version. Every deploy,
 validation, full timer, and output-equivalence requirement remains in place.
+
+### Third complete experiment: ARM candidate
+
+[Run 38013660810](https://github.com/ZenUml/conf-app/actions/runs/38013660810)
+completed all six deployments successfully with no Forge retries. It used the
+same application source as the first two experiments and tooling `4b619005`.
+All manifest and asset hashes matched, and every backend marker was verified.
+Runtime evidence confirms Linux x64 baselines and Linux ARM64 candidates, all
+on Node 24.21.0.
+
+| Pair | Baseline seconds | Candidate seconds |
+|---|---:|---:|
+| 1 | 190 | 187 |
+| 2 | 208 | 173 |
+| 3 | 210 | 165 |
+| Median | 208 | 173 |
+
+The median reduction was **16.83%**, so `target_met` is false. Candidate 1 had
+a cold installed-dependency cache; candidates 2 and 3 hit that cache. All three
+hit the lean Studio and public permission-spec caches. Those cold costs remain
+in the result. The candidate Forge attempts took 77.046, 77.367, and 76.521
+seconds, respectively; ARM has not established a faster Forge deployment.
+The first-main legacy Studio seed added after this tooling revision was not
+exercised by this run and still requires runtime verification. Ordinary Lite
+staging remains on baseline while further optimization is measured.
 
 The acceptance metric is the median GitHub deploy-job `started_at` through
 `completed_at`, including checkout, cache restore/save, frozen install, build,

@@ -303,3 +303,29 @@ The interval therefore includes validation and remote-call time as well as
 TypeScript parsing. A 25-second interval is not evidence of 25 seconds spent in
 the typed parser. These phase clocks can locate a broad bottleneck; attributing
 time to one operation requires a separate profile or more precise instrumentation.
+
+## First ordinary PR deployment: cold caches
+
+[PR validation run 38021431008](https://github.com/ZenUml/conf-app/actions/runs/38021431008)
+used the automatic candidate path for Lite. Deployment job `114131152284`
+succeeded on Linux ARM64, Node `v24.21.0`, with runner label
+`ubuntu-24.04-arm`. Its complete job clock was **193 seconds**
+(`04:27:08` through `04:30:21` UTC on 2026-10-10).
+
+Installed dependencies, the compatible pnpm store, lean Studio output and public
+permission specs all missed their exact caches. The legacy Studio archive
+produced a validated ARM static seed after dependency cleanup. Preparation and
+build took 63 seconds; concurrent Forge/Pages publishing took 81 seconds;
+Lite upgrade took 3 seconds. The dependency-cache post step took 17 seconds.
+All these costs remain in the complete job clock.
+
+The latest earlier ordinary main Lite job `114103523528`, from staging run
+`38015029366`, succeeded in 192 seconds. This first ordinary PR deployment
+therefore shows **no improvement against that historical job**. It is a
+cold-cache rollout check, not a replacement for the three controlled warm-cache
+pairs. Main deployment and its own initial cache cost remain unverified.
+
+The PR's separate CI helper-test step failed one of 75 tests because the fake
+preparation subprocess did not create its expected diagnostics file. This
+prevents merging even though the deployment itself succeeded; it does not
+establish a deployment failure or a main performance result.

@@ -60,22 +60,107 @@ inputs:
     description: "'true' when the daily regression owner has already applied the shared D1 migrations."
     required: false
     default: 'false'
+  preparation-mode:
+    description: 'Opt-in Lite staging experiment: baseline or candidate'
+    required: false
+    default: 'baseline'
 runs:
   using: 'composite'
   steps:
     - name: Setup pnpm
       uses: pnpm/action-setup@v5
     - uses: actions/setup-node@v5
+      if: inputs.preparation-mode != 'candidate'
       with:
         node-version: ${{ inputs.node-version }}
         cache: 'pnpm'
+    - name: Setup candidate Node without duplicate store cache
+      if: inputs.preparation-mode == 'candidate'
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+    - name: Resolve dependency cache platform
+      if: inputs.preparation-mode == 'candidate'
+      id: dependency-platform
+      shell: bash
+      run: |
+        echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
+        echo "pnpm=$(pnpm --version)" >> "$GITHUB_OUTPUT"
+        echo "abi=$(node -p process.versions.modules)" >> "$GITHUB_OUTPUT"
+        . /etc/os-release
+        echo "distro=$ID-$VERSION_ID" >> "$GITHUB_OUTPUT"
+    # This contains dependencies only. A new application source SHA still
+    # builds afresh; frozen-lockfile install validates every restored tree.
+    - name: Cache installed dependencies (Lite staging experiment)
+      if: inputs.preparation-mode == 'candidate'
+      id: installed-dependencies
+      uses: actions/cache@v5
+      with:
+        path: node_modules
+        key: lite-deploy-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-platform.outputs.distro }}-${{ steps.dependency-platform.outputs.node }}-${{ steps.dependency-platform.outputs.abi }}-${{ steps.dependency-platform.outputs.pnpm }}-${{ hashFiles('pnpm-lock.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/*/package.json', '.npmrc', 'pnpm-workspace.yaml', 'patches/**') }}
+    # setup-node v5 uses the pnpm-reported store path and Node's os.arch(),
+    # not runner.arch casing, with this exact lockfile key. Keep its main
+    # cache available on an installed-tree miss without downloading it twice.
+    - name: Resolve pnpm store cache on installed dependency miss
+      if: inputs.preparation-mode == 'candidate' && steps.installed-dependencies.outputs.cache-hit != 'true'
+      id: pnpm-store-path
+      shell: bash
+      env:
+        CACHE_LOCK_HASH: ${{ hashFiles('pnpm-lock.yaml') }}
+      run: |
+        node --input-type=module <<'NODE'
+        import {execFileSync} from 'node:child_process';
+        import {appendFileSync} from 'node:fs';
+        import {arch} from 'node:os';
+        import {isAbsolute} from 'node:path';
+        try {
+          const path = execFileSync('pnpm', ['store', 'path', '--silent'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
+          const hash = process.env.CACHE_LOCK_HASH;
+          const platform = process.env.RUNNER_OS;
+          if (!isAbsolute(path) || /[\r\n\0]/.test(path) || !/^[a-f0-9]{64}$/.test(hash ?? '') || !['Linux', 'macOS', 'Windows'].includes(platform)) throw new Error();
+          appendFileSync(process.env.GITHUB_OUTPUT, `path=${path}\nkey=node-cache-${platform}-${arch()}-pnpm-${hash}\n`);
+        } catch {
+          console.error('Unable to resolve pnpm store cache');
+          process.exitCode = 1;
+        }
+        NODE
+    - name: Cache pnpm store on installed dependency miss
+      if: inputs.preparation-mode == 'candidate' && steps.installed-dependencies.outputs.cache-hit != 'true'
+      id: pnpm-store
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.pnpm-store-path.outputs.path }}
+        key: ${{ steps.pnpm-store-path.outputs.key }}
     - name: Install dependencies
       run: pnpm install --frozen-lockfile --ignore-scripts
       shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
+    - name: Resolve public Forge permission-linter cache
+      if: inputs.preparation-mode == 'candidate'
+      id: permissions-cache-path
+      shell: bash
+      run: node scripts/ci/lite-deploy-permissions-cache.mjs
+    # This exact file contains six public Atlassian API specifications. The
+    # CLI keeps their original 12h expiry and refetches expired entries. Never
+    # restore its general configuration or authentication directories.
+    - name: Cache public Forge permission specifications
+      if: inputs.preparation-mode == 'candidate'
+      id: permissions-cache
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.permissions-cache-path.outputs.path }}
+        key: ${{ steps.permissions-cache-path.outputs.key }}
+        restore-keys: ${{ steps.permissions-cache-path.outputs.restore-key }}
+    - name: Record public permission cache result
+      if: inputs.preparation-mode == 'candidate'
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.permissions-cache.outputs.cache-hit }}
+      run: node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('lite-deploy-permissions-cache.json', JSON.stringify({permission_specs_hit:process.env.CACHE_HIT === 'true'}));"
     - name: pnpm build
-      if: inputs.prebuilt-dist == ''
+      if: inputs.prebuilt-dist == '' && inputs.preparation-mode != 'candidate'
       run: pnpm build:${{ inputs.license }}
       shell: bash
       env:
@@ -90,6 +175,7 @@ runs:
         echo "dist/ restored from ${{ inputs.prebuilt-dist }} ($(du -sh dist | cut -f1), $(find dist -type f | wc -l) files)"
       shell: bash
     - name: Sync runtime env vars to Cloudflare Pages
+      if: inputs.preparation-mode != 'candidate'
       run: |
         printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
         printf '%s' "$SENTRY_DSN" | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
@@ -109,6 +195,7 @@ runs:
         PAGE_CAPTURE_SECRET: ${{ inputs.page-capture-secret }}
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Prepare wrangler config
+      if: inputs.preparation-mode != 'candidate'
       run: |
         # Select the appropriate config file based on environment
         CONFIG_FILE="wrangler-${{ inputs.environment }}.toml"
@@ -134,12 +221,36 @@ runs:
       env:
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Run D1 Migrations
-      if: inputs.skip-migrations != 'true'
+      if: inputs.skip-migrations != 'true' && inputs.preparation-mode != 'candidate'
       run: pnpm exec wrangler d1 migrations apply DB --remote --env production
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+    - name: Record dependency cache result
+      if: inputs.preparation-mode == 'candidate'
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.installed-dependencies.outputs.cache-hit }}
+        STORE_CACHE_HIT: ${{ steps.pnpm-store.outputs.cache-hit }}
+      run: node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('lite-deploy-cache.json', JSON.stringify({installed_dependencies_hit:process.env.CACHE_HIT === 'true', pnpm_store_requested:process.env.CACHE_HIT !== 'true', pnpm_store_hit:process.env.STORE_CACHE_HIT === 'true'}));"
+    - name: Prepare Lite staging in parallel
+      if: inputs.preparation-mode == 'candidate'
+      run: node scripts/ci/lite-deploy-prepare.mjs
+      shell: bash
+      env:
+        NODE_OPTIONS: "--max-old-space-size=8192"
+        DEPLOY_LICENSE: ${{ inputs.license }}
+        DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+        DEPLOY_PROJECT: ${{ inputs.project }}
+        DEPLOY_SKIP_MIGRATIONS: ${{ inputs.skip-migrations }}
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
+        VITE_APP_VERSION: ${{ inputs.vite-app-version }}
+        SENTRY_DSN: ${{ inputs.sentry-dsn }}
+        PAGE_CAPTURE_SECRET: ${{ inputs.page-capture-secret }}
+        PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Publish
       if: inputs.skip-publish != 'true'
       run: pnpm exec wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}

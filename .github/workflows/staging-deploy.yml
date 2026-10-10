@@ -20,6 +20,21 @@ on:
         default: ''
         description: 'Immutable source SHA for daily regression'
 
+      preparation-mode:
+        required: false
+        type: string
+        default: 'auto'
+        description: 'auto selects optimized Lite staging; baseline is rollback; candidate is explicit opt-in'
+      candidate-runner:
+        required: false
+        type: string
+        default: 'auto'
+        description: 'auto selects ARM for optimized Lite staging, Ubuntu otherwise; explicit hardware overrides are supported'
+      benchmark-sample:
+        required: false
+        type: string
+        default: ''
+        description: 'Unique experimental artifact suffix; empty preserves ordinary deploys'
       skip-migrations:
         required: false
         type: boolean
@@ -29,7 +44,7 @@ on:
         required: false
         type: string
         default: ''
-        description: 'Daily workflow commit supplying the migration-aware publish action'
+        description: 'Pinned workflow commit supplying deployment action and helpers'
 
       variant:
         required: true
@@ -67,6 +82,9 @@ jobs:
       license: ${{ steps.map.outputs.license }}
       project: ${{ steps.map.outputs.project }}
       environment: ${{ steps.map.outputs.environment }}
+      runner: ${{ steps.map.outputs.runner }}
+      preparation-mode: ${{ steps.map.outputs.preparation-mode }}
+      tooling-ref: ${{ steps.map.outputs.tooling-ref }}
     steps:
       - id: map
         env:
@@ -74,25 +92,68 @@ jobs:
           IN_LICENSE: ${{ inputs.license }}
           IN_PROJECT: ${{ inputs.project }}
           IN_ENVIRONMENT: ${{ inputs.environment }}
+          IN_RUNNER: ${{ inputs.candidate-runner }}
+          PREPARATION_MODE: ${{ inputs.preparation-mode }}
+          IN_TOOLING_REF: ${{ inputs.workflow-ref }}
+          APP_REF: ${{ inputs.ref || github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
+          # Every supplied value can reach the line-based output protocol.
+          # Reject delimiters before resolving or publishing any value.
+          for field in VARIANT IN_LICENSE IN_PROJECT IN_ENVIRONMENT IN_RUNNER PREPARATION_MODE IN_TOOLING_REF APP_REF WORKFLOW_SHA; do
+            case "${!field}" in
+              *$'\r'*|*$'\n'*) echo 'Invalid staging input delimiters' >&2; exit 1 ;;
+            esac
+          done
           case "$VARIANT" in
             lite)      DEF_PROJECT=conf-stg-lite ;;
             full)      DEF_PROJECT=conf-stg-full ;;
             diagramly) DEF_PROJECT=conf-stg-lite ;;
             asyncapi)  DEF_PROJECT=conf-stg-lite ;;
-            *) echo "unknown variant: $VARIANT" >&2; exit 1 ;;
+            *) echo 'Unknown staging variant' >&2; exit 1 ;;
           esac
+          LICENSE="${IN_LICENSE:-$VARIANT}"
+          PROJECT="${IN_PROJECT:-$DEF_PROJECT}"
+          ENVIRONMENT="${IN_ENVIRONMENT:-staging-$VARIANT}"
+          is_lite_staging() {
+            [ "$VARIANT" = lite ] && [ "$LICENSE" = lite ] &&
+              [ "$PROJECT" = conf-stg-lite ] && [ "$ENVIRONMENT" = staging-lite ]
+          }
+          MODE="${PREPARATION_MODE:-auto}"
+          case "$MODE" in
+            auto) if is_lite_staging; then MODE=candidate; else MODE=baseline; fi ;;
+            baseline) ;;
+            candidate) is_lite_staging || { echo 'Candidate preparation requires Lite staging' >&2; exit 1; } ;;
+            *) echo 'Unsupported staging preparation mode' >&2; exit 1 ;;
+          esac
+          DEPLOY_RUNNER="${IN_RUNNER:-auto}"
+          case "$DEPLOY_RUNNER" in
+            auto) if [ "$MODE" = candidate ]; then DEPLOY_RUNNER=ubuntu-24.04-arm; else DEPLOY_RUNNER=ubuntu-latest; fi ;;
+            ubuntu-latest) ;;
+            ubuntu-24.04-arm)
+              [ "$MODE" = candidate ] && is_lite_staging || exit 1
+              ;;
+            *) echo 'Unsupported staging deployment runner' >&2; exit 1 ;;
+          esac
+          TOOLING_REF="${IN_TOOLING_REF:-}"
+          if [ -z "$TOOLING_REF" ] && [ "$MODE" = candidate ] && [ "$APP_REF" != "$WORKFLOW_SHA" ]; then
+            [[ "$WORKFLOW_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Automatic deployment tooling requires an immutable Git SHA' >&2; exit 1; }
+            TOOLING_REF="$WORKFLOW_SHA"
+          fi
           {
             echo "variant=$VARIANT"
-            echo "license=${IN_LICENSE:-$VARIANT}"
-            echo "project=${IN_PROJECT:-$DEF_PROJECT}"
-            echo "environment=${IN_ENVIRONMENT:-staging-$VARIANT}"
+            echo "license=$LICENSE"
+            echo "project=$PROJECT"
+            echo "environment=$ENVIRONMENT"
+            echo "runner=$DEPLOY_RUNNER"
+            echo "preparation-mode=$MODE"
+            echo "tooling-ref=$TOOLING_REF"
           } >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.resolve.outputs.runner }}
     timeout-minutes: 10
     environment:
       name: ${{ needs.resolve.outputs.environment }}
@@ -103,17 +164,50 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
-      # A branch-dispatched daily workflow still builds a main ancestor. Load
-      # only its publish action from the workflow commit, keeping app source pinned.
-      - name: Checkout daily workflow tooling
-        if: inputs.skip-migrations && inputs.workflow-ref != ''
+      # A daily or benchmark call can build a pinned main ancestor. Load
+      # deployment tooling from the caller commit, keeping app source pinned.
+      - name: Checkout pinned workflow tooling
+        if: needs.resolve.outputs.tooling-ref != ''
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.workflow-ref }}
+          ref: ${{ needs.resolve.outputs.tooling-ref }}
           path: .ci-workflow
-      - name: Use daily migration-aware publish action
-        if: inputs.skip-migrations && inputs.workflow-ref != ''
-        run: cp .ci-workflow/.github/actions/wrangler-publish/action.yml .github/actions/wrangler-publish/action.yml
+      - name: Use pinned workflow deployment tooling
+        if: needs.resolve.outputs.tooling-ref != ''
+        env:
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+        run: |
+          cp .ci-workflow/.github/actions/wrangler-publish/action.yml .github/actions/wrangler-publish/action.yml
+          for helper in lite-deploy-prepare.mjs lite-deploy-evidence.mjs lite-deploy-forge-timing.mjs lite-deploy-permissions-cache.mjs lite-deploy-studio-cache.mjs; do
+            if [ "$PREPARATION_MODE" = candidate ] && [ ! -f ".ci-workflow/scripts/ci/$helper" ]; then
+              echo 'Pinned candidate deployment tooling is incomplete' >&2; exit 1
+            fi
+            if [ -f ".ci-workflow/scripts/ci/$helper" ]; then cp ".ci-workflow/scripts/ci/$helper" "scripts/ci/$helper"; fi
+          done
+      - name: Record checked-out deployment provenance
+        id: provenance
+        env:
+          TOOLING_REF: ${{ needs.resolve.outputs.tooling-ref }}
+        run: |
+          set -euo pipefail
+          APP_SHA="$(git rev-parse HEAD)"
+          TOOLING_SHA="$APP_SHA"
+          if [ -n "$TOOLING_REF" ]; then TOOLING_SHA="$(git -C .ci-workflow rev-parse HEAD)"; fi
+          [[ "$APP_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]]
+          {
+            echo "app-sha=$APP_SHA"
+            echo "tooling-sha=$TOOLING_SHA"
+          } >> "$GITHUB_OUTPUT"
+      - name: Validate staging preparation mode
+        env:
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+          VARIANT: ${{ needs.resolve.outputs.variant }}
+        run: |
+          case "$PREPARATION_MODE" in
+            baseline|'') ;;
+            candidate) [ "$VARIANT" = lite ] ;;
+            *) exit 1 ;;
+          esac
       # The asyncapi and lite builds (pnpm build:asyncapi / build:lite) need
       # vendor/asyncapi-studio checked out before scripts/build-studio.sh runs
       # (lite ships the AsyncAPI macro per ADR-0005). Init explicitly so
@@ -136,7 +230,7 @@ jobs:
         id: studio-sha
         run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Cache asyncapi Studio build
-        if: needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite'
+        if: (needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite') && needs.resolve.outputs.preparation-mode != 'candidate'
         uses: actions/cache@v5
         with:
           path: |
@@ -148,6 +242,68 @@ jobs:
           restore-keys: |
             studio-${{ steps.studio-sha.outputs.sha }}-
             studio-
+      # A Studio output hit exits build-studio.sh before its install. Keep
+      # just the static output in this candidate cache; existing aggregate
+      # cache is a first-run fallback and its cold restore is reported.
+      - name: Cache asyncapi Studio output only (Lite staging experiment)
+        if: needs.resolve.outputs.preparation-mode == 'candidate'
+        id: studio-output
+        uses: actions/cache@v5
+        with:
+          path: static/asyncapi-studio
+          key: studio-output-v1-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+      # Cache versions hash the requested path list. The old aggregate
+      # archive cannot be a restore-key fallback for the output-only version;
+      # restore it explicitly with its original paths, then let the lean
+      # cache's successful post step save only the static output. The x64
+      # fallback keeps its original behavior; ARM has a separate strict restore
+      # followed immediately by dependency removal and static-output validation.
+      - name: Restore legacy Studio aggregate on lean cache miss
+        if: needs.resolve.outputs.preparation-mode == 'candidate' && runner.arch != 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
+        id: studio-legacy
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
+      - name: Restore exact legacy Studio output seed on ARM lean cache miss
+        if: needs.resolve.outputs.preparation-mode == 'candidate' && runner.arch == 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
+        id: studio-legacy-arm
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+      # No subsequent install/build may see dependencies from the unscoped
+      # archive. A partial hit or invalid static output is discarded, so the
+      # existing build-studio.sh path installs/builds fully for ARM on a miss.
+      - name: Remove legacy Studio dependencies and validate ARM static seed
+        if: needs.resolve.outputs.preparation-mode == 'candidate' && runner.arch == 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
+        env:
+          STUDIO_PIN: ${{ steps.studio-sha.outputs.sha }}
+          LEGACY_CACHE_HIT: ${{ steps.studio-legacy-arm.outputs.cache-hit }}
+        run: node scripts/ci/lite-deploy-studio-cache.mjs
+      - name: Record Studio output cache result
+        if: needs.resolve.outputs.preparation-mode == 'candidate'
+        env:
+          CACHE_HIT: ${{ steps.studio-output.outputs.cache-hit }}
+          LEGACY_CACHE_HIT: ${{ steps.studio-legacy.outputs.cache-hit }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {existsSync, readFileSync, writeFileSync} from 'node:fs';
+          const file = 'lite-deploy-studio-legacy-sanitization.json';
+          const arm = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+          writeFileSync('lite-deploy-studio-cache.json', JSON.stringify({studio_output_hit:process.env.CACHE_HIT === 'true', studio_legacy_cache_hit:process.env.LEGACY_CACHE_HIT === 'true', ...arm}));
+          NODE
       # Cloudflare Pages backend deploy (conf-stg-{project}) — runs before the
       # Forge-specific steps below in this same job. Named to match
       # release.yml's equivalent step so `gh run view --json jobs` step lists
@@ -170,6 +326,7 @@ jobs:
           # The Pages publish runs below, in parallel with the Forge deploy
           # (ADR-0007 §3, staging only — production keeps backend-before-
           # frontend in release.yml).
+          preparation-mode: ${{ needs.resolve.outputs.preparation-mode }}
           skip-publish: 'true'
           skip-migrations: ${{ inputs.skip-migrations && 'true' || 'false' }}
 
@@ -378,7 +535,7 @@ jobs:
         if: needs.resolve.outputs.variant == 'lite'
         uses: actions/upload-artifact@v6
         with:
-          name: manifest-lite-staging
+          name: manifest-lite-staging${{ inputs.benchmark-sample != '' && format('-{0}', inputs.benchmark-sample) || '' }}
           path: manifest.yml
 
       # Forge deploy (all variants), with the Cloudflare Pages publish running
@@ -398,11 +555,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -uo pipefail
-          trap 'rm -f wrangler.toml' EXIT
-          ( pnpm exec wrangler pages deploy dist --branch production --project-name=${{ needs.resolve.outputs.project }} \
+          trap 'if [ -n "${PAGES_PID:-}" ]; then wait "$PAGES_PID" || true; fi; rm -f wrangler.toml' EXIT
+          ( set +e; pnpm exec wrangler pages deploy dist --branch production --project-name=${{ needs.resolve.outputs.project }} \
               > pages-publish.log 2>&1; echo $? > pages-publish.exit ) &
           PAGES_PID=$!
           set -e
+          if [ "${{ needs.resolve.outputs.preparation-mode }}" != candidate ]; then
           pnpm forge:deploy:disable-analytics
           case "${{ needs.resolve.outputs.variant }}" in
             full)
@@ -423,20 +581,36 @@ jobs:
               pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
           esac
+          fi
           # One retry, for the pre-deploy step that dies on the network rather
           # than on the manifest: PR #677's run 34666960785 failed here with
           # `Error: fetch failed` inside @forge/lint before anything was
           # deployed, and the hand re-run was green. A failed pre-deploy
           # deploys nothing, so a second attempt is safe; a real manifest or
           # bundle error fails twice and stays red.
-          if ! pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging; then
+          deploy_forge() (
+            # The source and final manifest are immutable by this point. Let
+            # the typed parser use one Program instead of maintaining watches.
+            # A subshell limits this setting to this Forge deploy invocation.
+            if [ "${{ needs.resolve.outputs.preparation-mode }}" = candidate ]; then
+              export TSESTREE_SINGLE_RUN=true
+            fi
+            if [ -n "${{ inputs.benchmark-sample }}" ]; then
+              node scripts/ci/lite-deploy-forge-timing.mjs "${{ needs.resolve.outputs.variant }}"
+            else
+              pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
+            fi
+          )
+          FORGE_EXIT=0
+          if ! deploy_forge; then
             echo "::warning::forge deploy failed once — retrying in 20s"
             sleep 20
-            pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
+            deploy_forge || FORGE_EXIT=$?
           fi
           wait "$PAGES_PID" || true
           echo "--- wrangler pages deploy (ran in parallel) ---"; cat pages-publish.log
           [ "$(cat pages-publish.exit)" = "0" ] || { echo "::error::Cloudflare Pages publish failed (see log above)"; exit 1; }
+          [ "$FORGE_EXIT" = "0" ] || { echo "::error::Forge deploy failed after retry"; exit "$FORGE_EXIT"; }
       - name: Set PAGE_CAPTURE_SECRET in Forge Staging
         if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}
         run: |
@@ -458,8 +632,17 @@ jobs:
           PAGE_CAPTURE_SECRET: ${{ vars.PAGE_CAPTURE_SECRET }}
       - name: Install Lite to lite-stg.atlassian.net
         if: needs.resolve.outputs.variant == 'lite'
-        run: pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging
-        continue-on-error: true
+        env:
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+        run: |
+          if [ "$PREPARATION_MODE" = candidate ]; then
+            pnpm forge:upgrade:lite:staging || pnpm forge:install:lite:staging
+          else
+            pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging
+          fi
+        # A benchmark sample must prove this deployment is installed. Keep
+        # the ordinary staging caller's existing tolerated install outcome.
+        continue-on-error: ${{ inputs.benchmark-sample == '' }}
       - name: Install Full to full-stg.atlassian.net
         if: needs.resolve.outputs.variant == 'full'
         run: pnpm forge:install:full:staging || pnpm forge:upgrade:full:staging
@@ -475,6 +658,11 @@ jobs:
 
       - name: Write deployment summary
         if: always()
+        env:
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+          DEPLOY_RUNNER_LABEL: ${{ needs.resolve.outputs.runner }}
+          APP_SHA: ${{ steps.provenance.outputs.app-sha }}
+          TOOLING_SHA: ${{ steps.provenance.outputs.tooling-sha }}
         run: |
           case "${{ needs.resolve.outputs.variant }}" in
             lite)      SITE="zenuml-stg.atlassian.net";  TYPE="Forge" ;;
@@ -488,3 +676,55 @@ jobs:
           echo "| Variant  | ${{ needs.resolve.outputs.variant }} |" >> $GITHUB_STEP_SUMMARY
           echo "| App type | ${TYPE} |" >> $GITHUB_STEP_SUMMARY
           echo "| Confluence site | ${SITE} |" >> $GITHUB_STEP_SUMMARY
+          node --input-type=module <<'NODE'
+          import {readFileSync, appendFileSync} from 'node:fs';
+          const read = file => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
+          const dependencies = read('lite-deploy-cache.json');
+          const studio = read('lite-deploy-studio-cache.json');
+          const permissions = read('lite-deploy-permissions-cache.json');
+          const flag = value => typeof value === 'boolean' ? String(value) : 'not recorded';
+          const boolean = value => typeof value === 'boolean' ? value : null;
+          const rows = [
+            ['Preparation', process.env.PREPARATION_MODE], ['Runner', process.env.DEPLOY_RUNNER_LABEL],
+            ['Node runtime', `${process.platform}/${process.arch} ${process.version}`],
+            ['Application SHA', process.env.APP_SHA], ['Deployment tooling SHA', process.env.TOOLING_SHA],
+            ['Installed dependency exact hit', flag(dependencies?.installed_dependencies_hit)],
+            ['pnpm store requested', flag(dependencies?.pnpm_store_requested)],
+            ['pnpm store exact hit', flag(dependencies?.pnpm_store_hit)],
+            ['Studio output exact hit', flag(studio?.studio_output_hit)],
+            ['ARM legacy Studio output validated', flag(studio?.studio_legacy_arm_output_valid)],
+            ['Public permission specs exact hit', flag(permissions?.permission_specs_hit)],
+          ];
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, rows.map(([key, value]) => `| ${key} | ${value} |\n`).join(''));
+          console.log(JSON.stringify({mode: process.env.PREPARATION_MODE, runner: process.env.DEPLOY_RUNNER_LABEL,
+            platform: process.platform, arch: process.arch, node: process.version,
+            installed_dependencies_hit: boolean(dependencies?.installed_dependencies_hit),
+            pnpm_store_requested: boolean(dependencies?.pnpm_store_requested),
+            pnpm_store_hit: boolean(dependencies?.pnpm_store_hit),
+            studio_output_hit: boolean(studio?.studio_output_hit),
+            studio_legacy_arm_output_valid: boolean(studio?.studio_legacy_arm_output_valid),
+            permission_specs_hit: boolean(permissions?.permission_specs_hit)}));
+          NODE
+
+      - name: Verify benchmark deployment identity and record metadata
+        if: inputs.benchmark-sample != ''
+        env:
+          TARGET_SHA: ${{ steps.provenance.outputs.app-sha }}
+          TOOLING_SHA: ${{ steps.provenance.outputs.tooling-sha }}
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+          BENCHMARK_SAMPLE: ${{ inputs.benchmark-sample }}
+          DEPLOY_RUNNER_LABEL: ${{ needs.resolve.outputs.runner }}
+        run: node scripts/ci/lite-deploy-evidence.mjs
+      - name: Upload benchmark deployment metadata
+        if: always() && inputs.benchmark-sample != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: lite-deploy-${{ inputs.benchmark-sample }}
+          path: |
+            lite-deploy-evidence.json
+            lite-deploy-preparation.json
+            lite-deploy-cache.json
+            lite-deploy-studio-cache.json
+            lite-deploy-forge.json
+            lite-deploy-permissions-cache.json
+          retention-days: 30

@@ -68,22 +68,22 @@ test('migration skip is opt-in and independent callers retain their migration de
   assert.equal(deploy.on.workflow_call.inputs['workflow-ref'].default, '');
   const publish = deploy.jobs.deploy.steps.find(step => step.uses === './.github/actions/wrangler-publish');
   assert.equal(publish.with['skip-migrations'], "${{ inputs.skip-migrations && 'true' || 'false' }}");
-  const tooling = deploy.jobs.deploy.steps.find(step => step.name === 'Use daily migration-aware publish action');
-  const checkout = deploy.jobs.deploy.steps.find(step => step.name === 'Checkout daily workflow tooling');
-  assert.equal(checkout.with.ref, '${{ inputs.workflow-ref }}');
+  const tooling = deploy.jobs.deploy.steps.find(step => step.name === 'Use pinned workflow deployment tooling');
+  const checkout = deploy.jobs.deploy.steps.find(step => step.name === 'Checkout pinned workflow tooling');
+  assert.equal(checkout.with.ref, '${{ needs.resolve.outputs.tooling-ref }}');
   assert.equal(checkout.with.path, '.ci-workflow');
   assert.ok(deploy.jobs.deploy.steps.indexOf(checkout) < deploy.jobs.deploy.steps.indexOf(tooling));
   assert.ok(deploy.jobs.deploy.steps.indexOf(tooling) < deploy.jobs.deploy.steps.indexOf(publish));
-  assert.equal(tooling.if, "inputs.skip-migrations && inputs.workflow-ref != ''");
-  assert.match(tooling.run, /^cp \.ci-workflow\/\.github\/actions\/wrangler-publish\/action\.yml \.github\/actions\/wrangler-publish\/action\.yml$/);
+  assert.equal(tooling.if, "needs.resolve.outputs.tooling-ref != ''");
+  assert.match(tooling.run, /^cp \.ci-workflow\/\.github\/actions\/wrangler-publish\/action\.yml \.github\/actions\/wrangler-publish\/action\.yml\n/);
   const action = load('.github/actions/wrangler-publish/action.yml');
   assert.equal(action.inputs['skip-migrations'].default, 'false');
-  assert.equal(action.runs.steps.find(step => step.name === 'Run D1 Migrations').if, "inputs.skip-migrations != 'true'");
+  assert.equal(action.runs.steps.find(step => step.name === 'Run D1 Migrations').if, "inputs.skip-migrations != 'true' && inputs.preparation-mode != 'candidate'");
   for (const file of readdirSync(new URL('.github/workflows/', root)).filter(file => file.endsWith('.yml'))) {
     if (['daily-regression.yml', 'staging-transaction.yml', 'staging-deploy.yml'].includes(file)) continue;
     // Main staging owns its own shared migration gate, so its deploys can
     // opt out independently of the daily regression owner.
-    const ownsMigrationGate = file === 'main-staging-validation.yml';
+    const ownsMigrationGate = ['main-staging-validation.yml', 'lite-deploy-benchmark.yml'].includes(file);
     const existing = load(`.github/workflows/${file}`);
     for (const job of Object.values(existing.jobs)) {
       if (!ownsMigrationGate) assert.equal(job.with?.['skip-migrations'], undefined, `${file} job migration default`);
